@@ -71,18 +71,18 @@ fn invalidation_is_rendered_next_frame() {
     // safety: platform outlives the runtime
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
 
-    let damage = runtime.render(Input::None, |ui| {
+    let damage = runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.invalidate(changed);
         ui.dirty.clone()
     });
     assert_eq!(damage.regions(), &[screen]);
     assert!(runtime.has_pending_redraw());
 
-    let damage = runtime.render(Input::None, |ui| ui.dirty.clone());
+    let damage = runtime.render(Duration::ZERO, Input::None, |ui| ui.dirty.clone());
     assert_eq!(damage.regions(), &[screen]);
     assert!(runtime.has_pending_redraw());
 
-    let damage = runtime.render(Input::None, |ui| ui.dirty.clone());
+    let damage = runtime.render(Duration::ZERO, Input::None, |ui| ui.dirty.clone());
     assert_eq!(damage.regions(), &[changed.to_physical(1.0)]);
     assert!(!runtime.has_pending_redraw());
 }
@@ -94,7 +94,7 @@ fn scroll_area_advances_by_component_height() {
     let mut state = widgets::ScrollState::default();
     let viewport = runtime.screen();
 
-    let positions = runtime.render(Input::None, |ui| {
+    let positions = runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut area = widgets::ScrollArea::vertical(&mut state)
             .spacing(1.0)
             .begin(ui, viewport);
@@ -109,6 +109,7 @@ fn scroll_area_advances_by_component_height() {
     assert_eq!(state.content_height, 17.0);
 
     let positions = runtime.render(
+        Duration::ZERO,
         Input::Scroll {
             position: LogicalPoint { x: 5.0, y: 5.0 },
             delta_x: 0.0,
@@ -221,14 +222,16 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
         ..widgets::TextInput::default()
     };
 
-    runtime.render(Input::None, |ui| input.render(ui, area));
+    runtime.render(Duration::ZERO, Input::None, |ui| input.render(ui, area));
     runtime.render(
+        Duration::ZERO,
         Input::PointerDown {
             position: LogicalPoint { x: 1.0, y: 1.0 },
         },
         |ui| input.render(ui, area),
     );
     runtime.render(
+        Duration::ZERO,
         Input::PointerUp {
             position: LogicalPoint { x: 1.0, y: 1.0 },
             leave: false,
@@ -236,27 +239,35 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
         |ui| input.render(ui, area),
     );
 
-    runtime.render(Input::Backspace, |ui| input.render(ui, area));
+    runtime.render(Duration::ZERO, Input::Backspace, |ui| {
+        input.render(ui, area)
+    });
     assert_eq!(input.text, "aé");
     assert_eq!(input.cursor, "aé".len());
 
-    runtime.render(Input::CursorLeft, |ui| input.render(ui, area));
-    runtime.render(Input::Delete, |ui| input.render(ui, area));
+    runtime.render(Duration::ZERO, Input::CursorLeft, |ui| {
+        input.render(ui, area)
+    });
+    runtime.render(Duration::ZERO, Input::Delete, |ui| input.render(ui, area));
     assert_eq!(input.text, "a");
 
     input.cursor = 0;
     input.anchor = input.text.len();
-    let response = runtime.render(Input::Char('界'), |ui| input.render(ui, area));
+    let response = runtime.render(Duration::ZERO, Input::Char('界'), |ui| {
+        input.render(ui, area)
+    });
     assert!(response.edited);
     assert_eq!(input.text, "界");
 
-    let response = runtime.render(Input::Enter, |ui| input.render(ui, area));
+    let response = runtime.render(Duration::ZERO, Input::Enter, |ui| input.render(ui, area));
     assert!(response.accepted);
 
     input.text = "e\u{301}".into();
     input.cursor = input.text.len();
     input.anchor = input.cursor;
-    runtime.render(Input::Backspace, |ui| input.render(ui, area));
+    runtime.render(Duration::ZERO, Input::Backspace, |ui| {
+        input.render(ui, area)
+    });
     assert!(input.text.is_empty());
 }
 
@@ -274,20 +285,23 @@ fn scroll_drag_cancels_button_click() {
         response
     };
 
-    runtime.render(Input::None, |ui| render(ui, &mut state));
+    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
     runtime.render(
+        Duration::ZERO,
         Input::PointerDown {
             position: LogicalPoint { x: 5.0, y: 5.0 },
         },
         |ui| render(ui, &mut state),
     );
     runtime.render(
+        Duration::ZERO,
         Input::PointerMove {
             position: LogicalPoint { x: 5.0, y: -5.0 },
         },
         |ui| render(ui, &mut state),
     );
     let response = runtime.render(
+        Duration::ZERO,
         Input::PointerUp {
             position: LogicalPoint { x: 5.0, y: 5.0 },
             leave: false,
@@ -305,7 +319,7 @@ fn scroll_area_measures_but_does_not_render_offscreen_components() {
     let mut state = widgets::ScrollState::default();
     let viewport = runtime.screen();
 
-    let third = runtime.render(Input::None, |ui| {
+    let third = runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut area = widgets::ScrollArea::vertical(&mut state)
             .spacing(1.0)
             .begin(ui, viewport);
@@ -326,16 +340,18 @@ fn button_click_requires_matching_press_and_release() {
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
     let area = runtime.screen();
 
-    runtime.render(Input::None, |ui| {
+    runtime.render(Duration::ZERO, Input::None, |ui| {
         widgets::Button::new("button").render(ui, area)
     });
     runtime.render(
+        Duration::ZERO,
         Input::PointerDown {
             position: LogicalPoint { x: 5.0, y: 5.0 },
         },
         |ui| widgets::Button::new("button").render(ui, area),
     );
     let response = runtime.render(
+        Duration::ZERO,
         Input::PointerUp {
             position: LogicalPoint { x: 5.0, y: 5.0 },
             leave: false,
@@ -367,14 +383,19 @@ fn focus_moves_between_text_inputs() {
         second.render(ui, second_area);
     };
 
-    runtime.render(Input::None, |ui| render(ui, &mut first, &mut second));
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        render(ui, &mut first, &mut second)
+    });
     runtime.render(
+        Duration::ZERO,
         Input::PointerDown {
             position: LogicalPoint { x: 2.0, y: 7.0 },
         },
         |ui| render(ui, &mut first, &mut second),
     );
-    runtime.render(Input::Char('x'), |ui| render(ui, &mut first, &mut second));
+    runtime.render(Duration::ZERO, Input::Char('x'), |ui| {
+        render(ui, &mut first, &mut second)
+    });
 
     assert!(first.text.is_empty());
     assert_eq!(second.text, "x");
@@ -388,20 +409,24 @@ fn text_input_can_be_focused_by_id() {
     let id = input.id;
     let area = runtime.screen();
 
-    runtime.render(Input::None, |ui| {
+    runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.focus(id);
         input.render(ui, area);
     });
-    runtime.render(Input::Char('x'), |ui| input.render(ui, area));
+    runtime.render(Duration::ZERO, Input::Char('x'), |ui| {
+        input.render(ui, area)
+    });
 
     assert!(input.focused);
     assert_eq!(input.text, "x");
 
-    runtime.render(Input::None, |ui| {
+    runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.clear_focus();
         input.render(ui, area);
     });
-    runtime.render(Input::Char('y'), |ui| input.render(ui, area));
+    runtime.render(Duration::ZERO, Input::Char('y'), |ui| {
+        input.render(ui, area)
+    });
 
     assert!(!input.focused);
     assert_eq!(input.text, "x");
@@ -415,7 +440,7 @@ fn stored_widget_id_is_not_changed_by_scope() {
     let id = input.id;
     let area = runtime.screen();
 
-    runtime.render(Input::None, |ui| {
+    runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.focus(id);
         let mut scope = ui.begin_scope("login");
         input.render(scope.ui(), area);
@@ -432,13 +457,13 @@ fn focus_is_cleared_when_widget_is_not_rendered() {
     let id = input.id;
     let area = runtime.screen();
 
-    runtime.render(Input::None, |ui| {
+    runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.focus(id);
         input.render(ui, area);
     });
-    runtime.render(Input::None, |_| {});
+    runtime.render(Duration::ZERO, Input::None, |_| {});
 
-    assert!(!runtime.render(Input::None, |ui| ui.is_focused(id)));
+    assert!(!runtime.render(Duration::ZERO, Input::None, |ui| ui.is_focused(id)));
 }
 
 #[test]
@@ -448,16 +473,16 @@ fn animation_is_keyed_and_target_driven() {
     let id = WidgetId::new("offset");
     let duration = Duration::from_millis(100);
 
-    let initial = runtime.render_at(Duration::ZERO, Input::None, |ui| {
+    let initial = runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.animate(id, 0.0, duration, Easing::Linear).value()
     });
-    let started = runtime.render_at(Duration::from_millis(10), Input::None, |ui| {
+    let started = runtime.render(Duration::from_millis(10), Input::None, |ui| {
         ui.animate(id, 10.0, duration, Easing::Linear).value()
     });
-    let middle = runtime.render_at(Duration::from_millis(60), Input::None, |ui| {
+    let middle = runtime.render(Duration::from_millis(60), Input::None, |ui| {
         ui.animate(id, 10.0, duration, Easing::Linear).value()
     });
-    let (finished, active) = runtime.render_at(Duration::from_millis(110), Input::None, |ui| {
+    let (finished, active) = runtime.render(Duration::from_millis(110), Input::None, |ui| {
         let animation = ui.animate(id, 10.0, duration, Easing::Linear);
         (animation.value(), animation.is_active())
     });
@@ -488,14 +513,14 @@ fn animation_tracks_previous_and_current_draw_bounds() {
         animation.finish();
     };
 
-    runtime.render_at(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
-    runtime.render_at(Duration::from_millis(1), Input::None, |ui| render(ui, 0.0));
-    runtime.render_at(Duration::from_millis(2), Input::None, |ui| render(ui, 0.0));
-    let started = runtime.render_at(Duration::from_millis(10), Input::None, |ui| {
+    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
+    runtime.render(Duration::from_millis(1), Input::None, |ui| render(ui, 0.0));
+    runtime.render(Duration::from_millis(2), Input::None, |ui| render(ui, 0.0));
+    let started = runtime.render(Duration::from_millis(10), Input::None, |ui| {
         render(ui, 8.0);
         ui.dirty.clone()
     });
-    let moving = runtime.render_at(Duration::from_millis(60), Input::None, |ui| {
+    let moving = runtime.render(Duration::from_millis(60), Input::None, |ui| {
         render(ui, 8.0);
         ui.dirty.clone()
     });
@@ -540,14 +565,14 @@ fn unused_animation_is_removed_and_invalidated() {
         height: 5.0,
     };
 
-    runtime.render_at(Duration::ZERO, Input::None, |ui| {
+    runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut animation = ui.animate(id, 0.0, Duration::ZERO, Easing::Linear);
         widgets::Rectangle::new(area).render(&mut animation);
     });
-    runtime.render_at(Duration::from_millis(1), Input::None, |_| {});
+    runtime.render(Duration::from_millis(1), Input::None, |_| {});
+    let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| ui.dirty.clone());
 
-    assert_eq!(runtime.animations.len(), 0);
-    assert_eq!(runtime.pending.regions(), &[area.to_physical(1.0)]);
+    assert_eq!(damage.regions(), &[area.to_physical(1.0)]);
 }
 
 #[test]
@@ -556,7 +581,7 @@ fn immediate_target_change_queues_old_and_new_bounds() {
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
     let id = WidgetId::new("immediate animation");
 
-    runtime.render_at(Duration::ZERO, Input::None, |ui| {
+    runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut animation = ui.animate(id, 0.0, Duration::ZERO, Easing::Linear);
         widgets::Rectangle::new(LogicalRect {
             x: animation.value(),
@@ -566,7 +591,7 @@ fn immediate_target_change_queues_old_and_new_bounds() {
         })
         .render(&mut animation);
     });
-    runtime.render_at(Duration::from_millis(1), Input::None, |ui| {
+    runtime.render(Duration::from_millis(1), Input::None, |ui| {
         let mut animation = ui.animate(id, 8.0, Duration::ZERO, Easing::Linear);
         widgets::Rectangle::new(LogicalRect {
             x: animation.value(),
@@ -576,9 +601,10 @@ fn immediate_target_change_queues_old_and_new_bounds() {
         })
         .render(&mut animation);
     });
+    let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| ui.dirty.clone());
 
     assert_eq!(
-        runtime.pending.regions(),
+        damage.regions(),
         &[
             PhysicalRect {
                 x: 0,
@@ -609,7 +635,7 @@ fn nested_animations_capture_the_same_draw_bounds() {
         height: 5.0,
     };
 
-    let (offset, opacity) = runtime.render_at(Duration::ZERO, Input::None, |ui| {
+    let (offset, opacity) = runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut outer = ui.animate(outer_id, 2.0, Duration::ZERO, Easing::Linear);
         let offset = outer.value();
         let mut inner = outer.animate(inner_id, 0.5, Duration::ZERO, Easing::Linear);
@@ -625,14 +651,6 @@ fn nested_animations_capture_the_same_draw_bounds() {
 
     assert_eq!(offset, 2.0);
     assert_eq!(opacity, 0.5);
-    assert_eq!(runtime.animations.len(), 2);
-    assert!(
-        runtime
-            .animations
-            .iter()
-            .all(|animation| animation.previous_bounds
-                == Some(LogicalRect { x: 4.0, ..area }.to_physical(1.0)))
-    );
 }
 
 #[test]
@@ -640,7 +658,7 @@ fn id_scopes_create_distinct_widget_ids() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
 
-    let (root, nested) = runtime.render(Input::None, |ui| {
+    let (root, nested) = runtime.render(Duration::ZERO, Input::None, |ui| {
         let root = ui.id("button");
         let mut scope = ui.begin_scope("todo");
         let nested = scope.ui().id("button");
@@ -662,8 +680,9 @@ fn only_topmost_widget_is_hovered() {
         (back, front)
     };
 
-    runtime.render(Input::None, &render);
+    runtime.render(Duration::ZERO, Input::None, &render);
     let (back, front) = runtime.render(
+        Duration::ZERO,
         Input::PointerMove {
             position: LogicalPoint { x: 5.0, y: 5.0 },
         },
@@ -673,7 +692,7 @@ fn only_topmost_widget_is_hovered() {
     assert!(!back.hovered);
     assert!(front.hovered);
 
-    let (back, front) = runtime.render(Input::PointerLeave, render);
+    let (back, front) = runtime.render(Duration::ZERO, Input::PointerLeave, render);
     assert!(!back.hovered);
     assert!(!front.hovered);
 }

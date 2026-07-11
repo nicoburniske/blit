@@ -23,19 +23,15 @@ impl Easing {
     }
 }
 
-pub(crate) struct AnimationState {
+pub struct AnimationState {
     pub id: WidgetId,
     pub value: f32,
-    start: f32,
-    target: f32,
-    started_at: Option<Duration>,
-    duration: Duration,
-    easing: Easing,
+    pub start: f32,
+    pub target: f32,
+    pub started_at: Option<Duration>,
+    pub duration: Duration,
+    pub easing: Easing,
     pub previous_bounds: Option<PhysicalRect>,
-    pub current_bounds: Option<PhysicalRect>,
-    pub active: bool,
-    pub damage: bool,
-    pub changed: bool,
     pub seen: bool,
 }
 
@@ -50,35 +46,30 @@ impl AnimationState {
             duration: Duration::ZERO,
             easing: Easing::Linear,
             previous_bounds: None,
-            current_bounds: None,
-            active: false,
-            damage: false,
-            changed: false,
             seen: false,
         }
     }
 
-    pub fn begin_frame(&mut self) {
-        self.current_bounds = None;
-        self.damage = false;
-        self.changed = false;
-        self.seen = false;
+    pub fn is_active(&self) -> bool {
+        self.started_at.is_some()
     }
 
-    pub fn advance(&mut self, target: f32, duration: Duration, easing: Easing, now: Duration) {
-        let was_active = self.active;
+    pub fn advance(
+        &mut self,
+        target: f32,
+        duration: Duration,
+        easing: Easing,
+        now: Duration,
+    ) -> (bool, bool) {
+        let was_active = self.is_active();
         if let Some(started_at) = self.started_at {
-            let progress = if self.duration.is_zero() {
-                1.0
-            } else {
-                now.saturating_sub(started_at).as_secs_f32() / self.duration.as_secs_f32()
-            }
-            .clamp(0.0, 1.0);
+            let progress = (now.saturating_sub(started_at).as_secs_f32()
+                / self.duration.as_secs_f32())
+            .min(1.0);
             self.value = self.start + (self.target - self.start) * self.easing.apply(progress);
             if progress == 1.0 {
                 self.value = self.target;
                 self.started_at = None;
-                self.active = false;
             }
         }
 
@@ -91,15 +82,15 @@ impl AnimationState {
             if self.start == self.target || duration.is_zero() {
                 self.value = target;
                 self.started_at = None;
-                self.active = false;
             } else {
                 self.started_at = Some(now);
-                self.active = true;
             }
         }
 
-        self.damage = was_active || self.active || target_changed;
-        self.changed = target_changed;
         self.seen = true;
+        (
+            was_active || self.is_active() || target_changed,
+            target_changed,
+        )
     }
 }
