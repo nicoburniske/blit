@@ -1,0 +1,10 @@
+[package]
+name = "software_renderer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+bullseye = { path = ".." }
+clru = "0.6.3"
+fontdue = "0.9.3"
