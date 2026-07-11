@@ -1,7 +1,10 @@
 use std::{collections::hash_map::RandomState, num::NonZeroUsize};
 
+use bullseye::{FontId, FontWeight};
 use clru::{CLruCache, CLruCacheConfig, WeightScale};
-use fontdue::{Font, Metrics, layout::GlyphRasterConfig};
+use fontdue::{Metrics, layout::GlyphRasterConfig};
+
+use crate::FontFace;
 
 pub struct CachedGlyph {
     pub metrics: Metrics,
@@ -19,14 +22,15 @@ impl WeightScale<GlyphRasterConfig, CachedGlyph> for GlyphWeight {
 type GlyphCache = CLruCache<GlyphRasterConfig, CachedGlyph, RandomState, GlyphWeight>;
 
 pub struct FontCache {
-    font: Font,
+    faces: Vec<FontFace>,
     glyphs: GlyphCache,
 }
 
 impl FontCache {
-    pub fn new(font: Font, capacity: usize) -> Self {
+    pub fn new(faces: Vec<FontFace>, capacity: usize) -> Self {
+        assert!(!faces.is_empty());
         Self {
-            font,
+            faces,
             glyphs: CLruCache::with_config(
                 CLruCacheConfig::new(
                     NonZeroUsize::new(capacity).expect("glyph cache capacity must be non-zero"),
@@ -36,15 +40,24 @@ impl FontCache {
         }
     }
 
-    pub fn font(&self) -> &Font {
-        &self.font
+    pub fn font(&self, id: FontId, weight: FontWeight) -> Option<&fontdue::Font> {
+        self.faces
+            .iter()
+            .find(|face| face.id == id && face.weight == weight)
+            .map(|face| &face.font)
     }
 
     pub fn glyph(&mut self, key: GlyphRasterConfig) -> Result<&CachedGlyph, CachedGlyph> {
         if self.glyphs.peek(&key).is_some() {
             return Ok(self.glyphs.get(&key).unwrap());
         }
-        let (metrics, alpha) = self.font.rasterize_config(key);
+        let font = self
+            .faces
+            .iter()
+            .find(|face| face.font.file_hash() == key.font_hash)
+            .map(|face| &face.font)
+            .expect("glyph references an unregistered font");
+        let (metrics, alpha) = font.rasterize_config(key);
         let glyph = CachedGlyph {
             metrics,
             alpha: alpha.into_boxed_slice(),

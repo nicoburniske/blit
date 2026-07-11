@@ -15,7 +15,7 @@ pub struct TextRenderer {
 impl TextRenderer {
     pub fn new(config: RendererConfig) -> Self {
         Self {
-            fonts: FontCache::new(config.font, config.glyph_cache_capacity),
+            fonts: FontCache::new(config.fonts, config.glyph_cache_capacity),
             paragraphs: ParagraphCache::new(config.paragraph_cache_capacity),
         }
     }
