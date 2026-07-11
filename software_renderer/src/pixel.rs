@@ -4,10 +4,10 @@ use std::ops::Range;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
 pub struct PremultipliedRgbaColor {
-    pub alpha: u8,
     pub red: u8,
     pub green: u8,
     pub blue: u8,
+    pub alpha: u8,
 }
 
 impl PremultipliedRgbaColor {
@@ -35,6 +35,14 @@ impl PremultipliedRgbaColor {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(C)]
+pub struct Rgb8Pixel {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+}
+
 pub trait Pixel: Copy {
     fn blend(&mut self, color: PremultipliedRgbaColor);
 
@@ -58,6 +66,22 @@ pub trait Pixel: Copy {
         for (pixel, alpha) in pixels.iter_mut().zip(alpha) {
             pixel.blend(PremultipliedRgbaColor::new(color, *alpha));
         }
+    }
+
+    fn blend_texture_slice_rgb(pixels: &mut [Self], source: &[Rgb8Pixel]) {
+        for (pixel, source) in pixels.iter_mut().zip(source) {
+            *pixel = Self::from_rgb(source.red, source.green, source.blue);
+        }
+    }
+
+    fn blend_texture_slice_rgba(pixels: &mut [Self], source: &[PremultipliedRgbaColor]) {
+        for (pixel, source) in pixels.iter_mut().zip(source) {
+            pixel.blend(*source);
+        }
+    }
+
+    fn blend_texture_slice_alpha(pixels: &mut [Self], color: Color, alpha: &[u8]) {
+        Self::blend_alpha_slice(pixels, color, alpha);
     }
 }
 

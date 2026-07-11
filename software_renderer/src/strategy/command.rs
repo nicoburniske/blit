@@ -1,8 +1,8 @@
 use std::{mem::MaybeUninit, slice};
 
-use bullseye::{Color, PhysicalRect, widgets::ImageRequest};
+use bullseye::{Color, PhysicalRect};
 
-use crate::rectangle::Prepared;
+use crate::{image::Prepared as PreparedImage, rectangle::Prepared as PreparedRectangle};
 
 const RECTANGLE: u8 = 0;
 const IMAGE: u8 = 1;
@@ -20,8 +20,8 @@ pub struct Command<'a> {
 }
 
 pub enum Payload<'a> {
-    Rectangle(&'a Prepared),
-    Image(&'a ImageRequest),
+    Rectangle(&'a PreparedRectangle),
+    Image(&'a PreparedImage),
     Text(&'a PreparedText),
 }
 
@@ -38,11 +38,11 @@ impl CommandList {
         self.words.is_empty()
     }
 
-    pub fn push_rectangle(&mut self, rectangle: Prepared, clips: &[PhysicalRect]) {
+    pub fn push_rectangle(&mut self, rectangle: PreparedRectangle, clips: &[PhysicalRect]) {
         self.push(RECTANGLE, rectangle, clips)
     }
 
-    pub fn push_image(&mut self, image: ImageRequest, clips: &[PhysicalRect]) {
+    pub fn push_image(&mut self, image: PreparedImage, clips: &[PhysicalRect]) {
         self.push(IMAGE, image, clips)
     }
 
@@ -62,13 +62,13 @@ impl CommandList {
         let payload = match header.kind {
             RECTANGLE => Payload::Rectangle(unsafe {
                 &*record
-                    .add(payload_offset::<Prepared>(clips.len()))
-                    .cast::<Prepared>()
+                    .add(payload_offset::<PreparedRectangle>(clips.len()))
+                    .cast::<PreparedRectangle>()
             }),
             IMAGE => Payload::Image(unsafe {
                 &*record
-                    .add(payload_offset::<ImageRequest>(clips.len()))
-                    .cast::<ImageRequest>()
+                    .add(payload_offset::<PreparedImage>(clips.len()))
+                    .cast::<PreparedImage>()
             }),
             TEXT => Payload::Text(unsafe {
                 &*record
