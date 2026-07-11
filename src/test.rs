@@ -380,6 +380,67 @@ fn focus_moves_between_text_inputs() {
 }
 
 #[test]
+fn text_input_can_be_focused_by_id() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut input = widgets::TextInput::default();
+    let id = input.id;
+    let area = runtime.screen();
+
+    runtime.render(Input::None, |ui| {
+        ui.focus(id);
+        input.render(ui, area);
+    });
+    runtime.render(Input::Char('x'), |ui| input.render(ui, area));
+
+    assert!(input.focused);
+    assert_eq!(input.text, "x");
+
+    runtime.render(Input::None, |ui| {
+        ui.clear_focus();
+        input.render(ui, area);
+    });
+    runtime.render(Input::Char('y'), |ui| input.render(ui, area));
+
+    assert!(!input.focused);
+    assert_eq!(input.text, "x");
+}
+
+#[test]
+fn stored_widget_id_is_not_changed_by_scope() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut input = widgets::TextInput::default();
+    let id = input.id;
+    let area = runtime.screen();
+
+    runtime.render(Input::None, |ui| {
+        ui.focus(id);
+        let mut scope = ui.begin_scope("login");
+        input.render(scope.ui(), area);
+    });
+
+    assert!(input.focused);
+}
+
+#[test]
+fn focus_is_cleared_when_widget_is_not_rendered() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut input = widgets::TextInput::default();
+    let id = input.id;
+    let area = runtime.screen();
+
+    runtime.render(Input::None, |ui| {
+        ui.focus(id);
+        input.render(ui, area);
+    });
+    runtime.render(Input::None, |_| {});
+
+    assert!(!runtime.render(Input::None, |ui| ui.is_focused(id)));
+}
+
+#[test]
 fn id_scopes_create_distinct_widget_ids() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
