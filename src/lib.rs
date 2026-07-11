@@ -1,7 +1,9 @@
 mod animation;
 mod color;
 mod component;
+mod dirty;
 mod image;
+mod input;
 mod interaction;
 mod keyboard;
 mod layout;
@@ -15,13 +17,15 @@ pub mod widgets;
 use std::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 pub use animation::Easing;
 pub use color::Color;
 pub use component::SizedComponent;
+pub use dirty::DirtyRegions;
 pub use image::{ImageData, ImageFormat, ImageId, ImagePixels, ImageResource};
+pub use input::Input;
 pub use interaction::{Interaction, Sense, WidgetId};
 pub use keyboard::{KeyboardKind, KeyboardRequest};
 pub use layout::{Constraint, Direction, Layout, RepeatedAreas, RepeatedLayout};
@@ -32,99 +36,7 @@ pub use text::{
     TextOverflow, TextRequest, TextStyle, TextWrap, VerticalAlign,
 };
 
-#[derive(Clone, Debug, Default)]
-pub struct DirtyRegions {
-    regions: [PhysicalRect; 8],
-    len: usize,
-}
-
-impl DirtyRegions {
-    pub fn add(&mut self, mut area: PhysicalRect) {
-        if area.width <= 0 || area.height <= 0 {
-            return;
-        }
-
-        loop {
-            let mut index = 0;
-            while index < self.len {
-                if area.touches(self.regions[index]) {
-                    area = area.union(self.regions[index]);
-                    self.len -= 1;
-                    self.regions[index] = self.regions[self.len];
-                    index = 0;
-                } else {
-                    index += 1;
-                }
-            }
-
-            if self.len < self.regions.len() {
-                self.regions[self.len] = area;
-                self.len += 1;
-                return;
-            }
-
-            let mut best = 0;
-            let mut growth = i64::MAX;
-            for index in 0..self.len {
-                let candidate = area.union(self.regions[index]);
-                let candidate_growth = candidate.area() - self.regions[index].area();
-                if candidate_growth < growth {
-                    best = index;
-                    growth = candidate_growth;
-                }
-            }
-            area = area.union(self.regions[best]);
-            self.len -= 1;
-            self.regions[best] = self.regions[self.len];
-        }
-    }
-
-    pub fn regions(&self) -> &[PhysicalRect] {
-        &self.regions[..self.len]
-    }
-
-    pub fn extend(&mut self, other: &Self) {
-        for area in other.regions() {
-            self.add(*area);
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub enum Input {
-    #[default]
-    None,
-    PointerDown {
-        position: LogicalPoint,
-    },
-    PointerUp {
-        position: LogicalPoint,
-        leave: bool,
-    },
-    PointerMove {
-        position: LogicalPoint,
-    },
-    PointerLeave,
-    Scroll {
-        position: LogicalPoint,
-        delta_x: f32,
-        delta_y: f32,
-    },
-    Char(char),
-    Backspace,
-    Delete,
-    CursorLeft,
-    CursorRight,
-    Enter,
-    Tab,
-}
-
 pub struct Runtime {
-    started_at: Instant,
     platform: Platform,
     screen: LogicalRect,
     physical_screen: PhysicalRect,
@@ -133,6 +45,40 @@ pub struct Runtime {
     previous: DirtyRegions,
     interaction: interaction::InteractionState,
     animations: Vec<animation::AnimationState>,
+}
+
+pub struct Ui {
+    platform: NonNull<Platform>,
+    time: Duration,
+    input: Input,
+    screen: LogicalRect,
+    clip: PhysicalRect,
+    scale_factor: f32,
+    dirty: DirtyRegions,
+    invalidated: DirtyRegions,
+    current_id: WidgetId,
+    interaction: interaction::InteractionState,
+    animations: Vec<animation::AnimationState>,
+    animation_stack: [AnimationCapture; 8],
+    animation_depth: usize,
+}
+
+#[derive(Clone, Copy, Default)]
+struct AnimationCapture {
+    index: usize,
+    bounds: Option<PhysicalRect>,
+    damage: bool,
+    changed: bool,
+}
+
+pub struct AnimationScope<'a> {
+    ui: &'a mut Ui,
+    index: usize,
+}
+
+pub struct IdScope<'a> {
+    ui: &'a mut Ui,
+    previous: WidgetId,
 }
 
 impl Runtime {
@@ -144,7 +90,6 @@ impl Runtime {
         let mut pending = DirtyRegions::default();
         pending.add(physical_screen);
         Self {
-            started_at: Instant::now(),
             platform,
             screen,
             physical_screen,
@@ -156,11 +101,7 @@ impl Runtime {
         }
     }
 
-    pub fn render<R>(&mut self, input: Input, render: impl FnOnce(&mut Ui) -> R) -> R {
-        self.render_at(self.started_at.elapsed(), input, render)
-    }
-
-    fn render_at<R>(
+    pub fn render<R>(
         &mut self,
         time: Duration,
         input: Input,
@@ -174,7 +115,7 @@ impl Runtime {
         let mut interaction = std::mem::take(&mut self.interaction);
         let mut animations = std::mem::take(&mut self.animations);
         for animation in &mut animations {
-            animation.begin_frame();
+            animation.seen = false;
         }
         let hover_damage = interaction.begin_frame(&input, self.scale_factor);
         let mut invalidated = DirtyRegions::default();
@@ -193,7 +134,7 @@ impl Runtime {
             current_id: WidgetId::new("blit root"),
             interaction,
             animations,
-            animation_stack: [0; 8],
+            animation_stack: [AnimationCapture::default(); 8],
             animation_depth: 0,
         };
         let output = render(&mut ui);
@@ -206,17 +147,14 @@ impl Runtime {
         {
             ui.invalidated.add(area);
         }
-        let mut index = 0;
-        while index < ui.animations.len() {
-            if ui.animations[index].seen {
-                index += 1;
-            } else {
-                if let Some(area) = ui.animations[index].previous_bounds {
+        ui.animations.retain(|animation| {
+            if !animation.seen {
+                if let Some(area) = animation.previous_bounds {
                     ui.invalidated.add(area);
                 }
-                ui.animations.swap_remove(index);
             }
-        }
+            animation.seen
+        });
         self.pending = ui.invalidated;
         self.interaction = ui.interaction;
         self.animations = ui.animations;
@@ -227,7 +165,10 @@ impl Runtime {
     pub fn has_pending_redraw(&self) -> bool {
         !self.pending.is_empty()
             || !self.previous.is_empty()
-            || self.animations.iter().any(|animation| animation.active)
+            || self
+                .animations
+                .iter()
+                .any(animation::AnimationState::is_active)
     }
 
     pub fn invalidate(&mut self, area: LogicalRect) {
@@ -246,22 +187,6 @@ impl Runtime {
     pub fn screen(&self) -> LogicalRect {
         self.screen
     }
-}
-
-pub struct Ui {
-    platform: NonNull<Platform>,
-    time: Duration,
-    input: Input,
-    screen: LogicalRect,
-    clip: PhysicalRect,
-    scale_factor: f32,
-    dirty: DirtyRegions,
-    invalidated: DirtyRegions,
-    current_id: WidgetId,
-    interaction: interaction::InteractionState,
-    animations: Vec<animation::AnimationState>,
-    animation_stack: [usize; 8],
-    animation_depth: usize,
 }
 
 impl Ui {
@@ -292,6 +217,7 @@ impl Ui {
             self.animation_depth < self.animation_stack.len(),
             "animation scopes nested too deeply"
         );
+        let old_len = self.animations.len();
         let index = self
             .animations
             .iter()
@@ -305,8 +231,9 @@ impl Ui {
             !self.animations[index].seen,
             "duplicate animation WidgetId {id:?}"
         );
-        self.animations[index].advance(target, duration, easing, self.time);
-        if self.animations[index].damage {
+        let (damage, changed) = self.animations[index].advance(target, duration, easing, self.time);
+        let damage = damage || index == old_len;
+        if damage {
             if let Some(area) = self.animations[index]
                 .previous_bounds
                 .and_then(|area| area.intersection(self.clip))
@@ -314,7 +241,12 @@ impl Ui {
                 self.dirty.add(area);
             }
         }
-        self.animation_stack[self.animation_depth] = index;
+        self.animation_stack[self.animation_depth] = AnimationCapture {
+            index,
+            bounds: None,
+            damage,
+            changed,
+        };
         self.animation_depth += 1;
         AnimationScope { ui: self, index }
     }
@@ -364,28 +296,17 @@ impl Ui {
         self.invalidated.add(self.clip)
     }
 
-    pub(crate) fn record_draw(&mut self, area: LogicalRect) {
+    fn record_draw(&mut self, area: LogicalRect) {
         let Some(area) = area.to_physical(self.scale_factor).intersection(self.clip) else {
             return;
         };
-        for depth in 0..self.animation_depth {
-            let index = self.animation_stack[depth];
-            let animation = &mut self.animations[index];
-            animation.current_bounds = Some(
-                animation
-                    .current_bounds
-                    .map_or(area, |bounds| bounds.union(area)),
-            );
-            if animation.damage {
+        for capture in &mut self.animation_stack[..self.animation_depth] {
+            capture.bounds = Some(capture.bounds.map_or(area, |bounds| bounds.union(area)));
+            if capture.damage {
                 self.dirty.add(area);
             }
         }
     }
-}
-
-pub struct AnimationScope<'a> {
-    ui: &'a mut Ui,
-    index: usize,
 }
 
 impl AnimationScope<'_> {
@@ -394,11 +315,7 @@ impl AnimationScope<'_> {
     }
 
     pub fn is_active(&self) -> bool {
-        self.ui.animations[self.index].active
-    }
-
-    pub fn ui(&mut self) -> &mut Ui {
-        self.ui
+        self.ui.animations[self.index].is_active()
     }
 
     pub fn finish(self) {
@@ -422,33 +339,26 @@ impl DerefMut for AnimationScope<'_> {
 
 impl Drop for AnimationScope<'_> {
     fn drop(&mut self) {
+        self.ui.animation_depth -= 1;
+        let capture = self.ui.animation_stack[self.ui.animation_depth];
         assert_eq!(
-            self.ui.animation_stack[self.ui.animation_depth - 1],
-            self.index,
+            capture.index, self.index,
             "animation scopes must be dropped in reverse order"
         );
-        self.ui.animation_depth -= 1;
         let animation = &mut self.ui.animations[self.index];
-        if animation.changed && !animation.active {
+        let active = animation.is_active();
+        if capture.changed && !active {
             if let Some(area) = animation.previous_bounds {
                 self.ui.invalidated.add(area);
             }
-            if let Some(area) = animation.current_bounds {
+        }
+        if active || capture.changed {
+            if let Some(area) = capture.bounds {
                 self.ui.invalidated.add(area);
             }
         }
-        if animation.active {
-            if let Some(area) = animation.current_bounds {
-                self.ui.invalidated.add(area);
-            }
-        }
-        animation.previous_bounds = animation.current_bounds;
+        animation.previous_bounds = capture.bounds;
     }
-}
-
-pub struct IdScope<'a> {
-    ui: &'a mut Ui,
-    previous: WidgetId,
 }
 
 impl IdScope<'_> {
