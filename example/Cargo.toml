@@ -1,0 +1,10 @@
+[package]
+name = "bullseye-example"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+bullseye = { path = ".." }
+minifb = "0.28.0"
+software_renderer = { path = "../software_renderer" }

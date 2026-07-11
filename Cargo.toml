@@ -5,8 +5,5 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [workspace]
-members = ["software_renderer"]
+members = ["example", "software_renderer"]
 resolver = "3"
-
-[dev-dependencies]
-software_renderer = { path = "software_renderer" }
