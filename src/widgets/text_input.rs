@@ -3,8 +3,8 @@ use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    Color, Input, KeyboardKind, KeyboardRequest, LogicalInsets, LogicalRect, Text, TextOptions,
-    TextOverflow, TextRequest, TextStyle, TextWrap, Ui,
+    Color, Input, KeyboardKind, KeyboardRequest, LogicalInsets, LogicalRect, LogicalSize,
+    SizedComponent, Text, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap, Ui,
     widgets::{BorderRadius, Rectangle},
 };
 
@@ -238,6 +238,7 @@ impl TextInput {
             color: self.text_color,
             style: self.text_style,
             options,
+            intrinsic_height: false,
         }
     }
 
@@ -265,5 +266,23 @@ impl TextInput {
         self.anchor = selection.start;
         self.text.drain(selection);
         true
+    }
+}
+
+impl SizedComponent for &mut TextInput {
+    type Output = TextInputResponse;
+
+    fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
+        let height = (self.text_style.size + self.padding.top + self.padding.bottom)
+            .max(self.border_width * 2.0)
+            .min(available.height);
+        LogicalSize {
+            width: available.width,
+            height,
+        }
+    }
+
+    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
+        TextInput::render(self, ui, area)
     }
 }

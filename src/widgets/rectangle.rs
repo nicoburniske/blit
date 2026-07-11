@@ -33,7 +33,12 @@ impl Rectangle {
         let mut clips = [PhysicalRect::default(); 8];
         let mut clip_count = 0;
         for dirty in ui.dirty.regions() {
-            if let Some(clip) = self.area.to_physical(ui.scale_factor).intersection(*dirty) {
+            if let Some(clip) = self
+                .area
+                .to_physical(ui.scale_factor)
+                .intersection(*dirty)
+                .and_then(|area| area.intersection(ui.clip))
+            {
                 clips[clip_count] = clip;
                 clip_count += 1;
             }

@@ -2,6 +2,23 @@ use crate::*;
 
 struct TestPlatform;
 
+struct FixedSize(f32);
+
+impl SizedComponent for FixedSize {
+    type Output = LogicalRect;
+
+    fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
+        LogicalSize {
+            width: available.width,
+            height: self.0,
+        }
+    }
+
+    fn render(self, _: &mut Ui, area: LogicalRect) -> Self::Output {
+        area
+    }
+}
+
 impl PlatformImpl for TestPlatform {
     fn screen(&mut self) -> PhysicalRect {
         PhysicalRect {
@@ -63,6 +80,40 @@ fn invalidation_is_rendered_next_frame() {
     let damage = runtime.render(Input::None, |ui| ui.dirty.clone());
     assert_eq!(damage.regions(), &[changed.to_physical(1.0)]);
     assert!(!runtime.has_pending_redraw());
+}
+
+#[test]
+fn scroll_area_advances_by_component_height() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut state = widgets::ScrollState::default();
+    let viewport = runtime.screen();
+
+    let positions = runtime.render(Input::None, |ui| {
+        widgets::ScrollArea::vertical(&mut state)
+            .spacing(1.0)
+            .show(ui, viewport, |area| {
+                [area.add(FixedSize(8.0)).y, area.add(FixedSize(8.0)).y]
+            })
+    });
+    assert_eq!(positions, [0.0, 9.0]);
+    assert_eq!(state.content_height, 17.0);
+
+    let positions = runtime.render(
+        Input::Scroll {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            delta_x: 0.0,
+            delta_y: 3.0,
+        },
+        |ui| {
+            widgets::ScrollArea::vertical(&mut state)
+                .spacing(1.0)
+                .show(ui, viewport, |area| {
+                    [area.add(FixedSize(8.0)).y, area.add(FixedSize(8.0)).y]
+                })
+        },
+    );
+    assert_eq!(positions, [-3.0, 6.0]);
 }
 
 #[test]

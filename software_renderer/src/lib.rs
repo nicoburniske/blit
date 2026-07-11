@@ -43,6 +43,12 @@ pub struct Renderer<B: PixelBuffer> {
     buffer: B,
     scale_factor: f32,
     text: TextRenderer,
+    keyboard: Option<KeyboardCallbacks>,
+}
+
+struct KeyboardCallbacks {
+    show: Box<dyn for<'a> FnMut(&KeyboardRequest<'a>)>,
+    hide: Box<dyn FnMut()>,
 }
 
 impl<B: PixelBuffer> Renderer<B> {
@@ -51,6 +57,7 @@ impl<B: PixelBuffer> Renderer<B> {
             buffer,
             scale_factor: 1.0,
             text: TextRenderer::new(config),
+            keyboard: None,
         }
     }
 
@@ -66,6 +73,17 @@ impl<B: PixelBuffer> Renderer<B> {
 
     pub fn buffer_mut(&mut self) -> &mut B {
         &mut self.buffer
+    }
+
+    pub fn set_keyboard_callbacks(
+        &mut self,
+        show: impl for<'a> FnMut(&KeyboardRequest<'a>) + 'static,
+        hide: impl FnMut() + 'static,
+    ) {
+        self.keyboard = Some(KeyboardCallbacks {
+            show: Box::new(show),
+            hide: Box::new(hide),
+        });
     }
 
     pub fn handle(&mut self) -> Platform {
@@ -114,9 +132,17 @@ impl<B: PixelBuffer> PlatformImpl for Renderer<B> {
             .cursor_rect(request, byte_offset, self.scale_factor)
     }
 
-    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
+    fn show_keyboard(&mut self, request: &KeyboardRequest<'_>) {
+        if let Some(keyboard) = &mut self.keyboard {
+            (keyboard.show)(request);
+        }
+    }
 
-    fn hide_keyboard(&mut self) {}
+    fn hide_keyboard(&mut self) {
+        if let Some(keyboard) = &mut self.keyboard {
+            (keyboard.hide)();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -203,6 +229,7 @@ mod tests {
                 color: Color::WHITE,
                 style: TextStyle::default(),
                 options: TextOptions::default(),
+                intrinsic_height: false,
             },
             &[clip],
         );
@@ -226,6 +253,7 @@ mod tests {
             color: Color::WHITE,
             style: TextStyle::default(),
             options: TextOptions::default(),
+            intrinsic_height: false,
         };
         assert_eq!(
             renderer.text_offset_at_position(&request, LogicalPoint { x: 100.0, y: 12.0 },),

@@ -1,3 +1,13 @@
+use crate::{LogicalRect, LogicalSize, Ui};
+
+pub trait SizedComponent {
+    type Output;
+
+    fn measure(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize;
+
+    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output;
+}
+
 #[macro_export]
 macro_rules! component {
     (

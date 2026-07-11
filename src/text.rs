@@ -1,4 +1,4 @@
-use crate::{Color, LogicalRect, PhysicalRect, Ui};
+use crate::{Color, LogicalRect, LogicalSize, PhysicalRect, SizedComponent, Ui};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Point<T> {
@@ -85,6 +85,7 @@ pub struct TextRequest<'a> {
     pub color: Color,
     pub style: TextStyle,
     pub options: TextOptions,
+    pub intrinsic_height: bool,
 }
 
 crate::component! {
@@ -98,6 +99,8 @@ crate::component! {
         pub text_style: TextStyle,
         pub options: TextOptions,
         pub offset_x: f32,
+        #[skip]
+        pub intrinsic_height: bool,
     }
     features: [text_style]
 }
@@ -154,6 +157,7 @@ impl<'a> Text<'a> {
                 .area
                 .to_physical(ui.scale_factor)
                 .intersection(*dirty)
+                .and_then(|area| area.intersection(ui.clip))
             {
                 clips[clip_count] = clip;
                 clip_count += 1;
@@ -177,6 +181,40 @@ impl<'a> Text<'a> {
             color: self.color,
             style: self.text_style,
             options: self.options,
+            intrinsic_height: self.intrinsic_height,
         }
+    }
+}
+
+impl SizedComponent for Text<'_> {
+    type Output = ();
+
+    fn measure(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize {
+        let mut options = self.options;
+        options.vertical_align = VerticalAlign::Top;
+        let request = TextRequest {
+            text: self.text,
+            area: available,
+            offset_x: self.offset_x,
+            color: self.color,
+            style: self.text_style,
+            options,
+            intrinsic_height: true,
+        };
+        let cursor = ui.text_cursor_rect(&request, self.text.len());
+        let height = (cursor.y + cursor.height - available.y)
+            .max(self.text_style.size)
+            .min(available.height);
+        LogicalSize {
+            width: available.width,
+            height,
+        }
+    }
+
+    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
+        let mut text = self.in_area(area);
+        text.options.vertical_align = VerticalAlign::Top;
+        text.intrinsic_height = true;
+        Text::render(text, ui)
     }
 }

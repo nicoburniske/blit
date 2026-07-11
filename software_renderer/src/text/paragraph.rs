@@ -49,6 +49,7 @@ struct ParagraphKey {
     horizontal_align: HorizontalAlign,
     vertical_align: VerticalAlign,
     max_lines: Option<u16>,
+    intrinsic_height: bool,
 }
 
 struct ParagraphWeight;
@@ -92,7 +93,11 @@ impl ParagraphCache {
             text_hash: hasher.finish(),
             text_len: request.text.len(),
             width: area.width,
-            height: area.height,
+            height: if request.intrinsic_height {
+                0
+            } else {
+                area.height
+            },
             offset_x: (request.offset_x * scale_factor).round() as i32,
             font: request.style.font,
             size: (request.style.size * scale_factor).to_bits(),
@@ -102,6 +107,7 @@ impl ParagraphCache {
             horizontal_align: request.options.horizontal_align,
             vertical_align: request.options.vertical_align,
             max_lines: request.options.max_lines,
+            intrinsic_height: request.intrinsic_height,
         };
         let cached = self
             .cache
@@ -153,7 +159,7 @@ impl ParagraphCache {
             if let Some(max_lines) = request.options.max_lines {
                 visible_lines = visible_lines.min(max_lines as usize);
             }
-            if request.options.overflow == TextOverflow::Ellipsis {
+            if request.options.overflow == TextOverflow::Ellipsis && !request.intrinsic_height {
                 let mut height = 0.0;
                 let mut fitting_lines = 0;
                 for line in lines {
@@ -215,7 +221,7 @@ impl ParagraphCache {
             x: 0.0,
             y: 0.0,
             max_width,
-            max_height: Some(area.height.max(0) as f32),
+            max_height: (!request.intrinsic_height).then_some(area.height.max(0) as f32),
             horizontal_align: match request.options.horizontal_align {
                 HorizontalAlign::Left => FontHorizontalAlign::Left,
                 HorizontalAlign::Center => FontHorizontalAlign::Center,
@@ -291,16 +297,21 @@ impl ParagraphCache {
             });
         }
         let mut left = area.width;
-        let mut top = area.height;
+        let bounds_height = if request.intrinsic_height {
+            i32::MAX
+        } else {
+            area.height
+        };
+        let mut top = bounds_height;
         let mut right = 0;
         let mut bottom = 0;
         for glyph in glyphs {
             let x = (glyph.x + paint_offset_x).round() as i32;
             let y = glyph.y.round() as i32;
             left = left.min(x.max(0).min(area.width));
-            top = top.min(y.max(0).min(area.height));
+            top = top.min(y.max(0).min(bounds_height));
             right = right.max((x + glyph.width as i32).max(0).min(area.width));
-            bottom = bottom.max((y + glyph.height as i32).max(0).min(area.height));
+            bottom = bottom.max((y + glyph.height as i32).max(0).min(bounds_height));
         }
         let width = (right - left).max(0) as usize;
         let height = (bottom - top).max(0) as usize;
@@ -385,6 +396,7 @@ mod tests {
                     ..TextStyle::default()
                 },
                 options: TextOptions::default(),
+                intrinsic_height: false,
             },
             1.0,
             &mut fonts,
@@ -419,6 +431,7 @@ mod tests {
                     max_lines: Some(1),
                     ..TextOptions::default()
                 },
+                intrinsic_height: false,
             },
             1.0,
             &mut fonts,
@@ -431,6 +444,7 @@ mod tests {
                 color: Color::WHITE,
                 style: TextStyle::default(),
                 options: TextOptions::default(),
+                intrinsic_height: false,
             },
             1.0,
             &mut fonts,
@@ -452,6 +466,7 @@ mod tests {
                     overflow: TextOverflow::Ellipsis,
                     ..TextOptions::default()
                 },
+                intrinsic_height: false,
             },
             1.0,
             &mut fonts,
@@ -464,6 +479,7 @@ mod tests {
                 color: Color::WHITE,
                 style: TextStyle::default(),
                 options: TextOptions::default(),
+                intrinsic_height: false,
             },
             1.0,
             &mut fonts,

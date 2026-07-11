@@ -1,5 +1,6 @@
 use crate::{
-    Color, Input, LogicalInsets, LogicalRect, Text, TextOptions, TextStyle, Ui,
+    Color, Input, LogicalInsets, LogicalRect, LogicalSize, SizedComponent, Text, TextOptions,
+    TextStyle, Ui,
     widgets::{BorderRadius, Rectangle},
 };
 
@@ -76,5 +77,23 @@ impl<'a> Button<'a> {
 impl Response {
     pub fn clicked(self) -> bool {
         self.clicked
+    }
+}
+
+impl SizedComponent for Button<'_> {
+    type Output = Response;
+
+    fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
+        let height = (self.text_style.size + self.padding.top + self.padding.bottom)
+            .max(self.border_width * 2.0)
+            .min(available.height);
+        LogicalSize {
+            width: available.width,
+            height,
+        }
+    }
+
+    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
+        Button::render(self, ui, area)
     }
 }
