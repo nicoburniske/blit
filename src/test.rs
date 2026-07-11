@@ -1,4 +1,5 @@
 use crate::*;
+use std::time::Duration;
 
 struct TestPlatform;
 
@@ -438,6 +439,200 @@ fn focus_is_cleared_when_widget_is_not_rendered() {
     runtime.render(Input::None, |_| {});
 
     assert!(!runtime.render(Input::None, |ui| ui.is_focused(id)));
+}
+
+#[test]
+fn animation_is_keyed_and_target_driven() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let id = WidgetId::new("offset");
+    let duration = Duration::from_millis(100);
+
+    let initial = runtime.render_at(Duration::ZERO, Input::None, |ui| {
+        ui.animate(id, 0.0, duration, Easing::Linear).value()
+    });
+    let started = runtime.render_at(Duration::from_millis(10), Input::None, |ui| {
+        ui.animate(id, 10.0, duration, Easing::Linear).value()
+    });
+    let middle = runtime.render_at(Duration::from_millis(60), Input::None, |ui| {
+        ui.animate(id, 10.0, duration, Easing::Linear).value()
+    });
+    let (finished, active) = runtime.render_at(Duration::from_millis(110), Input::None, |ui| {
+        let animation = ui.animate(id, 10.0, duration, Easing::Linear);
+        (animation.value(), animation.is_active())
+    });
+
+    assert_eq!(initial, 0.0);
+    assert_eq!(started, 0.0);
+    assert_eq!(middle, 5.0);
+    assert_eq!(finished, 10.0);
+    assert!(!active);
+}
+
+#[test]
+fn animation_tracks_previous_and_current_draw_bounds() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let id = WidgetId::new("moving rectangle");
+    let duration = Duration::from_millis(100);
+    let render = |ui: &mut Ui, target| {
+        let mut animation = ui.animate(id, target, duration, Easing::Linear);
+        let value = animation.value();
+        widgets::Rectangle::new(LogicalRect {
+            x: value,
+            y: 0.0,
+            width: 2.0,
+            height: 2.0,
+        })
+        .render(&mut animation);
+        animation.finish();
+    };
+
+    runtime.render_at(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
+    runtime.render_at(Duration::from_millis(1), Input::None, |ui| render(ui, 0.0));
+    runtime.render_at(Duration::from_millis(2), Input::None, |ui| render(ui, 0.0));
+    let started = runtime.render_at(Duration::from_millis(10), Input::None, |ui| {
+        render(ui, 8.0);
+        ui.dirty.clone()
+    });
+    let moving = runtime.render_at(Duration::from_millis(60), Input::None, |ui| {
+        render(ui, 8.0);
+        ui.dirty.clone()
+    });
+
+    assert_eq!(
+        started.regions(),
+        &[PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 2,
+        }]
+    );
+    assert_eq!(
+        moving.regions(),
+        &[
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
+            PhysicalRect {
+                x: 4,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
+        ]
+    );
+}
+
+#[test]
+fn unused_animation_is_removed_and_invalidated() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let id = WidgetId::new("removed animation");
+    let area = LogicalRect {
+        x: 2.0,
+        y: 3.0,
+        width: 4.0,
+        height: 5.0,
+    };
+
+    runtime.render_at(Duration::ZERO, Input::None, |ui| {
+        let mut animation = ui.animate(id, 0.0, Duration::ZERO, Easing::Linear);
+        widgets::Rectangle::new(area).render(&mut animation);
+    });
+    runtime.render_at(Duration::from_millis(1), Input::None, |_| {});
+
+    assert_eq!(runtime.animations.len(), 0);
+    assert_eq!(runtime.pending.regions(), &[area.to_physical(1.0)]);
+}
+
+#[test]
+fn immediate_target_change_queues_old_and_new_bounds() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let id = WidgetId::new("immediate animation");
+
+    runtime.render_at(Duration::ZERO, Input::None, |ui| {
+        let mut animation = ui.animate(id, 0.0, Duration::ZERO, Easing::Linear);
+        widgets::Rectangle::new(LogicalRect {
+            x: animation.value(),
+            y: 0.0,
+            width: 2.0,
+            height: 2.0,
+        })
+        .render(&mut animation);
+    });
+    runtime.render_at(Duration::from_millis(1), Input::None, |ui| {
+        let mut animation = ui.animate(id, 8.0, Duration::ZERO, Easing::Linear);
+        widgets::Rectangle::new(LogicalRect {
+            x: animation.value(),
+            y: 0.0,
+            width: 2.0,
+            height: 2.0,
+        })
+        .render(&mut animation);
+    });
+
+    assert_eq!(
+        runtime.pending.regions(),
+        &[
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
+            PhysicalRect {
+                x: 8,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
+        ]
+    );
+}
+
+#[test]
+fn nested_animations_capture_the_same_draw_bounds() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let outer_id = WidgetId::new("outer animation");
+    let inner_id = WidgetId::new("inner animation");
+    let area = LogicalRect {
+        x: 2.0,
+        y: 3.0,
+        width: 4.0,
+        height: 5.0,
+    };
+
+    let (offset, opacity) = runtime.render_at(Duration::ZERO, Input::None, |ui| {
+        let mut outer = ui.animate(outer_id, 2.0, Duration::ZERO, Easing::Linear);
+        let offset = outer.value();
+        let mut inner = outer.animate(inner_id, 0.5, Duration::ZERO, Easing::Linear);
+        let opacity = inner.value();
+        widgets::Rectangle::new(LogicalRect {
+            x: area.x + offset,
+            ..area
+        })
+        .opacity(opacity)
+        .render(&mut inner);
+        (offset, opacity)
+    });
+
+    assert_eq!(offset, 2.0);
+    assert_eq!(opacity, 0.5);
+    assert_eq!(runtime.animations.len(), 2);
+    assert!(
+        runtime
+            .animations
+            .iter()
+            .all(|animation| animation.previous_bounds
+                == Some(LogicalRect { x: 4.0, ..area }.to_physical(1.0)))
+    );
 }
 
 #[test]

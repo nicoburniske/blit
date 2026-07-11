@@ -150,6 +150,7 @@ impl<'a> Text<'a> {
 
     pub fn render(self, ui: &mut Ui) {
         let request = self.request(ui.screen);
+        ui.record_draw(request.area);
         let mut clips = [PhysicalRect::default(); 8];
         let mut clip_count = 0;
         for dirty in ui.dirty.regions() {

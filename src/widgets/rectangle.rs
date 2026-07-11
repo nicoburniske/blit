@@ -30,6 +30,7 @@ impl Rectangle {
     }
 
     pub fn render(self, ui: &mut Ui) {
+        ui.record_draw(self.area);
         let mut clips = [PhysicalRect::default(); 8];
         let mut clip_count = 0;
         for dirty in ui.dirty.regions() {
