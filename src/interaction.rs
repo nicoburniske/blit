@@ -236,6 +236,37 @@ impl InteractionState {
         self.focused == Some(id)
     }
 
+    pub fn focus(&mut self, id: WidgetId) -> [Option<PhysicalRect>; 2] {
+        if self.focused == Some(id) {
+            return [None, None];
+        }
+
+        let previous = self.focused.and_then(|focused| {
+            self.current_hits
+                .iter()
+                .chain(&self.previous_hits)
+                .find(|item| item.id == focused)
+                .map(|item| item.area)
+        });
+        self.focused = Some(id);
+        let current = self
+            .current_hits
+            .iter()
+            .chain(&self.previous_hits)
+            .find(|item| item.id == id)
+            .map(|item| item.area);
+        [previous, current]
+    }
+
+    pub fn clear_focus(&mut self) -> Option<PhysicalRect> {
+        let focused = self.focused.take()?;
+        self.current_hits
+            .iter()
+            .chain(&self.previous_hits)
+            .find(|item| item.id == focused)
+            .map(|item| item.area)
+    }
+
     pub fn pointer_position(&self) -> Option<LogicalPoint> {
         self.pointer.position
     }

@@ -250,6 +250,18 @@ impl Ui {
         self.interaction.is_focused(id)
     }
 
+    pub fn focus(&mut self, id: WidgetId) {
+        for area in self.interaction.focus(id).into_iter().flatten() {
+            self.invalidated.add(area);
+        }
+    }
+
+    pub fn clear_focus(&mut self) {
+        if let Some(area) = self.interaction.clear_focus() {
+            self.invalidated.add(area);
+        }
+    }
+
     pub fn pointer_position(&self) -> Option<LogicalPoint> {
         self.interaction.pointer_position()
     }

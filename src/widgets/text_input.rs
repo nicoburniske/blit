@@ -67,9 +67,8 @@ impl TextInput {
         let old_anchor = self.anchor;
         let old_scroll = self.scroll_x;
         let mut response = TextInputResponse::default();
-        let id = ui.id(("text input", self.id));
-        let interaction = ui.interact(id, area, Sense::FOCUS);
-        self.focused = ui.is_focused(id);
+        let interaction = ui.interact(self.id, area, Sense::FOCUS);
+        self.focused = ui.is_focused(self.id);
 
         if interaction.pressed {
             if let Some(position) = ui.pointer_position() {
