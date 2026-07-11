@@ -1,5 +1,6 @@
 mod color;
 mod component;
+mod image;
 mod keyboard;
 mod layout;
 mod platform;
@@ -13,6 +14,7 @@ use std::ptr::NonNull;
 
 pub use color::Color;
 pub use component::SizedComponent;
+pub use image::{ImageData, ImageFormat, ImageId, ImagePixels, ImageResource};
 pub use keyboard::{KeyboardKind, KeyboardRequest};
 pub use layout::{Constraint, Direction, Layout, RepeatedAreas, RepeatedLayout};
 pub use platform::{Platform, PlatformImpl, PlatformVTable};

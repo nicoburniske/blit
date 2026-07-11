@@ -1,54 +1,43 @@
 use bullseye::{
-    Color, PhysicalRect,
-    widgets::{Image, ImageData, ImageFit, ImageSampling},
+    Color, ImageData, ImageFormat, PhysicalRect,
+    widgets::{ImageFit, ImageRequest, ImageSampling},
 };
 
 use crate::{Pixel, PixelBuffer, PremultipliedRgbaColor};
 
 pub fn draw<B: PixelBuffer>(
     buffer: &mut B,
-    image: &Image<'_>,
+    request: &ImageRequest,
+    texture: &ImageData,
     clips: &[PhysicalRect],
     scale_factor: f32,
 ) {
-    let geometry = image.area.to_physical(scale_factor);
-    let (pixels, bytes_per_pixel, premultiplied) = match image.data {
-        ImageData::Rgb8(pixels) => (pixels, 3, false),
-        ImageData::Rgba8(pixels) => (pixels, 4, false),
-        ImageData::Rgba8Premultiplied(pixels) => (pixels, 4, true),
-    };
-    let Some(row_bytes) = image.width.checked_mul(bytes_per_pixel) else {
-        return;
-    };
-    let Some(last_row) = image.height.checked_sub(1).and_then(|height| {
-        height
-            .checked_mul(image.stride_bytes)
-            .and_then(|offset| offset.checked_add(row_bytes))
-    }) else {
-        return;
-    };
+    let geometry = request.area.to_physical(scale_factor);
+    let pixels = texture.pixels.bytes();
+    let width = texture.size.width as usize;
+    let height = texture.size.height as usize;
+    let bytes_per_pixel = texture.format.bytes_per_pixel();
     if geometry.width <= 0
         || geometry.height <= 0
-        || image.width == 0
-        || image.stride_bytes < row_bytes
-        || last_row > pixels.len()
-        || image.opacity <= 0.0
+        || width == 0
+        || height == 0
+        || request.opacity <= 0.0
     {
         return;
     }
 
-    let display = match image.fit {
+    let display = match request.fit {
         ImageFit::Fill => geometry,
         ImageFit::Contain | ImageFit::Cover => {
-            let horizontal = geometry.width as f32 / image.width as f32;
-            let vertical = geometry.height as f32 / image.height as f32;
-            let scale = if image.fit == ImageFit::Contain {
+            let horizontal = geometry.width as f32 / width as f32;
+            let vertical = geometry.height as f32 / height as f32;
+            let scale = if request.fit == ImageFit::Contain {
                 horizontal.min(vertical)
             } else {
                 horizontal.max(vertical)
             };
-            let width = (image.width as f32 * scale).round().max(1.0) as i32;
-            let height = (image.height as f32 * scale).round().max(1.0) as i32;
+            let width = (width as f32 * scale).round().max(1.0) as i32;
+            let height = (height as f32 * scale).round().max(1.0) as i32;
             PhysicalRect {
                 x: geometry.x + (geometry.width - width) / 2,
                 y: geometry.y + (geometry.height - height) / 2,
@@ -57,7 +46,7 @@ pub fn draw<B: PixelBuffer>(
             }
         }
     };
-    let bounds = if image.fit == ImageFit::Cover {
+    let bounds = if request.fit == ImageFit::Cover {
         display.intersection(geometry).unwrap_or_default()
     } else {
         display
@@ -68,30 +57,42 @@ pub fn draw<B: PixelBuffer>(
         width: buffer.width() as i32,
         height: buffer.height() as i32,
     };
-    let opacity = (image.opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let opacity = (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
     let source_pixel = |x: usize, y: usize| {
-        let offset = y * image.stride_bytes + x * bytes_per_pixel;
-        if premultiplied {
-            PremultipliedRgbaColor {
+        let texture_x = texture.texture_rect.x as usize;
+        let texture_y = texture.texture_rect.y as usize;
+        if x < texture_x
+            || y < texture_y
+            || x >= texture_x + texture.texture_rect.width as usize
+            || y >= texture_y + texture.texture_rect.height as usize
+        {
+            return PremultipliedRgbaColor::default();
+        }
+        let offset = (y - texture_y) * texture.stride_bytes + (x - texture_x) * bytes_per_pixel;
+        match texture.format {
+            ImageFormat::Rgba8Premultiplied => PremultipliedRgbaColor {
                 red: (pixels[offset] as u16 * opacity as u16 / 255) as u8,
                 green: (pixels[offset + 1] as u16 * opacity as u16 / 255) as u8,
                 blue: (pixels[offset + 2] as u16 * opacity as u16 / 255) as u8,
                 alpha: (pixels[offset + 3] as u16 * opacity as u16 / 255) as u8,
-            }
-        } else {
-            PremultipliedRgbaColor::new(
+            },
+            ImageFormat::Rgb8 => PremultipliedRgbaColor::new(
+                Color::from_rgba8(pixels[offset], pixels[offset + 1], pixels[offset + 2], 255),
+                opacity,
+            ),
+            ImageFormat::Rgba8 => PremultipliedRgbaColor::new(
                 Color::from_rgba8(
                     pixels[offset],
                     pixels[offset + 1],
                     pixels[offset + 2],
-                    if bytes_per_pixel == 4 {
-                        pixels[offset + 3]
-                    } else {
-                        255
-                    },
+                    pixels[offset + 3],
                 ),
                 opacity,
-            )
+            ),
+            ImageFormat::Alpha8(color) => PremultipliedRgbaColor::new(
+                color,
+                (pixels[offset] as u16 * opacity as u16 / 255) as u8,
+            ),
         }
     };
 
@@ -105,31 +106,29 @@ pub fn draw<B: PixelBuffer>(
         for y in clipped.y..clipped.y + clipped.height {
             let row = buffer.line_mut(y as usize);
             for x in clipped.x..clipped.x + clipped.width {
-                let color = match image.sampling {
+                let color = match request.sampling {
                     ImageSampling::Nearest => {
-                        let source_x = ((x - display.x) as i64 * image.width as i64
-                            / display.width as i64)
-                            .clamp(0, image.width as i64 - 1)
-                            as usize;
-                        let source_y = ((y - display.y) as i64 * image.height as i64
-                            / display.height as i64)
-                            .clamp(0, image.height as i64 - 1)
-                            as usize;
+                        let source_x =
+                            ((x - display.x) as i64 * width as i64 / display.width as i64)
+                                .clamp(0, width as i64 - 1) as usize;
+                        let source_y =
+                            ((y - display.y) as i64 * height as i64 / display.height as i64)
+                                .clamp(0, height as i64 - 1) as usize;
                         source_pixel(source_x, source_y)
                     }
                     ImageSampling::Bilinear => {
-                        let source_x = (((x - display.x) as f32 + 0.5) * image.width as f32
+                        let source_x = (((x - display.x) as f32 + 0.5) * width as f32
                             / display.width as f32
                             - 0.5)
-                            .clamp(0.0, image.width as f32 - 1.0);
-                        let source_y = (((y - display.y) as f32 + 0.5) * image.height as f32
+                            .clamp(0.0, width as f32 - 1.0);
+                        let source_y = (((y - display.y) as f32 + 0.5) * height as f32
                             / display.height as f32
                             - 0.5)
-                            .clamp(0.0, image.height as f32 - 1.0);
+                            .clamp(0.0, height as f32 - 1.0);
                         let left = source_x.floor() as usize;
                         let top = source_y.floor() as usize;
-                        let right = (left + 1).min(image.width - 1);
-                        let bottom = (top + 1).min(image.height - 1);
+                        let right = (left + 1).min(width - 1);
+                        let bottom = (top + 1).min(height - 1);
                         let horizontal = source_x - left as f32;
                         let vertical = source_y - top as f32;
                         let top_left = source_pixel(left, top);
@@ -181,8 +180,8 @@ pub fn draw<B: PixelBuffer>(
 #[cfg(test)]
 mod tests {
     use bullseye::{
-        LogicalRect,
-        widgets::{ImageData, ImageSampling},
+        ImageData, ImageFormat, ImageId, ImagePixels, LogicalRect,
+        widgets::{ImageFit, ImageRequest, ImageSampling},
     };
 
     use super::*;
@@ -190,22 +189,28 @@ mod tests {
 
     #[test]
     fn nearest_scaled_image_respects_clip() {
-        let pixels = [
+        static PIXELS: [u8; 16] = [
             255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
         ];
-        let image = Image::new(ImageData::Rgba8(&pixels), 2, 2)
-            .area(LogicalRect {
+        let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8, 2, 2);
+        let request = ImageRequest {
+            image: ImageId(0),
+            area: LogicalRect {
                 x: 0.0,
                 y: 0.0,
                 width: 4.0,
                 height: 4.0,
-            })
-            .sampling(ImageSampling::Nearest);
+            },
+            fit: ImageFit::Fill,
+            sampling: ImageSampling::Nearest,
+            opacity: 1.0,
+        };
         let mut buffer = VecBuffer::<u32>::new(4, 4);
 
         draw(
             &mut buffer,
-            &image,
+            &request,
+            &texture,
             &[PhysicalRect {
                 x: 1,
                 y: 1,

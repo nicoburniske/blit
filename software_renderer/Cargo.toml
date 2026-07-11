@@ -8,3 +8,4 @@ publish = false
 bullseye = { path = ".." }
 clru = "0.6"
 fontdue = "0.9"
+slotmap = "1"
