@@ -1,5 +1,5 @@
 use bullseye::{
-    Color, PhysicalRect, TextRequest,
+    PhysicalRect, TextRequest,
     widgets::{ImageRequest, Rectangle},
 };
 use slotmap::KeyData;
@@ -7,89 +7,17 @@ use std::ops::Range;
 
 use crate::{Pixel, PixelBuffer, PixelSpan, RenderContext, RendererImageId, image, rectangle};
 
-use super::RenderStrategy;
+use super::{
+    RenderStrategy,
+    command::{CommandList, Payload, PreparedText},
+};
 
 #[derive(Default)]
 pub struct Scanline {
-    commands: Vec<Command>,
+    commands: CommandList,
     starts: Vec<usize>,
     active: Vec<usize>,
     ranges: Vec<Range<usize>>,
-}
-
-enum Command {
-    Rectangle(rectangle::PreparedRectangle, Clips),
-    Image(ImageRequest, Clips),
-    Text {
-        paragraph: usize,
-        area: PhysicalRect,
-        color: Color,
-        clips: Clips,
-    },
-}
-
-impl Command {
-    fn clips(&self) -> &Clips {
-        match self {
-            Self::Rectangle(_, clips) | Self::Image(_, clips) | Self::Text { clips, .. } => clips,
-        }
-    }
-}
-
-struct Clips {
-    regions: [PhysicalRect; 8],
-    len: usize,
-    top: i32,
-    bottom: i32,
-}
-
-impl Clips {
-    fn new(clips: &[PhysicalRect]) -> Self {
-        assert!(!clips.is_empty());
-        assert!(clips.len() <= 8);
-        let mut regions = [PhysicalRect::default(); 8];
-        regions[..clips.len()].copy_from_slice(clips);
-        Self {
-            regions,
-            len: clips.len(),
-            top: clips.iter().map(|clip| clip.y).min().unwrap(),
-            bottom: clips
-                .iter()
-                .map(|clip| clip.y.saturating_add(clip.height))
-                .max()
-                .unwrap(),
-        }
-    }
-
-    fn regions(&self) -> &[PhysicalRect] {
-        &self.regions[..self.len]
-    }
-
-    fn top(&self) -> i32 {
-        self.top
-    }
-
-    fn bottom(&self) -> i32 {
-        self.bottom
-    }
-
-    fn line(&self, line: i32, range: Range<usize>) -> ([PhysicalRect; 8], usize) {
-        let mut regions = [PhysicalRect::default(); 8];
-        let mut len = 0;
-        let line = PhysicalRect {
-            x: range.start as i32,
-            y: line,
-            width: range.len() as i32,
-            height: 1,
-        };
-        for clip in self.regions() {
-            if let Some(clip) = clip.intersection(line) {
-                regions[len] = clip;
-                len += 1;
-            }
-        }
-        (regions, len)
-    }
 }
 
 struct LineBuffer<'a, P> {
@@ -133,8 +61,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
     ) {
         if let Some(rectangle) = rectangle::PreparedRectangle::new(rectangle, context.scale_factor)
         {
-            self.commands
-                .push(Command::Rectangle(rectangle, Clips::new(clips)));
+            self.commands.push_rectangle(rectangle, clips);
         }
     }
 
@@ -144,8 +71,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         image: &ImageRequest,
         clips: &[PhysicalRect],
     ) {
-        self.commands
-            .push(Command::Image(*image, Clips::new(clips)));
+        self.commands.push_image(*image, clips);
     }
 
     fn draw_text(
@@ -154,12 +80,14 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         text: &TextRequest<'_>,
         clips: &[PhysicalRect],
     ) {
-        self.commands.push(Command::Text {
-            paragraph: context.text.prepare(text, context.scale_factor),
-            area: text.area.to_physical(context.scale_factor),
-            color: text.color,
-            clips: Clips::new(clips),
-        });
+        self.commands.push_text(
+            PreparedText {
+                paragraph: context.text.prepare(text, context.scale_factor),
+                area: text.area.to_physical(context.scale_factor),
+                color: text.color,
+            },
+            clips,
+        );
     }
 
     fn end_frame(&mut self, context: &mut RenderContext<B>) {
@@ -171,22 +99,24 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let text = &context.text;
         let buffer = &mut context.buffer;
 
-        self.starts.extend(0..commands.len());
+        self.starts.extend(commands.offsets());
         self.starts.sort_unstable_by(|left, right| {
-            commands[*left]
-                .clips()
-                .top()
-                .cmp(&commands[*right].clips().top())
+            commands
+                .vertical_bounds(*left)
+                .start
+                .cmp(&commands.vertical_bounds(*right).start)
                 .then(left.cmp(right))
         });
         let mut next = 0;
         for line in 0..height {
             let line = line as i32;
             self.active
-                .retain(|command| commands[*command].clips().bottom() > line);
-            while next < self.starts.len() && commands[self.starts[next]].clips().top() <= line {
+                .retain(|command| commands.vertical_bounds(*command).end > line);
+            while next < self.starts.len()
+                && commands.vertical_bounds(self.starts[next]).start <= line
+            {
                 let command = self.starts[next];
-                if commands[command].clips().bottom() > line {
+                if commands.vertical_bounds(command).end > line {
                     let position = self.active.binary_search(&command).unwrap_err();
                     self.active.insert(position, command);
                 }
@@ -198,7 +128,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
 
             self.ranges.clear();
             for command in &self.active {
-                for clip in commands[*command].clips().regions() {
+                for clip in commands.get(*command).clips {
                     if line >= clip.y && line < clip.y.saturating_add(clip.height) {
                         let start = clip.x.max(0).min(width as i32) as usize;
                         let end =
@@ -232,14 +162,26 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         line: line as usize,
                     };
                     for command in &self.active {
-                        let command = &commands[*command];
-                        let clips = command.clips();
-                        let (line_clips, len) = clips.line(line, range.clone());
+                        let command = commands.get(*command);
+                        let mut line_clips = [PhysicalRect::default(); 8];
+                        let mut len = 0;
+                        let line_area = PhysicalRect {
+                            x: range.start as i32,
+                            y: line,
+                            width: range.len() as i32,
+                            height: 1,
+                        };
+                        for clip in command.clips {
+                            if let Some(clip) = clip.intersection(line_area) {
+                                line_clips[len] = clip;
+                                len += 1;
+                            }
+                        }
                         if len == 0 {
                             continue;
                         }
-                        match command {
-                            Command::Rectangle(rectangle, _) => {
+                        match command.payload {
+                            Payload::Rectangle(rectangle) => {
                                 for clip in &line_clips[..len] {
                                     rectangle.draw_line(
                                         line,
@@ -251,7 +193,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                     );
                                 }
                             }
-                            Command::Image(request, _) => {
+                            Payload::Image(request) => {
                                 let image =
                                     RendererImageId::from(KeyData::from_ffi(request.image.0));
                                 if let Some(image) = images.get(image) {
@@ -264,15 +206,10 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                     );
                                 }
                             }
-                            Command::Text {
-                                paragraph,
-                                area,
-                                color,
-                                clips: _,
-                            } => text.draw_line(
-                                *paragraph,
-                                *area,
-                                *color,
+                            Payload::Text(text_command) => text.draw_line(
+                                text_command.paragraph,
+                                text_command.area,
+                                text_command.color,
                                 line,
                                 PixelSpan {
                                     x: range.start as i32,
