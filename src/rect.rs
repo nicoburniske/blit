@@ -6,8 +6,16 @@ pub struct Rect<T> {
     pub height: T,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Size<T> {
+    pub width: T,
+    pub height: T,
+}
+
 pub type LogicalRect = Rect<f32>;
 pub type PhysicalRect = Rect<i32>;
+pub type LogicalSize = Size<f32>;
+pub type PhysicalSize = Size<i32>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LogicalInsets {

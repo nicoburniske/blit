@@ -10,10 +10,11 @@ mod text;
 pub mod widgets;
 
 pub use color::Color;
+pub use component::SizedComponent;
 pub use keyboard::{KeyboardKind, KeyboardRequest};
 pub use layout::{Constraint, Direction, Layout, RepeatedAreas, RepeatedLayout};
 pub use platform::{Platform, PlatformImpl, PlatformVTable};
-pub use rect::{LogicalInsets, LogicalRect, PhysicalRect};
+pub use rect::{LogicalInsets, LogicalRect, LogicalSize, PhysicalRect, PhysicalSize, Size};
 pub use text::{
     FontId, FontWeight, HorizontalAlign, LogicalPoint, PhysicalPoint, Text, TextOptions,
     TextOverflow, TextRequest, TextStyle, TextWrap, VerticalAlign,
@@ -91,6 +92,14 @@ pub enum Input {
     PointerUp {
         position: LogicalPoint,
     },
+    PointerMove {
+        position: LogicalPoint,
+    },
+    Scroll {
+        position: LogicalPoint,
+        delta_x: f32,
+        delta_y: f32,
+    },
     Char(char),
     Backspace,
     Delete,
@@ -138,7 +147,7 @@ impl Runtime {
             platform: self.platform,
             input,
             screen: self.screen,
-            physical_screen: self.physical_screen,
+            clip: self.physical_screen,
             scale_factor: self.scale_factor,
             dirty,
             invalidated: DirtyRegions::default(),
@@ -181,7 +190,7 @@ pub struct Ui {
     pub(crate) platform: Platform,
     input: Input,
     screen: LogicalRect,
-    physical_screen: PhysicalRect,
+    pub(crate) clip: PhysicalRect,
     scale_factor: f32,
     dirty: DirtyRegions,
     invalidated: DirtyRegions,
@@ -189,21 +198,33 @@ pub struct Ui {
 }
 
 impl Ui {
+    pub fn screen(&self) -> LogicalRect {
+        self.screen
+    }
+
     pub fn input(&self) -> &Input {
         &self.input
     }
 
-    pub fn invalidate(&mut self, area: LogicalRect) {
-        if let Some(area) = area
+    pub(crate) fn clip<R>(&mut self, area: LogicalRect, render: impl FnOnce(&mut Self) -> R) -> R {
+        let previous = self.clip;
+        self.clip = area
             .to_physical(self.scale_factor)
-            .intersection(self.physical_screen)
-        {
+            .intersection(previous)
+            .unwrap_or_default();
+        let output = render(self);
+        self.clip = previous;
+        output
+    }
+
+    pub fn invalidate(&mut self, area: LogicalRect) {
+        if let Some(area) = area.to_physical(self.scale_factor).intersection(self.clip) {
             self.invalidated.add(area)
         }
     }
 
     pub fn invalidate_all(&mut self) {
-        self.invalidated.add(self.physical_screen)
+        self.invalidated.add(self.clip)
     }
 
     pub fn show_keyboard(&mut self, request: &KeyboardRequest<'_>) {

@@ -1,4 +1,4 @@
-use crate::{LogicalRect, PhysicalRect, Ui};
+use crate::{LogicalRect, LogicalSize, PhysicalRect, SizedComponent, Ui};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageData<'a> {
@@ -64,7 +64,12 @@ impl<'a> Image<'a> {
         let mut clips = [PhysicalRect::default(); 8];
         let mut clip_count = 0;
         for dirty in ui.dirty.regions() {
-            if let Some(clip) = self.area.to_physical(ui.scale_factor).intersection(*dirty) {
+            if let Some(clip) = self
+                .area
+                .to_physical(ui.scale_factor)
+                .intersection(*dirty)
+                .and_then(|area| area.intersection(ui.clip))
+            {
                 clips[clip_count] = clip;
                 clip_count += 1;
             }
@@ -72,5 +77,27 @@ impl<'a> Image<'a> {
         if clip_count != 0 {
             ui.platform.draw_image(&self, &clips[..clip_count]);
         }
+    }
+}
+
+impl SizedComponent for Image<'_> {
+    type Output = ();
+
+    fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
+        let height = if self.width == 0 {
+            0.0
+        } else {
+            available.width * self.height as f32 / self.width as f32
+        }
+        .min(available.height);
+        LogicalSize {
+            width: available.width,
+            height,
+        }
+    }
+
+    fn render(mut self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
+        self.area = area;
+        Image::render(self, ui)
     }
 }

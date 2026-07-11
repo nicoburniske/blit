@@ -6,5 +6,5 @@ publish = false
 
 [dependencies]
 bullseye = { path = ".." }
-clru = "0.6.3"
-fontdue = "0.9.3"
+clru = "0.6"
+fontdue = "0.9"
