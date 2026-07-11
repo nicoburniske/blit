@@ -27,19 +27,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8"
 
 [[package]]
-name = "bullseye"
+name = "blit"
 version = "0.1.0"
 dependencies = [
  "unicode-segmentation",
 ]
 
 [[package]]
-name = "bullseye-example"
+name = "blit-example"
 version = "0.1.0"
 dependencies = [
- "bullseye",
+ "blit",
+ "blit-software",
  "minifb",
- "software_renderer",
+]
+
+[[package]]
+name = "blit-software"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "clru",
+ "fontdue",
+ "slotmap",
 ]
 
 [[package]]
@@ -585,16 +595,6 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
-
-[[package]]
-name = "software_renderer"
-version = "0.1.0"
-dependencies = [
- "bullseye",
- "clru",
- "fontdue",
- "slotmap",
-]
 
 [[package]]
 name = "syn"

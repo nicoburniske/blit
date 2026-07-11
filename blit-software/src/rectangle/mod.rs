@@ -3,7 +3,7 @@ mod rounded;
 
 pub use prepared::Prepared;
 
-use bullseye::{PhysicalRect, widgets::Rectangle};
+use blit::{PhysicalRect, widgets::Rectangle};
 
 use crate::{PixelBuffer, PixelSpan};
 
@@ -39,7 +39,7 @@ pub fn draw<B: PixelBuffer>(
 
 #[cfg(test)]
 mod tests {
-    use bullseye::{Color, LogicalRect, widgets::BorderRadius};
+    use blit::{Color, LogicalRect, widgets::BorderRadius};
 
     use super::*;
     use crate::VecBuffer;

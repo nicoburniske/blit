@@ -1,4 +1,4 @@
-use bullseye::{
+use blit::{
     PhysicalRect, TextRequest,
     widgets::{ImageRequest, Rectangle},
 };

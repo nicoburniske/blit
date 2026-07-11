@@ -1,4 +1,4 @@
-use bullseye::{
+use blit::{
     Color, ImageData, ImageFormat, ImageId, PhysicalRect,
     widgets::{ImageRequest, ImageSampling, ImageTiling},
 };

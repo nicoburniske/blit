@@ -1,7 +1,7 @@
 mod platform;
 mod todo;
 
-use bullseye::{Input, Runtime};
+use blit::{Input, Runtime};
 use platform::TestPlatform;
 use todo::TodoApp;
 

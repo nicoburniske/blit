@@ -166,7 +166,7 @@ impl Runtime {
             scale_factor: self.scale_factor,
             dirty,
             invalidated,
-            current_id: WidgetId::new("bullseye root"),
+            current_id: WidgetId::new("blit root"),
             interaction,
         };
         let output = render(&mut ui);

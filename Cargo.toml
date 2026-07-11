@@ -1,5 +1,5 @@
 [package]
-name = "bullseye"
+name = "blit"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
@@ -8,5 +8,5 @@ license = "MIT OR Apache-2.0"
 unicode-segmentation = "1.12"
 
 [workspace]
-members = ["example", "software_renderer"]
+members = ["blit-software", "example"]
 resolver = "3"

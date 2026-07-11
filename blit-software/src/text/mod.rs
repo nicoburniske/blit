@@ -1,7 +1,7 @@
 mod font;
 mod paragraph;
 
-use bullseye::{Color, LogicalPoint, LogicalRect, PhysicalRect, TextRequest};
+use blit::{Color, LogicalPoint, LogicalRect, PhysicalRect, TextRequest};
 
 use crate::{Pixel, PixelSpan, RendererConfig};
 use font::FontCache;

@@ -5,7 +5,7 @@ mod line;
 pub use direct::Direct;
 pub use line::Scanline;
 
-use bullseye::{
+use blit::{
     PhysicalRect, TextRequest,
     widgets::{ImageRequest, Rectangle},
 };

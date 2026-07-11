@@ -1,6 +1,6 @@
 use std::ops::{Add, Mul, Sub};
 
-use bullseye::PhysicalRect;
+use blit::PhysicalRect;
 
 use crate::{Pixel, PremultipliedRgbaColor};
 

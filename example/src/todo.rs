@@ -1,4 +1,4 @@
-use bullseye::{
+use blit::{
     Constraint, Direction, HorizontalAlign, ImageData, ImageFormat, ImagePixels, ImageResource,
     Layout, LogicalInsets, LogicalRect, Text, TextOptions, TextOverflow, Ui, VerticalAlign,
     WidgetId,
@@ -50,7 +50,7 @@ impl TodoApp {
             .area(logo.inset_x(6.0).inset_y(6.0))
             .fit(ImageFit::Contain)
             .render(ui);
-        Text::new("Bullseye Todos")
+        Text::new("Blit Todos")
             .in_area(title)
             .text_size(30.0)
             .color(colors::TEXT)
@@ -243,7 +243,7 @@ fn centered_text() -> TextOptions {
 }
 
 mod colors {
-    use bullseye::Color;
+    use blit::Color;
 
     pub const BACKGROUND: Color = Color::from_rgba8(18, 22, 31, 255);
     pub const PANEL: Color = Color::from_rgba8(23, 28, 39, 255);
