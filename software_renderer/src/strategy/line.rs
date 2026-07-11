@@ -59,8 +59,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         rectangle: &Rectangle,
         clips: &[PhysicalRect],
     ) {
-        if let Some(rectangle) = rectangle::PreparedRectangle::new(rectangle, context.scale_factor)
-        {
+        if let Some(rectangle) = rectangle::Prepared::new(rectangle, context.scale_factor) {
             self.commands.push_rectangle(rectangle, clips);
         }
     }
