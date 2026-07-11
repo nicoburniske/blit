@@ -87,26 +87,26 @@ pub struct TextRequest<'a> {
     pub options: TextOptions,
 }
 
-pub struct Text<'a> {
-    text: &'a str,
-    area: Option<LogicalRect>,
-    position: LogicalPoint,
-    color: Color,
-    style: TextStyle,
-    options: TextOptions,
-    offset_x: f32,
+crate::component! {
+    pub struct Text<'a> {
+        pub text: &'a str,
+        #[skip]
+        pub area: Option<LogicalRect>,
+        #[skip]
+        pub position: LogicalPoint,
+        pub color: Color = Color::BLACK,
+        pub text_style: TextStyle,
+        pub options: TextOptions,
+        pub offset_x: f32,
+    }
+    features: [text_style]
 }
 
 impl<'a> Text<'a> {
     pub fn new(text: &'a str) -> Self {
         Self {
             text,
-            area: None,
-            position: LogicalPoint::default(),
-            color: Color::BLACK,
-            style: TextStyle::default(),
-            options: TextOptions::default(),
-            offset_x: 0.0,
+            ..Self::default()
         }
     }
     pub fn at(mut self, position: LogicalPoint) -> Self {
@@ -117,31 +117,6 @@ impl<'a> Text<'a> {
 
     pub fn in_area(mut self, area: LogicalRect) -> Self {
         self.area = Some(area);
-        self
-    }
-
-    pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
-        self
-    }
-
-    pub fn font(mut self, font: FontId) -> Self {
-        self.style.font = font;
-        self
-    }
-
-    pub fn size(mut self, size: f32) -> Self {
-        self.style.size = size;
-        self
-    }
-
-    pub fn weight(mut self, weight: FontWeight) -> Self {
-        self.style.weight = weight;
-        self
-    }
-
-    pub fn options(mut self, options: TextOptions) -> Self {
-        self.options = options;
         self
     }
 
@@ -167,11 +142,6 @@ impl<'a> Text<'a> {
 
     pub fn max_lines(mut self, max_lines: u16) -> Self {
         self.options.max_lines = Some(max_lines);
-        self
-    }
-
-    pub fn offset_x(mut self, offset: f32) -> Self {
-        self.offset_x = offset.max(0.0);
         self
     }
 
@@ -205,7 +175,7 @@ impl<'a> Text<'a> {
             }),
             offset_x: self.offset_x,
             color: self.color,
-            style: self.style,
+            style: self.text_style,
             options: self.options,
         }
     }

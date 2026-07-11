@@ -496,7 +496,7 @@ mod tests {
             })
             .background(Color::from_rgba8(0, 255, 0, 255))
             .border(2.0, Color::from_rgba8(255, 0, 0, 255))
-            .radius(6.0),
+            .uniform_radius(6.0),
             &[PhysicalRect {
                 x: 0,
                 y: 0,

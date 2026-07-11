@@ -8,57 +8,25 @@ pub struct BorderRadius {
     pub bottom_left: f32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Rectangle {
-    pub area: LogicalRect,
-    pub background: Color,
-    pub border_color: Color,
-    pub border_width: f32,
-    pub radius: BorderRadius,
-    pub opacity: f32,
+crate::component! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Rectangle {
+        pub area: LogicalRect,
+        pub background: Color,
+        pub border_color: Color,
+        pub border_width: f32,
+        pub radius: BorderRadius,
+        pub opacity: f32 = 1.0,
+    }
+    features: [border, radius]
 }
 
 impl Rectangle {
     pub fn new(area: LogicalRect) -> Self {
         Self {
             area,
-            background: Color::TRANSPARENT,
-            border_color: Color::TRANSPARENT,
-            border_width: 0.0,
-            radius: BorderRadius::default(),
-            opacity: 1.0,
+            ..Self::default()
         }
-    }
-
-    pub fn background(mut self, color: Color) -> Self {
-        self.background = color;
-        self
-    }
-
-    pub fn border(mut self, width: f32, color: Color) -> Self {
-        self.border_width = width;
-        self.border_color = color;
-        self
-    }
-
-    pub fn radius(mut self, radius: f32) -> Self {
-        self.radius = BorderRadius {
-            top_left: radius,
-            top_right: radius,
-            bottom_right: radius,
-            bottom_left: radius,
-        };
-        self
-    }
-
-    pub fn border_radius(mut self, radius: BorderRadius) -> Self {
-        self.radius = radius;
-        self
-    }
-
-    pub fn opacity(mut self, opacity: f32) -> Self {
-        self.opacity = opacity.clamp(0.0, 1.0);
-        self
     }
 
     pub fn render(self, ui: &mut Ui) {

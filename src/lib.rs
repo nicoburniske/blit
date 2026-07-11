@@ -1,4 +1,5 @@
 mod color;
+mod component;
 mod keyboard;
 mod layout;
 mod platform;

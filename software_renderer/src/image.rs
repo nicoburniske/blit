@@ -194,7 +194,7 @@ mod tests {
             255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
         ];
         let image = Image::new(ImageData::Rgba8(&pixels), 2, 2)
-            .in_area(LogicalRect {
+            .area(LogicalRect {
                 x: 0.0,
                 y: 0.0,
                 width: 4.0,
