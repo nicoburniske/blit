@@ -66,11 +66,16 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
 
     fn draw_image(
         &mut self,
-        _: &mut RenderContext<B>,
-        image: &ImageRequest,
+        context: &mut RenderContext<B>,
+        request: &ImageRequest,
         clips: &[PhysicalRect],
     ) {
-        self.commands.push_image(*image, clips);
+        let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
+        if let Some(texture) = context.images.get(image)
+            && let Some(image) = image::Prepared::new(request, &texture.data, context.scale_factor)
+        {
+            self.commands.push_image(image, clips);
+        }
     }
 
     fn draw_text(
@@ -92,7 +97,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
     fn end_frame(&mut self, context: &mut RenderContext<B>) {
         let width = context.buffer.width();
         let height = context.buffer.height();
-        let scale_factor = context.scale_factor;
         let commands = &self.commands;
         let images = &context.images;
         let text = &context.text;
@@ -196,13 +200,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 let image =
                                     RendererImageId::from(KeyData::from_ffi(request.image.0));
                                 if let Some(image) = images.get(image) {
-                                    image::draw(
-                                        &mut buffer,
-                                        request,
-                                        &image.data,
-                                        &line_clips[..len],
-                                        scale_factor,
-                                    );
+                                    request.draw(&mut buffer, &image.data, &line_clips[..len]);
                                 }
                             }
                             Payload::Text(text_command) => text.draw_line(

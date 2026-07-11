@@ -5,7 +5,7 @@ mod strategy;
 mod text;
 
 pub use fontdue::{Font, FontSettings};
-pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, VecBuffer};
+pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, VecBuffer};
 pub use strategy::{Direct, RenderStrategy, Scanline};
 
 use pixel::PixelSpan;
