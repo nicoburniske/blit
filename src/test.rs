@@ -31,7 +31,13 @@ impl PlatformImpl for TestPlatform {
 
     fn draw_rectangle(&mut self, _: &widgets::Rectangle, _: &[PhysicalRect]) {}
 
-    fn draw_image(&mut self, _: &widgets::Image<'_>, _: &[PhysicalRect]) {}
+    fn create_image(&mut self, _: ImageData) -> ImageId {
+        ImageId(0)
+    }
+
+    fn drop_image(&mut self, _: ImageId) {}
+
+    fn draw_image(&mut self, _: &widgets::ImageRequest, _: &[PhysicalRect]) {}
 
     fn draw_text(&mut self, _: &TextRequest<'_>, _: &[PhysicalRect]) {}
 

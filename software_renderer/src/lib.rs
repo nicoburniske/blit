@@ -7,10 +7,15 @@ pub use fontdue::{Font, FontSettings};
 pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, VecBuffer};
 
 use bullseye::{
-    FontId, FontWeight, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
-    widgets::{Image, Rectangle},
+    FontId, FontWeight, ImageData, ImageId, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
+    widgets::{ImageRequest, Rectangle},
 };
+use slotmap::{Key, KeyData, SlotMap, new_key_type};
 use text::TextRenderer;
+
+new_key_type! {
+    struct RendererImageId;
+}
 
 pub struct FontFace {
     pub id: FontId,
@@ -41,7 +46,14 @@ impl RendererConfig {
 pub struct Renderer<B: PixelBuffer> {
     buffer: B,
     scale_factor: f32,
+    images: SlotMap<RendererImageId, StoredImage>,
+    has_dead_images: bool,
     text: TextRenderer,
+}
+
+struct StoredImage {
+    data: ImageData,
+    live: bool,
 }
 
 impl<B: PixelBuffer> Renderer<B> {
@@ -49,6 +61,8 @@ impl<B: PixelBuffer> Renderer<B> {
         Self {
             buffer,
             scale_factor: 1.0,
+            images: SlotMap::with_key(),
+            has_dead_images: false,
             text: TextRenderer::new(config),
         }
     }
@@ -76,8 +90,39 @@ impl<B: PixelBuffer> Renderer<B> {
         rectangle::draw(&mut self.buffer, request, clips, self.scale_factor);
     }
 
-    pub fn draw_image(&mut self, image: &Image<'_>, clips: &[PhysicalRect]) {
-        image::draw(&mut self.buffer, image, clips, self.scale_factor);
+    pub fn create_image(&mut self, data: ImageData) -> ImageId {
+        data.validate();
+        let image = self.images.insert(StoredImage { data, live: true });
+        ImageId(image.data().as_ffi())
+    }
+
+    pub fn drop_image(&mut self, image: ImageId) {
+        let image = RendererImageId::from(KeyData::from_ffi(image.0));
+        if let Some(image) = self.images.get_mut(image) {
+            image.live = false;
+            self.has_dead_images = true;
+        }
+    }
+
+    pub fn draw_image(&mut self, request: &ImageRequest, clips: &[PhysicalRect]) {
+        let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
+        if let Some(image) = self.images.get(image) {
+            image::draw(
+                &mut self.buffer,
+                request,
+                &image.data,
+                clips,
+                self.scale_factor,
+            );
+        }
+    }
+
+    pub fn end_frame(&mut self) {
+        if !self.has_dead_images {
+            return;
+        }
+        self.images.retain(|_, image| image.live);
+        self.has_dead_images = false;
     }
 
     pub fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
@@ -229,5 +274,38 @@ mod tests {
         let start = renderer.text_cursor_rect(&request, 0);
         let end = renderer.text_cursor_rect(&request, request.text.len());
         assert!(end.x > start.x);
+    }
+
+    #[test]
+    fn dropped_image_slots_are_reused_after_end_frame() {
+        static PIXEL: [u8; 4] = [255, 255, 255, 255];
+        let font = Font::from_bytes(
+            include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
+            FontSettings::default(),
+        )
+        .unwrap();
+        let mut renderer = Renderer::new(VecBuffer::<u32>::new(1, 1), RendererConfig::new(font));
+        let texture = ImageData::new(
+            bullseye::ImagePixels::Static(&PIXEL),
+            bullseye::ImageFormat::Rgba8,
+            1,
+            1,
+        );
+
+        let first = renderer.create_image(texture);
+        renderer.drop_image(first);
+        let first_key = RendererImageId::from(KeyData::from_ffi(first.0));
+        assert!(renderer.images.contains_key(first_key));
+
+        renderer.end_frame();
+        assert!(!renderer.images.contains_key(first_key));
+
+        let second = renderer.create_image(ImageData::new(
+            bullseye::ImagePixels::Static(&PIXEL),
+            bullseye::ImageFormat::Rgba8,
+            1,
+            1,
+        ));
+        assert_ne!(second, first);
     }
 }

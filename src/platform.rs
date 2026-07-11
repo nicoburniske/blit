@@ -1,8 +1,9 @@
 use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 
 use crate::{
-    KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
-    widgets::{Image, Rectangle},
+    ImageData, ImageId, ImageResource, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect,
+    TextRequest,
+    widgets::{ImageRequest, Rectangle},
 };
 
 pub trait PlatformImpl {
@@ -13,7 +14,9 @@ pub trait PlatformImpl {
         1.0
     }
     fn draw_rectangle(&mut self, rectangle: &Rectangle, clips: &[PhysicalRect]);
-    fn draw_image(&mut self, image: &Image<'_>, clips: &[PhysicalRect]);
+    fn create_image(&mut self, data: ImageData) -> ImageId;
+    fn drop_image(&mut self, image: ImageId);
+    fn draw_image(&mut self, image: &ImageRequest, clips: &[PhysicalRect]);
     // todo: prepare text once when tight measured damage bounds are needed
     fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]);
     fn text_offset_at_position(
@@ -37,7 +40,9 @@ pub struct PlatformVTable {
     screen: unsafe fn(NonNull<()>) -> PhysicalRect,
     scale_factor: unsafe fn(NonNull<()>) -> f32,
     draw_rectangle: unsafe fn(NonNull<()>, &Rectangle, &[PhysicalRect]),
-    draw_image: unsafe fn(NonNull<()>, &Image<'_>, &[PhysicalRect]),
+    create_image: unsafe fn(NonNull<()>, ImageData) -> ImageId,
+    drop_image: unsafe fn(NonNull<()>, ImageId),
+    draw_image: unsafe fn(NonNull<()>, &ImageRequest, &[PhysicalRect]),
     draw_text: unsafe fn(NonNull<()>, &TextRequest<'_>, &[PhysicalRect]),
     text_offset_at_position: unsafe fn(NonNull<()>, &TextRequest<'_>, LogicalPoint) -> usize,
     text_cursor_rect: unsafe fn(NonNull<()>, &TextRequest<'_>, usize) -> LogicalRect,
@@ -53,6 +58,8 @@ fn vtable<T: PlatformImpl>() -> &'static PlatformVTable {
         draw_rectangle: |data, request, clips| {
             unsafe { data.cast::<T>().as_mut() }.draw_rectangle(request, clips)
         },
+        create_image: |data, image| unsafe { data.cast::<T>().as_mut() }.create_image(image),
+        drop_image: |data, image| unsafe { data.cast::<T>().as_mut() }.drop_image(image),
         draw_image: |data, image, clips| {
             unsafe { data.cast::<T>().as_mut() }.draw_image(image, clips)
         },
@@ -102,7 +109,14 @@ impl Platform {
     }
 
     #[inline]
-    pub fn draw_image(&mut self, image: &Image<'_>, clips: &[PhysicalRect]) {
+    pub fn create_image(&mut self, image: ImageData) -> ImageResource {
+        let size = image.size;
+        let id = unsafe { (self.vtable.create_image)(self.data, image) };
+        ImageResource::new(id, size, self.data, self.vtable.drop_image)
+    }
+
+    #[inline]
+    pub fn draw_image(&mut self, image: &ImageRequest, clips: &[PhysicalRect]) {
         unsafe { (self.vtable.draw_image)(self.data, image, clips) }
     }
 

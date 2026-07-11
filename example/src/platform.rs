@@ -1,7 +1,7 @@
 use bullseye::{
-    Input, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect, Platform, PlatformImpl,
-    TextRequest,
-    widgets::{Image, Rectangle},
+    ImageData, ImageId, Input, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect, Platform,
+    PlatformImpl, TextRequest,
+    widgets::{ImageRequest, Rectangle},
 };
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 use software_renderer::{Font, FontSettings, Renderer, RendererConfig, VecBuffer};
@@ -102,6 +102,10 @@ impl TestPlatform {
 }
 
 impl PlatformImpl for TestPlatform {
+    fn end_frame(&mut self) {
+        self.renderer.end_frame()
+    }
+
     fn screen(&mut self) -> PhysicalRect {
         self.renderer.screen()
     }
@@ -114,7 +118,15 @@ impl PlatformImpl for TestPlatform {
         self.renderer.draw_rectangle(rectangle, clips)
     }
 
-    fn draw_image(&mut self, image: &Image<'_>, clips: &[PhysicalRect]) {
+    fn create_image(&mut self, data: ImageData) -> ImageId {
+        self.renderer.create_image(data)
+    }
+
+    fn drop_image(&mut self, image: ImageId) {
+        self.renderer.drop_image(image)
+    }
+
+    fn draw_image(&mut self, image: &ImageRequest, clips: &[PhysicalRect]) {
         self.renderer.draw_image(image, clips)
     }
 

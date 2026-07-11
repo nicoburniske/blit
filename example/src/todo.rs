@@ -1,7 +1,7 @@
 use bullseye::{
-    Constraint, Direction, HorizontalAlign, Layout, LogicalInsets, LogicalRect, Text, TextOptions,
-    TextOverflow, Ui, VerticalAlign,
-    widgets::{Button, Image, ImageData, ImageFit, Rectangle, TextInput},
+    Constraint, Direction, HorizontalAlign, ImageData, ImageFormat, ImagePixels, ImageResource,
+    Layout, LogicalInsets, LogicalRect, Text, TextOptions, TextOverflow, Ui, VerticalAlign,
+    widgets::{Button, Image, ImageFit, Rectangle, TextInput},
 };
 
 struct Todo {
@@ -12,7 +12,8 @@ struct Todo {
 pub struct TodoApp {
     todos: Vec<Todo>,
     input: TextInput,
-    logo: Vec<u8>,
+    logo: Option<ImageResource>,
+    logo_data: Option<ImageData>,
 }
 
 impl TodoApp {
@@ -36,7 +37,14 @@ impl TodoApp {
             .spacing(12.0)
             .constraints([Constraint::Length(64.0), Constraint::Min(0.0)])
             .areas(header);
-        Image::new(ImageData::Rgba8(&self.logo), 48, 48)
+        if self.logo.is_none() {
+            self.logo = Some(
+                ui.platform()
+                    .create_image(self.logo_data.take().expect("logo image data")),
+            );
+        }
+        let logo_resource = self.logo.as_ref().unwrap();
+        Image::new(logo_resource)
             .area(logo.inset_x(6.0).inset_y(6.0))
             .fit(ImageFit::Contain)
             .render(ui);
@@ -202,7 +210,13 @@ impl Default for TodoApp {
                     bottom: 11.0,
                     left: 14.0,
                 }),
-            logo,
+            logo: None,
+            logo_data: Some(ImageData::new(
+                ImagePixels::Owned(logo.into_boxed_slice()),
+                ImageFormat::Rgba8,
+                48,
+                48,
+            )),
         }
     }
 }

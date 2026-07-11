@@ -1,11 +1,4 @@
-use crate::{LogicalRect, LogicalSize, PhysicalRect, SizedComponent, Ui};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ImageData<'a> {
-    Rgb8(&'a [u8]),
-    Rgba8(&'a [u8]),
-    Rgba8Premultiplied(&'a [u8]),
-}
+use crate::{ImageId, ImageResource, LogicalRect, LogicalSize, PhysicalRect, SizedComponent, Ui};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ImageFit {
@@ -22,49 +15,66 @@ pub enum ImageSampling {
     Bilinear,
 }
 
-crate::component! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Image<'a> {
-        pub area: LogicalRect,
-        pub data: ImageData<'a> = ImageData::Rgba8(&[]),
-        pub width: usize,
-        pub height: usize,
-        pub stride_bytes: usize,
-        pub fit: ImageFit,
-        pub sampling: ImageSampling,
-        pub opacity: f32 = 1.0,
-    }
-    features: []
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImageRequest {
+    pub image: ImageId,
+    pub area: LogicalRect,
+    pub fit: ImageFit,
+    pub sampling: ImageSampling,
+    pub opacity: f32,
+}
+
+pub struct Image<'a> {
+    pub resource: &'a ImageResource,
+    pub area: LogicalRect,
+    pub fit: ImageFit,
+    pub sampling: ImageSampling,
+    pub opacity: f32,
 }
 
 impl<'a> Image<'a> {
-    pub fn new(data: ImageData<'a>, width: usize, height: usize) -> Self {
-        let (pixels, bytes_per_pixel) = match data {
-            ImageData::Rgb8(pixels) => (pixels, 3),
-            ImageData::Rgba8(pixels) | ImageData::Rgba8Premultiplied(pixels) => (pixels, 4),
-        };
-        let stride_bytes = width
-            .checked_mul(bytes_per_pixel)
-            .expect("image width is too large");
-        assert!(
-            height
-                .checked_mul(stride_bytes)
-                .is_some_and(|len| len <= pixels.len())
-        );
+    pub fn new(resource: &'a ImageResource) -> Self {
         Self {
-            data,
-            width,
-            height,
-            stride_bytes,
-            ..Self::default()
+            resource,
+            area: LogicalRect::default(),
+            fit: ImageFit::default(),
+            sampling: ImageSampling::default(),
+            opacity: 1.0,
         }
     }
 
+    pub fn area(mut self, area: LogicalRect) -> Self {
+        self.area = area;
+        self
+    }
+
+    pub fn fit(mut self, fit: ImageFit) -> Self {
+        self.fit = fit;
+        self
+    }
+
+    pub fn sampling(mut self, sampling: ImageSampling) -> Self {
+        self.sampling = sampling;
+        self
+    }
+
+    pub fn opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity;
+        self
+    }
+
     pub fn render(self, ui: &mut Ui) {
+        let request = ImageRequest {
+            image: self.resource.id(),
+            area: self.area,
+            fit: self.fit,
+            sampling: self.sampling,
+            opacity: self.opacity,
+        };
         let mut clips = [PhysicalRect::default(); 8];
         let mut clip_count = 0;
         for dirty in ui.dirty.regions() {
-            if let Some(clip) = self
+            if let Some(clip) = request
                 .area
                 .to_physical(ui.scale_factor)
                 .intersection(*dirty)
@@ -75,7 +85,7 @@ impl<'a> Image<'a> {
             }
         }
         if clip_count != 0 {
-            ui.platform().draw_image(&self, &clips[..clip_count]);
+            ui.platform().draw_image(&request, &clips[..clip_count]);
         }
     }
 }
@@ -84,10 +94,11 @@ impl SizedComponent for Image<'_> {
     type Output = ();
 
     fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
-        let height = if self.width == 0 {
+        let size = self.resource.size();
+        let height = if size.width == 0 {
             0.0
         } else {
-            available.width * self.height as f32 / self.width as f32
+            available.width * size.height as f32 / size.width as f32
         }
         .min(available.height);
         LogicalSize {
