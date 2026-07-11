@@ -119,23 +119,26 @@ pub struct Area<'a> {
 }
 
 impl Area<'_> {
-    pub fn add<C: SizedComponent>(&mut self, component: C) -> C::Output {
+    pub fn add<C: SizedComponent>(&mut self, component: C) -> Option<C::Output> {
         let available = LogicalRect {
             x: self.bounds.x,
             y: self.bounds.y + self.cursor - self.offset,
             width: self.bounds.width,
-            height: self.bounds.height,
+            height: f32::INFINITY,
         };
         let size = component.measure(self.ui, available);
+        assert!(size.width.is_finite() && size.width >= 0.0);
+        assert!(size.height.is_finite() && size.height >= 0.0);
         let area = LogicalRect {
             width: size.width.clamp(0.0, available.width),
-            height: size.height.clamp(0.0, available.height),
+            height: size.height,
             ..available
         };
-        let output = component.render(self.ui, area);
         self.cursor += area.height + self.spacing;
         self.count += 1;
-        output
+        area.to_physical(self.ui.scale_factor)
+            .intersection(self.ui.clip)
+            .map(|_| component.render(self.ui, area))
     }
 
     pub fn ui(&mut self) -> &mut Ui {

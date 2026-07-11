@@ -97,7 +97,10 @@ fn scroll_area_advances_by_component_height() {
         let mut area = widgets::ScrollArea::vertical(&mut state)
             .spacing(1.0)
             .begin(ui, viewport);
-        let positions = [area.add(FixedSize(8.0)).y, area.add(FixedSize(8.0)).y];
+        let positions = [
+            area.add(FixedSize(8.0)).unwrap().y,
+            area.add(FixedSize(8.0)).unwrap().y,
+        ];
         area.finish();
         positions
     });
@@ -114,7 +117,10 @@ fn scroll_area_advances_by_component_height() {
             let mut area = widgets::ScrollArea::vertical(&mut state)
                 .spacing(1.0)
                 .begin(ui, viewport);
-            let positions = [area.add(FixedSize(8.0)).y, area.add(FixedSize(8.0)).y];
+            let positions = [
+                area.add(FixedSize(8.0)).unwrap().y,
+                area.add(FixedSize(8.0)).unwrap().y,
+            ];
             area.finish();
             positions
         },
@@ -288,7 +294,29 @@ fn scroll_drag_cancels_button_click() {
         |ui| render(ui, &mut state),
     );
 
-    assert!(!response.clicked());
+    assert!(!response.unwrap().clicked());
+}
+
+#[test]
+fn scroll_area_measures_but_does_not_render_offscreen_components() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut state = widgets::ScrollState::default();
+    let viewport = runtime.screen();
+
+    let third = runtime.render(Input::None, |ui| {
+        let mut area = widgets::ScrollArea::vertical(&mut state)
+            .spacing(1.0)
+            .begin(ui, viewport);
+        assert!(area.add(FixedSize(8.0)).is_some());
+        assert!(area.add(FixedSize(8.0)).is_some());
+        let third = area.add(FixedSize(8.0));
+        area.finish();
+        third
+    });
+
+    assert!(third.is_none());
+    assert_eq!(state.content_height, 26.0);
 }
 
 #[test]
