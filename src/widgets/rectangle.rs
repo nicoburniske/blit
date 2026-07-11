@@ -44,7 +44,7 @@ impl Rectangle {
             }
         }
         if clip_count != 0 {
-            ui.platform.draw_rectangle(&self, &clips[..clip_count]);
+            ui.platform().draw_rectangle(&self, &clips[..clip_count]);
         }
     }
 }

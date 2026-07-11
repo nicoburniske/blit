@@ -7,8 +7,7 @@ pub use fontdue::{Font, FontSettings};
 pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, VecBuffer};
 
 use bullseye::{
-    FontId, FontWeight, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect, Platform,
-    PlatformImpl, TextRequest,
+    FontId, FontWeight, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
     widgets::{Image, Rectangle},
 };
 use text::TextRenderer;
@@ -43,12 +42,6 @@ pub struct Renderer<B: PixelBuffer> {
     buffer: B,
     scale_factor: f32,
     text: TextRenderer,
-    keyboard: Option<KeyboardCallbacks>,
-}
-
-struct KeyboardCallbacks {
-    show: Box<dyn for<'a> FnMut(&KeyboardRequest<'a>)>,
-    hide: Box<dyn FnMut()>,
 }
 
 impl<B: PixelBuffer> Renderer<B> {
@@ -57,7 +50,6 @@ impl<B: PixelBuffer> Renderer<B> {
             buffer,
             scale_factor: 1.0,
             text: TextRenderer::new(config),
-            keyboard: None,
         }
     }
 
@@ -67,32 +59,7 @@ impl<B: PixelBuffer> Renderer<B> {
         self
     }
 
-    pub fn buffer(&self) -> &B {
-        &self.buffer
-    }
-
-    pub fn buffer_mut(&mut self) -> &mut B {
-        &mut self.buffer
-    }
-
-    pub fn set_keyboard_callbacks(
-        &mut self,
-        show: impl for<'a> FnMut(&KeyboardRequest<'a>) + 'static,
-        hide: impl FnMut() + 'static,
-    ) {
-        self.keyboard = Some(KeyboardCallbacks {
-            show: Box::new(show),
-            hide: Box::new(hide),
-        });
-    }
-
-    pub fn handle(&mut self) -> Platform {
-        unsafe { Platform::new(self) }
-    }
-}
-
-impl<B: PixelBuffer> PlatformImpl for Renderer<B> {
-    fn screen(&mut self) -> PhysicalRect {
+    pub fn screen(&self) -> PhysicalRect {
         PhysicalRect {
             x: 0,
             y: 0,
@@ -101,24 +68,24 @@ impl<B: PixelBuffer> PlatformImpl for Renderer<B> {
         }
     }
 
-    fn scale_factor(&mut self) -> f32 {
+    pub fn scale_factor(&self) -> f32 {
         self.scale_factor
     }
 
-    fn draw_rectangle(&mut self, request: &Rectangle, clips: &[PhysicalRect]) {
+    pub fn draw_rectangle(&mut self, request: &Rectangle, clips: &[PhysicalRect]) {
         rectangle::draw(&mut self.buffer, request, clips, self.scale_factor);
     }
 
-    fn draw_image(&mut self, image: &Image<'_>, clips: &[PhysicalRect]) {
+    pub fn draw_image(&mut self, image: &Image<'_>, clips: &[PhysicalRect]) {
         image::draw(&mut self.buffer, image, clips, self.scale_factor);
     }
 
-    fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
+    pub fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
         self.text
             .draw(&mut self.buffer, request, clips, self.scale_factor);
     }
 
-    fn text_offset_at_position(
+    pub fn text_offset_at_position(
         &mut self,
         request: &TextRequest<'_>,
         position: LogicalPoint,
@@ -127,21 +94,21 @@ impl<B: PixelBuffer> PlatformImpl for Renderer<B> {
             .offset_at_position(request, position, self.scale_factor)
     }
 
-    fn text_cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect {
+    pub fn text_cursor_rect(
+        &mut self,
+        request: &TextRequest<'_>,
+        byte_offset: usize,
+    ) -> LogicalRect {
         self.text
             .cursor_rect(request, byte_offset, self.scale_factor)
     }
 
-    fn show_keyboard(&mut self, request: &KeyboardRequest<'_>) {
-        if let Some(keyboard) = &mut self.keyboard {
-            (keyboard.show)(request);
-        }
+    pub fn buffer(&self) -> &B {
+        &self.buffer
     }
 
-    fn hide_keyboard(&mut self) {
-        if let Some(keyboard) = &mut self.keyboard {
-            (keyboard.hide)();
-        }
+    pub fn buffer_mut(&mut self) -> &mut B {
+        &mut self.buffer
     }
 }
 

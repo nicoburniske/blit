@@ -9,6 +9,8 @@ mod test;
 mod text;
 pub mod widgets;
 
+use std::ptr::NonNull;
+
 pub use color::Color;
 pub use component::SizedComponent;
 pub use keyboard::{KeyboardKind, KeyboardRequest};
@@ -116,11 +118,10 @@ pub struct Runtime {
     scale_factor: f32,
     pending: DirtyRegions,
     previous: DirtyRegions,
-    keyboard_visible: bool,
 }
 
 impl Runtime {
-    pub fn new(platform: Platform) -> Self {
+    pub fn new(mut platform: Platform) -> Self {
         let physical_screen = platform.screen();
         let scale_factor = platform.scale_factor();
         assert!(scale_factor.is_finite() && scale_factor > 0.0);
@@ -134,7 +135,6 @@ impl Runtime {
             scale_factor,
             pending,
             previous: DirtyRegions::default(),
-            keyboard_visible: false,
         }
     }
 
@@ -143,24 +143,19 @@ impl Runtime {
         let mut dirty = std::mem::take(&mut self.previous);
         dirty.extend(&pending);
         self.previous = pending;
+        self.platform.begin_frame();
         let mut ui = Ui {
-            platform: self.platform,
+            platform: NonNull::from(&mut self.platform),
             input,
             screen: self.screen,
             clip: self.physical_screen,
             scale_factor: self.scale_factor,
             dirty,
             invalidated: DirtyRegions::default(),
-            keyboard_requested: false,
         };
         let output = render(&mut ui);
-        if ui.keyboard_requested {
-            self.keyboard_visible = true;
-        } else if self.keyboard_visible {
-            self.platform.hide_keyboard();
-            self.keyboard_visible = false;
-        }
         self.pending = ui.invalidated;
+        self.platform.end_frame();
         output
     }
 
@@ -187,17 +182,20 @@ impl Runtime {
 }
 
 pub struct Ui {
-    pub(crate) platform: Platform,
+    platform: NonNull<Platform>,
     input: Input,
     screen: LogicalRect,
     pub(crate) clip: PhysicalRect,
     scale_factor: f32,
     dirty: DirtyRegions,
     invalidated: DirtyRegions,
-    keyboard_requested: bool,
 }
 
 impl Ui {
+    pub fn platform(&mut self) -> &mut Platform {
+        unsafe { self.platform.as_mut() }
+    }
+
     pub fn screen(&self) -> LogicalRect {
         self.screen
     }
@@ -225,26 +223,5 @@ impl Ui {
 
     pub fn invalidate_all(&mut self) {
         self.invalidated.add(self.clip)
-    }
-
-    pub fn show_keyboard(&mut self, request: &KeyboardRequest<'_>) {
-        self.keyboard_requested = true;
-        self.platform.show_keyboard(request);
-    }
-
-    pub fn text_offset_at_position(
-        &mut self,
-        request: &TextRequest<'_>,
-        position: LogicalPoint,
-    ) -> usize {
-        self.platform.text_offset_at_position(request, position)
-    }
-
-    pub fn text_cursor_rect(
-        &mut self,
-        request: &TextRequest<'_>,
-        byte_offset: usize,
-    ) -> LogicalRect {
-        self.platform.text_cursor_rect(request, byte_offset)
     }
 }

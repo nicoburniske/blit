@@ -64,7 +64,9 @@ impl TextInput {
             Input::PointerDown { position } => {
                 self.focused = area.contains(position.x, position.y);
                 if self.focused {
-                    self.cursor = ui.text_offset_at_position(&self.request(inner), position);
+                    self.cursor = ui
+                        .platform()
+                        .text_offset_at_position(&self.request(inner), position);
                     self.anchor = self.cursor;
                 }
             }
@@ -132,7 +134,9 @@ impl TextInput {
             _ => {}
         }
 
-        let cursor = ui.text_cursor_rect(&self.request(inner), self.cursor);
+        let cursor = ui
+            .platform()
+            .text_cursor_rect(&self.request(inner), self.cursor);
         if cursor.x < inner.x {
             self.scroll_x = (self.scroll_x - (inner.x - cursor.x)).max(0.0);
         } else if cursor.x + self.cursor_width > inner.x + inner.width {
@@ -168,8 +172,12 @@ impl TextInput {
 
         let request = self.request(inner);
         if self.cursor != self.anchor {
-            let start = ui.text_cursor_rect(&request, self.cursor.min(self.anchor));
-            let end = ui.text_cursor_rect(&request, self.cursor.max(self.anchor));
+            let start = ui
+                .platform()
+                .text_cursor_rect(&request, self.cursor.min(self.anchor));
+            let end = ui
+                .platform()
+                .text_cursor_rect(&request, self.cursor.max(self.anchor));
             let left = start.x.max(inner.x);
             let right = end.x.min(inner.x + inner.width);
             let top = start.y.max(inner.y);
@@ -197,7 +205,7 @@ impl TextInput {
             .render(ui);
 
         if self.focused {
-            let cursor = ui.text_cursor_rect(&request, self.cursor);
+            let cursor = ui.platform().text_cursor_rect(&request, self.cursor);
             let x = cursor.x.clamp(
                 inner.x,
                 (inner.x + inner.width - self.cursor_width).max(inner.x),
@@ -214,7 +222,7 @@ impl TextInput {
                 .background(self.cursor_color)
                 .render(ui);
             }
-            ui.show_keyboard(&KeyboardRequest {
+            ui.platform().show_keyboard(&KeyboardRequest {
                 kind: self.keyboard_kind,
                 request_caps: self.request_caps,
                 accept_button_text: &self.accept_button_text,

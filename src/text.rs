@@ -164,7 +164,7 @@ impl<'a> Text<'a> {
             }
         }
         if clip_count != 0 {
-            ui.platform.draw_text(&request, &clips[..clip_count]);
+            ui.platform().draw_text(&request, &clips[..clip_count]);
         }
     }
 
@@ -201,7 +201,7 @@ impl SizedComponent for Text<'_> {
             options,
             intrinsic_height: true,
         };
-        let cursor = ui.text_cursor_rect(&request, self.text.len());
+        let cursor = ui.platform().text_cursor_rect(&request, self.text.len());
         let height = (cursor.y + cursor.height - available.y)
             .max(self.text_style.size)
             .min(available.height);
