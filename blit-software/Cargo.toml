@@ -1,11 +1,11 @@
 [package]
-name = "software_renderer"
+name = "blit-software"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
 [dependencies]
-bullseye = { path = ".." }
+blit = { path = ".." }
 clru = "0.6"
 fontdue = "0.9"
 slotmap = "1"

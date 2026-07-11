@@ -1,6 +1,6 @@
 use std::{collections::hash_map::RandomState, num::NonZeroUsize};
 
-use bullseye::{FontId, FontWeight};
+use blit::{FontId, FontWeight};
 use clru::{CLruCache, CLruCacheConfig, WeightScale};
 use fontdue::{Metrics, layout::GlyphRasterConfig};
 

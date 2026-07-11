@@ -1,6 +1,6 @@
 use std::{mem::MaybeUninit, slice};
 
-use bullseye::{Color, PhysicalRect};
+use blit::{Color, PhysicalRect};
 
 use crate::{image::Prepared as PreparedImage, rectangle::Prepared as PreparedRectangle};
 

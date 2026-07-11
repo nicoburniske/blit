@@ -1,10 +1,10 @@
-use bullseye::{
-    ImageData, ImageId, Input, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect, Platform,
-    PlatformImpl, TextRequest,
+use blit::{
+    FontId, FontWeight, ImageData, ImageId, Input, KeyboardRequest, LogicalPoint, LogicalRect,
+    PhysicalRect, Platform, PlatformImpl, TextRequest,
     widgets::{ImageRequest, Rectangle},
 };
+use blit_software::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
-use software_renderer::{Font, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -22,8 +22,7 @@ pub struct TestPlatform {
 
 impl TestPlatform {
     pub fn new(width: usize, height: usize) -> Self {
-        let mut window =
-            Window::new("Bullseye Todo", width, height, WindowOptions::default()).unwrap();
+        let mut window = Window::new("Blit Todo", width, height, WindowOptions::default()).unwrap();
         window.set_target_fps(60);
         let characters = Arc::new(Mutex::new(VecDeque::new()));
         window.set_input_callback(Box::new(TextInputCharacters {
@@ -33,13 +32,19 @@ impl TestPlatform {
             window,
             renderer: Renderer::new(
                 VecBuffer::new(width, height),
-                RendererConfig::new(
-                    Font::from_bytes(
-                        include_bytes!("../assets/Montserrat-Regular.ttf") as &[u8],
-                        FontSettings::default(),
-                    )
-                    .unwrap(),
-                ),
+                RendererConfig {
+                    fonts: vec![FontFace {
+                        id: FontId::default(),
+                        weight: FontWeight::Normal,
+                        font: Font::from_bytes(
+                            include_bytes!("../assets/Montserrat-Regular.ttf") as &[u8],
+                            FontSettings::default(),
+                        )
+                        .unwrap(),
+                    }],
+                    glyph_cache_capacity: 1024 * 1024,
+                    paragraph_cache_capacity: 1024 * 1024,
+                },
             )
             .strategy(Scanline::default()),
             width,

@@ -2,7 +2,7 @@ mod prepared;
 
 pub use prepared::Prepared;
 
-use bullseye::{
+use blit::{
     ImageData, PhysicalRect,
     widgets::{ImageFit, ImageRequest, ImageTiling},
 };
@@ -197,7 +197,7 @@ fn fit_borders(first: i32, second: i32, available: i32) -> (i32, i32) {
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use bullseye::{
+    use blit::{
         ImageFormat, ImageId, ImagePixels, LogicalRect,
         widgets::{ImageFit, ImageSampling, ImageTiling, NineSlice},
     };

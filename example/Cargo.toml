@@ -1,10 +1,10 @@
 [package]
-name = "bullseye-example"
+name = "blit-example"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
 [dependencies]
-bullseye = { path = ".." }
+blit = { path = ".." }
 minifb = "0.28.0"
-software_renderer = { path = "../software_renderer" }
+blit-software = { path = "../blit-software" }

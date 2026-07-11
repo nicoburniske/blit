@@ -1,4 +1,4 @@
-use bullseye::{PhysicalRect, widgets::Rectangle};
+use blit::{PhysicalRect, widgets::Rectangle};
 
 use crate::{Pixel, PixelSpan, PremultipliedRgbaColor};
 

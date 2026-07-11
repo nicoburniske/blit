@@ -1,4 +1,4 @@
-use bullseye::Color;
+use blit::Color;
 use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

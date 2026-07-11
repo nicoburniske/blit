@@ -20,7 +20,7 @@ impl WidgetId {
     }
 
     pub fn unique() -> Self {
-        Self::new(("bullseye widget", NEXT_ID.fetch_add(1, Ordering::Relaxed)))
+        Self::new(("blit widget", NEXT_ID.fetch_add(1, Ordering::Relaxed)))
     }
 
     pub fn child(self, source: impl Hash) -> Self {

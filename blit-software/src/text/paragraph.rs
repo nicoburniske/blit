@@ -5,7 +5,7 @@ use std::{
     num::NonZeroUsize,
 };
 
-use bullseye::{
+use blit::{
     FontId, FontWeight, HorizontalAlign, TextOverflow, TextRequest, TextWrap, VerticalAlign,
 };
 use clru::{CLruCache, CLruCacheConfig, WeightScale};
@@ -154,7 +154,7 @@ impl ParagraphCache {
         &mut self,
         key: ParagraphKey,
         request: &TextRequest<'_>,
-        area: bullseye::PhysicalRect,
+        area: blit::PhysicalRect,
         scale_factor: f32,
         fonts: &mut FontCache,
     ) -> Result<&Paragraph, Paragraph> {
@@ -397,7 +397,7 @@ impl ParagraphCache {
 
 #[cfg(test)]
 mod tests {
-    use bullseye::{
+    use blit::{
         Color, FontId, FontWeight, LogicalRect, TextOptions, TextOverflow, TextRequest, TextStyle,
     };
 
