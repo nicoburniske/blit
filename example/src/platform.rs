@@ -1,5 +1,6 @@
 use bullseye::{
-    Input, LogicalPoint, PhysicalRect, Platform, PlatformImpl, TextRequest, widgets::Rectangle,
+    Input, LogicalPoint, PhysicalRect, Platform, PlatformImpl, TextRequest,
+    widgets::{Image, Rectangle},
 };
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 use software_renderer::{Font, FontSettings, Renderer, RendererConfig, VecBuffer};
@@ -95,6 +96,10 @@ impl PlatformImpl for TestPlatform {
 
     fn draw_rectangle(&mut self, rectangle: &Rectangle, clips: &[PhysicalRect]) {
         self.renderer.draw_rectangle(rectangle, clips)
+    }
+
+    fn draw_image(&mut self, image: &Image<'_>, clips: &[PhysicalRect]) {
+        self.renderer.draw_image(image, clips)
     }
 
     fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {

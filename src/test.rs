@@ -14,6 +14,8 @@ impl PlatformImpl for TestPlatform {
 
     fn draw_rectangle(&mut self, _: &widgets::Rectangle, _: &[PhysicalRect]) {}
 
+    fn draw_image(&mut self, _: &widgets::Image<'_>, _: &[PhysicalRect]) {}
+
     fn draw_text(&mut self, _: &TextRequest<'_>, _: &[PhysicalRect]) {}
 }
 
