@@ -206,17 +206,6 @@ impl Ui {
         &self.input
     }
 
-    pub(crate) fn clip<R>(&mut self, area: LogicalRect, render: impl FnOnce(&mut Self) -> R) -> R {
-        let previous = self.clip;
-        self.clip = area
-            .to_physical(self.scale_factor)
-            .intersection(previous)
-            .unwrap_or_default();
-        let output = render(self);
-        self.clip = previous;
-        output
-    }
-
     pub fn invalidate(&mut self, area: LogicalRect) {
         if let Some(area) = area.to_physical(self.scale_factor).intersection(self.clip) {
             self.invalidated.add(area)

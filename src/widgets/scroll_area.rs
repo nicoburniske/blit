@@ -1,5 +1,3 @@
-use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
-
 use crate::{Input, LogicalInsets, LogicalRect, SizedComponent, Ui};
 
 #[derive(Debug, Default)]
@@ -44,12 +42,10 @@ impl<'a> ScrollArea<'a> {
         self
     }
 
-    pub fn show<R>(
-        self,
-        ui: &mut Ui,
-        viewport: LogicalRect,
-        content: impl FnOnce(&mut Area) -> R,
-    ) -> R {
+    pub fn begin<'ui>(self, ui: &'ui mut Ui, viewport: LogicalRect) -> Area<'ui>
+    where
+        'a: 'ui,
+    {
         let before = self.state.offset;
         match ui.input().clone() {
             Input::PointerDown { position } if viewport.contains(position.x, position.y) => {
@@ -76,44 +72,42 @@ impl<'a> ScrollArea<'a> {
         }
 
         let bounds = viewport.inset(self.padding);
-        let (output, used_height) = ui.clip(viewport, |ui| {
-            let mut area = Area {
-                ui: NonNull::from(ui),
-                bounds,
-                offset: self.state.offset,
-                spacing: self.spacing,
-                cursor: 0.0,
-                count: 0,
-                not_send_or_sync: PhantomData,
-            };
-            let output = content(&mut area);
-            (output, area.used_height())
-        });
+        let offset = self.state.offset;
+        let previous_clip = ui.clip;
+        ui.clip = viewport
+            .to_physical(ui.scale_factor)
+            .intersection(previous_clip)
+            .unwrap_or_default();
 
-        self.state.content_height = self.padding.top + used_height + self.padding.bottom;
-        let clamped = self
-            .state
-            .offset
-            .clamp(0.0, self.state.maximum_offset(viewport.height));
-        if clamped != self.state.offset {
-            self.state.offset = clamped;
-            ui.invalidate(viewport);
+        Area {
+            ui,
+            state: self.state,
+            viewport,
+            bounds,
+            padding: self.padding,
+            offset,
+            spacing: self.spacing,
+            cursor: 0.0,
+            count: 0,
+            previous_clip,
         }
-        output
     }
 }
 
-pub struct Area {
-    ui: NonNull<Ui>,
+pub struct Area<'a> {
+    ui: &'a mut Ui,
+    state: &'a mut ScrollState,
+    viewport: LogicalRect,
     bounds: LogicalRect,
+    padding: LogicalInsets,
     offset: f32,
     spacing: f32,
     cursor: f32,
     count: usize,
-    not_send_or_sync: PhantomData<Rc<()>>,
+    previous_clip: crate::PhysicalRect,
 }
 
-impl Area {
+impl Area<'_> {
     pub fn add<C: SizedComponent>(&mut self, component: C) -> C::Output {
         let available = LogicalRect {
             x: self.bounds.x,
@@ -121,23 +115,43 @@ impl Area {
             width: self.bounds.width,
             height: self.bounds.height,
         };
-        let size = component.measure(unsafe { self.ui.as_mut() }, available);
+        let size = component.measure(self.ui, available);
         let area = LogicalRect {
             width: size.width.clamp(0.0, available.width),
             height: size.height.clamp(0.0, available.height),
             ..available
         };
-        let output = component.render(unsafe { self.ui.as_mut() }, area);
+        let output = component.render(self.ui, area);
         self.cursor += area.height + self.spacing;
         self.count += 1;
         output
     }
 
-    fn used_height(&self) -> f32 {
-        if self.count == 0 {
+    pub fn ui(&mut self) -> &mut Ui {
+        self.ui
+    }
+
+    pub fn finish(self) {
+        drop(self)
+    }
+}
+
+impl Drop for Area<'_> {
+    fn drop(&mut self) {
+        let used_height = if self.count == 0 {
             0.0
         } else {
             self.cursor - self.spacing
+        };
+        self.state.content_height = self.padding.top + used_height + self.padding.bottom;
+        let clamped = self
+            .state
+            .offset
+            .clamp(0.0, self.state.maximum_offset(self.viewport.height));
+        if clamped != self.state.offset {
+            self.state.offset = clamped;
+            self.ui.invalidate(self.viewport);
         }
+        self.ui.clip = self.previous_clip;
     }
 }
