@@ -26,6 +26,12 @@ pub struct Paragraph {
     text: Box<str>,
 }
 
+impl Paragraph {
+    pub(super) fn matches(&self, text: &str) -> bool {
+        self.text.as_ref() == text
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Caret {
     pub byte_offset: usize,
@@ -35,7 +41,7 @@ pub struct Caret {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct ParagraphKey {
+pub(super) struct ParagraphKey {
     text_hash: u64,
     text_len: usize,
     width: i32,
@@ -86,10 +92,43 @@ impl ParagraphCache {
         scale_factor: f32,
         fonts: &mut FontCache,
     ) -> Result<&Paragraph, Paragraph> {
+        let key = Self::key(request, scale_factor);
+        let area = request.area.to_physical(scale_factor);
+        let cached = self
+            .cache
+            .peek(&key)
+            .is_some_and(|paragraph| paragraph.text.as_ref() == request.text);
+        if cached {
+            return Ok(self.cache.get(&key).unwrap());
+        }
+
+        self.create(key, request, area, scale_factor, fonts)
+    }
+
+    pub fn take(
+        &mut self,
+        request: &TextRequest<'_>,
+        scale_factor: f32,
+        fonts: &mut FontCache,
+    ) -> (ParagraphKey, Paragraph) {
+        let key = Self::key(request, scale_factor);
+        let paragraph = self.get(request, scale_factor, fonts);
+        let paragraph = match paragraph {
+            Ok(_) => self.cache.pop(&key).unwrap(),
+            Err(paragraph) => paragraph,
+        };
+        (key, paragraph)
+    }
+
+    pub fn restore(&mut self, key: ParagraphKey, paragraph: Paragraph) {
+        let _ = self.cache.put_with_weight(key, paragraph);
+    }
+
+    pub(super) fn key(request: &TextRequest<'_>, scale_factor: f32) -> ParagraphKey {
         let area = request.area.to_physical(scale_factor);
         let mut hasher = DefaultHasher::new();
         request.text.hash(&mut hasher);
-        let key = ParagraphKey {
+        ParagraphKey {
             text_hash: hasher.finish(),
             text_len: request.text.len(),
             width: area.width,
@@ -108,15 +147,17 @@ impl ParagraphCache {
             vertical_align: request.options.vertical_align,
             max_lines: request.options.max_lines,
             intrinsic_height: request.intrinsic_height,
-        };
-        let cached = self
-            .cache
-            .peek(&key)
-            .is_some_and(|paragraph| paragraph.text.as_ref() == request.text);
-        if cached {
-            return Ok(self.cache.get(&key).unwrap());
         }
+    }
 
+    fn create(
+        &mut self,
+        key: ParagraphKey,
+        request: &TextRequest<'_>,
+        area: bullseye::PhysicalRect,
+        scale_factor: f32,
+        fonts: &mut FontCache,
+    ) -> Result<&Paragraph, Paragraph> {
         let Some(font) = fonts.font(request.style.font, request.style.weight) else {
             let paragraph = Paragraph {
                 x: 0,

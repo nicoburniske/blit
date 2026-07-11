@@ -4,7 +4,7 @@ use bullseye::{
     widgets::{ImageRequest, Rectangle},
 };
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
-use software_renderer::{Font, FontSettings, Renderer, RendererConfig, VecBuffer};
+use software_renderer::{Font, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -12,7 +12,7 @@ use std::{
 
 pub struct TestPlatform {
     window: Window,
-    renderer: Renderer<VecBuffer<u32>>,
+    renderer: Renderer<VecBuffer<u32>, Scanline>,
     width: usize,
     height: usize,
     mouse_down: bool,
@@ -39,7 +39,8 @@ impl TestPlatform {
                     )
                     .unwrap(),
                 ),
-            ),
+            )
+            .strategy(Scanline::default()),
             width,
             height,
             mouse_down: false,
@@ -102,6 +103,10 @@ impl TestPlatform {
 }
 
 impl PlatformImpl for TestPlatform {
+    fn begin_frame(&mut self) {
+        self.renderer.begin_frame()
+    }
+
     fn end_frame(&mut self) {
         self.renderer.end_frame()
     }

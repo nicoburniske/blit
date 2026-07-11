@@ -1,10 +1,12 @@
 mod image;
 mod pixel;
 mod rectangle;
+mod strategy;
 mod text;
 
 pub use fontdue::{Font, FontSettings};
 pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, VecBuffer};
+pub use strategy::{Direct, RenderStrategy, Scanline};
 
 use bullseye::{
     FontId, FontWeight, ImageData, ImageId, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
@@ -43,7 +45,13 @@ impl RendererConfig {
     }
 }
 
-pub struct Renderer<B: PixelBuffer> {
+pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
+    context: RenderContext<B>,
+    strategy: S,
+}
+
+#[doc(hidden)]
+pub struct RenderContext<B: PixelBuffer> {
     buffer: B,
     scale_factor: f32,
     images: SlotMap<RendererImageId, StoredImage>,
@@ -56,20 +64,32 @@ struct StoredImage {
     live: bool,
 }
 
-impl<B: PixelBuffer> Renderer<B> {
+impl<B: PixelBuffer> Renderer<B, Direct> {
     pub fn new(buffer: B, config: RendererConfig) -> Self {
         Self {
-            buffer,
-            scale_factor: 1.0,
-            images: SlotMap::with_key(),
-            has_dead_images: false,
-            text: TextRenderer::new(config),
+            context: RenderContext {
+                buffer,
+                scale_factor: 1.0,
+                images: SlotMap::with_key(),
+                has_dead_images: false,
+                text: TextRenderer::new(config),
+            },
+            strategy: Direct,
         }
     }
 
+    pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T> {
+        Renderer {
+            context: self.context,
+            strategy,
+        }
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     pub fn with_scale_factor(mut self, scale_factor: f32) -> Self {
         assert!(scale_factor.is_finite() && scale_factor > 0.0);
-        self.scale_factor = scale_factor;
+        self.context.scale_factor = scale_factor;
         self
     }
 
@@ -77,57 +97,49 @@ impl<B: PixelBuffer> Renderer<B> {
         PhysicalRect {
             x: 0,
             y: 0,
-            width: self.buffer.width() as i32,
-            height: self.buffer.height() as i32,
+            width: self.context.buffer.width() as i32,
+            height: self.context.buffer.height() as i32,
         }
     }
 
     pub fn scale_factor(&self) -> f32 {
-        self.scale_factor
+        self.context.scale_factor
+    }
+
+    pub fn begin_frame(&mut self) {
+        self.strategy.begin_frame(&mut self.context)
     }
 
     pub fn draw_rectangle(&mut self, request: &Rectangle, clips: &[PhysicalRect]) {
-        rectangle::draw(&mut self.buffer, request, clips, self.scale_factor);
+        self.strategy
+            .draw_rectangle(&mut self.context, request, clips)
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageId {
         data.validate();
-        let image = self.images.insert(StoredImage { data, live: true });
+        let image = self.context.images.insert(StoredImage { data, live: true });
         ImageId(image.data().as_ffi())
     }
 
     pub fn drop_image(&mut self, image: ImageId) {
         let image = RendererImageId::from(KeyData::from_ffi(image.0));
-        if let Some(image) = self.images.get_mut(image) {
+        if let Some(image) = self.context.images.get_mut(image) {
             image.live = false;
-            self.has_dead_images = true;
+            self.context.has_dead_images = true;
         }
     }
 
     pub fn draw_image(&mut self, request: &ImageRequest, clips: &[PhysicalRect]) {
-        let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
-        if let Some(image) = self.images.get(image) {
-            image::draw(
-                &mut self.buffer,
-                request,
-                &image.data,
-                clips,
-                self.scale_factor,
-            );
-        }
+        self.strategy.draw_image(&mut self.context, request, clips)
     }
 
     pub fn end_frame(&mut self) {
-        if !self.has_dead_images {
-            return;
-        }
-        self.images.retain(|_, image| image.live);
-        self.has_dead_images = false;
+        self.strategy.end_frame(&mut self.context);
+        self.context.finish_frame();
     }
 
     pub fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
-        self.text
-            .draw(&mut self.buffer, request, clips, self.scale_factor);
+        self.strategy.draw_text(&mut self.context, request, clips)
     }
 
     pub fn text_offset_at_position(
@@ -135,8 +147,9 @@ impl<B: PixelBuffer> Renderer<B> {
         request: &TextRequest<'_>,
         position: LogicalPoint,
     ) -> usize {
-        self.text
-            .offset_at_position(request, position, self.scale_factor)
+        self.context
+            .text
+            .offset_at_position(request, position, self.context.scale_factor)
     }
 
     pub fn text_cursor_rect(
@@ -144,16 +157,27 @@ impl<B: PixelBuffer> Renderer<B> {
         request: &TextRequest<'_>,
         byte_offset: usize,
     ) -> LogicalRect {
-        self.text
-            .cursor_rect(request, byte_offset, self.scale_factor)
+        self.context
+            .text
+            .cursor_rect(request, byte_offset, self.context.scale_factor)
     }
 
     pub fn buffer(&self) -> &B {
-        &self.buffer
+        &self.context.buffer
     }
 
     pub fn buffer_mut(&mut self) -> &mut B {
-        &mut self.buffer
+        &mut self.context.buffer
+    }
+}
+
+impl<B: PixelBuffer> RenderContext<B> {
+    fn finish_frame(&mut self) {
+        self.text.finish_frame();
+        if self.has_dead_images {
+            self.images.retain(|_, image| image.live);
+            self.has_dead_images = false;
+        }
     }
 }
 
@@ -161,9 +185,10 @@ impl<B: PixelBuffer> Renderer<B> {
 mod tests {
     use super::*;
     use bullseye::{
-        Color, LogicalRect, TextOptions, TextStyle,
-        widgets::{BorderRadius, Rectangle},
+        Color, ImageFormat, ImagePixels, LogicalRect, TextOptions, TextStyle,
+        widgets::{BorderRadius, ImageFit, ImageRequest, ImageSampling, Rectangle},
     };
+    use std::ops::Range;
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     #[repr(C)]
@@ -183,6 +208,41 @@ mod tests {
 
         fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
             Self { blue, green, red }
+        }
+    }
+
+    struct TrackingBuffer {
+        pixels: Vec<u32>,
+        lines: Vec<usize>,
+        width: usize,
+        height: usize,
+    }
+
+    impl PixelBuffer for TrackingBuffer {
+        type Pixel = u32;
+
+        fn width(&self) -> usize {
+            self.width
+        }
+
+        fn height(&self) -> usize {
+            self.height
+        }
+
+        fn line_mut(&mut self, line: usize) -> &mut [u32] {
+            let start = line * self.width;
+            &mut self.pixels[start..start + self.width]
+        }
+
+        fn process_line(
+            &mut self,
+            line: usize,
+            range: Range<usize>,
+            process: impl FnOnce(&mut [u32]),
+        ) {
+            self.lines.push(line);
+            let start = line * self.width;
+            process(&mut self.pixels[start + range.start..start + range.end]);
         }
     }
 
@@ -219,6 +279,7 @@ mod tests {
             },
             &[clip],
         );
+        renderer.end_frame();
         assert_eq!(
             renderer.buffer().pixels()[0],
             BgrPixel {
@@ -245,6 +306,7 @@ mod tests {
             },
             &[clip],
         );
+        renderer.end_frame();
         assert!(
             renderer
                 .buffer()
@@ -295,10 +357,10 @@ mod tests {
         let first = renderer.create_image(texture);
         renderer.drop_image(first);
         let first_key = RendererImageId::from(KeyData::from_ffi(first.0));
-        assert!(renderer.images.contains_key(first_key));
+        assert!(renderer.context.images.contains_key(first_key));
 
         renderer.end_frame();
-        assert!(!renderer.images.contains_key(first_key));
+        assert!(!renderer.context.images.contains_key(first_key));
 
         let second = renderer.create_image(ImageData::new(
             bullseye::ImagePixels::Static(&PIXEL),
@@ -307,5 +369,133 @@ mod tests {
             1,
         ));
         assert_ne!(second, first);
+    }
+
+    #[test]
+    fn frame_is_rendered_once_per_affected_line_in_order() {
+        let font = Font::from_bytes(
+            include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
+            FontSettings::default(),
+        )
+        .unwrap();
+        let mut renderer = Renderer::new(
+            TrackingBuffer {
+                pixels: vec![0; 16],
+                lines: Vec::new(),
+                width: 4,
+                height: 4,
+            },
+            RendererConfig::new(font),
+        )
+        .strategy(Scanline::default());
+        renderer.draw_rectangle(
+            &Rectangle::new(LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 4.0,
+                height: 4.0,
+            })
+            .background(Color::WHITE),
+            &[
+                PhysicalRect {
+                    x: 0,
+                    y: 2,
+                    width: 4,
+                    height: 1,
+                },
+                PhysicalRect {
+                    x: 0,
+                    y: 0,
+                    width: 4,
+                    height: 1,
+                },
+            ],
+        );
+        renderer.end_frame();
+
+        assert_eq!(renderer.buffer().lines, [0, 2]);
+    }
+
+    #[test]
+    fn dropped_image_remains_valid_until_frame_end() {
+        static PIXEL: [u8; 4] = [255, 0, 0, 255];
+        let font = Font::from_bytes(
+            include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
+            FontSettings::default(),
+        )
+        .unwrap();
+        let mut renderer = Renderer::new(VecBuffer::<u32>::new(1, 1), RendererConfig::new(font))
+            .strategy(Scanline::default());
+        let image = renderer.create_image(ImageData::new(
+            ImagePixels::Static(&PIXEL),
+            ImageFormat::Rgba8,
+            1,
+            1,
+        ));
+        renderer.draw_image(
+            &ImageRequest {
+                image,
+                area: LogicalRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                },
+                fit: ImageFit::Fill,
+                sampling: ImageSampling::Nearest,
+                opacity: 1.0,
+            },
+            &[PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            }],
+        );
+        renderer.drop_image(image);
+        renderer.end_frame();
+
+        assert_eq!(renderer.buffer().pixels()[0], 0x00ff_0000);
+        let image = RendererImageId::from(KeyData::from_ffi(image.0));
+        assert!(!renderer.context.images.contains_key(image));
+    }
+
+    #[test]
+    fn text_source_can_drop_before_frame_end() {
+        let font = Font::from_bytes(
+            include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
+            FontSettings::default(),
+        )
+        .unwrap();
+        let mut renderer = Renderer::new(VecBuffer::<u32>::new(32, 24), RendererConfig::new(font))
+            .strategy(Scanline::default());
+        {
+            let text = String::from("M");
+            renderer.draw_text(
+                &TextRequest {
+                    text: &text,
+                    area: LogicalRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 32.0,
+                        height: 24.0,
+                    },
+                    offset_x: 0.0,
+                    color: Color::WHITE,
+                    style: TextStyle::default(),
+                    options: TextOptions::default(),
+                    intrinsic_height: false,
+                },
+                &[PhysicalRect {
+                    x: 0,
+                    y: 0,
+                    width: 32,
+                    height: 24,
+                }],
+            );
+        }
+        renderer.end_frame();
+
+        assert!(renderer.buffer().pixels().iter().any(|pixel| *pixel != 0));
     }
 }
