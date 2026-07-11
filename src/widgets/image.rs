@@ -75,7 +75,7 @@ impl<'a> Image<'a> {
             }
         }
         if clip_count != 0 {
-            ui.platform.draw_image(&self, &clips[..clip_count]);
+            ui.platform().draw_image(&self, &clips[..clip_count]);
         }
     }
 }

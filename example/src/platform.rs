@@ -135,8 +135,6 @@ impl PlatformImpl for TestPlatform {
     }
 
     fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
-
-    fn hide_keyboard(&mut self) {}
 }
 
 struct TextInputCharacters {

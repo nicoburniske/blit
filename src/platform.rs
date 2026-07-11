@@ -6,6 +6,8 @@ use crate::{
 };
 
 pub trait PlatformImpl {
+    fn begin_frame(&mut self) {}
+    fn end_frame(&mut self) {}
     fn screen(&mut self) -> PhysicalRect;
     fn scale_factor(&mut self) -> f32 {
         1.0
@@ -21,10 +23,8 @@ pub trait PlatformImpl {
     ) -> usize;
     fn text_cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect;
     fn show_keyboard(&mut self, request: &KeyboardRequest<'_>);
-    fn hide_keyboard(&mut self);
 }
 
-#[derive(Clone, Copy)]
 pub struct Platform {
     data: NonNull<()>,
     vtable: &'static PlatformVTable,
@@ -32,6 +32,8 @@ pub struct Platform {
 }
 
 pub struct PlatformVTable {
+    begin_frame: unsafe fn(NonNull<()>),
+    end_frame: unsafe fn(NonNull<()>),
     screen: unsafe fn(NonNull<()>) -> PhysicalRect,
     scale_factor: unsafe fn(NonNull<()>) -> f32,
     draw_rectangle: unsafe fn(NonNull<()>, &Rectangle, &[PhysicalRect]),
@@ -40,11 +42,12 @@ pub struct PlatformVTable {
     text_offset_at_position: unsafe fn(NonNull<()>, &TextRequest<'_>, LogicalPoint) -> usize,
     text_cursor_rect: unsafe fn(NonNull<()>, &TextRequest<'_>, usize) -> LogicalRect,
     show_keyboard: unsafe fn(NonNull<()>, &KeyboardRequest<'_>),
-    hide_keyboard: unsafe fn(NonNull<()>),
 }
 
 fn vtable<T: PlatformImpl>() -> &'static PlatformVTable {
     &PlatformVTable {
+        begin_frame: |data| unsafe { data.cast::<T>().as_mut() }.begin_frame(),
+        end_frame: |data| unsafe { data.cast::<T>().as_mut() }.end_frame(),
         screen: |data| unsafe { data.cast::<T>().as_mut() }.screen(),
         scale_factor: |data| unsafe { data.cast::<T>().as_mut() }.scale_factor(),
         draw_rectangle: |data, request, clips| {
@@ -63,7 +66,6 @@ fn vtable<T: PlatformImpl>() -> &'static PlatformVTable {
             unsafe { data.cast::<T>().as_mut() }.text_cursor_rect(request, byte_offset)
         },
         show_keyboard: |data, request| unsafe { data.cast::<T>().as_mut() }.show_keyboard(request),
-        hide_keyboard: |data| unsafe { data.cast::<T>().as_mut() }.hide_keyboard(),
     }
 }
 
@@ -76,34 +78,42 @@ impl Platform {
         }
     }
 
+    pub(crate) fn begin_frame(&mut self) {
+        unsafe { (self.vtable.begin_frame)(self.data) }
+    }
+
+    pub(crate) fn end_frame(&mut self) {
+        unsafe { (self.vtable.end_frame)(self.data) }
+    }
+
     #[inline]
-    pub fn screen(self) -> PhysicalRect {
+    pub fn screen(&mut self) -> PhysicalRect {
         unsafe { (self.vtable.screen)(self.data) }
     }
 
     #[inline]
-    pub fn scale_factor(self) -> f32 {
+    pub fn scale_factor(&mut self) -> f32 {
         unsafe { (self.vtable.scale_factor)(self.data) }
     }
 
     #[inline]
-    pub fn draw_rectangle(self, rectangle: &Rectangle, clips: &[PhysicalRect]) {
+    pub fn draw_rectangle(&mut self, rectangle: &Rectangle, clips: &[PhysicalRect]) {
         unsafe { (self.vtable.draw_rectangle)(self.data, rectangle, clips) }
     }
 
     #[inline]
-    pub fn draw_image(self, image: &Image<'_>, clips: &[PhysicalRect]) {
+    pub fn draw_image(&mut self, image: &Image<'_>, clips: &[PhysicalRect]) {
         unsafe { (self.vtable.draw_image)(self.data, image, clips) }
     }
 
     #[inline]
-    pub fn draw_text(self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
+    pub fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
         unsafe { (self.vtable.draw_text)(self.data, request, clips) }
     }
 
     #[inline]
     pub fn text_offset_at_position(
-        self,
+        &mut self,
         request: &TextRequest<'_>,
         position: LogicalPoint,
     ) -> usize {
@@ -111,17 +121,16 @@ impl Platform {
     }
 
     #[inline]
-    pub fn text_cursor_rect(self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect {
+    pub fn text_cursor_rect(
+        &mut self,
+        request: &TextRequest<'_>,
+        byte_offset: usize,
+    ) -> LogicalRect {
         unsafe { (self.vtable.text_cursor_rect)(self.data, request, byte_offset) }
     }
 
     #[inline]
-    pub fn show_keyboard(self, request: &KeyboardRequest<'_>) {
+    pub fn show_keyboard(&mut self, request: &KeyboardRequest<'_>) {
         unsafe { (self.vtable.show_keyboard)(self.data, request) }
-    }
-
-    #[inline]
-    pub fn hide_keyboard(self) {
-        unsafe { (self.vtable.hide_keyboard)(self.data) }
     }
 }
