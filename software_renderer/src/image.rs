@@ -52,7 +52,7 @@ pub fn draw<B: PixelBuffer>(
         display
     };
     let screen = PhysicalRect {
-        x: 0,
+        x: buffer.x_offset() as i32,
         y: 0,
         width: buffer.width() as i32,
         height: buffer.height() as i32,
@@ -171,7 +171,7 @@ pub fn draw<B: PixelBuffer>(
                         }
                     }
                 };
-                row[x as usize].blend(color);
+                row[(x - screen.x) as usize].blend(color);
             }
         }
     }

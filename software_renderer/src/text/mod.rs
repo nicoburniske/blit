@@ -3,7 +3,7 @@ mod paragraph;
 
 use bullseye::{Color, LogicalPoint, LogicalRect, PhysicalRect, TextRequest};
 
-use crate::{Pixel, RendererConfig};
+use crate::{Pixel, PixelSpan, RendererConfig};
 use font::FontCache;
 use paragraph::{Paragraph, ParagraphCache, ParagraphKey};
 
@@ -48,7 +48,7 @@ impl TextRenderer {
         area: PhysicalRect,
         color: Color,
         line: i32,
-        row: &mut [P],
+        row: PixelSpan<'_, P>,
         clips: &[PhysicalRect],
     ) {
         let Some(paragraph) = self
@@ -65,9 +65,9 @@ impl TextRenderer {
             height: paragraph.height as i32,
         };
         let line_rect = PhysicalRect {
-            x: 0,
+            x: row.x,
             y: line,
-            width: row.len() as i32,
+            width: row.pixels.len() as i32,
             height: 1,
         };
         for clip in clips {
@@ -82,7 +82,7 @@ impl TextRenderer {
             let alpha = &paragraph.alpha[source_y * paragraph.width + source_x
                 ..source_y * paragraph.width + source_x + clipped.width as usize];
             P::blend_alpha_slice(
-                &mut row[clipped.x as usize..][..clipped.width as usize],
+                &mut row.pixels[(clipped.x - row.x) as usize..][..clipped.width as usize],
                 color,
                 alpha,
             );

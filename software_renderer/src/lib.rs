@@ -8,6 +8,8 @@ pub use fontdue::{Font, FontSettings};
 pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, VecBuffer};
 pub use strategy::{Direct, RenderStrategy, Scanline};
 
+use pixel::PixelSpan;
+
 use bullseye::{
     FontId, FontWeight, ImageData, ImageId, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
     widgets::{ImageRequest, Rectangle},
@@ -214,6 +216,7 @@ mod tests {
     struct TrackingBuffer {
         pixels: Vec<u32>,
         lines: Vec<usize>,
+        ranges: Vec<Range<usize>>,
         width: usize,
         height: usize,
     }
@@ -241,6 +244,7 @@ mod tests {
             process: impl FnOnce(&mut [u32]),
         ) {
             self.lines.push(line);
+            self.ranges.push(range.clone());
             let start = line * self.width;
             process(&mut self.pixels[start + range.start..start + range.end]);
         }
@@ -382,6 +386,7 @@ mod tests {
             TrackingBuffer {
                 pixels: vec![0; 16],
                 lines: Vec::new(),
+                ranges: Vec::new(),
                 width: 4,
                 height: 4,
             },
@@ -414,6 +419,50 @@ mod tests {
         renderer.end_frame();
 
         assert_eq!(renderer.buffer().lines, [0, 2]);
+        assert_eq!(renderer.buffer().ranges, [0..4, 0..4]);
+    }
+
+    #[test]
+    fn scanline_only_borrows_dirty_horizontal_ranges() {
+        let font = Font::from_bytes(
+            include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
+            FontSettings::default(),
+        )
+        .unwrap();
+        let mut renderer = Renderer::new(
+            TrackingBuffer {
+                pixels: vec![0; 8],
+                lines: Vec::new(),
+                ranges: Vec::new(),
+                width: 4,
+                height: 2,
+            },
+            RendererConfig::new(font),
+        )
+        .strategy(Scanline::default());
+        renderer.draw_rectangle(
+            &Rectangle::new(LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 4.0,
+                height: 1.0,
+            })
+            .background(Color::WHITE),
+            &[PhysicalRect {
+                x: 1,
+                y: 0,
+                width: 2,
+                height: 1,
+            }],
+        );
+        renderer.end_frame();
+
+        assert_eq!(renderer.buffer().ranges.len(), 1);
+        assert_eq!(renderer.buffer().ranges[0], 1..3);
+        assert_eq!(
+            renderer.buffer().pixels,
+            [0, 0xffffff, 0xffffff, 0, 0, 0, 0, 0]
+        );
     }
 
     #[test]
