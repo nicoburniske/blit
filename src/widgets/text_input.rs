@@ -3,8 +3,9 @@ use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    Color, Input, KeyboardKind, KeyboardRequest, LogicalInsets, LogicalRect, LogicalSize,
+    Color, Input, KeyboardKind, KeyboardRequest, LogicalInsets, LogicalRect, LogicalSize, Sense,
     SizedComponent, Text, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap, Ui,
+    WidgetId,
     widgets::{BorderRadius, Rectangle},
 };
 
@@ -17,6 +18,8 @@ pub struct TextInputResponse {
 crate::component! {
     #[derive(Debug)]
     pub struct TextInput {
+        #[skip]
+        pub id: WidgetId = WidgetId::unique(),
         pub text: String,
         #[skip]
         pub focused: bool,
@@ -51,6 +54,11 @@ crate::component! {
 }
 
 impl TextInput {
+    pub fn id(mut self, source: impl std::hash::Hash) -> Self {
+        self.id = WidgetId::new(source);
+        self
+    }
+
     pub fn render(&mut self, ui: &mut Ui, area: LogicalRect) -> TextInputResponse {
         self.normalize_offsets();
         let inner = area.inset(self.padding);
@@ -59,17 +67,20 @@ impl TextInput {
         let old_anchor = self.anchor;
         let old_scroll = self.scroll_x;
         let mut response = TextInputResponse::default();
+        let id = ui.id(("text input", self.id));
+        let interaction = ui.interact(id, area, Sense::FOCUS);
+        self.focused = ui.is_focused(id);
+
+        if interaction.pressed {
+            if let Some(position) = ui.pointer_position() {
+                self.cursor = ui
+                    .platform()
+                    .text_offset_at_position(&self.request(inner), position);
+                self.anchor = self.cursor;
+            }
+        }
 
         match ui.input().clone() {
-            Input::PointerDown { position } => {
-                self.focused = area.contains(position.x, position.y);
-                if self.focused {
-                    self.cursor = ui
-                        .platform()
-                        .text_offset_at_position(&self.request(inner), position);
-                    self.anchor = self.cursor;
-                }
-            }
             Input::Char(character)
                 if self.focused && !self.read_only && !character.is_control() =>
             {

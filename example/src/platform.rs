@@ -16,6 +16,7 @@ pub struct TestPlatform {
     width: usize,
     height: usize,
     mouse_down: bool,
+    mouse_position: Option<LogicalPoint>,
     characters: Arc<Mutex<VecDeque<char>>>,
 }
 
@@ -44,6 +45,7 @@ impl TestPlatform {
             width,
             height,
             mouse_down: false,
+            mouse_position: None,
             characters,
         }
     }
@@ -79,20 +81,35 @@ impl TestPlatform {
             return Input::Char(character);
         }
         let down = self.window.get_mouse_down(MouseButton::Left);
-        let input = if down != self.mouse_down {
-            self.window.get_mouse_pos(MouseMode::Clamp).map(|(x, y)| {
-                let position = LogicalPoint { x, y };
-                if down {
-                    Input::PointerDown { position }
-                } else {
-                    Input::PointerUp { position }
+        let position = self
+            .window
+            .get_mouse_pos(MouseMode::Discard)
+            .map(|(x, y)| LogicalPoint { x, y });
+        if down != self.mouse_down {
+            self.mouse_down = down;
+            if let Some(event_position) = position.or(self.mouse_position) {
+                if position.is_some() {
+                    self.mouse_position = position;
                 }
-            })
-        } else {
-            None
-        };
-        self.mouse_down = down;
-        input.unwrap_or_default()
+                return if down {
+                    Input::PointerDown {
+                        position: event_position,
+                    }
+                } else {
+                    Input::PointerUp {
+                        position: event_position,
+                        leave: false,
+                    }
+                };
+            }
+        }
+        if position != self.mouse_position {
+            self.mouse_position = position;
+            return position.map_or(Input::PointerLeave, |position| Input::PointerMove {
+                position,
+            });
+        }
+        Input::None
     }
 
     pub fn present(&mut self) {

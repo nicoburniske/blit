@@ -1,6 +1,7 @@
 mod color;
 mod component;
 mod image;
+mod interaction;
 mod keyboard;
 mod layout;
 mod platform;
@@ -15,6 +16,7 @@ use std::ptr::NonNull;
 pub use color::Color;
 pub use component::SizedComponent;
 pub use image::{ImageData, ImageFormat, ImageId, ImagePixels, ImageResource};
+pub use interaction::{Interaction, Sense, WidgetId};
 pub use keyboard::{KeyboardKind, KeyboardRequest};
 pub use layout::{Constraint, Direction, Layout, RepeatedAreas, RepeatedLayout};
 pub use platform::{Platform, PlatformImpl, PlatformVTable};
@@ -95,10 +97,12 @@ pub enum Input {
     },
     PointerUp {
         position: LogicalPoint,
+        leave: bool,
     },
     PointerMove {
         position: LogicalPoint,
     },
+    PointerLeave,
     Scroll {
         position: LogicalPoint,
         delta_x: f32,
@@ -120,6 +124,7 @@ pub struct Runtime {
     scale_factor: f32,
     pending: DirtyRegions,
     previous: DirtyRegions,
+    interaction: interaction::InteractionState,
 }
 
 impl Runtime {
@@ -137,6 +142,7 @@ impl Runtime {
             scale_factor,
             pending,
             previous: DirtyRegions::default(),
+            interaction: interaction::InteractionState::default(),
         }
     }
 
@@ -146,6 +152,12 @@ impl Runtime {
         dirty.extend(&pending);
         self.previous = pending;
         self.platform.begin_frame();
+        let mut interaction = std::mem::take(&mut self.interaction);
+        let hover_damage = interaction.begin_frame(&input, self.scale_factor);
+        let mut invalidated = DirtyRegions::default();
+        for area in hover_damage.into_iter().flatten() {
+            invalidated.add(area);
+        }
         let mut ui = Ui {
             platform: NonNull::from(&mut self.platform),
             input,
@@ -153,10 +165,21 @@ impl Runtime {
             clip: self.physical_screen,
             scale_factor: self.scale_factor,
             dirty,
-            invalidated: DirtyRegions::default(),
+            invalidated,
+            current_id: WidgetId::new("bullseye root"),
+            interaction,
         };
         let output = render(&mut ui);
+        for area in ui
+            .interaction
+            .end_frame(self.scale_factor)
+            .into_iter()
+            .flatten()
+        {
+            ui.invalidated.add(area);
+        }
         self.pending = ui.invalidated;
+        self.interaction = ui.interaction;
         self.platform.end_frame();
         output
     }
@@ -191,6 +214,8 @@ pub struct Ui {
     scale_factor: f32,
     dirty: DirtyRegions,
     invalidated: DirtyRegions,
+    current_id: WidgetId,
+    interaction: interaction::InteractionState,
 }
 
 impl Ui {
@@ -206,6 +231,29 @@ impl Ui {
         &self.input
     }
 
+    pub fn id(&self, source: impl std::hash::Hash) -> WidgetId {
+        self.current_id.child(source)
+    }
+
+    pub fn begin_scope(&mut self, source: impl std::hash::Hash) -> IdScope<'_> {
+        let previous = self.current_id;
+        self.current_id = self.current_id.child(source);
+        IdScope { ui: self, previous }
+    }
+
+    pub fn interact(&mut self, id: WidgetId, area: LogicalRect, sense: Sense) -> Interaction {
+        let area = area.to_physical(self.scale_factor).intersection(self.clip);
+        self.interaction.interact(id, area, sense)
+    }
+
+    pub fn is_focused(&self, id: WidgetId) -> bool {
+        self.interaction.is_focused(id)
+    }
+
+    pub fn pointer_position(&self) -> Option<LogicalPoint> {
+        self.interaction.pointer_position()
+    }
+
     pub fn invalidate(&mut self, area: LogicalRect) {
         if let Some(area) = area.to_physical(self.scale_factor).intersection(self.clip) {
             self.invalidated.add(area)
@@ -214,5 +262,26 @@ impl Ui {
 
     pub fn invalidate_all(&mut self) {
         self.invalidated.add(self.clip)
+    }
+}
+
+pub struct IdScope<'a> {
+    ui: &'a mut Ui,
+    previous: WidgetId,
+}
+
+impl IdScope<'_> {
+    pub fn ui(&mut self) -> &mut Ui {
+        self.ui
+    }
+
+    pub fn finish(self) {
+        drop(self)
+    }
+}
+
+impl Drop for IdScope<'_> {
+    fn drop(&mut self) {
+        self.ui.current_id = self.previous;
     }
 }
