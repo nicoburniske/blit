@@ -81,6 +81,7 @@ pub struct TextOptions {
 pub struct TextRequest<'a> {
     pub text: &'a str,
     pub area: LogicalRect,
+    pub offset_x: f32,
     pub color: Color,
     pub style: TextStyle,
     pub options: TextOptions,
@@ -93,6 +94,7 @@ pub struct Text<'a> {
     color: Color,
     style: TextStyle,
     options: TextOptions,
+    offset_x: f32,
 }
 
 impl<'a> Text<'a> {
@@ -104,6 +106,7 @@ impl<'a> Text<'a> {
             color: Color::BLACK,
             style: TextStyle::default(),
             options: TextOptions::default(),
+            offset_x: 0.0,
         }
     }
     pub fn at(mut self, position: LogicalPoint) -> Self {
@@ -167,6 +170,11 @@ impl<'a> Text<'a> {
         self
     }
 
+    pub fn offset_x(mut self, offset: f32) -> Self {
+        self.offset_x = offset.max(0.0);
+        self
+    }
+
     pub fn render(self, ui: &mut Ui) {
         let request = self.request(ui.screen);
         let mut clips = [PhysicalRect::default(); 8];
@@ -195,6 +203,7 @@ impl<'a> Text<'a> {
                 width: (screen.x + screen.width - self.position.x).max(0.0),
                 height: (screen.y + screen.height - self.position.y).max(0.0),
             }),
+            offset_x: self.offset_x,
             color: self.color,
             style: self.style,
             options: self.options,

@@ -17,6 +17,18 @@ impl PlatformImpl for TestPlatform {
     fn draw_image(&mut self, _: &widgets::Image<'_>, _: &[PhysicalRect]) {}
 
     fn draw_text(&mut self, _: &TextRequest<'_>, _: &[PhysicalRect]) {}
+
+    fn text_offset_at_position(&mut self, _: &TextRequest<'_>, _: LogicalPoint) -> usize {
+        0
+    }
+
+    fn text_cursor_rect(&mut self, request: &TextRequest<'_>, _: usize) -> LogicalRect {
+        request.area
+    }
+
+    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
+
+    fn hide_keyboard(&mut self) {}
 }
 
 #[test]
@@ -126,4 +138,46 @@ fn logical_rect_can_be_inset_by_axis() {
             height: 70.0,
         }
     );
+}
+
+#[test]
+fn text_input_edits_at_utf8_cursor_boundaries() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let area = LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 10.0,
+        height: 10.0,
+    };
+    let mut input = widgets::TextInput {
+        text: "aé🙂".into(),
+        focused: true,
+        cursor: "aé🙂".len(),
+        anchor: "aé🙂".len(),
+        ..widgets::TextInput::default()
+    };
+
+    runtime.render(Input::Backspace, |ui| input.render(ui, area));
+    assert_eq!(input.text, "aé");
+    assert_eq!(input.cursor, "aé".len());
+
+    runtime.render(Input::CursorLeft, |ui| input.render(ui, area));
+    runtime.render(Input::Delete, |ui| input.render(ui, area));
+    assert_eq!(input.text, "a");
+
+    input.cursor = 0;
+    input.anchor = input.text.len();
+    let response = runtime.render(Input::Char('界'), |ui| input.render(ui, area));
+    assert!(response.edited);
+    assert_eq!(input.text, "界");
+
+    let response = runtime.render(Input::Enter, |ui| input.render(ui, area));
+    assert!(response.accepted);
+
+    input.text = "e\u{301}".into();
+    input.cursor = input.text.len();
+    input.anchor = input.cursor;
+    runtime.render(Input::Backspace, |ui| input.render(ui, area));
+    assert!(input.text.is_empty());
 }

@@ -1,6 +1,7 @@
 use std::{
     collections::{hash_map::DefaultHasher, hash_map::RandomState},
     hash::{Hash, Hasher},
+    mem::size_of,
     num::NonZeroUsize,
 };
 
@@ -21,7 +22,16 @@ pub struct Paragraph {
     pub width: usize,
     pub height: usize,
     pub alpha: Box<[u8]>,
+    pub carets: Box<[Caret]>,
     text: Box<str>,
+}
+
+#[derive(Clone, Copy)]
+pub struct Caret {
+    pub byte_offset: usize,
+    pub x: f32,
+    pub y: f32,
+    pub height: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -30,6 +40,7 @@ struct ParagraphKey {
     text_len: usize,
     width: i32,
     height: i32,
+    offset_x: i32,
     font: FontId,
     size: u32,
     weight: FontWeight,
@@ -44,7 +55,7 @@ struct ParagraphWeight;
 
 impl WeightScale<ParagraphKey, Paragraph> for ParagraphWeight {
     fn weight(&self, _: &ParagraphKey, paragraph: &Paragraph) -> usize {
-        paragraph.alpha.len() + paragraph.text.len()
+        paragraph.alpha.len() + paragraph.text.len() + paragraph.carets.len() * size_of::<Caret>()
     }
 }
 
@@ -82,6 +93,7 @@ impl ParagraphCache {
             text_len: request.text.len(),
             width: area.width,
             height: area.height,
+            offset_x: (request.offset_x * scale_factor).round() as i32,
             font: request.style.font,
             size: (request.style.size * scale_factor).to_bits(),
             weight: request.style.weight,
@@ -106,6 +118,7 @@ impl ParagraphCache {
                 width: 0,
                 height: 0,
                 alpha: Box::new([]),
+                carets: Box::new([]),
                 text: request.text.into(),
             };
             return match self.cache.put_with_weight(key, paragraph) {
@@ -234,12 +247,55 @@ impl ParagraphCache {
         } else {
             0.0
         };
+        let paint_offset_x = offset_x - request.offset_x * scale_factor;
+        let mut carets = Vec::with_capacity(glyphs.len() + 1);
+        if let Some(lines) = self.layout.lines() {
+            for line in lines {
+                let start = line.glyph_start.min(glyphs.len());
+                let end = line.glyph_end.saturating_add(1).min(glyphs.len());
+                for glyph in &glyphs[start..end] {
+                    let metrics = font.metrics_indexed(glyph.key.glyph_index, size);
+                    carets.push(Caret {
+                        byte_offset: glyph.byte_offset,
+                        x: glyph.x - metrics.xmin as f32 + paint_offset_x,
+                        y: line.baseline_y - line.max_ascent,
+                        height: line.max_new_line_size,
+                    });
+                }
+                if let Some(glyph) = glyphs[start..end].last() {
+                    let metrics = font.metrics_indexed(glyph.key.glyph_index, size);
+                    carets.push(Caret {
+                        byte_offset: glyph.byte_offset + glyph.parent.len_utf8(),
+                        x: glyph.x - metrics.xmin as f32
+                            + metrics.advance_width.ceil()
+                            + paint_offset_x,
+                        y: line.baseline_y - line.max_ascent,
+                        height: line.max_new_line_size,
+                    });
+                }
+            }
+        }
+        if carets.is_empty() {
+            let line = font.horizontal_line_metrics(size);
+            let height = line.map_or(size, |line| line.new_line_size.ceil());
+            let y = match request.options.vertical_align {
+                VerticalAlign::Top => 0.0,
+                VerticalAlign::Center => (area.height as f32 - height) / 2.0,
+                VerticalAlign::Bottom => area.height as f32 - height,
+            };
+            carets.push(Caret {
+                byte_offset: 0,
+                x: paint_offset_x,
+                y,
+                height,
+            });
+        }
         let mut left = area.width;
         let mut top = area.height;
         let mut right = 0;
         let mut bottom = 0;
         for glyph in glyphs {
-            let x = (glyph.x + offset_x).round() as i32;
+            let x = (glyph.x + paint_offset_x).round() as i32;
             let y = glyph.y.round() as i32;
             left = left.min(x.max(0).min(area.width));
             top = top.min(y.max(0).min(area.height));
@@ -255,7 +311,7 @@ impl ParagraphCache {
                 Ok(cached) => *cached,
                 Err(cached) => cached,
             };
-            let x = (glyph.x + offset_x).round() as i32;
+            let x = (glyph.x + paint_offset_x).round() as i32;
             let y = glyph.y.round() as i32;
             let source_left = (left - x).max(0) as usize;
             let source_top = (top - y).max(0) as usize;
@@ -277,6 +333,7 @@ impl ParagraphCache {
             width,
             height,
             alpha: alpha.into_boxed_slice(),
+            carets: carets.into_boxed_slice(),
             text: request.text.into(),
         };
         match self.cache.put_with_weight(key, paragraph) {
@@ -321,6 +378,7 @@ mod tests {
             &TextRequest {
                 text: "missing",
                 area,
+                offset_x: 0.0,
                 color: Color::WHITE,
                 style: TextStyle {
                     font: FontId(9),
@@ -354,6 +412,7 @@ mod tests {
             &TextRequest {
                 text: "first\nsecond",
                 area,
+                offset_x: 0.0,
                 color: Color::WHITE,
                 style: TextStyle::default(),
                 options: TextOptions {
@@ -368,6 +427,7 @@ mod tests {
             &TextRequest {
                 text: "first",
                 area,
+                offset_x: 0.0,
                 color: Color::WHITE,
                 style: TextStyle::default(),
                 options: TextOptions::default(),
@@ -385,6 +445,7 @@ mod tests {
             &TextRequest {
                 text: "WWWW",
                 area: narrow,
+                offset_x: 0.0,
                 color: Color::WHITE,
                 style: TextStyle::default(),
                 options: TextOptions {
@@ -399,6 +460,7 @@ mod tests {
             &TextRequest {
                 text: "…",
                 area: narrow,
+                offset_x: 0.0,
                 color: Color::WHITE,
                 style: TextStyle::default(),
                 options: TextOptions::default(),

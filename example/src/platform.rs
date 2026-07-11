@@ -1,5 +1,6 @@
 use bullseye::{
-    Input, LogicalPoint, PhysicalRect, Platform, PlatformImpl, TextRequest,
+    Input, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect, Platform, PlatformImpl,
+    TextRequest,
     widgets::{Image, Rectangle},
 };
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
@@ -58,6 +59,21 @@ impl TestPlatform {
         if self.window.is_key_pressed(Key::Backspace, KeyRepeat::Yes) {
             return Input::Backspace;
         }
+        if self.window.is_key_pressed(Key::Delete, KeyRepeat::Yes) {
+            return Input::Delete;
+        }
+        if self.window.is_key_pressed(Key::Left, KeyRepeat::Yes) {
+            return Input::CursorLeft;
+        }
+        if self.window.is_key_pressed(Key::Right, KeyRepeat::Yes) {
+            return Input::CursorRight;
+        }
+        if self.window.is_key_pressed(Key::Enter, KeyRepeat::No) {
+            return Input::Enter;
+        }
+        if self.window.is_key_pressed(Key::Tab, KeyRepeat::No) {
+            return Input::Tab;
+        }
         if let Some(character) = self.characters.lock().unwrap().pop_front() {
             return Input::Char(character);
         }
@@ -105,6 +121,22 @@ impl PlatformImpl for TestPlatform {
     fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
         self.renderer.draw_text(request, clips)
     }
+
+    fn text_offset_at_position(
+        &mut self,
+        request: &TextRequest<'_>,
+        position: LogicalPoint,
+    ) -> usize {
+        self.renderer.text_offset_at_position(request, position)
+    }
+
+    fn text_cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect {
+        self.renderer.text_cursor_rect(request, byte_offset)
+    }
+
+    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
+
+    fn hide_keyboard(&mut self) {}
 }
 
 struct TextInputCharacters {
