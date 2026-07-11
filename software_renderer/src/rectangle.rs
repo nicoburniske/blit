@@ -4,6 +4,7 @@ use bullseye::{PhysicalRect, widgets::Rectangle};
 
 use crate::{Pixel, PixelBuffer, PixelSpan, PremultipliedRgbaColor};
 
+#[derive(Clone, Copy)]
 pub struct PreparedRectangle {
     geometry: PhysicalRect,
     inner: PhysicalRect,
