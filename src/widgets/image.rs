@@ -125,6 +125,7 @@ impl<'a> Image<'a> {
             horizontal_tiling: self.horizontal_tiling,
             vertical_tiling: self.vertical_tiling,
         };
+        ui.record_draw(request.area);
         let mut clips = [PhysicalRect::default(); 8];
         let mut clip_count = 0;
         for dirty in ui.dirty.regions() {
