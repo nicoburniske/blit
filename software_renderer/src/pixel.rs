@@ -75,8 +75,18 @@ impl Pixel for u32 {
     }
 }
 
+/// a borrowed scanline span whose first pixel is at the absolute x coordinate
+pub struct PixelSpan<'a, P> {
+    pub x: i32,
+    pub pixels: &'a mut [P],
+}
+
 pub trait PixelBuffer {
     type Pixel: Pixel;
+
+    fn x_offset(&self) -> usize {
+        0
+    }
 
     fn width(&self) -> usize;
     fn height(&self) -> usize;

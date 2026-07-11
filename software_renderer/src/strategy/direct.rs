@@ -4,7 +4,7 @@ use bullseye::{
 };
 use slotmap::KeyData;
 
-use crate::{PixelBuffer, RenderContext, RendererImageId, image, rectangle};
+use crate::{PixelBuffer, PixelSpan, RenderContext, RendererImageId, image, rectangle};
 
 use super::RenderStrategy;
 
@@ -58,7 +58,10 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                     area,
                     request.color,
                     line,
-                    context.buffer.line_mut(line as usize),
+                    PixelSpan {
+                        x: 0,
+                        pixels: context.buffer.line_mut(line as usize),
+                    },
                     std::slice::from_ref(clip),
                 );
             }

@@ -2,7 +2,7 @@ use std::ops::{Add, Mul, Sub};
 
 use bullseye::{PhysicalRect, widgets::Rectangle};
 
-use crate::{Pixel, PixelBuffer, PremultipliedRgbaColor};
+use crate::{Pixel, PixelBuffer, PixelSpan, PremultipliedRgbaColor};
 
 pub struct PreparedRectangle {
     geometry: PhysicalRect,
@@ -66,18 +66,18 @@ impl PreparedRectangle {
         })
     }
 
-    pub fn draw_line<P: Pixel>(&self, line: i32, clip: PhysicalRect, row: &mut [P]) {
+    pub fn draw_line<P: Pixel>(&self, line: i32, clip: PhysicalRect, row: PixelSpan<'_, P>) {
         let Some(clipped) = self.geometry.intersection(clip).and_then(|area| {
             area.intersection(PhysicalRect {
-                x: 0,
+                x: row.x,
                 y: line,
-                width: row.len() as i32,
+                width: row.pixels.len() as i32,
                 height: 1,
             })
         }) else {
             return;
         };
-        let pixels = &mut row[clipped.x as usize..][..clipped.width as usize];
+        let pixels = &mut row.pixels[(clipped.x - row.x) as usize..][..clipped.width as usize];
         if self.radii.is_zero() {
             if self.border_width == 0
                 || line < self.inner.y
@@ -144,7 +144,7 @@ pub fn draw<B: PixelBuffer>(
         };
         for y in clipped.y..clipped.y + clipped.height {
             let row = buffer.line_mut(y as usize);
-            rectangle.draw_line(y, *clip, row);
+            rectangle.draw_line(y, *clip, PixelSpan { x: 0, pixels: row });
         }
     }
 }
