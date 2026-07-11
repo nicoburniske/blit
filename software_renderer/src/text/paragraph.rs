@@ -99,22 +99,110 @@ impl ParagraphCache {
             return Ok(self.cache.get(&key).unwrap());
         }
 
+        let Some(font) = fonts.font(request.style.font, request.style.weight) else {
+            let paragraph = Paragraph {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+                alpha: Box::new([]),
+                text: request.text.into(),
+            };
+            return match self.cache.put_with_weight(key, paragraph) {
+                Ok(_) => Ok(self.cache.get(&key).unwrap()),
+                Err((_, paragraph)) => Err(paragraph),
+            };
+        };
+
         let size = request.style.size * scale_factor;
-        let line_height = fonts
-            .font()
-            .horizontal_line_metrics(size)
-            .map_or(size, |metrics| metrics.new_line_size);
-        let max_height = request
-            .options
-            .max_lines
-            .map_or(area.height as f32, |lines| {
-                (area.height as f32).min(line_height * lines as f32)
-            });
+        let max_width =
+            (request.options.wrap != TextWrap::None).then_some(area.width.max(0) as f32);
+        let wrap_style = match request.options.wrap {
+            TextWrap::Character => WrapStyle::Letter,
+            TextWrap::None | TextWrap::Word => WrapStyle::Word,
+        };
         self.layout.reset(&LayoutSettings {
             x: 0.0,
             y: 0.0,
-            max_width: (request.options.wrap != TextWrap::None).then_some(area.width as f32),
-            max_height: Some(max_height),
+            max_width,
+            max_height: None,
+            horizontal_align: FontHorizontalAlign::Left,
+            vertical_align: FontVerticalAlign::Top,
+            wrap_style,
+            ..LayoutSettings::default()
+        });
+        self.layout
+            .append(&[font], &FontTextStyle::new(request.text, size, 0));
+
+        let mut rendered = None;
+        if let Some(lines) = self.layout.lines() {
+            let mut visible_lines = lines.len();
+            if let Some(max_lines) = request.options.max_lines {
+                visible_lines = visible_lines.min(max_lines as usize);
+            }
+            if request.options.overflow == TextOverflow::Ellipsis {
+                let mut height = 0.0;
+                let mut fitting_lines = 0;
+                for line in lines {
+                    height += line.max_new_line_size;
+                    if height > area.height.max(0) as f32 {
+                        break;
+                    }
+                    fitting_lines += 1;
+                }
+                visible_lines = visible_lines.min(fitting_lines);
+            }
+
+            let glyphs = self.layout.glyphs();
+            let lines_truncated = visible_lines < lines.len();
+            let line_overflows = visible_lines != 0 && request.options.wrap == TextWrap::None && {
+                let line = lines[visible_lines - 1];
+                let start = line.glyph_start.min(glyphs.len());
+                let end = line.glyph_end.saturating_add(1).min(glyphs.len());
+                glyphs[start..end]
+                    .iter()
+                    .any(|glyph| glyph.x + glyph.width as f32 > area.width as f32)
+            };
+
+            if visible_lines == 0 && !lines.is_empty() {
+                rendered = Some(String::new());
+            } else if visible_lines != 0 && (lines_truncated || line_overflows) {
+                let line = lines[visible_lines - 1];
+                let start = line.glyph_start.min(glyphs.len());
+                let end = line.glyph_end.saturating_add(1).min(glyphs.len());
+                let glyphs = &glyphs[start..end];
+                let mut end = glyphs
+                    .last()
+                    .map_or(0, |glyph| glyph.byte_offset + glyph.parent.len_utf8());
+                if request.options.overflow == TextOverflow::Ellipsis {
+                    let available =
+                        area.width.max(0) as f32 - font.metrics('…', size).advance_width.ceil();
+                    end = glyphs
+                        .iter()
+                        .take_while(|glyph| glyph.x + glyph.width as f32 <= available)
+                        .last()
+                        .map_or_else(
+                            || glyphs.first().map_or(0, |glyph| glyph.byte_offset),
+                            |glyph| glyph.byte_offset + glyph.parent.len_utf8(),
+                        );
+                    let mut text = request.text[..end].trim_end().to_owned();
+                    text.push('…');
+                    rendered = Some(text);
+                } else {
+                    rendered = Some(
+                        request.text[..end]
+                            .trim_end_matches(['\r', '\n'])
+                            .to_owned(),
+                    );
+                }
+            }
+        }
+
+        self.layout.reset(&LayoutSettings {
+            x: 0.0,
+            y: 0.0,
+            max_width,
+            max_height: Some(area.height.max(0) as f32),
             horizontal_align: match request.options.horizontal_align {
                 HorizontalAlign::Left => FontHorizontalAlign::Left,
                 HorizontalAlign::Center => FontHorizontalAlign::Center,
@@ -125,14 +213,13 @@ impl ParagraphCache {
                 VerticalAlign::Center => FontVerticalAlign::Middle,
                 VerticalAlign::Bottom => FontVerticalAlign::Bottom,
             },
-            wrap_style: match request.options.wrap {
-                TextWrap::Character => WrapStyle::Letter,
-                TextWrap::None | TextWrap::Word => WrapStyle::Word,
-            },
+            wrap_style,
             ..LayoutSettings::default()
         });
-        self.layout
-            .append(&[fonts.font()], &FontTextStyle::new(request.text, size, 0));
+        self.layout.append(
+            &[font],
+            &FontTextStyle::new(rendered.as_deref().unwrap_or(request.text), size, 0),
+        );
         let glyphs = self.layout.glyphs();
         let natural_width = glyphs
             .iter()
@@ -196,5 +283,129 @@ impl ParagraphCache {
             Ok(_) => Ok(self.cache.get(&key).unwrap()),
             Err((_, paragraph)) => Err(paragraph),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bullseye::{
+        Color, FontId, FontWeight, LogicalRect, TextOptions, TextOverflow, TextRequest, TextStyle,
+    };
+
+    use super::*;
+    use crate::{Font, FontFace, FontSettings};
+
+    #[test]
+    fn font_lookup_and_overflow_are_exact() {
+        let font = Font::from_bytes(
+            include_bytes!("../../../example/assets/Montserrat-Regular.ttf") as &[u8],
+            FontSettings::default(),
+        )
+        .unwrap();
+        let mut fonts = FontCache::new(
+            vec![FontFace {
+                id: FontId::default(),
+                weight: FontWeight::Normal,
+                font,
+            }],
+            1024 * 1024,
+        );
+        let mut paragraphs = ParagraphCache::new(1024 * 1024);
+        let area = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 50.0,
+        };
+        let missing = paragraphs.get(
+            &TextRequest {
+                text: "missing",
+                area,
+                color: Color::WHITE,
+                style: TextStyle {
+                    font: FontId(9),
+                    ..TextStyle::default()
+                },
+                options: TextOptions::default(),
+            },
+            1.0,
+            &mut fonts,
+        );
+        let missing = match &missing {
+            Ok(paragraph) => *paragraph,
+            Err(paragraph) => paragraph,
+        };
+        assert_eq!((missing.width, missing.height), (0, 0));
+
+        let snapshot = |paragraph: Result<&Paragraph, Paragraph>| {
+            let paragraph = match &paragraph {
+                Ok(paragraph) => *paragraph,
+                Err(paragraph) => paragraph,
+            };
+            (
+                paragraph.x,
+                paragraph.y,
+                paragraph.width,
+                paragraph.height,
+                paragraph.alpha.to_vec(),
+            )
+        };
+        let one_line = snapshot(paragraphs.get(
+            &TextRequest {
+                text: "first\nsecond",
+                area,
+                color: Color::WHITE,
+                style: TextStyle::default(),
+                options: TextOptions {
+                    max_lines: Some(1),
+                    ..TextOptions::default()
+                },
+            },
+            1.0,
+            &mut fonts,
+        ));
+        let first = snapshot(paragraphs.get(
+            &TextRequest {
+                text: "first",
+                area,
+                color: Color::WHITE,
+                style: TextStyle::default(),
+                options: TextOptions::default(),
+            },
+            1.0,
+            &mut fonts,
+        ));
+        assert_eq!(one_line, first);
+
+        let narrow = LogicalRect {
+            width: 12.0,
+            ..area
+        };
+        let truncated = snapshot(paragraphs.get(
+            &TextRequest {
+                text: "WWWW",
+                area: narrow,
+                color: Color::WHITE,
+                style: TextStyle::default(),
+                options: TextOptions {
+                    overflow: TextOverflow::Ellipsis,
+                    ..TextOptions::default()
+                },
+            },
+            1.0,
+            &mut fonts,
+        ));
+        let ellipsis = snapshot(paragraphs.get(
+            &TextRequest {
+                text: "…",
+                area: narrow,
+                color: Color::WHITE,
+                style: TextStyle::default(),
+                options: TextOptions::default(),
+            },
+            1.0,
+            &mut fonts,
+        ));
+        assert_eq!(truncated, ellipsis);
     }
 }

@@ -7,13 +7,19 @@ pub use fontdue::{Font, FontSettings};
 pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, VecBuffer};
 
 use bullseye::{
-    PhysicalRect, Platform, PlatformImpl, TextRequest,
+    FontId, FontWeight, PhysicalRect, Platform, PlatformImpl, TextRequest,
     widgets::{Image, Rectangle},
 };
 use text::TextRenderer;
 
-pub struct RendererConfig {
+pub struct FontFace {
+    pub id: FontId,
+    pub weight: FontWeight,
     pub font: Font,
+}
+
+pub struct RendererConfig {
+    pub fonts: Vec<FontFace>,
     pub glyph_cache_capacity: usize,
     pub paragraph_cache_capacity: usize,
 }
@@ -21,7 +27,11 @@ pub struct RendererConfig {
 impl RendererConfig {
     pub fn new(font: Font) -> Self {
         Self {
-            font,
+            fonts: vec![FontFace {
+                id: FontId::default(),
+                weight: FontWeight::Normal,
+                font,
+            }],
             glyph_cache_capacity: 1024 * 1024,
             paragraph_cache_capacity: 1024 * 1024,
         }
