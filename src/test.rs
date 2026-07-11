@@ -94,11 +94,12 @@ fn scroll_area_advances_by_component_height() {
     let viewport = runtime.screen();
 
     let positions = runtime.render(Input::None, |ui| {
-        widgets::ScrollArea::vertical(&mut state)
+        let mut area = widgets::ScrollArea::vertical(&mut state)
             .spacing(1.0)
-            .show(ui, viewport, |area| {
-                [area.add(FixedSize(8.0)).y, area.add(FixedSize(8.0)).y]
-            })
+            .begin(ui, viewport);
+        let positions = [area.add(FixedSize(8.0)).y, area.add(FixedSize(8.0)).y];
+        area.finish();
+        positions
     });
     assert_eq!(positions, [0.0, 9.0]);
     assert_eq!(state.content_height, 17.0);
@@ -110,11 +111,12 @@ fn scroll_area_advances_by_component_height() {
             delta_y: 3.0,
         },
         |ui| {
-            widgets::ScrollArea::vertical(&mut state)
+            let mut area = widgets::ScrollArea::vertical(&mut state)
                 .spacing(1.0)
-                .show(ui, viewport, |area| {
-                    [area.add(FixedSize(8.0)).y, area.add(FixedSize(8.0)).y]
-                })
+                .begin(ui, viewport);
+            let positions = [area.add(FixedSize(8.0)).y, area.add(FixedSize(8.0)).y];
+            area.finish();
+            positions
         },
     );
     assert_eq!(positions, [-3.0, 6.0]);
