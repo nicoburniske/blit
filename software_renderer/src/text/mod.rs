@@ -1,15 +1,21 @@
 mod font;
 mod paragraph;
 
-use bullseye::{LogicalPoint, LogicalRect, PhysicalRect, TextRequest};
+use bullseye::{Color, LogicalPoint, LogicalRect, PhysicalRect, TextRequest};
 
-use crate::{Pixel, PixelBuffer, RendererConfig};
+use crate::{Pixel, RendererConfig};
 use font::FontCache;
-use paragraph::ParagraphCache;
+use paragraph::{Paragraph, ParagraphCache, ParagraphKey};
 
 pub struct TextRenderer {
     fonts: FontCache,
     paragraphs: ParagraphCache,
+    frame: Vec<PreparedParagraph>,
+}
+
+struct PreparedParagraph {
+    key: ParagraphKey,
+    paragraph: Paragraph,
 }
 
 impl TextRenderer {
@@ -17,56 +23,75 @@ impl TextRenderer {
         Self {
             fonts: FontCache::new(config.fonts, config.glyph_cache_capacity),
             paragraphs: ParagraphCache::new(config.paragraph_cache_capacity),
+            frame: Vec::new(),
         }
     }
 
-    pub fn draw<B: PixelBuffer>(
-        &mut self,
-        buffer: &mut B,
-        request: &TextRequest<'_>,
-        clips: &[PhysicalRect],
-        scale_factor: f32,
-    ) {
-        let paragraph = self.paragraphs.get(request, scale_factor, &mut self.fonts);
-        let paragraph = match &paragraph {
-            Ok(paragraph) => *paragraph,
-            Err(paragraph) => paragraph,
-        };
-        if paragraph.width == 0 || paragraph.height == 0 {
-            return;
+    pub fn prepare(&mut self, request: &TextRequest<'_>, scale_factor: f32) -> usize {
+        let key = ParagraphCache::key(request, scale_factor);
+        if let Some(index) = self
+            .frame
+            .iter()
+            .position(|prepared| prepared.key == key && prepared.paragraph.matches(request.text))
+        {
+            return index;
         }
-        let area = request.area.to_physical(scale_factor);
+        let (key, paragraph) = self.paragraphs.take(request, scale_factor, &mut self.fonts);
+        let index = self.frame.len();
+        self.frame.push(PreparedParagraph { key, paragraph });
+        index
+    }
+
+    pub fn draw_line<P: Pixel>(
+        &self,
+        paragraph: usize,
+        area: PhysicalRect,
+        color: Color,
+        line: i32,
+        row: &mut [P],
+        clips: &[PhysicalRect],
+    ) {
+        let Some(paragraph) = self
+            .frame
+            .get(paragraph)
+            .map(|prepared| &prepared.paragraph)
+        else {
+            return;
+        };
         let paragraph_rect = PhysicalRect {
             x: area.x + paragraph.x,
             y: area.y + paragraph.y,
             width: paragraph.width as i32,
             height: paragraph.height as i32,
         };
-        let screen = PhysicalRect {
+        let line_rect = PhysicalRect {
             x: 0,
-            y: 0,
-            width: buffer.width() as i32,
-            height: buffer.height() as i32,
+            y: line,
+            width: row.len() as i32,
+            height: 1,
         };
         for clip in clips {
             let Some(clipped) = paragraph_rect
                 .intersection(*clip)
-                .and_then(|area| area.intersection(screen))
+                .and_then(|area| area.intersection(line_rect))
             else {
                 continue;
             };
             let source_x = (clipped.x - paragraph_rect.x) as usize;
-            for y in clipped.y..clipped.y + clipped.height {
-                let source_y = (y - paragraph_rect.y) as usize;
-                let alpha = &paragraph.alpha[source_y * paragraph.width + source_x
-                    ..source_y * paragraph.width + source_x + clipped.width as usize];
-                B::Pixel::blend_alpha_slice(
-                    &mut buffer.line_mut(y as usize)[clipped.x as usize..]
-                        [..clipped.width as usize],
-                    request.color,
-                    alpha,
-                );
-            }
+            let source_y = (line - paragraph_rect.y) as usize;
+            let alpha = &paragraph.alpha[source_y * paragraph.width + source_x
+                ..source_y * paragraph.width + source_x + clipped.width as usize];
+            P::blend_alpha_slice(
+                &mut row[clipped.x as usize..][..clipped.width as usize],
+                color,
+                alpha,
+            );
+        }
+    }
+
+    pub fn finish_frame(&mut self) {
+        for prepared in self.frame.drain(..) {
+            self.paragraphs.restore(prepared.key, prepared.paragraph);
         }
     }
 

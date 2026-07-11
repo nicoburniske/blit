@@ -4,123 +4,148 @@ use bullseye::{PhysicalRect, widgets::Rectangle};
 
 use crate::{Pixel, PixelBuffer, PremultipliedRgbaColor};
 
+pub struct PreparedRectangle {
+    geometry: PhysicalRect,
+    inner: PhysicalRect,
+    radii: Radii,
+    border_width: i32,
+    border_color: PremultipliedRgbaColor,
+    inner_color: PremultipliedRgbaColor,
+}
+
+impl PreparedRectangle {
+    pub fn new(rectangle: &Rectangle, scale_factor: f32) -> Option<Self> {
+        let geometry = rectangle.area.to_physical(scale_factor);
+        if geometry.width <= 0 || geometry.height <= 0 || rectangle.opacity <= 0.0 {
+            return None;
+        }
+        let mut border_width = (rectangle.border_width * scale_factor).round().max(0.0) as i32;
+        let inner_color =
+            PremultipliedRgbaColor::with_opacity(rectangle.background, rectangle.opacity);
+        let mut border_color =
+            PremultipliedRgbaColor::with_opacity(rectangle.border_color, rectangle.opacity);
+        if border_color.alpha == 0 {
+            border_width = 0;
+        } else if border_color.alpha < 255 {
+            let border_alpha = border_color.alpha as u16;
+            border_color = PremultipliedRgbaColor {
+                red: ((inner_color.red as u16 * (255 - border_alpha)) / 255) as u8
+                    + border_color.red,
+                green: ((inner_color.green as u16 * (255 - border_alpha)) / 255) as u8
+                    + border_color.green,
+                blue: ((inner_color.blue as u16 * (255 - border_alpha)) / 255) as u8
+                    + border_color.blue,
+                alpha: (inner_color.alpha as u16 + border_alpha
+                    - (inner_color.alpha as u16 * border_alpha) / 255) as u8,
+            };
+        }
+        let radii = Radii {
+            top_left: (rectangle.radius.top_left * scale_factor).round().max(0.0) as i32,
+            top_right: (rectangle.radius.top_right * scale_factor).round().max(0.0) as i32,
+            bottom_right: (rectangle.radius.bottom_right * scale_factor)
+                .round()
+                .max(0.0) as i32,
+            bottom_left: (rectangle.radius.bottom_left * scale_factor)
+                .round()
+                .max(0.0) as i32,
+        }
+        .fit(geometry.width, geometry.height);
+        let inner = PhysicalRect {
+            x: geometry.x + border_width,
+            y: geometry.y + border_width,
+            width: (geometry.width - border_width * 2).max(0),
+            height: (geometry.height - border_width * 2).max(0),
+        };
+        Some(Self {
+            geometry,
+            inner,
+            radii,
+            border_width,
+            border_color,
+            inner_color,
+        })
+    }
+
+    pub fn draw_line<P: Pixel>(&self, line: i32, clip: PhysicalRect, row: &mut [P]) {
+        let Some(clipped) = self.geometry.intersection(clip).and_then(|area| {
+            area.intersection(PhysicalRect {
+                x: 0,
+                y: line,
+                width: row.len() as i32,
+                height: 1,
+            })
+        }) else {
+            return;
+        };
+        let pixels = &mut row[clipped.x as usize..][..clipped.width as usize];
+        if self.radii.is_zero() {
+            if self.border_width == 0
+                || line < self.inner.y
+                || line >= self.inner.y + self.inner.height
+            {
+                P::blend_slice(
+                    pixels,
+                    if self.border_width == 0 {
+                        self.inner_color
+                    } else {
+                        self.border_color
+                    },
+                );
+                return;
+            }
+            let left = (self.inner.x - clipped.x).clamp(0, clipped.width) as usize;
+            let right =
+                (self.inner.x + self.inner.width - clipped.x).clamp(0, clipped.width) as usize;
+            P::blend_slice(&mut pixels[..left], self.border_color);
+            P::blend_slice(&mut pixels[left..right], self.inner_color);
+            P::blend_slice(&mut pixels[right..], self.border_color);
+            return;
+        }
+        draw_rounded_line(
+            clipped,
+            line,
+            &RoundedRectangle {
+                radii: self.radii,
+                border_width: self.border_width,
+                border_color: self.border_color,
+                inner_color: self.inner_color,
+                top_clip: clipped.y - self.geometry.y,
+                bottom_clip: self.geometry.y + self.geometry.height - clipped.y - clipped.height,
+                left_clip: clipped.x - self.geometry.x,
+                right_clip: self.geometry.x + self.geometry.width - clipped.x - clipped.width,
+            },
+            pixels,
+        );
+    }
+}
+
 pub fn draw<B: PixelBuffer>(
     buffer: &mut B,
     rectangle: &Rectangle,
     clips: &[PhysicalRect],
     scale_factor: f32,
 ) {
-    let width = buffer.width();
-    let height = buffer.height();
-    let geometry = rectangle.area.to_physical(scale_factor);
+    let Some(rectangle) = PreparedRectangle::new(rectangle, scale_factor) else {
+        return;
+    };
     let screen = PhysicalRect {
         x: 0,
         y: 0,
-        width: width as i32,
-        height: height as i32,
+        width: buffer.width() as i32,
+        height: buffer.height() as i32,
     };
-    let mut border_width = (rectangle.border_width * scale_factor).round().max(0.0) as i32;
-    let inner_color = PremultipliedRgbaColor::with_opacity(rectangle.background, rectangle.opacity);
-    let mut border_color =
-        PremultipliedRgbaColor::with_opacity(rectangle.border_color, rectangle.opacity);
-    if border_color.alpha == 0 {
-        border_width = 0;
-    } else if border_color.alpha < 255 {
-        let border_alpha = border_color.alpha as u16;
-        border_color = PremultipliedRgbaColor {
-            red: ((inner_color.red as u16 * (255 - border_alpha)) / 255) as u8 + border_color.red,
-            green: ((inner_color.green as u16 * (255 - border_alpha)) / 255) as u8
-                + border_color.green,
-            blue: ((inner_color.blue as u16 * (255 - border_alpha)) / 255) as u8
-                + border_color.blue,
-            alpha: (inner_color.alpha as u16 + border_alpha
-                - (inner_color.alpha as u16 * border_alpha) / 255) as u8,
-        };
-    }
-    let radii = Radii {
-        top_left: (rectangle.radius.top_left * scale_factor).round().max(0.0) as i32,
-        top_right: (rectangle.radius.top_right * scale_factor).round().max(0.0) as i32,
-        bottom_right: (rectangle.radius.bottom_right * scale_factor)
-            .round()
-            .max(0.0) as i32,
-        bottom_left: (rectangle.radius.bottom_left * scale_factor)
-            .round()
-            .max(0.0) as i32,
-    }
-    .fit(geometry.width, geometry.height);
-
     for clip in clips {
-        let Some(clipped) = geometry
+        let Some(clipped) = rectangle
+            .geometry
             .intersection(*clip)
             .and_then(|area| area.intersection(screen))
         else {
             continue;
         };
-        if radii.is_zero() {
-            draw_plain(
-                buffer,
-                geometry,
-                clipped,
-                border_width,
-                border_color,
-                inner_color,
-            );
-            continue;
-        }
-        let rounded = RoundedRectangle {
-            radii,
-            border_width,
-            border_color,
-            inner_color,
-            top_clip: clipped.y - geometry.y,
-            bottom_clip: geometry.y + geometry.height - clipped.y - clipped.height,
-            left_clip: clipped.x - geometry.x,
-            right_clip: geometry.x + geometry.width - clipped.x - clipped.width,
-        };
         for y in clipped.y..clipped.y + clipped.height {
             let row = buffer.line_mut(y as usize);
-            draw_rounded_line(
-                clipped,
-                y,
-                &rounded,
-                &mut row[clipped.x as usize..][..clipped.width as usize],
-            );
+            rectangle.draw_line(y, *clip, row);
         }
-    }
-}
-
-fn draw_plain<B: PixelBuffer>(
-    buffer: &mut B,
-    geometry: PhysicalRect,
-    clip: PhysicalRect,
-    border_width: i32,
-    border_color: PremultipliedRgbaColor,
-    inner_color: PremultipliedRgbaColor,
-) {
-    let inner = PhysicalRect {
-        x: geometry.x + border_width,
-        y: geometry.y + border_width,
-        width: (geometry.width - border_width * 2).max(0),
-        height: (geometry.height - border_width * 2).max(0),
-    };
-    for y in clip.y..clip.y + clip.height {
-        let row = &mut buffer.line_mut(y as usize)[clip.x as usize..][..clip.width as usize];
-        if border_width == 0 || y < inner.y || y >= inner.y + inner.height {
-            B::Pixel::blend_slice(
-                row,
-                if border_width == 0 {
-                    inner_color
-                } else {
-                    border_color
-                },
-            );
-            continue;
-        }
-        let left = (inner.x - clip.x).clamp(0, clip.width) as usize;
-        let right = (inner.x + inner.width - clip.x).clamp(0, clip.width) as usize;
-        B::Pixel::blend_slice(&mut row[..left], border_color);
-        B::Pixel::blend_slice(&mut row[left..right], inner_color);
-        B::Pixel::blend_slice(&mut row[right..], border_color);
     }
 }
 

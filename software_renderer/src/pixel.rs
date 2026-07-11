@@ -1,4 +1,5 @@
 use bullseye::Color;
+use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
@@ -80,6 +81,15 @@ pub trait PixelBuffer {
     fn width(&self) -> usize;
     fn height(&self) -> usize;
     fn line_mut(&mut self, line: usize) -> &mut [Self::Pixel];
+
+    fn process_line(
+        &mut self,
+        line: usize,
+        range: Range<usize>,
+        process: impl FnOnce(&mut [Self::Pixel]),
+    ) {
+        process(&mut self.line_mut(line)[range]);
+    }
 }
 
 pub struct VecBuffer<P> {
