@@ -71,10 +71,14 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         clips: &[PhysicalRect],
     ) {
         let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
-        if let Some(texture) = context.images.get(image)
-            && let Some(image) = image::Prepared::new(request, &texture.data, context.scale_factor)
-        {
-            self.commands.push_image(image, clips);
+        if let Some(texture) = context.images.get(image) {
+            image::prepare(
+                request,
+                &texture.data,
+                clips,
+                context.scale_factor,
+                |image, clips| self.commands.push_image(image, clips),
+            );
         }
     }
 

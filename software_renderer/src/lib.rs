@@ -493,6 +493,9 @@ mod tests {
                 fit: ImageFit::Fill,
                 sampling: ImageSampling::Nearest,
                 opacity: 1.0,
+                nine_slice: None,
+                horizontal_tiling: bullseye::widgets::ImageTiling::None,
+                vertical_tiling: bullseye::widgets::ImageTiling::None,
             },
             &[PhysicalRect {
                 x: 0,

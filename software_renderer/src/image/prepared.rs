@@ -1,86 +1,87 @@
 use bullseye::{
     Color, ImageData, ImageFormat, ImageId, PhysicalRect,
-    widgets::{ImageFit, ImageRequest, ImageSampling},
+    widgets::{ImageRequest, ImageSampling, ImageTiling},
 };
 
 use crate::{Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel};
 
 const FIXED_SHIFT: u32 = 16;
+const FIXED_ONE: u64 = 1 << FIXED_SHIFT;
 
 #[derive(Clone, Copy)]
 pub struct Prepared {
     pub image: ImageId,
+    pub bounds: PhysicalRect,
     display: PhysicalRect,
-    bounds: PhysicalRect,
+    source: PhysicalRect,
     texture_rect: PhysicalRect,
-    source_width: usize,
-    source_height: usize,
     stride_bytes: usize,
     bytes_per_pixel: usize,
     format: ImageFormat,
     opacity: u8,
     sampling: ImageSampling,
-    scale_x: f32,
-    scale_y: f32,
     step_x: u64,
     step_y: u64,
+    scale_x: f32,
+    scale_y: f32,
+    wrap_x: bool,
+    wrap_y: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct Patch {
+    pub source: PhysicalRect,
+    pub display: PhysicalRect,
+    pub bounds: PhysicalRect,
+    pub horizontal_tiling: ImageTiling,
+    pub vertical_tiling: ImageTiling,
 }
 
 impl Prepared {
-    pub fn new(request: &ImageRequest, texture: &ImageData, scale_factor: f32) -> Option<Self> {
-        let geometry = request.area.to_physical(scale_factor);
-        let source_width = texture.size.width as usize;
-        let source_height = texture.size.height as usize;
-        if geometry.width <= 0
-            || geometry.height <= 0
-            || source_width == 0
-            || source_height == 0
+    pub fn new(
+        request: &ImageRequest,
+        texture: &ImageData,
+        patch: Patch,
+        scale_factor: f32,
+    ) -> Option<Self> {
+        let Patch {
+            source,
+            display,
+            bounds,
+            horizontal_tiling,
+            vertical_tiling,
+        } = patch;
+        if source.width <= 0
+            || source.height <= 0
+            || display.width <= 0
+            || display.height <= 0
+            || bounds.width <= 0
+            || bounds.height <= 0
             || request.opacity <= 0.0
         {
             return None;
         }
-
-        let display = match request.fit {
-            ImageFit::Fill => geometry,
-            ImageFit::Contain | ImageFit::Cover => {
-                let horizontal = geometry.width as f32 / source_width as f32;
-                let vertical = geometry.height as f32 / source_height as f32;
-                let scale = if request.fit == ImageFit::Contain {
-                    horizontal.min(vertical)
-                } else {
-                    horizontal.max(vertical)
-                };
-                let width = (source_width as f32 * scale).round().max(1.0) as i32;
-                let height = (source_height as f32 * scale).round().max(1.0) as i32;
-                PhysicalRect {
-                    x: geometry.x + (geometry.width - width) / 2,
-                    y: geometry.y + (geometry.height - height) / 2,
-                    width,
-                    height,
-                }
-            }
-        };
-        let bounds = if request.fit == ImageFit::Cover {
-            display.intersection(geometry).unwrap_or_default()
-        } else {
-            display
-        };
+        let (step_x, scale_x, wrap_x) =
+            axis(source.width, display.width, horizontal_tiling, scale_factor);
+        let (step_y, scale_y, wrap_y) =
+            axis(source.height, display.height, vertical_tiling, scale_factor);
         Some(Self {
             image: request.image,
-            display,
             bounds,
+            display,
+            source,
             texture_rect: texture.texture_rect,
-            source_width,
-            source_height,
             stride_bytes: texture.stride_bytes,
             bytes_per_pixel: texture.format.bytes_per_pixel(),
             format: texture.format,
             opacity: (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
             sampling: request.sampling,
-            scale_x: source_width as f32 / display.width as f32,
-            scale_y: source_height as f32 / display.height as f32,
-            step_x: ((source_width as u64) << FIXED_SHIFT) / display.width as u64,
-            step_y: ((source_height as u64) << FIXED_SHIFT) / display.height as u64,
+            step_x,
+            step_y,
+            scale_x,
+            scale_y,
+            wrap_x,
+            wrap_y,
         })
     }
 
@@ -110,57 +111,7 @@ impl Prepared {
                 match self.sampling {
                     ImageSampling::Nearest => self.draw_nearest(row, pixels, clipped, screen.x, y),
                     ImageSampling::Bilinear => {
-                        let source_y = (((y - self.display.y) as f32 + 0.5) * self.scale_y - 0.5)
-                            .clamp(0.0, self.source_height as f32 - 1.0);
-                        let top = source_y.floor() as usize;
-                        let bottom = (top + 1).min(self.source_height - 1);
-                        let vertical = source_y - top as f32;
-                        for x in clipped.x..clipped.x + clipped.width {
-                            let source_x = (((x - self.display.x) as f32 + 0.5) * self.scale_x
-                                - 0.5)
-                                .clamp(0.0, self.source_width as f32 - 1.0);
-                            let left = source_x.floor() as usize;
-                            let right = (left + 1).min(self.source_width - 1);
-                            let horizontal = source_x - left as f32;
-                            let top_left = self.source_pixel(pixels, left, top);
-                            let top_right = self.source_pixel(pixels, right, top);
-                            let bottom_left = self.source_pixel(pixels, left, bottom);
-                            let bottom_right = self.source_pixel(pixels, right, bottom);
-                            let interpolate =
-                                |top_left: u8, top_right: u8, bottom_left: u8, bottom_right: u8| {
-                                    let top = top_left as f32
-                                        + (top_right as f32 - top_left as f32) * horizontal;
-                                    let bottom = bottom_left as f32
-                                        + (bottom_right as f32 - bottom_left as f32) * horizontal;
-                                    (top + (bottom - top) * vertical).round() as u8
-                                };
-                            row[(x - screen.x) as usize].blend(PremultipliedRgbaColor {
-                                alpha: interpolate(
-                                    top_left.alpha,
-                                    top_right.alpha,
-                                    bottom_left.alpha,
-                                    bottom_right.alpha,
-                                ),
-                                red: interpolate(
-                                    top_left.red,
-                                    top_right.red,
-                                    bottom_left.red,
-                                    bottom_right.red,
-                                ),
-                                green: interpolate(
-                                    top_left.green,
-                                    top_right.green,
-                                    bottom_left.green,
-                                    bottom_right.green,
-                                ),
-                                blue: interpolate(
-                                    top_left.blue,
-                                    top_right.blue,
-                                    bottom_left.blue,
-                                    bottom_right.blue,
-                                ),
-                            });
-                        }
+                        self.draw_bilinear(row, pixels, clipped, screen.x, y)
                     }
                 }
             }
@@ -175,8 +126,7 @@ impl Prepared {
         screen_x: i32,
         y: i32,
     ) {
-        let source_y = (((y - self.display.y) as u64 * self.step_y) >> FIXED_SHIFT)
-            .min(self.source_height as u64 - 1) as usize;
+        let source_y = self.source_y(y);
         let texture_x = self.texture_rect.x as usize;
         let texture_y = self.texture_rect.y as usize;
         if source_y < texture_y || source_y >= texture_y + self.texture_rect.height as usize {
@@ -184,44 +134,8 @@ impl Prepared {
         }
         let source_row = (source_y - texture_y) * self.stride_bytes;
         let texture_right = texture_x + self.texture_rect.width as usize;
-        if self.step_x == 1 << FIXED_SHIFT {
-            let source_x =
-                (((clipped.x - self.display.x) as u64 * self.step_x) >> FIXED_SHIFT) as usize;
-            let len = clipped.width as usize;
-            if source_x >= texture_x && source_x + len <= texture_right {
-                let destination = (clipped.x - screen_x) as usize;
-                let destination = &mut row[destination..destination + len];
-                let source = source_row + (source_x - texture_x) * self.bytes_per_pixel;
-                match self.format {
-                    ImageFormat::Rgb8 if self.opacity == 255 => {
-                        let bytes = &pixels[source..source + len * 3];
-                        let (prefix, source, suffix) = unsafe { bytes.align_to::<Rgb8Pixel>() };
-                        assert!(prefix.is_empty() && suffix.is_empty());
-                        P::blend_texture_slice_rgb(destination, source);
-                        return;
-                    }
-                    ImageFormat::Rgba8Premultiplied if self.opacity == 255 => {
-                        let bytes = &pixels[source..source + len * 4];
-                        let (prefix, source, suffix) =
-                            unsafe { bytes.align_to::<PremultipliedRgbaColor>() };
-                        assert!(prefix.is_empty() && suffix.is_empty());
-                        P::blend_texture_slice_rgba(destination, source);
-                        return;
-                    }
-                    ImageFormat::Alpha8(color) => {
-                        let alpha = &pixels[source..source + len];
-                        let color = Color::from_rgba8(
-                            color.red,
-                            color.green,
-                            color.blue,
-                            (color.alpha as u16 * self.opacity as u16 / 255) as u8,
-                        );
-                        P::blend_texture_slice_alpha(destination, color, alpha);
-                        return;
-                    }
-                    _ => {}
-                }
-            }
+        if self.step_x == FIXED_ONE && self.draw_spans(row, pixels, clipped, screen_x, source_y) {
+            return;
         }
         match self.format {
             ImageFormat::Rgb8 if self.opacity == 255 => {
@@ -320,6 +234,74 @@ impl Prepared {
         }
     }
 
+    fn draw_spans<P: Pixel>(
+        &self,
+        row: &mut [P],
+        pixels: &[u8],
+        clipped: PhysicalRect,
+        screen_x: i32,
+        source_y: usize,
+    ) -> bool {
+        if !matches!(
+            self.format,
+            ImageFormat::Rgb8 | ImageFormat::Rgba8Premultiplied | ImageFormat::Alpha8(_)
+        ) || !matches!(self.format, ImageFormat::Alpha8(_)) && self.opacity != 255
+        {
+            return false;
+        }
+        let texture_x = self.texture_rect.x as usize;
+        let texture_y = self.texture_rect.y as usize;
+        let texture_right = texture_x + self.texture_rect.width as usize;
+        let source_row = (source_y - texture_y) * self.stride_bytes;
+        let mut destination_x = clipped.x;
+        let destination_end = clipped.x + clipped.width;
+        let mut source = self.source_fixed_x(destination_x);
+        while destination_x < destination_end {
+            let source_x = self.source.x as usize + (source >> FIXED_SHIFT) as usize;
+            let source_end = (self.source.x + self.source.width) as usize;
+            let len =
+                (destination_end - destination_x).min((source_end - source_x) as i32) as usize;
+            if source_x < texture_x || source_x + len > texture_right {
+                return false;
+            }
+            let destination = (destination_x - screen_x) as usize;
+            let destination = &mut row[destination..destination + len];
+            let source_offset = source_row + (source_x - texture_x) * self.bytes_per_pixel;
+            match self.format {
+                ImageFormat::Rgb8 => {
+                    let bytes = &pixels[source_offset..source_offset + len * 3];
+                    let (prefix, source, suffix) = unsafe { bytes.align_to::<Rgb8Pixel>() };
+                    assert!(prefix.is_empty() && suffix.is_empty());
+                    P::blend_texture_slice_rgb(destination, source);
+                }
+                ImageFormat::Rgba8Premultiplied => {
+                    let bytes = &pixels[source_offset..source_offset + len * 4];
+                    let (prefix, source, suffix) =
+                        unsafe { bytes.align_to::<PremultipliedRgbaColor>() };
+                    assert!(prefix.is_empty() && suffix.is_empty());
+                    P::blend_texture_slice_rgba(destination, source);
+                }
+                ImageFormat::Alpha8(color) => {
+                    let alpha = &pixels[source_offset..source_offset + len];
+                    let color = Color::from_rgba8(
+                        color.red,
+                        color.green,
+                        color.blue,
+                        (color.alpha as u16 * self.opacity as u16 / 255) as u8,
+                    );
+                    P::blend_texture_slice_alpha(destination, color, alpha);
+                }
+                _ => unreachable!(),
+            }
+            destination_x += len as i32;
+            source += (len as u64) << FIXED_SHIFT;
+            if self.wrap_x && source >= (self.source.width as u64) << FIXED_SHIFT {
+                source %= (self.source.width as u64) << FIXED_SHIFT;
+            }
+        }
+        true
+    }
+
     #[inline(always)]
     fn for_each_nearest_x(
         &self,
@@ -327,11 +309,139 @@ impl Prepared {
         screen_x: i32,
         mut process: impl FnMut(usize, usize),
     ) {
-        let mut source = (clipped.x - self.display.x) as u64 * self.step_x;
+        let mut source = self.source_fixed_x(clipped.x);
+        let source_span = (self.source.width as u64) << FIXED_SHIFT;
         for x in clipped.x..clipped.x + clipped.width {
-            let source_x = (source >> FIXED_SHIFT).min(self.source_width as u64 - 1) as usize;
+            let source_x = self.source.x as usize
+                + (source >> FIXED_SHIFT).min(self.source.width as u64 - 1) as usize;
             process((x - screen_x) as usize, source_x);
             source += self.step_x;
+            if self.wrap_x && source >= source_span {
+                source %= source_span;
+            }
+        }
+    }
+
+    fn draw_bilinear<P: Pixel>(
+        &self,
+        row: &mut [P],
+        pixels: &[u8],
+        clipped: PhysicalRect,
+        screen_x: i32,
+        y: i32,
+    ) {
+        let source_y = self.source_float_y(y);
+        let top = source_y.floor() as usize;
+        let bottom = if top + 1 < self.source.height as usize {
+            top + 1
+        } else if self.wrap_y {
+            0
+        } else {
+            top
+        };
+        let vertical = source_y - top as f32;
+        for x in clipped.x..clipped.x + clipped.width {
+            let source_x = self.source_float_x(x);
+            let left = source_x.floor() as usize;
+            let right = if left + 1 < self.source.width as usize {
+                left + 1
+            } else if self.wrap_x {
+                0
+            } else {
+                left
+            };
+            let horizontal = source_x - left as f32;
+            let top_left = self.source_pixel(
+                pixels,
+                self.source.x as usize + left,
+                self.source.y as usize + top,
+            );
+            let top_right = self.source_pixel(
+                pixels,
+                self.source.x as usize + right,
+                self.source.y as usize + top,
+            );
+            let bottom_left = self.source_pixel(
+                pixels,
+                self.source.x as usize + left,
+                self.source.y as usize + bottom,
+            );
+            let bottom_right = self.source_pixel(
+                pixels,
+                self.source.x as usize + right,
+                self.source.y as usize + bottom,
+            );
+            let interpolate = |top_left: u8, top_right: u8, bottom_left: u8, bottom_right: u8| {
+                let top = top_left as f32 + (top_right as f32 - top_left as f32) * horizontal;
+                let bottom =
+                    bottom_left as f32 + (bottom_right as f32 - bottom_left as f32) * horizontal;
+                (top + (bottom - top) * vertical).round() as u8
+            };
+            blend(
+                &mut row[(x - screen_x) as usize],
+                PremultipliedRgbaColor {
+                    red: interpolate(
+                        top_left.red,
+                        top_right.red,
+                        bottom_left.red,
+                        bottom_right.red,
+                    ),
+                    green: interpolate(
+                        top_left.green,
+                        top_right.green,
+                        bottom_left.green,
+                        bottom_right.green,
+                    ),
+                    blue: interpolate(
+                        top_left.blue,
+                        top_right.blue,
+                        bottom_left.blue,
+                        bottom_right.blue,
+                    ),
+                    alpha: interpolate(
+                        top_left.alpha,
+                        top_right.alpha,
+                        bottom_left.alpha,
+                        bottom_right.alpha,
+                    ),
+                },
+            );
+        }
+    }
+
+    fn source_y(&self, y: i32) -> usize {
+        let mut source = (y - self.display.y) as u64 * self.step_y;
+        let source_span = (self.source.height as u64) << FIXED_SHIFT;
+        if self.wrap_y {
+            source %= source_span;
+        }
+        self.source.y as usize + (source >> FIXED_SHIFT).min(self.source.height as u64 - 1) as usize
+    }
+
+    fn source_fixed_x(&self, x: i32) -> u64 {
+        let source = (x - self.display.x) as u64 * self.step_x;
+        if self.wrap_x {
+            source % ((self.source.width as u64) << FIXED_SHIFT)
+        } else {
+            source
+        }
+    }
+
+    fn source_float_x(&self, x: i32) -> f32 {
+        let source = ((x - self.display.x) as f32 + 0.5) * self.scale_x - 0.5;
+        if self.wrap_x {
+            source.rem_euclid(self.source.width as f32)
+        } else {
+            source.clamp(0.0, self.source.width as f32 - 1.0)
+        }
+    }
+
+    fn source_float_y(&self, y: i32) -> f32 {
+        let source = ((y - self.display.y) as f32 + 0.5) * self.scale_y - 0.5;
+        if self.wrap_y {
+            source.rem_euclid(self.source.height as f32)
+        } else {
+            source.clamp(0.0, self.source.height as f32 - 1.0)
         }
     }
 
@@ -376,6 +486,33 @@ impl Prepared {
                 color,
                 (pixels[offset] as u16 * self.opacity as u16 / 255) as u8,
             ),
+        }
+    }
+}
+
+fn axis(source: i32, target: i32, tiling: ImageTiling, scale_factor: f32) -> (u64, f32, bool) {
+    match tiling {
+        ImageTiling::None => (
+            ((source as u64) << FIXED_SHIFT) / target as u64,
+            source as f32 / target as f32,
+            false,
+        ),
+        ImageTiling::Repeat => {
+            let tile = (source as f32 * scale_factor).round().max(1.0) as u64;
+            (
+                ((source as u64) << FIXED_SHIFT) / tile,
+                source as f32 / tile as f32,
+                true,
+            )
+        }
+        ImageTiling::Round => {
+            let native = (source as f32 * scale_factor).max(1.0);
+            let count = (target as f32 / native).round().max(1.0) as u64;
+            (
+                ((source as u64 * count) << FIXED_SHIFT) / target as u64,
+                source as f32 * count as f32 / target as f32,
+                true,
+            )
         }
     }
 }
