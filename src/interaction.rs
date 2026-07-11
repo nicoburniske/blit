@@ -72,7 +72,7 @@ pub struct Interaction {
 }
 
 #[derive(Default)]
-pub(crate) struct InteractionState {
+pub struct InteractionState {
     active: Option<WidgetId>,
     focused: Option<WidgetId>,
     hovered: Option<WidgetId>,

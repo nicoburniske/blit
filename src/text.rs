@@ -192,9 +192,13 @@ impl SizedComponent for Text<'_> {
     fn measure(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize {
         let mut options = self.options;
         options.vertical_align = VerticalAlign::Top;
+        let measurement_area = LogicalRect {
+            height: 0.0,
+            ..available
+        };
         let request = TextRequest {
             text: self.text,
-            area: available,
+            area: measurement_area,
             offset_x: self.offset_x,
             color: self.color,
             style: self.text_style,
