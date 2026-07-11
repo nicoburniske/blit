@@ -1,4 +1,5 @@
 mod color;
+mod keyboard;
 mod layout;
 mod platform;
 mod rect;
@@ -8,6 +9,7 @@ mod text;
 pub mod widgets;
 
 pub use color::Color;
+pub use keyboard::{KeyboardKind, KeyboardRequest};
 pub use layout::{Constraint, Direction, Layout, RepeatedAreas, RepeatedLayout};
 pub use platform::{Platform, PlatformImpl, PlatformVTable};
 pub use rect::{LogicalInsets, LogicalRect, PhysicalRect};
@@ -90,6 +92,11 @@ pub enum Input {
     },
     Char(char),
     Backspace,
+    Delete,
+    CursorLeft,
+    CursorRight,
+    Enter,
+    Tab,
 }
 
 pub struct Runtime {
@@ -99,6 +106,7 @@ pub struct Runtime {
     scale_factor: f32,
     pending: DirtyRegions,
     previous: DirtyRegions,
+    keyboard_visible: bool,
 }
 
 impl Runtime {
@@ -116,6 +124,7 @@ impl Runtime {
             scale_factor,
             pending,
             previous: DirtyRegions::default(),
+            keyboard_visible: false,
         }
     }
 
@@ -132,8 +141,15 @@ impl Runtime {
             scale_factor: self.scale_factor,
             dirty,
             invalidated: DirtyRegions::default(),
+            keyboard_requested: false,
         };
         let output = render(&mut ui);
+        if ui.keyboard_requested {
+            self.keyboard_visible = true;
+        } else if self.keyboard_visible {
+            self.platform.hide_keyboard();
+            self.keyboard_visible = false;
+        }
         self.pending = ui.invalidated;
         output
     }
@@ -168,6 +184,7 @@ pub struct Ui {
     scale_factor: f32,
     dirty: DirtyRegions,
     invalidated: DirtyRegions,
+    keyboard_requested: bool,
 }
 
 impl Ui {
@@ -186,5 +203,26 @@ impl Ui {
 
     pub fn invalidate_all(&mut self) {
         self.invalidated.add(self.physical_screen)
+    }
+
+    pub fn show_keyboard(&mut self, request: &KeyboardRequest<'_>) {
+        self.keyboard_requested = true;
+        self.platform.show_keyboard(request);
+    }
+
+    pub fn text_offset_at_position(
+        &mut self,
+        request: &TextRequest<'_>,
+        position: LogicalPoint,
+    ) -> usize {
+        self.platform.text_offset_at_position(request, position)
+    }
+
+    pub fn text_cursor_rect(
+        &mut self,
+        request: &TextRequest<'_>,
+        byte_offset: usize,
+    ) -> LogicalRect {
+        self.platform.text_cursor_rect(request, byte_offset)
     }
 }

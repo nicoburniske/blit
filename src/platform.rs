@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 
 use crate::{
-    PhysicalRect, TextRequest,
+    KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
     widgets::{Image, Rectangle},
 };
 
@@ -14,6 +14,14 @@ pub trait PlatformImpl {
     fn draw_image(&mut self, image: &Image<'_>, clips: &[PhysicalRect]);
     // todo: prepare text once when tight measured damage bounds are needed
     fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]);
+    fn text_offset_at_position(
+        &mut self,
+        request: &TextRequest<'_>,
+        position: LogicalPoint,
+    ) -> usize;
+    fn text_cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect;
+    fn show_keyboard(&mut self, request: &KeyboardRequest<'_>);
+    fn hide_keyboard(&mut self);
 }
 
 #[derive(Clone, Copy)]
@@ -29,6 +37,10 @@ pub struct PlatformVTable {
     draw_rectangle: unsafe fn(NonNull<()>, &Rectangle, &[PhysicalRect]),
     draw_image: unsafe fn(NonNull<()>, &Image<'_>, &[PhysicalRect]),
     draw_text: unsafe fn(NonNull<()>, &TextRequest<'_>, &[PhysicalRect]),
+    text_offset_at_position: unsafe fn(NonNull<()>, &TextRequest<'_>, LogicalPoint) -> usize,
+    text_cursor_rect: unsafe fn(NonNull<()>, &TextRequest<'_>, usize) -> LogicalRect,
+    show_keyboard: unsafe fn(NonNull<()>, &KeyboardRequest<'_>),
+    hide_keyboard: unsafe fn(NonNull<()>),
 }
 
 fn vtable<T: PlatformImpl>() -> &'static PlatformVTable {
@@ -44,6 +56,14 @@ fn vtable<T: PlatformImpl>() -> &'static PlatformVTable {
         draw_text: |data, request, clips| {
             unsafe { data.cast::<T>().as_mut() }.draw_text(request, clips)
         },
+        text_offset_at_position: |data, request, position| {
+            unsafe { data.cast::<T>().as_mut() }.text_offset_at_position(request, position)
+        },
+        text_cursor_rect: |data, request, byte_offset| {
+            unsafe { data.cast::<T>().as_mut() }.text_cursor_rect(request, byte_offset)
+        },
+        show_keyboard: |data, request| unsafe { data.cast::<T>().as_mut() }.show_keyboard(request),
+        hide_keyboard: |data| unsafe { data.cast::<T>().as_mut() }.hide_keyboard(),
     }
 }
 
@@ -79,5 +99,29 @@ impl Platform {
     #[inline]
     pub fn draw_text(self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
         unsafe { (self.vtable.draw_text)(self.data, request, clips) }
+    }
+
+    #[inline]
+    pub fn text_offset_at_position(
+        self,
+        request: &TextRequest<'_>,
+        position: LogicalPoint,
+    ) -> usize {
+        unsafe { (self.vtable.text_offset_at_position)(self.data, request, position) }
+    }
+
+    #[inline]
+    pub fn text_cursor_rect(self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect {
+        unsafe { (self.vtable.text_cursor_rect)(self.data, request, byte_offset) }
+    }
+
+    #[inline]
+    pub fn show_keyboard(self, request: &KeyboardRequest<'_>) {
+        unsafe { (self.vtable.show_keyboard)(self.data, request) }
+    }
+
+    #[inline]
+    pub fn hide_keyboard(self) {
+        unsafe { (self.vtable.hide_keyboard)(self.data) }
     }
 }

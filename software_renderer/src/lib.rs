@@ -7,7 +7,8 @@ pub use fontdue::{Font, FontSettings};
 pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, VecBuffer};
 
 use bullseye::{
-    FontId, FontWeight, PhysicalRect, Platform, PlatformImpl, TextRequest,
+    FontId, FontWeight, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect, Platform,
+    PlatformImpl, TextRequest,
     widgets::{Image, Rectangle},
 };
 use text::TextRenderer;
@@ -98,6 +99,24 @@ impl<B: PixelBuffer> PlatformImpl for Renderer<B> {
         self.text
             .draw(&mut self.buffer, request, clips, self.scale_factor);
     }
+
+    fn text_offset_at_position(
+        &mut self,
+        request: &TextRequest<'_>,
+        position: LogicalPoint,
+    ) -> usize {
+        self.text
+            .offset_at_position(request, position, self.scale_factor)
+    }
+
+    fn text_cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect {
+        self.text
+            .cursor_rect(request, byte_offset, self.scale_factor)
+    }
+
+    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
+
+    fn hide_keyboard(&mut self) {}
 }
 
 #[cfg(test)]
@@ -180,6 +199,7 @@ mod tests {
                     width: 32.0,
                     height: 24.0,
                 },
+                offset_x: 0.0,
                 color: Color::WHITE,
                 style: TextStyle::default(),
                 options: TextOptions::default(),
@@ -193,5 +213,26 @@ mod tests {
                 .iter()
                 .any(|pixel| pixel.red > 12)
         );
+
+        let request = TextRequest {
+            text: "abc",
+            area: LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 32.0,
+                height: 24.0,
+            },
+            offset_x: 0.0,
+            color: Color::WHITE,
+            style: TextStyle::default(),
+            options: TextOptions::default(),
+        };
+        assert_eq!(
+            renderer.text_offset_at_position(&request, LogicalPoint { x: 100.0, y: 12.0 },),
+            request.text.len()
+        );
+        let start = renderer.text_cursor_rect(&request, 0);
+        let end = renderer.text_cursor_rect(&request, request.text.len());
+        assert!(end.x > start.x);
     }
 }

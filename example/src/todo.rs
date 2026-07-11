@@ -1,6 +1,6 @@
 use bullseye::{
     Constraint, Direction, HorizontalAlign, Layout, LogicalInsets, LogicalRect, Text, TextOptions,
-    Ui, VerticalAlign,
+    TextOverflow, Ui, VerticalAlign,
     widgets::{Button, Image, ImageData, ImageFit, Rectangle, TextInput},
 };
 
@@ -122,6 +122,7 @@ impl TodoApp {
             Text::new(&todo.title)
                 .in_area(title)
                 .size(18.0)
+                .overflow(TextOverflow::Ellipsis)
                 .color(if todo.done {
                     colors::TEXT_MUTED
                 } else {
@@ -183,7 +184,7 @@ impl Default for TodoApp {
                     done: true,
                 },
                 Todo {
-                    title: "Build something with Bullseye".into(),
+                    title: "This deliberately long todo is clipped before the remove button".into(),
                     done: false,
                 },
             ],
