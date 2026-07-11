@@ -37,12 +37,12 @@ impl TodoApp {
             .constraints([Constraint::Length(64.0), Constraint::Min(0.0)])
             .areas(header);
         Image::new(ImageData::Rgba8(&self.logo), 48, 48)
-            .in_area(logo.inset_x(6.0).inset_y(6.0))
+            .area(logo.inset_x(6.0).inset_y(6.0))
             .fit(ImageFit::Contain)
             .render(ui);
         Text::new("Bullseye Todos")
             .in_area(title)
-            .size(30.0)
+            .text_size(30.0)
             .color(colors::TEXT)
             .vertical_align(VerticalAlign::Center)
             .render(ui);
@@ -56,7 +56,7 @@ impl TodoApp {
         if Button::new("Add todo")
             .background(colors::PRIMARY)
             .clicked_background(colors::PRIMARY_ACTIVE)
-            .radius(10.0)
+            .uniform_radius(10.0)
             .text_size(17.0)
             .text_options(centered_text())
             .render(ui, add)
@@ -72,7 +72,7 @@ impl TodoApp {
 
         Rectangle::new(list)
             .background(colors::PANEL)
-            .radius(12.0)
+            .uniform_radius(12.0)
             .render(ui);
 
         let rows = Layout::default()
@@ -91,7 +91,7 @@ impl TodoApp {
                 } else {
                     colors::SURFACE
                 })
-                .radius(9.0)
+                .uniform_radius(9.0)
                 .render(ui);
 
             let [toggle, title, delete] = Layout::default()
@@ -110,7 +110,7 @@ impl TodoApp {
                     colors::NEUTRAL
                 })
                 .clicked_background(colors::SUCCESS_ACTIVE)
-                .radius(9.0)
+                .uniform_radius(9.0)
                 .text_options(centered_text())
                 .render(ui, toggle)
                 .clicked()
@@ -121,7 +121,7 @@ impl TodoApp {
 
             Text::new(&todo.title)
                 .in_area(title)
-                .size(18.0)
+                .text_size(18.0)
                 .overflow(TextOverflow::Ellipsis)
                 .color(if todo.done {
                     colors::TEXT_MUTED
@@ -134,7 +134,7 @@ impl TodoApp {
             if Button::new("Remove")
                 .background(colors::DANGER)
                 .clicked_background(colors::DANGER_ACTIVE)
-                .radius(9.0)
+                .uniform_radius(9.0)
                 .text_options(centered_text())
                 .render(ui, delete)
                 .clicked()
@@ -188,15 +188,15 @@ impl Default for TodoApp {
                     done: false,
                 },
             ],
-            input: TextInput::new()
+            input: TextInput::default()
                 .background(colors::INPUT)
                 .focused_background(colors::INPUT_FOCUSED)
                 .border(1.0, colors::BORDER)
-                .focused_border(colors::BORDER_FOCUSED)
-                .radius(10.0)
+                .focused_border_color(colors::BORDER_FOCUSED)
+                .uniform_radius(10.0)
                 .text_color(colors::TEXT)
                 .text_size(18.0)
-                .insets(LogicalInsets {
+                .padding(LogicalInsets {
                     top: 13.0,
                     right: 14.0,
                     bottom: 11.0,

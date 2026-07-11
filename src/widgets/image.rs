@@ -22,16 +22,19 @@ pub enum ImageSampling {
     Bilinear,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Image<'a> {
-    pub area: LogicalRect,
-    pub data: ImageData<'a>,
-    pub width: usize,
-    pub height: usize,
-    pub stride_bytes: usize,
-    pub fit: ImageFit,
-    pub sampling: ImageSampling,
-    pub opacity: f32,
+crate::component! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Image<'a> {
+        pub area: LogicalRect,
+        pub data: ImageData<'a> = ImageData::Rgba8(&[]),
+        pub width: usize,
+        pub height: usize,
+        pub stride_bytes: usize,
+        pub fit: ImageFit,
+        pub sampling: ImageSampling,
+        pub opacity: f32 = 1.0,
+    }
+    features: []
 }
 
 impl<'a> Image<'a> {
@@ -49,35 +52,12 @@ impl<'a> Image<'a> {
                 .is_some_and(|len| len <= pixels.len())
         );
         Self {
-            area: LogicalRect::default(),
             data,
             width,
             height,
             stride_bytes,
-            fit: ImageFit::default(),
-            sampling: ImageSampling::default(),
-            opacity: 1.0,
+            ..Self::default()
         }
-    }
-
-    pub fn in_area(mut self, area: LogicalRect) -> Self {
-        self.area = area;
-        self
-    }
-
-    pub fn fit(mut self, fit: ImageFit) -> Self {
-        self.fit = fit;
-        self
-    }
-
-    pub fn sampling(mut self, sampling: ImageSampling) -> Self {
-        self.sampling = sampling;
-        self
-    }
-
-    pub fn opacity(mut self, opacity: f32) -> Self {
-        self.opacity = opacity.clamp(0.0, 1.0);
-        self
     }
 
     pub fn render(self, ui: &mut Ui) {

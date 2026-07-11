@@ -9,6 +9,7 @@ pub struct Color {
 
 impl Color {
     pub const BLACK: Self = Self::from_rgba8(0, 0, 0, 255);
+    pub const GRAY: Self = Self::from_rgba8(128, 128, 128, 255);
     pub const TRANSPARENT: Self = Self::from_rgba8(0, 0, 0, 0);
     pub const WHITE: Self = Self::from_rgba8(255, 255, 255, 255);
 
