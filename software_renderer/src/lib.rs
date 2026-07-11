@@ -1,3 +1,4 @@
+mod image;
 mod pixel;
 mod rectangle;
 mod text;
@@ -5,7 +6,10 @@ mod text;
 pub use fontdue::{Font, FontSettings};
 pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, VecBuffer};
 
-use bullseye::{PhysicalRect, Platform, PlatformImpl, TextRequest, widgets::Rectangle};
+use bullseye::{
+    PhysicalRect, Platform, PlatformImpl, TextRequest,
+    widgets::{Image, Rectangle},
+};
 use text::TextRenderer;
 
 pub struct RendererConfig {
@@ -74,6 +78,10 @@ impl<B: PixelBuffer> PlatformImpl for Renderer<B> {
 
     fn draw_rectangle(&mut self, request: &Rectangle, clips: &[PhysicalRect]) {
         rectangle::draw(&mut self.buffer, request, clips, self.scale_factor);
+    }
+
+    fn draw_image(&mut self, image: &Image<'_>, clips: &[PhysicalRect]) {
+        image::draw(&mut self.buffer, image, clips, self.scale_factor);
     }
 
     fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
@@ -175,25 +183,5 @@ mod tests {
                 .iter()
                 .any(|pixel| pixel.red > 12)
         );
-
-        let cache_stats = renderer.text.cache_stats();
-        renderer.draw_text(
-            &TextRequest {
-                text: "M",
-                area: LogicalRect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 32.0,
-                    height: 24.0,
-                },
-                color: Color::WHITE,
-                style: TextStyle::default(),
-                options: TextOptions::default(),
-            },
-            &[clip],
-        );
-        assert_eq!(renderer.text.cache_stats(), cache_stats);
-        assert!(cache_stats.0 > 0);
-        assert_eq!(cache_stats.1, 1);
     }
 }

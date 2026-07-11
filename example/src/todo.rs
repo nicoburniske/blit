@@ -1,7 +1,7 @@
 use bullseye::{
     Constraint, Direction, HorizontalAlign, Layout, LogicalInsets, LogicalRect, Text, TextOptions,
     Ui, VerticalAlign,
-    widgets::{Button, Rectangle, TextInput},
+    widgets::{Button, Image, ImageData, ImageFit, Rectangle, TextInput},
 };
 
 struct Todo {
@@ -12,6 +12,7 @@ struct Todo {
 pub struct TodoApp {
     todos: Vec<Todo>,
     input: TextInput,
+    logo: Vec<u8>,
 }
 
 impl TodoApp {
@@ -31,8 +32,16 @@ impl TodoApp {
             ])
             .areas(content);
 
+        let [logo, title] = Layout::default()
+            .spacing(12.0)
+            .constraints([Constraint::Length(64.0), Constraint::Min(0.0)])
+            .areas(header);
+        Image::new(ImageData::Rgba8(&self.logo), 48, 48)
+            .in_area(logo.inset_x(6.0).inset_y(6.0))
+            .fit(ImageFit::Contain)
+            .render(ui);
         Text::new("Bullseye Todos")
-            .in_area(header)
+            .in_area(title)
             .size(30.0)
             .color(colors::TEXT)
             .vertical_align(VerticalAlign::Center)
@@ -143,6 +152,26 @@ impl TodoApp {
 
 impl Default for TodoApp {
     fn default() -> Self {
+        let mut logo = vec![0; 48 * 48 * 4];
+        for (index, pixel) in logo.chunks_exact_mut(4).enumerate() {
+            let x = index % 48;
+            let y = index / 48;
+            let x = x as f32 - 23.5;
+            let y = y as f32 - 23.5;
+            let distance = (x * x + y * y).sqrt();
+            let (red, green, blue, alpha) = if distance <= 7.0 {
+                (255, 255, 255, 255)
+            } else if distance <= 13.0 {
+                (18, 22, 31, 255)
+            } else if distance <= 20.5 {
+                (65, 105, 225, 255)
+            } else if distance < 22.0 {
+                (65, 105, 225, ((22.0 - distance) / 1.5 * 255.0) as u8)
+            } else {
+                (0, 0, 0, 0)
+            };
+            pixel.copy_from_slice(&[red, green, blue, alpha]);
+        }
         Self {
             todos: vec![
                 Todo {
@@ -172,6 +201,7 @@ impl Default for TodoApp {
                     bottom: 11.0,
                     left: 14.0,
                 }),
+            logo,
         }
     }
 }
