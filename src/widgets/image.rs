@@ -15,6 +15,33 @@ pub enum ImageSampling {
     Bilinear,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ImageTiling {
+    #[default]
+    None,
+    Repeat,
+    Round,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NineSlice {
+    pub top: u16,
+    pub right: u16,
+    pub bottom: u16,
+    pub left: u16,
+}
+
+impl NineSlice {
+    pub const fn uniform(value: u16) -> Self {
+        Self {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ImageRequest {
     pub image: ImageId,
@@ -22,6 +49,9 @@ pub struct ImageRequest {
     pub fit: ImageFit,
     pub sampling: ImageSampling,
     pub opacity: f32,
+    pub nine_slice: Option<NineSlice>,
+    pub horizontal_tiling: ImageTiling,
+    pub vertical_tiling: ImageTiling,
 }
 
 pub struct Image<'a> {
@@ -30,6 +60,9 @@ pub struct Image<'a> {
     pub fit: ImageFit,
     pub sampling: ImageSampling,
     pub opacity: f32,
+    pub nine_slice: Option<NineSlice>,
+    pub horizontal_tiling: ImageTiling,
+    pub vertical_tiling: ImageTiling,
 }
 
 impl<'a> Image<'a> {
@@ -40,6 +73,9 @@ impl<'a> Image<'a> {
             fit: ImageFit::default(),
             sampling: ImageSampling::default(),
             opacity: 1.0,
+            nine_slice: None,
+            horizontal_tiling: ImageTiling::None,
+            vertical_tiling: ImageTiling::None,
         }
     }
 
@@ -63,6 +99,21 @@ impl<'a> Image<'a> {
         self
     }
 
+    pub fn nine_slice(mut self, nine_slice: NineSlice) -> Self {
+        self.nine_slice = Some(nine_slice);
+        self
+    }
+
+    pub fn horizontal_tiling(mut self, tiling: ImageTiling) -> Self {
+        self.horizontal_tiling = tiling;
+        self
+    }
+
+    pub fn vertical_tiling(mut self, tiling: ImageTiling) -> Self {
+        self.vertical_tiling = tiling;
+        self
+    }
+
     pub fn render(self, ui: &mut Ui) {
         let request = ImageRequest {
             image: self.resource.id(),
@@ -70,6 +121,9 @@ impl<'a> Image<'a> {
             fit: self.fit,
             sampling: self.sampling,
             opacity: self.opacity,
+            nine_slice: self.nine_slice,
+            horizontal_tiling: self.horizontal_tiling,
+            vertical_tiling: self.vertical_tiling,
         };
         let mut clips = [PhysicalRect::default(); 8];
         let mut clip_count = 0;
