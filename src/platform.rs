@@ -1,8 +1,16 @@
 use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 
-use tiny_skia::PixmapMut;
+use crate::{PhysicalRect, TextRequest, widgets::Rectangle};
 
-use crate::{Rect, TextMetrics, TextRequest};
+pub trait PlatformImpl {
+    fn screen(&mut self) -> PhysicalRect;
+    fn scale_factor(&mut self) -> f32 {
+        1.0
+    }
+    fn draw_rectangle(&mut self, rectangle: &Rectangle, clips: &[PhysicalRect]);
+    // todo: prepare text once when tight measured damage bounds are needed
+    fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]);
+}
 
 #[derive(Clone, Copy)]
 pub struct Platform {
@@ -12,27 +20,51 @@ pub struct Platform {
 }
 
 pub struct PlatformVTable {
-    pub measure_text: unsafe fn(NonNull<()>, &TextRequest<'_>) -> TextMetrics,
-    pub draw_text: unsafe fn(NonNull<()>, &mut PixmapMut<'_>, &TextRequest<'_>, &[Rect]),
+    screen: unsafe fn(NonNull<()>) -> PhysicalRect,
+    scale_factor: unsafe fn(NonNull<()>) -> f32,
+    draw_rectangle: unsafe fn(NonNull<()>, &Rectangle, &[PhysicalRect]),
+    draw_text: unsafe fn(NonNull<()>, &TextRequest<'_>, &[PhysicalRect]),
+}
+
+fn vtable<T: PlatformImpl>() -> &'static PlatformVTable {
+    &PlatformVTable {
+        screen: |data| unsafe { data.cast::<T>().as_mut() }.screen(),
+        scale_factor: |data| unsafe { data.cast::<T>().as_mut() }.scale_factor(),
+        draw_rectangle: |data, request, clips| {
+            unsafe { data.cast::<T>().as_mut() }.draw_rectangle(request, clips)
+        },
+        draw_text: |data, request, clips| {
+            unsafe { data.cast::<T>().as_mut() }.draw_text(request, clips)
+        },
+    }
 }
 
 impl Platform {
-    /// `data` must remain valid for every use of the returned platform.
-    pub unsafe fn new(data: NonNull<()>, vtable: &'static PlatformVTable) -> Self {
+    pub unsafe fn new<T: PlatformImpl>(implementation: &mut T) -> Self {
         Self {
-            data,
-            vtable,
+            data: NonNull::from(implementation).cast(),
+            vtable: vtable::<T>(),
             not_send_or_sync: PhantomData,
         }
     }
 
-    pub fn measure_text(self, request: &TextRequest<'_>) -> TextMetrics {
-        // safety: upheld by the constructor
-        unsafe { (self.vtable.measure_text)(self.data, request) }
+    #[inline]
+    pub fn screen(self) -> PhysicalRect {
+        unsafe { (self.vtable.screen)(self.data) }
     }
 
-    pub fn draw_text(self, pixels: &mut PixmapMut<'_>, request: &TextRequest<'_>, clips: &[Rect]) {
-        // safety: upheld by the constructor
-        unsafe { (self.vtable.draw_text)(self.data, pixels, request, clips) }
+    #[inline]
+    pub fn scale_factor(self) -> f32 {
+        unsafe { (self.vtable.scale_factor)(self.data) }
+    }
+
+    #[inline]
+    pub fn draw_rectangle(self, rectangle: &Rectangle, clips: &[PhysicalRect]) {
+        unsafe { (self.vtable.draw_rectangle)(self.data, rectangle, clips) }
+    }
+
+    #[inline]
+    pub fn draw_text(self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
+        unsafe { (self.vtable.draw_text)(self.data, request, clips) }
     }
 }
