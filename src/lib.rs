@@ -1,3 +1,4 @@
+mod color;
 mod layout;
 mod platform;
 mod rect;
@@ -6,24 +7,24 @@ mod test;
 mod text;
 pub mod widgets;
 
-pub use layout::{Constraint, Direction, Layout};
-pub use platform::{Platform, PlatformVTable};
-pub use rect::Rect;
+pub use color::Color;
+pub use layout::{Constraint, Direction, Layout, RepeatedAreas, RepeatedLayout};
+pub use platform::{Platform, PlatformImpl, PlatformVTable};
+pub use rect::{LogicalInsets, LogicalRect, PhysicalRect};
 pub use text::{
-    FontId, FontWeight, HorizontalAlign, Point, Text, TextMetrics, TextOptions, TextOverflow,
-    TextRequest, TextStyle, TextWrap, VerticalAlign,
+    FontId, FontWeight, HorizontalAlign, LogicalPoint, PhysicalPoint, Text, TextOptions,
+    TextOverflow, TextRequest, TextStyle, TextWrap, VerticalAlign,
 };
-pub use tiny_skia::{Color, Pixmap, PixmapMut};
 
 #[derive(Clone, Debug, Default)]
 pub struct DirtyRegions {
-    regions: [Rect; 8],
+    regions: [PhysicalRect; 8],
     len: usize,
 }
 
 impl DirtyRegions {
-    pub fn add(&mut self, mut area: Rect) {
-        if area.width <= 0.0 || area.height <= 0.0 {
+    pub fn add(&mut self, mut area: PhysicalRect) {
+        if area.width <= 0 || area.height <= 0 {
             return;
         }
 
@@ -47,7 +48,7 @@ impl DirtyRegions {
             }
 
             let mut best = 0;
-            let mut growth = f32::INFINITY;
+            let mut growth = i64::MAX;
             for index in 0..self.len {
                 let candidate = area.union(self.regions[index]);
                 let candidate_growth = candidate.area() - self.regions[index].area();
@@ -62,7 +63,7 @@ impl DirtyRegions {
         }
     }
 
-    pub fn regions(&self) -> &[Rect] {
+    pub fn regions(&self) -> &[PhysicalRect] {
         &self.regions[..self.len]
     }
 
@@ -82,39 +83,37 @@ pub enum Input {
     #[default]
     None,
     PointerDown {
-        x: f32,
-        y: f32,
+        position: LogicalPoint,
     },
     PointerUp {
-        x: f32,
-        y: f32,
+        position: LogicalPoint,
     },
     Char(char),
     Backspace,
 }
 
 pub struct Runtime {
-    pixels: Pixmap,
     platform: Platform,
-    screen: Rect,
+    screen: LogicalRect,
+    physical_screen: PhysicalRect,
+    scale_factor: f32,
     pending: DirtyRegions,
     previous: DirtyRegions,
 }
 
 impl Runtime {
-    pub fn new(pixels: Pixmap, platform: Platform) -> Self {
-        let screen = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: pixels.width() as f32,
-            height: pixels.height() as f32,
-        };
+    pub fn new(platform: Platform) -> Self {
+        let physical_screen = platform.screen();
+        let scale_factor = platform.scale_factor();
+        assert!(scale_factor.is_finite() && scale_factor > 0.0);
+        let screen = physical_screen.to_logical(scale_factor);
         let mut pending = DirtyRegions::default();
-        pending.add(screen);
+        pending.add(physical_screen);
         Self {
-            pixels,
             platform,
             screen,
+            physical_screen,
+            scale_factor,
             pending,
             previous: DirtyRegions::default(),
         }
@@ -125,15 +124,12 @@ impl Runtime {
         let mut dirty = std::mem::take(&mut self.previous);
         dirty.extend(&pending);
         self.previous = pending;
-        // safety: Ui is private to this call and dropped before the framebuffer is returned
-        let pixels = unsafe {
-            std::mem::transmute::<PixmapMut<'_>, PixmapMut<'static>>(self.pixels.as_mut())
-        };
         let mut ui = Ui {
-            pixels,
             platform: self.platform,
             input,
             screen: self.screen,
+            physical_screen: self.physical_screen,
+            scale_factor: self.scale_factor,
             dirty,
             invalidated: DirtyRegions::default(),
         };
@@ -146,28 +142,30 @@ impl Runtime {
         !self.pending.is_empty() || !self.previous.is_empty()
     }
 
-    pub fn invalidate(&mut self, area: Rect) {
-        self.pending.add(area)
+    pub fn invalidate(&mut self, area: LogicalRect) {
+        if let Some(area) = area
+            .to_physical(self.scale_factor)
+            .intersection(self.physical_screen)
+        {
+            self.pending.add(area)
+        }
     }
 
     pub fn invalidate_all(&mut self) {
-        self.pending.add(self.screen)
+        self.pending.add(self.physical_screen)
     }
 
-    pub fn screen(&self) -> Rect {
+    pub fn screen(&self) -> LogicalRect {
         self.screen
-    }
-
-    pub fn framebuffer(&self) -> &Pixmap {
-        &self.pixels
     }
 }
 
 pub struct Ui {
-    pixels: PixmapMut<'static>,
-    platform: Platform,
+    pub(crate) platform: Platform,
     input: Input,
-    screen: Rect,
+    screen: LogicalRect,
+    physical_screen: PhysicalRect,
+    scale_factor: f32,
     dirty: DirtyRegions,
     invalidated: DirtyRegions,
 }
@@ -177,30 +175,16 @@ impl Ui {
         &self.input
     }
 
-    pub fn fill_rect(&mut self, area: Rect, color: Color) {
-        use tiny_skia::{Paint, Rect as SkRect, Transform};
-
-        let pixels = &mut self.pixels;
-        let mut paint = Paint::default();
-        paint.set_color(color);
-        for dirty in self.dirty.regions() {
-            let Some(area) = area.intersection(*dirty) else {
-                continue;
-            };
-            pixels.fill_rect(
-                SkRect::from_xywh(area.x, area.y, area.width, area.height).unwrap(),
-                &paint,
-                Transform::identity(),
-                None,
-            );
+    pub fn invalidate(&mut self, area: LogicalRect) {
+        if let Some(area) = area
+            .to_physical(self.scale_factor)
+            .intersection(self.physical_screen)
+        {
+            self.invalidated.add(area)
         }
     }
 
-    pub fn invalidate(&mut self, area: Rect) {
-        self.invalidated.add(area)
-    }
-
     pub fn invalidate_all(&mut self) {
-        self.invalidated.add(self.screen)
+        self.invalidated.add(self.physical_screen)
     }
 }
