@@ -1,10 +1,20 @@
-use crate::{Input, LogicalInsets, LogicalRect, SizedComponent, Ui};
+use crate::{LogicalInsets, LogicalRect, Sense, SizedComponent, Ui, WidgetId};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ScrollState {
     pub offset: f32,
     pub content_height: f32,
-    pointer_y: Option<f32>,
+    id: WidgetId,
+}
+
+impl Default for ScrollState {
+    fn default() -> Self {
+        Self {
+            offset: 0.0,
+            content_height: 0.0,
+            id: WidgetId::unique(),
+        }
+    }
 }
 
 impl ScrollState {
@@ -21,14 +31,17 @@ pub struct ScrollArea<'a> {
     state: &'a mut ScrollState,
     spacing: f32,
     padding: LogicalInsets,
+    id: WidgetId,
 }
 
 impl<'a> ScrollArea<'a> {
     pub fn vertical(state: &'a mut ScrollState) -> Self {
+        let id = state.id;
         Self {
             state,
             spacing: 0.0,
             padding: LogicalInsets::default(),
+            id,
         }
     }
 
@@ -42,26 +55,24 @@ impl<'a> ScrollArea<'a> {
         self
     }
 
+    pub fn id(mut self, source: impl std::hash::Hash) -> Self {
+        self.id = WidgetId::new(source);
+        self
+    }
+
     pub fn begin<'ui>(self, ui: &'ui mut Ui, viewport: LogicalRect) -> Area<'ui>
     where
         'a: 'ui,
     {
         let before = self.state.offset;
-        match ui.input().clone() {
-            Input::PointerDown { position } if viewport.contains(position.x, position.y) => {
-                self.state.pointer_y = Some(position.y);
-            }
-            Input::PointerMove { position } if self.state.pointer_y.is_some() => {
-                let previous = self.state.pointer_y.replace(position.y).unwrap();
-                self.state.scroll_by(previous - position.y, viewport.height);
-            }
-            Input::PointerUp { .. } => self.state.pointer_y = None,
-            Input::Scroll {
-                position, delta_y, ..
-            } if viewport.contains(position.x, position.y) => {
-                self.state.scroll_by(delta_y, viewport.height);
-            }
-            _ => {}
+        let interaction = ui.interact(ui.id(("scroll area", self.id)), viewport, Sense::DRAG);
+        if interaction.drag_delta.y != 0.0 {
+            self.state
+                .scroll_by(-interaction.drag_delta.y, viewport.height);
+        }
+        if interaction.scroll_delta.y != 0.0 {
+            self.state
+                .scroll_by(interaction.scroll_delta.y, viewport.height);
         }
         self.state.offset = self
             .state

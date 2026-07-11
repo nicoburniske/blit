@@ -41,8 +41,8 @@ impl PlatformImpl for TestPlatform {
 
     fn draw_text(&mut self, _: &TextRequest<'_>, _: &[PhysicalRect]) {}
 
-    fn text_offset_at_position(&mut self, _: &TextRequest<'_>, _: LogicalPoint) -> usize {
-        0
+    fn text_offset_at_position(&mut self, request: &TextRequest<'_>, _: LogicalPoint) -> usize {
+        request.text.len()
     }
 
     fn text_cursor_rect(&mut self, request: &TextRequest<'_>, _: usize) -> LogicalRect {
@@ -209,11 +209,25 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
     };
     let mut input = widgets::TextInput {
         text: "aé🙂".into(),
-        focused: true,
         cursor: "aé🙂".len(),
         anchor: "aé🙂".len(),
         ..widgets::TextInput::default()
     };
+
+    runtime.render(Input::None, |ui| input.render(ui, area));
+    runtime.render(
+        Input::PointerDown {
+            position: LogicalPoint { x: 1.0, y: 1.0 },
+        },
+        |ui| input.render(ui, area),
+    );
+    runtime.render(
+        Input::PointerUp {
+            position: LogicalPoint { x: 1.0, y: 1.0 },
+            leave: false,
+        },
+        |ui| input.render(ui, area),
+    );
 
     runtime.render(Input::Backspace, |ui| input.render(ui, area));
     assert_eq!(input.text, "aé");
@@ -237,4 +251,145 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
     input.anchor = input.cursor;
     runtime.render(Input::Backspace, |ui| input.render(ui, area));
     assert!(input.text.is_empty());
+}
+
+#[test]
+fn scroll_drag_cancels_button_click() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut state = widgets::ScrollState::default();
+    let viewport = runtime.screen();
+
+    let render = |ui: &mut Ui, state: &mut widgets::ScrollState| {
+        let mut area = widgets::ScrollArea::vertical(state).begin(ui, viewport);
+        let response = area.add(widgets::Button::new("button"));
+        area.finish();
+        response
+    };
+
+    runtime.render(Input::None, |ui| render(ui, &mut state));
+    runtime.render(
+        Input::PointerDown {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+        },
+        |ui| render(ui, &mut state),
+    );
+    runtime.render(
+        Input::PointerMove {
+            position: LogicalPoint { x: 5.0, y: -5.0 },
+        },
+        |ui| render(ui, &mut state),
+    );
+    let response = runtime.render(
+        Input::PointerUp {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            leave: false,
+        },
+        |ui| render(ui, &mut state),
+    );
+
+    assert!(!response.clicked());
+}
+
+#[test]
+fn button_click_requires_matching_press_and_release() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let area = runtime.screen();
+
+    runtime.render(Input::None, |ui| {
+        widgets::Button::new("button").render(ui, area)
+    });
+    runtime.render(
+        Input::PointerDown {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+        },
+        |ui| widgets::Button::new("button").render(ui, area),
+    );
+    let response = runtime.render(
+        Input::PointerUp {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            leave: false,
+        },
+        |ui| widgets::Button::new("button").render(ui, area),
+    );
+
+    assert!(response.clicked());
+}
+
+#[test]
+fn focus_moves_between_text_inputs() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut first = widgets::TextInput::default();
+    let mut second = widgets::TextInput::default();
+    let first_area = LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 10.0,
+        height: 5.0,
+    };
+    let second_area = LogicalRect {
+        y: 5.0,
+        ..first_area
+    };
+    let render = |ui: &mut Ui, first: &mut widgets::TextInput, second: &mut widgets::TextInput| {
+        first.render(ui, first_area);
+        second.render(ui, second_area);
+    };
+
+    runtime.render(Input::None, |ui| render(ui, &mut first, &mut second));
+    runtime.render(
+        Input::PointerDown {
+            position: LogicalPoint { x: 2.0, y: 7.0 },
+        },
+        |ui| render(ui, &mut first, &mut second),
+    );
+    runtime.render(Input::Char('x'), |ui| render(ui, &mut first, &mut second));
+
+    assert!(first.text.is_empty());
+    assert_eq!(second.text, "x");
+}
+
+#[test]
+fn id_scopes_create_distinct_widget_ids() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+
+    let (root, nested) = runtime.render(Input::None, |ui| {
+        let root = ui.id("button");
+        let mut scope = ui.begin_scope("todo");
+        let nested = scope.ui().id("button");
+        scope.finish();
+        (root, nested)
+    });
+
+    assert_ne!(root, nested);
+}
+
+#[test]
+fn only_topmost_widget_is_hovered() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let area = runtime.screen();
+    let render = |ui: &mut Ui| {
+        let back = ui.interact(ui.id("back"), area, Sense::CLICK);
+        let front = ui.interact(ui.id("front"), area, Sense::CLICK);
+        (back, front)
+    };
+
+    runtime.render(Input::None, &render);
+    let (back, front) = runtime.render(
+        Input::PointerMove {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+        },
+        render,
+    );
+
+    assert!(!back.hovered);
+    assert!(front.hovered);
+
+    let (back, front) = runtime.render(Input::PointerLeave, render);
+    assert!(!back.hovered);
+    assert!(!front.hovered);
 }

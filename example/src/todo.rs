@@ -1,10 +1,12 @@
 use bullseye::{
     Constraint, Direction, HorizontalAlign, ImageData, ImageFormat, ImagePixels, ImageResource,
     Layout, LogicalInsets, LogicalRect, Text, TextOptions, TextOverflow, Ui, VerticalAlign,
+    WidgetId,
     widgets::{Button, Image, ImageFit, Rectangle, TextInput},
 };
 
 struct Todo {
+    id: WidgetId,
     title: String,
     done: bool,
 }
@@ -72,7 +74,11 @@ impl TodoApp {
         {
             let title = std::mem::take(&mut self.input.text);
             if !title.is_empty() {
-                self.todos.push(Todo { title, done: false });
+                self.todos.push(Todo {
+                    id: WidgetId::unique(),
+                    title,
+                    done: false,
+                });
                 ui.invalidate(input);
                 ui.invalidate(list);
             }
@@ -93,6 +99,8 @@ impl TodoApp {
             if row.y + row.height > list.y + list.height {
                 break;
             }
+            let mut scope = ui.begin_scope(todo.id);
+            let ui = scope.ui();
             Rectangle::new(row)
                 .background(if todo.done {
                     colors::SURFACE_DONE
@@ -148,8 +156,10 @@ impl TodoApp {
                 .clicked()
             {
                 remove = Some(index);
+                scope.finish();
                 break;
             }
+            scope.finish();
         }
 
         if let Some(index) = remove {
@@ -184,14 +194,17 @@ impl Default for TodoApp {
         Self {
             todos: vec![
                 Todo {
+                    id: WidgetId::unique(),
                     title: "Try the immediate-mode widgets".into(),
                     done: true,
                 },
                 Todo {
+                    id: WidgetId::unique(),
                     title: "Add precise damage tracking".into(),
                     done: true,
                 },
                 Todo {
+                    id: WidgetId::unique(),
                     title: "This deliberately long todo is clipped before the remove button".into(),
                     done: false,
                 },

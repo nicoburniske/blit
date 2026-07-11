@@ -1,12 +1,14 @@
 use crate::{
-    Color, Input, LogicalInsets, LogicalRect, LogicalSize, SizedComponent, Text, TextOptions,
-    TextStyle, Ui,
+    Color, LogicalInsets, LogicalRect, LogicalSize, Sense, SizedComponent, Text, TextOptions,
+    TextStyle, Ui, WidgetId,
     widgets::{BorderRadius, Rectangle},
 };
 
 crate::component! {
     pub struct Button<'a> {
         pub label: &'a str,
+        #[skip]
+        pub id: Option<WidgetId>,
         pub background: Color = Color::from_rgba8(45, 55, 70, 255),
         pub clicked_background: Color = Color::from_rgba8(70, 110, 190, 255),
         pub border_color: Color,
@@ -36,20 +38,27 @@ impl<'a> Button<'a> {
         }
     }
 
+    pub fn id(mut self, source: impl std::hash::Hash) -> Self {
+        self.id = Some(WidgetId::new(source));
+        self
+    }
+
     pub fn render(self, ui: &mut Ui, area: LogicalRect) -> Response {
-        let clicked = matches!(ui.input(), Input::PointerUp { position } if area.contains(position.x, position.y));
-        if clicked {
+        let local_id = self.id.unwrap_or_else(|| WidgetId::new(self.label));
+        let interaction = ui.interact(ui.id(("button", local_id)), area, Sense::CLICK);
+        if interaction.pressed || interaction.clicked {
             ui.invalidate(area);
         }
+        let active = interaction.pressed || interaction.clicked;
         Rectangle::new(area)
-            .background(if clicked {
+            .background(if active {
                 self.clicked_background
             } else {
                 self.background
             })
             .border(
                 self.border_width,
-                if clicked {
+                if active {
                     self.clicked_border_color
                 } else {
                     self.border_color
@@ -60,7 +69,7 @@ impl<'a> Button<'a> {
             .render(ui);
         Text::new(self.label)
             .in_area(area.inset(self.padding))
-            .color(if clicked {
+            .color(if active {
                 self.clicked_text_color
             } else {
                 self.text_color
@@ -70,7 +79,9 @@ impl<'a> Button<'a> {
             .text_weight(self.text_style.weight)
             .options(self.text_options)
             .render(ui);
-        Response { clicked }
+        Response {
+            clicked: interaction.clicked,
+        }
     }
 }
 
