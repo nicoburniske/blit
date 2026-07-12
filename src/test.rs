@@ -68,8 +68,8 @@ fn invalidation_is_rendered_next_frame() {
         height: 5.0,
     };
     let mut platform = TestPlatform;
-    // safety: platform outlives the runtime
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) })
+        .with_repaint_buffer(RepaintBuffer::Swapped);
 
     let damage = runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.invalidate(changed);
@@ -88,6 +88,30 @@ fn invalidation_is_rendered_next_frame() {
 }
 
 #[test]
+fn reused_buffer_does_not_replay_damage() {
+    let changed = LogicalRect {
+        x: 2.0,
+        y: 3.0,
+        width: 4.0,
+        height: 5.0,
+    };
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) })
+        .with_repaint_buffer(RepaintBuffer::Reused);
+
+    runtime.render(Duration::ZERO, Input::None, |_| {});
+    assert!(!runtime.has_pending_redraw());
+
+    runtime.invalidate(changed);
+    let damage = runtime.render(Duration::ZERO, Input::None, |ui| ui.dirty.clone());
+    assert_eq!(damage.regions(), &[changed.to_physical(1.0)]);
+    assert!(!runtime.has_pending_redraw());
+
+    let damage = runtime.render(Duration::ZERO, Input::None, |ui| ui.dirty.clone());
+    assert!(damage.is_empty());
+}
+
+#[test]
 fn batched_invalidations_are_replayed_on_the_next_buffer() {
     let first = LogicalRect {
         x: 0.0,
@@ -102,8 +126,8 @@ fn batched_invalidations_are_replayed_on_the_next_buffer() {
         height: 2.0,
     };
     let mut platform = TestPlatform;
-    // safety: platform outlives the runtime
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) })
+        .with_repaint_buffer(RepaintBuffer::Swapped);
     runtime.render(Duration::ZERO, Input::None, |_| {});
     runtime.render(Duration::ZERO, Input::None, |_| {});
 
@@ -130,7 +154,6 @@ fn batched_invalidations_are_replayed_on_the_next_buffer() {
 #[test]
 fn render_batch_processes_each_input() {
     let mut platform = TestPlatform;
-    // safety: platform outlives the runtime
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
     let area = runtime.screen();
     runtime.render(Duration::ZERO, Input::None, |ui| {
@@ -482,7 +505,8 @@ fn button_click_requires_matching_press_and_release() {
 #[test]
 fn pointer_damage_renders_immediately_and_replays_once() {
     let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) })
+        .with_repaint_buffer(RepaintBuffer::Swapped);
     let area = runtime.screen();
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
