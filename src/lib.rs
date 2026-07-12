@@ -28,7 +28,7 @@ pub use image::{ImageData, ImageFormat, ImageId, ImagePixels, ImageResource};
 pub use input::Input;
 pub use interaction::{Interaction, Sense, WidgetId};
 pub use keyboard::{KeyboardKind, KeyboardRequest};
-pub use layout::{Constraint, Direction, Layout, RepeatedAreas, RepeatedLayout};
+pub use layout::{Constraint, Direction, Layout, LayoutAlign, RepeatedAreas, RepeatedLayout};
 pub use platform::{Platform, PlatformImpl, PlatformVTable};
 pub use rect::{LogicalInsets, LogicalRect, LogicalSize, PhysicalRect, PhysicalSize, Size};
 pub use text::{

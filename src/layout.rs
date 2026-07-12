@@ -7,6 +7,14 @@ pub enum Direction {
     Vertical,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LayoutAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Constraint {
     Length(f32),
@@ -19,12 +27,14 @@ pub enum Constraint {
 
 pub struct Layout<const N: usize = 0> {
     direction: Direction,
+    align: LayoutAlign,
     spacing: f32,
     constraints: [Constraint; N],
 }
 
 pub struct RepeatedLayout {
     direction: Direction,
+    align: LayoutAlign,
     spacing: f32,
     constraint: Constraint,
 }
@@ -42,6 +52,7 @@ impl Default for Layout {
     fn default() -> Self {
         Self {
             direction: Direction::Horizontal,
+            align: LayoutAlign::Start,
             spacing: 0.0,
             constraints: [],
         }
@@ -54,6 +65,11 @@ impl<const N: usize> Layout<N> {
         self
     }
 
+    pub fn align(mut self, align: LayoutAlign) -> Self {
+        self.align = align;
+        self
+    }
+
     pub fn spacing(mut self, spacing: f32) -> Self {
         self.spacing = spacing.max(0.0);
         self
@@ -62,6 +78,7 @@ impl<const N: usize> Layout<N> {
     pub fn constraints<const M: usize>(self, constraints: [Constraint; M]) -> Layout<M> {
         Layout {
             direction: self.direction,
+            align: self.align,
             spacing: self.spacing,
             constraints,
         }
@@ -70,6 +87,7 @@ impl<const N: usize> Layout<N> {
     pub fn repeat(self, constraint: Constraint) -> RepeatedLayout {
         RepeatedLayout {
             direction: self.direction,
+            align: self.align,
             spacing: self.spacing,
             constraint,
         }
@@ -150,10 +168,16 @@ impl<const N: usize> Layout<N> {
             }
         }
 
+        let used = sizes.iter().sum::<f32>() + self.spacing * N.saturating_sub(1) as f32;
+        let offset = match self.align {
+            LayoutAlign::Start => 0.0,
+            LayoutAlign::Center => (total - used).max(0.0) / 2.0,
+            LayoutAlign::End => (total - used).max(0.0),
+        };
         let mut cursor = match self.direction {
             Direction::Horizontal => area.x,
             Direction::Vertical => area.y,
-        };
+        } + offset;
         std::array::from_fn(|index| {
             let size = sizes[index].min(available).max(0.0);
             let result = match self.direction {
@@ -217,6 +241,16 @@ impl RepeatedLayout {
             cursor: match self.direction {
                 Direction::Horizontal => area.x,
                 Direction::Vertical => area.y,
+            } + match self.align {
+                LayoutAlign::Start => 0.0,
+                LayoutAlign::Center => {
+                    (total - (size * count as f32 + self.spacing * count.saturating_sub(1) as f32))
+                        .max(0.0)
+                        / 2.0
+                }
+                LayoutAlign::End => (total
+                    - (size * count as f32 + self.spacing * count.saturating_sub(1) as f32))
+                    .max(0.0),
             },
             remaining: count,
         }
@@ -294,5 +328,26 @@ mod tests {
 
         assert_eq!(areas.len(), 7);
         assert_eq!(areas.last().unwrap().y, 60.0);
+    }
+
+    #[test]
+    fn repeated_layout_can_be_centered() {
+        let areas: Vec<_> = Layout::default()
+            .align(LayoutAlign::Center)
+            .spacing(4.0)
+            .repeat(Constraint::Length(8.0))
+            .areas(
+                LogicalRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 40.0,
+                    height: 10.0,
+                },
+                3,
+            )
+            .collect();
+
+        assert_eq!(areas[0].x, 4.0);
+        assert_eq!(areas[2].x, 28.0);
     }
 }
