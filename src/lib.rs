@@ -36,8 +36,16 @@ pub use text::{
     TextRequest, TextStyle, TextWrap, VerticalAlign,
 };
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RepaintBuffer {
+    #[default]
+    Reused,
+    Swapped,
+}
+
 pub struct Runtime {
     platform: Platform,
+    repaint_buffer: RepaintBuffer,
     screen: LogicalRect,
     physical_screen: PhysicalRect,
     scale_factor: f32,
@@ -96,6 +104,7 @@ impl Runtime {
         pending.add(physical_screen);
         Self {
             platform,
+            repaint_buffer: RepaintBuffer::default(),
             screen,
             physical_screen,
             scale_factor,
@@ -106,6 +115,11 @@ impl Runtime {
         }
     }
 
+    pub fn with_repaint_buffer(mut self, repaint_buffer: RepaintBuffer) -> Self {
+        self.repaint_buffer = repaint_buffer;
+        self
+    }
+
     pub fn render<R>(
         &mut self,
         time: Duration,
@@ -113,9 +127,15 @@ impl Runtime {
         render: impl FnOnce(&mut Ui) -> R,
     ) -> R {
         let pending = std::mem::take(&mut self.pending);
-        let mut dirty = std::mem::take(&mut self.previous);
+        let mut dirty = if self.repaint_buffer == RepaintBuffer::Swapped {
+            std::mem::take(&mut self.previous)
+        } else {
+            DirtyRegions::default()
+        };
         dirty.extend(&pending);
-        self.previous = pending;
+        if self.repaint_buffer == RepaintBuffer::Swapped {
+            self.previous = pending;
+        }
         let mut interaction = std::mem::take(&mut self.interaction);
         let mut animations = std::mem::take(&mut self.animations);
         for animation in &mut animations {
@@ -125,7 +145,9 @@ impl Runtime {
         let invalidated = DirtyRegions::default();
         for area in interaction_damage.into_iter().flatten() {
             dirty.add(area);
-            self.previous.add(area);
+            if self.repaint_buffer == RepaintBuffer::Swapped {
+                self.previous.add(area);
+            }
         }
         self.platform.begin_frame(dirty.regions());
         let mut ui = Ui {
@@ -189,7 +211,7 @@ impl Runtime {
 
     pub fn has_pending_redraw(&self) -> bool {
         !self.pending.is_empty()
-            || !self.previous.is_empty()
+            || self.repaint_buffer == RepaintBuffer::Swapped && !self.previous.is_empty()
             || self
                 .animations
                 .iter()
