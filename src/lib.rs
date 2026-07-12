@@ -122,10 +122,11 @@ impl Runtime {
         for animation in &mut animations {
             animation.seen = false;
         }
-        let hover_damage = interaction.begin_frame(&input, self.scale_factor);
-        let mut invalidated = DirtyRegions::default();
-        for area in hover_damage.into_iter().flatten() {
-            invalidated.add(area);
+        let interaction_damage = interaction.begin_frame(&input, self.scale_factor);
+        let invalidated = DirtyRegions::default();
+        for area in interaction_damage.into_iter().flatten() {
+            dirty.add(area);
+            self.previous.add(area);
         }
         let mut ui = Ui {
             platform: NonNull::from(&mut self.platform),

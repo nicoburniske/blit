@@ -190,7 +190,14 @@ impl InteractionState {
         }
         let current_area = hovered.map(|item| item.area);
         if previous_hovered == self.hovered {
-            [None, None]
+            if matches!(
+                self.pointer.event,
+                PointerEvent::Down | PointerEvent::Up { .. }
+            ) {
+                [current_area, None]
+            } else {
+                [None, None]
+            }
         } else {
             [previous_area, current_area]
         }
