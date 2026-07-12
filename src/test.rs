@@ -363,6 +363,39 @@ fn button_click_requires_matching_press_and_release() {
 }
 
 #[test]
+fn pointer_damage_renders_immediately_and_replays_once() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let area = runtime.screen();
+
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        widgets::Button::new("button").render(ui, area);
+    });
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        widgets::Button::new("button").render(ui, area);
+    });
+    assert!(!runtime.has_pending_redraw());
+
+    let damage = runtime.render(
+        Duration::ZERO,
+        Input::PointerDown {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+        },
+        |ui| {
+            widgets::Button::new("button").render(ui, area);
+            ui.dirty.clone()
+        },
+    );
+    assert_eq!(damage.regions(), &[area.to_physical(1.0)]);
+    assert!(runtime.has_pending_redraw());
+
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        widgets::Button::new("button").render(ui, area);
+    });
+    assert!(!runtime.has_pending_redraw());
+}
+
+#[test]
 fn focus_moves_between_text_inputs() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });

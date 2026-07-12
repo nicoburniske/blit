@@ -46,9 +46,6 @@ impl<'a> Button<'a> {
     pub fn render(self, ui: &mut Ui, area: LogicalRect) -> Response {
         let local_id = self.id.unwrap_or_else(|| WidgetId::new(self.label));
         let interaction = ui.interact(ui.id(("button", local_id)), area, Sense::CLICK);
-        if interaction.pressed || interaction.clicked {
-            ui.invalidate(area);
-        }
         let active = interaction.pressed || interaction.clicked;
         Rectangle::new(area)
             .background(if active {
