@@ -13,14 +13,6 @@ pub type PhysicalPoint = Point<i32>;
 pub struct FontId(pub u16);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum FontWeight {
-    #[default]
-    Normal,
-    Medium,
-    Bold,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum TextWrap {
     #[default]
     None,
@@ -55,7 +47,7 @@ pub enum VerticalAlign {
 pub struct TextStyle {
     pub font: FontId,
     pub size: f32,
-    pub weight: FontWeight,
+    pub weight: u16,
 }
 
 impl Default for TextStyle {
@@ -63,7 +55,7 @@ impl Default for TextStyle {
         Self {
             font: FontId::default(),
             size: 16.0,
-            weight: FontWeight::Normal,
+            weight: 400,
         }
     }
 }

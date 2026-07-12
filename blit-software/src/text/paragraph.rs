@@ -5,9 +5,7 @@ use std::{
     num::NonZeroUsize,
 };
 
-use blit::{
-    FontId, FontWeight, HorizontalAlign, TextOverflow, TextRequest, TextWrap, VerticalAlign,
-};
+use blit::{FontId, HorizontalAlign, TextOverflow, TextRequest, TextWrap, VerticalAlign};
 use clru::{CLruCache, CLruCacheConfig, WeightScale};
 use fontdue::layout::{
     CoordinateSystem, HorizontalAlign as FontHorizontalAlign, Layout, LayoutSettings,
@@ -49,7 +47,7 @@ pub(super) struct ParagraphKey {
     offset_x: i32,
     font: FontId,
     size: u32,
-    weight: FontWeight,
+    weight: u16,
     wrap: TextWrap,
     overflow: TextOverflow,
     horizontal_align: HorizontalAlign,
@@ -397,9 +395,7 @@ impl ParagraphCache {
 
 #[cfg(test)]
 mod tests {
-    use blit::{
-        Color, FontId, FontWeight, LogicalRect, TextOptions, TextOverflow, TextRequest, TextStyle,
-    };
+    use blit::{Color, FontId, LogicalRect, TextOptions, TextOverflow, TextRequest, TextStyle};
 
     use super::*;
     use crate::{Font, FontFace, FontSettings};
@@ -414,7 +410,7 @@ mod tests {
         let mut fonts = FontCache::new(
             vec![FontFace {
                 id: FontId::default(),
-                weight: FontWeight::Normal,
+                weight: 400,
                 font,
             }],
             1024 * 1024,

@@ -70,7 +70,7 @@ fn renderer_supports_custom_pixel_layouts() {
         RendererConfig {
             fonts: vec![FontFace {
                 id: FontId::default(),
-                weight: FontWeight::Normal,
+                weight: 400,
                 font,
             }],
             glyph_cache_capacity: 1024 * 1024,
@@ -171,7 +171,7 @@ fn dropped_image_slots_are_reused_after_end_frame() {
         RendererConfig {
             fonts: vec![FontFace {
                 id: FontId::default(),
-                weight: FontWeight::Normal,
+                weight: 400,
                 font,
             }],
             glyph_cache_capacity: 1024 * 1024,
@@ -220,7 +220,7 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
         RendererConfig {
             fonts: vec![FontFace {
                 id: FontId::default(),
-                weight: FontWeight::Normal,
+                weight: 400,
                 font,
             }],
             glyph_cache_capacity: 1024 * 1024,
@@ -275,7 +275,7 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
         RendererConfig {
             fonts: vec![FontFace {
                 id: FontId::default(),
-                weight: FontWeight::Normal,
+                weight: 400,
                 font,
             }],
             glyph_cache_capacity: 1024 * 1024,
@@ -321,7 +321,7 @@ fn dropped_image_remains_valid_until_frame_end() {
         RendererConfig {
             fonts: vec![FontFace {
                 id: FontId::default(),
-                weight: FontWeight::Normal,
+                weight: 400,
                 font,
             }],
             glyph_cache_capacity: 1024 * 1024,
@@ -379,7 +379,7 @@ fn text_source_can_drop_before_frame_end() {
         RendererConfig {
             fonts: vec![FontFace {
                 id: FontId::default(),
-                weight: FontWeight::Normal,
+                weight: 400,
                 font,
             }],
             glyph_cache_capacity: 1024 * 1024,

@@ -32,8 +32,8 @@ pub use layout::{Constraint, Direction, Layout, LayoutAlign, RepeatedAreas, Repe
 pub use platform::{Platform, PlatformImpl, PlatformVTable};
 pub use rect::{LogicalInsets, LogicalRect, LogicalSize, PhysicalRect, PhysicalSize, Size};
 pub use text::{
-    FontId, FontWeight, HorizontalAlign, LogicalPoint, PhysicalPoint, Text, TextOptions,
-    TextOverflow, TextRequest, TextStyle, TextWrap, VerticalAlign,
+    FontId, HorizontalAlign, LogicalPoint, PhysicalPoint, Text, TextOptions, TextOverflow,
+    TextRequest, TextStyle, TextWrap, VerticalAlign,
 };
 
 pub struct Runtime {

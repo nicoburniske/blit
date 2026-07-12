@@ -9,7 +9,7 @@ pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, VecBuffer
 pub use strategy::{Direct, RenderStrategy, Scanline};
 
 use blit::{
-    FontId, FontWeight, ImageData, ImageId, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
+    FontId, ImageData, ImageId, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
     widgets::{ImageRequest, Rectangle},
 };
 
@@ -21,7 +21,7 @@ pub struct RendererConfig {
 
 pub struct FontFace {
     pub id: FontId,
-    pub weight: FontWeight,
+    pub weight: u16,
     pub font: Font,
 }
 
