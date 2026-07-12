@@ -347,6 +347,7 @@ fn dropped_image_remains_valid_until_frame_end() {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
+            colorize: None,
             nine_slice: None,
             horizontal_tiling: blit::widgets::ImageTiling::None,
             vertical_tiling: blit::widgets::ImageTiling::None,

@@ -198,7 +198,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use blit::{
-        ImageFormat, ImageId, ImagePixels, LogicalRect,
+        Color, ImageFormat, ImageId, ImagePixels, LogicalRect,
         widgets::{ImageFit, ImageSampling, ImageTiling, NineSlice},
     };
 
@@ -244,6 +244,7 @@ mod tests {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
+            colorize: None,
             nine_slice: None,
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
@@ -272,6 +273,49 @@ mod tests {
     }
 
     #[test]
+    fn colorize_uses_rgba_alpha() {
+        static PIXELS: [u8; 4] = [16, 8, 4, 128];
+        let texture = ImageData::new(
+            ImagePixels::Static(&PIXELS),
+            ImageFormat::Rgba8Premultiplied,
+            1,
+            1,
+        );
+        let request = ImageRequest {
+            image: ImageId(0),
+            area: LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            },
+            fit: ImageFit::Fill,
+            sampling: ImageSampling::Nearest,
+            opacity: 1.0,
+            colorize: Some(Color::WHITE),
+            nine_slice: None,
+            horizontal_tiling: ImageTiling::None,
+            vertical_tiling: ImageTiling::None,
+        };
+        let mut buffer = VecBuffer::<u32>::new(1, 1);
+
+        draw(
+            &mut buffer,
+            &request,
+            &texture,
+            &[PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            }],
+            1.0,
+        );
+
+        assert_eq!(buffer.pixels()[0], 0x808080);
+    }
+
+    #[test]
     fn bilinear_image_interpolates_source_pixels() {
         static PIXELS: [u8; 8] = [255, 0, 0, 255, 0, 0, 255, 255];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8, 2, 1);
@@ -286,6 +330,7 @@ mod tests {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Bilinear,
             opacity: 1.0,
+            colorize: None,
             nine_slice: None,
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
@@ -329,6 +374,7 @@ mod tests {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
+            colorize: None,
             nine_slice: None,
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
@@ -368,6 +414,7 @@ mod tests {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
+            colorize: None,
             nine_slice: None,
             horizontal_tiling: ImageTiling::Repeat,
             vertical_tiling: ImageTiling::None,
@@ -408,6 +455,7 @@ mod tests {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
+            colorize: None,
             nine_slice: None,
             horizontal_tiling: ImageTiling::Round,
             vertical_tiling: ImageTiling::None,
@@ -453,6 +501,7 @@ mod tests {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
+            colorize: None,
             nine_slice: Some(NineSlice::uniform(1)),
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,

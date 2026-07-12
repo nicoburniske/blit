@@ -98,6 +98,7 @@ impl ImageData {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ImageId(pub u64);
 
+// todo: rename this ImageHandle maybe
 pub struct ImageResource {
     id: ImageId,
     size: PhysicalSize,
