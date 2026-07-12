@@ -30,7 +30,7 @@ impl PlatformImpl for TestPlatform {
         }
     }
 
-    fn draw_rectangle(&mut self, _: &widgets::Rectangle, _: &[PhysicalRect]) {}
+    fn draw_rectangle(&mut self, _: &widgets::Rectangle, _: PhysicalRect) {}
 
     fn create_image(&mut self, _: ImageData) -> ImageId {
         ImageId(0)
@@ -38,9 +38,9 @@ impl PlatformImpl for TestPlatform {
 
     fn drop_image(&mut self, _: ImageId) {}
 
-    fn draw_image(&mut self, _: &widgets::ImageRequest, _: &[PhysicalRect]) {}
+    fn draw_image(&mut self, _: &widgets::ImageRequest, _: PhysicalRect) {}
 
-    fn draw_text(&mut self, _: &TextRequest<'_>, _: &[PhysicalRect]) {}
+    fn draw_text(&mut self, _: &TextRequest<'_>, _: PhysicalRect) {}
 
     fn text_offset_at_position(&mut self, request: &TextRequest<'_>, _: LogicalPoint) -> usize {
         request.text.len()

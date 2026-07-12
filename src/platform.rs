@@ -7,18 +7,18 @@ use crate::{
 };
 
 pub trait PlatformImpl {
-    fn begin_frame(&mut self) {}
+    fn begin_frame(&mut self, _: &[PhysicalRect]) {}
     fn end_frame(&mut self) {}
     fn screen(&mut self) -> PhysicalRect;
     fn scale_factor(&mut self) -> f32 {
         1.0
     }
-    fn draw_rectangle(&mut self, rectangle: &Rectangle, clips: &[PhysicalRect]);
+    fn draw_rectangle(&mut self, rectangle: &Rectangle, clip: PhysicalRect);
     fn create_image(&mut self, data: ImageData) -> ImageId;
     fn drop_image(&mut self, image: ImageId);
-    fn draw_image(&mut self, image: &ImageRequest, clips: &[PhysicalRect]);
+    fn draw_image(&mut self, image: &ImageRequest, clip: PhysicalRect);
     // todo: prepare text once when tight measured damage bounds are needed
-    fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]);
+    fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect);
     fn text_offset_at_position(
         &mut self,
         request: &TextRequest<'_>,
@@ -46,8 +46,8 @@ impl Platform {
     }
 
     #[inline]
-    pub fn draw_rectangle(&mut self, rectangle: &Rectangle, clips: &[PhysicalRect]) {
-        unsafe { (self.vtable.draw_rectangle)(self.data, rectangle, clips) }
+    pub fn draw_rectangle(&mut self, rectangle: &Rectangle, clip: PhysicalRect) {
+        unsafe { (self.vtable.draw_rectangle)(self.data, rectangle, clip) }
     }
 
     #[inline]
@@ -58,13 +58,13 @@ impl Platform {
     }
 
     #[inline]
-    pub fn draw_image(&mut self, image: &ImageRequest, clips: &[PhysicalRect]) {
-        unsafe { (self.vtable.draw_image)(self.data, image, clips) }
+    pub fn draw_image(&mut self, image: &ImageRequest, clip: PhysicalRect) {
+        unsafe { (self.vtable.draw_image)(self.data, image, clip) }
     }
 
     #[inline]
-    pub fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
-        unsafe { (self.vtable.draw_text)(self.data, request, clips) }
+    pub fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) {
+        unsafe { (self.vtable.draw_text)(self.data, request, clip) }
     }
 
     #[inline]
@@ -100,8 +100,8 @@ impl Platform {
         }
     }
 
-    pub(crate) fn begin_frame(&mut self) {
-        unsafe { (self.vtable.begin_frame)(self.data) }
+    pub(crate) fn begin_frame(&mut self, damage: &[PhysicalRect]) {
+        unsafe { (self.vtable.begin_frame)(self.data, damage) }
     }
 
     pub(crate) fn end_frame(&mut self) {
@@ -110,15 +110,15 @@ impl Platform {
 }
 
 pub struct PlatformVTable {
-    begin_frame: unsafe fn(NonNull<()>),
+    begin_frame: unsafe fn(NonNull<()>, &[PhysicalRect]),
     end_frame: unsafe fn(NonNull<()>),
     screen: unsafe fn(NonNull<()>) -> PhysicalRect,
     scale_factor: unsafe fn(NonNull<()>) -> f32,
-    draw_rectangle: unsafe fn(NonNull<()>, &Rectangle, &[PhysicalRect]),
+    draw_rectangle: unsafe fn(NonNull<()>, &Rectangle, PhysicalRect),
     create_image: unsafe fn(NonNull<()>, ImageData) -> ImageId,
     drop_image: unsafe fn(NonNull<()>, ImageId),
-    draw_image: unsafe fn(NonNull<()>, &ImageRequest, &[PhysicalRect]),
-    draw_text: unsafe fn(NonNull<()>, &TextRequest<'_>, &[PhysicalRect]),
+    draw_image: unsafe fn(NonNull<()>, &ImageRequest, PhysicalRect),
+    draw_text: unsafe fn(NonNull<()>, &TextRequest<'_>, PhysicalRect),
     text_offset_at_position: unsafe fn(NonNull<()>, &TextRequest<'_>, LogicalPoint) -> usize,
     text_cursor_rect: unsafe fn(NonNull<()>, &TextRequest<'_>, usize) -> LogicalRect,
     show_keyboard: unsafe fn(NonNull<()>, &KeyboardRequest<'_>),
@@ -126,20 +126,20 @@ pub struct PlatformVTable {
 
 fn vtable<T: PlatformImpl>() -> &'static PlatformVTable {
     &PlatformVTable {
-        begin_frame: |data| unsafe { data.cast::<T>().as_mut() }.begin_frame(),
+        begin_frame: |data, damage| unsafe { data.cast::<T>().as_mut() }.begin_frame(damage),
         end_frame: |data| unsafe { data.cast::<T>().as_mut() }.end_frame(),
         screen: |data| unsafe { data.cast::<T>().as_mut() }.screen(),
         scale_factor: |data| unsafe { data.cast::<T>().as_mut() }.scale_factor(),
-        draw_rectangle: |data, request, clips| {
-            unsafe { data.cast::<T>().as_mut() }.draw_rectangle(request, clips)
+        draw_rectangle: |data, request, clip| {
+            unsafe { data.cast::<T>().as_mut() }.draw_rectangle(request, clip)
         },
         create_image: |data, image| unsafe { data.cast::<T>().as_mut() }.create_image(image),
         drop_image: |data, image| unsafe { data.cast::<T>().as_mut() }.drop_image(image),
-        draw_image: |data, image, clips| {
-            unsafe { data.cast::<T>().as_mut() }.draw_image(image, clips)
+        draw_image: |data, image, clip| {
+            unsafe { data.cast::<T>().as_mut() }.draw_image(image, clip)
         },
-        draw_text: |data, request, clips| {
-            unsafe { data.cast::<T>().as_mut() }.draw_text(request, clips)
+        draw_text: |data, request, clip| {
+            unsafe { data.cast::<T>().as_mut() }.draw_text(request, clip)
         },
         text_offset_at_position: |data, request, position| {
             unsafe { data.cast::<T>().as_mut() }.text_offset_at_position(request, position)

@@ -13,24 +13,24 @@ use blit::{
 use crate::{PixelBuffer, RenderContext};
 
 pub trait RenderStrategy<B: PixelBuffer> {
-    fn begin_frame(&mut self, context: &mut RenderContext<B>);
+    fn begin_frame(&mut self, context: &mut RenderContext<B>, damage: &[PhysicalRect]);
     fn draw_rectangle(
         &mut self,
         context: &mut RenderContext<B>,
         rectangle: &Rectangle,
-        clips: &[PhysicalRect],
+        clip: PhysicalRect,
     );
     fn draw_image(
         &mut self,
         context: &mut RenderContext<B>,
         image: &ImageRequest,
-        clips: &[PhysicalRect],
+        clip: PhysicalRect,
     );
     fn draw_text(
         &mut self,
         context: &mut RenderContext<B>,
         text: &TextRequest<'_>,
-        clips: &[PhysicalRect],
+        clip: PhysicalRect,
     );
     fn end_frame(&mut self, context: &mut RenderContext<B>);
 }

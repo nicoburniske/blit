@@ -83,6 +83,7 @@ fn renderer_supports_custom_pixel_layouts() {
         width: 32,
         height: 24,
     };
+    renderer.begin_frame(&[clip]);
     renderer.draw_rectangle(
         &Rectangle {
             area: LogicalRect {
@@ -97,7 +98,7 @@ fn renderer_supports_custom_pixel_layouts() {
             radius: BorderRadius::default(),
             opacity: 1.0,
         },
-        &[clip],
+        clip,
     );
     renderer.end_frame();
     assert_eq!(
@@ -109,6 +110,7 @@ fn renderer_supports_custom_pixel_layouts() {
         }
     );
 
+    renderer.begin_frame(&[clip]);
     renderer.draw_text(
         &TextRequest {
             text: "M",
@@ -124,7 +126,7 @@ fn renderer_supports_custom_pixel_layouts() {
             options: TextOptions::default(),
             intrinsic_height: false,
         },
-        &[clip],
+        clip,
     );
     renderer.end_frame();
     assert!(
@@ -228,6 +230,21 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
         },
     )
     .strategy(Scanline::default());
+    let damage = [
+        PhysicalRect {
+            x: 0,
+            y: 2,
+            width: 4,
+            height: 1,
+        },
+        PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 1,
+        },
+    ];
+    renderer.begin_frame(&damage);
     renderer.draw_rectangle(
         &Rectangle::new(LogicalRect {
             x: 0.0,
@@ -236,20 +253,12 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
             height: 4.0,
         })
         .background(Color::WHITE),
-        &[
-            PhysicalRect {
-                x: 0,
-                y: 2,
-                width: 4,
-                height: 1,
-            },
-            PhysicalRect {
-                x: 0,
-                y: 0,
-                width: 4,
-                height: 1,
-            },
-        ],
+        PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 4,
+        },
     );
     renderer.end_frame();
 
@@ -283,6 +292,13 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
         },
     )
     .strategy(Scanline::default());
+    let damage = [PhysicalRect {
+        x: 1,
+        y: 0,
+        width: 2,
+        height: 1,
+    }];
+    renderer.begin_frame(&damage);
     renderer.draw_rectangle(
         &Rectangle::new(LogicalRect {
             x: 0.0,
@@ -291,12 +307,12 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
             height: 1.0,
         })
         .background(Color::WHITE),
-        &[PhysicalRect {
-            x: 1,
+        PhysicalRect {
+            x: 0,
             y: 0,
-            width: 2,
-            height: 1,
-        }],
+            width: 4,
+            height: 2,
+        },
     );
     renderer.end_frame();
 
@@ -372,12 +388,21 @@ fn cached_dirty_ranges_match_direct_rendering() {
             height: 3,
         },
     ];
+    let damage = [red_clips[0], red_clips[1], green_clips[0], green_clips[1]];
+    let clip = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 8,
+        height: 8,
+    };
+    direct.begin_frame(&damage);
+    scanline.begin_frame(&damage);
 
-    direct.draw_rectangle(&red, &red_clips);
-    direct.draw_rectangle(&green, &green_clips);
+    direct.draw_rectangle(&red, clip);
+    direct.draw_rectangle(&green, clip);
     direct.end_frame();
-    scanline.draw_rectangle(&red, &red_clips);
-    scanline.draw_rectangle(&green, &green_clips);
+    scanline.draw_rectangle(&red, clip);
+    scanline.draw_rectangle(&green, clip);
     scanline.end_frame();
 
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
@@ -410,6 +435,13 @@ fn dropped_image_remains_valid_until_frame_end() {
         1,
         1,
     ));
+    let damage = [PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+    }];
+    renderer.begin_frame(&damage);
     renderer.draw_image(
         &ImageRequest {
             image,
@@ -427,12 +459,7 @@ fn dropped_image_remains_valid_until_frame_end() {
             horizontal_tiling: blit::widgets::ImageTiling::None,
             vertical_tiling: blit::widgets::ImageTiling::None,
         },
-        &[PhysicalRect {
-            x: 0,
-            y: 0,
-            width: 1,
-            height: 1,
-        }],
+        damage[0],
     );
     renderer.drop_image(image);
     renderer.end_frame();
@@ -462,6 +489,13 @@ fn text_source_can_drop_before_frame_end() {
         },
     )
     .strategy(Scanline::default());
+    let damage = [PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 32,
+        height: 24,
+    }];
+    renderer.begin_frame(&damage);
     {
         let text = String::from("M");
         renderer.draw_text(
@@ -479,12 +513,7 @@ fn text_source_can_drop_before_frame_end() {
                 options: TextOptions::default(),
                 intrinsic_height: false,
             },
-            &[PhysicalRect {
-                x: 0,
-                y: 0,
-                width: 32,
-                height: 24,
-            }],
+            damage[0],
         );
     }
     renderer.end_frame();

@@ -50,22 +50,24 @@ impl<P: Pixel> PixelBuffer for LineBuffer<'_, P> {
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
-    fn begin_frame(&mut self, _: &mut RenderContext<B>) {
+    fn begin_frame(&mut self, _: &mut RenderContext<B>, damage: &[PhysicalRect]) {
         assert!(self.commands.is_empty());
         assert!(self.damage.is_empty());
+        for area in damage {
+            self.damage.add(*area);
+        }
     }
 
     fn draw_rectangle(
         &mut self,
         context: &mut RenderContext<B>,
         rectangle: &Rectangle,
-        clips: &[PhysicalRect],
+        clip: PhysicalRect,
     ) {
         if let Some(rectangle) = rectangle::Prepared::new(rectangle, context.scale_factor) {
-            for clip in clips {
-                self.damage.add(*clip);
+            if let Some(bounds) = rectangle.geometry.intersection(clip) {
+                self.commands.push_rectangle(rectangle, bounds);
             }
-            self.commands.push_rectangle(rectangle, clips);
         }
     }
 
@@ -73,21 +75,16 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         &mut self,
         context: &mut RenderContext<B>,
         request: &ImageRequest,
-        clips: &[PhysicalRect],
+        clip: PhysicalRect,
     ) {
         let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
         if let Some(texture) = context.images.get(image) {
             image::prepare(
                 request,
                 &texture.data,
-                clips,
+                clip,
                 context.scale_factor,
-                |image, clips| {
-                    for clip in clips {
-                        self.damage.add(*clip);
-                    }
-                    self.commands.push_image(image, clips);
-                },
+                |image, bounds| self.commands.push_image(image, bounds),
             );
         }
     }
@@ -96,18 +93,19 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         &mut self,
         context: &mut RenderContext<B>,
         text: &TextRequest<'_>,
-        clips: &[PhysicalRect],
+        clip: PhysicalRect,
     ) {
-        for clip in clips {
-            self.damage.add(*clip);
-        }
+        let area = text.area.to_physical(context.scale_factor);
+        let Some(bounds) = area.intersection(clip) else {
+            return;
+        };
         self.commands.push_text(
             PreparedText {
                 paragraph: context.text.prepare(text, context.scale_factor),
-                area: text.area.to_physical(context.scale_factor),
+                area,
                 color: text.color,
             },
-            clips,
+            bounds,
         );
     }
 
@@ -216,42 +214,29 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         if bounds.end <= range.start as i32 || bounds.start >= range.end as i32 {
                             continue;
                         }
-                        let command = commands.get(*command);
-                        let mut line_clips = [PhysicalRect::default(); 8];
-                        let mut len = 0;
-                        let line_area = PhysicalRect {
-                            x: range.start as i32,
+                        let clip = PhysicalRect {
+                            x: bounds.start.max(range.start as i32),
                             y: line,
-                            width: range.len() as i32,
+                            width: bounds.end.min(range.end as i32)
+                                - bounds.start.max(range.start as i32),
                             height: 1,
                         };
-                        for clip in command.clips {
-                            if let Some(clip) = clip.intersection(line_area) {
-                                line_clips[len] = clip;
-                                len += 1;
-                            }
-                        }
-                        if len == 0 {
-                            continue;
-                        }
-                        match command.payload {
+                        match commands.get(*command) {
                             Payload::Rectangle(rectangle) => {
-                                for clip in &line_clips[..len] {
-                                    rectangle.draw_line(
-                                        line,
-                                        *clip,
-                                        PixelSpan {
-                                            x: range.start as i32,
-                                            pixels: buffer.line_mut(line as usize),
-                                        },
-                                    );
-                                }
+                                rectangle.draw_line(
+                                    line,
+                                    clip,
+                                    PixelSpan {
+                                        x: range.start as i32,
+                                        pixels: buffer.line_mut(line as usize),
+                                    },
+                                );
                             }
                             Payload::Image(request) => {
                                 let image =
                                     RendererImageId::from(KeyData::from_ffi(request.image.0));
                                 if let Some(image) = images.get(image) {
-                                    request.draw(&mut buffer, &image.data, &line_clips[..len]);
+                                    request.draw(&mut buffer, &image.data, clip);
                                 }
                             }
                             Payload::Text(text_command) => text.draw_line(
@@ -263,7 +248,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                     x: range.start as i32,
                                     pixels: buffer.line_mut(line as usize),
                                 },
-                                &line_clips[..len],
+                                clip,
                             ),
                         }
                     }

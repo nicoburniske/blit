@@ -66,13 +66,20 @@ fn scanline(criterion: &mut Criterion) {
         width: 64,
         height: 64,
     }];
+    let damage = [left_clip[0], right_clip[0]];
+    let clip = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 1024,
+        height: 768,
+    };
 
     criterion.bench_function("scanline/256_commands_two_horizontal_regions", |bencher| {
         bencher.iter(|| {
-            renderer.begin_frame();
+            renderer.begin_frame(&damage);
             for _ in 0..128 {
-                renderer.draw_rectangle(black_box(&left), black_box(&left_clip));
-                renderer.draw_rectangle(black_box(&right), black_box(&right_clip));
+                renderer.draw_rectangle(black_box(&left), black_box(clip));
+                renderer.draw_rectangle(black_box(&right), black_box(clip));
             }
             renderer.end_frame();
             black_box(renderer.buffer().pixels()[352 * 1024 + 16]);
@@ -103,8 +110,8 @@ fn scanline(criterion: &mut Criterion) {
 
     criterion.bench_function("scanline/two_sparse_vertical_regions", |bencher| {
         bencher.iter(|| {
-            renderer.begin_frame();
-            renderer.draw_rectangle(black_box(&screen), black_box(&clips));
+            renderer.begin_frame(&clips);
+            renderer.draw_rectangle(black_box(&screen), black_box(clip));
             renderer.end_frame();
             black_box(renderer.buffer().pixels()[8 * 1024 + 480]);
         });
@@ -136,8 +143,8 @@ fn scanline(criterion: &mut Criterion) {
 
     criterion.bench_function("image/premultiplied_rgba_256x256_opacity_50", |bencher| {
         bencher.iter(|| {
-            renderer.begin_frame();
-            renderer.draw_image(black_box(&image), black_box(&image_clip));
+            renderer.begin_frame(&image_clip);
+            renderer.draw_image(black_box(&image), black_box(image_clip[0]));
             renderer.end_frame();
             black_box(renderer.buffer().pixels()[256 * 1024 + 384]);
         });

@@ -40,7 +40,7 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 has_dead_images: false,
                 text: TextRenderer::new(config),
             },
-            strategy: Direct,
+            strategy: Direct::default(),
         }
     }
 
@@ -80,8 +80,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         &mut self.context.buffer
     }
 
-    pub fn begin_frame(&mut self) {
-        self.strategy.begin_frame(&mut self.context)
+    pub fn begin_frame(&mut self, damage: &[PhysicalRect]) {
+        self.strategy.begin_frame(&mut self.context, damage)
     }
 
     pub fn end_frame(&mut self) {
@@ -89,17 +89,17 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         self.context.finish_frame();
     }
 
-    pub fn draw_rectangle(&mut self, request: &Rectangle, clips: &[PhysicalRect]) {
+    pub fn draw_rectangle(&mut self, request: &Rectangle, clip: PhysicalRect) {
         self.strategy
-            .draw_rectangle(&mut self.context, request, clips)
+            .draw_rectangle(&mut self.context, request, clip)
     }
 
-    pub fn draw_image(&mut self, request: &ImageRequest, clips: &[PhysicalRect]) {
-        self.strategy.draw_image(&mut self.context, request, clips)
+    pub fn draw_image(&mut self, request: &ImageRequest, clip: PhysicalRect) {
+        self.strategy.draw_image(&mut self.context, request, clip)
     }
 
-    pub fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
-        self.strategy.draw_text(&mut self.context, request, clips)
+    pub fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) {
+        self.strategy.draw_text(&mut self.context, request, clip)
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageId {

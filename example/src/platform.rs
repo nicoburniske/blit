@@ -125,8 +125,8 @@ impl TestPlatform {
 }
 
 impl PlatformImpl for TestPlatform {
-    fn begin_frame(&mut self) {
-        self.renderer.begin_frame()
+    fn begin_frame(&mut self, damage: &[PhysicalRect]) {
+        self.renderer.begin_frame(damage)
     }
 
     fn end_frame(&mut self) {
@@ -141,8 +141,8 @@ impl PlatformImpl for TestPlatform {
         self.renderer.scale_factor()
     }
 
-    fn draw_rectangle(&mut self, rectangle: &Rectangle, clips: &[PhysicalRect]) {
-        self.renderer.draw_rectangle(rectangle, clips)
+    fn draw_rectangle(&mut self, rectangle: &Rectangle, clip: PhysicalRect) {
+        self.renderer.draw_rectangle(rectangle, clip)
     }
 
     fn create_image(&mut self, data: ImageData) -> ImageId {
@@ -153,12 +153,12 @@ impl PlatformImpl for TestPlatform {
         self.renderer.drop_image(image)
     }
 
-    fn draw_image(&mut self, image: &ImageRequest, clips: &[PhysicalRect]) {
-        self.renderer.draw_image(image, clips)
+    fn draw_image(&mut self, image: &ImageRequest, clip: PhysicalRect) {
+        self.renderer.draw_image(image, clip)
     }
 
-    fn draw_text(&mut self, request: &TextRequest<'_>, clips: &[PhysicalRect]) {
-        self.renderer.draw_text(request, clips)
+    fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) {
+        self.renderer.draw_text(request, clip)
     }
 
     fn text_offset_at_position(

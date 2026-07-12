@@ -10,7 +10,7 @@ use crate::{PixelBuffer, PixelSpan};
 pub fn draw<B: PixelBuffer>(
     buffer: &mut B,
     rectangle: &Rectangle,
-    clips: &[PhysicalRect],
+    clip: PhysicalRect,
     scale_factor: f32,
 ) {
     let Some(rectangle) = Prepared::new(rectangle, scale_factor) else {
@@ -22,18 +22,16 @@ pub fn draw<B: PixelBuffer>(
         width: buffer.width() as i32,
         height: buffer.height() as i32,
     };
-    for clip in clips {
-        let Some(clipped) = rectangle
-            .geometry
-            .intersection(*clip)
-            .and_then(|area| area.intersection(screen))
-        else {
-            continue;
-        };
-        for y in clipped.y..clipped.y + clipped.height {
-            let row = buffer.line_mut(y as usize);
-            rectangle.draw_line(y, *clip, PixelSpan { x: 0, pixels: row });
-        }
+    let Some(clipped) = rectangle
+        .geometry
+        .intersection(clip)
+        .and_then(|area| area.intersection(screen))
+    else {
+        return;
+    };
+    for y in clipped.y..clipped.y + clipped.height {
+        let row = buffer.line_mut(y as usize);
+        rectangle.draw_line(y, clip, PixelSpan { x: 0, pixels: row });
     }
 }
 
@@ -67,12 +65,12 @@ mod tests {
                 },
                 opacity: 1.0,
             },
-            &[PhysicalRect {
+            PhysicalRect {
                 x: 0,
                 y: 0,
                 width: 16,
                 height: 16,
-            }],
+            },
             1.0,
         );
 
@@ -94,12 +92,12 @@ mod tests {
                 height: 8.0,
             })
             .background(Color::WHITE),
-            &[PhysicalRect {
+            PhysicalRect {
                 x: 2,
                 y: 3,
                 width: 2,
                 height: 1,
-            }],
+            },
             1.0,
         );
 
@@ -148,12 +146,12 @@ mod tests {
                 },
                 opacity: 1.0,
             },
-            &[PhysicalRect {
+            PhysicalRect {
                 x: 0,
                 y: 0,
                 width: 12,
                 height: 12,
-            }],
+            },
             1.0,
         );
 
@@ -177,12 +175,12 @@ mod tests {
             .background(Color::from_rgba8(0, 255, 0, 255))
             .border(2.0, Color::from_rgba8(255, 0, 0, 255))
             .uniform_radius(6.0),
-            &[PhysicalRect {
+            PhysicalRect {
                 x: 0,
                 y: 0,
                 width: 16,
                 height: 16,
-            }],
+            },
             1.0,
         );
 
