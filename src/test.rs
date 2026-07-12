@@ -450,6 +450,47 @@ fn stored_widget_id_is_not_changed_by_scope() {
 }
 
 #[test]
+fn clip_scope_limits_invalidation_and_restores_the_parent_clip() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let screen = runtime.screen();
+    let clip = LogicalRect {
+        x: 2.0,
+        y: 2.0,
+        width: 4.0,
+        height: 4.0,
+    };
+
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        ui.invalidated = DirtyRegions::default();
+        {
+            let mut scope = ui.begin_clip(clip);
+            scope.invalidate_all();
+        }
+        ui.invalidate(LogicalRect {
+            x: 8.0,
+            y: 8.0,
+            width: 2.0,
+            height: 2.0,
+        });
+        assert_eq!(
+            ui.invalidated.regions(),
+            &[
+                clip.to_physical(1.0),
+                PhysicalRect {
+                    x: 8,
+                    y: 8,
+                    width: 2,
+                    height: 2
+                },
+            ]
+        );
+    });
+
+    assert_eq!(screen, runtime.screen());
+}
+
+#[test]
 fn focus_is_cleared_when_widget_is_not_rendered() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
