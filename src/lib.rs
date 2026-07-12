@@ -81,6 +81,11 @@ pub struct IdScope<'a> {
     previous: WidgetId,
 }
 
+pub struct ClipScope<'a> {
+    ui: &'a mut Ui,
+    previous: PhysicalRect,
+}
+
 impl Runtime {
     pub fn new(mut platform: Platform) -> Self {
         let physical_screen = platform.screen();
@@ -261,6 +266,15 @@ impl Ui {
         IdScope { ui: self, previous }
     }
 
+    pub fn begin_clip(&mut self, area: LogicalRect) -> ClipScope<'_> {
+        let previous = self.clip;
+        self.clip = area
+            .to_physical(self.scale_factor)
+            .intersection(previous)
+            .unwrap_or_default();
+        ClipScope { ui: self, previous }
+    }
+
     pub fn interact(&mut self, id: WidgetId, area: LogicalRect, sense: Sense) -> Interaction {
         let area = area.to_physical(self.scale_factor).intersection(self.clip);
         self.interaction.interact(id, area, sense)
@@ -374,5 +388,31 @@ impl IdScope<'_> {
 impl Drop for IdScope<'_> {
     fn drop(&mut self) {
         self.ui.current_id = self.previous;
+    }
+}
+
+impl ClipScope<'_> {
+    pub fn finish(self) {
+        drop(self)
+    }
+}
+
+impl Deref for ClipScope<'_> {
+    type Target = Ui;
+
+    fn deref(&self) -> &Self::Target {
+        self.ui
+    }
+}
+
+impl DerefMut for ClipScope<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ui
+    }
+}
+
+impl Drop for ClipScope<'_> {
+    fn drop(&mut self) {
+        self.ui.clip = self.previous;
     }
 }
