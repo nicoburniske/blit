@@ -85,6 +85,11 @@ impl CommandList {
         header.top..header.bottom
     }
 
+    pub fn horizontal_bounds(&self, offset: usize) -> std::ops::Range<i32> {
+        let header = self.header(offset);
+        header.left..header.right
+    }
+
     pub fn offsets(&self) -> Offsets<'_> {
         Offsets {
             commands: self,
@@ -113,14 +118,21 @@ impl CommandList {
             .map(|clip| clip.y.saturating_add(clip.height))
             .max()
             .unwrap();
+        let left = clips.iter().map(|clip| clip.x).min().unwrap();
+        let right = clips
+            .iter()
+            .map(|clip| clip.x.saturating_add(clip.width))
+            .max()
+            .unwrap();
         unsafe {
             record.cast::<Header>().write(Header {
                 top,
                 bottom,
+                left,
+                right,
                 record_words: record_words.try_into().unwrap(),
                 clip_count: clips.len().try_into().unwrap(),
                 kind,
-                padding: 0,
             });
             let stored_clips = record.add(clips_offset()).cast::<PhysicalRect>();
             stored_clips.copy_from_nonoverlapping(clips.as_ptr(), clips.len());
@@ -169,10 +181,11 @@ impl Iterator for Offsets<'_> {
 struct Header {
     top: i32,
     bottom: i32,
+    left: i32,
+    right: i32,
     record_words: u16,
     clip_count: u8,
     kind: u8,
-    padding: u32,
 }
 
 #[repr(C, align(8))]

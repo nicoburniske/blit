@@ -131,7 +131,7 @@ fn scroll_area_advances_by_component_height() {
 }
 
 #[test]
-fn dirty_regions_merge_and_remain_bounded() {
+fn dirty_regions_only_merge_at_capacity() {
     let mut dirty = DirtyRegions::default();
     dirty.add(PhysicalRect {
         x: 0,
@@ -147,12 +147,20 @@ fn dirty_regions_merge_and_remain_bounded() {
     });
     assert_eq!(
         dirty.regions(),
-        &[PhysicalRect {
-            x: 0,
-            y: 0,
-            width: 8,
-            height: 4,
-        }]
+        &[
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 4,
+                height: 4,
+            },
+            PhysicalRect {
+                x: 4,
+                y: 0,
+                width: 4,
+                height: 4,
+            },
+        ]
     );
 
     for index in 0..20 {
@@ -164,6 +172,47 @@ fn dirty_regions_merge_and_remain_bounded() {
         });
     }
     assert_eq!(dirty.regions().len(), 8);
+}
+
+#[test]
+fn dirty_regions_merge_overlaps_but_not_neighbors() {
+    let mut dirty = DirtyRegions::default();
+    dirty.add(PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 4,
+        height: 4,
+    });
+    dirty.add(PhysicalRect {
+        x: 2,
+        y: 2,
+        width: 4,
+        height: 4,
+    });
+    dirty.add(PhysicalRect {
+        x: 6,
+        y: 0,
+        width: 4,
+        height: 4,
+    });
+
+    assert_eq!(
+        dirty.regions(),
+        &[
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 6,
+                height: 6,
+            },
+            PhysicalRect {
+                x: 6,
+                y: 0,
+                width: 4,
+                height: 4,
+            },
+        ]
+    );
 }
 
 #[test]

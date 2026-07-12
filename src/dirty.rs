@@ -15,14 +15,20 @@ impl DirtyRegions {
         loop {
             let mut index = 0;
             while index < self.len {
-                if area.touches(self.regions[index]) {
-                    area = area.union(self.regions[index]);
-                    self.len -= 1;
-                    self.regions[index] = self.regions[self.len];
-                    index = 0;
-                } else {
+                let region = self.regions[index];
+                let Some(intersection) = area.intersection(region) else {
                     index += 1;
+                    continue;
+                };
+                if intersection == area {
+                    return;
                 }
+                if intersection != region {
+                    area = area.union(region);
+                }
+                self.len -= 1;
+                self.regions[index] = self.regions[self.len];
+                index = 0;
             }
 
             if self.len < self.regions.len() {

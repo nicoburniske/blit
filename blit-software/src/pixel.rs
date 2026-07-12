@@ -53,16 +53,17 @@ pub trait Pixel: Copy {
     }
 
     fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
-        if color.alpha == 255 {
-            pixels.fill(Self::from_rgb(color.red, color.green, color.blue));
-        } else {
-            for pixel in pixels {
-                pixel.blend(color);
-            }
+        match color.alpha {
+            0 => {}
+            255 => pixels.fill(Self::from_rgb(color.red, color.green, color.blue)),
+            _ => pixels.iter_mut().for_each(|pixel| pixel.blend(color)),
         }
     }
 
     fn blend_alpha_slice(pixels: &mut [Self], color: Color, alpha: &[u8]) {
+        if color.alpha == 0 {
+            return;
+        }
         for (pixel, alpha) in pixels.iter_mut().zip(alpha) {
             pixel.blend(PremultipliedRgbaColor::new(color, *alpha));
         }
@@ -74,9 +75,17 @@ pub trait Pixel: Copy {
         }
     }
 
-    fn blend_texture_slice_rgba(pixels: &mut [Self], source: &[PremultipliedRgbaColor]) {
+    fn blend_texture_slice_rgba(
+        pixels: &mut [Self],
+        source: &[PremultipliedRgbaColor],
+        opacity: u8,
+    ) {
         for (pixel, source) in pixels.iter_mut().zip(source) {
-            pixel.blend(*source);
+            pixel.blend(if opacity == 255 {
+                *source
+            } else {
+                source.coverage(opacity as u32)
+            });
         }
     }
 

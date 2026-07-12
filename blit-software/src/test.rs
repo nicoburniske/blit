@@ -309,6 +309,81 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
 }
 
 #[test]
+fn cached_dirty_ranges_match_direct_rendering() {
+    let font = include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8];
+    let mut direct = Renderer::new(
+        VecBuffer::<u32>::new(8, 8),
+        RendererConfig {
+            fonts: vec![FontFace {
+                id: FontId::default(),
+                weight: 400,
+                font: Font::from_bytes(font, FontSettings::default()).unwrap(),
+            }],
+            glyph_cache_capacity: 1024,
+            paragraph_cache_capacity: 1024,
+        },
+    );
+    let mut scanline = Renderer::new(
+        VecBuffer::<u32>::new(8, 8),
+        RendererConfig {
+            fonts: vec![FontFace {
+                id: FontId::default(),
+                weight: 400,
+                font: Font::from_bytes(font, FontSettings::default()).unwrap(),
+            }],
+            glyph_cache_capacity: 1024,
+            paragraph_cache_capacity: 1024,
+        },
+    )
+    .strategy(Scanline::default());
+    let red = Rectangle::new(LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 8.0,
+        height: 8.0,
+    })
+    .background(Color::from_rgba8(255, 0, 0, 128));
+    let green = Rectangle::new(red.area).background(Color::from_rgba8(0, 255, 0, 128));
+    let red_clips = [
+        PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 3,
+            height: 3,
+        },
+        PhysicalRect {
+            x: 5,
+            y: 5,
+            width: 3,
+            height: 3,
+        },
+    ];
+    let green_clips = [
+        PhysicalRect {
+            x: 5,
+            y: 0,
+            width: 3,
+            height: 3,
+        },
+        PhysicalRect {
+            x: 0,
+            y: 5,
+            width: 3,
+            height: 3,
+        },
+    ];
+
+    direct.draw_rectangle(&red, &red_clips);
+    direct.draw_rectangle(&green, &green_clips);
+    direct.end_frame();
+    scanline.draw_rectangle(&red, &red_clips);
+    scanline.draw_rectangle(&green, &green_clips);
+    scanline.end_frame();
+
+    assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
+}
+
+#[test]
 fn dropped_image_remains_valid_until_frame_end() {
     static PIXEL: [u8; 4] = [255, 0, 0, 255];
     let font = Font::from_bytes(
