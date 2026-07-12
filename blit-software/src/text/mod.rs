@@ -49,7 +49,7 @@ impl TextRenderer {
         color: Color,
         line: i32,
         row: PixelSpan<'_, P>,
-        clips: &[PhysicalRect],
+        clip: PhysicalRect,
     ) {
         let Some(paragraph) = self
             .frame
@@ -70,23 +70,21 @@ impl TextRenderer {
             width: row.pixels.len() as i32,
             height: 1,
         };
-        for clip in clips {
-            let Some(clipped) = paragraph_rect
-                .intersection(*clip)
-                .and_then(|area| area.intersection(line_rect))
-            else {
-                continue;
-            };
-            let source_x = (clipped.x - paragraph_rect.x) as usize;
-            let source_y = (line - paragraph_rect.y) as usize;
-            let alpha = &paragraph.alpha[source_y * paragraph.width + source_x
-                ..source_y * paragraph.width + source_x + clipped.width as usize];
-            P::blend_alpha_slice(
-                &mut row.pixels[(clipped.x - row.x) as usize..][..clipped.width as usize],
-                color,
-                alpha,
-            );
-        }
+        let Some(clipped) = paragraph_rect
+            .intersection(clip)
+            .and_then(|area| area.intersection(line_rect))
+        else {
+            return;
+        };
+        let source_x = (clipped.x - paragraph_rect.x) as usize;
+        let source_y = (line - paragraph_rect.y) as usize;
+        let alpha = &paragraph.alpha[source_y * paragraph.width + source_x
+            ..source_y * paragraph.width + source_x + clipped.width as usize];
+        P::blend_alpha_slice(
+            &mut row.pixels[(clipped.x - row.x) as usize..][..clipped.width as usize],
+            color,
+            alpha,
+        );
     }
 
     pub fn finish_frame(&mut self) {

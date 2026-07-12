@@ -1,6 +1,4 @@
-use crate::{
-    Color, ImageId, ImageResource, LogicalRect, LogicalSize, PhysicalRect, SizedComponent, Ui,
-};
+use crate::{Color, ImageId, ImageResource, LogicalRect, LogicalSize, SizedComponent, Ui};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ImageFit {
@@ -137,21 +135,8 @@ impl<'a> Image<'a> {
             vertical_tiling: self.vertical_tiling,
         };
         ui.record_draw(request.area);
-        let mut clips = [PhysicalRect::default(); 8];
-        let mut clip_count = 0;
-        for dirty in ui.dirty.regions() {
-            if let Some(clip) = request
-                .area
-                .to_physical(ui.scale_factor)
-                .intersection(*dirty)
-                .and_then(|area| area.intersection(ui.clip))
-            {
-                clips[clip_count] = clip;
-                clip_count += 1;
-            }
-        }
-        if clip_count != 0 {
-            ui.platform().draw_image(&request, &clips[..clip_count]);
+        if let Some(clip) = ui.draw_clip(request.area) {
+            ui.platform().draw_image(&request, clip);
         }
     }
 }

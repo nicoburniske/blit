@@ -1,4 +1,4 @@
-use std::{mem::MaybeUninit, slice};
+use std::mem::MaybeUninit;
 
 use blit::{Color, PhysicalRect};
 
@@ -12,11 +12,6 @@ const TEXT: u8 = 2;
 #[derive(Default)]
 pub struct CommandList {
     words: Vec<Word>,
-}
-
-pub struct Command<'a> {
-    pub clips: &'a [PhysicalRect],
-    pub payload: Payload<'a>,
 }
 
 pub enum Payload<'a> {
@@ -38,46 +33,40 @@ impl CommandList {
         self.words.is_empty()
     }
 
-    pub fn push_rectangle(&mut self, rectangle: PreparedRectangle, clips: &[PhysicalRect]) {
-        self.push(RECTANGLE, rectangle, clips)
+    pub fn push_rectangle(&mut self, rectangle: PreparedRectangle, bounds: PhysicalRect) {
+        self.push(RECTANGLE, rectangle, bounds)
     }
 
-    pub fn push_image(&mut self, image: PreparedImage, clips: &[PhysicalRect]) {
-        self.push(IMAGE, image, clips)
+    pub fn push_image(&mut self, image: PreparedImage, bounds: PhysicalRect) {
+        self.push(IMAGE, image, bounds)
     }
 
-    pub fn push_text(&mut self, text: PreparedText, clips: &[PhysicalRect]) {
-        self.push(TEXT, text, clips)
+    pub fn push_text(&mut self, text: PreparedText, bounds: PhysicalRect) {
+        self.push(TEXT, text, bounds)
     }
 
-    pub fn get(&self, offset: usize) -> Command<'_> {
+    pub fn get(&self, offset: usize) -> Payload<'_> {
         let record = unsafe { self.words.as_ptr().add(offset).cast::<u8>() };
         let header = self.header(offset);
-        let clips = unsafe {
-            slice::from_raw_parts(
-                record.add(clips_offset()).cast::<PhysicalRect>(),
-                header.clip_count as usize,
-            )
-        };
         let payload = match header.kind {
             RECTANGLE => Payload::Rectangle(unsafe {
                 &*record
-                    .add(payload_offset::<PreparedRectangle>(clips.len()))
+                    .add(payload_offset::<PreparedRectangle>())
                     .cast::<PreparedRectangle>()
             }),
             IMAGE => Payload::Image(unsafe {
                 &*record
-                    .add(payload_offset::<PreparedImage>(clips.len()))
+                    .add(payload_offset::<PreparedImage>())
                     .cast::<PreparedImage>()
             }),
             TEXT => Payload::Text(unsafe {
                 &*record
-                    .add(payload_offset::<PreparedText>(clips.len()))
+                    .add(payload_offset::<PreparedText>())
                     .cast::<PreparedText>()
             }),
             _ => unreachable!(),
         };
-        Command { clips, payload }
+        payload
     }
 
     pub fn vertical_bounds(&self, offset: usize) -> std::ops::Range<i32> {
@@ -101,41 +90,25 @@ impl CommandList {
         self.words.clear()
     }
 
-    fn push<T: Copy>(&mut self, kind: u8, payload: T, clips: &[PhysicalRect]) {
-        assert!(!clips.is_empty());
-        assert!(clips.len() <= 8);
+    fn push<T: Copy>(&mut self, kind: u8, payload: T, bounds: PhysicalRect) {
         assert!(align_of::<T>() <= align_of::<Word>());
-        let payload_offset = payload_offset::<T>(clips.len());
+        let payload_offset = payload_offset::<T>();
         let bytes = payload_offset + size_of::<T>();
         let record_words = bytes.div_ceil(size_of::<Word>());
         let offset = self.words.len();
         self.words
             .resize_with(offset + record_words, Word::uninitialized);
         let record = unsafe { self.words.as_mut_ptr().add(offset).cast::<u8>() };
-        let top = clips.iter().map(|clip| clip.y).min().unwrap();
-        let bottom = clips
-            .iter()
-            .map(|clip| clip.y.saturating_add(clip.height))
-            .max()
-            .unwrap();
-        let left = clips.iter().map(|clip| clip.x).min().unwrap();
-        let right = clips
-            .iter()
-            .map(|clip| clip.x.saturating_add(clip.width))
-            .max()
-            .unwrap();
         unsafe {
             record.cast::<Header>().write(Header {
-                top,
-                bottom,
-                left,
-                right,
+                top: bounds.y,
+                bottom: bounds.y.saturating_add(bounds.height),
+                left: bounds.x,
+                right: bounds.x.saturating_add(bounds.width),
                 record_words: record_words.try_into().unwrap(),
-                clip_count: clips.len().try_into().unwrap(),
                 kind,
+                padding: 0,
             });
-            let stored_clips = record.add(clips_offset()).cast::<PhysicalRect>();
-            stored_clips.copy_from_nonoverlapping(clips.as_ptr(), clips.len());
             record.add(payload_offset).cast::<T>().write(payload);
         }
     }
@@ -150,12 +123,8 @@ impl CommandList {
     }
 }
 
-fn clips_offset() -> usize {
-    size_of::<Header>().next_multiple_of(align_of::<PhysicalRect>())
-}
-
-fn payload_offset<T>(clip_count: usize) -> usize {
-    (clips_offset() + clip_count * size_of::<PhysicalRect>()).next_multiple_of(align_of::<T>())
+fn payload_offset<T>() -> usize {
+    size_of::<Header>().next_multiple_of(align_of::<T>())
 }
 
 pub struct Offsets<'a> {
@@ -184,8 +153,8 @@ struct Header {
     left: i32,
     right: i32,
     record_words: u16,
-    clip_count: u8,
     kind: u8,
+    padding: u8,
 }
 
 #[repr(C, align(8))]

@@ -1,4 +1,4 @@
-use crate::{Color, LogicalRect, PhysicalRect, Ui};
+use crate::{Color, LogicalRect, Ui};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BorderRadius {
@@ -31,21 +31,8 @@ impl Rectangle {
 
     pub fn render(self, ui: &mut Ui) {
         ui.record_draw(self.area);
-        let mut clips = [PhysicalRect::default(); 8];
-        let mut clip_count = 0;
-        for dirty in ui.dirty.regions() {
-            if let Some(clip) = self
-                .area
-                .to_physical(ui.scale_factor)
-                .intersection(*dirty)
-                .and_then(|area| area.intersection(ui.clip))
-            {
-                clips[clip_count] = clip;
-                clip_count += 1;
-            }
-        }
-        if clip_count != 0 {
-            ui.platform().draw_rectangle(&self, &clips[..clip_count]);
+        if let Some(clip) = ui.draw_clip(self.area) {
+            ui.platform().draw_rectangle(&self, clip);
         }
     }
 }

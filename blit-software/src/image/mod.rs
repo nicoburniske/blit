@@ -13,9 +13,9 @@ use prepared::Patch;
 pub fn prepare(
     request: &ImageRequest,
     texture: &ImageData,
-    clips: &[PhysicalRect],
+    clip: PhysicalRect,
     scale_factor: f32,
-    mut emit: impl FnMut(Prepared, &[PhysicalRect]),
+    mut emit: impl FnMut(Prepared, PhysicalRect),
 ) {
     let geometry = request.area.to_physical(scale_factor);
     let source = PhysicalRect {
@@ -34,16 +34,8 @@ pub fn prepare(
     }
 
     let mut record = |prepared: Prepared| {
-        let mut prepared_clips = [PhysicalRect::default(); 8];
-        let mut len = 0;
-        for clip in clips {
-            if let Some(clip) = prepared.bounds.intersection(*clip) {
-                prepared_clips[len] = clip;
-                len += 1;
-            }
-        }
-        if len != 0 {
-            emit(prepared, &prepared_clips[..len]);
+        if let Some(clip) = prepared.bounds.intersection(clip) {
+            emit(prepared, clip);
         }
     };
 
@@ -176,11 +168,11 @@ pub fn draw<B: PixelBuffer>(
     buffer: &mut B,
     request: &ImageRequest,
     texture: &ImageData,
-    clips: &[PhysicalRect],
+    clip: PhysicalRect,
     scale_factor: f32,
 ) {
-    prepare(request, texture, clips, scale_factor, |image, clips| {
-        image.draw(buffer, texture, clips)
+    prepare(request, texture, clip, scale_factor, |image, clip| {
+        image.draw(buffer, texture, clip)
     });
 }
 
@@ -263,12 +255,12 @@ mod tests {
             &mut buffer,
             &request,
             &texture,
-            &[PhysicalRect {
+            PhysicalRect {
                 x: 1,
                 y: 1,
                 width: 2,
                 height: 2,
-            }],
+            },
             1.0,
         );
 
@@ -311,12 +303,12 @@ mod tests {
             &mut buffer,
             &request,
             &texture,
-            &[PhysicalRect {
+            PhysicalRect {
                 x: 0,
                 y: 0,
                 width: 1,
                 height: 1,
-            }],
+            },
             1.0,
         );
 
@@ -349,12 +341,12 @@ mod tests {
             &mut buffer,
             &request,
             &texture,
-            &[PhysicalRect {
+            PhysicalRect {
                 x: 0,
                 y: 0,
                 width: 3,
                 height: 1,
-            }],
+            },
             1.0,
         );
 
@@ -393,12 +385,12 @@ mod tests {
             &mut buffer,
             &request,
             &texture,
-            &[PhysicalRect {
+            PhysicalRect {
                 x: 0,
                 y: 0,
                 width: 2,
                 height: 1,
-            }],
+            },
             1.0,
         );
 
@@ -433,12 +425,12 @@ mod tests {
             &mut buffer,
             &request,
             &texture,
-            &[PhysicalRect {
+            PhysicalRect {
                 x: 0,
                 y: 0,
                 width: 5,
                 height: 1,
-            }],
+            },
             1.0,
         );
 
@@ -474,12 +466,12 @@ mod tests {
             &mut buffer,
             &request,
             &texture,
-            &[PhysicalRect {
+            PhysicalRect {
                 x: 0,
                 y: 0,
                 width: 8,
                 height: 1,
-            }],
+            },
             1.0,
         );
 
@@ -520,12 +512,12 @@ mod tests {
             &mut buffer,
             &request,
             &texture,
-            &[PhysicalRect {
+            PhysicalRect {
                 x: 0,
                 y: 0,
                 width: 5,
                 height: 5,
-            }],
+            },
             1.0,
         );
 

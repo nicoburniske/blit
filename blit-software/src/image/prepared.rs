@@ -87,12 +87,7 @@ impl Prepared {
         })
     }
 
-    pub fn draw<B: PixelBuffer>(
-        &self,
-        buffer: &mut B,
-        texture: &ImageData,
-        clips: &[PhysicalRect],
-    ) {
+    pub fn draw<B: PixelBuffer>(&self, buffer: &mut B, texture: &ImageData, clip: PhysicalRect) {
         let screen = PhysicalRect {
             x: buffer.x_offset() as i32,
             y: 0,
@@ -100,22 +95,18 @@ impl Prepared {
             height: buffer.height() as i32,
         };
         let pixels = texture.pixels.bytes();
-        for clip in clips {
-            let Some(clipped) = self
-                .bounds
-                .intersection(*clip)
-                .and_then(|area| area.intersection(screen))
-            else {
-                continue;
-            };
-            for y in clipped.y..clipped.y + clipped.height {
-                let row = buffer.line_mut(y as usize);
-                match self.sampling {
-                    ImageSampling::Nearest => self.draw_nearest(row, pixels, clipped, screen.x, y),
-                    ImageSampling::Bilinear => {
-                        self.draw_bilinear(row, pixels, clipped, screen.x, y)
-                    }
-                }
+        let Some(clipped) = self
+            .bounds
+            .intersection(clip)
+            .and_then(|area| area.intersection(screen))
+        else {
+            return;
+        };
+        for y in clipped.y..clipped.y + clipped.height {
+            let row = buffer.line_mut(y as usize);
+            match self.sampling {
+                ImageSampling::Nearest => self.draw_nearest(row, pixels, clipped, screen.x, y),
+                ImageSampling::Bilinear => self.draw_bilinear(row, pixels, clipped, screen.x, y),
             }
         }
     }

@@ -1,4 +1,4 @@
-use crate::{Color, LogicalRect, LogicalSize, PhysicalRect, SizedComponent, Ui};
+use crate::{Color, LogicalRect, LogicalSize, SizedComponent, Ui};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Point<T> {
@@ -143,21 +143,8 @@ impl<'a> Text<'a> {
     pub fn render(self, ui: &mut Ui) {
         let request = self.request(ui.screen);
         ui.record_draw(request.area);
-        let mut clips = [PhysicalRect::default(); 8];
-        let mut clip_count = 0;
-        for dirty in ui.dirty.regions() {
-            if let Some(clip) = request
-                .area
-                .to_physical(ui.scale_factor)
-                .intersection(*dirty)
-                .and_then(|area| area.intersection(ui.clip))
-            {
-                clips[clip_count] = clip;
-                clip_count += 1;
-            }
-        }
-        if clip_count != 0 {
-            ui.platform().draw_text(&request, &clips[..clip_count]);
+        if let Some(clip) = ui.draw_clip(request.area) {
+            ui.platform().draw_text(&request, clip);
         }
     }
 

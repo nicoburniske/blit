@@ -116,7 +116,6 @@ impl Runtime {
         let mut dirty = std::mem::take(&mut self.previous);
         dirty.extend(&pending);
         self.previous = pending;
-        self.platform.begin_frame();
         let mut interaction = std::mem::take(&mut self.interaction);
         let mut animations = std::mem::take(&mut self.animations);
         for animation in &mut animations {
@@ -128,6 +127,7 @@ impl Runtime {
             dirty.add(area);
             self.previous.add(area);
         }
+        self.platform.begin_frame(dirty.regions());
         let mut ui = Ui {
             platform: NonNull::from(&mut self.platform),
             time,
@@ -196,6 +196,17 @@ impl Runtime {
 }
 
 impl Ui {
+    pub(crate) fn draw_clip(&self, area: LogicalRect) -> Option<PhysicalRect> {
+        let area = area
+            .to_physical(self.scale_factor)
+            .intersection(self.clip)?;
+        self.dirty
+            .regions()
+            .iter()
+            .any(|dirty| area.intersection(*dirty).is_some())
+            .then_some(area)
+    }
+
     pub fn platform(&mut self) -> &mut Platform {
         unsafe { self.platform.as_mut() }
     }
