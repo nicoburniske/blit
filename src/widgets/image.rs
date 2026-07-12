@@ -12,8 +12,8 @@ pub enum ImageFit {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ImageSampling {
-    Nearest,
     #[default]
+    Nearest,
     Bilinear,
 }
 
