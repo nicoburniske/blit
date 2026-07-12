@@ -33,6 +33,7 @@ pub struct AnimationState {
     pub easing: Easing,
     pub previous_bounds: Option<PhysicalRect>,
     pub seen: bool,
+    pub looping: bool,
 }
 
 impl AnimationState {
@@ -47,6 +48,7 @@ impl AnimationState {
             easing: Easing::Linear,
             previous_bounds: None,
             seen: false,
+            looping: false,
         }
     }
 
@@ -62,6 +64,12 @@ impl AnimationState {
         now: Duration,
     ) -> (bool, bool) {
         let was_active = self.is_active();
+        if self.looping {
+            self.start = self.value;
+            self.target = self.value;
+            self.started_at = None;
+            self.looping = false;
+        }
         if let Some(started_at) = self.started_at {
             let progress = (now.saturating_sub(started_at).as_secs_f32()
                 / self.duration.as_secs_f32())
@@ -92,5 +100,29 @@ impl AnimationState {
             was_active || self.is_active() || target_changed,
             target_changed,
         )
+    }
+
+    pub fn advance_loop(
+        &mut self,
+        duration: Duration,
+        easing: Easing,
+        now: Duration,
+    ) -> (bool, bool) {
+        assert!(
+            !duration.is_zero(),
+            "looping animation duration must not be zero"
+        );
+        let changed = !self.looping || self.duration != duration || self.easing != easing;
+        if changed {
+            self.started_at = Some(now);
+            self.duration = duration;
+            self.easing = easing;
+            self.looping = true;
+        }
+        let started_at = self.started_at.unwrap();
+        let progress = now.saturating_sub(started_at).as_secs_f32() / duration.as_secs_f32();
+        self.value = easing.apply(progress % 1.0);
+        self.seen = true;
+        (true, changed)
     }
 }

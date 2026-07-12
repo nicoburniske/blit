@@ -271,42 +271,22 @@ impl Ui {
         duration: Duration,
         easing: Easing,
     ) -> AnimationScope<'_> {
-        assert!(
-            self.animation_depth < self.animation_stack.len(),
-            "animation scopes nested too deeply"
-        );
-        let old_len = self.animations.len();
-        let index = self
-            .animations
-            .iter()
-            .position(|animation| animation.id == id)
-            .unwrap_or_else(|| {
-                self.animations
-                    .push(animation::AnimationState::new(id, target));
-                self.animations.len() - 1
-            });
-        assert!(
-            !self.animations[index].seen,
-            "duplicate animation WidgetId {id:?}"
-        );
-        let (damage, changed) = self.animations[index].advance(target, duration, easing, self.time);
-        let damage = damage || index == old_len;
-        if damage {
-            if let Some(area) = self.animations[index]
-                .previous_bounds
-                .and_then(|area| area.intersection(self.clip))
-            {
-                self.dirty.add(area);
-            }
-        }
-        self.animation_stack[self.animation_depth] = AnimationCapture {
-            index,
-            bounds: None,
-            damage,
-            changed,
-        };
-        self.animation_depth += 1;
-        AnimationScope { ui: self, index }
+        let time = self.time;
+        begin_animation(self, id, target, |animation| {
+            animation.advance(target, duration, easing, time)
+        })
+    }
+
+    pub fn animate_loop(
+        &mut self,
+        id: WidgetId,
+        duration: Duration,
+        easing: Easing,
+    ) -> AnimationScope<'_> {
+        let time = self.time;
+        begin_animation(self, id, 0.0, |animation| {
+            animation.advance_loop(duration, easing, time)
+        })
     }
 
     pub fn id(&self, source: impl std::hash::Hash) -> WidgetId {
@@ -468,4 +448,48 @@ impl Drop for ClipScope<'_> {
     fn drop(&mut self) {
         self.ui.clip = self.previous;
     }
+}
+
+fn begin_animation(
+    ui: &mut Ui,
+    id: WidgetId,
+    initial: f32,
+    advance: impl FnOnce(&mut animation::AnimationState) -> (bool, bool),
+) -> AnimationScope<'_> {
+    assert!(
+        ui.animation_depth < ui.animation_stack.len(),
+        "animation scopes nested too deeply"
+    );
+    let old_len = ui.animations.len();
+    let index = ui
+        .animations
+        .iter()
+        .position(|animation| animation.id == id)
+        .unwrap_or_else(|| {
+            ui.animations
+                .push(animation::AnimationState::new(id, initial));
+            ui.animations.len() - 1
+        });
+    assert!(
+        !ui.animations[index].seen,
+        "duplicate animation WidgetId {id:?}"
+    );
+    let (damage, changed) = advance(&mut ui.animations[index]);
+    let damage = damage || index == old_len;
+    if damage {
+        if let Some(area) = ui.animations[index]
+            .previous_bounds
+            .and_then(|area| area.intersection(ui.clip))
+        {
+            ui.dirty.add(area);
+        }
+    }
+    ui.animation_stack[ui.animation_depth] = AnimationCapture {
+        index,
+        bounds: None,
+        damage,
+        changed,
+    };
+    ui.animation_depth += 1;
+    AnimationScope { ui, index }
 }
