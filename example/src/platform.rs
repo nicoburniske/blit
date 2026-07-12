@@ -1,6 +1,6 @@
 use blit::{
-    FontId, FontWeight, ImageData, ImageId, Input, KeyboardRequest, LogicalPoint, LogicalRect,
-    PhysicalRect, Platform, PlatformImpl, TextRequest,
+    FontId, ImageData, ImageId, Input, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect,
+    Platform, PlatformImpl, TextRequest,
     widgets::{ImageRequest, Rectangle},
 };
 use blit_software::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
@@ -35,7 +35,7 @@ impl TestPlatform {
                 RendererConfig {
                     fonts: vec![FontFace {
                         id: FontId::default(),
-                        weight: FontWeight::Normal,
+                        weight: 400,
                         font: Font::from_bytes(
                             include_bytes!("../assets/Montserrat-Regular.ttf") as &[u8],
                             FontSettings::default(),

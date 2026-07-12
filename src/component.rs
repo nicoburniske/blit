@@ -191,7 +191,7 @@ macro_rules! component {
             self
         }
 
-        pub fn text_weight(mut self, weight: $crate::FontWeight) -> Self {
+        pub fn text_weight(mut self, weight: u16) -> Self {
             self.text_style.weight = weight;
             self
         }

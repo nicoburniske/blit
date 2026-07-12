@@ -1,6 +1,6 @@
-use std::{collections::hash_map::RandomState, num::NonZeroUsize};
+use std::{cmp::Reverse, collections::hash_map::RandomState, num::NonZeroUsize};
 
-use blit::{FontId, FontWeight};
+use blit::FontId;
 use clru::{CLruCache, CLruCacheConfig, WeightScale};
 use fontdue::{Metrics, layout::GlyphRasterConfig};
 
@@ -40,10 +40,11 @@ impl FontCache {
         }
     }
 
-    pub fn font(&self, id: FontId, weight: FontWeight) -> Option<&fontdue::Font> {
+    pub fn font(&self, id: FontId, weight: u16) -> Option<&fontdue::Font> {
         self.faces
             .iter()
-            .find(|face| face.id == id && face.weight == weight)
+            .filter(|face| face.id == id)
+            .min_by_key(|face| (face.weight.abs_diff(weight), Reverse(face.weight)))
             .map(|face| &face.font)
     }
 
