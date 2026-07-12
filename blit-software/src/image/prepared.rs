@@ -256,7 +256,7 @@ impl Prepared {
         if !matches!(
             self.format,
             ImageFormat::Rgb8 | ImageFormat::Rgba8Premultiplied | ImageFormat::Alpha8(_)
-        ) || !matches!(self.format, ImageFormat::Alpha8(_)) && self.opacity != 255
+        ) || self.format == ImageFormat::Rgb8 && self.opacity != 255
         {
             return false;
         }
@@ -290,7 +290,7 @@ impl Prepared {
                     let (prefix, source, suffix) =
                         unsafe { bytes.align_to::<PremultipliedRgbaColor>() };
                     assert!(prefix.is_empty() && suffix.is_empty());
-                    P::blend_texture_slice_rgba(destination, source);
+                    P::blend_texture_slice_rgba(destination, source, self.opacity);
                 }
                 ImageFormat::Alpha8(color) => {
                     let alpha = &pixels[source_offset..source_offset + len];

@@ -219,10 +219,18 @@ mod tests {
             Self(u32::from_rgb(red, green, blue))
         }
 
-        fn blend_texture_slice_rgba(pixels: &mut [Self], source: &[PremultipliedRgbaColor]) {
+        fn blend_texture_slice_rgba(
+            pixels: &mut [Self],
+            source: &[PremultipliedRgbaColor],
+            opacity: u8,
+        ) {
             RGBA_SPAN_USED.store(true, Ordering::Relaxed);
             for (pixel, source) in pixels.iter_mut().zip(source) {
-                pixel.blend(*source);
+                pixel.blend(if opacity == 255 {
+                    *source
+                } else {
+                    source.coverage(opacity as u32)
+                });
             }
         }
     }
@@ -354,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn unscaled_premultiplied_image_uses_texture_span() {
+    fn unscaled_premultiplied_image_with_opacity_uses_texture_span() {
         static PIXELS: [u8; 8] = [255, 0, 0, 255, 0, 128, 0, 128];
         RGBA_SPAN_USED.store(false, Ordering::Relaxed);
         let texture = ImageData::new(
@@ -373,7 +381,7 @@ mod tests {
             },
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
-            opacity: 1.0,
+            opacity: 0.5,
             colorize: None,
             nine_slice: None,
             horizontal_tiling: ImageTiling::None,
@@ -395,8 +403,8 @@ mod tests {
         );
 
         assert!(RGBA_SPAN_USED.load(Ordering::Relaxed));
-        assert_eq!(buffer.pixels()[0].0, 0xff0000);
-        assert_eq!(buffer.pixels()[1].0, 0x008000);
+        assert_eq!(buffer.pixels()[0].0, 0x800000);
+        assert_eq!(buffer.pixels()[1].0, 0x004000);
     }
 
     #[test]

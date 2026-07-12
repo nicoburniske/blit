@@ -110,6 +110,22 @@ mod tests {
     }
 
     #[test]
+    fn transparent_rectangle_is_not_prepared() {
+        assert!(
+            Prepared::new(
+                &Rectangle::new(LogicalRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 8.0,
+                    height: 8.0,
+                }),
+                1.0,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
     fn corner_radii_are_independent() {
         let mut buffer = VecBuffer::<u32>::new(12, 12);
         draw(

@@ -40,6 +40,9 @@ impl Prepared {
                     - (inner_color.alpha as u16 * border_alpha) / 255) as u8,
             };
         }
+        if inner_color.alpha == 0 && border_width == 0 {
+            return None;
+        }
         let radii = Radii {
             top_left: (rectangle.radius.top_left * scale_factor).round().max(0.0) as i32,
             top_right: (rectangle.radius.top_right * scale_factor).round().max(0.0) as i32,
