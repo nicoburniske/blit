@@ -869,6 +869,49 @@ fn nested_animations_capture_the_same_draw_bounds() {
 }
 
 #[test]
+fn looping_animation_repeats() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let id = WidgetId::new("looping animation");
+
+    let value = runtime.render(Duration::from_millis(100), Input::None, |ui| {
+        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear)
+            .value()
+    });
+    assert_eq!(value, 0.0);
+    assert!(runtime.has_pending_redraw());
+
+    let value = runtime.render(Duration::from_millis(350), Input::None, |ui| {
+        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear)
+            .value()
+    });
+    assert_eq!(value, 0.25);
+
+    let value = runtime.render(Duration::from_millis(1350), Input::None, |ui| {
+        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear)
+            .value()
+    });
+    assert_eq!(value, 0.25);
+    assert!(runtime.has_pending_redraw());
+
+    let value = runtime.render(Duration::from_millis(1351), Input::None, |ui| {
+        ui.animate(id, 1.0, Duration::from_secs(1), Easing::Linear)
+            .value()
+    });
+    assert_eq!(value, 0.25);
+    assert!(runtime.has_pending_redraw());
+
+    let value = runtime.render(Duration::from_millis(1851), Input::None, |ui| {
+        ui.animate(id, 1.0, Duration::from_secs(1), Easing::Linear)
+            .value()
+    });
+    assert_eq!(value, 0.625);
+
+    runtime.render(Duration::from_millis(1852), Input::None, |_| {});
+    assert!(!runtime.has_pending_redraw());
+}
+
+#[test]
 fn id_scopes_create_distinct_widget_ids() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
