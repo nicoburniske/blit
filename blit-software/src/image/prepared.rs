@@ -18,6 +18,7 @@ pub struct Prepared {
     stride_bytes: usize,
     bytes_per_pixel: usize,
     format: ImageFormat,
+    colorize: Option<Color>,
     opacity: u8,
     sampling: ImageSampling,
     step_x: u64,
@@ -74,6 +75,7 @@ impl Prepared {
             stride_bytes: texture.stride_bytes,
             bytes_per_pixel: texture.format.bytes_per_pixel(),
             format: texture.format,
+            colorize: request.colorize,
             opacity: (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
             sampling: request.sampling,
             step_x,
@@ -134,6 +136,15 @@ impl Prepared {
         }
         let source_row = (source_y - texture_y) * self.stride_bytes;
         let texture_right = texture_x + self.texture_rect.width as usize;
+        if self.colorize.is_some() {
+            self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
+                blend(
+                    &mut row[destination],
+                    self.source_pixel(pixels, source_x, source_y),
+                );
+            });
+            return;
+        }
         if self.step_x == FIXED_ONE && self.draw_spans(row, pixels, clipped, screen_x, source_y) {
             return;
         }
@@ -456,7 +467,7 @@ impl Prepared {
             return PremultipliedRgbaColor::default();
         }
         let offset = (y - texture_y) * self.stride_bytes + (x - texture_x) * self.bytes_per_pixel;
-        match self.format {
+        let pixel = match self.format {
             ImageFormat::Rgba8Premultiplied if self.opacity == 255 => PremultipliedRgbaColor {
                 red: pixels[offset],
                 green: pixels[offset + 1],
@@ -486,7 +497,10 @@ impl Prepared {
                 color,
                 (pixels[offset] as u16 * self.opacity as u16 / 255) as u8,
             ),
-        }
+        };
+        self.colorize.map_or(pixel, |color| {
+            PremultipliedRgbaColor::new(color, pixel.alpha)
+        })
     }
 }
 

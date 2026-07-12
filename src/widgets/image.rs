@@ -1,4 +1,6 @@
-use crate::{ImageId, ImageResource, LogicalRect, LogicalSize, PhysicalRect, SizedComponent, Ui};
+use crate::{
+    Color, ImageId, ImageResource, LogicalRect, LogicalSize, PhysicalRect, SizedComponent, Ui,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ImageFit {
@@ -49,6 +51,7 @@ pub struct ImageRequest {
     pub fit: ImageFit,
     pub sampling: ImageSampling,
     pub opacity: f32,
+    pub colorize: Option<Color>,
     pub nine_slice: Option<NineSlice>,
     pub horizontal_tiling: ImageTiling,
     pub vertical_tiling: ImageTiling,
@@ -60,6 +63,7 @@ pub struct Image<'a> {
     pub fit: ImageFit,
     pub sampling: ImageSampling,
     pub opacity: f32,
+    pub colorize: Option<Color>,
     pub nine_slice: Option<NineSlice>,
     pub horizontal_tiling: ImageTiling,
     pub vertical_tiling: ImageTiling,
@@ -73,6 +77,7 @@ impl<'a> Image<'a> {
             fit: ImageFit::default(),
             sampling: ImageSampling::default(),
             opacity: 1.0,
+            colorize: None,
             nine_slice: None,
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
@@ -99,6 +104,11 @@ impl<'a> Image<'a> {
         self
     }
 
+    pub fn colorize(mut self, color: Color) -> Self {
+        self.colorize = Some(color);
+        self
+    }
+
     pub fn nine_slice(mut self, nine_slice: NineSlice) -> Self {
         self.nine_slice = Some(nine_slice);
         self
@@ -121,6 +131,7 @@ impl<'a> Image<'a> {
             fit: self.fit,
             sampling: self.sampling,
             opacity: self.opacity,
+            colorize: self.colorize,
             nine_slice: self.nine_slice,
             horizontal_tiling: self.horizontal_tiling,
             vertical_tiling: self.vertical_tiling,
