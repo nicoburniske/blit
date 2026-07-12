@@ -88,6 +88,74 @@ fn invalidation_is_rendered_next_frame() {
 }
 
 #[test]
+fn batched_invalidations_are_replayed_on_the_next_buffer() {
+    let first = LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 2.0,
+        height: 2.0,
+    };
+    let second = LogicalRect {
+        x: 8.0,
+        y: 8.0,
+        width: 2.0,
+        height: 2.0,
+    };
+    let mut platform = TestPlatform;
+    // safety: platform outlives the runtime
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    runtime.render(Duration::ZERO, Input::None, |_| {});
+    runtime.render(Duration::ZERO, Input::None, |_| {});
+
+    let mut pass = 0;
+    runtime.render_batch(
+        Duration::ZERO,
+        [Input::None, Input::None, Input::None],
+        |ui| {
+            if pass == 0 {
+                ui.invalidate(first);
+            } else if pass == 1 {
+                ui.invalidate(second);
+            }
+            pass += 1;
+        },
+    );
+
+    let damage = runtime.render(Duration::ZERO, Input::None, |ui| ui.dirty.clone());
+    assert!(damage.regions().contains(&first.to_physical(1.0)));
+    assert!(damage.regions().contains(&second.to_physical(1.0)));
+    assert!(!runtime.has_pending_redraw());
+}
+
+#[test]
+fn render_batch_processes_each_input() {
+    let mut platform = TestPlatform;
+    // safety: platform outlives the runtime
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let area = runtime.screen();
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        widgets::Button::new("button").render(ui, area)
+    });
+
+    let mut clicked = false;
+    runtime.render_batch(
+        Duration::ZERO,
+        [
+            Input::PointerDown {
+                position: LogicalPoint { x: 5.0, y: 5.0 },
+            },
+            Input::PointerUp {
+                position: LogicalPoint { x: 5.0, y: 5.0 },
+                leave: false,
+            },
+        ],
+        |ui| clicked |= widgets::Button::new("button").render(ui, area).clicked(),
+    );
+
+    assert!(clicked);
+}
+
+#[test]
 fn scroll_area_advances_by_component_height() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });

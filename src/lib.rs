@@ -168,6 +168,25 @@ impl Runtime {
         output
     }
 
+    pub fn render_batch(
+        &mut self,
+        time: Duration,
+        inputs: impl IntoIterator<Item = Input>,
+        mut render: impl FnMut(&mut Ui),
+    ) {
+        let mut inputs = inputs.into_iter();
+        let Some(input) = inputs.next() else { return };
+
+        self.render(time, input, &mut render);
+        let mut previous = std::mem::take(&mut self.previous);
+        for input in inputs {
+            self.render(time, input, &mut render);
+            previous.extend(&self.previous);
+            self.previous = DirtyRegions::default();
+        }
+        self.previous = previous;
+    }
+
     pub fn has_pending_redraw(&self) -> bool {
         !self.pending.is_empty()
             || !self.previous.is_empty()
