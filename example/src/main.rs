@@ -13,9 +13,13 @@ fn main() {
     let started_at = Instant::now();
     while platform.is_open() {
         let input = platform.input();
-        if input != Input::None || runtime.has_pending_redraw() {
+        let time = started_at.elapsed();
+        let timer_due = runtime
+            .next_timer_deadline()
+            .is_some_and(|deadline| time >= deadline);
+        if input != Input::None || runtime.has_pending_redraw() || timer_due {
             let screen = runtime.screen();
-            runtime.render(started_at.elapsed(), input, |ui| app.render(ui, screen));
+            runtime.render(time, input, |ui| app.render(ui, screen));
         }
         platform.present();
     }

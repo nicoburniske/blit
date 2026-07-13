@@ -910,6 +910,47 @@ fn looping_animation_repeats() {
 }
 
 #[test]
+fn timers_fire_and_report_the_next_deadline() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let once = WidgetId::new("one shot timer");
+    let repeating = WidgetId::new("looping timer");
+
+    runtime.render(Duration::from_millis(10), Input::None, |ui| {
+        assert!(!ui.timer(once, Duration::from_millis(100)));
+        assert!(!ui.timer_loop(repeating, Duration::from_millis(50)));
+    });
+    assert_eq!(
+        runtime.next_timer_deadline(),
+        Some(Duration::from_millis(60))
+    );
+    assert!(!runtime.has_pending_redraw());
+
+    runtime.render(Duration::from_millis(60), Input::None, |ui| {
+        assert!(!ui.timer(once, Duration::from_millis(100)));
+        assert!(ui.timer_loop(repeating, Duration::from_millis(50)));
+    });
+    assert_eq!(
+        runtime.next_timer_deadline(),
+        Some(Duration::from_millis(110))
+    );
+
+    runtime.render(Duration::from_millis(110), Input::None, |ui| {
+        assert!(ui.timer(once, Duration::from_millis(100)));
+        assert!(ui.timer_loop(repeating, Duration::from_millis(50)));
+    });
+    assert_eq!(
+        runtime.next_timer_deadline(),
+        Some(Duration::from_millis(160))
+    );
+
+    runtime.render(Duration::from_millis(111), Input::None, |ui| {
+        assert!(!ui.timer(once, Duration::from_millis(100)));
+        assert!(!ui.timer_loop(repeating, Duration::from_millis(50)));
+    });
+}
+
+#[test]
 fn id_scopes_create_distinct_widget_ids() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });

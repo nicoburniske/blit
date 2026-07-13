@@ -12,6 +12,7 @@ mod rect;
 #[cfg(test)]
 mod test;
 mod text;
+mod timer;
 pub mod widgets;
 
 use std::{
@@ -53,6 +54,7 @@ pub struct Runtime {
     previous: DirtyRegions,
     interaction: interaction::InteractionState,
     animations: Vec<animation::AnimationState>,
+    timers: Vec<timer::TimerState>,
 }
 
 pub struct Ui {
@@ -67,6 +69,7 @@ pub struct Ui {
     current_id: WidgetId,
     interaction: interaction::InteractionState,
     animations: Vec<animation::AnimationState>,
+    timers: Vec<timer::TimerState>,
     animation_stack: [AnimationCapture; 8],
     animation_depth: usize,
 }
@@ -112,12 +115,17 @@ impl Runtime {
             previous: DirtyRegions::default(),
             interaction: interaction::InteractionState::default(),
             animations: Vec::new(),
+            timers: Vec::new(),
         }
     }
 
     pub fn with_repaint_buffer(mut self, repaint_buffer: RepaintBuffer) -> Self {
         self.repaint_buffer = repaint_buffer;
         self
+    }
+
+    pub fn platform(&mut self) -> &mut Platform {
+        &mut self.platform
     }
 
     pub fn render<R>(
@@ -141,6 +149,10 @@ impl Runtime {
         for animation in &mut animations {
             animation.seen = false;
         }
+        let mut timers = std::mem::take(&mut self.timers);
+        for timer in &mut timers {
+            timer.seen = false;
+        }
         let interaction_damage = interaction.begin_frame(&input, self.scale_factor);
         let invalidated = DirtyRegions::default();
         for area in interaction_damage.into_iter().flatten() {
@@ -162,6 +174,7 @@ impl Runtime {
             current_id: WidgetId::new("blit root"),
             interaction,
             animations,
+            timers,
             animation_stack: [AnimationCapture::default(); 8],
             animation_depth: 0,
         };
@@ -183,9 +196,11 @@ impl Runtime {
             }
             animation.seen
         });
+        ui.timers.retain(|timer| timer.seen);
         self.pending = ui.invalidated;
         self.interaction = ui.interaction;
         self.animations = ui.animations;
+        self.timers = ui.timers;
         self.platform.end_frame();
         output
     }
@@ -216,6 +231,13 @@ impl Runtime {
                 .animations
                 .iter()
                 .any(animation::AnimationState::is_active)
+    }
+
+    pub fn next_timer_deadline(&self) -> Option<Duration> {
+        self.timers
+            .iter()
+            .filter_map(timer::TimerState::deadline)
+            .min()
     }
 
     pub fn invalidate(&mut self, area: LogicalRect) {
@@ -287,6 +309,18 @@ impl Ui {
         begin_animation(self, id, 0.0, |animation| {
             animation.advance_loop(duration, easing, time)
         })
+    }
+
+    pub fn timer(&mut self, id: WidgetId, duration: Duration) -> bool {
+        begin_timer(self, id, duration, None)
+    }
+
+    pub fn timer_loop(&mut self, id: WidgetId, duration: Duration) -> bool {
+        assert!(
+            !duration.is_zero(),
+            "looping timer duration must not be zero"
+        );
+        begin_timer(self, id, duration, Some(duration))
     }
 
     pub fn id(&self, source: impl std::hash::Hash) -> WidgetId {
@@ -492,4 +526,16 @@ fn begin_animation(
     };
     ui.animation_depth += 1;
     AnimationScope { ui, index }
+}
+
+fn begin_timer(ui: &mut Ui, id: WidgetId, duration: Duration, interval: Option<Duration>) -> bool {
+    let timer = if let Some(timer) = ui.timers.iter_mut().find(|timer| timer.id == id) {
+        timer
+    } else {
+        ui.timers
+            .push(timer::TimerState::new(id, duration, interval, ui.time));
+        ui.timers.last_mut().unwrap()
+    };
+    assert!(!timer.seen, "duplicate timer WidgetId {id:?}");
+    timer.advance(duration, interval, ui.time)
 }
