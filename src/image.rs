@@ -103,11 +103,24 @@ pub struct ImageResource {
     id: ImageId,
     size: PhysicalSize,
     data: NonNull<()>,
-    drop_image: unsafe fn(NonNull<()>, ImageId),
+    drop_image: Option<unsafe fn(NonNull<()>, ImageId)>,
     not_send_or_sync: PhantomData<Rc<()>>,
 }
 
 impl ImageResource {
+    pub fn empty() -> Self {
+        Self {
+            id: ImageId(0),
+            size: PhysicalSize {
+                width: 0,
+                height: 0,
+            },
+            data: NonNull::dangling(),
+            drop_image: None,
+            not_send_or_sync: PhantomData,
+        }
+    }
+
     pub(crate) fn new(
         id: ImageId,
         size: PhysicalSize,
@@ -118,7 +131,7 @@ impl ImageResource {
             id,
             size,
             data,
-            drop_image,
+            drop_image: Some(drop_image),
             not_send_or_sync: PhantomData,
         }
     }
@@ -130,10 +143,22 @@ impl ImageResource {
     pub fn size(&self) -> PhysicalSize {
         self.size
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.drop_image.is_none()
+    }
+}
+
+impl Default for ImageResource {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 impl Drop for ImageResource {
     fn drop(&mut self) {
-        unsafe { (self.drop_image)(self.data, self.id) }
+        if let Some(drop_image) = self.drop_image {
+            unsafe { drop_image(self.data, self.id) }
+        }
     }
 }

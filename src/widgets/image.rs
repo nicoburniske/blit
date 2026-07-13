@@ -123,6 +123,9 @@ impl<'a> Image<'a> {
     }
 
     pub fn render(self, ui: &mut Ui) {
+        if self.resource.is_empty() {
+            return;
+        }
         let request = ImageRequest {
             image: self.resource.id(),
             area: self.area,
