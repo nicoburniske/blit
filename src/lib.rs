@@ -45,33 +45,33 @@ pub enum RepaintBuffer {
 }
 
 pub struct Runtime {
-    platform: Platform,
+    shared: UiShared,
     repaint_buffer: RepaintBuffer,
     screen: LogicalRect,
     physical_screen: PhysicalRect,
     scale_factor: f32,
-    pending: DirtyRegions,
     previous: DirtyRegions,
-    interaction: interaction::InteractionState,
-    animations: Vec<animation::AnimationState>,
-    timers: Vec<timer::TimerState>,
 }
 
 pub struct Ui {
-    platform: NonNull<Platform>,
+    shared: NonNull<UiShared>,
     time: Duration,
     input: Input,
     screen: LogicalRect,
     clip: PhysicalRect,
     scale_factor: f32,
     dirty: DirtyRegions,
-    invalidated: DirtyRegions,
     current_id: WidgetId,
+    animation_stack: [AnimationCapture; 8],
+    animation_depth: usize,
+}
+
+struct UiShared {
+    platform: Platform,
     interaction: interaction::InteractionState,
     animations: Vec<animation::AnimationState>,
     timers: Vec<timer::TimerState>,
-    animation_stack: [AnimationCapture; 8],
-    animation_depth: usize,
+    pending: DirtyRegions,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -106,16 +106,18 @@ impl Runtime {
         let mut pending = DirtyRegions::default();
         pending.add(physical_screen);
         Self {
-            platform,
+            shared: UiShared {
+                platform,
+                interaction: interaction::InteractionState::default(),
+                animations: Vec::new(),
+                timers: Vec::new(),
+                pending,
+            },
             repaint_buffer: RepaintBuffer::default(),
             screen,
             physical_screen,
             scale_factor,
-            pending,
             previous: DirtyRegions::default(),
-            interaction: interaction::InteractionState::default(),
-            animations: Vec::new(),
-            timers: Vec::new(),
         }
     }
 
@@ -125,7 +127,7 @@ impl Runtime {
     }
 
     pub fn platform(&mut self) -> &mut Platform {
-        &mut self.platform
+        &mut self.shared.platform
     }
 
     pub fn render<R>(
@@ -134,7 +136,7 @@ impl Runtime {
         input: Input,
         render: impl FnOnce(&mut Ui) -> R,
     ) -> R {
-        let pending = std::mem::take(&mut self.pending);
+        let pending = std::mem::take(&mut self.shared.pending);
         let mut dirty = if self.repaint_buffer == RepaintBuffer::Swapped {
             std::mem::take(&mut self.previous)
         } else {
@@ -144,64 +146,57 @@ impl Runtime {
         if self.repaint_buffer == RepaintBuffer::Swapped {
             self.previous = pending;
         }
-        let mut interaction = std::mem::take(&mut self.interaction);
-        let mut animations = std::mem::take(&mut self.animations);
-        for animation in &mut animations {
+        for animation in &mut self.shared.animations {
             animation.seen = false;
         }
-        let mut timers = std::mem::take(&mut self.timers);
-        for timer in &mut timers {
+        for timer in &mut self.shared.timers {
             timer.seen = false;
         }
-        let interaction_damage = interaction.begin_frame(&input, self.scale_factor);
-        let invalidated = DirtyRegions::default();
+        let interaction_damage = self
+            .shared
+            .interaction
+            .begin_frame(&input, self.scale_factor);
         for area in interaction_damage.into_iter().flatten() {
             dirty.add(area);
             if self.repaint_buffer == RepaintBuffer::Swapped {
                 self.previous.add(area);
             }
         }
-        self.platform.begin_frame(dirty.regions());
+        self.shared.platform.begin_frame(dirty.regions());
         let mut ui = Ui {
-            platform: NonNull::from(&mut self.platform),
+            shared: NonNull::from(&mut self.shared),
             time,
             input,
             screen: self.screen,
             clip: self.physical_screen,
             scale_factor: self.scale_factor,
             dirty,
-            invalidated,
             current_id: WidgetId::new("blit root"),
-            interaction,
-            animations,
-            timers,
             animation_stack: [AnimationCapture::default(); 8],
             animation_depth: 0,
         };
         let output = render(&mut ui);
         assert_eq!(ui.animation_depth, 0, "animation scope was not dropped");
-        for area in ui
+        let shared = ui.shared_mut();
+        for area in shared
             .interaction
             .end_frame(self.scale_factor)
             .into_iter()
             .flatten()
         {
-            ui.invalidated.add(area);
+            shared.pending.add(area);
         }
-        ui.animations.retain(|animation| {
+        let pending = &mut shared.pending;
+        shared.animations.retain(|animation| {
             if !animation.seen {
                 if let Some(area) = animation.previous_bounds {
-                    ui.invalidated.add(area);
+                    pending.add(area);
                 }
             }
             animation.seen
         });
-        ui.timers.retain(|timer| timer.seen);
-        self.pending = ui.invalidated;
-        self.interaction = ui.interaction;
-        self.animations = ui.animations;
-        self.timers = ui.timers;
-        self.platform.end_frame();
+        shared.timers.retain(|timer| timer.seen);
+        self.shared.platform.end_frame();
         output
     }
 
@@ -225,16 +220,18 @@ impl Runtime {
     }
 
     pub fn has_pending_redraw(&self) -> bool {
-        !self.pending.is_empty()
+        !self.shared.pending.is_empty()
             || self.repaint_buffer == RepaintBuffer::Swapped && !self.previous.is_empty()
             || self
+                .shared
                 .animations
                 .iter()
                 .any(animation::AnimationState::is_active)
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
-        self.timers
+        self.shared
+            .timers
             .iter()
             .filter_map(timer::TimerState::deadline)
             .min()
@@ -245,12 +242,12 @@ impl Runtime {
             .to_physical(self.scale_factor)
             .intersection(self.physical_screen)
         {
-            self.pending.add(area)
+            self.shared.pending.add(area)
         }
     }
 
     pub fn invalidate_all(&mut self) {
-        self.pending.add(self.physical_screen)
+        self.shared.pending.add(self.physical_screen)
     }
 
     pub fn screen(&self) -> LogicalRect {
@@ -271,7 +268,7 @@ impl Ui {
     }
 
     pub fn platform(&mut self) -> &mut Platform {
-        unsafe { self.platform.as_mut() }
+        &mut self.shared_mut().platform
     }
 
     pub fn screen(&self) -> LogicalRect {
@@ -344,37 +341,44 @@ impl Ui {
 
     pub fn interact(&mut self, id: WidgetId, area: LogicalRect, sense: Sense) -> Interaction {
         let area = area.to_physical(self.scale_factor).intersection(self.clip);
-        self.interaction.interact(id, area, sense)
+        self.shared_mut().interaction.interact(id, area, sense)
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {
-        self.interaction.is_focused(id)
+        self.shared().interaction.is_focused(id)
     }
 
     pub fn focus(&mut self, id: WidgetId) {
-        for area in self.interaction.focus(id).into_iter().flatten() {
-            self.invalidated.add(area);
+        for area in self
+            .shared_mut()
+            .interaction
+            .focus(id)
+            .into_iter()
+            .flatten()
+        {
+            self.shared_mut().pending.add(area);
         }
     }
 
     pub fn clear_focus(&mut self) {
-        if let Some(area) = self.interaction.clear_focus() {
-            self.invalidated.add(area);
+        if let Some(area) = self.shared_mut().interaction.clear_focus() {
+            self.shared_mut().pending.add(area);
         }
     }
 
     pub fn pointer_position(&self) -> Option<LogicalPoint> {
-        self.interaction.pointer_position()
+        self.shared().interaction.pointer_position()
     }
 
     pub fn invalidate(&mut self, area: LogicalRect) {
         if let Some(area) = area.to_physical(self.scale_factor).intersection(self.clip) {
-            self.invalidated.add(area)
+            self.shared_mut().pending.add(area)
         }
     }
 
     pub fn invalidate_all(&mut self) {
-        self.invalidated.add(self.clip)
+        let clip = self.clip;
+        self.shared_mut().pending.add(clip)
     }
 
     fn record_draw(&mut self, area: LogicalRect) {
@@ -388,15 +392,25 @@ impl Ui {
             }
         }
     }
+
+    fn shared(&self) -> &UiShared {
+        // only used in context of render
+        unsafe { self.shared.as_ref() }
+    }
+
+    fn shared_mut(&mut self) -> &mut UiShared {
+        // only used in context of render
+        unsafe { self.shared.as_mut() }
+    }
 }
 
 impl AnimationScope<'_> {
     pub fn value(&self) -> f32 {
-        self.ui.animations[self.index].value
+        self.ui.shared().animations[self.index].value
     }
 
     pub fn is_active(&self) -> bool {
-        self.ui.animations[self.index].is_active()
+        self.ui.shared().animations[self.index].is_active()
     }
 
     pub fn finish(self) {
@@ -426,16 +440,17 @@ impl Drop for AnimationScope<'_> {
             capture.index, self.index,
             "animation scopes must be dropped in reverse order"
         );
-        let animation = &mut self.ui.animations[self.index];
+        let shared = self.ui.shared_mut();
+        let animation = &mut shared.animations[self.index];
         let active = animation.is_active();
         if capture.changed && !active {
             if let Some(area) = animation.previous_bounds {
-                self.ui.invalidated.add(area);
+                shared.pending.add(area);
             }
         }
         if active || capture.changed {
             if let Some(area) = capture.bounds {
-                self.ui.invalidated.add(area);
+                shared.pending.add(area);
             }
         }
         animation.previous_bounds = capture.bounds;
@@ -494,24 +509,23 @@ fn begin_animation(
         ui.animation_depth < ui.animation_stack.len(),
         "animation scopes nested too deeply"
     );
-    let old_len = ui.animations.len();
-    let index = ui
-        .animations
+    let animations = &mut ui.shared_mut().animations;
+    let old_len = animations.len();
+    let index = animations
         .iter()
         .position(|animation| animation.id == id)
         .unwrap_or_else(|| {
-            ui.animations
-                .push(animation::AnimationState::new(id, initial));
-            ui.animations.len() - 1
+            animations.push(animation::AnimationState::new(id, initial));
+            animations.len() - 1
         });
     assert!(
-        !ui.animations[index].seen,
+        !animations[index].seen,
         "duplicate animation WidgetId {id:?}"
     );
-    let (damage, changed) = advance(&mut ui.animations[index]);
+    let (damage, changed) = advance(&mut animations[index]);
     let damage = damage || index == old_len;
     if damage {
-        if let Some(area) = ui.animations[index]
+        if let Some(area) = animations[index]
             .previous_bounds
             .and_then(|area| area.intersection(ui.clip))
         {
@@ -529,13 +543,14 @@ fn begin_animation(
 }
 
 fn begin_timer(ui: &mut Ui, id: WidgetId, duration: Duration, interval: Option<Duration>) -> bool {
-    let timer = if let Some(timer) = ui.timers.iter_mut().find(|timer| timer.id == id) {
+    let time = ui.time;
+    let timers = &mut ui.shared_mut().timers;
+    let timer = if let Some(timer) = timers.iter_mut().find(|timer| timer.id == id) {
         timer
     } else {
-        ui.timers
-            .push(timer::TimerState::new(id, duration, interval, ui.time));
-        ui.timers.last_mut().unwrap()
+        timers.push(timer::TimerState::new(id, duration, interval, time));
+        timers.last_mut().unwrap()
     };
     assert!(!timer.seen, "duplicate timer WidgetId {id:?}");
-    timer.advance(duration, interval, ui.time)
+    timer.advance(duration, interval, time)
 }
