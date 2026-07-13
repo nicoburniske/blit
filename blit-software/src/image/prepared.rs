@@ -19,7 +19,7 @@ pub struct Prepared {
     bytes_per_pixel: usize,
     format: ImageFormat,
     colorize: Option<Color>,
-    opacity: u8,
+    pub opacity: u8,
     sampling: ImageSampling,
     step_x: u64,
     step_y: u64,

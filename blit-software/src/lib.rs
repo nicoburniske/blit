@@ -10,7 +10,7 @@ pub use strategy::{Direct, RenderStrategy, Scanline};
 
 use blit::{
     FontId, ImageData, ImageId, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
-    widgets::{ImageRequest, Rectangle},
+    widgets::{BorderRadius, ImageRequest, Rectangle},
 };
 
 pub struct RendererConfig {
@@ -87,6 +87,15 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     pub fn end_frame(&mut self) {
         self.strategy.end_frame(&mut self.context);
         self.context.finish_frame();
+    }
+
+    pub fn push_rounded_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.strategy
+            .push_rounded_clip(area, radius, self.context.scale_factor)
+    }
+
+    pub fn pop_rounded_clip(&mut self) {
+        self.strategy.pop_rounded_clip()
     }
 
     pub fn draw_rectangle(&mut self, request: &Rectangle, clip: PhysicalRect) {

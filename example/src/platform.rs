@@ -1,7 +1,7 @@
 use blit::{
     FontId, ImageData, ImageId, Input, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect,
     Platform, PlatformImpl, TextRequest,
-    widgets::{ImageRequest, Rectangle},
+    widgets::{BorderRadius, ImageRequest, Rectangle},
 };
 use blit_software::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
@@ -139,6 +139,14 @@ impl PlatformImpl for TestPlatform {
 
     fn scale_factor(&mut self) -> f32 {
         self.renderer.scale_factor()
+    }
+
+    fn push_rounded_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.renderer.push_rounded_clip(area, radius)
+    }
+
+    fn pop_rounded_clip(&mut self) {
+        self.renderer.pop_rounded_clip()
     }
 
     fn draw_rectangle(&mut self, rectangle: &Rectangle, clip: PhysicalRect) {

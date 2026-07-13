@@ -1,5 +1,5 @@
 mod prepared;
-mod rounded;
+pub(crate) mod rounded;
 
 pub use prepared::Prepared;
 

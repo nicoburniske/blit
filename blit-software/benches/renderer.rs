@@ -2,7 +2,7 @@ use std::hint::black_box;
 
 use blit::{
     Color, DirtyRegions, FontId, ImageData, ImageFormat, ImagePixels, LogicalRect, PhysicalRect,
-    widgets::{ImageFit, ImageRequest, ImageSampling, ImageTiling, Rectangle},
+    widgets::{BorderRadius, ImageFit, ImageRequest, ImageSampling, ImageTiling, Rectangle},
 };
 use blit_software::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -85,6 +85,35 @@ fn scanline(criterion: &mut Criterion) {
             black_box(renderer.buffer().pixels()[352 * 1024 + 16]);
         });
     });
+
+    criterion.bench_function(
+        "scanline/256_commands_two_horizontal_regions_rounded_clip",
+        |bencher| {
+            bencher.iter(|| {
+                renderer.begin_frame(&damage);
+                renderer.push_rounded_clip(
+                    LogicalRect {
+                        width: 1024.0,
+                        height: 768.0,
+                        ..LogicalRect::default()
+                    },
+                    BorderRadius {
+                        top_left: 384.0,
+                        top_right: 384.0,
+                        bottom_right: 384.0,
+                        bottom_left: 384.0,
+                    },
+                );
+                for _ in 0..128 {
+                    renderer.draw_rectangle(black_box(&left), black_box(clip));
+                    renderer.draw_rectangle(black_box(&right), black_box(clip));
+                }
+                renderer.pop_rounded_clip();
+                renderer.end_frame();
+                black_box(renderer.buffer().pixels()[352 * 1024 + 16]);
+            });
+        },
+    );
 
     let screen = Rectangle::new(LogicalRect {
         x: 0.0,

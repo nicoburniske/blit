@@ -58,25 +58,25 @@ impl PixelBuffer for TrackingBuffer {
     }
 }
 
+fn renderer_config() -> RendererConfig {
+    RendererConfig {
+        fonts: vec![FontFace {
+            id: FontId::default(),
+            weight: 400,
+            font: Font::from_bytes(
+                include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
+                FontSettings::default(),
+            )
+            .unwrap(),
+        }],
+        glyph_cache_capacity: 1024 * 1024,
+        paragraph_cache_capacity: 1024 * 1024,
+    }
+}
+
 #[test]
 fn renderer_supports_custom_pixel_layouts() {
-    let font = Font::from_bytes(
-        include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
-        FontSettings::default(),
-    )
-    .unwrap();
-    let mut renderer = Renderer::new(
-        VecBuffer::<BgrPixel>::new(32, 24),
-        RendererConfig {
-            fonts: vec![FontFace {
-                id: FontId::default(),
-                weight: 400,
-                font,
-            }],
-            glyph_cache_capacity: 1024 * 1024,
-            paragraph_cache_capacity: 1024 * 1024,
-        },
-    );
+    let mut renderer = Renderer::new(VecBuffer::<BgrPixel>::new(32, 24), renderer_config());
     let clip = PhysicalRect {
         x: 0,
         y: 0,
@@ -163,23 +163,7 @@ fn renderer_supports_custom_pixel_layouts() {
 #[test]
 fn dropped_image_slots_are_reused_after_end_frame() {
     static PIXEL: [u8; 4] = [255, 255, 255, 255];
-    let font = Font::from_bytes(
-        include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
-        FontSettings::default(),
-    )
-    .unwrap();
-    let mut renderer = Renderer::new(
-        VecBuffer::<u32>::new(1, 1),
-        RendererConfig {
-            fonts: vec![FontFace {
-                id: FontId::default(),
-                weight: 400,
-                font,
-            }],
-            glyph_cache_capacity: 1024 * 1024,
-            paragraph_cache_capacity: 1024 * 1024,
-        },
-    );
+    let mut renderer = Renderer::new(VecBuffer::<u32>::new(1, 1), renderer_config());
     let texture = ImageData::new(
         blit::ImagePixels::Static(&PIXEL),
         blit::ImageFormat::Rgba8,
@@ -206,11 +190,6 @@ fn dropped_image_slots_are_reused_after_end_frame() {
 
 #[test]
 fn frame_is_rendered_once_per_affected_line_in_order() {
-    let font = Font::from_bytes(
-        include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
-        FontSettings::default(),
-    )
-    .unwrap();
     let mut renderer = Renderer::new(
         TrackingBuffer {
             pixels: vec![0; 16],
@@ -219,15 +198,7 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
             width: 4,
             height: 4,
         },
-        RendererConfig {
-            fonts: vec![FontFace {
-                id: FontId::default(),
-                weight: 400,
-                font,
-            }],
-            glyph_cache_capacity: 1024 * 1024,
-            paragraph_cache_capacity: 1024 * 1024,
-        },
+        renderer_config(),
     )
     .strategy(Scanline::default());
     let damage = [
@@ -268,11 +239,6 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
 
 #[test]
 fn scanline_only_borrows_dirty_horizontal_ranges() {
-    let font = Font::from_bytes(
-        include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
-        FontSettings::default(),
-    )
-    .unwrap();
     let mut renderer = Renderer::new(
         TrackingBuffer {
             pixels: vec![0; 8],
@@ -281,15 +247,7 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
             width: 4,
             height: 2,
         },
-        RendererConfig {
-            fonts: vec![FontFace {
-                id: FontId::default(),
-                weight: 400,
-                font,
-            }],
-            glyph_cache_capacity: 1024 * 1024,
-            paragraph_cache_capacity: 1024 * 1024,
-        },
+        renderer_config(),
     )
     .strategy(Scanline::default());
     let damage = [PhysicalRect {
@@ -326,32 +284,9 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
 
 #[test]
 fn cached_dirty_ranges_match_direct_rendering() {
-    let font = include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8];
-    let mut direct = Renderer::new(
-        VecBuffer::<u32>::new(8, 8),
-        RendererConfig {
-            fonts: vec![FontFace {
-                id: FontId::default(),
-                weight: 400,
-                font: Font::from_bytes(font, FontSettings::default()).unwrap(),
-            }],
-            glyph_cache_capacity: 1024,
-            paragraph_cache_capacity: 1024,
-        },
-    );
-    let mut scanline = Renderer::new(
-        VecBuffer::<u32>::new(8, 8),
-        RendererConfig {
-            fonts: vec![FontFace {
-                id: FontId::default(),
-                weight: 400,
-                font: Font::from_bytes(font, FontSettings::default()).unwrap(),
-            }],
-            glyph_cache_capacity: 1024,
-            paragraph_cache_capacity: 1024,
-        },
-    )
-    .strategy(Scanline::default());
+    let mut direct = Renderer::new(VecBuffer::<u32>::new(8, 8), renderer_config());
+    let mut scanline =
+        Renderer::new(VecBuffer::<u32>::new(8, 8), renderer_config()).strategy(Scanline::default());
     let red = Rectangle::new(LogicalRect {
         x: 0.0,
         y: 0.0,
@@ -409,26 +344,99 @@ fn cached_dirty_ranges_match_direct_rendering() {
 }
 
 #[test]
+fn rounded_clips_match_between_strategies() {
+    static PIXEL: [u8; 3] = [0, 255, 0];
+    fn render<S: RenderStrategy<VecBuffer<u32>>>(strategy: S) -> Renderer<VecBuffer<u32>, S> {
+        let mut renderer =
+            Renderer::new(VecBuffer::<u32>::new(16, 16), renderer_config()).strategy(strategy);
+        let image = renderer.create_image(ImageData::new(
+            ImagePixels::Static(&PIXEL),
+            ImageFormat::Rgb8,
+            1,
+            1,
+        ));
+        let screen = renderer.screen();
+        let area = LogicalRect {
+            width: 16.0,
+            height: 16.0,
+            ..LogicalRect::default()
+        };
+        let red = Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 255));
+        let image = ImageRequest {
+            image,
+            area,
+            fit: ImageFit::Fill,
+            sampling: ImageSampling::Nearest,
+            opacity: 1.0,
+            colorize: None,
+            nine_slice: None,
+            horizontal_tiling: blit::widgets::ImageTiling::None,
+            vertical_tiling: blit::widgets::ImageTiling::None,
+        };
+        let text = TextRequest {
+            text: "M",
+            area,
+            offset_x: 0.0,
+            color: Color::WHITE,
+            style: TextStyle::default(),
+            options: TextOptions::default(),
+            intrinsic_height: false,
+        };
+
+        renderer.begin_frame(&[screen]);
+        renderer.push_rounded_clip(
+            area,
+            BorderRadius {
+                top_left: 8.0,
+                top_right: 8.0,
+                bottom_right: 8.0,
+                bottom_left: 8.0,
+            },
+        );
+        renderer.draw_rectangle(&red, screen);
+        renderer.push_rounded_clip(
+            LogicalRect {
+                width: 8.0,
+                height: 8.0,
+                ..area
+            },
+            BorderRadius::default(),
+        );
+        renderer.draw_image(&image, screen);
+        renderer.draw_text(&text, screen);
+        renderer.pop_rounded_clip();
+        renderer.pop_rounded_clip();
+        renderer.draw_rectangle(
+            &Rectangle::new(LogicalRect {
+                x: 15.0,
+                y: 15.0,
+                width: 1.0,
+                height: 1.0,
+            })
+            .background(Color::from_rgba8(0, 0, 255, 255)),
+            screen,
+        );
+        renderer.end_frame();
+        renderer
+    }
+
+    let direct = render(Direct::default());
+    let scanline = render(Scanline::default());
+
+    assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
+    assert_eq!(direct.buffer().pixels()[0], 0);
+    let edge = direct.buffer().pixels()[6];
+    assert!((1..255).contains(&((edge >> 8) & 0xff)));
+    let edge = direct.buffer().pixels()[9];
+    assert!((1..255).contains(&((edge >> 16) & 0xff)));
+    assert_eq!(direct.buffer().pixels()[15 * 16 + 15], 0x0000_00ff);
+}
+
+#[test]
 fn dropped_image_remains_valid_until_frame_end() {
     static PIXEL: [u8; 4] = [255, 0, 0, 255];
-    let font = Font::from_bytes(
-        include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
-        FontSettings::default(),
-    )
-    .unwrap();
-    let mut renderer = Renderer::new(
-        VecBuffer::<u32>::new(1, 1),
-        RendererConfig {
-            fonts: vec![FontFace {
-                id: FontId::default(),
-                weight: 400,
-                font,
-            }],
-            glyph_cache_capacity: 1024 * 1024,
-            paragraph_cache_capacity: 1024 * 1024,
-        },
-    )
-    .strategy(Scanline::default());
+    let mut renderer =
+        Renderer::new(VecBuffer::<u32>::new(1, 1), renderer_config()).strategy(Scanline::default());
     let image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&PIXEL),
         ImageFormat::Rgba8,
@@ -471,24 +479,8 @@ fn dropped_image_remains_valid_until_frame_end() {
 
 #[test]
 fn text_source_can_drop_before_frame_end() {
-    let font = Font::from_bytes(
-        include_bytes!("../../example/assets/Montserrat-Regular.ttf") as &[u8],
-        FontSettings::default(),
-    )
-    .unwrap();
-    let mut renderer = Renderer::new(
-        VecBuffer::<u32>::new(32, 24),
-        RendererConfig {
-            fonts: vec![FontFace {
-                id: FontId::default(),
-                weight: 400,
-                font,
-            }],
-            glyph_cache_capacity: 1024 * 1024,
-            paragraph_cache_capacity: 1024 * 1024,
-        },
-    )
-    .strategy(Scanline::default());
+    let mut renderer = Renderer::new(VecBuffer::<u32>::new(32, 24), renderer_config())
+        .strategy(Scanline::default());
     let damage = [PhysicalRect {
         x: 0,
         y: 0,

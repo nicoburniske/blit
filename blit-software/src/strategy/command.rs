@@ -4,6 +4,8 @@ use blit::{Color, PhysicalRect};
 
 use crate::{image::Prepared as PreparedImage, rectangle::Prepared as PreparedRectangle};
 
+use super::clip::ClipId;
+
 const RECTANGLE: u8 = 0;
 const IMAGE: u8 = 1;
 const TEXT: u8 = 2;
@@ -12,6 +14,7 @@ const TEXT: u8 = 2;
 #[derive(Default)]
 pub struct CommandList {
     words: Vec<Word>,
+    pub has_clips: bool,
 }
 
 pub enum Payload<'a> {
@@ -33,16 +36,21 @@ impl CommandList {
         self.words.is_empty()
     }
 
-    pub fn push_rectangle(&mut self, rectangle: PreparedRectangle, bounds: PhysicalRect) {
-        self.push(RECTANGLE, rectangle, bounds)
+    pub fn push_rectangle(
+        &mut self,
+        rectangle: PreparedRectangle,
+        bounds: PhysicalRect,
+        clip: ClipId,
+    ) {
+        self.push(RECTANGLE, rectangle, bounds, clip)
     }
 
-    pub fn push_image(&mut self, image: PreparedImage, bounds: PhysicalRect) {
-        self.push(IMAGE, image, bounds)
+    pub fn push_image(&mut self, image: PreparedImage, bounds: PhysicalRect, clip: ClipId) {
+        self.push(IMAGE, image, bounds, clip)
     }
 
-    pub fn push_text(&mut self, text: PreparedText, bounds: PhysicalRect) {
-        self.push(TEXT, text, bounds)
+    pub fn push_text(&mut self, text: PreparedText, bounds: PhysicalRect, clip: ClipId) {
+        self.push(TEXT, text, bounds, clip)
     }
 
     pub fn get(&self, offset: usize) -> Payload<'_> {
@@ -79,6 +87,10 @@ impl CommandList {
         header.left..header.right
     }
 
+    pub fn clip(&self, offset: usize) -> ClipId {
+        self.header(offset).clip
+    }
+
     pub fn offsets(&self) -> Offsets<'_> {
         Offsets {
             commands: self,
@@ -87,10 +99,12 @@ impl CommandList {
     }
 
     pub fn clear(&mut self) {
-        self.words.clear()
+        self.words.clear();
+        self.has_clips = false;
     }
 
-    fn push<T: Copy>(&mut self, kind: u8, payload: T, bounds: PhysicalRect) {
+    fn push<T: Copy>(&mut self, kind: u8, payload: T, bounds: PhysicalRect, clip: ClipId) {
+        self.has_clips |= clip != 0;
         assert!(align_of::<T>() <= align_of::<Word>());
         let payload_offset = payload_offset::<T>();
         let bytes = payload_offset + size_of::<T>();
@@ -107,7 +121,7 @@ impl CommandList {
                 right: bounds.x.saturating_add(bounds.width),
                 record_words: record_words.try_into().unwrap(),
                 kind,
-                padding: 0,
+                clip,
             });
             record.add(payload_offset).cast::<T>().write(payload);
         }
@@ -152,9 +166,9 @@ struct Header {
     bottom: i32,
     left: i32,
     right: i32,
-    record_words: u16,
+    record_words: u8,
     kind: u8,
-    padding: u8,
+    clip: u16,
 }
 
 #[repr(C, align(8))]
