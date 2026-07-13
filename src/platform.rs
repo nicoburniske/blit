@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 
 use crate::{
-    ImageData, ImageId, ImageResource, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect,
+    ImageData, ImageHandle, ImageId, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect,
     TextRequest,
     widgets::{ImageRequest, Rectangle},
 };
@@ -51,10 +51,10 @@ impl Platform {
     }
 
     #[inline]
-    pub fn create_image(&mut self, image: ImageData) -> ImageResource {
+    pub fn create_image(&mut self, image: ImageData) -> ImageHandle {
         let size = image.size;
         let id = unsafe { (self.vtable.create_image)(self.data, image) };
-        ImageResource::new(id, size, self.data, self.vtable.drop_image)
+        ImageHandle::new(id, size, self.data, self.vtable.drop_image)
     }
 
     #[inline]

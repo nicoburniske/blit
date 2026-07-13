@@ -1,4 +1,4 @@
-use crate::{Color, ImageId, ImageResource, LogicalRect, LogicalSize, SizedComponent, Ui};
+use crate::{Color, ImageHandle, ImageId, LogicalRect, LogicalSize, SizedComponent, Ui};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ImageFit {
@@ -56,7 +56,7 @@ pub struct ImageRequest {
 }
 
 pub struct Image<'a> {
-    pub resource: &'a ImageResource,
+    pub resource: &'a ImageHandle,
     pub area: LogicalRect,
     pub fit: ImageFit,
     pub sampling: ImageSampling,
@@ -68,7 +68,7 @@ pub struct Image<'a> {
 }
 
 impl<'a> Image<'a> {
-    pub fn new(resource: &'a ImageResource) -> Self {
+    pub fn new(resource: &'a ImageHandle) -> Self {
         Self {
             resource,
             area: LogicalRect::default(),

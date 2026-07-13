@@ -1,5 +1,5 @@
 use blit::{
-    Constraint, Direction, HorizontalAlign, ImageData, ImageFormat, ImagePixels, ImageResource,
+    Constraint, Direction, HorizontalAlign, ImageData, ImageFormat, ImageHandle, ImagePixels,
     Layout, LogicalInsets, LogicalRect, Text, TextOptions, TextOverflow, Ui, VerticalAlign,
     WidgetId,
     widgets::{Button, Image, ImageFit, Rectangle, TextInput},
@@ -14,7 +14,7 @@ struct Todo {
 pub struct TodoApp {
     todos: Vec<Todo>,
     input: TextInput,
-    logo: Option<ImageResource>,
+    logo: Option<ImageHandle>,
     logo_data: Option<ImageData>,
 }
 
