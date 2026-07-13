@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 
-use crate::{Color, PhysicalRect, PhysicalSize};
+use crate::{Color, PhysicalRect, PhysicalSize, PlatformImpl};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageFormat {
@@ -101,8 +101,7 @@ pub struct ImageId(pub u64);
 pub struct ImageHandle {
     id: ImageId,
     size: PhysicalSize,
-    data: NonNull<()>,
-    drop_image: Option<unsafe fn(NonNull<()>, ImageId)>,
+    platform: Option<NonNull<dyn PlatformImpl>>,
     not_send_or_sync: PhantomData<Rc<()>>,
 }
 
@@ -114,8 +113,7 @@ impl ImageHandle {
                 width: 0,
                 height: 0,
             },
-            data: NonNull::dangling(),
-            drop_image: None,
+            platform: None,
             not_send_or_sync: PhantomData,
         }
     }
@@ -123,14 +121,12 @@ impl ImageHandle {
     pub(crate) fn new(
         id: ImageId,
         size: PhysicalSize,
-        data: NonNull<()>,
-        drop_image: unsafe fn(NonNull<()>, ImageId),
+        platform: NonNull<dyn PlatformImpl>,
     ) -> Self {
         Self {
             id,
             size,
-            data,
-            drop_image: Some(drop_image),
+            platform: Some(platform),
             not_send_or_sync: PhantomData,
         }
     }
@@ -144,7 +140,7 @@ impl ImageHandle {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.drop_image.is_none()
+        self.platform.is_none()
     }
 }
 
@@ -156,8 +152,8 @@ impl Default for ImageHandle {
 
 impl Drop for ImageHandle {
     fn drop(&mut self) {
-        if let Some(drop_image) = self.drop_image {
-            unsafe { drop_image(self.data, self.id) }
+        if let Some(mut platform) = self.platform {
+            unsafe { platform.as_mut().drop_image(self.id) }
         }
     }
 }
