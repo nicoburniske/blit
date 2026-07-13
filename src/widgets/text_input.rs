@@ -45,10 +45,15 @@ crate::component! {
         pub padding: LogicalInsets = LogicalInsets::uniform(4.0),
         pub read_only: bool,
         pub keyboard_kind: KeyboardKind,
+        pub password_visible: bool,
         pub request_caps: bool,
         pub accept_button_text: String,
         pub accept_button_enabled: bool = true,
         pub delete_button_enabled: bool = true,
+
+        // TODO: there has to be a better way to do this
+        #[skip]
+        password_mask: String,
     }
     features: [padding, border, radius, text_style]
 }
@@ -61,6 +66,7 @@ impl TextInput {
 
     pub fn render(&mut self, ui: &mut Ui, area: LogicalRect) -> TextInputResponse {
         self.normalize_offsets();
+        self.update_password_mask();
         let inner = area.inset(self.padding);
         let old_focused = self.focused;
         let old_cursor = self.cursor;
@@ -72,9 +78,10 @@ impl TextInput {
 
         if interaction.pressed {
             if let Some(position) = ui.pointer_position() {
-                self.cursor = ui
+                let offset = ui
                     .platform()
                     .text_offset_at_position(&self.request(inner), position);
+                self.cursor = self.source_offset(offset);
                 self.anchor = self.cursor;
             }
         }
@@ -143,10 +150,14 @@ impl TextInput {
             Input::Enter if self.focused => response.accepted = true,
             _ => {}
         }
+        if response.edited {
+            self.update_password_mask();
+        }
 
+        let cursor_offset = self.display_offset(self.cursor);
         let cursor = ui
             .platform()
-            .text_cursor_rect(&self.request(inner), self.cursor);
+            .text_cursor_rect(&self.request(inner), cursor_offset);
         if cursor.x < inner.x {
             self.scroll_x = (self.scroll_x - (inner.x - cursor.x)).max(0.0);
         } else if cursor.x + self.cursor_width > inner.x + inner.width {
@@ -184,10 +195,10 @@ impl TextInput {
         if self.cursor != self.anchor {
             let start = ui
                 .platform()
-                .text_cursor_rect(&request, self.cursor.min(self.anchor));
+                .text_cursor_rect(&request, self.display_offset(self.cursor.min(self.anchor)));
             let end = ui
                 .platform()
-                .text_cursor_rect(&request, self.cursor.max(self.anchor));
+                .text_cursor_rect(&request, self.display_offset(self.cursor.max(self.anchor)));
             let left = start.x.max(inner.x);
             let right = end.x.min(inner.x + inner.width);
             let top = start.y.max(inner.y);
@@ -204,7 +215,7 @@ impl TextInput {
             }
         }
 
-        Text::new(&self.text)
+        Text::new(self.display_text())
             .in_area(inner)
             .offset_x(self.scroll_x)
             .color(self.text_color)
@@ -215,7 +226,9 @@ impl TextInput {
             .render(ui);
 
         if self.focused {
-            let cursor = ui.platform().text_cursor_rect(&request, self.cursor);
+            let cursor = ui
+                .platform()
+                .text_cursor_rect(&request, self.display_offset(self.cursor));
             let x = cursor.x.clamp(
                 inner.x,
                 (inner.x + inner.width - self.cursor_width).max(inner.x),
@@ -250,7 +263,7 @@ impl TextInput {
         options.overflow = TextOverflow::Clip;
         options.max_lines = Some(1);
         TextRequest {
-            text: &self.text,
+            text: self.display_text(),
             area,
             offset_x: self.scroll_x,
             color: self.text_color,
@@ -269,6 +282,46 @@ impl TextInput {
         while !self.text.is_char_boundary(self.anchor) {
             self.anchor -= 1;
         }
+    }
+
+    fn update_password_mask(&mut self) {
+        if !self.password_masked() {
+            self.password_mask.clear();
+            return;
+        }
+        self.password_mask.clear();
+        self.password_mask
+            .extend(std::iter::repeat_n('●', self.text.chars().count()));
+    }
+
+    fn display_text(&self) -> &str {
+        if self.password_masked() {
+            &self.password_mask
+        } else {
+            &self.text
+        }
+    }
+
+    fn display_offset(&self, source_offset: usize) -> usize {
+        if self.password_masked() {
+            self.text[..source_offset].chars().count() * '●'.len_utf8()
+        } else {
+            source_offset
+        }
+    }
+
+    fn source_offset(&self, display_offset: usize) -> usize {
+        if !self.password_masked() {
+            return display_offset;
+        }
+        self.text
+            .char_indices()
+            .nth(display_offset / '●'.len_utf8())
+            .map_or(self.text.len(), |(offset, _)| offset)
+    }
+
+    fn password_masked(&self) -> bool {
+        self.keyboard_kind == KeyboardKind::Password && !self.password_visible
     }
 
     fn selection(&self) -> Range<usize> {
@@ -302,5 +355,30 @@ impl SizedComponent for &mut TextInput {
 
     fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
         TextInput::render(self, ui, area)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn password_mask_uses_dots_and_maps_utf8_offsets() {
+        let mut input = TextInput {
+            text: "aé🙂".into(),
+            keyboard_kind: KeyboardKind::Password,
+            ..TextInput::default()
+        };
+
+        input.update_password_mask();
+
+        assert_eq!(input.display_text(), "●●●");
+        assert_eq!(input.display_offset("aé".len()), "●●".len());
+        assert_eq!(input.source_offset("●●".len()), "aé".len());
+        assert_eq!(input.source_offset("●●●".len()), input.text.len());
+
+        input.password_visible = true;
+        input.update_password_mask();
+        assert_eq!(input.display_text(), "aé🙂");
     }
 }

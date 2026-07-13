@@ -84,6 +84,17 @@ impl LogicalRect {
         self
     }
 
+    pub fn scale(self, factor: f32) -> Self {
+        let width = self.width * factor.max(0.0);
+        let height = self.height * factor.max(0.0);
+        Self {
+            x: self.x - (width - self.width) / 2.0,
+            y: self.y - (height - self.height) / 2.0,
+            width,
+            height,
+        }
+    }
+
     pub fn to_physical(self, scale_factor: f32) -> PhysicalRect {
         let x = (self.x * scale_factor).floor() as i32;
         let y = (self.y * scale_factor).floor() as i32;

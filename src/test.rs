@@ -355,12 +355,10 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
         width: 10.0,
         height: 10.0,
     };
-    let mut input = widgets::TextInput {
-        text: "aé🙂".into(),
-        cursor: "aé🙂".len(),
-        anchor: "aé🙂".len(),
-        ..widgets::TextInput::default()
-    };
+    let mut input = widgets::TextInput::default();
+    input.text = "aé🙂".into();
+    input.cursor = "aé🙂".len();
+    input.anchor = "aé🙂".len();
 
     runtime.render(Duration::ZERO, Input::None, |ui| input.render(ui, area));
     runtime.render(
