@@ -29,42 +29,41 @@ pub trait PlatformImpl {
 }
 
 pub struct Platform {
-    data: NonNull<()>,
-    vtable: &'static PlatformVTable,
+    implementation: NonNull<dyn PlatformImpl>,
     not_send_or_sync: PhantomData<Rc<()>>,
 }
 
 impl Platform {
     #[inline]
     pub fn screen(&mut self) -> PhysicalRect {
-        unsafe { (self.vtable.screen)(self.data) }
+        unsafe { self.implementation.as_mut().screen() }
     }
 
     #[inline]
     pub fn scale_factor(&mut self) -> f32 {
-        unsafe { (self.vtable.scale_factor)(self.data) }
+        unsafe { self.implementation.as_mut().scale_factor() }
     }
 
     #[inline]
     pub fn draw_rectangle(&mut self, rectangle: &Rectangle, clip: PhysicalRect) {
-        unsafe { (self.vtable.draw_rectangle)(self.data, rectangle, clip) }
+        unsafe { self.implementation.as_mut().draw_rectangle(rectangle, clip) }
     }
 
     #[inline]
     pub fn create_image(&mut self, image: ImageData) -> ImageHandle {
         let size = image.size;
-        let id = unsafe { (self.vtable.create_image)(self.data, image) };
-        ImageHandle::new(id, size, self.data, self.vtable.drop_image)
+        let id = unsafe { self.implementation.as_mut().create_image(image) };
+        ImageHandle::new(id, size, self.implementation)
     }
 
     #[inline]
     pub fn draw_image(&mut self, image: &ImageRequest, clip: PhysicalRect) {
-        unsafe { (self.vtable.draw_image)(self.data, image, clip) }
+        unsafe { self.implementation.as_mut().draw_image(image, clip) }
     }
 
     #[inline]
     pub fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) {
-        unsafe { (self.vtable.draw_text)(self.data, request, clip) }
+        unsafe { self.implementation.as_mut().draw_text(request, clip) }
     }
 
     #[inline]
@@ -73,7 +72,11 @@ impl Platform {
         request: &TextRequest<'_>,
         position: LogicalPoint,
     ) -> usize {
-        unsafe { (self.vtable.text_offset_at_position)(self.data, request, position) }
+        unsafe {
+            self.implementation
+                .as_mut()
+                .text_offset_at_position(request, position)
+        }
     }
 
     #[inline]
@@ -82,71 +85,32 @@ impl Platform {
         request: &TextRequest<'_>,
         byte_offset: usize,
     ) -> LogicalRect {
-        unsafe { (self.vtable.text_cursor_rect)(self.data, request, byte_offset) }
+        unsafe {
+            self.implementation
+                .as_mut()
+                .text_cursor_rect(request, byte_offset)
+        }
     }
 
     #[inline]
     pub fn show_keyboard(&mut self, request: &KeyboardRequest<'_>) {
-        unsafe { (self.vtable.show_keyboard)(self.data, request) }
+        unsafe { self.implementation.as_mut().show_keyboard(request) }
     }
 }
 
 impl Platform {
-    pub unsafe fn new<T: PlatformImpl>(implementation: &mut T) -> Self {
+    pub unsafe fn new<T: PlatformImpl + 'static>(implementation: &mut T) -> Self {
         Self {
-            data: NonNull::from(implementation).cast(),
-            vtable: vtable::<T>(),
+            implementation: NonNull::from(implementation as &mut dyn PlatformImpl),
             not_send_or_sync: PhantomData,
         }
     }
 
     pub(crate) fn begin_frame(&mut self, damage: &[PhysicalRect]) {
-        unsafe { (self.vtable.begin_frame)(self.data, damage) }
+        unsafe { self.implementation.as_mut().begin_frame(damage) }
     }
 
     pub(crate) fn end_frame(&mut self) {
-        unsafe { (self.vtable.end_frame)(self.data) }
-    }
-}
-
-pub struct PlatformVTable {
-    begin_frame: unsafe fn(NonNull<()>, &[PhysicalRect]),
-    end_frame: unsafe fn(NonNull<()>),
-    screen: unsafe fn(NonNull<()>) -> PhysicalRect,
-    scale_factor: unsafe fn(NonNull<()>) -> f32,
-    draw_rectangle: unsafe fn(NonNull<()>, &Rectangle, PhysicalRect),
-    create_image: unsafe fn(NonNull<()>, ImageData) -> ImageId,
-    drop_image: unsafe fn(NonNull<()>, ImageId),
-    draw_image: unsafe fn(NonNull<()>, &ImageRequest, PhysicalRect),
-    draw_text: unsafe fn(NonNull<()>, &TextRequest<'_>, PhysicalRect),
-    text_offset_at_position: unsafe fn(NonNull<()>, &TextRequest<'_>, LogicalPoint) -> usize,
-    text_cursor_rect: unsafe fn(NonNull<()>, &TextRequest<'_>, usize) -> LogicalRect,
-    show_keyboard: unsafe fn(NonNull<()>, &KeyboardRequest<'_>),
-}
-
-fn vtable<T: PlatformImpl>() -> &'static PlatformVTable {
-    &PlatformVTable {
-        begin_frame: |data, damage| unsafe { data.cast::<T>().as_mut() }.begin_frame(damage),
-        end_frame: |data| unsafe { data.cast::<T>().as_mut() }.end_frame(),
-        screen: |data| unsafe { data.cast::<T>().as_mut() }.screen(),
-        scale_factor: |data| unsafe { data.cast::<T>().as_mut() }.scale_factor(),
-        draw_rectangle: |data, request, clip| {
-            unsafe { data.cast::<T>().as_mut() }.draw_rectangle(request, clip)
-        },
-        create_image: |data, image| unsafe { data.cast::<T>().as_mut() }.create_image(image),
-        drop_image: |data, image| unsafe { data.cast::<T>().as_mut() }.drop_image(image),
-        draw_image: |data, image, clip| {
-            unsafe { data.cast::<T>().as_mut() }.draw_image(image, clip)
-        },
-        draw_text: |data, request, clip| {
-            unsafe { data.cast::<T>().as_mut() }.draw_text(request, clip)
-        },
-        text_offset_at_position: |data, request, position| {
-            unsafe { data.cast::<T>().as_mut() }.text_offset_at_position(request, position)
-        },
-        text_cursor_rect: |data, request, byte_offset| {
-            unsafe { data.cast::<T>().as_mut() }.text_cursor_rect(request, byte_offset)
-        },
-        show_keyboard: |data, request| unsafe { data.cast::<T>().as_mut() }.show_keyboard(request),
+        unsafe { self.implementation.as_mut().end_frame() }
     }
 }
