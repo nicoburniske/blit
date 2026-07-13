@@ -2,7 +2,7 @@ use blit::{
     Constraint, Direction, HorizontalAlign, ImageData, ImageFormat, ImageHandle, ImagePixels,
     Layout, LogicalInsets, LogicalRect, Text, TextOptions, TextOverflow, Ui, VerticalAlign,
     WidgetId,
-    widgets::{Button, Image, ImageFit, Rectangle, TextInput},
+    widgets::{BorderRadius, Button, Image, ImageFit, ImageSampling, Rectangle, TextInput},
 };
 
 struct Todo {
@@ -46,10 +46,32 @@ impl TodoApp {
             );
         }
         let logo_resource = self.logo.as_ref().unwrap();
+        let mut logo_clip = ui.begin_rounded_clip(
+            logo,
+            BorderRadius {
+                top_left: 16.0,
+                top_right: 16.0,
+                bottom_right: 16.0,
+                bottom_left: 16.0,
+            },
+        );
+        Rectangle::new(logo)
+            .background(colors::PRIMARY)
+            .render(&mut logo_clip);
+        Rectangle::new(LogicalRect {
+            x: logo.x + logo.width * 0.55,
+            y: logo.y - 8.0,
+            width: logo.width,
+            height: logo.height + 16.0,
+        })
+        .background(colors::SUCCESS)
+        .render(&mut logo_clip);
         Image::new(logo_resource)
             .area(logo.inset_x(6.0).inset_y(6.0))
             .fit(ImageFit::Contain)
-            .render(ui);
+            .sampling(ImageSampling::Bilinear)
+            .render(&mut logo_clip);
+        logo_clip.finish();
         Text::new("Blit Todos")
             .in_area(title)
             .text_size(30.0)
@@ -171,21 +193,21 @@ impl TodoApp {
 
 impl Default for TodoApp {
     fn default() -> Self {
-        let mut logo = vec![0; 48 * 48 * 4];
+        let mut logo = vec![0; 192 * 192 * 4];
         for (index, pixel) in logo.chunks_exact_mut(4).enumerate() {
-            let x = index % 48;
-            let y = index / 48;
-            let x = x as f32 - 23.5;
-            let y = y as f32 - 23.5;
+            let x = index % 192;
+            let y = index / 192;
+            let x = x as f32 - 95.5;
+            let y = y as f32 - 95.5;
             let distance = (x * x + y * y).sqrt();
-            let (red, green, blue, alpha) = if distance <= 7.0 {
+            let (red, green, blue, alpha) = if distance <= 28.0 {
                 (255, 255, 255, 255)
-            } else if distance <= 13.0 {
+            } else if distance <= 52.0 {
                 (18, 22, 31, 255)
-            } else if distance <= 20.5 {
+            } else if distance <= 82.0 {
                 (65, 105, 225, 255)
-            } else if distance < 22.0 {
-                (65, 105, 225, ((22.0 - distance) / 1.5 * 255.0) as u8)
+            } else if distance < 88.0 {
+                (65, 105, 225, ((88.0 - distance) / 6.0 * 255.0) as u8)
             } else {
                 (0, 0, 0, 0)
             };
@@ -227,8 +249,8 @@ impl Default for TodoApp {
             logo_data: Some(ImageData::new(
                 ImagePixels::Owned(logo.into_boxed_slice()),
                 ImageFormat::Rgba8,
-                48,
-                48,
+                192,
+                192,
             )),
         }
     }

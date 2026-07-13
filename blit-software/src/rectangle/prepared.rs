@@ -10,8 +10,8 @@ pub struct Prepared {
     inner: PhysicalRect,
     radii: Radii,
     border_width: i32,
-    border_color: PremultipliedRgbaColor,
-    inner_color: PremultipliedRgbaColor,
+    pub border_color: PremultipliedRgbaColor,
+    pub inner_color: PremultipliedRgbaColor,
 }
 
 impl Prepared {
@@ -43,17 +43,12 @@ impl Prepared {
         if inner_color.alpha == 0 && border_width == 0 {
             return None;
         }
-        let radii = Radii {
-            top_left: (rectangle.radius.top_left * scale_factor).round().max(0.0) as i32,
-            top_right: (rectangle.radius.top_right * scale_factor).round().max(0.0) as i32,
-            bottom_right: (rectangle.radius.bottom_right * scale_factor)
-                .round()
-                .max(0.0) as i32,
-            bottom_left: (rectangle.radius.bottom_left * scale_factor)
-                .round()
-                .max(0.0) as i32,
-        }
-        .fit(geometry.width, geometry.height);
+        let radii = Radii::new(
+            rectangle.radius,
+            scale_factor,
+            geometry.width,
+            geometry.height,
+        );
         let inner = PhysicalRect {
             x: geometry.x + border_width,
             y: geometry.y + border_width,

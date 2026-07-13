@@ -30,6 +30,10 @@ impl PlatformImpl for TestPlatform {
         }
     }
 
+    fn push_rounded_clip(&mut self, _: LogicalRect, _: widgets::BorderRadius) {}
+
+    fn pop_rounded_clip(&mut self) {}
+
     fn draw_rectangle(&mut self, _: &widgets::Rectangle, _: PhysicalRect) {}
 
     fn create_image(&mut self, _: ImageData) -> ImageId {
@@ -622,43 +626,49 @@ fn stored_widget_id_is_not_changed_by_scope() {
 }
 
 #[test]
-fn clip_scope_limits_invalidation_and_restores_the_parent_clip() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
-    let screen = runtime.screen();
-    let clip = LogicalRect {
-        x: 2.0,
-        y: 2.0,
-        width: 4.0,
-        height: 4.0,
-    };
+fn clip_scopes_limit_invalidation_and_restore_the_parent_clip() {
+    for rounded in [false, true] {
+        let mut platform = TestPlatform;
+        let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+        let screen = runtime.screen();
+        let clip = LogicalRect {
+            x: 2.0,
+            y: 2.0,
+            width: 4.0,
+            height: 4.0,
+        };
 
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        {
-            let mut scope = ui.begin_clip(clip);
-            scope.invalidate_all();
-        }
-        ui.invalidate(LogicalRect {
-            x: 8.0,
-            y: 8.0,
-            width: 2.0,
-            height: 2.0,
+        runtime.render(Duration::ZERO, Input::None, |ui| {
+            {
+                let mut scope = if rounded {
+                    ui.begin_rounded_clip(clip, widgets::BorderRadius::default())
+                } else {
+                    ui.begin_clip(clip)
+                };
+                scope.invalidate_all();
+            }
+            ui.invalidate(LogicalRect {
+                x: 8.0,
+                y: 8.0,
+                width: 2.0,
+                height: 2.0,
+            });
+            assert_eq!(
+                ui.shared().pending.regions(),
+                &[
+                    clip.to_physical(1.0),
+                    PhysicalRect {
+                        x: 8,
+                        y: 8,
+                        width: 2,
+                        height: 2,
+                    },
+                ]
+            );
         });
-        assert_eq!(
-            ui.shared().pending.regions(),
-            &[
-                clip.to_physical(1.0),
-                PhysicalRect {
-                    x: 8,
-                    y: 8,
-                    width: 2,
-                    height: 2
-                },
-            ]
-        );
-    });
 
-    assert_eq!(screen, runtime.screen());
+        assert_eq!(screen, runtime.screen());
+    }
 }
 
 #[test]

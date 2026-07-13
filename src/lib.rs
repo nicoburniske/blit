@@ -148,7 +148,29 @@ impl Ui {
             .to_physical(self.scale_factor)
             .intersection(previous)
             .unwrap_or_default();
-        ClipScope { ui: self, previous }
+        ClipScope {
+            ui: self,
+            previous,
+            rounded: false,
+        }
+    }
+
+    /// limits drawing to the rounded rectangle and limits interaction and
+    /// invalidation to its rectangular bounds
+    ///
+    /// the bounds are intersected with the current clip, allowing scopes to
+    /// nest. the previous clip is restored when the returned value is dropped
+    pub fn begin_rounded_clip(
+        &mut self,
+        area: LogicalRect,
+        radius: widgets::BorderRadius,
+    ) -> ClipScope<'_> {
+        let mut scope = self.begin_clip(area);
+        scope.rounded = scope.clip.width > 0 && scope.clip.height > 0;
+        if scope.rounded {
+            scope.platform().push_rounded_clip(area, radius);
+        }
+        scope
     }
 
     pub fn interact(&mut self, id: WidgetId, area: LogicalRect, sense: Sense) -> Interaction {
@@ -215,7 +237,7 @@ impl Ui {
         unsafe { self.shared.as_mut() }
     }
 
-    pub(crate) fn draw_clip(&self, area: LogicalRect) -> Option<PhysicalRect> {
+    fn draw_clip(&self, area: LogicalRect) -> Option<PhysicalRect> {
         let area = area
             .to_physical(self.scale_factor)
             .intersection(self.clip)?;
@@ -317,6 +339,7 @@ impl Drop for IdScope<'_> {
 pub struct ClipScope<'a> {
     ui: &'a mut Ui,
     previous: PhysicalRect,
+    rounded: bool,
 }
 
 impl ClipScope<'_> {
@@ -341,6 +364,9 @@ impl DerefMut for ClipScope<'_> {
 
 impl Drop for ClipScope<'_> {
     fn drop(&mut self) {
+        if self.rounded {
+            self.ui.platform().pop_rounded_clip();
+        }
         self.ui.clip = self.previous;
     }
 }

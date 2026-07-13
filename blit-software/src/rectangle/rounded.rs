@@ -1,6 +1,6 @@
 use std::ops::{Add, Mul, Sub};
 
-use blit::PhysicalRect;
+use blit::{PhysicalRect, widgets::BorderRadius};
 
 use crate::{Pixel, PremultipliedRgbaColor};
 
@@ -13,21 +13,107 @@ pub struct Radii {
 }
 
 impl Radii {
+    pub fn new(radius: BorderRadius, scale_factor: f32, width: i32, height: i32) -> Self {
+        let mut radii = Self {
+            top_left: (radius.top_left * scale_factor).round().max(0.0) as i32,
+            top_right: (radius.top_right * scale_factor).round().max(0.0) as i32,
+            bottom_right: (radius.bottom_right * scale_factor).round().max(0.0) as i32,
+            bottom_left: (radius.bottom_left * scale_factor).round().max(0.0) as i32,
+        };
+        let scale = 1.0f32
+            .min(width as f32 / (radii.top_left + radii.top_right).max(1) as f32)
+            .min(width as f32 / (radii.bottom_left + radii.bottom_right).max(1) as f32)
+            .min(height as f32 / (radii.top_left + radii.bottom_left).max(1) as f32)
+            .min(height as f32 / (radii.top_right + radii.bottom_right).max(1) as f32);
+        radii.top_left = (radii.top_left as f32 * scale).round() as i32;
+        radii.top_right = (radii.top_right as f32 * scale).round() as i32;
+        radii.bottom_right = (radii.bottom_right as f32 * scale).round() as i32;
+        radii.bottom_left = (radii.bottom_left as f32 * scale).round() as i32;
+        radii
+    }
+
     pub fn is_zero(self) -> bool {
         self.top_left == 0 && self.top_right == 0 && self.bottom_right == 0 && self.bottom_left == 0
     }
+}
 
-    pub fn fit(mut self, width: i32, height: i32) -> Self {
-        let scale = 1.0f32
-            .min(width as f32 / (self.top_left + self.top_right).max(1) as f32)
-            .min(width as f32 / (self.bottom_left + self.bottom_right).max(1) as f32)
-            .min(height as f32 / (self.top_left + self.bottom_left).max(1) as f32)
-            .min(height as f32 / (self.top_right + self.bottom_right).max(1) as f32);
-        self.top_left = (self.top_left as f32 * scale).round() as i32;
-        self.top_right = (self.top_right as f32 * scale).round() as i32;
-        self.bottom_right = (self.bottom_right as f32 * scale).round() as i32;
-        self.bottom_left = (self.bottom_left as f32 * scale).round() as i32;
-        self
+#[derive(Clone, Copy)]
+pub struct RoundedLine {
+    x: i32,
+    width: i32,
+    left_start: Shifted,
+    left_end: Shifted,
+    right_start: Shifted,
+    right_end: Shifted,
+}
+
+impl RoundedLine {
+    pub fn new(area: PhysicalRect, radii: Radii, line: i32) -> Option<Self> {
+        if area.width <= 0 || area.height <= 0 {
+            return None;
+        }
+        let top = line - area.y;
+        if top < 0 || top >= area.height {
+            return None;
+        }
+        let bottom = area.height - top - 1;
+        let (left_start, left_end) = if top < radii.top_left {
+            outer_edges(radii.top_left, top)
+        } else if bottom < radii.bottom_left {
+            outer_edges(radii.bottom_left, bottom)
+        } else {
+            (Shifted::ZERO, Shifted::ZERO)
+        };
+        let (right_start, right_end) = if top < radii.top_right {
+            outer_edges(radii.top_right, top)
+        } else if bottom < radii.bottom_right {
+            outer_edges(radii.bottom_right, bottom)
+        } else {
+            (Shifted::ZERO, Shifted::ZERO)
+        };
+        let width = Shifted::new(area.width);
+        Some(Self {
+            x: area.x,
+            width: area.width,
+            left_start,
+            left_end,
+            right_start: width.saturating_sub(right_end),
+            right_end: width.saturating_sub(right_start),
+        })
+    }
+
+    pub fn visible_start(self) -> i32 {
+        self.x.saturating_add(self.left_start.floor() as i32)
+    }
+
+    pub fn visible_end(self) -> i32 {
+        self.x
+            .saturating_add(self.right_end.ceil().min(self.width as u32) as i32)
+    }
+
+    pub fn full_start(self) -> i32 {
+        self.x.saturating_add(self.left_end.ceil() as i32)
+    }
+
+    pub fn full_end(self) -> i32 {
+        self.x
+            .saturating_add(self.right_start.floor().min(self.width as u32) as i32)
+    }
+
+    pub fn coverage(self, x: i32) -> u8 {
+        let x = x - self.x;
+        if x < 0 || x >= self.width {
+            return 0;
+        }
+        let shifted = Shifted::new(x);
+        let mut coverage = 255;
+        if shifted < self.left_end {
+            coverage = coverage.min(edge_coverage(self.left_start, self.left_end, x));
+        }
+        if shifted >= self.right_start {
+            coverage = coverage.min(255 - edge_coverage(self.right_start, self.right_end, x));
+        }
+        coverage as u8
     }
 }
 
@@ -55,41 +141,23 @@ pub fn draw_line<P: Pixel>(
     let border = Shifted::new(rounded.border_width);
     let anti_alias = |x1: Shifted, x2: Shifted, process_pixel: &mut dyn FnMut(usize, u32)| {
         for x in x1.floor()..x2.ceil() {
-            let coverage =
-                ((Shifted::ONE + Shifted::new(x as i32) - x1).0 << 8) / (Shifted::ONE + x2 - x1).0;
-            process_pixel(x as usize, coverage.min(255));
+            process_pixel(x as usize, edge_coverage(x1, x2, x as i32));
         }
     };
     let reverse = |x: Shifted| (Shifted::new(width as i32 + rounded.right_clip)).saturating_sub(x);
-    let calculate_edges = |radius: i32, y: i32| {
-        let radius = Shifted::new(radius);
-        let y = radius - Shifted::new(y);
-        let x2 = radius - (radius * radius).saturating_sub(y * y).sqrt();
-        let x1 = radius
-            - (radius * radius)
-                .saturating_sub((y - Shifted::ONE) * (y - Shifted::ONE))
-                .sqrt();
-        let inner_radius = radius.saturating_sub(border);
-        let x4 = radius - (inner_radius * inner_radius).saturating_sub(y * y).sqrt();
-        let x3 = radius
-            - (inner_radius * inner_radius)
-                .saturating_sub((y - Shifted::ONE) * (y - Shifted::ONE))
-                .sqrt();
-        (x1, x2, x3, x4)
-    };
 
     let (x1, x2, x3, x4) = if y1 < rounded.radii.top_left {
-        calculate_edges(rounded.radii.top_left, y)
+        calculate_edges(rounded.radii.top_left, y1, border)
     } else if y2 < rounded.radii.bottom_left {
-        calculate_edges(rounded.radii.bottom_left, y)
+        calculate_edges(rounded.radii.bottom_left, y2, border)
     } else {
         (Shifted::ZERO, Shifted::ZERO, border, border)
     };
     let (x5, x6, x7, x8) = if y1 < rounded.radii.top_right {
-        let x = calculate_edges(rounded.radii.top_right, y);
+        let x = calculate_edges(rounded.radii.top_right, y1, border);
         (x.3, x.2, x.1, x.0)
     } else if y2 < rounded.radii.bottom_right {
-        let x = calculate_edges(rounded.radii.bottom_right, y);
+        let x = calculate_edges(rounded.radii.bottom_right, y2, border);
         (x.3, x.2, x.1, x.0)
     } else {
         (border, border, Shifted::ZERO, Shifted::ZERO)
@@ -238,6 +306,37 @@ impl Shifted {
     fn sqrt(self) -> Self {
         Self(self.0.isqrt())
     }
+}
+
+fn calculate_edges(radius: i32, y: i32, border: Shifted) -> (Shifted, Shifted, Shifted, Shifted) {
+    let (x1, x2) = outer_edges(radius, y);
+    let radius = Shifted::new(radius);
+    let y = radius - Shifted::new(y);
+    let inner_radius = radius.saturating_sub(border);
+    let x4 = radius - (inner_radius * inner_radius).saturating_sub(y * y).sqrt();
+    let x3 = radius
+        - (inner_radius * inner_radius)
+            .saturating_sub((y - Shifted::ONE) * (y - Shifted::ONE))
+            .sqrt();
+    (x1, x2, x3, x4)
+}
+
+fn outer_edges(radius: i32, y: i32) -> (Shifted, Shifted) {
+    let radius = Shifted::new(radius);
+    let y = radius - Shifted::new(y);
+    let x2 = radius - (radius * radius).saturating_sub(y * y).sqrt();
+    let x1 = radius
+        - (radius * radius)
+            .saturating_sub((y - Shifted::ONE) * (y - Shifted::ONE))
+            .sqrt();
+    (x1, x2)
+}
+
+fn edge_coverage(start: Shifted, end: Shifted, x: i32) -> u32 {
+    if start == end {
+        return 255;
+    }
+    (((Shifted::ONE + Shifted::new(x) - start).0 << 8) / (Shifted::ONE + end - start).0).min(255)
 }
 
 fn interpolate(
