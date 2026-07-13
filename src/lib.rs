@@ -237,7 +237,7 @@ impl Ui {
         unsafe { self.shared.as_mut() }
     }
 
-    fn draw_clip(&self, area: LogicalRect) -> Option<PhysicalRect> {
+    fn draw_bounds(&self, area: LogicalRect) -> Option<PhysicalRect> {
         let area = area
             .to_physical(self.scale_factor)
             .intersection(self.clip)?;

@@ -137,8 +137,8 @@ impl<'a> Text<'a> {
             intrinsic_height: self.intrinsic_height,
         };
         ui.record_draw(request.area);
-        if let Some(clip) = ui.draw_clip(request.area) {
-            ui.platform().draw_text(&request, clip);
+        if let Some(bounds) = ui.draw_bounds(request.area) {
+            ui.platform().draw_text(&request, bounds);
         }
     }
 }
