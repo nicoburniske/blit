@@ -37,6 +37,15 @@ impl LogicalInsets {
 }
 
 impl LogicalRect {
+    pub fn centered(self, size: LogicalSize) -> Self {
+        Self {
+            x: self.x + (self.width - size.width) / 2.0,
+            y: self.y + (self.height - size.height) / 2.0,
+            width: size.width,
+            height: size.height,
+        }
+    }
+
     pub fn contains(self, x: f32, y: f32) -> bool {
         x >= self.x && y >= self.y && x < self.x + self.width && y < self.y + self.height
     }
