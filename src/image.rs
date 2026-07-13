@@ -98,8 +98,7 @@ impl ImageData {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ImageId(pub u64);
 
-// todo: rename this ImageHandle maybe
-pub struct ImageResource {
+pub struct ImageHandle {
     id: ImageId,
     size: PhysicalSize,
     data: NonNull<()>,
@@ -107,7 +106,7 @@ pub struct ImageResource {
     not_send_or_sync: PhantomData<Rc<()>>,
 }
 
-impl ImageResource {
+impl ImageHandle {
     pub fn empty() -> Self {
         Self {
             id: ImageId(0),
@@ -149,13 +148,13 @@ impl ImageResource {
     }
 }
 
-impl Default for ImageResource {
+impl Default for ImageHandle {
     fn default() -> Self {
         Self::empty()
     }
 }
 
-impl Drop for ImageResource {
+impl Drop for ImageHandle {
     fn drop(&mut self) {
         if let Some(drop_image) = self.drop_image {
             unsafe { drop_image(self.data, self.id) }

@@ -24,7 +24,7 @@ pub use animation::Easing;
 pub use color::Color;
 pub use component::SizedComponent;
 pub use dirty::DirtyRegions;
-pub use image::{ImageData, ImageFormat, ImageId, ImagePixels, ImageResource};
+pub use image::{ImageData, ImageFormat, ImageHandle, ImageId, ImagePixels};
 pub use input::Input;
 pub use interaction::{Interaction, Sense, WidgetId};
 pub use keyboard::{KeyboardKind, KeyboardRequest};
