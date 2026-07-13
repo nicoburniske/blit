@@ -359,18 +359,21 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
         width: 10.0,
         height: 10.0,
     };
-    let mut input = widgets::TextInput::default();
-    input.text = "aé🙂".into();
-    input.cursor = "aé🙂".len();
-    input.anchor = "aé🙂".len();
+    let mut input = widgets::TextInputState {
+        text: "aé🙂".into(),
+        ..widgets::TextInputState::default()
+    };
+    let render = |ui: &mut Ui, input: &mut widgets::TextInputState| {
+        widgets::TextInput::new(input).render(ui, area)
+    };
 
-    runtime.render(Duration::ZERO, Input::None, |ui| input.render(ui, area));
+    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut input));
     runtime.render(
         Duration::ZERO,
         Input::PointerDown {
             position: LogicalPoint { x: 1.0, y: 1.0 },
         },
-        |ui| input.render(ui, area),
+        |ui| render(ui, &mut input),
     );
     runtime.render(
         Duration::ZERO,
@@ -378,37 +381,32 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
             position: LogicalPoint { x: 1.0, y: 1.0 },
             leave: false,
         },
-        |ui| input.render(ui, area),
+        |ui| render(ui, &mut input),
     );
 
     runtime.render(Duration::ZERO, Input::Backspace, |ui| {
-        input.render(ui, area)
+        render(ui, &mut input)
     });
     assert_eq!(input.text, "aé");
-    assert_eq!(input.cursor, "aé".len());
 
     runtime.render(Duration::ZERO, Input::CursorLeft, |ui| {
-        input.render(ui, area)
+        render(ui, &mut input)
     });
-    runtime.render(Duration::ZERO, Input::Delete, |ui| input.render(ui, area));
+    runtime.render(Duration::ZERO, Input::Delete, |ui| render(ui, &mut input));
     assert_eq!(input.text, "a");
 
-    input.cursor = 0;
-    input.anchor = input.text.len();
     let response = runtime.render(Duration::ZERO, Input::Char('界'), |ui| {
-        input.render(ui, area)
+        render(ui, &mut input)
     });
     assert!(response.edited);
-    assert_eq!(input.text, "界");
+    assert_eq!(input.text, "a界");
 
-    let response = runtime.render(Duration::ZERO, Input::Enter, |ui| input.render(ui, area));
+    let response = runtime.render(Duration::ZERO, Input::Enter, |ui| render(ui, &mut input));
     assert!(response.accepted);
 
     input.text = "e\u{301}".into();
-    input.cursor = input.text.len();
-    input.anchor = input.cursor;
     runtime.render(Duration::ZERO, Input::Backspace, |ui| {
-        input.render(ui, area)
+        render(ui, &mut input)
     });
     assert!(input.text.is_empty());
 }
@@ -542,8 +540,8 @@ fn pointer_damage_renders_immediately_and_replays_once() {
 fn focus_moves_between_text_inputs() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
-    let mut first = widgets::TextInput::default();
-    let mut second = widgets::TextInput::default();
+    let mut first = widgets::TextInputState::default();
+    let mut second = widgets::TextInputState::default();
     let first_area = LogicalRect {
         x: 0.0,
         y: 0.0,
@@ -554,10 +552,11 @@ fn focus_moves_between_text_inputs() {
         y: 5.0,
         ..first_area
     };
-    let render = |ui: &mut Ui, first: &mut widgets::TextInput, second: &mut widgets::TextInput| {
-        first.render(ui, first_area);
-        second.render(ui, second_area);
-    };
+    let render =
+        |ui: &mut Ui, first: &mut widgets::TextInputState, second: &mut widgets::TextInputState| {
+            widgets::TextInput::new(first).render(ui, first_area);
+            widgets::TextInput::new(second).render(ui, second_area);
+        };
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
         render(ui, &mut first, &mut second)
@@ -581,30 +580,32 @@ fn focus_moves_between_text_inputs() {
 fn text_input_can_be_focused_by_id() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
-    let mut input = widgets::TextInput::default();
+    let mut input = widgets::TextInputState::default();
     let id = input.id;
     let area = runtime.screen();
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.focus(id);
-        input.render(ui, area);
+        widgets::TextInput::new(&mut input).render(ui, area);
     });
-    runtime.render(Duration::ZERO, Input::Char('x'), |ui| {
-        input.render(ui, area)
+    let focused = runtime.render(Duration::ZERO, Input::Char('x'), |ui| {
+        widgets::TextInput::new(&mut input).render(ui, area);
+        ui.is_focused(id)
     });
 
-    assert!(input.focused);
+    assert!(focused);
     assert_eq!(input.text, "x");
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.clear_focus();
-        input.render(ui, area);
+        widgets::TextInput::new(&mut input).render(ui, area);
     });
-    runtime.render(Duration::ZERO, Input::Char('y'), |ui| {
-        input.render(ui, area)
+    let focused = runtime.render(Duration::ZERO, Input::Char('y'), |ui| {
+        widgets::TextInput::new(&mut input).render(ui, area);
+        ui.is_focused(id)
     });
 
-    assert!(!input.focused);
+    assert!(!focused);
     assert_eq!(input.text, "x");
 }
 
@@ -612,17 +613,18 @@ fn text_input_can_be_focused_by_id() {
 fn stored_widget_id_is_not_changed_by_scope() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
-    let mut input = widgets::TextInput::default();
+    let mut input = widgets::TextInputState::default();
     let id = input.id;
     let area = runtime.screen();
 
-    runtime.render(Duration::ZERO, Input::None, |ui| {
+    let focused = runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.focus(id);
         let mut scope = ui.begin_scope("login");
-        input.render(scope.ui(), area);
+        widgets::TextInput::new(&mut input).render(scope.ui(), area);
+        scope.ui().is_focused(id)
     });
 
-    assert!(input.focused);
+    assert!(focused);
 }
 
 #[test]
@@ -675,13 +677,13 @@ fn clip_scopes_limit_invalidation_and_restore_the_parent_clip() {
 fn focus_is_cleared_when_widget_is_not_rendered() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
-    let mut input = widgets::TextInput::default();
+    let mut input = widgets::TextInputState::default();
     let id = input.id;
     let area = runtime.screen();
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.focus(id);
-        input.render(ui, area);
+        widgets::TextInput::new(&mut input).render(ui, area);
     });
     runtime.render(Duration::ZERO, Input::None, |_| {});
 

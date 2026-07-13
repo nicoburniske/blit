@@ -11,7 +11,7 @@ pub struct BorderRadius {
 crate::component! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Rectangle {
-        pub area: LogicalRect,
+        new(pub area: LogicalRect);
         pub background: Color,
         pub border_color: Color,
         pub border_width: f32,
@@ -22,13 +22,6 @@ crate::component! {
 }
 
 impl Rectangle {
-    pub fn new(area: LogicalRect) -> Self {
-        Self {
-            area,
-            ..Self::default()
-        }
-    }
-
     pub fn render(self, ui: &mut Ui) {
         if let Some(bounds) = ui.draw_bounds(self.area) {
             ui.platform().draw_rectangle(&self, bounds);

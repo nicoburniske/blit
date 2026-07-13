@@ -82,7 +82,7 @@ pub struct TextRequest<'a> {
 
 crate::component! {
     pub struct Text<'a> {
-        pub text: &'a str,
+        new(pub text: &'a str);
         pub color: Color = Color::BLACK,
         pub text_style: TextStyle,
         pub options: TextOptions,
@@ -94,13 +94,6 @@ crate::component! {
 }
 
 impl<'a> Text<'a> {
-    pub fn new(text: &'a str) -> Self {
-        Self {
-            text,
-            ..Self::default()
-        }
-    }
-
     pub fn wrap(mut self, wrap: TextWrap) -> Self {
         self.options.wrap = wrap;
         self
