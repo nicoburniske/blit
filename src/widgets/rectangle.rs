@@ -30,7 +30,6 @@ impl Rectangle {
     }
 
     pub fn render(self, ui: &mut Ui) {
-        ui.record_draw(self.area);
         if let Some(bounds) = ui.draw_bounds(self.area) {
             ui.platform().draw_rectangle(&self, bounds);
         }

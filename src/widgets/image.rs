@@ -137,7 +137,6 @@ impl<'a> Image<'a> {
             horizontal_tiling: self.horizontal_tiling,
             vertical_tiling: self.vertical_tiling,
         };
-        ui.record_draw(request.area);
         if let Some(bounds) = ui.draw_bounds(request.area) {
             ui.platform().draw_image(&request, bounds);
         }
