@@ -138,8 +138,8 @@ impl<'a> Image<'a> {
             vertical_tiling: self.vertical_tiling,
         };
         ui.record_draw(request.area);
-        if let Some(clip) = ui.draw_clip(request.area) {
-            ui.platform().draw_image(&request, clip);
+        if let Some(bounds) = ui.draw_bounds(request.area) {
+            ui.platform().draw_image(&request, bounds);
         }
     }
 }
