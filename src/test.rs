@@ -634,7 +634,6 @@ fn clip_scope_limits_invalidation_and_restores_the_parent_clip() {
     };
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        ui.invalidated = DirtyRegions::default();
         {
             let mut scope = ui.begin_clip(clip);
             scope.invalidate_all();
@@ -646,7 +645,7 @@ fn clip_scope_limits_invalidation_and_restores_the_parent_clip() {
             height: 2.0,
         });
         assert_eq!(
-            ui.invalidated.regions(),
+            ui.shared().pending.regions(),
             &[
                 clip.to_physical(1.0),
                 PhysicalRect {
