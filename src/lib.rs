@@ -215,32 +215,18 @@ impl Ui {
         self.shared_mut().pending.add(clip)
     }
 
-    fn record_draw(&mut self, area: LogicalRect) {
-        let Some(area) = area.to_physical(self.scale_factor).intersection(self.clip) else {
-            return;
-        };
+    /// records `area` as drawn and returns its clipped physical bounds when it
+    /// intersects this frame's damage
+    pub fn draw_bounds(&mut self, area: LogicalRect) -> Option<PhysicalRect> {
+        let area = area
+            .to_physical(self.scale_factor)
+            .intersection(self.clip)?;
         for capture in &mut self.animation_stack[..self.animation_depth] {
             capture.bounds = Some(capture.bounds.map_or(area, |bounds| bounds.union(area)));
             if capture.damage {
                 self.dirty.add(area);
             }
         }
-    }
-
-    fn shared(&self) -> &UiShared {
-        // only used in context of render
-        unsafe { self.shared.as_ref() }
-    }
-
-    fn shared_mut(&mut self) -> &mut UiShared {
-        // only used in context of render
-        unsafe { self.shared.as_mut() }
-    }
-
-    fn draw_bounds(&self, area: LogicalRect) -> Option<PhysicalRect> {
-        let area = area
-            .to_physical(self.scale_factor)
-            .intersection(self.clip)?;
         self.dirty
             .regions()
             .iter()
@@ -428,8 +414,20 @@ fn begin_timer(ui: &mut Ui, id: WidgetId, duration: Duration, interval: Option<D
 }
 
 //
-// runtime
+// internals
 //
+
+impl Ui {
+    fn shared(&self) -> &UiShared {
+        // only used in context of render
+        unsafe { self.shared.as_ref() }
+    }
+
+    fn shared_mut(&mut self) -> &mut UiShared {
+        // only used in context of render
+        unsafe { self.shared.as_mut() }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RepaintBuffer {

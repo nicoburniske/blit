@@ -136,7 +136,6 @@ impl<'a> Text<'a> {
             options: self.options,
             intrinsic_height: self.intrinsic_height,
         };
-        ui.record_draw(request.area);
         if let Some(bounds) = ui.draw_bounds(request.area) {
             ui.platform().draw_text(&request, bounds);
         }
