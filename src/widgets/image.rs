@@ -55,53 +55,24 @@ pub struct ImageRequest {
     pub vertical_tiling: ImageTiling,
 }
 
-pub struct Image<'a> {
-    pub resource: &'a ImageHandle,
-    pub area: LogicalRect,
-    pub fit: ImageFit,
-    pub sampling: ImageSampling,
-    pub opacity: f32,
-    pub colorize: Option<Color>,
-    pub nine_slice: Option<NineSlice>,
-    pub horizontal_tiling: ImageTiling,
-    pub vertical_tiling: ImageTiling,
+crate::component! {
+    pub struct Image<'a> {
+        new(pub resource: &'a ImageHandle);
+        pub area: LogicalRect,
+        pub fit: ImageFit,
+        pub sampling: ImageSampling,
+        pub opacity: f32 = 1.0,
+        #[skip]
+        pub colorize: Option<Color>,
+        #[skip]
+        pub nine_slice: Option<NineSlice>,
+        pub horizontal_tiling: ImageTiling,
+        pub vertical_tiling: ImageTiling,
+    }
+    features: []
 }
 
 impl<'a> Image<'a> {
-    pub fn new(resource: &'a ImageHandle) -> Self {
-        Self {
-            resource,
-            area: LogicalRect::default(),
-            fit: ImageFit::default(),
-            sampling: ImageSampling::default(),
-            opacity: 1.0,
-            colorize: None,
-            nine_slice: None,
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-        }
-    }
-
-    pub fn area(mut self, area: LogicalRect) -> Self {
-        self.area = area;
-        self
-    }
-
-    pub fn fit(mut self, fit: ImageFit) -> Self {
-        self.fit = fit;
-        self
-    }
-
-    pub fn sampling(mut self, sampling: ImageSampling) -> Self {
-        self.sampling = sampling;
-        self
-    }
-
-    pub fn opacity(mut self, opacity: f32) -> Self {
-        self.opacity = opacity;
-        self
-    }
-
     pub fn colorize(mut self, color: Color) -> Self {
         self.colorize = Some(color);
         self
@@ -109,16 +80,6 @@ impl<'a> Image<'a> {
 
     pub fn nine_slice(mut self, nine_slice: NineSlice) -> Self {
         self.nine_slice = Some(nine_slice);
-        self
-    }
-
-    pub fn horizontal_tiling(mut self, tiling: ImageTiling) -> Self {
-        self.horizontal_tiling = tiling;
-        self
-    }
-
-    pub fn vertical_tiling(mut self, tiling: ImageTiling) -> Self {
-        self.vertical_tiling = tiling;
         self
     }
 

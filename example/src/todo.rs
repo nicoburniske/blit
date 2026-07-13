@@ -2,7 +2,9 @@ use blit::{
     Constraint, Direction, HorizontalAlign, ImageData, ImageFormat, ImageHandle, ImagePixels,
     Layout, LogicalInsets, LogicalRect, Text, TextOptions, TextOverflow, Ui, VerticalAlign,
     WidgetId,
-    widgets::{BorderRadius, Button, Image, ImageFit, ImageSampling, Rectangle, TextInput},
+    widgets::{
+        BorderRadius, Button, Image, ImageFit, ImageSampling, Rectangle, TextInput, TextInputState,
+    },
 };
 
 struct Todo {
@@ -13,7 +15,7 @@ struct Todo {
 
 pub struct TodoApp {
     todos: Vec<Todo>,
-    input: TextInput,
+    input: TextInputState,
     logo: Option<ImageHandle>,
     logo_data: Option<ImageData>,
 }
@@ -83,7 +85,21 @@ impl TodoApp {
             .constraints([Constraint::Min(0.0), Constraint::Length(112.0)])
             .areas(controls);
 
-        self.input.render(ui, input);
+        TextInput::new(&mut self.input)
+            .background(colors::INPUT)
+            .focused_background(colors::INPUT_FOCUSED)
+            .border(1.0, colors::BORDER)
+            .focused_border_color(colors::BORDER_FOCUSED)
+            .uniform_radius(10.0)
+            .text_color(colors::TEXT)
+            .text_size(18.0)
+            .padding(LogicalInsets {
+                top: 13.0,
+                right: 14.0,
+                bottom: 11.0,
+                left: 14.0,
+            })
+            .render(ui, input);
         if Button::new("Add todo")
             .background(colors::PRIMARY)
             .clicked_background(colors::PRIMARY_ACTIVE)
@@ -229,20 +245,7 @@ impl Default for TodoApp {
                     done: false,
                 },
             ],
-            input: TextInput::default()
-                .background(colors::INPUT)
-                .focused_background(colors::INPUT_FOCUSED)
-                .border(1.0, colors::BORDER)
-                .focused_border_color(colors::BORDER_FOCUSED)
-                .uniform_radius(10.0)
-                .text_color(colors::TEXT)
-                .text_size(18.0)
-                .padding(LogicalInsets {
-                    top: 13.0,
-                    right: 14.0,
-                    bottom: 11.0,
-                    left: 14.0,
-                }),
+            input: TextInputState::default(),
             logo: None,
             logo_data: Some(ImageData::new(
                 ImagePixels::Owned(logo.into_boxed_slice()),

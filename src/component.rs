@@ -12,99 +12,144 @@ pub trait SizedComponent {
 macro_rules! component {
     (
         $(#[$attribute:meta])*
-        $visibility:vis struct $name:ident {
-            $(
-                $(#[$builder:ident])?
-                $field_visibility:vis $field:ident: $field_type:ty $(= $default:expr)?
-            ),* $(,)?
+        $visibility:vis struct $name:ident $(<$lifetime:lifetime>)? {
+            $($body:tt)*
         }
         features: [$($feature:ident),* $(,)?]
     ) => {
         $crate::component! {
-            @expand
-            [$(#[$attribute])*]
-            [$visibility]
-            [$name]
-            []
-            []
-            []
+            @parse
             {
-                $(
-                    $(#[$builder])?
-                    $field_visibility $field: $field_type $(= $default)?
-                ),*
+                [$(#[$attribute])*]
+                [$visibility]
+                [$name]
+                [$(<$lifetime>)?]
+                [$($feature),*]
             }
-            [$($feature),*]
+            {$($body)*}
         }
     };
 
     (
-        $(#[$attribute:meta])*
-        $visibility:vis struct $name:ident<$lifetime:lifetime> {
-            $(
-                $(#[$builder:ident])?
-                $field_visibility:vis $field:ident: $field_type:ty $(= $default:expr)?
-            ),* $(,)?
+        @parse
+        {$($component:tt)*}
+        {
+            new($($required_visibility:vis $required:ident: $required_type:ty),+ $(,)?);
+            $($fields:tt)*
         }
-        features: [$($feature:ident),* $(,)?]
     ) => {
         $crate::component! {
             @expand
-            [$(#[$attribute])*]
-            [$visibility]
-            [$name]
-            [<$lifetime>]
-            [<$lifetime>]
-            [<$lifetime>]
-            {
-                $(
-                    $(#[$builder])?
-                    $field_visibility $field: $field_type $(= $default)?
-                ),*
-            }
-            [$($feature),*]
+            [new]
+            {$($component)*}
+            {$($required_visibility $required: $required_type),+}
+            {$($fields)*}
+        }
+    };
+
+    (
+        @parse
+        {$($component:tt)*}
+        {$($fields:tt)*}
+    ) => {
+        $crate::component! {
+            @expand
+            [default]
+            {$($component)*}
+            {}
+            {$($fields)*}
         }
     };
 
     (
         @expand
-        [$($attribute:tt)*]
-        [$visibility:vis]
-        [$name:ident]
-        [$($struct_generics:tt)*]
-        [$($impl_generics:tt)*]
-        [$($type_generics:tt)*]
+        [$constructor:ident]
+        {
+            [$($attribute:tt)*]
+            [$visibility:vis]
+            [$name:ident]
+            [$($generics:tt)*]
+            [$($feature:ident),*]
+        }
+        {$($required_visibility:vis $required:ident: $required_type:ty),*}
         {
             $(
                 $(#[$builder:ident])?
                 $field_visibility:vis $field:ident: $field_type:ty $(= $default:expr)?
             ),* $(,)?
         }
-        [$($feature:ident),*]
     ) => {
         $($attribute)*
-        $visibility struct $name $($struct_generics)* {
+        $visibility struct $name $($generics)* {
+            $(
+                $required_visibility $required: $required_type,
+            )*
             $(
                 $field_visibility $field: $field_type,
             )*
         }
 
-        impl $($impl_generics)* Default for $name $($type_generics)* {
-            fn default() -> Self {
-                Self {
-                    $(
-                        $field: $crate::component!(@default [$($default)?] $field_type),
-                    )*
-                }
-            }
+        $crate::component! {
+            @constructor
+            [$constructor]
+            [$visibility]
+            [$name]
+            [$($generics)*]
+            {$($required: $required_type),*}
+            {$($field: $field_type $(= $default)?),*}
         }
 
-        impl $($impl_generics)* $name $($type_generics)* {
+        impl $($generics)* $name $($generics)* {
             $(
                 $crate::component!(@builder [$($builder)?] $field_visibility $field: $field_type);
             )*
             $(
                 $crate::component!(@feature $feature);
+            )*
+        }
+    };
+
+    (
+        @constructor
+        [new]
+        [$visibility:vis]
+        [$name:ident]
+        [$($generics:tt)*]
+        {$($required:ident: $required_type:ty),+}
+        {$($field:ident: $field_type:ty $(= $default:expr)?),*}
+    ) => {
+        impl $($generics)* $name $($generics)* {
+            $visibility fn new($($required: $required_type),+) -> Self {
+                $crate::component!(@init {$($required),+} {$($field: $field_type $(= $default)?),*})
+            }
+        }
+    };
+
+    (
+        @constructor
+        [default]
+        [$visibility:vis]
+        [$name:ident]
+        [$($generics:tt)*]
+        {}
+        {$($field:ident: $field_type:ty $(= $default:expr)?),*}
+    ) => {
+        impl $($generics)* Default for $name $($generics)* {
+            fn default() -> Self {
+                $crate::component!(@init {} {$($field: $field_type $(= $default)?),*})
+            }
+        }
+    };
+
+    (
+        @init
+        {$($required:ident),*}
+        {$($field:ident: $field_type:ty $(= $default:expr)?),*}
+    ) => {
+        Self {
+            $($required,)*
+            $(
+                $field: $crate::component!(@default [$($default)?] $field_type),
             )*
         }
     };

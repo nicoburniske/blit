@@ -4,7 +4,7 @@ use crate::{LogicalInsets, LogicalRect, Sense, SizedComponent, Ui, WidgetId};
 pub struct ScrollState {
     pub offset: f32,
     pub content_height: f32,
-    id: WidgetId,
+    pub id: WidgetId,
 }
 
 impl Default for ScrollState {

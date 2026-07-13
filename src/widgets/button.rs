@@ -6,7 +6,7 @@ use crate::{
 
 crate::component! {
     pub struct Button<'a> {
-        pub label: &'a str,
+        new(pub label: &'a str);
         #[skip]
         pub id: Option<WidgetId>,
         pub background: Color = Color::from_rgba8(45, 55, 70, 255),
@@ -31,13 +31,6 @@ pub struct Response {
 }
 
 impl<'a> Button<'a> {
-    pub fn new(label: &'a str) -> Self {
-        Self {
-            label,
-            ..Self::default()
-        }
-    }
-
     pub fn id(mut self, source: impl std::hash::Hash) -> Self {
         self.id = Some(WidgetId::new(source));
         self
