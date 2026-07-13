@@ -73,11 +73,10 @@ impl TodoApp {
             .render(&mut logo_clip);
         logo_clip.finish();
         Text::new("Blit Todos")
-            .in_area(title)
             .text_size(30.0)
             .color(colors::TEXT)
             .vertical_align(VerticalAlign::Center)
-            .render(ui);
+            .render(ui, title);
 
         let [input, add] = Layout::default()
             .spacing(12.0)
@@ -158,7 +157,6 @@ impl TodoApp {
             }
 
             Text::new(&todo.title)
-                .in_area(title)
                 .text_size(18.0)
                 .overflow(TextOverflow::Ellipsis)
                 .color(if todo.done {
@@ -167,7 +165,7 @@ impl TodoApp {
                     colors::TEXT
                 })
                 .vertical_align(VerticalAlign::Center)
-                .render(ui);
+                .render(ui, title);
 
             if Button::new("Remove")
                 .background(colors::DANGER)
