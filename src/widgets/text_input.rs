@@ -216,14 +216,13 @@ impl TextInput {
         }
 
         Text::new(self.display_text())
-            .in_area(inner)
             .offset_x(self.scroll_x)
             .color(self.text_color)
             .font(self.text_style.font)
             .text_size(self.text_style.size)
             .text_weight(self.text_style.weight)
             .options(request.options)
-            .render(ui);
+            .render(ui, inner);
 
         if self.focused {
             let cursor = ui

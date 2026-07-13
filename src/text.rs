@@ -83,10 +83,6 @@ pub struct TextRequest<'a> {
 crate::component! {
     pub struct Text<'a> {
         pub text: &'a str,
-        #[skip]
-        pub area: Option<LogicalRect>,
-        #[skip]
-        pub position: LogicalPoint,
         pub color: Color = Color::BLACK,
         pub text_style: TextStyle,
         pub options: TextOptions,
@@ -103,16 +99,6 @@ impl<'a> Text<'a> {
             text,
             ..Self::default()
         }
-    }
-    pub fn at(mut self, position: LogicalPoint) -> Self {
-        self.position = position;
-        self.area = None;
-        self
-    }
-
-    pub fn in_area(mut self, area: LogicalRect) -> Self {
-        self.area = Some(area);
-        self
     }
 
     pub fn wrap(mut self, wrap: TextWrap) -> Self {
@@ -140,28 +126,19 @@ impl<'a> Text<'a> {
         self
     }
 
-    pub fn render(self, ui: &mut Ui) {
-        let request = self.request(ui.screen);
-        ui.record_draw(request.area);
-        if let Some(clip) = ui.draw_clip(request.area) {
-            ui.platform().draw_text(&request, clip);
-        }
-    }
-
-    fn request(&self, screen: LogicalRect) -> TextRequest<'a> {
-        TextRequest {
+    pub fn render(self, ui: &mut Ui, area: LogicalRect) {
+        let request = TextRequest {
             text: self.text,
-            area: self.area.unwrap_or(LogicalRect {
-                x: self.position.x,
-                y: self.position.y,
-                width: (screen.x + screen.width - self.position.x).max(0.0),
-                height: (screen.y + screen.height - self.position.y).max(0.0),
-            }),
+            area,
             offset_x: self.offset_x,
             color: self.color,
             style: self.text_style,
             options: self.options,
             intrinsic_height: self.intrinsic_height,
+        };
+        ui.record_draw(request.area);
+        if let Some(clip) = ui.draw_clip(request.area) {
+            ui.platform().draw_text(&request, clip);
         }
     }
 }
@@ -196,9 +173,9 @@ impl SizedComponent for Text<'_> {
     }
 
     fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
-        let mut text = self.in_area(area);
+        let mut text = self;
         text.options.vertical_align = VerticalAlign::Top;
         text.intrinsic_height = true;
-        Text::render(text, ui)
+        Text::render(text, ui, area)
     }
 }

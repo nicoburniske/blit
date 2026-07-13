@@ -65,7 +65,6 @@ impl<'a> Button<'a> {
             .opacity(self.opacity)
             .render(ui);
         Text::new(self.label)
-            .in_area(area.inset(self.padding))
             .color(if active {
                 self.clicked_text_color
             } else {
@@ -75,7 +74,7 @@ impl<'a> Button<'a> {
             .text_size(self.text_style.size)
             .text_weight(self.text_style.weight)
             .options(self.text_options)
-            .render(ui);
+            .render(ui, area.inset(self.padding));
         Response {
             clicked: interaction.clicked,
         }
