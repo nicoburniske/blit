@@ -226,6 +226,11 @@ macro_rules! component {
     };
 
     (@feature text_style) => {
+        pub fn style(mut self, style: impl Into<$crate::TextStyle>) -> Self {
+            self.text_style = style.into();
+            self
+        }
+
         pub fn font(mut self, font: $crate::FontId) -> Self {
             self.text_style.font = font;
             self
