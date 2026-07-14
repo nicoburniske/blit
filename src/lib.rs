@@ -69,8 +69,12 @@ impl Ui {
 
     /// animates a value toward `target`, keyed by `id`
     ///
-    /// the first call snaps to `target`. later target changes animate from the
-    /// current value. render through the returned scope to track damage
+    /// the first call snaps to `target`. later changes animate from the current
+    /// value when `duration` is non-zero and snap when it is zero
+    ///
+    /// rendering through the returned scope tracks damage when the value changes
+    /// and while it is animating. adding or removing the content must be
+    /// invalidated by the caller
     pub fn animate(
         &mut self,
         id: WidgetId,
@@ -268,6 +272,7 @@ impl Ui {
 struct AnimationCapture {
     bounds: Option<PhysicalRect>,
     damage: bool,
+    changed: bool,
 }
 
 pub struct AnimationScope<'a, const N: usize = 1> {
@@ -275,7 +280,6 @@ pub struct AnimationScope<'a, const N: usize = 1> {
     ids: [WidgetId; N],
     values: [f32; N],
     active: [bool; N],
-    changed: [bool; N],
     depth: usize,
 }
 
@@ -323,26 +327,14 @@ impl<const N: usize> Drop for AnimationScope<'_, N> {
         self.ui.animation_depth = self.depth;
         let capture = self.ui.animation_stack[self.depth];
         let shared = self.ui.shared_mut();
-        let mut active = false;
-        let mut changed = false;
-        for (component, id) in self.ids.iter().enumerate() {
+        for id in &self.ids {
             let index = shared
                 .animations
                 .binary_search_by_key(id, |animation| animation.id)
                 .expect("animation state disappeared while its scope was active");
-            let animation = &mut shared.animations[index];
-            let previous_bounds = animation.previous_bounds;
-            animation.previous_bounds = capture.bounds;
-            if self.changed[component]
-                && !self.active[component]
-                && let Some(area) = previous_bounds
-            {
-                shared.pending.add(area);
-            }
-            active |= self.active[component];
-            changed |= self.changed[component];
+            shared.animations[index].previous_bounds = capture.bounds;
         }
-        if (capture.damage || active || changed)
+        if (capture.damage || capture.changed)
             && let Some(area) = capture.bounds
         {
             shared.pending.add(area);
@@ -410,7 +402,7 @@ fn begin_animations<const N: usize>(
     ui: &mut Ui,
     ids: [WidgetId; N],
     initial: [f32; N],
-    mut advance: impl FnMut(usize, &mut animation::AnimationState) -> (bool, bool),
+    mut advance: impl FnMut(usize, &mut animation::AnimationState),
 ) -> AnimationScope<'_, N> {
     assert!(N != 0, "animation groups must contain at least one value");
     assert!(
@@ -420,44 +412,49 @@ fn begin_animations<const N: usize>(
 
     let mut values = [0.0; N];
     let mut active = [false; N];
-    let mut changed = [false; N];
     let mut damage = false;
+    let mut changed = false;
     for component in 0..N {
         let id = ids[component];
-        let (value, component_active, component_damage, component_changed, previous_bounds) = {
+        let (value, component_active, component_damage, value_changed, previous_damage) = {
             let animations = &mut ui.shared_mut().animations;
-            let (index, created) =
-                match animations.binary_search_by_key(&id, |animation| animation.id) {
-                    Ok(index) => (index, false),
-                    Err(index) => {
-                        animations.insert(
-                            index,
-                            animation::AnimationState::new(id, initial[component]),
-                        );
-                        (index, true)
-                    }
-                };
+            let index = match animations.binary_search_by_key(&id, |animation| animation.id) {
+                Ok(index) => index,
+                Err(index) => {
+                    animations.insert(
+                        index,
+                        animation::AnimationState::new(id, initial[component]),
+                    );
+                    index
+                }
+            };
             assert!(
                 !animations[index].seen,
                 "duplicate animation WidgetId {id:?}"
             );
-            let (component_damage, component_changed) = advance(component, &mut animations[index]);
+            let was_active = animations[index].is_active();
+            let previous_value = animations[index].value;
+            advance(component, &mut animations[index]);
+            let component_active = animations[index].is_active();
+            let value_changed = animations[index].value != previous_value;
             (
                 animations[index].value,
-                animations[index].is_active(),
-                component_damage || created,
-                component_changed,
-                animations[index].previous_bounds,
+                component_active,
+                was_active || component_active,
+                value_changed,
+                if !was_active && value_changed {
+                    animations[index].previous_bounds
+                } else {
+                    None
+                },
             )
         };
         values[component] = value;
         active[component] = component_active;
-        changed[component] = component_changed;
         damage |= component_damage;
-        if component_damage
-            && let Some(area) = previous_bounds.and_then(|area| area.intersection(ui.clip))
-        {
-            ui.dirty.add(area);
+        changed |= value_changed;
+        if let Some(area) = previous_damage.and_then(|area| area.intersection(ui.clip)) {
+            ui.shared_mut().pending.add(area);
         }
     }
 
@@ -465,6 +462,7 @@ fn begin_animations<const N: usize>(
     ui.animation_stack[depth] = AnimationCapture {
         bounds: None,
         damage,
+        changed,
     };
     ui.animation_depth += 1;
     AnimationScope {
@@ -472,7 +470,6 @@ fn begin_animations<const N: usize>(
         ids,
         values,
         active,
-        changed,
         depth,
     }
 }
@@ -589,7 +586,9 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         }
         for animation in &mut self.shared.animations {
             animation.seen = false;
-            if let Some(area) = animation.previous_bounds {
+            if animation.is_active()
+                && let Some(area) = animation.previous_bounds
+            {
                 dirty.add(area);
             }
         }
@@ -632,10 +631,11 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         }
         let pending = &mut shared.pending;
         shared.animations.retain(|animation| {
-            if !animation.seen {
-                if let Some(area) = animation.previous_bounds {
-                    pending.add(area);
-                }
+            if !animation.seen
+                && animation.is_active()
+                && let Some(area) = animation.previous_bounds
+            {
+                pending.add(area);
             }
             animation.seen
         });

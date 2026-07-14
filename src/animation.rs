@@ -73,14 +73,7 @@ impl AnimationState {
         self.started_at.is_some()
     }
 
-    pub fn advance(
-        &mut self,
-        target: f32,
-        duration: Duration,
-        easing: Easing,
-        now: Duration,
-    ) -> (bool, bool) {
-        let was_active = self.is_active();
+    pub fn advance(&mut self, target: f32, duration: Duration, easing: Easing, now: Duration) {
         if self.looping {
             self.start = self.value;
             self.target = self.value;
@@ -113,20 +106,12 @@ impl AnimationState {
         }
 
         self.seen = true;
-        (
-            was_active || self.is_active() || target_changed,
-            target_changed,
-        )
     }
 
-    pub fn advance_loop(
-        &mut self,
-        duration: Duration,
-        easing: Easing,
-        now: Duration,
-    ) -> (bool, bool) {
+    pub fn advance_loop(&mut self, duration: Duration, easing: Easing, now: Duration) {
         if duration.is_zero() {
-            return self.advance(0.0, duration, easing, now);
+            self.advance(0.0, duration, easing, now);
+            return;
         }
         let changed = !self.looping || self.duration != duration || self.easing != easing;
         if changed {
@@ -139,6 +124,5 @@ impl AnimationState {
         let progress = now.saturating_sub(started_at).as_secs_f32() / duration.as_secs_f32();
         self.value = easing.apply(progress % 1.0);
         self.seen = true;
-        (true, changed)
     }
 }

@@ -291,6 +291,7 @@ fn immediate_animation_damage_repaints_earlier_content() {
     runtime.render(Duration::from_millis(1), Input::None, |ui| render(ui, 0.0));
     runtime.render(Duration::from_millis(2), Input::None, |ui| render(ui, 0.0));
     runtime.render(Duration::from_millis(3), Input::None, |ui| render(ui, 1.0));
+    runtime.render(Duration::from_millis(4), Input::None, |ui| render(ui, 1.0));
 
     assert_eq!(
         runtime.platform().renderer.buffer().pixels(),
