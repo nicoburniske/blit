@@ -19,6 +19,7 @@ const TEXT: u8 = 3;
 pub struct CommandList {
     words: Vec<Word>,
     opaque: Vec<usize>,
+    expensive: Vec<usize>,
     pub has_clips: bool,
 }
 
@@ -64,7 +65,8 @@ impl CommandList {
         let Ok(stops_len) = stops.len().try_into() else {
             return false;
         };
-        self.push_record(
+        let offset = self.words.len();
+        let pushed = self.push_record(
             GRADIENT_RECTANGLE,
             PreparedGradientRectangle {
                 rectangle,
@@ -73,7 +75,11 @@ impl CommandList {
             stops,
             bounds,
             clip,
-        )
+        );
+        if pushed {
+            self.expensive.push(offset);
+        }
+        pushed
     }
 
     pub fn push_image(
@@ -83,6 +89,7 @@ impl CommandList {
         clip: ClipId,
         texture_opaque: bool,
     ) {
+        self.expensive.push(self.words.len());
         if clip == 0 && image.is_opaque(texture_opaque) {
             self.opaque.push(self.words.len());
         }
@@ -90,6 +97,7 @@ impl CommandList {
     }
 
     pub fn push_text(&mut self, text: PreparedText, bounds: PhysicalRect, clip: ClipId) {
+        self.expensive.push(self.words.len());
         self.push(TEXT, text, bounds, clip)
     }
 
@@ -151,6 +159,10 @@ impl CommandList {
         &self.opaque
     }
 
+    pub fn expensive_offsets(&self) -> &[usize] {
+        &self.expensive
+    }
+
     pub fn opaque_span(&self, offset: usize, line: i32) -> Option<std::ops::Range<i32>> {
         let bounds = self.horizontal_bounds(offset);
         let span = match self.get(offset) {
@@ -173,6 +185,7 @@ impl CommandList {
     pub fn clear(&mut self) {
         self.words.clear();
         self.opaque.clear();
+        self.expensive.clear();
         self.has_clips = false;
     }
 
