@@ -1,13 +1,13 @@
 use blit::{
     DirtyRegions, LogicalRect, PhysicalRect, TextRequest,
-    widgets::{BorderRadius, ImageRequest, Rectangle},
+    widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 use slotmap::{KeyData, SlotMap};
 use std::ops::Range;
 
 use crate::{
     Pixel, PixelBuffer, PixelSpan, RenderContext, RendererImageId, StoredImage, TextRenderer,
-    image, rectangle,
+    image, rectangle, shadow,
 };
 
 use super::{
@@ -252,6 +252,35 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         .push_image(image, bounds, self.clips.current())
                 },
             );
+        }
+    }
+
+    fn draw_box_shadow(
+        &mut self,
+        context: &mut RenderContext<B>,
+        request: &BoxShadowRequest,
+        clip: PhysicalRect,
+    ) {
+        let Some(request) =
+            context
+                .shadows
+                .prepare(&mut context.images, request, context.scale_factor)
+        else {
+            return;
+        };
+        match request {
+            shadow::Prepared::Rectangle(rectangle) => {
+                self.draw_rectangle(context, &rectangle, clip)
+            }
+            shadow::Prepared::Image(request) => {
+                let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
+                if let Some(texture) = context.images.get(image) {
+                    image::prepare(&request, &texture.data, clip, 1.0, |image, bounds| {
+                        self.commands
+                            .push_image(image, bounds, self.clips.current())
+                    });
+                }
+            }
         }
     }
 

@@ -3,7 +3,8 @@ use blit::{
     Layout, LogicalInsets, LogicalRect, Text, TextOptions, TextOverflow, Ui, VerticalAlign,
     WidgetId,
     widgets::{
-        BorderRadius, Button, Image, ImageFit, ImageSampling, Rectangle, TextInput, TextInputState,
+        BorderRadius, BoxShadow, Button, Image, ImageFit, ImageSampling, Rectangle, TextInput,
+        TextInputState,
     },
 };
 
@@ -124,6 +125,7 @@ impl TodoApp {
         Rectangle::new(list)
             .background(colors::PANEL)
             .uniform_radius(12.0)
+            .shadow(BoxShadow::new(colors::SHADOW).offset(0.0, 6.0).blur(16.0))
             .render(ui);
 
         let rows = Layout::default()
@@ -270,6 +272,7 @@ mod colors {
 
     pub const BACKGROUND: Color = Color::from_rgba8(18, 22, 31, 255);
     pub const PANEL: Color = Color::from_rgba8(23, 28, 39, 255);
+    pub const SHADOW: Color = Color::from_rgba8(0, 0, 0, 110);
     pub const SURFACE: Color = Color::from_rgba8(35, 41, 55, 255);
     pub const SURFACE_DONE: Color = Color::from_rgba8(31, 46, 43, 255);
     pub const INPUT: Color = Color::from_rgba8(31, 37, 50, 255);

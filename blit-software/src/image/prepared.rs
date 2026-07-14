@@ -127,13 +127,29 @@ impl Prepared {
         }
         let source_row = (source_y - texture_y) * self.stride_bytes;
         let texture_right = texture_x + self.texture_rect.width as usize;
-        if self.colorize.is_some() {
+        if self.colorize.is_some() && !matches!(self.format, ImageFormat::Alpha8(_)) {
             self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
                 blend(
                     &mut row[destination],
                     self.source_pixel(pixels, source_x, source_y),
                 );
             });
+            return;
+        }
+        if let ImageFormat::Alpha8(color) = self.format
+            && self.source.width == 1
+        {
+            let source_x = self.source.x as usize;
+            if source_x < texture_x || source_x >= texture_right {
+                return;
+            }
+            let source = source_row + source_x - texture_x;
+            let alpha = (pixels[source] as u16 * self.opacity as u16 / 255) as u8;
+            let start = (clipped.x - screen_x) as usize;
+            P::blend_slice(
+                &mut row[start..start + clipped.width as usize],
+                PremultipliedRgbaColor::new(self.colorize.unwrap_or(color), alpha),
+            );
             return;
         }
         if self.step_x == FIXED_ONE && self.draw_spans(row, pixels, clipped, screen_x, source_y) {
@@ -220,6 +236,7 @@ impl Prepared {
                 });
             }
             ImageFormat::Alpha8(color) => {
+                let color = self.colorize.unwrap_or(color);
                 self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + source_x - texture_x;
@@ -285,6 +302,7 @@ impl Prepared {
                 }
                 ImageFormat::Alpha8(color) => {
                     let alpha = &pixels[source_offset..source_offset + len];
+                    let color = self.colorize.unwrap_or(color);
                     let color = Color::from_rgba8(
                         color.red,
                         color.green,

@@ -2,7 +2,10 @@ use std::hint::black_box;
 
 use blit::{
     Color, DirtyRegions, FontId, ImageData, ImageFormat, ImagePixels, LogicalRect, PhysicalRect,
-    widgets::{BorderRadius, ImageFit, ImageRequest, ImageSampling, ImageTiling, Rectangle},
+    widgets::{
+        BorderRadius, BoxShadow, BoxShadowRequest, ImageFit, ImageRequest, ImageSampling,
+        ImageTiling, Rectangle,
+    },
 };
 use blit_software::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -143,6 +146,37 @@ fn scanline(criterion: &mut Criterion) {
             renderer.draw_rectangle(black_box(&screen), black_box(clip));
             renderer.end_frame();
             black_box(renderer.buffer().pixels()[8 * 1024 + 480]);
+        });
+    });
+
+    let shadow = BoxShadowRequest {
+        area: LogicalRect {
+            x: 256.0,
+            y: 192.0,
+            width: 512.0,
+            height: 384.0,
+        },
+        radius: BorderRadius {
+            top_left: 24.0,
+            top_right: 24.0,
+            bottom_right: 24.0,
+            bottom_left: 24.0,
+        },
+        shadow: BoxShadow::new(Color::from_rgba8(0, 0, 0, 128))
+            .offset(0.0, 8.0)
+            .blur(16.0),
+    };
+    let shadow_clip = [shadow.bounds().to_physical(1.0)];
+    renderer.begin_frame(&shadow_clip);
+    renderer.draw_box_shadow(&shadow, shadow_clip[0]);
+    renderer.end_frame();
+
+    criterion.bench_function("shadow/cached_512x384_blur_16", |bencher| {
+        bencher.iter(|| {
+            renderer.begin_frame(&shadow_clip);
+            renderer.draw_box_shadow(black_box(&shadow), black_box(shadow_clip[0]));
+            renderer.end_frame();
+            black_box(renderer.buffer().pixels()[192 * 1024 + 512]);
         });
     });
 
