@@ -7,12 +7,11 @@ use std::time::Instant;
 use todo::TodoApp;
 
 fn main() {
-    let mut platform = TestPlatform::new(760, 560);
-    let mut runtime = Runtime::new(platform.handle());
+    let mut runtime = Runtime::new(TestPlatform::new(760, 560));
     let mut app = TodoApp::default();
     let started_at = Instant::now();
-    while platform.is_open() {
-        let input = platform.input();
+    while runtime.platform().is_open() {
+        let input = runtime.platform().input();
         let time = started_at.elapsed();
         let timer_due = runtime
             .next_timer_deadline()
@@ -21,6 +20,6 @@ fn main() {
             let screen = runtime.screen();
             runtime.render(time, input, |ui| app.render(ui, screen));
         }
-        platform.present();
+        runtime.platform().present();
     }
 }

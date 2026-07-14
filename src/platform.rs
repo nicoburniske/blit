@@ -110,7 +110,7 @@ impl Platform {
 }
 
 impl Platform {
-    pub unsafe fn new<T: PlatformImpl + 'static>(implementation: &mut T) -> Self {
+    pub(crate) fn new<T: PlatformImpl + 'static>(implementation: &mut T) -> Self {
         Self {
             inner: NonNull::from(implementation as &mut dyn PlatformImpl),
             not_send_or_sync: PhantomData,
@@ -131,8 +131,7 @@ impl Platform {
 
     #[inline]
     fn inner(&mut self) -> &mut dyn PlatformImpl {
-        // safety: platform is strictly single threaded
-        // and never returns borrowed data from implementation
+        // safety: Runtime keeps the boxed implementation alive and stable
         unsafe { self.inner.as_mut() }
     }
 }

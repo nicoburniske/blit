@@ -75,9 +75,7 @@ fn invalidation_is_rendered_next_frame() {
         width: 4.0,
         height: 5.0,
     };
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) })
-        .with_repaint_buffer(RepaintBuffer::Swapped);
+    let mut runtime = Runtime::new(TestPlatform).with_repaint_buffer(RepaintBuffer::Swapped);
 
     let damage = runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.invalidate(changed);
@@ -103,9 +101,7 @@ fn reused_buffer_does_not_replay_damage() {
         width: 4.0,
         height: 5.0,
     };
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) })
-        .with_repaint_buffer(RepaintBuffer::Reused);
+    let mut runtime = Runtime::new(TestPlatform).with_repaint_buffer(RepaintBuffer::Reused);
 
     runtime.render(Duration::ZERO, Input::None, |_| {});
     assert!(!runtime.has_pending_redraw());
@@ -133,9 +129,7 @@ fn batched_invalidations_are_replayed_on_the_next_buffer() {
         width: 2.0,
         height: 2.0,
     };
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) })
-        .with_repaint_buffer(RepaintBuffer::Swapped);
+    let mut runtime = Runtime::new(TestPlatform).with_repaint_buffer(RepaintBuffer::Swapped);
     runtime.render(Duration::ZERO, Input::None, |_| {});
     runtime.render(Duration::ZERO, Input::None, |_| {});
 
@@ -161,8 +155,7 @@ fn batched_invalidations_are_replayed_on_the_next_buffer() {
 
 #[test]
 fn render_batch_processes_each_input() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let area = runtime.screen();
     runtime.render(Duration::ZERO, Input::None, |ui| {
         widgets::Button::new("button").render(ui, area)
@@ -188,8 +181,7 @@ fn render_batch_processes_each_input() {
 
 #[test]
 fn scroll_area_advances_by_component_height() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let mut state = widgets::ScrollState::default();
     let viewport = runtime.screen();
 
@@ -355,8 +347,7 @@ fn logical_rect_can_be_inset_by_axis() {
 
 #[test]
 fn text_input_edits_at_utf8_cursor_boundaries() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let area = LogicalRect {
         x: 0.0,
         y: 0.0,
@@ -417,8 +408,7 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
 
 #[test]
 fn scroll_drag_cancels_button_click() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let mut state = widgets::ScrollState::default();
     let viewport = runtime.screen();
 
@@ -458,8 +448,7 @@ fn scroll_drag_cancels_button_click() {
 
 #[test]
 fn scroll_area_measures_but_does_not_render_offscreen_components() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let mut state = widgets::ScrollState::default();
     let viewport = runtime.screen();
 
@@ -480,8 +469,7 @@ fn scroll_area_measures_but_does_not_render_offscreen_components() {
 
 #[test]
 fn button_click_requires_matching_press_and_release() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let area = runtime.screen();
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
@@ -508,9 +496,7 @@ fn button_click_requires_matching_press_and_release() {
 
 #[test]
 fn pointer_damage_renders_immediately_and_replays_once() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) })
-        .with_repaint_buffer(RepaintBuffer::Swapped);
+    let mut runtime = Runtime::new(TestPlatform).with_repaint_buffer(RepaintBuffer::Swapped);
     let area = runtime.screen();
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
@@ -542,8 +528,7 @@ fn pointer_damage_renders_immediately_and_replays_once() {
 
 #[test]
 fn focus_moves_between_text_inputs() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let mut first = widgets::TextInputState::default();
     let mut second = widgets::TextInputState::default();
     let first_area = LogicalRect {
@@ -582,8 +567,7 @@ fn focus_moves_between_text_inputs() {
 
 #[test]
 fn text_input_can_be_focused_by_id() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let mut input = widgets::TextInputState::default();
     let id = input.id;
     let area = runtime.screen();
@@ -615,8 +599,7 @@ fn text_input_can_be_focused_by_id() {
 
 #[test]
 fn stored_widget_id_is_not_changed_by_scope() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let mut input = widgets::TextInputState::default();
     let id = input.id;
     let area = runtime.screen();
@@ -634,8 +617,7 @@ fn stored_widget_id_is_not_changed_by_scope() {
 #[test]
 fn clip_scopes_limit_invalidation_and_restore_the_parent_clip() {
     for rounded in [false, true] {
-        let mut platform = TestPlatform;
-        let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+        let mut runtime = Runtime::new(TestPlatform);
         let screen = runtime.screen();
         let clip = LogicalRect {
             x: 2.0,
@@ -679,8 +661,7 @@ fn clip_scopes_limit_invalidation_and_restore_the_parent_clip() {
 
 #[test]
 fn focus_is_cleared_when_widget_is_not_rendered() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let mut input = widgets::TextInputState::default();
     let id = input.id;
     let area = runtime.screen();
@@ -696,8 +677,7 @@ fn focus_is_cleared_when_widget_is_not_rendered() {
 
 #[test]
 fn animation_is_keyed_and_target_driven() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let id = WidgetId::new("offset");
     let duration = Duration::from_millis(100);
 
@@ -724,8 +704,7 @@ fn animation_is_keyed_and_target_driven() {
 
 #[test]
 fn grouped_animations_advance_independently() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let id = WidgetId::new("position");
     let transitions = |x, y| {
         [
@@ -762,8 +741,7 @@ fn grouped_animations_advance_independently() {
 
 #[test]
 fn grouped_animation_queues_shared_old_and_new_bounds() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let id = WidgetId::new("moving point");
     let render = |ui: &mut Ui, position: [f32; 2]| {
         let [x, y] = position;
@@ -801,8 +779,7 @@ fn grouped_animation_queues_shared_old_and_new_bounds() {
 
 #[test]
 fn animation_tracks_previous_and_current_draw_bounds() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let id = WidgetId::new("moving rectangle");
     let duration = Duration::from_millis(100);
     let render = |ui: &mut Ui, target| {
@@ -860,8 +837,7 @@ fn animation_tracks_previous_and_current_draw_bounds() {
 
 #[test]
 fn unused_animation_is_removed_and_invalidated() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let id = WidgetId::new("removed animation");
     let area = LogicalRect {
         x: 4.0,
@@ -897,8 +873,7 @@ fn unused_animation_is_removed_and_invalidated() {
 
 #[test]
 fn immediate_target_change_queues_old_and_new_bounds() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let id = WidgetId::new("immediate animation");
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
@@ -944,8 +919,7 @@ fn immediate_target_change_queues_old_and_new_bounds() {
 
 #[test]
 fn nested_animations_capture_the_same_draw_bounds() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let outer_id = WidgetId::new("outer animation");
     let inner_id = WidgetId::new("inner animation");
     let area = LogicalRect {
@@ -975,8 +949,7 @@ fn nested_animations_capture_the_same_draw_bounds() {
 
 #[test]
 fn looping_animation_repeats() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let id = WidgetId::new("looping animation");
 
     let value = runtime.render(Duration::from_millis(100), Input::None, |ui| {
@@ -1008,8 +981,7 @@ fn looping_animation_repeats() {
 
 #[test]
 fn timers_fire_and_report_the_next_deadline() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let once = WidgetId::new("one shot timer");
     let repeating = WidgetId::new("looping timer");
 
@@ -1049,8 +1021,7 @@ fn timers_fire_and_report_the_next_deadline() {
 
 #[test]
 fn id_scopes_create_distinct_widget_ids() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
 
     let (root, nested) = runtime.render(Duration::ZERO, Input::None, |ui| {
         let root = ui.id("button");
@@ -1065,8 +1036,7 @@ fn id_scopes_create_distinct_widget_ids() {
 
 #[test]
 fn only_topmost_widget_is_hovered() {
-    let mut platform = TestPlatform;
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let mut runtime = Runtime::new(TestPlatform);
     let area = runtime.screen();
     let render = |ui: &mut Ui| {
         let back = ui.interact(ui.id("back"), area, Sense::CLICK);

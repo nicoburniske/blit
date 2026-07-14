@@ -1,6 +1,6 @@
 use blit::{
     FontId, ImageData, ImageId, Input, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect,
-    Platform, PlatformImpl, TextRequest,
+    PlatformImpl, TextRequest,
     widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 use blit_software::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
@@ -54,10 +54,6 @@ impl TestPlatform {
             mouse_position: None,
             characters,
         }
-    }
-
-    pub fn handle(&mut self) -> Platform {
-        unsafe { Platform::new(self) }
     }
 
     pub fn is_open(&self) -> bool {

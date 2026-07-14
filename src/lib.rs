@@ -513,7 +513,8 @@ pub enum RepaintBuffer {
     Swapped,
 }
 
-pub struct Runtime {
+pub struct Runtime<P: PlatformImpl> {
+    platform: Box<P>,
     shared: UiShared,
     repaint_buffer: RepaintBuffer,
     screen: LogicalRect,
@@ -530,17 +531,20 @@ struct UiShared {
     pending: DirtyRegions,
 }
 
-impl Runtime {
-    pub fn new(mut platform: Platform) -> Self {
+impl<P: PlatformImpl + 'static> Runtime<P> {
+    pub fn new(platform: P) -> Self {
+        let mut platform = Box::new(platform);
         let physical_screen = platform.screen();
         let scale_factor = platform.scale_factor();
         assert!(scale_factor.is_finite() && scale_factor > 0.0);
         let screen = physical_screen.to_logical(scale_factor);
         let mut pending = DirtyRegions::default();
         pending.add(physical_screen);
+        let erased_platform = Platform::new(platform.as_mut());
         Self {
+            platform,
             shared: UiShared {
-                platform,
+                platform: erased_platform,
                 interaction: interaction::InteractionState::default(),
                 animations: Vec::new(),
                 timers: Vec::new(),
@@ -559,7 +563,11 @@ impl Runtime {
         self
     }
 
-    pub fn platform(&mut self) -> &mut Platform {
+    pub fn platform(&mut self) -> &mut P {
+        self.platform.as_mut()
+    }
+
+    pub fn erased_platform(&mut self) -> &mut Platform {
         &mut self.shared.platform
     }
 
