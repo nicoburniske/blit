@@ -16,8 +16,6 @@ use super::{
     command::{CommandList, Payload, PreparedText},
 };
 
-const MAX_SEGMENTS: usize = 32;
-
 #[derive(Default)]
 pub struct Scanline {
     commands: CommandList,
@@ -25,16 +23,8 @@ pub struct Scanline {
     starts: Vec<usize>,
     active: Vec<usize>,
     ranges: Vec<Range<usize>>,
-    segments: Vec<Segment>,
     clips: ClipStack,
     clip_ranges: Vec<Option<ClipLine>>,
-}
-
-#[derive(Clone, Copy)]
-struct Segment {
-    start: usize,
-    end: usize,
-    first: Option<usize>,
 }
 
 struct LineBuffer<'a, P> {
@@ -468,183 +458,32 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     })
                     .map(|command| self.active.binary_search(command).unwrap())
                     .unwrap_or(0);
-                let hides_expensive = |command: usize, start: i32, end: i32| {
-                    commands
-                        .expensive_offsets()
-                        .iter()
-                        .take_while(|expensive| **expensive < command)
-                        .any(|expensive| {
-                            let vertical = commands.vertical_bounds(*expensive);
-                            let bounds = commands.horizontal_bounds(*expensive);
-                            vertical.start <= line
-                                && vertical.end > line
-                                && bounds.start < end
-                                && bounds.end > start
-                        })
-                };
-                let partial = first == 0
-                    && !commands.expensive_offsets().is_empty()
-                    && commands.opaque_offsets().iter().rev().any(|command| {
-                        let vertical = commands.vertical_bounds(*command);
-                        if vertical.start > line || vertical.end <= line {
-                            return false;
-                        }
-                        let Some(span) = commands.opaque_span(*command, line) else {
-                            return false;
-                        };
-                        let start = span.start.max(range.start as i32);
-                        let end = span.end.min(range.end as i32);
-                        start < end
-                            && (end - start) * 2 >= range.len() as i32
-                            && hides_expensive(*command, start, end)
-                    });
-
-                let split = first == 0 && partial;
-                if split {
-                    self.segments.clear();
-                    self.segments.push(Segment {
-                        start: range.start,
-                        end: range.end,
-                        first: None,
-                    });
-                    for command in commands.opaque_offsets().iter().rev() {
-                        let vertical = commands.vertical_bounds(*command);
-                        if vertical.start > line || vertical.end <= line {
-                            continue;
-                        }
-                        let Some(span) = commands.opaque_span(*command, line) else {
-                            continue;
-                        };
-                        let start = span.start.max(range.start as i32) as usize;
-                        let end = span.end.min(range.end as i32) as usize;
-                        if start >= end {
-                            continue;
-                        }
-                        if !hides_expensive(*command, start as i32, end as i32) {
-                            continue;
-                        }
-                        let first = self.active.binary_search(command).unwrap();
-                        if first == 0 {
-                            continue;
-                        }
-                        let mut index = 0;
-                        while index < self.segments.len() {
-                            let segment = self.segments[index];
-                            if segment.first.is_some() {
-                                index += 1;
-                                continue;
-                            }
-                            let start = start.max(segment.start);
-                            let end = end.min(segment.end);
-                            if start >= end {
-                                index += 1;
-                                continue;
-                            }
-                            let split_left = start > segment.start;
-                            let split_right = end < segment.end;
-                            if self.segments.len()
-                                + usize::from(split_left)
-                                + usize::from(split_right)
-                                > MAX_SEGMENTS
-                            {
-                                index += 1;
-                                continue;
-                            }
-                            match (split_left, split_right) {
-                                (false, false) => {
-                                    self.segments[index].first = Some(first);
-                                    index += 1;
-                                }
-                                (false, true) => {
-                                    self.segments[index] = Segment {
-                                        start: segment.start,
-                                        end,
-                                        first: Some(first),
-                                    };
-                                    self.segments.insert(
-                                        index + 1,
-                                        Segment {
-                                            start: end,
-                                            end: segment.end,
-                                            first: None,
-                                        },
-                                    );
-                                    index += 2;
-                                }
-                                (true, false) => {
-                                    self.segments[index].end = start;
-                                    self.segments.insert(
-                                        index + 1,
-                                        Segment {
-                                            start,
-                                            end: segment.end,
-                                            first: Some(first),
-                                        },
-                                    );
-                                    index += 2;
-                                }
-                                (true, true) => {
-                                    self.segments[index].end = start;
-                                    self.segments.insert(
-                                        index + 1,
-                                        Segment {
-                                            start,
-                                            end,
-                                            first: Some(first),
-                                        },
-                                    );
-                                    self.segments.insert(
-                                        index + 2,
-                                        Segment {
-                                            start: end,
-                                            end: segment.end,
-                                            first: None,
-                                        },
-                                    );
-                                    index += 3;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let active = &self.active;
-                let segments = &self.segments;
+                let active = &self.active[first..];
                 buffer.process_line(line as usize, range.clone(), |pixels| {
-                    let mut draw = |first, start, end| {
-                        let offset = start - range.start;
-                        let mut buffer = LineBuffer {
-                            pixels: &mut pixels[offset..offset + end - start],
-                            x: start,
-                            height,
-                            line: line as usize,
-                        };
-                        if clipped {
-                            draw_commands::<true, _>(
-                                commands,
-                                &active[first..],
-                                &self.clip_ranges,
-                                images,
-                                text,
-                                &mut buffer,
-                            );
-                        } else {
-                            draw_commands::<false, _>(
-                                commands,
-                                &active[first..],
-                                &self.clip_ranges,
-                                images,
-                                text,
-                                &mut buffer,
-                            );
-                        }
+                    let mut buffer = LineBuffer {
+                        pixels,
+                        x: range.start,
+                        height,
+                        line: line as usize,
                     };
-                    if split {
-                        for segment in segments {
-                            draw(segment.first.unwrap_or(0), segment.start, segment.end);
-                        }
+                    if clipped {
+                        draw_commands::<true, _>(
+                            commands,
+                            active,
+                            &self.clip_ranges,
+                            images,
+                            text,
+                            &mut buffer,
+                        );
                     } else {
-                        draw(first, range.start, range.end);
+                        draw_commands::<false, _>(
+                            commands,
+                            active,
+                            &self.clip_ranges,
+                            images,
+                            text,
+                            &mut buffer,
+                        );
                     }
                 });
             }
@@ -655,7 +494,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         self.starts.clear();
         self.active.clear();
         self.ranges.clear();
-        self.segments.clear();
         self.clips.clear();
         self.clip_ranges.clear();
     }
