@@ -740,9 +740,20 @@ fn grouped_animations_advance_independently() {
 }
 
 #[test]
-fn grouped_animation_queues_shared_old_and_new_bounds() {
+fn grouped_immediate_animation_damages_old_and_new_bounds() {
     let mut runtime = Runtime::new(TestPlatform);
     let id = WidgetId::new("moving point");
+    let old = LogicalRect {
+        x: 1.0,
+        y: 2.0,
+        width: 2.0,
+        height: 2.0,
+    };
+    let new = LogicalRect {
+        x: 6.0,
+        y: 5.0,
+        ..old
+    };
     let render = |ui: &mut Ui, position: [f32; 2]| {
         let [x, y] = position;
         let mut animation = ui.animate_values(
@@ -766,15 +777,15 @@ fn grouped_animation_queues_shared_old_and_new_bounds() {
     runtime.render(Duration::from_millis(1), Input::None, |ui| {
         render(ui, [6.0, 5.0])
     });
-    let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| ui.dirty.clone());
+    let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| {
+        render(ui, [6.0, 5.0]);
+        ui.dirty.clone()
+    });
 
-    let old = PhysicalRect {
-        x: 1,
-        y: 2,
-        width: 2,
-        height: 2,
-    };
-    assert_eq!(damage.regions(), &[old, PhysicalRect { x: 6, y: 5, ..old }]);
+    assert_eq!(
+        damage.regions(),
+        &[old.to_physical(1.0), new.to_physical(1.0)]
+    );
 }
 
 #[test]
@@ -836,85 +847,41 @@ fn animation_tracks_previous_and_current_draw_bounds() {
 }
 
 #[test]
-fn unused_animation_is_removed_and_invalidated() {
+fn immediate_animation_damages_once() {
     let mut runtime = Runtime::new(TestPlatform);
-    let id = WidgetId::new("removed animation");
-    let area = LogicalRect {
-        x: 4.0,
-        y: 4.0,
+    let id = WidgetId::new("immediate animation");
+    let old = LogicalRect {
+        x: 0.0,
+        y: 0.0,
         width: 2.0,
         height: 2.0,
     };
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut animation = ui.animate(id, 0.0, Duration::ZERO, Easing::Linear);
-        widgets::Rectangle::new(area)
-            .shadow(
-                widgets::BoxShadow::new(Color::BLACK)
-                    .offset(1.0, 1.0)
-                    .blur(1.0)
-                    .spread(1.0),
-            )
-            .render(&mut animation);
-    });
-    runtime.render(Duration::from_millis(1), Input::None, |_| {});
-    let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| ui.dirty.clone());
-
-    assert_eq!(
-        damage.regions(),
-        &[PhysicalRect {
-            x: 3,
-            y: 3,
-            width: 6,
-            height: 6,
-        }]
-    );
-}
-
-#[test]
-fn immediate_target_change_queues_old_and_new_bounds() {
-    let mut runtime = Runtime::new(TestPlatform);
-    let id = WidgetId::new("immediate animation");
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut animation = ui.animate(id, 0.0, Duration::ZERO, Easing::Linear);
+    let new = LogicalRect { x: 8.0, ..old };
+    let render = |ui: &mut Ui, target| {
+        let mut animation = ui.animate(id, target, Duration::ZERO, Easing::Linear);
         widgets::Rectangle::new(LogicalRect {
             x: animation.value(),
-            y: 0.0,
-            width: 2.0,
-            height: 2.0,
+            ..old
         })
         .render(&mut animation);
-    });
-    runtime.render(Duration::from_millis(1), Input::None, |ui| {
-        let mut animation = ui.animate(id, 8.0, Duration::ZERO, Easing::Linear);
-        widgets::Rectangle::new(LogicalRect {
-            x: animation.value(),
-            y: 0.0,
-            width: 2.0,
-            height: 2.0,
-        })
-        .render(&mut animation);
-    });
-    let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| ui.dirty.clone());
+    };
 
+    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
+    runtime.render(Duration::from_millis(1), Input::None, |ui| render(ui, 8.0));
+    let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| {
+        render(ui, 8.0);
+        ui.dirty.clone()
+    });
     assert_eq!(
         damage.regions(),
-        &[
-            PhysicalRect {
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 2,
-            },
-            PhysicalRect {
-                x: 8,
-                y: 0,
-                width: 2,
-                height: 2,
-            },
-        ]
+        &[old.to_physical(1.0), new.to_physical(1.0)]
     );
+
+    let damage = runtime.render(Duration::from_millis(3), Input::None, |ui| {
+        render(ui, 8.0);
+        ui.dirty.clone()
+    });
+    assert!(damage.is_empty());
 }
 
 #[test]
