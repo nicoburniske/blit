@@ -265,6 +265,40 @@ fn moving_animation_draws_entire_current_geometry() {
 }
 
 #[test]
+fn immediate_animation_damage_repaints_earlier_content() {
+    let mut runtime = Runtime::new(RuntimePlatform {
+        renderer: Renderer::new(VecBuffer::<u32>::new(2, 1), renderer_config())
+            .strategy(Scanline::default()),
+    })
+    .with_repaint_buffer(blit::RepaintBuffer::Swapped);
+    let id = WidgetId::new("moving alpha rectangle");
+    let render = |ui: &mut blit::Ui, target| {
+        Rectangle::new(ui.screen())
+            .background(Color::WHITE)
+            .render(ui);
+        let mut animation = ui.animate(id, target, Duration::ZERO, Easing::Linear);
+        Rectangle::new(LogicalRect {
+            x: animation.value(),
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        })
+        .background(Color::from_rgba8(0, 0, 0, 128))
+        .render(&mut animation);
+    };
+
+    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
+    runtime.render(Duration::from_millis(1), Input::None, |ui| render(ui, 0.0));
+    runtime.render(Duration::from_millis(2), Input::None, |ui| render(ui, 0.0));
+    runtime.render(Duration::from_millis(3), Input::None, |ui| render(ui, 1.0));
+
+    assert_eq!(
+        runtime.platform().renderer.buffer().pixels(),
+        [0xffffff, 0x7f7f7f]
+    );
+}
+
+#[test]
 fn dropped_image_slots_are_reused_after_end_frame() {
     static PIXEL: [u8; 4] = [255, 255, 255, 255];
     let mut renderer = Renderer::new(VecBuffer::<u32>::new(1, 1), renderer_config());

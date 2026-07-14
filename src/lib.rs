@@ -589,6 +589,9 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         }
         for animation in &mut self.shared.animations {
             animation.seen = false;
+            if let Some(area) = animation.previous_bounds {
+                dirty.add(area);
+            }
         }
         for timer in &mut self.shared.timers {
             timer.seen = false;
