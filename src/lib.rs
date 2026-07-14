@@ -335,7 +335,7 @@ impl<const N: usize> Drop for AnimationScope<'_, N> {
             active |= self.active[component];
             changed |= self.changed[component];
         }
-        if (active || changed)
+        if (capture.damage || active || changed)
             && let Some(area) = capture.bounds
         {
             shared.pending.add(area);
