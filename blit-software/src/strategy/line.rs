@@ -1,6 +1,6 @@
 use blit::{
     DirtyRegions, LogicalRect, PhysicalRect, TextRequest,
-    widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
+    widgets::{Border, BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 use slotmap::{KeyData, SlotMap};
 use std::ops::Range;
@@ -126,6 +126,13 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                                     };
                                     rectangle.draw_line(line, clip, row);
                                 }
+                                Payload::GradientRectangle(rectangle, stops) => {
+                                    let row = PixelSpan {
+                                        x: buffer.x as i32,
+                                        pixels: buffer.line_mut(line as usize),
+                                    };
+                                    rectangle.draw_line(stops, line, clip, coverage, row);
+                                }
                                 Payload::Image(request) => {
                                     let image =
                                         RendererImageId::from(KeyData::from_ffi(request.image.0));
@@ -182,6 +189,18 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                     },
                 );
             }
+            Payload::GradientRectangle(rectangle, stops) => {
+                rectangle.draw_line(
+                    stops,
+                    line,
+                    clip,
+                    255,
+                    PixelSpan {
+                        x: range.start as i32,
+                        pixels: buffer.line_mut(line as usize),
+                    },
+                );
+            }
             Payload::Image(request) => {
                 let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
                 if let Some(image) = images.get(image) {
@@ -223,9 +242,23 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
     fn draw_rectangle(
         &mut self,
         context: &mut RenderContext<B>,
-        rectangle: &Rectangle,
+        rectangle: &Rectangle<'_>,
         clip: PhysicalRect,
     ) {
+        if let Border::Gradient { width, gradient } = rectangle.border
+            && let Some(prepared) =
+                rectangle::Gradient::new(rectangle, width, gradient, context.scale_factor)
+            && let Some(bounds) = prepared.geometry.intersection(clip)
+        {
+            if self.commands.push_gradient_rectangle(
+                prepared,
+                gradient.stops,
+                bounds,
+                self.clips.current(),
+            ) {
+                return;
+            }
+        }
         if let Some(rectangle) = rectangle::Prepared::new(rectangle, context.scale_factor) {
             if let Some(bounds) = rectangle.geometry.intersection(clip) {
                 self.commands

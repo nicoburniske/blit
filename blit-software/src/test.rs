@@ -2,7 +2,8 @@ use super::*;
 use blit::{
     Color, ImageFormat, ImagePixels, LogicalRect, TextOptions, TextStyle,
     widgets::{
-        BorderRadius, BoxShadow, BoxShadowRequest, ImageFit, ImageRequest, ImageSampling, Rectangle,
+        BorderRadius, BoxShadow, BoxShadowRequest, GradientStop, ImageFit, ImageRequest,
+        ImageSampling, LinearGradient, Rectangle,
     },
 };
 use std::ops::Range;
@@ -73,6 +74,7 @@ fn renderer_config() -> RendererConfig {
         }],
         glyph_cache_capacity: 1024 * 1024,
         paragraph_cache_capacity: 1024 * 1024,
+        shadow_cache_capacity: 1024 * 1024,
     }
 }
 
@@ -87,19 +89,13 @@ fn renderer_supports_custom_pixel_layouts() {
     };
     renderer.begin_frame(&[clip]);
     renderer.draw_rectangle(
-        &Rectangle {
-            area: LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 32.0,
-                height: 24.0,
-            },
-            background: Color::from_rgba8(12, 34, 56, 255),
-            border_color: Color::TRANSPARENT,
-            border_width: 0.0,
-            radius: BorderRadius::default(),
-            opacity: 1.0,
-        },
+        &Rectangle::new(LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 32.0,
+            height: 24.0,
+        })
+        .background(Color::from_rgba8(12, 34, 56, 255)),
         clip,
     );
     renderer.end_frame();
@@ -395,6 +391,57 @@ fn box_shadows_match_between_strategies_and_reuse_masks() {
     let scanline = render(Scanline::default());
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
     assert!(direct.buffer().pixels().iter().any(|pixel| *pixel != 0));
+}
+
+#[test]
+fn gradient_borders_match_between_strategies_and_rounded_clips() {
+    fn render<S: RenderStrategy<VecBuffer<u32>>>(strategy: S) -> Renderer<VecBuffer<u32>, S> {
+        let mut renderer =
+            Renderer::new(VecBuffer::<u32>::new(48, 36), renderer_config()).strategy(strategy);
+        let screen = renderer.screen();
+        renderer.begin_frame(&[screen]);
+        renderer.push_rounded_clip(
+            LogicalRect {
+                x: 2.0,
+                y: 2.0,
+                width: 44.0,
+                height: 32.0,
+            },
+            BorderRadius {
+                top_left: 10.0,
+                top_right: 10.0,
+                bottom_right: 10.0,
+                bottom_left: 10.0,
+            },
+        );
+        {
+            let stops = [
+                GradientStop::new(0.0, Color::from_rgba8(255, 32, 16, 220)),
+                GradientStop::new(0.4, Color::from_rgba8(40, 240, 80, 180)),
+                GradientStop::new(1.0, Color::from_rgba8(32, 64, 255, 240)),
+            ];
+            renderer.draw_rectangle(
+                &Rectangle::new(LogicalRect {
+                    x: 4.0,
+                    y: 3.0,
+                    width: 40.0,
+                    height: 30.0,
+                })
+                .background(Color::from_rgba8(20, 24, 32, 210))
+                .gradient_border(3.0, LinearGradient::new(&stops).angle(135.0))
+                .uniform_radius(9.0),
+                screen,
+            );
+        }
+        renderer.pop_rounded_clip();
+        renderer.end_frame();
+        renderer
+    }
+
+    let direct = render(Direct::default());
+    let scanline = render(Scanline::default());
+    assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
+    assert_eq!(direct.buffer().pixels()[18 * 48 + 24], 0x0010_131a);
 }
 
 #[test]

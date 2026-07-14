@@ -1,14 +1,18 @@
 use std::mem::MaybeUninit;
 
-use blit::{Color, PhysicalRect};
+use blit::{Color, PhysicalRect, widgets::GradientStop};
 
-use crate::{image::Prepared as PreparedImage, rectangle::Prepared as PreparedRectangle};
+use crate::{
+    image::Prepared as PreparedImage,
+    rectangle::{Gradient as PreparedGradient, Prepared as PreparedRectangle},
+};
 
 use super::clip::ClipId;
 
 const RECTANGLE: u8 = 0;
-const IMAGE: u8 = 1;
-const TEXT: u8 = 2;
+const GRADIENT_RECTANGLE: u8 = 1;
+const IMAGE: u8 = 2;
+const TEXT: u8 = 3;
 
 /// packed records avoid sizing every command for the largest enum variant
 #[derive(Default)]
@@ -19,6 +23,7 @@ pub struct CommandList {
 
 pub enum Payload<'a> {
     Rectangle(&'a PreparedRectangle),
+    GradientRectangle(&'a PreparedGradient, &'a [GradientStop]),
     Image(&'a PreparedImage),
     Text(&'a PreparedText),
 }
@@ -45,6 +50,28 @@ impl CommandList {
         self.push(RECTANGLE, rectangle, bounds, clip)
     }
 
+    pub fn push_gradient_rectangle(
+        &mut self,
+        rectangle: PreparedGradient,
+        stops: &[GradientStop],
+        bounds: PhysicalRect,
+        clip: ClipId,
+    ) -> bool {
+        let Ok(stops_len) = stops.len().try_into() else {
+            return false;
+        };
+        self.push_record(
+            GRADIENT_RECTANGLE,
+            PreparedGradientRectangle {
+                rectangle,
+                stops_len,
+            },
+            stops,
+            bounds,
+            clip,
+        )
+    }
+
     pub fn push_image(&mut self, image: PreparedImage, bounds: PhysicalRect, clip: ClipId) {
         self.push(IMAGE, image, bounds, clip)
     }
@@ -53,6 +80,7 @@ impl CommandList {
         self.push(TEXT, text, bounds, clip)
     }
 
+    #[inline]
     pub fn get(&self, offset: usize) -> Payload<'_> {
         let record = unsafe { self.words.as_ptr().add(offset).cast::<u8>() };
         let header = self.header(offset);
@@ -62,6 +90,22 @@ impl CommandList {
                     .add(payload_offset::<PreparedRectangle>())
                     .cast::<PreparedRectangle>()
             }),
+            GRADIENT_RECTANGLE => {
+                let command = unsafe {
+                    &*record
+                        .add(payload_offset::<PreparedGradientRectangle>())
+                        .cast::<PreparedGradientRectangle>()
+                };
+                let stops_offset = (payload_offset::<PreparedGradientRectangle>()
+                    + size_of::<PreparedGradientRectangle>())
+                .next_multiple_of(align_of::<GradientStop>());
+                Payload::GradientRectangle(&command.rectangle, unsafe {
+                    std::slice::from_raw_parts(
+                        record.add(stops_offset).cast::<GradientStop>(),
+                        command.stops_len as usize,
+                    )
+                })
+            }
             IMAGE => Payload::Image(unsafe {
                 &*record
                     .add(payload_offset::<PreparedImage>())
@@ -104,14 +148,35 @@ impl CommandList {
     }
 
     fn push<T: Copy>(&mut self, kind: u8, payload: T, bounds: PhysicalRect, clip: ClipId) {
-        self.has_clips |= clip != 0;
+        assert!(self.push_record(kind, payload, &[], bounds, clip));
+    }
+
+    fn push_record<T: Copy>(
+        &mut self,
+        kind: u8,
+        payload: T,
+        stops: &[GradientStop],
+        bounds: PhysicalRect,
+        clip: ClipId,
+    ) -> bool {
         assert!(align_of::<T>() <= align_of::<Word>());
         let payload_offset = payload_offset::<T>();
-        let bytes = payload_offset + size_of::<T>();
+        let stops_offset =
+            (payload_offset + size_of::<T>()).next_multiple_of(align_of::<GradientStop>());
+        let bytes = if stops.is_empty() {
+            payload_offset + size_of::<T>()
+        } else {
+            stops_offset + size_of_val(stops)
+        };
         let record_words = bytes.div_ceil(size_of::<Word>());
+        let Ok(record_words) = record_words.try_into() else {
+            return false;
+        };
+        self.has_clips |= clip != 0;
         let offset = self.words.len();
-        self.words
-            .resize_with(offset + record_words, Word::uninitialized);
+        self.words.resize_with(offset + record_words as usize, || {
+            Word(MaybeUninit::uninit())
+        });
         let record = unsafe { self.words.as_mut_ptr().add(offset).cast::<u8>() };
         unsafe {
             record.cast::<Header>().write(Header {
@@ -119,12 +184,19 @@ impl CommandList {
                 bottom: bounds.y.saturating_add(bounds.height),
                 left: bounds.x,
                 right: bounds.x.saturating_add(bounds.width),
-                record_words: record_words.try_into().unwrap(),
+                record_words,
                 kind,
                 clip,
             });
             record.add(payload_offset).cast::<T>().write(payload);
+            if !stops.is_empty() {
+                record
+                    .add(stops_offset)
+                    .cast::<GradientStop>()
+                    .copy_from_nonoverlapping(stops.as_ptr(), stops.len());
+            }
         }
+        true
     }
 
     fn record_words(&self, offset: usize) -> usize {
@@ -135,6 +207,13 @@ impl CommandList {
         assert!(offset < self.words.len());
         unsafe { &*self.words.as_ptr().add(offset).cast::<Header>() }
     }
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct PreparedGradientRectangle {
+    rectangle: PreparedGradient,
+    stops_len: u32,
 }
 
 fn payload_offset<T>() -> usize {
@@ -173,9 +252,3 @@ struct Header {
 
 #[repr(C, align(8))]
 struct Word(MaybeUninit<[u8; 8]>);
-
-impl Word {
-    fn uninitialized() -> Self {
-        Self(MaybeUninit::uninit())
-    }
-}

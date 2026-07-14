@@ -18,6 +18,7 @@ pub struct RendererConfig {
     pub fonts: Vec<FontFace>,
     pub glyph_cache_capacity: usize,
     pub paragraph_cache_capacity: usize,
+    pub shadow_cache_capacity: usize,
 }
 
 pub struct FontFace {
@@ -39,7 +40,7 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
                 has_dead_images: false,
-                shadows: shadow::Cache::default(),
+                shadows: shadow::Cache::new(config.shadow_cache_capacity),
                 text: TextRenderer::new(config),
             },
             strategy: Direct::default(),
@@ -100,7 +101,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         self.strategy.pop_rounded_clip()
     }
 
-    pub fn draw_rectangle(&mut self, request: &Rectangle, clip: PhysicalRect) {
+    pub fn draw_rectangle(&mut self, request: &Rectangle<'_>, clip: PhysicalRect) {
         self.strategy
             .draw_rectangle(&mut self.context, request, clip)
     }
