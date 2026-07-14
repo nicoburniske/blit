@@ -138,7 +138,7 @@ impl Cache {
                 width,
                 height,
             );
-            let image = images.insert(StoredImage { data, live: true });
+            let image = images.insert(StoredImage::new(data));
             self.entries.push(Entry {
                 key,
                 image,

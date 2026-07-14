@@ -286,7 +286,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 context.scale_factor,
                 |image, bounds| {
                     self.commands
-                        .push_image(image, bounds, self.clips.current())
+                        .push_image(image, bounds, self.clips.current(), texture.opaque)
                 },
             );
         }
@@ -313,8 +313,12 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
                 if let Some(texture) = context.images.get(image) {
                     image::prepare(&request, &texture.data, clip, 1.0, |image, bounds| {
-                        self.commands
-                            .push_image(image, bounds, self.clips.current())
+                        self.commands.push_image(
+                            image,
+                            bounds,
+                            self.clips.current(),
+                            texture.opaque,
+                        )
                     });
                 }
             }
@@ -440,6 +444,21 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
             }
 
             for range in &self.ranges {
+                let first = commands
+                    .opaque_offsets()
+                    .iter()
+                    .rev()
+                    .find(|command| {
+                        let vertical = commands.vertical_bounds(**command);
+                        vertical.start <= line
+                            && vertical.end > line
+                            && commands.opaque_span(**command, line).is_some_and(|span| {
+                                span.start <= range.start as i32 && span.end >= range.end as i32
+                            })
+                    })
+                    .map(|command| self.active.binary_search(command).unwrap())
+                    .unwrap_or(0);
+                let active = &self.active[first..];
                 buffer.process_line(line as usize, range.clone(), |pixels| {
                     let mut buffer = LineBuffer {
                         pixels,
@@ -450,7 +469,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     if clipped {
                         draw_commands::<true, _>(
                             commands,
-                            &self.active,
+                            active,
                             &self.clip_ranges,
                             images,
                             text,
@@ -459,7 +478,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     } else {
                         draw_commands::<false, _>(
                             commands,
-                            &self.active,
+                            active,
                             &self.clip_ranges,
                             images,
                             text,

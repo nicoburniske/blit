@@ -18,6 +18,7 @@ const TEXT: u8 = 3;
 #[derive(Default)]
 pub struct CommandList {
     words: Vec<Word>,
+    opaque: Vec<usize>,
     pub has_clips: bool,
 }
 
@@ -47,6 +48,9 @@ impl CommandList {
         bounds: PhysicalRect,
         clip: ClipId,
     ) {
+        if clip == 0 && rectangle.is_opaque() {
+            self.opaque.push(self.words.len());
+        }
         self.push(RECTANGLE, rectangle, bounds, clip)
     }
 
@@ -72,7 +76,16 @@ impl CommandList {
         )
     }
 
-    pub fn push_image(&mut self, image: PreparedImage, bounds: PhysicalRect, clip: ClipId) {
+    pub fn push_image(
+        &mut self,
+        image: PreparedImage,
+        bounds: PhysicalRect,
+        clip: ClipId,
+        texture_opaque: bool,
+    ) {
+        if clip == 0 && image.is_opaque(texture_opaque) {
+            self.opaque.push(self.words.len());
+        }
         self.push(IMAGE, image, bounds, clip)
     }
 
@@ -84,7 +97,7 @@ impl CommandList {
     pub fn get(&self, offset: usize) -> Payload<'_> {
         let record = unsafe { self.words.as_ptr().add(offset).cast::<u8>() };
         let header = self.header(offset);
-        let payload = match header.kind {
+        match header.kind {
             RECTANGLE => Payload::Rectangle(unsafe {
                 &*record
                     .add(payload_offset::<PreparedRectangle>())
@@ -117,8 +130,7 @@ impl CommandList {
                     .cast::<PreparedText>()
             }),
             _ => unreachable!(),
-        };
-        payload
+        }
     }
 
     pub fn vertical_bounds(&self, offset: usize) -> std::ops::Range<i32> {
@@ -135,6 +147,22 @@ impl CommandList {
         self.header(offset).clip
     }
 
+    pub fn opaque_offsets(&self) -> &[usize] {
+        &self.opaque
+    }
+
+    pub fn opaque_span(&self, offset: usize, line: i32) -> Option<std::ops::Range<i32>> {
+        let bounds = self.horizontal_bounds(offset);
+        let span = match self.get(offset) {
+            Payload::Rectangle(rectangle) => rectangle.opaque_span(line)?,
+            Payload::Image(_) => bounds.clone(),
+            Payload::GradientRectangle(_, _) | Payload::Text(_) => return None,
+        };
+        let start = span.start.max(bounds.start);
+        let end = span.end.min(bounds.end);
+        (start < end).then_some(start..end)
+    }
+
     pub fn offsets(&self) -> Offsets<'_> {
         Offsets {
             commands: self,
@@ -144,6 +172,7 @@ impl CommandList {
 
     pub fn clear(&mut self) {
         self.words.clear();
+        self.opaque.clear();
         self.has_clips = false;
     }
 
