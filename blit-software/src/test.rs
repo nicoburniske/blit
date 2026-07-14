@@ -1,7 +1,9 @@
 use super::*;
 use blit::{
     Color, ImageFormat, ImagePixels, LogicalRect, TextOptions, TextStyle,
-    widgets::{BorderRadius, ImageFit, ImageRequest, ImageSampling, Rectangle},
+    widgets::{
+        BorderRadius, BoxShadow, BoxShadowRequest, ImageFit, ImageRequest, ImageSampling, Rectangle,
+    },
 };
 use std::ops::Range;
 
@@ -341,6 +343,58 @@ fn cached_dirty_ranges_match_direct_rendering() {
     scanline.end_frame();
 
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
+}
+
+#[test]
+fn box_shadows_match_between_strategies_and_reuse_masks() {
+    fn render<S: RenderStrategy<VecBuffer<u32>>>(strategy: S) -> Renderer<VecBuffer<u32>, S> {
+        let mut renderer = Renderer::new(VecBuffer::<u32>::new(128, 96), renderer_config())
+            .with_scale_factor(2.0)
+            .strategy(strategy);
+        let screen = renderer.screen();
+        let first = BoxShadowRequest {
+            area: LogicalRect {
+                x: 12.0,
+                y: 10.0,
+                width: 36.0,
+                height: 24.0,
+            },
+            radius: BorderRadius {
+                top_left: 6.0,
+                top_right: 6.0,
+                bottom_right: 6.0,
+                bottom_left: 6.0,
+            },
+            shadow: BoxShadow::new(Color::from_rgba8(220, 40, 20, 180))
+                .offset(2.0, 3.0)
+                .blur(5.0)
+                .spread(1.0),
+        };
+        let second = BoxShadowRequest {
+            area: LogicalRect {
+                x: 4.0,
+                y: 24.0,
+                width: 52.0,
+                height: 20.0,
+            },
+            shadow: BoxShadow::new(Color::from_rgba8(20, 80, 220, 140))
+                .offset(2.0, 3.0)
+                .blur(5.0)
+                .spread(1.0),
+            ..first
+        };
+        renderer.begin_frame(&[screen]);
+        renderer.draw_box_shadow(&first, screen);
+        renderer.draw_box_shadow(&second, screen);
+        renderer.end_frame();
+        assert_eq!(renderer.context.images.len(), 1);
+        renderer
+    }
+
+    let direct = render(Direct::default());
+    let scanline = render(Scanline::default());
+    assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
+    assert!(direct.buffer().pixels().iter().any(|pixel| *pixel != 0));
 }
 
 #[test]

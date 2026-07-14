@@ -1,10 +1,10 @@
 use blit::{
     DirtyRegions, LogicalRect, PhysicalRect, TextRequest,
-    widgets::{BorderRadius, ImageRequest, Rectangle},
+    widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 use slotmap::KeyData;
 
-use crate::{PixelBuffer, PixelSpan, RenderContext, RendererImageId, image, rectangle};
+use crate::{PixelBuffer, PixelSpan, RenderContext, RendererImageId, image, rectangle, shadow};
 
 use super::{RenderStrategy, clip::ClipStack};
 
@@ -12,6 +12,74 @@ use super::{RenderStrategy, clip::ClipStack};
 pub struct Direct {
     damage: DirtyRegions,
     clips: ClipStack,
+}
+
+impl Direct {
+    fn draw_image_with_scale<B: PixelBuffer>(
+        &mut self,
+        context: &mut RenderContext<B>,
+        request: &ImageRequest,
+        clip: PhysicalRect,
+        scale_factor: f32,
+    ) {
+        let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
+        if let Some(image) = context.images.get(image) {
+            if self.clips.is_active() {
+                let screen = PhysicalRect {
+                    x: context.buffer.x_offset() as i32,
+                    y: 0,
+                    width: context.buffer.width() as i32,
+                    height: context.buffer.height() as i32,
+                };
+                let clip_id = self.clips.current();
+                let texture = &image.data;
+                let buffer = &mut context.buffer;
+                for damage in self.damage.regions() {
+                    let Some(clip) = clip.intersection(*damage) else {
+                        continue;
+                    };
+                    image::prepare(request, texture, clip, scale_factor, |image, bounds| {
+                        let Some(bounds) = bounds.intersection(screen) else {
+                            return;
+                        };
+                        for line in bounds.y..bounds.y + bounds.height {
+                            self.clips.for_each(
+                                clip_id,
+                                line,
+                                bounds.x..bounds.x + bounds.width,
+                                |range, coverage| {
+                                    let mut image = image;
+                                    if coverage != 255 {
+                                        image.opacity =
+                                            (image.opacity as u16 * coverage as u16 / 255) as u8;
+                                    }
+                                    let clip = PhysicalRect {
+                                        x: range.start,
+                                        y: line,
+                                        width: range.end - range.start,
+                                        height: 1,
+                                    };
+                                    image.draw(buffer, texture, clip);
+                                },
+                            );
+                        }
+                    });
+                }
+                return;
+            }
+            for damage in self.damage.regions() {
+                if let Some(clip) = clip.intersection(*damage) {
+                    image::draw(
+                        &mut context.buffer,
+                        request,
+                        &image.data,
+                        clip,
+                        scale_factor,
+                    );
+                }
+            }
+        }
+    }
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Direct {
@@ -98,62 +166,28 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
         request: &ImageRequest,
         clip: PhysicalRect,
     ) {
-        let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
-        if let Some(image) = context.images.get(image) {
-            if self.clips.is_active() {
-                let screen = PhysicalRect {
-                    x: context.buffer.x_offset() as i32,
-                    y: 0,
-                    width: context.buffer.width() as i32,
-                    height: context.buffer.height() as i32,
-                };
-                let clip_id = self.clips.current();
-                let scale_factor = context.scale_factor;
-                let texture = &image.data;
-                let buffer = &mut context.buffer;
-                for damage in self.damage.regions() {
-                    let Some(clip) = clip.intersection(*damage) else {
-                        continue;
-                    };
-                    image::prepare(request, texture, clip, scale_factor, |image, bounds| {
-                        let Some(bounds) = bounds.intersection(screen) else {
-                            return;
-                        };
-                        for line in bounds.y..bounds.y + bounds.height {
-                            self.clips.for_each(
-                                clip_id,
-                                line,
-                                bounds.x..bounds.x + bounds.width,
-                                |range, coverage| {
-                                    let mut image = image;
-                                    if coverage != 255 {
-                                        image.opacity =
-                                            (image.opacity as u16 * coverage as u16 / 255) as u8;
-                                    }
-                                    let clip = PhysicalRect {
-                                        x: range.start,
-                                        y: line,
-                                        width: range.end - range.start,
-                                        height: 1,
-                                    };
-                                    image.draw(buffer, texture, clip);
-                                },
-                            );
-                        }
-                    });
-                }
-                return;
+        self.draw_image_with_scale(context, request, clip, context.scale_factor)
+    }
+
+    fn draw_box_shadow(
+        &mut self,
+        context: &mut RenderContext<B>,
+        request: &BoxShadowRequest,
+        clip: PhysicalRect,
+    ) {
+        let Some(request) =
+            context
+                .shadows
+                .prepare(&mut context.images, request, context.scale_factor)
+        else {
+            return;
+        };
+        match request {
+            shadow::Prepared::Rectangle(rectangle) => {
+                self.draw_rectangle(context, &rectangle, clip)
             }
-            for damage in self.damage.regions() {
-                if let Some(clip) = clip.intersection(*damage) {
-                    image::draw(
-                        &mut context.buffer,
-                        request,
-                        &image.data,
-                        clip,
-                        context.scale_factor,
-                    );
-                }
+            shadow::Prepared::Image(image) => {
+                self.draw_image_with_scale(context, &image, clip, 1.0)
             }
         }
     }

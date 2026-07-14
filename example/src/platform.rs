@@ -1,7 +1,7 @@
 use blit::{
     FontId, ImageData, ImageId, Input, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect,
     Platform, PlatformImpl, TextRequest,
-    widgets::{BorderRadius, ImageRequest, Rectangle},
+    widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 use blit_software::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
@@ -151,6 +151,10 @@ impl PlatformImpl for TestPlatform {
 
     fn draw_rectangle(&mut self, rectangle: &Rectangle, clip: PhysicalRect) {
         self.renderer.draw_rectangle(rectangle, clip)
+    }
+
+    fn draw_box_shadow(&mut self, shadow: &BoxShadowRequest, clip: PhysicalRect) {
+        self.renderer.draw_box_shadow(shadow, clip)
     }
 
     fn create_image(&mut self, data: ImageData) -> ImageId {

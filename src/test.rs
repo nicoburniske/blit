@@ -36,6 +36,8 @@ impl PlatformImpl for TestPlatform {
 
     fn draw_rectangle(&mut self, _: &widgets::Rectangle, _: PhysicalRect) {}
 
+    fn draw_box_shadow(&mut self, _: &widgets::BoxShadowRequest, _: PhysicalRect) {}
+
     fn create_image(&mut self, _: ImageData) -> ImageId {
         ImageId(0)
     }
@@ -860,20 +862,35 @@ fn unused_animation_is_removed_and_invalidated() {
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
     let id = WidgetId::new("removed animation");
     let area = LogicalRect {
-        x: 2.0,
-        y: 3.0,
-        width: 4.0,
-        height: 5.0,
+        x: 4.0,
+        y: 4.0,
+        width: 2.0,
+        height: 2.0,
     };
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut animation = ui.animate(id, 0.0, Duration::ZERO, Easing::Linear);
-        widgets::Rectangle::new(area).render(&mut animation);
+        widgets::Rectangle::new(area)
+            .shadow(
+                widgets::BoxShadow::new(Color::BLACK)
+                    .offset(1.0, 1.0)
+                    .blur(1.0)
+                    .spread(1.0),
+            )
+            .render(&mut animation);
     });
     runtime.render(Duration::from_millis(1), Input::None, |_| {});
     let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| ui.dirty.clone());
 
-    assert_eq!(damage.regions(), &[area.to_physical(1.0)]);
+    assert_eq!(
+        damage.regions(),
+        &[PhysicalRect {
+            x: 3,
+            y: 3,
+            width: 6,
+            height: 6,
+        }]
+    );
 }
 
 #[test]

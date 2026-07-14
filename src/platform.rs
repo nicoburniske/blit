@@ -3,7 +3,7 @@ use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 use crate::{
     ImageData, ImageHandle, ImageId, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect,
     TextRequest,
-    widgets::{BorderRadius, ImageRequest, Rectangle},
+    widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 
 pub trait PlatformImpl {
@@ -16,6 +16,7 @@ pub trait PlatformImpl {
     fn push_rounded_clip(&mut self, area: LogicalRect, radius: BorderRadius);
     fn pop_rounded_clip(&mut self);
     fn draw_rectangle(&mut self, rectangle: &Rectangle, clip: PhysicalRect);
+    fn draw_box_shadow(&mut self, shadow: &BoxShadowRequest, clip: PhysicalRect);
     fn create_image(&mut self, data: ImageData) -> ImageId;
     fn drop_image(&mut self, image: ImageId);
     fn draw_image(&mut self, image: &ImageRequest, clip: PhysicalRect);
@@ -59,6 +60,11 @@ impl Platform {
     #[inline]
     pub fn draw_rectangle(&mut self, rectangle: &Rectangle, clip: PhysicalRect) {
         unsafe { self.implementation.as_mut().draw_rectangle(rectangle, clip) }
+    }
+
+    #[inline]
+    pub fn draw_box_shadow(&mut self, shadow: &BoxShadowRequest, clip: PhysicalRect) {
+        unsafe { self.implementation.as_mut().draw_box_shadow(shadow, clip) }
     }
 
     #[inline]

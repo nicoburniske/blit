@@ -8,7 +8,7 @@ pub use line::Scanline;
 
 use blit::{
     LogicalRect, PhysicalRect, TextRequest,
-    widgets::{BorderRadius, ImageRequest, Rectangle},
+    widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 
 use crate::{PixelBuffer, RenderContext};
@@ -21,6 +21,12 @@ pub trait RenderStrategy<B: PixelBuffer> {
         &mut self,
         context: &mut RenderContext<B>,
         rectangle: &Rectangle,
+        clip: PhysicalRect,
+    );
+    fn draw_box_shadow(
+        &mut self,
+        context: &mut RenderContext<B>,
+        shadow: &BoxShadowRequest,
         clip: PhysicalRect,
     );
     fn draw_image(

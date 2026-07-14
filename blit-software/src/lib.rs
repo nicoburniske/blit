@@ -1,6 +1,7 @@
 mod image;
 mod pixel;
 mod rectangle;
+mod shadow;
 mod strategy;
 mod text;
 
@@ -10,7 +11,7 @@ pub use strategy::{Direct, RenderStrategy, Scanline};
 
 use blit::{
     FontId, ImageData, ImageId, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
-    widgets::{BorderRadius, ImageRequest, Rectangle},
+    widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 
 pub struct RendererConfig {
@@ -38,6 +39,7 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
                 has_dead_images: false,
+                shadows: shadow::Cache::default(),
                 text: TextRenderer::new(config),
             },
             strategy: Direct::default(),
@@ -103,6 +105,11 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             .draw_rectangle(&mut self.context, request, clip)
     }
 
+    pub fn draw_box_shadow(&mut self, request: &BoxShadowRequest, clip: PhysicalRect) {
+        self.strategy
+            .draw_box_shadow(&mut self.context, request, clip)
+    }
+
     pub fn draw_image(&mut self, request: &ImageRequest, clip: PhysicalRect) {
         self.strategy.draw_image(&mut self.context, request, clip)
     }
@@ -160,6 +167,7 @@ pub struct RenderContext<B: PixelBuffer> {
     scale_factor: f32,
     images: SlotMap<RendererImageId, StoredImage>,
     has_dead_images: bool,
+    shadows: shadow::Cache,
     text: TextRenderer,
 }
 
@@ -170,6 +178,7 @@ struct StoredImage {
 
 impl<B: PixelBuffer> RenderContext<B> {
     fn finish_frame(&mut self) {
+        self.shadows.finish_frame(&mut self.images);
         self.text.finish_frame();
         if self.has_dead_images {
             self.images.retain(|_, image| image.live);

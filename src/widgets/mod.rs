@@ -6,6 +6,6 @@ mod text_input;
 
 pub use button::{Button, Response};
 pub use image::{Image, ImageFit, ImageRequest, ImageSampling, ImageTiling, NineSlice};
-pub use rectangle::{BorderRadius, Rectangle};
+pub use rectangle::{BorderRadius, BoxShadow, BoxShadowRequest, Rectangle, ShadowedRectangle};
 pub use scroll_area::{Area, ScrollArea, ScrollState};
 pub use text_input::{TextInput, TextInputResponse, TextInputState};
