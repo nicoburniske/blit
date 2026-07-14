@@ -490,11 +490,18 @@ fn scanline_skips_commands_behind_opaque_content() {
             .all(|pixel| pixel.draws == 2)
     );
 
+    static ROUNDED_IMAGE_PIXEL: [u8; 4] = [255, 0, 0, 128];
     let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(8, 7), renderer_config())
         .strategy(Scanline::default());
+    let image = renderer.create_image(ImageData::new(
+        ImagePixels::Static(&ROUNDED_IMAGE_PIXEL),
+        ImageFormat::Rgba8,
+        1,
+        1,
+    ));
     let screen = renderer.screen();
     let damage = PhysicalRect {
-        y: 3,
+        y: 1,
         height: 1,
         ..screen
     };
@@ -503,11 +510,23 @@ fn scanline_skips_commands_behind_opaque_content() {
         height: 7.0,
         ..LogicalRect::default()
     };
+    let image = ImageRequest {
+        image,
+        area,
+        fit: ImageFit::Fill,
+        sampling: ImageSampling::Nearest,
+        opacity: 1.0,
+        colorize: None,
+        nine_slice: None,
+        horizontal_tiling: blit::widgets::ImageTiling::None,
+        vertical_tiling: blit::widgets::ImageTiling::None,
+    };
     renderer.begin_frame(&[damage]);
     renderer.draw_rectangle(
         &Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
         screen,
     );
+    renderer.draw_image(&image, screen);
     renderer.draw_rectangle(
         &Rectangle::new(area)
             .background(Color::from_rgba8(0, 255, 0, 255))
@@ -520,11 +539,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     );
     renderer.end_frame();
 
-    assert!(
-        renderer.buffer().pixels()[3 * 8..4 * 8]
-            .iter()
-            .all(|pixel| pixel.draws == 2)
-    );
+    assert_eq!(renderer.buffer().pixels()[8 + 3].draws, 2);
 
     static IMAGE_PIXEL: [u8; 4] = [0, 255, 0, 255];
     let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(4, 2), renderer_config())
@@ -598,6 +613,56 @@ fn scanline_skips_commands_behind_opaque_content() {
         RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed),
         16
     );
+}
+
+#[test]
+fn split_scanline_ranges_match_direct_rendering() {
+    static PIXEL: [u8; 4] = [180, 40, 20, 128];
+    fn render<S: RenderStrategy<VecBuffer<u32>>>(strategy: S) -> Renderer<VecBuffer<u32>, S> {
+        let mut renderer =
+            Renderer::new(VecBuffer::<u32>::new(32, 20), renderer_config()).strategy(strategy);
+        let image = renderer.create_image(ImageData::new(
+            ImagePixels::Static(&PIXEL),
+            ImageFormat::Rgba8,
+            1,
+            1,
+        ));
+        let screen = renderer.screen();
+        let area = screen.to_logical(1.0);
+        let image = ImageRequest {
+            image,
+            area,
+            fit: ImageFit::Fill,
+            sampling: ImageSampling::Nearest,
+            opacity: 1.0,
+            colorize: None,
+            nine_slice: None,
+            horizontal_tiling: blit::widgets::ImageTiling::None,
+            vertical_tiling: blit::widgets::ImageTiling::None,
+        };
+        renderer.begin_frame(&[screen]);
+        renderer.draw_rectangle(
+            &Rectangle::new(area).background(Color::from_rgba8(20, 40, 180, 160)),
+            screen,
+        );
+        renderer.draw_image(&image, screen);
+        renderer.draw_rectangle(
+            &Rectangle::new(area)
+                .background(Color::from_rgba8(30, 180, 80, 255))
+                .uniform_radius(8.0),
+            screen,
+        );
+        renderer.draw_rectangle(
+            &Rectangle::new(area).background(Color::from_rgba8(80, 20, 160, 96)),
+            screen,
+        );
+        renderer.end_frame();
+        renderer
+    }
+
+    let direct = render(Direct::default());
+    let scanline = render(Scanline::default());
+    assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
 }
 
 #[test]
