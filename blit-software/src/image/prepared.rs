@@ -87,6 +87,16 @@ impl Prepared {
         })
     }
 
+    pub fn is_opaque(&self, pixels_opaque: bool) -> bool {
+        pixels_opaque
+            && self.opacity == 255
+            && self.source.intersection(self.texture_rect) == Some(self.source)
+            && match self.colorize {
+                Some(color) => color.alpha == 255,
+                None => !matches!(self.format, ImageFormat::Alpha8(color) if color.alpha != 255),
+            }
+    }
+
     pub fn draw<B: PixelBuffer>(&self, buffer: &mut B, texture: &ImageData, clip: PhysicalRect) {
         let screen = PhysicalRect {
             x: buffer.x_offset() as i32,

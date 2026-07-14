@@ -16,8 +16,8 @@ fn dirty_regions(criterion: &mut Criterion) {
             let mut dirty = DirtyRegions::default();
             for index in 0..64 {
                 dirty.add(PhysicalRect {
-                    x: (index * 37 % 1024) as i32,
-                    y: (index * 67 % 768) as i32,
+                    x: index * 37 % 1024,
+                    y: index * 67 % 768,
                     width: 48,
                     height: 32,
                 });
@@ -89,6 +89,40 @@ fn scanline(criterion: &mut Criterion) {
             black_box(renderer.buffer().pixels()[352 * 1024 + 16]);
         });
     });
+
+    let opaque_left = left.background(Color::from_rgba8(20, 40, 60, 255));
+    let opaque_right = right.background(Color::from_rgba8(60, 40, 20, 255));
+    criterion.bench_function(
+        "scanline/256_opaque_commands_two_horizontal_regions",
+        |bencher| {
+            bencher.iter(|| {
+                renderer.begin_frame(&damage);
+                for _ in 0..128 {
+                    renderer.draw_rectangle(black_box(&opaque_left), black_box(clip));
+                    renderer.draw_rectangle(black_box(&opaque_right), black_box(clip));
+                }
+                renderer.end_frame();
+                black_box(renderer.buffer().pixels()[352 * 1024 + 16]);
+            });
+        },
+    );
+
+    let rounded_opaque_left = opaque_left.uniform_radius(24.0);
+    let rounded_opaque_right = opaque_right.uniform_radius(24.0);
+    criterion.bench_function(
+        "scanline/256_rounded_opaque_commands_two_horizontal_regions",
+        |bencher| {
+            bencher.iter(|| {
+                renderer.begin_frame(&damage);
+                for _ in 0..128 {
+                    renderer.draw_rectangle(black_box(&rounded_opaque_left), black_box(clip));
+                    renderer.draw_rectangle(black_box(&rounded_opaque_right), black_box(clip));
+                }
+                renderer.end_frame();
+                black_box(renderer.buffer().pixels()[352 * 1024 + 16]);
+            });
+        },
+    );
 
     criterion.bench_function(
         "scanline/256_commands_two_horizontal_regions_rounded_clip",
@@ -234,6 +268,29 @@ fn scanline(criterion: &mut Criterion) {
         bencher.iter(|| {
             renderer.begin_frame(&image_clip);
             renderer.draw_image(black_box(&image), black_box(image_clip[0]));
+            renderer.end_frame();
+            black_box(renderer.buffer().pixels()[256 * 1024 + 384]);
+        });
+    });
+
+    let opaque_image = renderer.create_image(ImageData::new(
+        ImagePixels::Owned([64, 32, 16].repeat(256 * 256).into_boxed_slice()),
+        ImageFormat::Rgb8,
+        256,
+        256,
+    ));
+    let opaque_image = ImageRequest {
+        image: opaque_image,
+        opacity: 1.0,
+        ..image
+    };
+
+    criterion.bench_function("image/128_opaque_rgb_256x256", |bencher| {
+        bencher.iter(|| {
+            renderer.begin_frame(&image_clip);
+            for _ in 0..128 {
+                renderer.draw_image(black_box(&opaque_image), black_box(image_clip[0]));
+            }
             renderer.end_frame();
             black_box(renderer.buffer().pixels()[256 * 1024 + 384]);
         });

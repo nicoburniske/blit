@@ -2,11 +2,13 @@ use blit::{
     PhysicalRect,
     widgets::{Border, GradientStop, LinearGradient, Rectangle},
 };
+use std::ops::Range;
 
 use crate::{Pixel, PixelSpan, PremultipliedRgbaColor};
 
 use super::rounded::{
-    Radii, RoundedGradient, RoundedRectangle, draw_gradient_line, draw_line, interpolate,
+    Radii, RoundedGradient, RoundedLine, RoundedRectangle, draw_gradient_line, draw_line,
+    interpolate,
 };
 
 #[derive(Clone, Copy)]
@@ -60,6 +62,20 @@ impl Prepared {
             border_color,
             inner_color,
         })
+    }
+
+    pub fn is_opaque(&self) -> bool {
+        self.inner_color.alpha == 255 && (self.border_width == 0 || self.border_color.alpha == 255)
+    }
+
+    pub fn opaque_span(&self, line: i32) -> Option<Range<i32>> {
+        if !self.is_opaque() {
+            return None;
+        }
+        let rounded = RoundedLine::new(self.geometry, self.radii, line)?;
+        let start = rounded.full_start();
+        let end = rounded.full_end();
+        (start < end).then_some(start..end)
     }
 
     pub fn draw_line<P: Pixel>(&self, line: i32, clip: PhysicalRect, row: PixelSpan<'_, P>) {

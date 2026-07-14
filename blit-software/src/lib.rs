@@ -125,7 +125,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
 
     pub fn create_image(&mut self, data: ImageData) -> ImageId {
         data.validate();
-        let image = self.context.images.insert(StoredImage { data, live: true });
+        let image = self.context.images.insert(StoredImage::new(data));
         ImageId(image.data().as_ffi())
     }
 
@@ -178,7 +178,36 @@ pub struct RenderContext<B: PixelBuffer> {
 
 struct StoredImage {
     data: ImageData,
+    opaque: bool,
     live: bool,
+}
+
+impl StoredImage {
+    fn new(data: ImageData) -> Self {
+        let width = data.texture_rect.width as usize;
+        let height = data.texture_rect.height as usize;
+        let bytes = data.pixels.bytes();
+        let opaque = match data.format {
+            blit::ImageFormat::Rgb8 => true,
+            blit::ImageFormat::Rgba8 | blit::ImageFormat::Rgba8Premultiplied => {
+                (0..height).all(|line| {
+                    bytes[line * data.stride_bytes..][..width * 4]
+                        .chunks_exact(4)
+                        .all(|pixel| pixel[3] == 255)
+                })
+            }
+            blit::ImageFormat::Alpha8(_) => (0..height).all(|line| {
+                bytes[line * data.stride_bytes..][..width]
+                    .iter()
+                    .all(|alpha| *alpha == 255)
+            }),
+        };
+        Self {
+            data,
+            opaque,
+            live: true,
+        }
+    }
 }
 
 impl<B: PixelBuffer> RenderContext<B> {

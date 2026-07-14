@@ -421,6 +421,186 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
 }
 
 #[test]
+fn scanline_skips_commands_behind_opaque_content() {
+    static RECTANGLE_PIXELS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    #[derive(Clone, Copy, Default)]
+    struct CountingPixel {
+        color: u32,
+        draws: u8,
+    }
+
+    impl Pixel for CountingPixel {
+        fn blend(&mut self, color: PremultipliedRgbaColor) {
+            self.color.blend(color);
+            self.draws += 1;
+        }
+
+        fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
+            Self {
+                color: <u32 as Pixel>::from_rgb(red, green, blue),
+                draws: 0,
+            }
+        }
+
+        fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
+            if color.alpha != 0 {
+                RECTANGLE_PIXELS.fetch_add(pixels.len(), std::sync::atomic::Ordering::Relaxed);
+            }
+            match color.alpha {
+                0 => {}
+                255 => pixels.iter_mut().for_each(|pixel| {
+                    pixel.color = <u32 as Pixel>::from_rgb(color.red, color.green, color.blue);
+                    pixel.draws += 1;
+                }),
+                _ => pixels.iter_mut().for_each(|pixel| pixel.blend(color)),
+            }
+        }
+    }
+
+    let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(4, 2), renderer_config())
+        .strategy(Scanline::default());
+    let screen = renderer.screen();
+    let area = LogicalRect {
+        width: 4.0,
+        height: 2.0,
+        ..LogicalRect::default()
+    };
+    renderer.begin_frame(&[screen]);
+    renderer.draw_rectangle(
+        &Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
+        screen,
+    );
+    renderer.draw_rectangle(
+        &Rectangle::new(area).background(Color::from_rgba8(0, 255, 0, 255)),
+        screen,
+    );
+    renderer.draw_rectangle(
+        &Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
+        screen,
+    );
+    renderer.end_frame();
+
+    assert!(
+        renderer
+            .buffer()
+            .pixels()
+            .iter()
+            .all(|pixel| pixel.draws == 2)
+    );
+
+    let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(8, 7), renderer_config())
+        .strategy(Scanline::default());
+    let screen = renderer.screen();
+    let damage = PhysicalRect {
+        y: 3,
+        height: 1,
+        ..screen
+    };
+    let area = LogicalRect {
+        width: 8.0,
+        height: 7.0,
+        ..LogicalRect::default()
+    };
+    renderer.begin_frame(&[damage]);
+    renderer.draw_rectangle(
+        &Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
+        screen,
+    );
+    renderer.draw_rectangle(
+        &Rectangle::new(area)
+            .background(Color::from_rgba8(0, 255, 0, 255))
+            .uniform_radius(3.0),
+        screen,
+    );
+    renderer.draw_rectangle(
+        &Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
+        screen,
+    );
+    renderer.end_frame();
+
+    assert!(
+        renderer.buffer().pixels()[3 * 8..4 * 8]
+            .iter()
+            .all(|pixel| pixel.draws == 2)
+    );
+
+    static IMAGE_PIXEL: [u8; 4] = [0, 255, 0, 255];
+    let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(4, 2), renderer_config())
+        .strategy(Scanline::default());
+    let image = renderer.create_image(ImageData::new(
+        ImagePixels::Static(&IMAGE_PIXEL),
+        ImageFormat::Rgba8,
+        1,
+        1,
+    ));
+    let screen = renderer.screen();
+    let area = LogicalRect {
+        width: 4.0,
+        height: 2.0,
+        ..LogicalRect::default()
+    };
+    let image = ImageRequest {
+        image,
+        area,
+        fit: ImageFit::Fill,
+        sampling: ImageSampling::Nearest,
+        opacity: 1.0,
+        colorize: None,
+        nine_slice: None,
+        horizontal_tiling: blit::widgets::ImageTiling::None,
+        vertical_tiling: blit::widgets::ImageTiling::None,
+    };
+    RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+    renderer.begin_frame(&[screen]);
+    renderer.draw_rectangle(
+        &Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
+        screen,
+    );
+    renderer.draw_image(&image, screen);
+    renderer.draw_rectangle(
+        &Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
+        screen,
+    );
+    renderer.end_frame();
+
+    assert_eq!(
+        RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed),
+        8
+    );
+
+    static TRANSPARENT_IMAGE_PIXEL: [u8; 4] = [0, 255, 0, 254];
+    let transparent_image = renderer.create_image(ImageData::new(
+        ImagePixels::Static(&TRANSPARENT_IMAGE_PIXEL),
+        ImageFormat::Rgba8,
+        1,
+        1,
+    ));
+    let transparent_image = ImageRequest {
+        image: transparent_image,
+        ..image
+    };
+    RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+    renderer.begin_frame(&[screen]);
+    renderer.draw_rectangle(
+        &Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
+        screen,
+    );
+    renderer.draw_image(&transparent_image, screen);
+    renderer.draw_rectangle(
+        &Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
+        screen,
+    );
+    renderer.end_frame();
+
+    assert_eq!(
+        RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed),
+        16
+    );
+}
+
+#[test]
 fn cached_dirty_ranges_match_direct_rendering() {
     let mut direct = Renderer::new(VecBuffer::<u32>::new(8, 8), renderer_config());
     let mut scanline =
