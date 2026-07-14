@@ -15,7 +15,7 @@ pub trait PlatformImpl {
     }
     fn push_rounded_clip(&mut self, area: LogicalRect, radius: BorderRadius);
     fn pop_rounded_clip(&mut self);
-    fn draw_rectangle(&mut self, rectangle: &Rectangle, clip: PhysicalRect);
+    fn draw_rectangle(&mut self, rectangle: &Rectangle<'_>, clip: PhysicalRect);
     fn draw_box_shadow(&mut self, shadow: &BoxShadowRequest, clip: PhysicalRect);
     fn create_image(&mut self, data: ImageData) -> ImageId;
     fn drop_image(&mut self, image: ImageId);
@@ -58,7 +58,7 @@ impl Platform {
     }
 
     #[inline]
-    pub fn draw_rectangle(&mut self, rectangle: &Rectangle, clip: PhysicalRect) {
+    pub fn draw_rectangle(&mut self, rectangle: &Rectangle<'_>, clip: PhysicalRect) {
         unsafe { self.implementation.as_mut().draw_rectangle(rectangle, clip) }
     }
 

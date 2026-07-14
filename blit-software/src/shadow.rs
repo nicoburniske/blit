@@ -9,8 +9,6 @@ use slotmap::{Key, SlotMap};
 
 use crate::{RendererImageId, StoredImage, rectangle::rounded::Radii};
 
-const CACHE_CAPACITY: usize = 1024 * 1024;
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct KeyData {
     blur: i32,
@@ -26,17 +24,25 @@ struct Entry {
 
 #[derive(Default)]
 pub struct Cache {
+    pub capacity: usize,
     entries: Vec<Entry>,
     bytes: usize,
     clock: u64,
 }
 
 pub enum Prepared {
-    Rectangle(Rectangle),
+    Rectangle(Rectangle<'static>),
     Image(ImageRequest),
 }
 
 impl Cache {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            ..Default::default()
+        }
+    }
+
     pub fn prepare(
         &mut self,
         images: &mut SlotMap<RendererImageId, StoredImage>,
@@ -156,7 +162,7 @@ impl Cache {
     }
 
     pub fn finish_frame(&mut self, images: &mut SlotMap<RendererImageId, StoredImage>) {
-        while self.bytes > CACHE_CAPACITY {
+        while self.bytes > self.capacity {
             let Some(index) = self
                 .entries
                 .iter()

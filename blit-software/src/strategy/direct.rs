@@ -1,6 +1,6 @@
 use blit::{
     DirtyRegions, LogicalRect, PhysicalRect, TextRequest,
-    widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
+    widgets::{Border, BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 use slotmap::KeyData;
 
@@ -100,13 +100,10 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
     fn draw_rectangle(
         &mut self,
         context: &mut RenderContext<B>,
-        rectangle: &Rectangle,
+        rectangle: &Rectangle<'_>,
         clip: PhysicalRect,
     ) {
         if self.clips.is_active() {
-            let Some(rectangle) = rectangle::Prepared::new(rectangle, context.scale_factor) else {
-                return;
-            };
             let screen = PhysicalRect {
                 x: 0,
                 y: 0,
@@ -114,6 +111,45 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                 height: context.buffer.height() as i32,
             };
             let clip_id = self.clips.current();
+            if let Border::Gradient { width, gradient } = rectangle.border
+                && let Some(rectangle) =
+                    rectangle::Gradient::new(rectangle, width, gradient, context.scale_factor)
+            {
+                for damage in self.damage.regions() {
+                    let Some(bounds) = rectangle
+                        .geometry
+                        .intersection(clip)
+                        .and_then(|area| area.intersection(*damage))
+                        .and_then(|area| area.intersection(screen))
+                    else {
+                        continue;
+                    };
+                    for line in bounds.y..bounds.y + bounds.height {
+                        self.clips.for_each(
+                            clip_id,
+                            line,
+                            bounds.x..bounds.x + bounds.width,
+                            |range, coverage| {
+                                let clip = PhysicalRect {
+                                    x: range.start,
+                                    y: line,
+                                    width: range.end - range.start,
+                                    height: 1,
+                                };
+                                let row = PixelSpan {
+                                    x: 0,
+                                    pixels: context.buffer.line_mut(line as usize),
+                                };
+                                rectangle.draw_line(gradient.stops, line, clip, coverage, row);
+                            },
+                        );
+                    }
+                }
+                return;
+            }
+            let Some(rectangle) = rectangle::Prepared::new(rectangle, context.scale_factor) else {
+                return;
+            };
             for damage in self.damage.regions() {
                 let Some(bounds) = rectangle
                     .geometry

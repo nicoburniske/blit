@@ -3,8 +3,8 @@ use std::hint::black_box;
 use blit::{
     Color, DirtyRegions, FontId, ImageData, ImageFormat, ImagePixels, LogicalRect, PhysicalRect,
     widgets::{
-        BorderRadius, BoxShadow, BoxShadowRequest, ImageFit, ImageRequest, ImageSampling,
-        ImageTiling, Rectangle,
+        BorderRadius, BoxShadow, BoxShadowRequest, GradientStop, ImageFit, ImageRequest,
+        ImageSampling, ImageTiling, LinearGradient, Rectangle,
     },
 };
 use blit_software::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
@@ -40,6 +40,7 @@ fn scanline(criterion: &mut Criterion) {
         }],
         glyph_cache_capacity: 1,
         paragraph_cache_capacity: 1,
+        shadow_cache_capacity: 1024 * 1024,
     };
     let mut renderer =
         Renderer::new(VecBuffer::<u32>::new(1024, 768), config).strategy(Scanline::default());
@@ -175,6 +176,31 @@ fn scanline(criterion: &mut Criterion) {
         bencher.iter(|| {
             renderer.begin_frame(&shadow_clip);
             renderer.draw_box_shadow(black_box(&shadow), black_box(shadow_clip[0]));
+            renderer.end_frame();
+            black_box(renderer.buffer().pixels()[192 * 1024 + 512]);
+        });
+    });
+
+    let gradient_stops = [
+        GradientStop::new(0.0, Color::from_rgba8(80, 120, 255, 255)),
+        GradientStop::new(0.45, Color::from_rgba8(180, 70, 240, 220)),
+        GradientStop::new(1.0, Color::from_rgba8(255, 80, 120, 255)),
+    ];
+    let gradient = Rectangle::new(LogicalRect {
+        x: 256.0,
+        y: 192.0,
+        width: 512.0,
+        height: 384.0,
+    })
+    .background(Color::from_rgba8(24, 28, 38, 255))
+    .gradient_border(2.0, LinearGradient::new(&gradient_stops).angle(135.0))
+    .uniform_radius(24.0);
+    let gradient_clip = [gradient.area.to_physical(1.0)];
+
+    criterion.bench_function("gradient_border/512x384_width_2_three_stops", |bencher| {
+        bencher.iter(|| {
+            renderer.begin_frame(&gradient_clip);
+            renderer.draw_rectangle(black_box(&gradient), black_box(gradient_clip[0]));
             renderer.end_frame();
             black_box(renderer.buffer().pixels()[192 * 1024 + 512]);
         });

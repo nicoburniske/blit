@@ -20,7 +20,7 @@ pub trait RenderStrategy<B: PixelBuffer> {
     fn draw_rectangle(
         &mut self,
         context: &mut RenderContext<B>,
-        rectangle: &Rectangle,
+        rectangle: &Rectangle<'_>,
         clip: PhysicalRect,
     );
     fn draw_box_shadow(

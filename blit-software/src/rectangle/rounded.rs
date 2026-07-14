@@ -128,6 +128,16 @@ pub struct RoundedRectangle {
     pub bottom_clip: i32,
 }
 
+pub struct RoundedGradient {
+    pub radii: Radii,
+    pub border_width: i32,
+    pub inner_color: PremultipliedRgbaColor,
+    pub left_clip: i32,
+    pub right_clip: i32,
+    pub top_clip: i32,
+    pub bottom_clip: i32,
+}
+
 pub fn draw_line<P: Pixel>(
     span: PhysicalRect,
     line: i32,
@@ -135,55 +145,37 @@ pub fn draw_line<P: Pixel>(
     row: &mut [P],
 ) {
     let width = row.len();
-    let y1 = line - span.y + rounded.top_clip;
-    let y2 = span.y + span.height - line + rounded.bottom_clip - 1;
-    let y = y1.min(y2);
-    let border = Shifted::new(rounded.border_width);
+    let (y, border, [x1, x2, x3, x4, x5, x6, x7, x8]) = line_edges(
+        span,
+        line,
+        rounded.radii,
+        rounded.border_width,
+        [
+            rounded.left_clip,
+            rounded.right_clip,
+            rounded.top_clip,
+            rounded.bottom_clip,
+        ],
+        width,
+    );
     let anti_alias = |x1: Shifted, x2: Shifted, process_pixel: &mut dyn FnMut(usize, u32)| {
         for x in x1.floor()..x2.ceil() {
             process_pixel(x as usize, edge_coverage(x1, x2, x as i32));
         }
     };
-    let reverse = |x: Shifted| (Shifted::new(width as i32 + rounded.right_clip)).saturating_sub(x);
 
-    let (x1, x2, x3, x4) = if y1 < rounded.radii.top_left {
-        calculate_edges(rounded.radii.top_left, y1, border)
-    } else if y2 < rounded.radii.bottom_left {
-        calculate_edges(rounded.radii.bottom_left, y2, border)
-    } else {
-        (Shifted::ZERO, Shifted::ZERO, border, border)
-    };
-    let (x5, x6, x7, x8) = if y1 < rounded.radii.top_right {
-        let x = calculate_edges(rounded.radii.top_right, y1, border);
-        (x.3, x.2, x.1, x.0)
-    } else if y2 < rounded.radii.bottom_right {
-        let x = calculate_edges(rounded.radii.bottom_right, y2, border);
-        (x.3, x.2, x.1, x.0)
-    } else {
-        (border, border, Shifted::ZERO, Shifted::ZERO)
-    };
-    let (x5, x6, x7, x8) = (reverse(x5), reverse(x6), reverse(x7), reverse(x8));
-    let left_clip = Shifted::new(rounded.left_clip);
-
-    anti_alias(
-        x1.saturating_sub(left_clip),
-        x2.saturating_sub(left_clip),
-        &mut |x, coverage| {
-            if x < width {
-                let color = if border == Shifted::ZERO {
-                    rounded.inner_color
-                } else {
-                    rounded.border_color
-                };
-                row[x].blend(color.coverage(coverage));
-            }
-        },
-    );
+    anti_alias(x1, x2, &mut |x, coverage| {
+        if x < width {
+            let color = if border == Shifted::ZERO {
+                rounded.inner_color
+            } else {
+                rounded.border_color
+            };
+            row[x].blend(color.coverage(coverage));
+        }
+    });
     if y < rounded.border_width {
-        let left = x2
-            .ceil()
-            .saturating_sub(rounded.left_clip as u32)
-            .min(width as u32) as usize;
+        let left = x2.ceil().min(width as u32) as usize;
         let right = x7.floor().min(width as u32) as usize;
         if left < right {
             P::blend_slice(&mut row[left..right], rounded.border_color);
@@ -191,36 +183,23 @@ pub fn draw_line<P: Pixel>(
     } else {
         if border > Shifted::ZERO {
             if Shifted::ONE + x2 <= x3 {
-                let left = x2
-                    .ceil()
-                    .saturating_sub(rounded.left_clip as u32)
-                    .min(width as u32) as usize;
-                let right = x3
-                    .floor()
-                    .saturating_sub(rounded.left_clip as u32)
-                    .min(width as u32) as usize;
+                let left = x2.ceil().min(width as u32) as usize;
+                let right = x3.floor().min(width as u32) as usize;
                 if left < right {
                     P::blend_slice(&mut row[left..right], rounded.border_color);
                 }
             }
-            anti_alias(
-                x3.saturating_sub(left_clip),
-                x4.saturating_sub(left_clip),
-                &mut |x, coverage| {
-                    if x < width {
-                        row[x].blend(interpolate(
-                            coverage,
-                            rounded.border_color,
-                            rounded.inner_color,
-                        ));
-                    }
-                },
-            );
+            anti_alias(x3, x4, &mut |x, coverage| {
+                if x < width {
+                    row[x].blend(interpolate(
+                        coverage,
+                        rounded.border_color,
+                        rounded.inner_color,
+                    ));
+                }
+            });
         }
-        let left = x4
-            .ceil()
-            .saturating_sub(rounded.left_clip as u32)
-            .min(width as u32) as usize;
+        let left = x4.ceil().min(width as u32) as usize;
         let right = x5.floor().min(width as u32) as usize;
         if left < right {
             P::blend_slice(&mut row[left..right], rounded.inner_color);
@@ -254,6 +233,149 @@ pub fn draw_line<P: Pixel>(
             row[x].blend(color.coverage(255 - coverage));
         }
     });
+}
+
+pub fn draw_gradient_line<P: Pixel>(
+    span: PhysicalRect,
+    line: i32,
+    rounded: &RoundedGradient,
+    row: &mut [P],
+    mut border_color: impl FnMut(i32) -> PremultipliedRgbaColor,
+) {
+    let width = row.len();
+    let (y, border, [x1, x2, x3, x4, x5, x6, x7, x8]) = line_edges(
+        span,
+        line,
+        rounded.radii,
+        rounded.border_width,
+        [
+            rounded.left_clip,
+            rounded.right_clip,
+            rounded.top_clip,
+            rounded.bottom_clip,
+        ],
+        width,
+    );
+    for x in x1.floor()..x2.ceil() {
+        let x = x as usize;
+        if x < width {
+            row[x].blend(border_color(span.x + x as i32).coverage(edge_coverage(x1, x2, x as i32)));
+        }
+    }
+    if y < rounded.border_width {
+        blend_gradient(row, span.x, x2, x7, &mut border_color);
+    } else {
+        if border > Shifted::ZERO {
+            if Shifted::ONE + x2 <= x3 {
+                blend_gradient(row, span.x, x2, x3, &mut border_color);
+            }
+            for x in x3.floor()..x4.ceil() {
+                let x = x as usize;
+                if x < width {
+                    row[x].blend(interpolate(
+                        edge_coverage(x3, x4, x as i32),
+                        border_color(span.x + x as i32),
+                        rounded.inner_color,
+                    ));
+                }
+            }
+        }
+        let left = x4.ceil().min(width as u32) as usize;
+        let right = x5.floor().min(width as u32) as usize;
+        if left < right {
+            P::blend_slice(&mut row[left..right], rounded.inner_color);
+        }
+        if border > Shifted::ZERO {
+            for x in x5.floor()..x6.ceil() {
+                let x = x as usize;
+                if x < width {
+                    row[x].blend(interpolate(
+                        edge_coverage(x5, x6, x as i32),
+                        rounded.inner_color,
+                        border_color(span.x + x as i32),
+                    ));
+                }
+            }
+            if Shifted::ONE + x6 <= x7 {
+                blend_gradient(row, span.x, x6, x7, &mut border_color);
+            }
+        }
+    }
+    for x in x7.floor()..x8.ceil() {
+        let x = x as usize;
+        if x < width {
+            row[x].blend(
+                border_color(span.x + x as i32).coverage(255 - edge_coverage(x7, x8, x as i32)),
+            );
+        }
+    }
+}
+
+fn blend_gradient<P: Pixel>(
+    row: &mut [P],
+    span_x: i32,
+    start: Shifted,
+    end: Shifted,
+    border_color: &mut impl FnMut(i32) -> PremultipliedRgbaColor,
+) {
+    let start = start.ceil().min(row.len() as u32) as usize;
+    let end = end.floor().min(row.len() as u32) as usize;
+    for (x, pixel) in row.iter_mut().enumerate().take(end).skip(start) {
+        let color = border_color(span_x + x as i32);
+        if color.alpha == 255 {
+            *pixel = P::from_rgb(color.red, color.green, color.blue);
+        } else {
+            pixel.blend(color);
+        }
+    }
+}
+
+#[inline]
+fn line_edges(
+    span: PhysicalRect,
+    line: i32,
+    radii: Radii,
+    border_width: i32,
+    clips: [i32; 4],
+    width: usize,
+) -> (i32, Shifted, [Shifted; 8]) {
+    let [left_clip, right_clip, top_clip, bottom_clip] = clips;
+    let y1 = line - span.y + top_clip;
+    let y2 = span.y + span.height - line + bottom_clip - 1;
+    let y = y1.min(y2);
+    let border = Shifted::new(border_width);
+    let (x1, x2, x3, x4) = if y1 < radii.top_left {
+        calculate_edges(radii.top_left, y1, border)
+    } else if y2 < radii.bottom_left {
+        calculate_edges(radii.bottom_left, y2, border)
+    } else {
+        (Shifted::ZERO, Shifted::ZERO, border, border)
+    };
+    let (x5, x6, x7, x8) = if y1 < radii.top_right {
+        let x = calculate_edges(radii.top_right, y1, border);
+        (x.3, x.2, x.1, x.0)
+    } else if y2 < radii.bottom_right {
+        let x = calculate_edges(radii.bottom_right, y2, border);
+        (x.3, x.2, x.1, x.0)
+    } else {
+        (border, border, Shifted::ZERO, Shifted::ZERO)
+    };
+    let reverse = |x: Shifted| (Shifted::new(width as i32 + right_clip)).saturating_sub(x);
+    let left_clip = Shifted::new(left_clip);
+    (
+        y,
+        border,
+        [
+            x1.saturating_sub(left_clip),
+            x2.saturating_sub(left_clip),
+            x3.saturating_sub(left_clip),
+            x4.saturating_sub(left_clip),
+            reverse(x5),
+            reverse(x6),
+            reverse(x7),
+            reverse(x8),
+        ],
+    )
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -339,7 +461,7 @@ fn edge_coverage(start: Shifted, end: Shifted, x: i32) -> u32 {
     (((Shifted::ONE + Shifted::new(x) - start).0 << 8) / (Shifted::ONE + end - start).0).min(255)
 }
 
-fn interpolate(
+pub fn interpolate(
     amount: u32,
     first: PremultipliedRgbaColor,
     second: PremultipliedRgbaColor,

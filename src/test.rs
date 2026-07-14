@@ -34,7 +34,7 @@ impl PlatformImpl for TestPlatform {
 
     fn pop_rounded_clip(&mut self) {}
 
-    fn draw_rectangle(&mut self, _: &widgets::Rectangle, _: PhysicalRect) {}
+    fn draw_rectangle(&mut self, _: &widgets::Rectangle<'_>, _: PhysicalRect) {}
 
     fn draw_box_shadow(&mut self, _: &widgets::BoxShadowRequest, _: PhysicalRect) {}
 

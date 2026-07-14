@@ -44,6 +44,7 @@ impl TestPlatform {
                     }],
                     glyph_cache_capacity: 1024 * 1024,
                     paragraph_cache_capacity: 1024 * 1024,
+                    shadow_cache_capacity: 1024 * 1024,
                 },
             )
             .strategy(Scanline::default()),
@@ -149,7 +150,7 @@ impl PlatformImpl for TestPlatform {
         self.renderer.pop_rounded_clip()
     }
 
-    fn draw_rectangle(&mut self, rectangle: &Rectangle, clip: PhysicalRect) {
+    fn draw_rectangle(&mut self, rectangle: &Rectangle<'_>, clip: PhysicalRect) {
         self.renderer.draw_rectangle(rectangle, clip)
     }
 
