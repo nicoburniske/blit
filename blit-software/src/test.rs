@@ -1,8 +1,8 @@
 use super::*;
 use blit::{
     Color, Easing, ImageData, ImageFormat, ImageId, ImagePixels, Input, KeyboardRequest,
-    LogicalPoint, LogicalRect, PhysicalRect, Platform, PlatformImpl, Runtime, TextOptions,
-    TextRequest, TextStyle, WidgetId,
+    LogicalPoint, LogicalRect, PhysicalRect, PlatformImpl, Runtime, TextOptions, TextRequest,
+    TextStyle, WidgetId,
     widgets::{
         BorderRadius, BoxShadow, BoxShadowRequest, GradientStop, ImageFit, ImageRequest,
         ImageSampling, LinearGradient, Rectangle,
@@ -230,12 +230,11 @@ fn renderer_supports_custom_pixel_layouts() {
 
 #[test]
 fn moving_animation_draws_entire_current_geometry() {
-    let mut platform = RuntimePlatform {
+    let mut runtime = Runtime::new(RuntimePlatform {
         renderer: Renderer::new(VecBuffer::<u32>::new(32, 16), renderer_config())
             .strategy(Scanline::default()),
-    };
-    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) })
-        .with_repaint_buffer(blit::RepaintBuffer::Swapped);
+    })
+    .with_repaint_buffer(blit::RepaintBuffer::Swapped);
     let id = WidgetId::new("moving circle");
     let render = |ui: &mut blit::Ui, target| {
         Rectangle::new(ui.screen())
@@ -260,7 +259,7 @@ fn moving_animation_draws_entire_current_geometry() {
     runtime.render(Duration::from_millis(60), Input::None, |ui| render(ui, 4.0));
 
     assert_eq!(
-        platform.renderer.buffer().pixels()[8 * 32 + 14],
+        runtime.platform().renderer.buffer().pixels()[8 * 32 + 14],
         0x00ff_ffff
     );
 }
