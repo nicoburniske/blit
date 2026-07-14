@@ -8,6 +8,7 @@ use crate::{
 
 pub trait PlatformImpl {
     fn begin_frame(&mut self, _: &[PhysicalRect]) {}
+    fn add_damage(&mut self, area: PhysicalRect);
     fn end_frame(&mut self) {}
     fn screen(&mut self) -> PhysicalRect;
     fn scale_factor(&mut self) -> f32 {
@@ -126,6 +127,10 @@ impl Platform {
 
     pub(crate) fn begin_frame(&mut self, damage: &[PhysicalRect]) {
         unsafe { self.implementation.as_mut().begin_frame(damage) }
+    }
+
+    pub(crate) fn add_damage(&mut self, area: PhysicalRect) {
+        unsafe { self.implementation.as_mut().add_damage(area) }
     }
 
     pub(crate) fn end_frame(&mut self) {

@@ -231,6 +231,10 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         }
     }
 
+    fn add_damage(&mut self, area: PhysicalRect) {
+        self.damage.add(area)
+    }
+
     fn push_rounded_clip(&mut self, area: LogicalRect, radius: BorderRadius, scale_factor: f32) {
         self.clips.push(area, radius, scale_factor)
     }

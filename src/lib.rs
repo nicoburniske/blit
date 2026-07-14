@@ -110,7 +110,9 @@ impl Ui {
     /// animates a repeating value from `0.0` up to `1.0`, keyed by `id`
     ///
     /// render affected content through the returned scope so its damage bounds
-    /// can be tracked; `duration` must not be zero
+    /// can be tracked
+    ///
+    /// zero duration stops the loop and resets the value
     pub fn animate_loop(
         &mut self,
         id: WidgetId,
@@ -243,11 +245,16 @@ impl Ui {
         let area = area
             .to_physical(self.scale_factor)
             .intersection(self.clip)?;
+        let mut damaged = false;
         for capture in &mut self.animation_stack[..self.animation_depth] {
             capture.bounds = Some(capture.bounds.map_or(area, |bounds| bounds.union(area)));
             if capture.damage {
+                damaged = true;
                 self.dirty.add(area);
             }
+        }
+        if damaged {
+            self.platform().add_damage(area);
         }
         self.dirty
             .regions()

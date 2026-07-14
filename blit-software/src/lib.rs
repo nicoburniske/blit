@@ -87,6 +87,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         self.strategy.begin_frame(&mut self.context, damage)
     }
 
+    pub fn add_damage(&mut self, area: PhysicalRect) {
+        self.strategy.add_damage(area)
+    }
+
     pub fn end_frame(&mut self) {
         self.strategy.end_frame(&mut self.context);
         self.context.finish_frame();
