@@ -9,7 +9,7 @@ use crate::{Input, LogicalPoint, PhysicalPoint, PhysicalRect};
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 const DRAG_THRESHOLD: f32 = 6.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WidgetId(u64);
 
 impl WidgetId {

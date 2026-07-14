@@ -21,7 +21,7 @@ use std::{
     time::Duration,
 };
 
-pub use animation::Easing;
+pub use animation::{Easing, Transition};
 pub use color::Color;
 pub use component::SizedComponent;
 pub use dirty::DirtyRegions;
@@ -69,9 +69,8 @@ impl Ui {
 
     /// animates a value toward `target`, keyed by `id`
     ///
-    /// the first call starts at `target`. changing the target on a later frame
-    /// starts a transition from the current value. render affected content
-    /// through the returned scope so its damage bounds can be tracked
+    /// the first call snaps to `target`. later target changes animate from the
+    /// current value. render through the returned scope to track damage
     pub fn animate(
         &mut self,
         id: WidgetId,
@@ -80,8 +79,31 @@ impl Ui {
         easing: Easing,
     ) -> AnimationScope<'_> {
         let time = self.time;
-        begin_animation(self, id, target, |animation| {
+        begin_animations(self, [id], [target], |_, animation| {
             animation.advance(target, duration, easing, time)
+        })
+    }
+
+    /// animates independent values through one damage scope, keyed by `id`
+    ///
+    /// each value follows [`Ui::animate`] with its own target, duration, and
+    /// easing. array order must remain stable between frames
+    pub fn animate_values<const N: usize>(
+        &mut self,
+        id: WidgetId,
+        transitions: [Transition; N],
+    ) -> AnimationScope<'_, N> {
+        let time = self.time;
+        let ids = std::array::from_fn(|index| id.child(("animation component", index)));
+        let initial = transitions.map(|transition| transition.target);
+        begin_animations(self, ids, initial, |index, animation| {
+            let transition = transitions[index];
+            animation.advance(
+                transition.target,
+                transition.duration,
+                transition.easing,
+                time,
+            )
         })
     }
 
@@ -96,7 +118,7 @@ impl Ui {
         easing: Easing,
     ) -> AnimationScope<'_> {
         let time = self.time;
-        begin_animation(self, id, 0.0, |animation| {
+        begin_animations(self, [id], [0.0], |_, animation| {
             animation.advance_loop(duration, easing, time)
         })
     }
@@ -237,24 +259,32 @@ impl Ui {
 
 #[derive(Clone, Copy, Default)]
 struct AnimationCapture {
-    index: usize,
     bounds: Option<PhysicalRect>,
     damage: bool,
-    changed: bool,
 }
 
-pub struct AnimationScope<'a> {
+pub struct AnimationScope<'a, const N: usize = 1> {
     ui: &'a mut Ui,
-    index: usize,
+    ids: [WidgetId; N],
+    values: [f32; N],
+    active: [bool; N],
+    changed: [bool; N],
+    depth: usize,
 }
 
-impl AnimationScope<'_> {
+impl AnimationScope<'_, 1> {
     pub fn value(&self) -> f32 {
-        self.ui.shared().animations[self.index].value
+        self.values[0]
+    }
+}
+
+impl<const N: usize> AnimationScope<'_, N> {
+    pub fn values(&self) -> [f32; N] {
+        self.values
     }
 
     pub fn is_active(&self) -> bool {
-        self.ui.shared().animations[self.index].is_active()
+        self.active.iter().any(|active| *active)
     }
 
     pub fn finish(self) {
@@ -262,7 +292,7 @@ impl AnimationScope<'_> {
     }
 }
 
-impl Deref for AnimationScope<'_> {
+impl<const N: usize> Deref for AnimationScope<'_, N> {
     type Target = Ui;
 
     fn deref(&self) -> &Self::Target {
@@ -270,34 +300,46 @@ impl Deref for AnimationScope<'_> {
     }
 }
 
-impl DerefMut for AnimationScope<'_> {
+impl<const N: usize> DerefMut for AnimationScope<'_, N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.ui
     }
 }
 
-impl Drop for AnimationScope<'_> {
+impl<const N: usize> Drop for AnimationScope<'_, N> {
     fn drop(&mut self) {
-        self.ui.animation_depth -= 1;
-        let capture = self.ui.animation_stack[self.ui.animation_depth];
         assert_eq!(
-            capture.index, self.index,
+            self.ui.animation_depth,
+            self.depth + 1,
             "animation scopes must be dropped in reverse order"
         );
+        self.ui.animation_depth = self.depth;
+        let capture = self.ui.animation_stack[self.depth];
         let shared = self.ui.shared_mut();
-        let animation = &mut shared.animations[self.index];
-        let active = animation.is_active();
-        if capture.changed && !active {
-            if let Some(area) = animation.previous_bounds {
+        let mut active = false;
+        let mut changed = false;
+        for (component, id) in self.ids.iter().enumerate() {
+            let index = shared
+                .animations
+                .binary_search_by_key(id, |animation| animation.id)
+                .expect("animation state disappeared while its scope was active");
+            let animation = &mut shared.animations[index];
+            let previous_bounds = animation.previous_bounds;
+            animation.previous_bounds = capture.bounds;
+            if self.changed[component]
+                && !self.active[component]
+                && let Some(area) = previous_bounds
+            {
                 shared.pending.add(area);
             }
+            active |= self.active[component];
+            changed |= self.changed[component];
         }
-        if active || capture.changed {
-            if let Some(area) = capture.bounds {
-                shared.pending.add(area);
-            }
+        if (active || changed)
+            && let Some(area) = capture.bounds
+        {
+            shared.pending.add(area);
         }
-        animation.previous_bounds = capture.bounds;
     }
 }
 
@@ -357,47 +399,75 @@ impl Drop for ClipScope<'_> {
     }
 }
 
-fn begin_animation(
+fn begin_animations<const N: usize>(
     ui: &mut Ui,
-    id: WidgetId,
-    initial: f32,
-    advance: impl FnOnce(&mut animation::AnimationState) -> (bool, bool),
-) -> AnimationScope<'_> {
+    ids: [WidgetId; N],
+    initial: [f32; N],
+    mut advance: impl FnMut(usize, &mut animation::AnimationState) -> (bool, bool),
+) -> AnimationScope<'_, N> {
+    assert!(N != 0, "animation groups must contain at least one value");
     assert!(
         ui.animation_depth < ui.animation_stack.len(),
         "animation scopes nested too deeply"
     );
-    let animations = &mut ui.shared_mut().animations;
-    let old_len = animations.len();
-    let index = animations
-        .iter()
-        .position(|animation| animation.id == id)
-        .unwrap_or_else(|| {
-            animations.push(animation::AnimationState::new(id, initial));
-            animations.len() - 1
-        });
-    assert!(
-        !animations[index].seen,
-        "duplicate animation WidgetId {id:?}"
-    );
-    let (damage, changed) = advance(&mut animations[index]);
-    let damage = damage || index == old_len;
-    if damage {
-        if let Some(area) = animations[index]
-            .previous_bounds
-            .and_then(|area| area.intersection(ui.clip))
+
+    let mut values = [0.0; N];
+    let mut active = [false; N];
+    let mut changed = [false; N];
+    let mut damage = false;
+    for component in 0..N {
+        let id = ids[component];
+        let (value, component_active, component_damage, component_changed, previous_bounds) = {
+            let animations = &mut ui.shared_mut().animations;
+            let (index, created) =
+                match animations.binary_search_by_key(&id, |animation| animation.id) {
+                    Ok(index) => (index, false),
+                    Err(index) => {
+                        animations.insert(
+                            index,
+                            animation::AnimationState::new(id, initial[component]),
+                        );
+                        (index, true)
+                    }
+                };
+            assert!(
+                !animations[index].seen,
+                "duplicate animation WidgetId {id:?}"
+            );
+            let (component_damage, component_changed) = advance(component, &mut animations[index]);
+            (
+                animations[index].value,
+                animations[index].is_active(),
+                component_damage || created,
+                component_changed,
+                animations[index].previous_bounds,
+            )
+        };
+        values[component] = value;
+        active[component] = component_active;
+        changed[component] = component_changed;
+        damage |= component_damage;
+        if component_damage
+            && let Some(area) = previous_bounds.and_then(|area| area.intersection(ui.clip))
         {
             ui.dirty.add(area);
         }
     }
-    ui.animation_stack[ui.animation_depth] = AnimationCapture {
-        index,
+
+    let depth = ui.animation_depth;
+    ui.animation_stack[depth] = AnimationCapture {
         bounds: None,
         damage,
-        changed,
     };
     ui.animation_depth += 1;
-    AnimationScope { ui, index }
+    AnimationScope {
+        ui,
+        ids,
+        values,
+        active,
+        changed,
+        depth,
+    }
 }
 
 fn begin_timer(ui: &mut Ui, id: WidgetId, duration: Duration, interval: Option<Duration>) -> bool {

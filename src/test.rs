@@ -719,6 +719,83 @@ fn animation_is_keyed_and_target_driven() {
 }
 
 #[test]
+fn grouped_animations_advance_independently() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let id = WidgetId::new("position");
+    let transitions = |x, y| {
+        [
+            Transition::new(x, Duration::from_millis(100), Easing::Linear),
+            Transition::new(y, Duration::from_millis(200), Easing::Linear),
+        ]
+    };
+
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        ui.animate_values(id, transitions(0.0, 0.0));
+    });
+    runtime.render(Duration::from_millis(10), Input::None, |ui| {
+        ui.animate_values(id, transitions(10.0, 20.0));
+    });
+    let changed = runtime.render(Duration::from_millis(60), Input::None, |ui| {
+        ui.animate_values(id, transitions(15.0, 20.0)).values()
+    });
+    let (middle, middle_active) = runtime.render(Duration::from_millis(110), Input::None, |ui| {
+        let animation = ui.animate_values(id, transitions(15.0, 20.0));
+        (animation.values(), animation.is_active())
+    });
+    let (finished, finished_active) =
+        runtime.render(Duration::from_millis(210), Input::None, |ui| {
+            let animation = ui.animate_values(id, transitions(15.0, 20.0));
+            (animation.values(), animation.is_active())
+        });
+
+    assert_eq!(changed, [5.0, 5.0]);
+    assert_eq!(middle, [10.0, 10.0]);
+    assert!(middle_active);
+    assert_eq!(finished, [15.0, 20.0]);
+    assert!(!finished_active);
+}
+
+#[test]
+fn grouped_animation_queues_shared_old_and_new_bounds() {
+    let mut platform = TestPlatform;
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });
+    let id = WidgetId::new("moving point");
+    let render = |ui: &mut Ui, position: [f32; 2]| {
+        let [x, y] = position;
+        let mut animation = ui.animate_values(
+            id,
+            [
+                Transition::new(x, Duration::ZERO, Easing::Linear),
+                Transition::new(y, Duration::ZERO, Easing::Linear),
+            ],
+        );
+        let [x, y] = animation.values();
+        widgets::Rectangle::new(LogicalRect {
+            x,
+            y,
+            width: 2.0,
+            height: 2.0,
+        })
+        .render(&mut animation);
+    };
+
+    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, [1.0, 2.0]));
+    runtime.render(Duration::from_millis(1), Input::None, |ui| {
+        render(ui, [6.0, 5.0])
+    });
+    let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| ui.dirty.clone());
+
+    let old = PhysicalRect {
+        x: 1,
+        y: 2,
+        width: 2,
+        height: 2,
+    };
+    assert_eq!(damage.regions(), &[old, PhysicalRect { x: 6, y: 5, ..old }]);
+}
+
+#[test]
 fn animation_tracks_previous_and_current_draw_bounds() {
     let mut platform = TestPlatform;
     let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) });

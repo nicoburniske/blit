@@ -23,6 +23,23 @@ impl Easing {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Transition {
+    pub target: f32,
+    pub duration: Duration,
+    pub easing: Easing,
+}
+
+impl Transition {
+    pub const fn new(target: f32, duration: Duration, easing: Easing) -> Self {
+        Self {
+            target,
+            duration,
+            easing,
+        }
+    }
+}
+
 pub struct AnimationState {
     pub id: WidgetId,
     pub value: f32,
