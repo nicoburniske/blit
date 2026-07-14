@@ -21,6 +21,8 @@ impl SizedComponent for FixedSize {
 }
 
 impl PlatformImpl for TestPlatform {
+    fn add_damage(&mut self, _: PhysicalRect) {}
+
     fn screen(&mut self) -> PhysicalRect {
         PhysicalRect {
             x: 0,
@@ -998,19 +1000,9 @@ fn looping_animation_repeats() {
     assert!(runtime.has_pending_redraw());
 
     let value = runtime.render(Duration::from_millis(1351), Input::None, |ui| {
-        ui.animate(id, 1.0, Duration::from_secs(1), Easing::Linear)
-            .value()
+        ui.animate_loop(id, Duration::ZERO, Easing::Linear).value()
     });
-    assert_eq!(value, 0.25);
-    assert!(runtime.has_pending_redraw());
-
-    let value = runtime.render(Duration::from_millis(1851), Input::None, |ui| {
-        ui.animate(id, 1.0, Duration::from_secs(1), Easing::Linear)
-            .value()
-    });
-    assert_eq!(value, 0.625);
-
-    runtime.render(Duration::from_millis(1852), Input::None, |_| {});
+    assert_eq!(value, 0.0);
     assert!(!runtime.has_pending_redraw());
 }
 

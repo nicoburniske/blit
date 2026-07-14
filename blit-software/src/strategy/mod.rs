@@ -15,6 +15,7 @@ use crate::{PixelBuffer, RenderContext};
 
 pub trait RenderStrategy<B: PixelBuffer> {
     fn begin_frame(&mut self, context: &mut RenderContext<B>, damage: &[PhysicalRect]);
+    fn add_damage(&mut self, area: PhysicalRect);
     fn push_rounded_clip(&mut self, area: LogicalRect, radius: BorderRadius, scale_factor: f32);
     fn pop_rounded_clip(&mut self);
     fn draw_rectangle(

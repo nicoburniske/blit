@@ -125,10 +125,9 @@ impl AnimationState {
         easing: Easing,
         now: Duration,
     ) -> (bool, bool) {
-        assert!(
-            !duration.is_zero(),
-            "looping animation duration must not be zero"
-        );
+        if duration.is_zero() {
+            return self.advance(0.0, duration, easing, now);
+        }
         let changed = !self.looping || self.duration != duration || self.easing != easing;
         if changed {
             self.started_at = Some(now);

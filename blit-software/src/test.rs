@@ -1,12 +1,14 @@
 use super::*;
 use blit::{
-    Color, ImageFormat, ImagePixels, LogicalRect, TextOptions, TextStyle,
+    Color, Easing, ImageData, ImageFormat, ImageId, ImagePixels, Input, KeyboardRequest,
+    LogicalPoint, LogicalRect, PhysicalRect, Platform, PlatformImpl, Runtime, TextOptions,
+    TextRequest, TextStyle, WidgetId,
     widgets::{
         BorderRadius, BoxShadow, BoxShadowRequest, GradientStop, ImageFit, ImageRequest,
         ImageSampling, LinearGradient, Rectangle,
     },
 };
-use std::ops::Range;
+use std::{ops::Range, time::Duration};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
@@ -35,6 +37,74 @@ struct TrackingBuffer {
     ranges: Vec<Range<usize>>,
     width: usize,
     height: usize,
+}
+
+struct RuntimePlatform {
+    renderer: Renderer<VecBuffer<u32>, Scanline>,
+}
+
+impl PlatformImpl for RuntimePlatform {
+    fn begin_frame(&mut self, damage: &[PhysicalRect]) {
+        self.renderer.begin_frame(damage)
+    }
+
+    fn add_damage(&mut self, area: PhysicalRect) {
+        self.renderer.add_damage(area)
+    }
+
+    fn end_frame(&mut self) {
+        self.renderer.end_frame()
+    }
+
+    fn screen(&mut self) -> PhysicalRect {
+        self.renderer.screen()
+    }
+
+    fn push_rounded_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.renderer.push_rounded_clip(area, radius)
+    }
+
+    fn pop_rounded_clip(&mut self) {
+        self.renderer.pop_rounded_clip()
+    }
+
+    fn draw_rectangle(&mut self, rectangle: &Rectangle<'_>, clip: PhysicalRect) {
+        self.renderer.draw_rectangle(rectangle, clip)
+    }
+
+    fn draw_box_shadow(&mut self, shadow: &BoxShadowRequest, clip: PhysicalRect) {
+        self.renderer.draw_box_shadow(shadow, clip)
+    }
+
+    fn create_image(&mut self, data: ImageData) -> ImageId {
+        self.renderer.create_image(data)
+    }
+
+    fn drop_image(&mut self, image: ImageId) {
+        self.renderer.drop_image(image)
+    }
+
+    fn draw_image(&mut self, image: &ImageRequest, clip: PhysicalRect) {
+        self.renderer.draw_image(image, clip)
+    }
+
+    fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) {
+        self.renderer.draw_text(request, clip)
+    }
+
+    fn text_offset_at_position(
+        &mut self,
+        request: &TextRequest<'_>,
+        position: LogicalPoint,
+    ) -> usize {
+        self.renderer.text_offset_at_position(request, position)
+    }
+
+    fn text_cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect {
+        self.renderer.text_cursor_rect(request, byte_offset)
+    }
+
+    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
 }
 
 impl PixelBuffer for TrackingBuffer {
@@ -156,6 +226,43 @@ fn renderer_supports_custom_pixel_layouts() {
     let start = renderer.text_cursor_rect(&request, 0);
     let end = renderer.text_cursor_rect(&request, request.text.len());
     assert!(end.x > start.x);
+}
+
+#[test]
+fn moving_animation_draws_entire_current_geometry() {
+    let mut platform = RuntimePlatform {
+        renderer: Renderer::new(VecBuffer::<u32>::new(32, 16), renderer_config())
+            .strategy(Scanline::default()),
+    };
+    let mut runtime = Runtime::new(unsafe { Platform::new(&mut platform) })
+        .with_repaint_buffer(blit::RepaintBuffer::Swapped);
+    let id = WidgetId::new("moving circle");
+    let render = |ui: &mut blit::Ui, target| {
+        Rectangle::new(ui.screen())
+            .background(Color::BLACK)
+            .render(ui);
+        let mut animation = ui.animate(id, target, Duration::from_millis(100), Easing::Linear);
+        Rectangle::new(LogicalRect {
+            x: animation.value(),
+            y: 4.0,
+            width: 8.0,
+            height: 8.0,
+        })
+        .background(Color::WHITE)
+        .uniform_radius(4.0)
+        .render(&mut animation);
+    };
+
+    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, 16.0));
+    runtime.render(Duration::from_millis(1), Input::None, |ui| render(ui, 16.0));
+    runtime.render(Duration::from_millis(2), Input::None, |ui| render(ui, 16.0));
+    runtime.render(Duration::from_millis(10), Input::None, |ui| render(ui, 4.0));
+    runtime.render(Duration::from_millis(60), Input::None, |ui| render(ui, 4.0));
+
+    assert_eq!(
+        platform.renderer.buffer().pixels()[8 * 32 + 14],
+        0x00ff_ffff
+    );
 }
 
 #[test]
