@@ -33,56 +33,56 @@ pub trait PlatformImpl {
 }
 
 pub struct Platform {
-    implementation: NonNull<dyn PlatformImpl>,
+    inner: NonNull<dyn PlatformImpl>,
     not_send_or_sync: PhantomData<Rc<()>>,
 }
 
 impl Platform {
     #[inline]
     pub fn screen(&mut self) -> PhysicalRect {
-        unsafe { self.implementation.as_mut().screen() }
+        self.inner().screen()
     }
 
     #[inline]
     pub fn scale_factor(&mut self) -> f32 {
-        unsafe { self.implementation.as_mut().scale_factor() }
+        self.inner().scale_factor()
     }
 
     #[inline]
     pub fn push_rounded_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
-        unsafe { self.implementation.as_mut().push_rounded_clip(area, radius) }
+        self.inner().push_rounded_clip(area, radius)
     }
 
     #[inline]
     pub fn pop_rounded_clip(&mut self) {
-        unsafe { self.implementation.as_mut().pop_rounded_clip() }
+        self.inner().pop_rounded_clip()
     }
 
     #[inline]
     pub fn draw_rectangle(&mut self, rectangle: &Rectangle<'_>, clip: PhysicalRect) {
-        unsafe { self.implementation.as_mut().draw_rectangle(rectangle, clip) }
+        self.inner().draw_rectangle(rectangle, clip)
     }
 
     #[inline]
     pub fn draw_box_shadow(&mut self, shadow: &BoxShadowRequest, clip: PhysicalRect) {
-        unsafe { self.implementation.as_mut().draw_box_shadow(shadow, clip) }
+        self.inner().draw_box_shadow(shadow, clip)
     }
 
     #[inline]
     pub fn create_image(&mut self, image: ImageData) -> ImageHandle {
         let size = image.size;
-        let id = unsafe { self.implementation.as_mut().create_image(image) };
-        ImageHandle::new(id, size, self.implementation)
+        let id = self.inner().create_image(image);
+        ImageHandle::new(id, size, self.inner)
     }
 
     #[inline]
     pub fn draw_image(&mut self, image: &ImageRequest, clip: PhysicalRect) {
-        unsafe { self.implementation.as_mut().draw_image(image, clip) }
+        self.inner().draw_image(image, clip)
     }
 
     #[inline]
     pub fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) {
-        unsafe { self.implementation.as_mut().draw_text(request, clip) }
+        self.inner().draw_text(request, clip)
     }
 
     #[inline]
@@ -91,11 +91,7 @@ impl Platform {
         request: &TextRequest<'_>,
         position: LogicalPoint,
     ) -> usize {
-        unsafe {
-            self.implementation
-                .as_mut()
-                .text_offset_at_position(request, position)
-        }
+        self.inner().text_offset_at_position(request, position)
     }
 
     #[inline]
@@ -104,36 +100,39 @@ impl Platform {
         request: &TextRequest<'_>,
         byte_offset: usize,
     ) -> LogicalRect {
-        unsafe {
-            self.implementation
-                .as_mut()
-                .text_cursor_rect(request, byte_offset)
-        }
+        self.inner().text_cursor_rect(request, byte_offset)
     }
 
     #[inline]
     pub fn show_keyboard(&mut self, request: &KeyboardRequest<'_>) {
-        unsafe { self.implementation.as_mut().show_keyboard(request) }
+        self.inner().show_keyboard(request)
     }
 }
 
 impl Platform {
     pub unsafe fn new<T: PlatformImpl + 'static>(implementation: &mut T) -> Self {
         Self {
-            implementation: NonNull::from(implementation as &mut dyn PlatformImpl),
+            inner: NonNull::from(implementation as &mut dyn PlatformImpl),
             not_send_or_sync: PhantomData,
         }
     }
 
     pub(crate) fn begin_frame(&mut self, damage: &[PhysicalRect]) {
-        unsafe { self.implementation.as_mut().begin_frame(damage) }
+        self.inner().begin_frame(damage)
     }
 
     pub(crate) fn add_damage(&mut self, area: PhysicalRect) {
-        unsafe { self.implementation.as_mut().add_damage(area) }
+        self.inner().add_damage(area)
     }
 
     pub(crate) fn end_frame(&mut self) {
-        unsafe { self.implementation.as_mut().end_frame() }
+        self.inner().end_frame()
+    }
+
+    #[inline]
+    fn inner(&mut self) -> &mut dyn PlatformImpl {
+        // safety: platform is strictly single threaded
+        // and never returns borrowed data from implementation
+        unsafe { self.inner.as_mut() }
     }
 }
