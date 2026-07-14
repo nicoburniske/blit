@@ -33,6 +33,7 @@ crate::component! {
         pub read_only: bool,
         pub keyboard_kind: KeyboardKind,
         pub request_caps: bool,
+        // todo: don't love this being in here...
         pub accept_button_text: &'a str = "",
         pub accept_button_enabled: bool = true,
         pub delete_button_enabled: bool = true,
