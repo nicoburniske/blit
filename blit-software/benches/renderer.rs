@@ -124,27 +124,6 @@ fn scanline(criterion: &mut Criterion) {
         },
     );
 
-    let rounded_partial_left = Rectangle::new(left_clip[0].to_logical(1.0))
-        .background(Color::from_rgba8(20, 40, 60, 255))
-        .uniform_radius(32.0);
-    let rounded_partial_right = Rectangle::new(right_clip[0].to_logical(1.0))
-        .background(Color::from_rgba8(60, 40, 20, 255))
-        .uniform_radius(32.0);
-    criterion.bench_function(
-        "scanline/256_rounded_opaque_commands_partial_ranges",
-        |bencher| {
-            bencher.iter(|| {
-                renderer.begin_frame(&damage);
-                for _ in 0..128 {
-                    renderer.draw_rectangle(black_box(&rounded_partial_left), black_box(clip));
-                    renderer.draw_rectangle(black_box(&rounded_partial_right), black_box(clip));
-                }
-                renderer.end_frame();
-                black_box(renderer.buffer().pixels()[352 * 1024 + 48]);
-            });
-        },
-    );
-
     criterion.bench_function(
         "scanline/256_commands_two_horizontal_regions_rounded_clip",
         |bencher| {
@@ -289,21 +268,6 @@ fn scanline(criterion: &mut Criterion) {
         bencher.iter(|| {
             renderer.begin_frame(&image_clip);
             renderer.draw_image(black_box(&image), black_box(image_clip[0]));
-            renderer.end_frame();
-            black_box(renderer.buffer().pixels()[256 * 1024 + 384]);
-        });
-    });
-
-    let rounded_image_cover = Rectangle::new(image.area)
-        .background(Color::from_rgba8(24, 28, 38, 255))
-        .uniform_radius(32.0);
-    criterion.bench_function("scanline/32_images_behind_rounded_rectangle", |bencher| {
-        bencher.iter(|| {
-            renderer.begin_frame(&image_clip);
-            for _ in 0..32 {
-                renderer.draw_image(black_box(&image), black_box(image_clip[0]));
-            }
-            renderer.draw_rectangle(black_box(&rounded_image_cover), black_box(image_clip[0]));
             renderer.end_frame();
             black_box(renderer.buffer().pixels()[256 * 1024 + 384]);
         });
