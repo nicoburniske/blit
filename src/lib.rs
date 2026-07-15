@@ -45,6 +45,7 @@ pub struct Ui {
     clip: PhysicalRect,
     scale_factor: f32,
     dirty: DirtyRegions,
+    frame_damage: DirtyRegions,
     current_id: WidgetId,
     animation_stack: [AnimationCapture; 8],
     animation_depth: usize,
@@ -257,6 +258,7 @@ impl Ui {
             capture.bounds = Some(capture.bounds.map_or(area, |bounds| bounds.union(area)));
             if capture.damage {
                 self.dirty.add(area);
+                self.frame_damage.add(area);
             }
         }
     }
@@ -326,11 +328,6 @@ impl<const N: usize> Drop for AnimationScope<'_, N> {
                 .binary_search_by_key(id, |animation| animation.id)
                 .expect("animation state disappeared while its scope was active");
             shared.animations[index].previous_bounds = capture.bounds;
-        }
-        if capture.damage
-            && let Some(area) = capture.bounds
-        {
-            shared.pending.add(area);
         }
     }
 }
@@ -445,7 +442,7 @@ fn begin_animations<const N: usize>(
         damage |= component_damage;
         if let Some(area) = previous_damage.and_then(|area| area.intersection(ui.clip)) {
             ui.dirty.add(area);
-            ui.shared_mut().pending.add(area);
+            ui.frame_damage.add(area);
         }
     }
 
@@ -495,8 +492,10 @@ impl Ui {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RepaintBuffer {
+    /// the same buffer retains the previously rendered frame
     #[default]
     Reused,
+    /// two buffers alternate, so each frame also repairs the previous frame's damage
     Swapped,
 }
 
@@ -507,7 +506,7 @@ pub struct Runtime<P: PlatformImpl> {
     screen: LogicalRect,
     physical_screen: PhysicalRect,
     scale_factor: f32,
-    previous: DirtyRegions,
+    previous_frame_damage: DirtyRegions,
 }
 
 struct UiShared {
@@ -541,7 +540,7 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             screen,
             physical_screen,
             scale_factor,
-            previous: DirtyRegions::default(),
+            previous_frame_damage: DirtyRegions::default(),
         }
     }
 
@@ -564,22 +563,20 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         input: Input,
         render: impl FnOnce(&mut Ui) -> R,
     ) -> R {
-        let pending = std::mem::take(&mut self.shared.pending);
+        let mut frame_damage = std::mem::take(&mut self.shared.pending);
         let mut dirty = if self.repaint_buffer == RepaintBuffer::Swapped {
-            std::mem::take(&mut self.previous)
+            std::mem::take(&mut self.previous_frame_damage)
         } else {
             DirtyRegions::default()
         };
-        dirty.extend(&pending);
-        if self.repaint_buffer == RepaintBuffer::Swapped {
-            self.previous = pending;
-        }
+        dirty.extend(&frame_damage);
         for animation in &mut self.shared.animations {
             animation.seen = false;
             if animation.is_active()
                 && let Some(area) = animation.previous_bounds
             {
                 dirty.add(area);
+                frame_damage.add(area);
             }
         }
         for timer in &mut self.shared.timers {
@@ -591,9 +588,7 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             .begin_frame(&input, self.scale_factor);
         for area in interaction_damage.into_iter().flatten() {
             dirty.add(area);
-            if self.repaint_buffer == RepaintBuffer::Swapped {
-                self.previous.add(area);
-            }
+            frame_damage.add(area);
         }
         self.shared.platform.begin_frame();
         let mut ui = Ui {
@@ -604,6 +599,7 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             clip: self.physical_screen,
             scale_factor: self.scale_factor,
             dirty,
+            frame_damage,
             current_id: WidgetId::new("blit root"),
             animation_stack: [AnimationCapture::default(); 8],
             animation_depth: 0,
@@ -620,19 +616,13 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             {
                 shared.pending.add(area);
             }
-            let pending = &mut shared.pending;
-            shared.animations.retain(|animation| {
-                if !animation.seen
-                    && animation.is_active()
-                    && let Some(area) = animation.previous_bounds
-                {
-                    pending.add(area);
-                }
-                animation.seen
-            });
+            shared.animations.retain(|animation| animation.seen);
             shared.timers.retain(|timer| timer.seen);
         }
         self.shared.platform.end_frame(ui.dirty.regions());
+        if self.repaint_buffer == RepaintBuffer::Swapped {
+            self.previous_frame_damage = ui.frame_damage;
+        }
         output
     }
 
@@ -646,18 +636,19 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         let Some(input) = inputs.next() else { return };
 
         self.render(time, input, &mut render);
-        let mut previous = std::mem::take(&mut self.previous);
+        let mut frame_damage = std::mem::take(&mut self.previous_frame_damage);
         for input in inputs {
             self.render(time, input, &mut render);
-            previous.extend(&self.previous);
-            self.previous = DirtyRegions::default();
+            frame_damage.extend(&self.previous_frame_damage);
+            self.previous_frame_damage = DirtyRegions::default();
         }
-        self.previous = previous;
+        self.previous_frame_damage = frame_damage;
     }
 
     pub fn has_pending_redraw(&self) -> bool {
         !self.shared.pending.is_empty()
-            || self.repaint_buffer == RepaintBuffer::Swapped && !self.previous.is_empty()
+            || self.repaint_buffer == RepaintBuffer::Swapped
+                && !self.previous_frame_damage.is_empty()
             || self
                 .shared
                 .animations
