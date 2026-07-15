@@ -21,7 +21,9 @@ impl SizedComponent for FixedSize {
 }
 
 impl PlatformImpl for TestPlatform {
-    fn add_damage(&mut self, _: PhysicalRect) {}
+    fn begin_frame(&mut self) {}
+
+    fn end_frame(&mut self, _damage: &[PhysicalRect]) {}
 
     fn screen(&mut self) -> PhysicalRect {
         PhysicalRect {
@@ -779,6 +781,45 @@ fn grouped_immediate_animation_damages_old_and_new_bounds() {
     });
     let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| {
         render(ui, [6.0, 5.0]);
+        ui.dirty.clone()
+    });
+
+    assert_eq!(
+        damage.regions(),
+        &[old.to_physical(1.0), new.to_physical(1.0)]
+    );
+}
+
+#[test]
+fn immediate_animation_damages_old_and_new_bounds_in_current_frame() {
+    let mut runtime = Runtime::new(TestPlatform);
+    let id = WidgetId::new("moving rectangle");
+    let old = LogicalRect {
+        x: 1.0,
+        y: 2.0,
+        width: 2.0,
+        height: 2.0,
+    };
+    let new = LogicalRect {
+        x: 6.0,
+        y: 5.0,
+        ..old
+    };
+    let render = |ui: &mut Ui, area: LogicalRect| {
+        let mut animation = ui.animate_values(
+            id,
+            [
+                Transition::new(area.x, Duration::ZERO, Easing::Linear),
+                Transition::new(area.y, Duration::ZERO, Easing::Linear),
+            ],
+        );
+        let [x, y] = animation.values();
+        widgets::Rectangle::new(LogicalRect { x, y, ..area }).render(&mut animation);
+    };
+
+    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, old));
+    let damage = runtime.render(Duration::from_millis(1), Input::None, |ui| {
+        render(ui, new);
         ui.dirty.clone()
     });
 

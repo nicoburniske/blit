@@ -39,20 +39,19 @@ struct TrackingBuffer {
     height: usize,
 }
 
-struct RuntimePlatform {
-    renderer: Renderer<VecBuffer<u32>, Scanline>,
+struct RuntimePlatform<B: PixelBuffer = VecBuffer<u32>> {
+    renderer: Renderer<B, Scanline>,
 }
 
-impl PlatformImpl for RuntimePlatform {
-    fn begin_frame(&mut self, damage: &[PhysicalRect]) {
-        self.renderer.begin_frame(damage)
+impl<B: PixelBuffer + 'static> PlatformImpl for RuntimePlatform<B> {
+    fn begin_frame(&mut self) {
+        self.renderer.begin_frame(&[])
     }
 
-    fn add_damage(&mut self, area: PhysicalRect) {
-        self.renderer.add_damage(area)
-    }
-
-    fn end_frame(&mut self) {
+    fn end_frame(&mut self, damage: &[PhysicalRect]) {
+        for area in damage {
+            self.renderer.add_damage(*area);
+        }
         self.renderer.end_frame()
     }
 
@@ -105,6 +104,72 @@ impl PlatformImpl for RuntimePlatform {
     }
 
     fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
+}
+
+struct SwappedBuffer {
+    pixels: [Vec<u32>; 2],
+    active: usize,
+    width: usize,
+    height: usize,
+}
+
+impl SwappedBuffer {
+    fn new(width: usize, height: usize) -> Self {
+        Self {
+            pixels: std::array::from_fn(|_| vec![0; width * height]),
+            active: 0,
+            width,
+            height,
+        }
+    }
+
+    fn swap(&mut self) {
+        self.active ^= 1;
+    }
+
+    fn pixels(&self) -> &[u32] {
+        &self.pixels[self.active]
+    }
+}
+
+impl PixelBuffer for SwappedBuffer {
+    type Pixel = u32;
+
+    fn width(&self) -> usize {
+        self.width
+    }
+
+    fn height(&self) -> usize {
+        self.height
+    }
+
+    fn line_mut(&mut self, line: usize) -> &mut [u32] {
+        let start = line * self.width;
+        &mut self.pixels[self.active][start..start + self.width]
+    }
+}
+
+fn render_animation_over_panel(ui: &mut blit::Ui, id: WidgetId, target: f32) {
+    Rectangle::new(ui.screen())
+        .background(Color::WHITE)
+        .render(ui);
+    Rectangle::new(LogicalRect {
+        x: 2.0,
+        y: 0.0,
+        width: 2.0,
+        height: 1.0,
+    })
+    .background(Color::from_rgba8(128, 128, 128, 255))
+    .render(ui);
+    let mut animation = ui.animate(id, target, Duration::ZERO, Easing::Linear);
+    Rectangle::new(LogicalRect {
+        x: animation.value(),
+        y: 0.0,
+        width: 1.0,
+        height: 1.0,
+    })
+    .background(Color::from_rgba8(0, 0, 0, 128))
+    .render(&mut animation);
 }
 
 impl PixelBuffer for TrackingBuffer {
@@ -265,38 +330,63 @@ fn moving_animation_draws_entire_current_geometry() {
 }
 
 #[test]
-fn immediate_animation_damage_repaints_earlier_content() {
+fn late_animation_damage_repaints_earlier_panel_same_frame() {
     let mut runtime = Runtime::new(RuntimePlatform {
-        renderer: Renderer::new(VecBuffer::<u32>::new(2, 1), renderer_config())
+        renderer: Renderer::new(VecBuffer::<u32>::new(4, 1), renderer_config())
             .strategy(Scanline::default()),
-    })
-    .with_repaint_buffer(blit::RepaintBuffer::Swapped);
-    let id = WidgetId::new("moving alpha rectangle");
-    let render = |ui: &mut blit::Ui, target| {
-        Rectangle::new(ui.screen())
-            .background(Color::WHITE)
-            .render(ui);
-        let mut animation = ui.animate(id, target, Duration::ZERO, Easing::Linear);
-        Rectangle::new(LogicalRect {
-            x: animation.value(),
-            y: 0.0,
-            width: 1.0,
-            height: 1.0,
-        })
-        .background(Color::from_rgba8(0, 0, 0, 128))
-        .render(&mut animation);
-    };
+    });
+    let id = WidgetId::new("moving rectangle over panel");
 
-    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
-    runtime.render(Duration::from_millis(1), Input::None, |ui| render(ui, 0.0));
-    runtime.render(Duration::from_millis(2), Input::None, |ui| render(ui, 0.0));
-    runtime.render(Duration::from_millis(3), Input::None, |ui| render(ui, 1.0));
-    runtime.render(Duration::from_millis(4), Input::None, |ui| render(ui, 1.0));
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        render_animation_over_panel(ui, id, 0.0)
+    });
+    runtime.invalidate(LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 1.0,
+        height: 1.0,
+    });
+    runtime.render(Duration::from_millis(1), Input::None, |ui| {
+        render_animation_over_panel(ui, id, 3.0)
+    });
 
     assert_eq!(
         runtime.platform().renderer.buffer().pixels(),
-        [0xffffff, 0x7f7f7f]
+        [0xffffff, 0xffffff, 0x808080, 0x3f3f3f]
     );
+}
+
+#[test]
+fn swapped_partial_animation_frames_match_full_redraw() {
+    let make_runtime = || {
+        Runtime::new(RuntimePlatform {
+            renderer: Renderer::new(SwappedBuffer::new(4, 1), renderer_config())
+                .strategy(Scanline::default()),
+        })
+        .with_repaint_buffer(blit::RepaintBuffer::Swapped)
+    };
+    let mut partial = make_runtime();
+    let mut full = make_runtime();
+    let id = WidgetId::new("moving rectangle over panel");
+
+    for (frame, target) in [0.0, 0.0, 3.0, 0.0, 3.0].into_iter().enumerate() {
+        if frame != 0 {
+            partial.platform().renderer.buffer_mut().swap();
+            full.platform().renderer.buffer_mut().swap();
+        }
+        let time = Duration::from_millis(frame as u64);
+        partial.render(time, Input::None, |ui| {
+            render_animation_over_panel(ui, id, target)
+        });
+        full.invalidate_all();
+        full.render(time, Input::None, |ui| {
+            render_animation_over_panel(ui, id, target)
+        });
+
+        let partial_pixels = partial.platform().renderer.buffer().pixels();
+        let full_pixels = full.platform().renderer.buffer().pixels();
+        assert_eq!(partial_pixels, full_pixels, "frame {frame}");
+    }
 }
 
 #[test]

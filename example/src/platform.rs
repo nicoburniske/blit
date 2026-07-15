@@ -122,15 +122,14 @@ impl TestPlatform {
 }
 
 impl PlatformImpl for TestPlatform {
-    fn begin_frame(&mut self, damage: &[PhysicalRect]) {
-        self.renderer.begin_frame(damage)
+    fn begin_frame(&mut self) {
+        self.renderer.begin_frame(&[])
     }
 
-    fn add_damage(&mut self, area: PhysicalRect) {
-        self.renderer.add_damage(area)
-    }
-
-    fn end_frame(&mut self) {
+    fn end_frame(&mut self, damage: &[PhysicalRect]) {
+        for area in damage {
+            self.renderer.add_damage(*area);
+        }
         self.renderer.end_frame()
     }
 

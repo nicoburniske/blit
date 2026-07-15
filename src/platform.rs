@@ -6,10 +6,10 @@ use crate::{
     widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 
+/// records a complete scene, then commits final damage in [`PlatformImpl::end_frame`]
 pub trait PlatformImpl {
-    fn begin_frame(&mut self, _: &[PhysicalRect]) {}
-    fn add_damage(&mut self, area: PhysicalRect);
-    fn end_frame(&mut self) {}
+    fn begin_frame(&mut self);
+    fn end_frame(&mut self, damage: &[PhysicalRect]);
     fn screen(&mut self) -> PhysicalRect;
     fn scale_factor(&mut self) -> f32 {
         1.0
@@ -117,16 +117,12 @@ impl Platform {
         }
     }
 
-    pub(crate) fn begin_frame(&mut self, damage: &[PhysicalRect]) {
-        self.inner().begin_frame(damage)
+    pub(crate) fn begin_frame(&mut self) {
+        self.inner().begin_frame()
     }
 
-    pub(crate) fn add_damage(&mut self, area: PhysicalRect) {
-        self.inner().add_damage(area)
-    }
-
-    pub(crate) fn end_frame(&mut self) {
-        self.inner().end_frame()
+    pub(crate) fn end_frame(&mut self, damage: &[PhysicalRect]) {
+        self.inner().end_frame(damage)
     }
 
     #[inline]
