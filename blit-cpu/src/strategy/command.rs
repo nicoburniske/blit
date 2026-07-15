@@ -19,6 +19,8 @@ const TEXT: u8 = 3;
 pub struct CommandList {
     words: Vec<Word>,
     opaque: Vec<usize>,
+    partial_opaque: Vec<usize>,
+    has_translucent_image: bool,
     pub has_clips: bool,
 }
 
@@ -82,10 +84,18 @@ impl CommandList {
         bounds: PhysicalRect,
         clip: ClipId,
         texture_opaque: bool,
+        texture_has_opaque_spans: bool,
     ) {
-        if clip == 0 && image.is_opaque(texture_opaque) {
+        let opaque = image.is_opaque(texture_opaque);
+        if clip == 0 && opaque {
             self.opaque.push(self.words.len());
+        } else if clip == 0
+            && self.has_translucent_image
+            && image.has_opaque_spans(texture_has_opaque_spans)
+        {
+            self.partial_opaque.push(self.words.len());
         }
+        self.has_translucent_image |= !opaque;
         self.push(IMAGE, image, bounds, clip)
     }
 
@@ -161,6 +171,10 @@ impl CommandList {
         &self.opaque
     }
 
+    pub fn partial_opaque_offsets(&self) -> &[usize] {
+        &self.partial_opaque
+    }
+
     pub fn opaque_span(&self, offset: usize, line: i32) -> Option<std::ops::Range<i32>> {
         let bounds = self.horizontal_bounds(offset);
         let span = match self.get(offset) {
@@ -183,6 +197,8 @@ impl CommandList {
     pub fn clear(&mut self) {
         self.words.clear();
         self.opaque.clear();
+        self.partial_opaque.clear();
+        self.has_translucent_image = false;
         self.has_clips = false;
     }
 

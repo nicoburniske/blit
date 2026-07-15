@@ -2,11 +2,21 @@ use blit::{
     Color, ImageData, ImageFormat, ImageId, PhysicalRect,
     widgets::{ImageRequest, ImageSampling, ImageTiling},
 };
+use std::ops::Range;
 
 use crate::{Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel};
 
 const FIXED_SHIFT: u32 = 16;
 const FIXED_ONE: u64 = 1 << FIXED_SHIFT;
+
+/// horizontal alpha spans for one image row; ends are exclusive
+#[derive(Clone, Copy)]
+pub struct AlphaRow {
+    pub visible_start: u16,
+    pub visible_end: u16,
+    pub opaque_start: u16,
+    pub opaque_end: u16,
+}
 
 #[derive(Clone, Copy)]
 pub struct Prepared {
@@ -97,7 +107,38 @@ impl Prepared {
             }
     }
 
-    pub fn draw<B: PixelBuffer>(&self, buffer: &mut B, texture: &ImageData, clip: PhysicalRect) {
+    pub fn has_opaque_spans(&self, texture_has_opaque_spans: bool) -> bool {
+        texture_has_opaque_spans
+            && self.opacity == 255
+            && self.colorize.is_none()
+            && self.sampling == ImageSampling::Nearest
+            && self.step_x == FIXED_ONE
+            && !self.wrap_x
+            && !self.wrap_y
+            && self.source.intersection(self.texture_rect) == Some(self.source)
+    }
+
+    pub fn opaque_span(&self, line: i32, alpha_rows: &[AlphaRow]) -> Option<Range<i32>> {
+        let texture_y = self.texture_rect.y as usize;
+        let AlphaRow {
+            opaque_start,
+            opaque_end,
+            ..
+        } = *alpha_rows.get(self.source_y(line).checked_sub(texture_y)?)?;
+        let start = self.display.x + self.texture_rect.x + opaque_start as i32 - self.source.x;
+        let end = self.display.x + self.texture_rect.x + opaque_end as i32 - self.source.x;
+        let start = start.max(self.bounds.x);
+        let end = end.min(self.bounds.x + self.bounds.width);
+        (start < end).then_some(start..end)
+    }
+
+    pub fn draw<B: PixelBuffer>(
+        &self,
+        buffer: &mut B,
+        texture: &ImageData,
+        alpha_rows: &[AlphaRow],
+        clip: PhysicalRect,
+    ) {
         let screen = PhysicalRect {
             x: buffer.x_offset() as i32,
             y: 0,
@@ -115,7 +156,9 @@ impl Prepared {
         for y in clipped.y..clipped.y + clipped.height {
             let row = buffer.line_mut(y as usize);
             match self.sampling {
-                ImageSampling::Nearest => self.draw_nearest(row, pixels, clipped, screen.x, y),
+                ImageSampling::Nearest => {
+                    self.draw_nearest(row, pixels, clipped, screen.x, y, alpha_rows)
+                }
                 ImageSampling::Bilinear => self.draw_bilinear(row, pixels, clipped, screen.x, y),
             }
         }
@@ -128,6 +171,7 @@ impl Prepared {
         clipped: PhysicalRect,
         screen_x: i32,
         y: i32,
+        alpha_rows: &[AlphaRow],
     ) {
         let source_y = self.source_y(y);
         let texture_x = self.texture_rect.x as usize;
@@ -159,7 +203,16 @@ impl Prepared {
             );
             return;
         }
-        if self.step_x == FIXED_ONE && self.draw_spans(row, pixels, clipped, screen_x, source_y) {
+        if self.step_x == FIXED_ONE
+            && self.draw_spans(
+                row,
+                pixels,
+                clipped,
+                screen_x,
+                source_y,
+                alpha_rows.get(source_y - texture_y).copied(),
+            )
+        {
             return;
         }
         match self.format {
@@ -250,6 +303,7 @@ impl Prepared {
         clipped: PhysicalRect,
         screen_x: i32,
         source_y: usize,
+        alpha_row: Option<AlphaRow>,
     ) -> bool {
         if !matches!(
             self.format,
@@ -288,7 +342,54 @@ impl Prepared {
                     let (prefix, source, suffix) =
                         unsafe { bytes.align_to::<PremultipliedRgbaColor>() };
                     assert!(prefix.is_empty() && suffix.is_empty());
-                    P::blend_texture_slice_rgba(destination, source, self.opacity);
+                    if let Some(AlphaRow {
+                        visible_start,
+                        visible_end,
+                        opaque_start,
+                        opaque_end,
+                    }) = alpha_row
+                    {
+                        let visible_start = (texture_x + visible_start as usize)
+                            .saturating_sub(source_x)
+                            .min(len);
+                        let visible_end = (texture_x + visible_end as usize)
+                            .saturating_sub(source_x)
+                            .min(len);
+                        let (opaque_start, opaque_end) = if self.opacity == 255 {
+                            (
+                                (texture_x + opaque_start as usize)
+                                    .saturating_sub(source_x)
+                                    .clamp(visible_start, visible_end),
+                                (texture_x + opaque_end as usize)
+                                    .saturating_sub(source_x)
+                                    .clamp(visible_start, visible_end),
+                            )
+                        } else {
+                            (visible_start, visible_start)
+                        };
+                        if visible_start < opaque_start {
+                            P::blend_texture_slice_rgba(
+                                &mut destination[visible_start..opaque_start],
+                                &source[visible_start..opaque_start],
+                                self.opacity,
+                            );
+                        }
+                        if opaque_start < opaque_end {
+                            P::copy_texture_slice_rgba(
+                                &mut destination[opaque_start..opaque_end],
+                                &source[opaque_start..opaque_end],
+                            );
+                        }
+                        if opaque_end < visible_end {
+                            P::blend_texture_slice_rgba(
+                                &mut destination[opaque_end..visible_end],
+                                &source[opaque_end..visible_end],
+                                self.opacity,
+                            );
+                        }
+                    } else {
+                        P::blend_texture_slice_rgba(destination, source, self.opacity);
+                    }
                 }
                 ImageFormat::Alpha8(color) => {
                     let alpha = &pixels[source_offset..source_offset + len];
@@ -299,7 +400,23 @@ impl Prepared {
                         color.blue,
                         (color.alpha as u16 * self.opacity as u16 / 255) as u8,
                     );
-                    P::blend_texture_slice_alpha(destination, color, alpha);
+                    let (visible_start, visible_end) = alpha_row.map_or((0, len), |row| {
+                        (
+                            (texture_x + row.visible_start as usize)
+                                .saturating_sub(source_x)
+                                .min(len),
+                            (texture_x + row.visible_end as usize)
+                                .saturating_sub(source_x)
+                                .min(len),
+                        )
+                    });
+                    if visible_start < visible_end {
+                        P::blend_texture_slice_alpha(
+                            &mut destination[visible_start..visible_end],
+                            color,
+                            &alpha[visible_start..visible_end],
+                        );
+                    }
                 }
                 _ => unreachable!(),
             }

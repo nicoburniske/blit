@@ -66,7 +66,7 @@ pub fn draw_line<B: PixelBuffer>(
                     };
                     &covered
                 };
-                request.draw(buffer, &image.data, clip);
+                request.draw(buffer, &image.data, &image.alpha_rows, clip);
             }
         }
         Payload::Text(command) => {

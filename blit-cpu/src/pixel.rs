@@ -100,6 +100,13 @@ pub trait Pixel: Copy {
         }
     }
 
+    /// copies premultiplied texture pixels whose alpha is known to be opaque
+    fn copy_texture_slice_rgba(pixels: &mut [Self], source: &[PremultipliedRgbaColor]) {
+        for (pixel, source) in pixels.iter_mut().zip(source) {
+            *pixel = Self::from_rgb(source.red, source.green, source.blue);
+        }
+    }
+
     fn blend_texture_slice_alpha(pixels: &mut [Self], color: Color, alpha: &[u8]) {
         Self::blend_alpha_slice(pixels, color, alpha);
     }

@@ -2,7 +2,7 @@ use blit::{
     ImageData, ImageFormat, ImageId, ImagePixels, LogicalRect, PhysicalRect,
     widgets::{
         BorderRadius, BoxShadowRequest, ImageFit, ImageRequest, ImageSampling, ImageTiling,
-        NineSlice, Rectangle,
+        Rectangle,
     },
 };
 use slotmap::{Key, SlotMap};
@@ -13,6 +13,8 @@ use super::rounded::{Radii, RoundedLine};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct KeyData {
+    width: i32,
+    height: i32,
     blur: i32,
     radii: Radii,
 }
@@ -81,6 +83,8 @@ impl Cache {
         }
         let radii = Radii::new(radius, scale_factor, shape.width, shape.height);
         let key = KeyData {
+            width: shape.width,
+            height: shape.height,
             blur: (shadow.blur * scale_factor).ceil() as i32,
             radii,
         };
@@ -91,27 +95,20 @@ impl Cache {
             width: shape.width.checked_add(diameter)?,
             height: shape.height.checked_add(diameter)?,
         };
-        let side = |radius| diameter.checked_add(radius)?.try_into().ok();
-        let slice = NineSlice {
-            top: side(radii.top_left.max(radii.top_right))?,
-            right: side(radii.top_right.max(radii.bottom_right))?,
-            bottom: side(radii.bottom_left.max(radii.bottom_right))?,
-            left: side(radii.top_left.max(radii.bottom_left))?,
-        };
         self.clock = self.clock.wrapping_add(1);
         let image = if let Some(entry) = self.entries.iter_mut().find(|entry| entry.key == key) {
             entry.last_used = self.clock;
             entry.image
         } else {
-            let width = usize::from(slice.left) + usize::from(slice.right) + 1;
-            let height = usize::from(slice.top) + usize::from(slice.bottom) + 1;
+            let width = bounds.width as usize;
+            let height = bounds.height as usize;
             let bytes = width.checked_mul(height)?;
             let mut alpha = vec![0u8; bytes];
             let shape = PhysicalRect {
                 x: key.blur,
                 y: key.blur,
-                width: width as i32 - diameter,
-                height: height as i32 - diameter,
+                width: key.width,
+                height: key.height,
             };
             for y in shape.y..shape.y + shape.height {
                 let line = RoundedLine::new(shape, radii, y)?;
@@ -157,7 +154,7 @@ impl Cache {
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
             colorize: Some(request.shadow.color),
-            nine_slice: Some(slice),
+            nine_slice: None,
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
         }))
