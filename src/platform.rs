@@ -21,8 +21,8 @@ pub trait PlatformImpl {
     fn create_image(&mut self, data: ImageData) -> ImageId;
     fn drop_image(&mut self, image: ImageId);
     fn draw_image(&mut self, image: &ImageRequest, clip: PhysicalRect);
-    // todo: prepare text once when tight measured damage bounds are needed
-    fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect);
+    /// records text and returns its clipped physical ink bounds
+    fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) -> Option<PhysicalRect>;
     fn text_offset_at_position(
         &mut self,
         request: &TextRequest<'_>,
@@ -86,7 +86,11 @@ impl Platform {
     }
 
     #[inline]
-    pub fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) {
+    pub fn draw_text(
+        &mut self,
+        request: &TextRequest<'_>,
+        clip: PhysicalRect,
+    ) -> Option<PhysicalRect> {
         self.inner().draw_text(request, clip)
     }
 

@@ -129,8 +129,9 @@ impl<'a> Text<'a> {
             options: self.options,
             intrinsic_height: self.intrinsic_height,
         };
-        if let Some(bounds) = ui.draw_bounds(request.area) {
-            ui.platform().draw_text(&request, bounds);
+        let clip = ui.clip;
+        if let Some(bounds) = ui.platform().draw_text(&request, clip) {
+            ui.record_draw_bounds(bounds);
         }
     }
 }

@@ -179,23 +179,28 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         }
     }
 
-    pub fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) {
+    pub fn draw_text(
+        &mut self,
+        request: &TextRequest<'_>,
+        clip: PhysicalRect,
+    ) -> Option<PhysicalRect> {
         let area = request.area.to_physical(self.context.scale_factor);
-        let Some(bounds) = area.intersection(clip) else {
-            return;
-        };
+        let visible_area = area.intersection(clip)?;
+        let (paragraph, paragraph_bounds) = self
+            .context
+            .text
+            .prepare(request, self.context.scale_factor);
+        let bounds = paragraph_bounds.intersection(visible_area)?;
         self.context.commands.push_text(
             PreparedText {
-                paragraph: self
-                    .context
-                    .text
-                    .prepare(request, self.context.scale_factor),
+                paragraph,
                 area,
                 color: request.color,
             },
             bounds,
             self.context.clips.current(),
         );
+        Some(bounds)
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageId {

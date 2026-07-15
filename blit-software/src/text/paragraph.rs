@@ -372,6 +372,9 @@ impl ParagraphCache {
         let mut right = 0;
         let mut bottom = 0;
         for glyph in glyphs {
+            if glyph.width == 0 || glyph.height == 0 {
+                continue;
+            }
             let x = (glyph.x + paint_offset_x).round() as i32;
             let y = glyph.y.round() as i32;
             left = left.min(x.max(0).min(area.width));

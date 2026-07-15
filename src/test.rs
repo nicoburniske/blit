@@ -50,7 +50,9 @@ impl PlatformImpl for TestPlatform {
 
     fn draw_image(&mut self, _: &widgets::ImageRequest, _: PhysicalRect) {}
 
-    fn draw_text(&mut self, _: &TextRequest<'_>, _: PhysicalRect) {}
+    fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) -> Option<PhysicalRect> {
+        request.area.to_physical(1.0).intersection(clip)
+    }
 
     fn text_offset_at_position(&mut self, request: &TextRequest<'_>, _: LogicalPoint) -> usize {
         request.text.len()
