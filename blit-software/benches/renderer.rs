@@ -80,12 +80,12 @@ fn scanline(criterion: &mut Criterion) {
 
     criterion.bench_function("scanline/256_commands_two_horizontal_regions", |bencher| {
         bencher.iter(|| {
-            renderer.begin_frame(&damage);
+            renderer.begin_frame();
             for _ in 0..128 {
                 renderer.draw_rectangle(black_box(&left), black_box(clip));
                 renderer.draw_rectangle(black_box(&right), black_box(clip));
             }
-            renderer.end_frame();
+            renderer.end_frame(&damage);
             black_box(renderer.buffer().pixels()[352 * 1024 + 16]);
         });
     });
@@ -96,12 +96,12 @@ fn scanline(criterion: &mut Criterion) {
         "scanline/256_opaque_commands_two_horizontal_regions",
         |bencher| {
             bencher.iter(|| {
-                renderer.begin_frame(&damage);
+                renderer.begin_frame();
                 for _ in 0..128 {
                     renderer.draw_rectangle(black_box(&opaque_left), black_box(clip));
                     renderer.draw_rectangle(black_box(&opaque_right), black_box(clip));
                 }
-                renderer.end_frame();
+                renderer.end_frame(&damage);
                 black_box(renderer.buffer().pixels()[352 * 1024 + 16]);
             });
         },
@@ -113,12 +113,12 @@ fn scanline(criterion: &mut Criterion) {
         "scanline/256_rounded_opaque_commands_two_horizontal_regions",
         |bencher| {
             bencher.iter(|| {
-                renderer.begin_frame(&damage);
+                renderer.begin_frame();
                 for _ in 0..128 {
                     renderer.draw_rectangle(black_box(&rounded_opaque_left), black_box(clip));
                     renderer.draw_rectangle(black_box(&rounded_opaque_right), black_box(clip));
                 }
-                renderer.end_frame();
+                renderer.end_frame(&damage);
                 black_box(renderer.buffer().pixels()[352 * 1024 + 16]);
             });
         },
@@ -128,7 +128,7 @@ fn scanline(criterion: &mut Criterion) {
         "scanline/256_commands_two_horizontal_regions_rounded_clip",
         |bencher| {
             bencher.iter(|| {
-                renderer.begin_frame(&damage);
+                renderer.begin_frame();
                 renderer.push_rounded_clip(
                     LogicalRect {
                         width: 1024.0,
@@ -147,7 +147,7 @@ fn scanline(criterion: &mut Criterion) {
                     renderer.draw_rectangle(black_box(&right), black_box(clip));
                 }
                 renderer.pop_rounded_clip();
-                renderer.end_frame();
+                renderer.end_frame(&damage);
                 black_box(renderer.buffer().pixels()[352 * 1024 + 16]);
             });
         },
@@ -177,9 +177,9 @@ fn scanline(criterion: &mut Criterion) {
 
     criterion.bench_function("scanline/two_sparse_vertical_regions", |bencher| {
         bencher.iter(|| {
-            renderer.begin_frame(&clips);
+            renderer.begin_frame();
             renderer.draw_rectangle(black_box(&screen), black_box(clip));
-            renderer.end_frame();
+            renderer.end_frame(&clips);
             black_box(renderer.buffer().pixels()[8 * 1024 + 480]);
         });
     });
@@ -202,15 +202,15 @@ fn scanline(criterion: &mut Criterion) {
             .blur(16.0),
     };
     let shadow_clip = [shadow.bounds().to_physical(1.0)];
-    renderer.begin_frame(&shadow_clip);
+    renderer.begin_frame();
     renderer.draw_box_shadow(&shadow, shadow_clip[0]);
-    renderer.end_frame();
+    renderer.end_frame(&shadow_clip);
 
     criterion.bench_function("shadow/cached_512x384_blur_16", |bencher| {
         bencher.iter(|| {
-            renderer.begin_frame(&shadow_clip);
+            renderer.begin_frame();
             renderer.draw_box_shadow(black_box(&shadow), black_box(shadow_clip[0]));
-            renderer.end_frame();
+            renderer.end_frame(&shadow_clip);
             black_box(renderer.buffer().pixels()[192 * 1024 + 512]);
         });
     });
@@ -233,9 +233,9 @@ fn scanline(criterion: &mut Criterion) {
 
     criterion.bench_function("gradient_border/512x384_width_2_three_stops", |bencher| {
         bencher.iter(|| {
-            renderer.begin_frame(&gradient_clip);
+            renderer.begin_frame();
             renderer.draw_rectangle(black_box(&gradient), black_box(gradient_clip[0]));
-            renderer.end_frame();
+            renderer.end_frame(&gradient_clip);
             black_box(renderer.buffer().pixels()[192 * 1024 + 512]);
         });
     });
@@ -266,9 +266,9 @@ fn scanline(criterion: &mut Criterion) {
 
     criterion.bench_function("image/premultiplied_rgba_256x256_opacity_50", |bencher| {
         bencher.iter(|| {
-            renderer.begin_frame(&image_clip);
+            renderer.begin_frame();
             renderer.draw_image(black_box(&image), black_box(image_clip[0]));
-            renderer.end_frame();
+            renderer.end_frame(&image_clip);
             black_box(renderer.buffer().pixels()[256 * 1024 + 384]);
         });
     });
@@ -287,11 +287,11 @@ fn scanline(criterion: &mut Criterion) {
 
     criterion.bench_function("image/128_opaque_rgb_256x256", |bencher| {
         bencher.iter(|| {
-            renderer.begin_frame(&image_clip);
+            renderer.begin_frame();
             for _ in 0..128 {
                 renderer.draw_image(black_box(&opaque_image), black_box(image_clip[0]));
             }
-            renderer.end_frame();
+            renderer.end_frame(&image_clip);
             black_box(renderer.buffer().pixels()[256 * 1024 + 384]);
         });
     });

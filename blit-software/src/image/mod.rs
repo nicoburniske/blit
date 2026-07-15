@@ -7,7 +7,6 @@ use blit::{
     widgets::{ImageFit, ImageRequest, ImageTiling},
 };
 
-use crate::PixelBuffer;
 use prepared::Patch;
 
 pub fn prepare(
@@ -164,18 +163,6 @@ pub fn prepare(
     }
 }
 
-pub fn draw<B: PixelBuffer>(
-    buffer: &mut B,
-    request: &ImageRequest,
-    texture: &ImageData,
-    clip: PhysicalRect,
-    scale_factor: f32,
-) {
-    prepare(request, texture, clip, scale_factor, |image, clip| {
-        image.draw(buffer, texture, clip)
-    });
-}
-
 fn fit_borders(first: i32, second: i32, available: i32) -> (i32, i32) {
     if first + second <= available {
         (first, second)
@@ -187,44 +174,24 @@ fn fit_borders(first: i32, second: i32, available: i32) -> (i32, i32) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
-
     use blit::{
         Color, ImageFormat, ImageId, ImagePixels, LogicalRect,
         widgets::{ImageFit, ImageSampling, ImageTiling, NineSlice},
     };
 
     use super::*;
-    use crate::{Pixel, PremultipliedRgbaColor, VecBuffer};
+    use crate::{PixelBuffer, VecBuffer};
 
-    static RGBA_SPAN_USED: AtomicBool = AtomicBool::new(false);
-
-    #[derive(Clone, Copy, Default)]
-    struct SpanPixel(u32);
-
-    impl Pixel for SpanPixel {
-        fn blend(&mut self, color: PremultipliedRgbaColor) {
-            self.0.blend(color)
-        }
-
-        fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
-            Self(u32::from_rgb(red, green, blue))
-        }
-
-        fn blend_texture_slice_rgba(
-            pixels: &mut [Self],
-            source: &[PremultipliedRgbaColor],
-            opacity: u8,
-        ) {
-            RGBA_SPAN_USED.store(true, Ordering::Relaxed);
-            for (pixel, source) in pixels.iter_mut().zip(source) {
-                pixel.blend(if opacity == 255 {
-                    *source
-                } else {
-                    source.coverage(opacity as u32)
-                });
-            }
-        }
+    fn draw<B: PixelBuffer>(
+        buffer: &mut B,
+        request: &ImageRequest,
+        texture: &ImageData,
+        clip: PhysicalRect,
+        scale_factor: f32,
+    ) {
+        prepare(request, texture, clip, scale_factor, |image, clip| {
+            image.draw(buffer, texture, clip)
+        });
     }
 
     #[test]
@@ -354,9 +321,8 @@ mod tests {
     }
 
     #[test]
-    fn unscaled_premultiplied_image_with_opacity_uses_texture_span() {
+    fn unscaled_premultiplied_image_applies_opacity() {
         static PIXELS: [u8; 8] = [255, 0, 0, 255, 0, 128, 0, 128];
-        RGBA_SPAN_USED.store(false, Ordering::Relaxed);
         let texture = ImageData::new(
             ImagePixels::Static(&PIXELS),
             ImageFormat::Rgba8Premultiplied,
@@ -379,7 +345,7 @@ mod tests {
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
         };
-        let mut buffer = VecBuffer::<SpanPixel>::new(2, 1);
+        let mut buffer = VecBuffer::<u32>::new(2, 1);
 
         draw(
             &mut buffer,
@@ -394,9 +360,7 @@ mod tests {
             1.0,
         );
 
-        assert!(RGBA_SPAN_USED.load(Ordering::Relaxed));
-        assert_eq!(buffer.pixels()[0].0, 0x800000);
-        assert_eq!(buffer.pixels()[1].0, 0x004000);
+        assert_eq!(buffer.pixels(), [0x800000, 0x004000]);
     }
 
     #[test]

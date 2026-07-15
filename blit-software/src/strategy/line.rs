@@ -1,29 +1,21 @@
-use blit::{
-    DirtyRegions, LogicalRect, PhysicalRect, TextRequest,
-    widgets::{Border, BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
-};
-use slotmap::{KeyData, SlotMap};
+use blit::PhysicalRect;
+use slotmap::SlotMap;
 use std::ops::Range;
 
-use crate::{
-    Pixel, PixelBuffer, PixelSpan, RenderContext, RendererImageId, StoredImage, TextRenderer,
-    image, rectangle, shadow,
-};
+use crate::{Pixel, PixelBuffer, RenderContext, RendererImageId, StoredImage, TextRenderer};
 
 use super::{
     RenderStrategy,
-    clip::{ClipLine, ClipSpan, ClipStack},
-    command::{CommandList, Payload, PreparedText},
+    clip::{ClipLine, ClipSpan},
+    command::CommandList,
+    raster,
 };
 
 #[derive(Default)]
 pub struct Scanline {
-    commands: CommandList,
-    damage: DirtyRegions,
     starts: Vec<usize>,
     active: Vec<usize>,
     ranges: Vec<Range<usize>>,
-    clips: ClipStack,
     clip_ranges: Vec<Option<ClipLine>>,
 }
 
@@ -111,61 +103,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                                 width: range.end - range.start,
                                 height: 1,
                             };
-                            match &payload {
-                                Payload::Rectangle(rectangle) => {
-                                    let mut rectangle = **rectangle;
-                                    if coverage != 255 {
-                                        rectangle.border_color =
-                                            rectangle.border_color.coverage(coverage as u32);
-                                        rectangle.inner_color =
-                                            rectangle.inner_color.coverage(coverage as u32);
-                                    }
-                                    let row = PixelSpan {
-                                        x: buffer.x as i32,
-                                        pixels: buffer.line_mut(line as usize),
-                                    };
-                                    rectangle.draw_line(line, clip, row);
-                                }
-                                Payload::GradientRectangle(rectangle, stops) => {
-                                    let row = PixelSpan {
-                                        x: buffer.x as i32,
-                                        pixels: buffer.line_mut(line as usize),
-                                    };
-                                    rectangle.draw_line(stops, line, clip, coverage, row);
-                                }
-                                Payload::Image(request) => {
-                                    let image =
-                                        RendererImageId::from(KeyData::from_ffi(request.image.0));
-                                    if let Some(image) = images.get(image) {
-                                        let mut request = **request;
-                                        if coverage != 255 {
-                                            request.opacity =
-                                                (request.opacity as u16 * coverage as u16 / 255)
-                                                    as u8;
-                                        }
-                                        request.draw(buffer, &image.data, clip);
-                                    }
-                                }
-                                Payload::Text(text_command) => {
-                                    let mut color = text_command.color;
-                                    if coverage != 255 {
-                                        color.alpha =
-                                            (color.alpha as u16 * coverage as u16 / 255) as u8;
-                                    }
-                                    let row = PixelSpan {
-                                        x: buffer.x as i32,
-                                        pixels: buffer.line_mut(line as usize),
-                                    };
-                                    text.draw_line(
-                                        text_command.paragraph,
-                                        text_command.area,
-                                        color,
-                                        line,
-                                        row,
-                                        clip,
-                                    );
-                                }
-                            }
+                            raster::draw_line(&payload, line, clip, coverage, images, text, buffer);
                         },
                     );
                     continue;
@@ -178,178 +116,24 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
             width: end - start,
             height: 1,
         };
-        match commands.get(*command) {
-            Payload::Rectangle(rectangle) => {
-                rectangle.draw_line(
-                    line,
-                    clip,
-                    PixelSpan {
-                        x: range.start as i32,
-                        pixels: buffer.line_mut(line as usize),
-                    },
-                );
-            }
-            Payload::GradientRectangle(rectangle, stops) => {
-                rectangle.draw_line(
-                    stops,
-                    line,
-                    clip,
-                    255,
-                    PixelSpan {
-                        x: range.start as i32,
-                        pixels: buffer.line_mut(line as usize),
-                    },
-                );
-            }
-            Payload::Image(request) => {
-                let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
-                if let Some(image) = images.get(image) {
-                    request.draw(buffer, &image.data, clip);
-                }
-            }
-            Payload::Text(text_command) => text.draw_line(
-                text_command.paragraph,
-                text_command.area,
-                text_command.color,
-                line,
-                PixelSpan {
-                    x: range.start as i32,
-                    pixels: buffer.line_mut(line as usize),
-                },
-                clip,
-            ),
-        }
+        raster::draw_line(
+            &commands.get(*command),
+            line,
+            clip,
+            255,
+            images,
+            text,
+            buffer,
+        );
     }
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
-    fn begin_frame(&mut self, _: &mut RenderContext<B>, damage: &[PhysicalRect]) {
-        assert!(self.commands.is_empty());
-        assert!(self.damage.is_empty());
-        for area in damage {
-            self.damage.add(*area);
-        }
-    }
-
-    fn add_damage(&mut self, area: PhysicalRect) {
-        self.damage.add(area)
-    }
-
-    fn push_rounded_clip(&mut self, area: LogicalRect, radius: BorderRadius, scale_factor: f32) {
-        self.clips.push(area, radius, scale_factor)
-    }
-
-    fn pop_rounded_clip(&mut self) {
-        self.clips.pop()
-    }
-
-    fn draw_rectangle(
-        &mut self,
-        context: &mut RenderContext<B>,
-        rectangle: &Rectangle<'_>,
-        clip: PhysicalRect,
-    ) {
-        if let Border::Gradient { width, gradient } = rectangle.border
-            && let Some(prepared) =
-                rectangle::Gradient::new(rectangle, width, gradient, context.scale_factor)
-            && let Some(bounds) = prepared.geometry.intersection(clip)
-        {
-            if self.commands.push_gradient_rectangle(
-                prepared,
-                gradient.stops,
-                bounds,
-                self.clips.current(),
-            ) {
-                return;
-            }
-        }
-        if let Some(rectangle) = rectangle::Prepared::new(rectangle, context.scale_factor) {
-            if let Some(bounds) = rectangle.geometry.intersection(clip) {
-                self.commands
-                    .push_rectangle(rectangle, bounds, self.clips.current());
-            }
-        }
-    }
-
-    fn draw_image(
-        &mut self,
-        context: &mut RenderContext<B>,
-        request: &ImageRequest,
-        clip: PhysicalRect,
-    ) {
-        let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
-        if let Some(texture) = context.images.get(image) {
-            image::prepare(
-                request,
-                &texture.data,
-                clip,
-                context.scale_factor,
-                |image, bounds| {
-                    self.commands
-                        .push_image(image, bounds, self.clips.current(), texture.opaque)
-                },
-            );
-        }
-    }
-
-    fn draw_box_shadow(
-        &mut self,
-        context: &mut RenderContext<B>,
-        request: &BoxShadowRequest,
-        clip: PhysicalRect,
-    ) {
-        let Some(request) =
-            context
-                .shadows
-                .prepare(&mut context.images, request, context.scale_factor)
-        else {
-            return;
-        };
-        match request {
-            shadow::Prepared::Rectangle(rectangle) => {
-                self.draw_rectangle(context, &rectangle, clip)
-            }
-            shadow::Prepared::Image(request) => {
-                let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
-                if let Some(texture) = context.images.get(image) {
-                    image::prepare(&request, &texture.data, clip, 1.0, |image, bounds| {
-                        self.commands.push_image(
-                            image,
-                            bounds,
-                            self.clips.current(),
-                            texture.opaque,
-                        )
-                    });
-                }
-            }
-        }
-    }
-
-    fn draw_text(
-        &mut self,
-        context: &mut RenderContext<B>,
-        text: &TextRequest<'_>,
-        clip: PhysicalRect,
-    ) {
-        let area = text.area.to_physical(context.scale_factor);
-        let Some(bounds) = area.intersection(clip) else {
-            return;
-        };
-        self.commands.push_text(
-            PreparedText {
-                paragraph: context.text.prepare(text, context.scale_factor),
-                area,
-                color: text.color,
-            },
-            bounds,
-            self.clips.current(),
-        );
-    }
-
-    fn end_frame(&mut self, context: &mut RenderContext<B>) {
+    fn render(&mut self, context: &mut RenderContext<B>, damage: &[PhysicalRect]) {
         let width = context.buffer.width();
         let height = context.buffer.height();
-        let commands = &self.commands;
+        let commands = &context.commands;
+        let clips = &context.clips;
         let images = &context.images;
         let text = &context.text;
         let buffer = &mut context.buffer;
@@ -370,7 +154,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
             if line >= ranges_valid_until {
                 self.ranges.clear();
                 let mut next_boundary = height as i32;
-                for region in self.damage.regions() {
+                for region in damage {
                     let top = region.y.max(0).min(height as i32);
                     let bottom = region
                         .y
@@ -440,7 +224,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
             }
 
             if clipped {
-                self.clips.line_ranges(line, &mut self.clip_ranges);
+                clips.line_ranges(line, &mut self.clip_ranges);
             }
 
             for range in &self.ranges {
@@ -489,12 +273,9 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
             }
             line += 1;
         }
-        self.commands.clear();
-        self.damage = DirtyRegions::default();
         self.starts.clear();
         self.active.clear();
         self.ranges.clear();
-        self.clips.clear();
         self.clip_ranges.clear();
     }
 }

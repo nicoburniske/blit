@@ -39,20 +39,19 @@ struct TrackingBuffer {
     height: usize,
 }
 
-struct RuntimePlatform<B: PixelBuffer = VecBuffer<u32>> {
-    renderer: Renderer<B, Scanline>,
+struct RuntimePlatform<B: PixelBuffer = VecBuffer<u32>, S: RenderStrategy<B> = Scanline> {
+    renderer: Renderer<B, S>,
 }
 
-impl<B: PixelBuffer + 'static> PlatformImpl for RuntimePlatform<B> {
+impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
+    for RuntimePlatform<B, S>
+{
     fn begin_frame(&mut self) {
-        self.renderer.begin_frame(&[])
+        self.renderer.begin_frame()
     }
 
     fn end_frame(&mut self, damage: &[PhysicalRect]) {
-        for area in damage {
-            self.renderer.add_damage(*area);
-        }
-        self.renderer.end_frame()
+        self.renderer.end_frame(damage)
     }
 
     fn screen(&mut self) -> PhysicalRect {
@@ -222,7 +221,7 @@ fn renderer_supports_custom_pixel_layouts() {
         width: 32,
         height: 24,
     };
-    renderer.begin_frame(&[clip]);
+    renderer.begin_frame();
     renderer.draw_rectangle(
         &Rectangle::new(LogicalRect {
             x: 0.0,
@@ -233,7 +232,7 @@ fn renderer_supports_custom_pixel_layouts() {
         .background(Color::from_rgba8(12, 34, 56, 255)),
         clip,
     );
-    renderer.end_frame();
+    renderer.end_frame(&[clip]);
     assert_eq!(
         renderer.buffer().pixels()[0],
         BgrPixel {
@@ -243,7 +242,7 @@ fn renderer_supports_custom_pixel_layouts() {
         }
     );
 
-    renderer.begin_frame(&[clip]);
+    renderer.begin_frame();
     renderer.draw_text(
         &TextRequest {
             text: "M",
@@ -261,7 +260,7 @@ fn renderer_supports_custom_pixel_layouts() {
         },
         clip,
     );
-    renderer.end_frame();
+    renderer.end_frame(&[clip]);
     assert!(
         renderer
             .buffer()
@@ -332,8 +331,7 @@ fn moving_animation_draws_entire_current_geometry() {
 #[test]
 fn late_animation_damage_repaints_earlier_panel_same_frame() {
     let mut runtime = Runtime::new(RuntimePlatform {
-        renderer: Renderer::new(VecBuffer::<u32>::new(4, 1), renderer_config())
-            .strategy(Scanline::default()),
+        renderer: Renderer::new(VecBuffer::<u32>::new(4, 1), renderer_config()),
     });
     let id = WidgetId::new("moving rectangle over panel");
 
@@ -405,7 +403,7 @@ fn dropped_image_slots_are_reused_after_end_frame() {
     let first_key = RendererImageId::from(KeyData::from_ffi(first.0));
     assert!(renderer.context.images.contains_key(first_key));
 
-    renderer.end_frame();
+    renderer.end_frame(&[]);
     assert!(!renderer.context.images.contains_key(first_key));
 
     let second = renderer.create_image(ImageData::new(
@@ -444,7 +442,7 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
             height: 1,
         },
     ];
-    renderer.begin_frame(&damage);
+    renderer.begin_frame();
     renderer.draw_rectangle(
         &Rectangle::new(LogicalRect {
             x: 0.0,
@@ -460,7 +458,7 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
             height: 4,
         },
     );
-    renderer.end_frame();
+    renderer.end_frame(&damage);
 
     assert_eq!(renderer.buffer().lines, [0, 2]);
     assert_eq!(renderer.buffer().ranges, [0..4, 0..4]);
@@ -485,7 +483,7 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
         width: 2,
         height: 1,
     }];
-    renderer.begin_frame(&damage);
+    renderer.begin_frame();
     renderer.draw_rectangle(
         &Rectangle::new(LogicalRect {
             x: 0.0,
@@ -501,7 +499,7 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
             height: 2,
         },
     );
-    renderer.end_frame();
+    renderer.end_frame(&damage);
 
     assert_eq!(renderer.buffer().ranges.len(), 1);
     assert_eq!(renderer.buffer().ranges[0], 1..3);
@@ -558,7 +556,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         height: 2.0,
         ..LogicalRect::default()
     };
-    renderer.begin_frame(&[screen]);
+    renderer.begin_frame();
     renderer.draw_rectangle(
         &Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
         screen,
@@ -571,7 +569,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         &Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
         screen,
     );
-    renderer.end_frame();
+    renderer.end_frame(&[screen]);
 
     assert!(
         renderer
@@ -594,7 +592,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         height: 7.0,
         ..LogicalRect::default()
     };
-    renderer.begin_frame(&[damage]);
+    renderer.begin_frame();
     renderer.draw_rectangle(
         &Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
         screen,
@@ -609,7 +607,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         &Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
         screen,
     );
-    renderer.end_frame();
+    renderer.end_frame(&[damage]);
 
     assert!(
         renderer.buffer().pixels()[3 * 8..4 * 8]
@@ -644,7 +642,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         vertical_tiling: blit::widgets::ImageTiling::None,
     };
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
-    renderer.begin_frame(&[screen]);
+    renderer.begin_frame();
     renderer.draw_rectangle(
         &Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
         screen,
@@ -654,7 +652,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         &Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
         screen,
     );
-    renderer.end_frame();
+    renderer.end_frame(&[screen]);
 
     assert_eq!(
         RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed),
@@ -673,7 +671,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         ..image
     };
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
-    renderer.begin_frame(&[screen]);
+    renderer.begin_frame();
     renderer.draw_rectangle(
         &Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
         screen,
@@ -683,7 +681,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         &Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
         screen,
     );
-    renderer.end_frame();
+    renderer.end_frame(&[screen]);
 
     assert_eq!(
         RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed),
@@ -739,15 +737,15 @@ fn cached_dirty_ranges_match_direct_rendering() {
         width: 8,
         height: 8,
     };
-    direct.begin_frame(&damage);
-    scanline.begin_frame(&damage);
+    direct.begin_frame();
+    scanline.begin_frame();
 
     direct.draw_rectangle(&red, clip);
     direct.draw_rectangle(&green, clip);
-    direct.end_frame();
+    direct.end_frame(&damage);
     scanline.draw_rectangle(&red, clip);
     scanline.draw_rectangle(&green, clip);
-    scanline.end_frame();
+    scanline.end_frame(&damage);
 
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
 }
@@ -790,15 +788,15 @@ fn box_shadows_match_between_strategies_and_reuse_masks() {
                 .spread(1.0),
             ..first
         };
-        renderer.begin_frame(&[screen]);
+        renderer.begin_frame();
         renderer.draw_box_shadow(&first, screen);
         renderer.draw_box_shadow(&second, screen);
-        renderer.end_frame();
+        renderer.end_frame(&[screen]);
         assert_eq!(renderer.context.images.len(), 1);
         renderer
     }
 
-    let direct = render(Direct::default());
+    let direct = render(Direct);
     let scanline = render(Scanline::default());
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
     assert!(direct.buffer().pixels().iter().any(|pixel| *pixel != 0));
@@ -810,7 +808,7 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
         let mut renderer =
             Renderer::new(VecBuffer::<u32>::new(48, 36), renderer_config()).strategy(strategy);
         let screen = renderer.screen();
-        renderer.begin_frame(&[screen]);
+        renderer.begin_frame();
         renderer.push_rounded_clip(
             LogicalRect {
                 x: 2.0,
@@ -845,11 +843,11 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
             );
         }
         renderer.pop_rounded_clip();
-        renderer.end_frame();
+        renderer.end_frame(&[screen]);
         renderer
     }
 
-    let direct = render(Direct::default());
+    let direct = render(Direct);
     let scanline = render(Scanline::default());
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
     assert_eq!(direct.buffer().pixels()[18 * 48 + 24], 0x0010_131a);
@@ -895,7 +893,7 @@ fn rounded_clips_match_between_strategies() {
             intrinsic_height: false,
         };
 
-        renderer.begin_frame(&[screen]);
+        renderer.begin_frame();
         renderer.push_rounded_clip(
             area,
             BorderRadius {
@@ -928,11 +926,11 @@ fn rounded_clips_match_between_strategies() {
             .background(Color::from_rgba8(0, 0, 255, 255)),
             screen,
         );
-        renderer.end_frame();
+        renderer.end_frame(&[screen]);
         renderer
     }
 
-    let direct = render(Direct::default());
+    let direct = render(Direct);
     let scanline = render(Scanline::default());
 
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
@@ -961,7 +959,7 @@ fn dropped_image_remains_valid_until_frame_end() {
         width: 1,
         height: 1,
     }];
-    renderer.begin_frame(&damage);
+    renderer.begin_frame();
     renderer.draw_image(
         &ImageRequest {
             image,
@@ -982,7 +980,7 @@ fn dropped_image_remains_valid_until_frame_end() {
         damage[0],
     );
     renderer.drop_image(image);
-    renderer.end_frame();
+    renderer.end_frame(&damage);
 
     assert_eq!(renderer.buffer().pixels()[0], 0x00ff_0000);
     let image = RendererImageId::from(KeyData::from_ffi(image.0));
@@ -999,7 +997,7 @@ fn text_source_can_drop_before_frame_end() {
         width: 32,
         height: 24,
     }];
-    renderer.begin_frame(&damage);
+    renderer.begin_frame();
     {
         let text = String::from("M");
         renderer.draw_text(
@@ -1020,7 +1018,7 @@ fn text_source_can_drop_before_frame_end() {
             damage[0],
         );
     }
-    renderer.end_frame();
+    renderer.end_frame(&damage);
 
     assert!(renderer.buffer().pixels().iter().any(|pixel| *pixel != 0));
 }

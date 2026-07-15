@@ -123,14 +123,11 @@ impl TestPlatform {
 
 impl PlatformImpl for TestPlatform {
     fn begin_frame(&mut self) {
-        self.renderer.begin_frame(&[])
+        self.renderer.begin_frame()
     }
 
     fn end_frame(&mut self, damage: &[PhysicalRect]) {
-        for area in damage {
-            self.renderer.add_damage(*area);
-        }
-        self.renderer.end_frame()
+        self.renderer.end_frame(damage)
     }
 
     fn screen(&mut self) -> PhysicalRect {
