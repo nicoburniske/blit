@@ -143,7 +143,6 @@ crate::component! {
         pub blur: f32,
         pub spread: f32,
     }
-    features: []
 }
 
 impl BoxShadow {
