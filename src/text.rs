@@ -139,28 +139,22 @@ impl SizedComponent for Text<'_> {
     type Output = ();
 
     fn measure(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize {
-        let mut options = self.options;
-        options.vertical_align = VerticalAlign::Top;
-        let measurement_area = LogicalRect {
-            height: 0.0,
-            ..available
-        };
         let request = TextRequest {
             text: self.text,
-            area: measurement_area,
+            area: LogicalRect {
+                height: 0.0,
+                ..available
+            },
             offset_x: self.offset_x,
             color: self.color,
             style: self.text_style,
-            options,
+            options: self.options,
             intrinsic_height: true,
         };
-        let cursor = ui.platform().text_cursor_rect(&request, self.text.len());
-        let height = (cursor.y + cursor.height - available.y)
-            .max(self.text_style.size)
-            .min(available.height);
+        let measured = ui.platform().measure_text(&request);
         LogicalSize {
-            width: available.width,
-            height,
+            width: measured.width.clamp(0.0, available.width.max(0.0)),
+            height: measured.height.clamp(0.0, available.height.max(0.0)),
         }
     }
 

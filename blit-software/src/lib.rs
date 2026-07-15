@@ -8,7 +8,7 @@ pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, VecBuffer
 pub use strategy::{Direct, RenderStrategy, Scanline};
 
 use blit::{
-    FontId, ImageData, ImageId, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
+    FontId, ImageData, ImageId, LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, TextRequest,
     widgets::{Border, BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 use render::{image, rectangle, shadow};
@@ -220,6 +220,12 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         self.context
             .text
             .offset_at_position(request, position, self.context.scale_factor)
+    }
+
+    pub fn measure_text(&mut self, request: &TextRequest<'_>) -> LogicalSize {
+        self.context
+            .text
+            .measure(request, self.context.scale_factor)
     }
 
     pub fn text_cursor_rect(
