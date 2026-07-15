@@ -118,6 +118,7 @@ struct SwappedBuffer {
     active: usize,
     width: usize,
     height: usize,
+    rendered_pixels: usize,
 }
 
 impl SwappedBuffer {
@@ -127,6 +128,7 @@ impl SwappedBuffer {
             active: 0,
             width,
             height,
+            rendered_pixels: 0,
         }
     }
 
@@ -136,6 +138,14 @@ impl SwappedBuffer {
 
     fn pixels(&self) -> &[u32] {
         &self.pixels[self.active]
+    }
+
+    fn take_rendered_pixels(&mut self) -> usize {
+        std::mem::take(&mut self.rendered_pixels)
+    }
+
+    fn replace_inactive(&mut self, pixel: u32) {
+        self.pixels[self.active ^ 1].fill(pixel);
     }
 }
 
@@ -154,29 +164,129 @@ impl PixelBuffer for SwappedBuffer {
         let start = line * self.width;
         &mut self.pixels[self.active][start..start + self.width]
     }
+
+    fn process_line(&mut self, line: usize, range: Range<usize>, process: impl FnOnce(&mut [u32])) {
+        self.rendered_pixels += range.len();
+        let start = line * self.width;
+        process(&mut self.pixels[self.active][start + range.start..start + range.end]);
+    }
 }
 
-fn render_animation_over_panel(ui: &mut blit::Ui, id: WidgetId, target: f32) {
-    Rectangle::new(ui.screen())
-        .background(Color::WHITE)
+struct CoherenceHarness {
+    partial: Runtime<RuntimePlatform<SwappedBuffer>>,
+    full: Runtime<RuntimePlatform<SwappedBuffer>>,
+    frame: usize,
+    id: WidgetId,
+}
+
+impl CoherenceHarness {
+    fn new(width: usize, height: usize) -> Self {
+        let make_runtime = || {
+            Runtime::new(RuntimePlatform {
+                renderer: Renderer::new(SwappedBuffer::new(width, height), renderer_config())
+                    .strategy(Scanline::default()),
+            })
+            .with_repaint_buffer(blit::RepaintBuffer::Swapped)
+        };
+        Self {
+            partial: make_runtime(),
+            full: make_runtime(),
+            frame: 0,
+            id: WidgetId::new("coherence harness movement"),
+        }
+    }
+
+    fn render(&mut self, position: f32) -> (usize, usize) {
+        self.render_at(
+            Duration::from_millis(self.frame as u64),
+            position,
+            Duration::ZERO,
+        )
+    }
+
+    fn render_at(&mut self, time: Duration, position: f32, duration: Duration) -> (usize, usize) {
+        if self.frame != 0 {
+            self.partial.platform().renderer.buffer_mut().swap();
+            self.full.platform().renderer.buffer_mut().swap();
+        }
+        let id = self.id;
+        self.partial.render(time, Input::None, |ui| {
+            render_coherence_scene(ui, id, position, duration)
+        });
+        self.full.invalidate_all();
+        self.full.render(time, Input::None, |ui| {
+            render_coherence_scene(ui, id, position, duration)
+        });
+
+        assert_eq!(
+            self.partial.platform().renderer.buffer().pixels(),
+            self.full.platform().renderer.buffer().pixels(),
+            "frame {} at position {position}",
+            self.frame
+        );
+        let partial = self
+            .partial
+            .platform()
+            .renderer
+            .buffer_mut()
+            .take_rendered_pixels();
+        let full = self
+            .full
+            .platform()
+            .renderer
+            .buffer_mut()
+            .take_rendered_pixels();
+        self.frame += 1;
+        (partial, full)
+    }
+}
+
+fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, duration: Duration) {
+    let screen = ui.screen();
+    Rectangle::new(screen)
+        .background(Color::from_rgba8(24, 36, 48, 255))
         .render(ui);
+    for (index, color) in [
+        Color::from_rgba8(90, 30, 40, 255),
+        Color::from_rgba8(30, 80, 50, 255),
+        Color::from_rgba8(40, 50, 100, 255),
+        Color::from_rgba8(100, 80, 30, 255),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        Rectangle::new(LogicalRect {
+            x: index as f32 * screen.width / 4.0,
+            width: screen.width / 4.0,
+            ..screen
+        })
+        .background(color)
+        .render(ui);
+    }
+
+    let mut movement = ui.animate(id, position, duration, Easing::Linear);
+    let x = movement.value();
     Rectangle::new(LogicalRect {
-        x: 2.0,
-        y: 0.0,
-        width: 2.0,
-        height: 1.0,
+        x,
+        y: 6.0,
+        width: 12.0,
+        height: 20.0,
     })
-    .background(Color::from_rgba8(128, 128, 128, 255))
-    .render(ui);
-    let mut animation = ui.animate(id, target, Duration::ZERO, Easing::Linear);
+    .background(Color::from_rgba8(20, 20, 20, 160))
+    .uniform_radius(4.0)
+    .render(&mut movement);
     Rectangle::new(LogicalRect {
-        x: animation.value(),
-        y: 0.0,
-        width: 1.0,
-        height: 1.0,
+        x: x + 4.0,
+        y: 10.0,
+        width: 4.0,
+        height: 12.0,
     })
-    .background(Color::from_rgba8(0, 0, 0, 128))
-    .render(&mut animation);
+    .background(if position < screen.width / 2.0 {
+        Color::from_rgba8(230, 220, 180, 255)
+    } else {
+        Color::from_rgba8(180, 210, 240, 255)
+    })
+    .render(&mut movement);
 }
 
 impl PixelBuffer for TrackingBuffer {
@@ -301,98 +411,82 @@ fn renderer_supports_custom_pixel_layouts() {
 }
 
 #[test]
-fn moving_animation_draws_entire_current_geometry() {
-    let mut runtime = Runtime::new(RuntimePlatform {
-        renderer: Renderer::new(VecBuffer::<u32>::new(32, 16), renderer_config())
-            .strategy(Scanline::default()),
-    })
-    .with_repaint_buffer(blit::RepaintBuffer::Swapped);
-    let id = WidgetId::new("moving circle");
-    let render = |ui: &mut blit::Ui, target| {
-        Rectangle::new(ui.screen())
-            .background(Color::BLACK)
-            .render(ui);
-        let mut animation = ui.animate(id, target, Duration::from_millis(100), Easing::Linear);
-        Rectangle::new(LogicalRect {
-            x: animation.value(),
-            y: 4.0,
-            width: 8.0,
-            height: 8.0,
-        })
-        .background(Color::WHITE)
-        .uniform_radius(4.0)
-        .render(&mut animation);
-    };
-
-    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, 16.0));
-    runtime.render(Duration::from_millis(1), Input::None, |ui| render(ui, 16.0));
-    runtime.render(Duration::from_millis(2), Input::None, |ui| render(ui, 16.0));
-    runtime.render(Duration::from_millis(10), Input::None, |ui| render(ui, 4.0));
-    runtime.render(Duration::from_millis(60), Input::None, |ui| render(ui, 4.0));
-
-    assert_eq!(
-        runtime.platform().renderer.buffer().pixels()[8 * 32 + 14],
-        0x00ff_ffff
-    );
-}
-
-#[test]
-fn late_animation_damage_repaints_earlier_panel_same_frame() {
-    let mut runtime = Runtime::new(RuntimePlatform {
-        renderer: Renderer::new(VecBuffer::<u32>::new(4, 1), renderer_config()),
-    });
-    let id = WidgetId::new("moving rectangle over panel");
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        render_animation_over_panel(ui, id, 0.0)
-    });
-    runtime.invalidate(LogicalRect {
-        x: 0.0,
-        y: 0.0,
-        width: 1.0,
-        height: 1.0,
-    });
-    runtime.render(Duration::from_millis(1), Input::None, |ui| {
-        render_animation_over_panel(ui, id, 3.0)
-    });
-
-    assert_eq!(
-        runtime.platform().renderer.buffer().pixels(),
-        [0xffffff, 0xffffff, 0x808080, 0x3f3f3f]
-    );
-}
-
-#[test]
-fn swapped_partial_animation_frames_match_full_redraw() {
-    let make_runtime = || {
-        Runtime::new(RuntimePlatform {
-            renderer: Renderer::new(SwappedBuffer::new(4, 1), renderer_config())
-                .strategy(Scanline::default()),
-        })
-        .with_repaint_buffer(blit::RepaintBuffer::Swapped)
-    };
-    let mut partial = make_runtime();
-    let mut full = make_runtime();
-    let id = WidgetId::new("moving rectangle over panel");
-
-    for (frame, target) in [0.0, 0.0, 3.0, 0.0, 3.0].into_iter().enumerate() {
-        if frame != 0 {
-            partial.platform().renderer.buffer_mut().swap();
-            full.platform().renderer.buffer_mut().swap();
-        }
-        let time = Duration::from_millis(frame as u64);
-        partial.render(time, Input::None, |ui| {
-            render_animation_over_panel(ui, id, target)
-        });
-        full.invalidate_all();
-        full.render(time, Input::None, |ui| {
-            render_animation_over_panel(ui, id, target)
-        });
-
-        let partial_pixels = partial.platform().renderer.buffer().pixels();
-        let full_pixels = full.platform().renderer.buffer().pixels();
-        assert_eq!(partial_pixels, full_pixels, "frame {frame}");
+fn partial_frames_match_full_redraw() {
+    let mut harness = CoherenceHarness::new(64, 32);
+    for position in [4.0, 4.0, 9.0, 17.0, 29.0, 41.0, 33.0, 18.0, 7.0, 4.0] {
+        harness.render(position);
     }
+    assert!(harness.partial.has_pending_redraw());
+    harness.render(4.0);
+    assert!(!harness.partial.has_pending_redraw());
+
+    harness.render(44.0);
+    harness.render(44.0);
+    harness.render_at(Duration::from_millis(10), 4.0, Duration::from_millis(100));
+    for time in [35, 60, 85, 110] {
+        harness.render_at(Duration::from_millis(time), 4.0, Duration::from_millis(100));
+    }
+    assert!(harness.partial.has_pending_redraw());
+    harness.render_at(Duration::from_millis(111), 4.0, Duration::from_millis(100));
+    assert!(!harness.partial.has_pending_redraw());
+
+    harness
+        .partial
+        .platform()
+        .renderer
+        .buffer_mut()
+        .replace_inactive(0x00ff_00ff);
+    harness
+        .full
+        .platform()
+        .renderer
+        .buffer_mut()
+        .replace_inactive(0x00ff_00ff);
+    harness.partial.invalidate_all();
+    harness.render(4.0);
+    harness.render(4.0);
+    assert!(!harness.partial.has_pending_redraw());
+
+    let mut random = 0x4d59_5df4_d0f3_3173_u64;
+    let mut position = 4.0;
+    for _ in 0..256 {
+        random = random
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        if random >> 61 != 0 {
+            position = 4.0 + ((random >> 32) % 45) as f32;
+        }
+        harness.render(position);
+    }
+    for _ in 0..3 {
+        if !harness.partial.has_pending_redraw() {
+            break;
+        }
+        harness.render(position);
+    }
+    assert!(!harness.partial.has_pending_redraw());
+}
+
+#[test]
+fn partial_drag_rasterizes_less_than_full_redraw() {
+    let mut harness = CoherenceHarness::new(64, 32);
+    harness.render(4.0);
+    harness.render(4.0);
+
+    let mut partial_pixels = 0;
+    let mut full_pixels = 0;
+    for position in [12.0, 20.0, 28.0, 36.0, 44.0, 44.0] {
+        let (partial, full) = harness.render(position);
+        partial_pixels += partial;
+        full_pixels += full;
+    }
+
+    assert!(!harness.partial.has_pending_redraw());
+    assert_eq!(full_pixels, 6 * 64 * 32);
+    assert!(
+        partial_pixels * 4 < full_pixels,
+        "partial={partial_pixels}, full={full_pixels}"
+    );
 }
 
 #[test]
