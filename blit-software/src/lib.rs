@@ -1,7 +1,5 @@
-mod image;
 mod pixel;
-mod rectangle;
-mod shadow;
+pub mod render;
 mod strategy;
 mod text;
 
@@ -13,6 +11,7 @@ use blit::{
     FontId, ImageData, ImageId, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
     widgets::{Border, BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
+use render::{image, rectangle, shadow};
 use strategy::{
     clip::ClipStack,
     command::{CommandList, PreparedText},
@@ -239,7 +238,7 @@ use slotmap::{Key, KeyData, SlotMap, new_key_type};
 use text::TextRenderer;
 
 new_key_type! {
-    struct RendererImageId;
+    pub struct RendererImageId;
 }
 
 #[doc(hidden)]
@@ -254,7 +253,7 @@ pub struct RenderContext<B: PixelBuffer> {
     clips: ClipStack,
 }
 
-struct StoredImage {
+pub struct StoredImage {
     data: ImageData,
     opaque: bool,
     live: bool,

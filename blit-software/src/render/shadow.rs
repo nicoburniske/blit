@@ -7,7 +7,9 @@ use blit::{
 };
 use slotmap::{Key, SlotMap};
 
-use crate::{RendererImageId, StoredImage, rectangle::rounded::Radii};
+use crate::{RendererImageId, StoredImage};
+
+use super::rounded::{Radii, RoundedLine};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct KeyData {
@@ -112,7 +114,7 @@ impl Cache {
                 height: height as i32 - diameter,
             };
             for y in shape.y..shape.y + shape.height {
-                let line = super::rectangle::rounded::RoundedLine::new(shape, radii, y)?;
+                let line = RoundedLine::new(shape, radii, y)?;
                 for x in
                     line.visible_start().max(shape.x)..line.visible_end().min(shape.x + shape.width)
                 {
