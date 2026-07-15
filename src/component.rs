@@ -15,6 +15,21 @@ macro_rules! component {
         $visibility:vis struct $name:ident $(<$lifetime:lifetime>)? {
             $($body:tt)*
         }
+    ) => {
+        $crate::component! {
+            $(#[$attribute])*
+            $visibility struct $name $(<$lifetime>)? {
+                $($body)*
+            }
+            features: []
+        }
+    };
+
+    (
+        $(#[$attribute:meta])*
+        $visibility:vis struct $name:ident $(<$lifetime:lifetime>)? {
+            $($body:tt)*
+        }
         features: [$($feature:ident),* $(,)?]
     ) => {
         $crate::component! {

@@ -69,7 +69,6 @@ crate::component! {
         pub horizontal_tiling: ImageTiling,
         pub vertical_tiling: ImageTiling,
     }
-    features: []
 }
 
 impl<'a> Image<'a> {
