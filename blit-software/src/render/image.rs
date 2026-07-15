@@ -1,13 +1,9 @@
-mod prepared;
-
-pub use prepared::Prepared;
-
 use blit::{
     ImageData, PhysicalRect,
     widgets::{ImageFit, ImageRequest, ImageTiling},
 };
 
-use prepared::Patch;
+use super::image_patch::{Patch, Prepared};
 
 pub fn prepare(
     request: &ImageRequest,

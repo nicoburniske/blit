@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use blit::{LogicalRect, PhysicalRect, widgets::BorderRadius};
 
-use crate::rectangle::rounded::{Radii, RoundedLine};
+use crate::render::rounded::{Radii, RoundedLine};
 
 pub type ClipId = u16;
 

@@ -2,8 +2,8 @@ use std::mem::MaybeUninit;
 
 use blit::{Color, PhysicalRect, widgets::GradientStop};
 
-use crate::{
-    image::Prepared as PreparedImage,
+use crate::render::{
+    image_patch::Prepared as PreparedImage,
     rectangle::{Gradient as PreparedGradient, Prepared as PreparedRectangle},
 };
 
