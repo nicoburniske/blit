@@ -322,11 +322,7 @@ fn blend_gradient<P: Pixel>(
     let end = end.floor().min(row.len() as u32) as usize;
     for (x, pixel) in row.iter_mut().enumerate().take(end).skip(start) {
         let color = border_color(span_x + x as i32);
-        if color.alpha == 255 {
-            *pixel = P::from_rgb(color.red, color.green, color.blue);
-        } else {
-            pixel.blend(color);
-        }
+        pixel.blend(color);
     }
 }
 

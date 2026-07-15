@@ -139,10 +139,7 @@ impl Prepared {
         let texture_right = texture_x + self.texture_rect.width as usize;
         if self.colorize.is_some() && !matches!(self.format, ImageFormat::Alpha8(_)) {
             self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
-                blend(
-                    &mut row[destination],
-                    self.source_pixel(pixels, source_x, source_y),
-                );
+                row[destination].blend(self.source_pixel(pixels, source_x, source_y));
             });
             return;
         }
@@ -179,18 +176,15 @@ impl Prepared {
                 self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + (source_x - texture_x) * 3;
-                        blend(
-                            &mut row[destination],
-                            PremultipliedRgbaColor::new(
-                                Color::from_rgba8(
-                                    pixels[source],
-                                    pixels[source + 1],
-                                    pixels[source + 2],
-                                    255,
-                                ),
-                                self.opacity,
+                        row[destination].blend(PremultipliedRgbaColor::new(
+                            Color::from_rgba8(
+                                pixels[source],
+                                pixels[source + 1],
+                                pixels[source + 2],
+                                255,
                             ),
-                        );
+                            self.opacity,
+                        ));
                     }
                 });
             }
@@ -199,15 +193,12 @@ impl Prepared {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + (source_x - texture_x) * 4;
                         let alpha = (pixels[source + 3] as u16 * self.opacity as u16 / 255) as u8;
-                        blend(
-                            &mut row[destination],
-                            PremultipliedRgbaColor {
-                                red: (pixels[source] as u16 * alpha as u16 / 255) as u8,
-                                green: (pixels[source + 1] as u16 * alpha as u16 / 255) as u8,
-                                blue: (pixels[source + 2] as u16 * alpha as u16 / 255) as u8,
-                                alpha,
-                            },
-                        );
+                        row[destination].blend(PremultipliedRgbaColor {
+                            red: (pixels[source] as u16 * alpha as u16 / 255) as u8,
+                            green: (pixels[source + 1] as u16 * alpha as u16 / 255) as u8,
+                            blue: (pixels[source + 2] as u16 * alpha as u16 / 255) as u8,
+                            alpha,
+                        });
                     }
                 });
             }
@@ -215,15 +206,12 @@ impl Prepared {
                 self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + (source_x - texture_x) * 4;
-                        blend(
-                            &mut row[destination],
-                            PremultipliedRgbaColor {
-                                red: pixels[source],
-                                green: pixels[source + 1],
-                                blue: pixels[source + 2],
-                                alpha: pixels[source + 3],
-                            },
-                        );
+                        row[destination].blend(PremultipliedRgbaColor {
+                            red: pixels[source],
+                            green: pixels[source + 1],
+                            blue: pixels[source + 2],
+                            alpha: pixels[source + 3],
+                        });
                     }
                 });
             }
@@ -231,17 +219,12 @@ impl Prepared {
                 self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + (source_x - texture_x) * 4;
-                        blend(
-                            &mut row[destination],
-                            PremultipliedRgbaColor {
-                                red: (pixels[source] as u16 * self.opacity as u16 / 255) as u8,
-                                green: (pixels[source + 1] as u16 * self.opacity as u16 / 255)
-                                    as u8,
-                                blue: (pixels[source + 2] as u16 * self.opacity as u16 / 255) as u8,
-                                alpha: (pixels[source + 3] as u16 * self.opacity as u16 / 255)
-                                    as u8,
-                            },
-                        );
+                        row[destination].blend(PremultipliedRgbaColor {
+                            red: (pixels[source] as u16 * self.opacity as u16 / 255) as u8,
+                            green: (pixels[source + 1] as u16 * self.opacity as u16 / 255) as u8,
+                            blue: (pixels[source + 2] as u16 * self.opacity as u16 / 255) as u8,
+                            alpha: (pixels[source + 3] as u16 * self.opacity as u16 / 255) as u8,
+                        });
                     }
                 });
             }
@@ -250,13 +233,10 @@ impl Prepared {
                 self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + source_x - texture_x;
-                        blend(
-                            &mut row[destination],
-                            PremultipliedRgbaColor::new(
-                                color,
-                                (pixels[source] as u16 * self.opacity as u16 / 255) as u8,
-                            ),
-                        );
+                        row[destination].blend(PremultipliedRgbaColor::new(
+                            color,
+                            (pixels[source] as u16 * self.opacity as u16 / 255) as u8,
+                        ));
                     }
                 });
             }
@@ -407,35 +387,32 @@ impl Prepared {
                     bottom_left as f32 + (bottom_right as f32 - bottom_left as f32) * horizontal;
                 (top + (bottom - top) * vertical).round() as u8
             };
-            blend(
-                &mut row[(x - screen_x) as usize],
-                PremultipliedRgbaColor {
-                    red: interpolate(
-                        top_left.red,
-                        top_right.red,
-                        bottom_left.red,
-                        bottom_right.red,
-                    ),
-                    green: interpolate(
-                        top_left.green,
-                        top_right.green,
-                        bottom_left.green,
-                        bottom_right.green,
-                    ),
-                    blue: interpolate(
-                        top_left.blue,
-                        top_right.blue,
-                        bottom_left.blue,
-                        bottom_right.blue,
-                    ),
-                    alpha: interpolate(
-                        top_left.alpha,
-                        top_right.alpha,
-                        bottom_left.alpha,
-                        bottom_right.alpha,
-                    ),
-                },
-            );
+            row[(x - screen_x) as usize].blend(PremultipliedRgbaColor {
+                red: interpolate(
+                    top_left.red,
+                    top_right.red,
+                    bottom_left.red,
+                    bottom_right.red,
+                ),
+                green: interpolate(
+                    top_left.green,
+                    top_right.green,
+                    bottom_left.green,
+                    bottom_right.green,
+                ),
+                blue: interpolate(
+                    top_left.blue,
+                    top_right.blue,
+                    bottom_left.blue,
+                    bottom_right.blue,
+                ),
+                alpha: interpolate(
+                    top_left.alpha,
+                    top_right.alpha,
+                    bottom_left.alpha,
+                    bottom_right.alpha,
+                ),
+            });
         }
     }
 
@@ -547,14 +524,5 @@ fn axis(source: i32, target: i32, tiling: ImageTiling, scale_factor: f32) -> (u6
                 true,
             )
         }
-    }
-}
-
-#[inline(always)]
-fn blend<P: Pixel>(pixel: &mut P, color: PremultipliedRgbaColor) {
-    if color.alpha == 255 {
-        *pixel = P::from_rgb(color.red, color.green, color.blue);
-    } else if color.alpha != 0 {
-        pixel.blend(color);
     }
 }

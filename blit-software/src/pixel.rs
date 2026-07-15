@@ -44,7 +44,18 @@ pub struct Rgb8Pixel {
 }
 
 pub trait Pixel: Copy {
-    fn blend(&mut self, color: PremultipliedRgbaColor);
+    /// composites `color`, skipping transparent colors and replacing opaque pixels
+    #[inline(always)]
+    fn blend(&mut self, color: PremultipliedRgbaColor) {
+        match color.alpha {
+            0 => {}
+            255 => *self = Self::from_rgb(color.red, color.green, color.blue),
+            _ => self.blend_translucent(color),
+        }
+    }
+
+    /// composites `color`; `blend` only calls this when alpha is in `1..=254`
+    fn blend_translucent(&mut self, color: PremultipliedRgbaColor);
 
     fn from_rgb(red: u8, green: u8, blue: u8) -> Self;
 
@@ -95,7 +106,7 @@ pub trait Pixel: Copy {
 }
 
 impl Pixel for u32 {
-    fn blend(&mut self, color: PremultipliedRgbaColor) {
+    fn blend_translucent(&mut self, color: PremultipliedRgbaColor) {
         let inverse = 255 - color.alpha as u32;
         let red = ((*self >> 16) & 0xff) * inverse / 255 + color.red as u32;
         let green = ((*self >> 8) & 0xff) * inverse / 255 + color.green as u32;
