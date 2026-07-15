@@ -3,7 +3,7 @@ use blit::{
     PhysicalRect, PlatformImpl, TextRequest,
     widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
-use blit_software::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
+use blit_cpu::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 use std::{
     collections::VecDeque,

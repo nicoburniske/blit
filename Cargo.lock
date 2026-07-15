@@ -55,16 +55,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "blit-example"
-version = "0.1.0"
-dependencies = [
- "blit",
- "blit-software",
- "minifb",
-]
-
-[[package]]
-name = "blit-software"
+name = "blit-cpu"
 version = "0.1.0"
 dependencies = [
  "blit",
@@ -72,6 +63,15 @@ dependencies = [
  "criterion",
  "fontdue",
  "slotmap",
+]
+
+[[package]]
+name = "blit-example"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-cpu",
+ "minifb",
 ]
 
 [[package]]

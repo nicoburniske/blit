@@ -7,7 +7,7 @@ use blit::{
         ImageSampling, ImageTiling, LinearGradient, Rectangle,
     },
 };
-use blit_software::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
+use blit_cpu::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
 use criterion::{Criterion, criterion_group, criterion_main};
 
 fn dirty_regions(criterion: &mut Criterion) {
