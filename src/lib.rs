@@ -248,13 +248,17 @@ impl Ui {
         let area = area
             .to_physical(self.scale_factor)
             .intersection(self.clip)?;
+        self.record_draw_bounds(area);
+        Some(area)
+    }
+
+    fn record_draw_bounds(&mut self, area: PhysicalRect) {
         for capture in &mut self.animation_stack[..self.animation_depth] {
             capture.bounds = Some(capture.bounds.map_or(area, |bounds| bounds.union(area)));
             if capture.damage {
                 self.dirty.add(area);
             }
         }
-        Some(area)
     }
 }
 

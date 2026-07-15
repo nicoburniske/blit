@@ -86,7 +86,7 @@ impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
         self.renderer.draw_image(image, clip)
     }
 
-    fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) {
+    fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) -> Option<PhysicalRect> {
         self.renderer.draw_text(request, clip)
     }
 

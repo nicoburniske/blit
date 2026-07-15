@@ -27,19 +27,39 @@ impl TextRenderer {
         }
     }
 
-    pub fn prepare(&mut self, request: &TextRequest<'_>, scale_factor: f32) -> usize {
+    pub fn prepare(
+        &mut self,
+        request: &TextRequest<'_>,
+        scale_factor: f32,
+    ) -> (usize, PhysicalRect) {
         let key = ParagraphCache::key(request, scale_factor);
-        if let Some(index) = self
+        let index = match self
             .frame
             .iter()
             .position(|prepared| prepared.key == key && prepared.paragraph.matches(request.text))
         {
-            return index;
+            Some(index) => index,
+            None => {
+                let (key, paragraph) = self.paragraphs.take(request, scale_factor, &mut self.fonts);
+                let index = self.frame.len();
+                self.frame.push(PreparedParagraph { key, paragraph });
+                index
+            }
+        };
+        let area = request.area.to_physical(scale_factor);
+        let paragraph = &self.frame[index].paragraph;
+        if paragraph.width == 0 || paragraph.height == 0 {
+            return (index, PhysicalRect::default());
         }
-        let (key, paragraph) = self.paragraphs.take(request, scale_factor, &mut self.fonts);
-        let index = self.frame.len();
-        self.frame.push(PreparedParagraph { key, paragraph });
-        index
+        (
+            index,
+            PhysicalRect {
+                x: area.x.saturating_add(paragraph.x),
+                y: area.y.saturating_add(paragraph.y),
+                width: paragraph.width as i32,
+                height: paragraph.height as i32,
+            },
+        )
     }
 
     pub fn draw_line<P: Pixel>(
