@@ -1,7 +1,7 @@
 mod font;
 mod paragraph;
 
-use blit::{Color, LogicalPoint, LogicalRect, PhysicalRect, TextRequest};
+use blit::{Color, LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, TextRequest};
 
 use crate::{Pixel, PixelSpan, RendererConfig};
 use font::FontCache;
@@ -116,6 +116,18 @@ impl TextRenderer {
                 left_distance.total_cmp(&right_distance)
             })
             .map_or(0, |caret| caret.byte_offset.min(request.text.len()))
+    }
+
+    pub fn measure(&mut self, request: &TextRequest<'_>, scale_factor: f32) -> LogicalSize {
+        let paragraph = self.paragraphs.get(request, scale_factor, &mut self.fonts);
+        let paragraph = match &paragraph {
+            Ok(paragraph) => *paragraph,
+            Err(paragraph) => paragraph,
+        };
+        LogicalSize {
+            width: paragraph.layout_width / scale_factor,
+            height: paragraph.layout_height / scale_factor,
+        }
     }
 
     pub fn cursor_rect(

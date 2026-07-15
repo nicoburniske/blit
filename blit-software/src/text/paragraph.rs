@@ -19,6 +19,8 @@ pub struct Paragraph {
     pub y: i32,
     pub width: usize,
     pub height: usize,
+    pub layout_width: f32,
+    pub layout_height: f32,
     pub alpha: Box<[u8]>,
     pub carets: Box<[Caret]>,
     text: Box<str>,
@@ -162,6 +164,8 @@ impl ParagraphCache {
                 y: 0,
                 width: 0,
                 height: 0,
+                layout_width: 0.0,
+                layout_height: 0.0,
                 alpha: Box::new([]),
                 carets: Box::new([]),
                 text: request.text.into(),
@@ -278,6 +282,13 @@ impl ParagraphCache {
             &[font],
             &FontTextStyle::new(rendered.as_deref().unwrap_or(request.text), size, 0),
         );
+        let layout_height = self.layout.lines().map_or_else(
+            || {
+                font.horizontal_line_metrics(size)
+                    .map_or(size, |line| line.new_line_size.ceil())
+            },
+            |_| self.layout.height(),
+        );
         let glyphs = self.layout.glyphs();
         let natural_width = glyphs
             .iter()
@@ -294,26 +305,42 @@ impl ParagraphCache {
         };
         let paint_offset_x = offset_x - request.offset_x * scale_factor;
         let mut carets = Vec::with_capacity(glyphs.len() + 1);
+        let mut layout_width = 0.0f32;
         if let Some(lines) = self.layout.lines() {
             for line in lines {
                 let start = line.glyph_start.min(glyphs.len());
                 let end = line.glyph_end.saturating_add(1).min(glyphs.len());
+                let mut line_left = f32::INFINITY;
+                let mut line_right = f32::NEG_INFINITY;
+                let mut last = None;
                 for glyph in &glyphs[start..end] {
-                    let metrics = font.metrics_indexed(glyph.key.glyph_index, size);
+                    let metrics = if glyph.char_data.is_control() {
+                        None
+                    } else {
+                        Some(font.metrics_indexed(glyph.key.glyph_index, size))
+                    };
+                    let x = glyph.x - metrics.as_ref().map_or(0.0, |metrics| metrics.xmin as f32)
+                        + paint_offset_x;
+                    let end = x + metrics
+                        .as_ref()
+                        .map_or(0.0, |metrics| metrics.advance_width.ceil());
+                    line_left = line_left.min(x);
+                    line_right = line_right.max(end);
+                    last = Some((glyph.byte_offset + glyph.parent.len_utf8(), end));
                     carets.push(Caret {
                         byte_offset: glyph.byte_offset,
-                        x: glyph.x - metrics.xmin as f32 + paint_offset_x,
+                        x,
                         y: line.baseline_y - line.max_ascent,
                         height: line.max_new_line_size,
                     });
                 }
-                if let Some(glyph) = glyphs[start..end].last() {
-                    let metrics = font.metrics_indexed(glyph.key.glyph_index, size);
+                if line_left.is_finite() && line_right.is_finite() {
+                    layout_width = layout_width.max(line_right - line_left);
+                }
+                if let Some((byte_offset, x)) = last {
                     carets.push(Caret {
-                        byte_offset: glyph.byte_offset + glyph.parent.len_utf8(),
-                        x: glyph.x - metrics.xmin as f32
-                            + metrics.advance_width.ceil()
-                            + paint_offset_x,
+                        byte_offset,
+                        x,
                         y: line.baseline_y - line.max_ascent,
                         height: line.max_new_line_size,
                     });
@@ -382,6 +409,8 @@ impl ParagraphCache {
             y: top,
             width,
             height,
+            layout_width,
+            layout_height,
             alpha: alpha.into_boxed_slice(),
             carets: carets.into_boxed_slice(),
             text: request.text.into(),

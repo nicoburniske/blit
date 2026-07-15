@@ -1,8 +1,8 @@
 use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 
 use crate::{
-    ImageData, ImageHandle, ImageId, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect,
-    TextRequest,
+    ImageData, ImageHandle, ImageId, KeyboardRequest, LogicalPoint, LogicalRect, LogicalSize,
+    PhysicalRect, TextRequest,
     widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 
@@ -28,6 +28,11 @@ pub trait PlatformImpl {
         request: &TextRequest<'_>,
         position: LogicalPoint,
     ) -> usize;
+    /// returns the typographic size after wrapping and overflow handling
+    ///
+    /// includes whitespace width, ignores alignment and offsets, and reports the full content size
+    /// for clipped overflow
+    fn measure_text(&mut self, request: &TextRequest<'_>) -> LogicalSize;
     fn text_cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect;
     fn show_keyboard(&mut self, request: &KeyboardRequest<'_>);
 }
@@ -92,6 +97,11 @@ impl Platform {
         position: LogicalPoint,
     ) -> usize {
         self.inner().text_offset_at_position(request, position)
+    }
+
+    #[inline]
+    pub fn measure_text(&mut self, request: &TextRequest<'_>) -> LogicalSize {
+        self.inner().measure_text(request)
     }
 
     #[inline]

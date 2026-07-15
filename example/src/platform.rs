@@ -1,6 +1,6 @@
 use blit::{
-    FontId, ImageData, ImageId, Input, KeyboardRequest, LogicalPoint, LogicalRect, PhysicalRect,
-    PlatformImpl, TextRequest,
+    FontId, ImageData, ImageId, Input, KeyboardRequest, LogicalPoint, LogicalRect, LogicalSize,
+    PhysicalRect, PlatformImpl, TextRequest,
     widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
 use blit_software::{Font, FontFace, FontSettings, Renderer, RendererConfig, Scanline, VecBuffer};
@@ -176,6 +176,10 @@ impl PlatformImpl for TestPlatform {
         position: LogicalPoint,
     ) -> usize {
         self.renderer.text_offset_at_position(request, position)
+    }
+
+    fn measure_text(&mut self, request: &TextRequest<'_>) -> LogicalSize {
+        self.renderer.measure_text(request)
     }
 
     fn text_cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect {

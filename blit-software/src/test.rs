@@ -1,8 +1,8 @@
 use super::*;
 use blit::{
     Color, Easing, ImageData, ImageFormat, ImageId, ImagePixels, Input, KeyboardRequest,
-    LogicalPoint, LogicalRect, PhysicalRect, PlatformImpl, Runtime, TextOptions, TextRequest,
-    TextStyle, WidgetId,
+    LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, PlatformImpl, Runtime, TextOptions,
+    TextRequest, TextStyle, WidgetId,
     widgets::{
         BorderRadius, BoxShadow, BoxShadowRequest, GradientStop, ImageFit, ImageRequest,
         ImageSampling, LinearGradient, Rectangle,
@@ -96,6 +96,10 @@ impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
         position: LogicalPoint,
     ) -> usize {
         self.renderer.text_offset_at_position(request, position)
+    }
+
+    fn measure_text(&mut self, request: &TextRequest<'_>) -> LogicalSize {
+        self.renderer.measure_text(request)
     }
 
     fn text_cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect {
