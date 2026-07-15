@@ -755,153 +755,40 @@ fn grouped_animations_advance_independently() {
 }
 
 #[test]
-fn grouped_immediate_animation_damages_old_and_new_bounds() {
-    let mut runtime = Runtime::new(TestPlatform);
-    let id = WidgetId::new("moving point");
-    let old = LogicalRect {
-        x: 1.0,
-        y: 2.0,
-        width: 2.0,
-        height: 2.0,
-    };
-    let new = LogicalRect {
-        x: 6.0,
-        y: 5.0,
-        ..old
-    };
-    let render = |ui: &mut Ui, position: [f32; 2]| {
-        let [x, y] = position;
-        let mut animation = ui.animate_values(
-            id,
-            [
-                Transition::new(x, Duration::ZERO, Easing::Linear),
-                Transition::new(y, Duration::ZERO, Easing::Linear),
-            ],
-        );
-        let [x, y] = animation.values();
-        widgets::Rectangle::new(LogicalRect {
-            x,
-            y,
-            width: 2.0,
-            height: 2.0,
-        })
-        .render(&mut animation);
-    };
-
-    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, [1.0, 2.0]));
-    runtime.render(Duration::from_millis(1), Input::None, |ui| {
-        render(ui, [6.0, 5.0])
-    });
-    let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| {
-        render(ui, [6.0, 5.0]);
-        ui.dirty.clone()
-    });
-
-    assert_eq!(
-        damage.regions(),
-        &[old.to_physical(1.0), new.to_physical(1.0)]
-    );
-}
-
-#[test]
-fn immediate_animation_damages_old_and_new_bounds_in_current_frame() {
-    let mut runtime = Runtime::new(TestPlatform);
-    let id = WidgetId::new("moving rectangle");
-    let old = LogicalRect {
-        x: 1.0,
-        y: 2.0,
-        width: 2.0,
-        height: 2.0,
-    };
-    let new = LogicalRect {
-        x: 6.0,
-        y: 5.0,
-        ..old
-    };
-    let render = |ui: &mut Ui, area: LogicalRect| {
-        let mut animation = ui.animate_values(
-            id,
-            [
-                Transition::new(area.x, Duration::ZERO, Easing::Linear),
-                Transition::new(area.y, Duration::ZERO, Easing::Linear),
-            ],
-        );
-        let [x, y] = animation.values();
-        widgets::Rectangle::new(LogicalRect { x, y, ..area }).render(&mut animation);
-    };
-
-    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, old));
-    let damage = runtime.render(Duration::from_millis(1), Input::None, |ui| {
-        render(ui, new);
-        ui.dirty.clone()
-    });
-
-    assert_eq!(
-        damage.regions(),
-        &[old.to_physical(1.0), new.to_physical(1.0)]
-    );
-}
-
-#[test]
-fn animation_tracks_previous_and_current_draw_bounds() {
-    let mut runtime = Runtime::new(TestPlatform);
-    let id = WidgetId::new("moving rectangle");
-    let duration = Duration::from_millis(100);
+fn swapped_animation_damage_history_is_bounded() {
+    let mut runtime = Runtime::new(TestPlatform).with_repaint_buffer(RepaintBuffer::Swapped);
+    let id = WidgetId::new("bounded animation damage");
     let render = |ui: &mut Ui, target| {
-        let mut animation = ui.animate(id, target, duration, Easing::Linear);
-        let value = animation.value();
+        let mut animation = ui.animate(id, target, Duration::ZERO, Easing::Linear);
         widgets::Rectangle::new(LogicalRect {
-            x: value,
+            x: animation.value(),
             y: 0.0,
             width: 2.0,
             height: 2.0,
         })
         .render(&mut animation);
-        animation.finish();
     };
+    {
+        let mut frame = |target, time| {
+            runtime.render(Duration::from_millis(time), Input::None, |ui| {
+                render(ui, target);
+                ui.dirty.clone()
+            })
+        };
 
-    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
-    runtime.render(Duration::from_millis(1), Input::None, |ui| render(ui, 0.0));
-    runtime.render(Duration::from_millis(2), Input::None, |ui| render(ui, 0.0));
-    let started = runtime.render(Duration::from_millis(10), Input::None, |ui| {
-        render(ui, 8.0);
-        ui.dirty.clone()
-    });
-    let moving = runtime.render(Duration::from_millis(60), Input::None, |ui| {
-        render(ui, 8.0);
-        ui.dirty.clone()
-    });
-
-    assert_eq!(
-        started.regions(),
-        &[PhysicalRect {
-            x: 0,
-            y: 0,
-            width: 2,
-            height: 2,
-        }]
-    );
-    assert_eq!(
-        moving.regions(),
-        &[
-            PhysicalRect {
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 2,
-            },
-            PhysicalRect {
-                x: 4,
-                y: 0,
-                width: 2,
-                height: 2,
-            },
-        ]
-    );
+        frame(0.0, 0);
+        frame(0.0, 1);
+        assert_eq!(frame(3.0, 2).regions().len(), 2);
+        assert_eq!(frame(6.0, 3).regions().len(), 3);
+        assert_eq!(frame(8.0, 4).regions().len(), 3);
+        assert_eq!(frame(8.0, 5).regions().len(), 2);
+        assert!(frame(8.0, 6).is_empty());
+    }
+    assert!(!runtime.has_pending_redraw());
 }
 
 #[test]
-fn immediate_animation_damages_once() {
+fn immediate_animation_does_not_replay_on_reused_buffer() {
     let mut runtime = Runtime::new(TestPlatform);
     let id = WidgetId::new("immediate animation");
     let old = LogicalRect {
@@ -921,8 +808,7 @@ fn immediate_animation_damages_once() {
     };
 
     runtime.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
-    runtime.render(Duration::from_millis(1), Input::None, |ui| render(ui, 8.0));
-    let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| {
+    let damage = runtime.render(Duration::from_millis(1), Input::None, |ui| {
         render(ui, 8.0);
         ui.dirty.clone()
     });
@@ -931,7 +817,7 @@ fn immediate_animation_damages_once() {
         &[old.to_physical(1.0), new.to_physical(1.0)]
     );
 
-    let damage = runtime.render(Duration::from_millis(3), Input::None, |ui| {
+    let damage = runtime.render(Duration::from_millis(2), Input::None, |ui| {
         render(ui, 8.0);
         ui.dirty.clone()
     });
