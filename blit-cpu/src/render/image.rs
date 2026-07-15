@@ -186,7 +186,7 @@ mod tests {
         scale_factor: f32,
     ) {
         prepare(request, texture, clip, scale_factor, |image, clip| {
-            image.draw(buffer, texture, clip)
+            image.draw(buffer, texture, &[], clip)
         });
     }
 

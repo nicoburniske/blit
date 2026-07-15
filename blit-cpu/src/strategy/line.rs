@@ -1,5 +1,5 @@
 use blit::PhysicalRect;
-use slotmap::SlotMap;
+use slotmap::{KeyData, SlotMap};
 use std::ops::Range;
 
 use crate::{Pixel, PixelBuffer, RenderContext, RendererImageId, StoredImage, TextRenderer};
@@ -7,7 +7,7 @@ use crate::{Pixel, PixelBuffer, RenderContext, RendererImageId, StoredImage, Tex
 use super::{
     RenderStrategy,
     clip::{ClipLine, ClipSpan},
-    command::CommandList,
+    command::{CommandList, Payload},
     raster,
 };
 
@@ -242,32 +242,91 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     })
                     .map(|command| self.active.binary_search(command).unwrap())
                     .unwrap_or(0);
-                let active = &self.active[first..];
-                buffer.process_line(line as usize, range.clone(), |pixels| {
-                    let mut buffer = LineBuffer {
-                        pixels,
-                        x: range.start,
-                        height,
-                        line: line as usize,
+                if commands.partial_opaque_offsets().is_empty() {
+                    let active = &self.active[first..];
+                    buffer.process_line(line as usize, range.clone(), |pixels| {
+                        let mut buffer = LineBuffer {
+                            pixels,
+                            x: range.start,
+                            height,
+                            line: line as usize,
+                        };
+                        if clipped {
+                            draw_commands::<true, _>(
+                                commands,
+                                active,
+                                &self.clip_ranges,
+                                images,
+                                text,
+                                &mut buffer,
+                            );
+                        } else {
+                            draw_commands::<false, _>(
+                                commands,
+                                active,
+                                &self.clip_ranges,
+                                images,
+                                text,
+                                &mut buffer,
+                            );
+                        }
+                    });
+                    continue;
+                }
+                let partial_opaque = commands.partial_opaque_offsets();
+                let partial_opaque = &partial_opaque
+                    [partial_opaque.partition_point(|command| *command <= self.active[first])..];
+                let occluder = partial_opaque.iter().rev().find_map(|command| {
+                    let command_first = self.active.binary_search(command).ok()?;
+                    let Payload::Image(image) = commands.get(*command) else {
+                        unreachable!()
                     };
-                    if clipped {
-                        draw_commands::<true, _>(
-                            commands,
-                            active,
-                            &self.clip_ranges,
-                            images,
-                            text,
-                            &mut buffer,
-                        );
+                    let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
+                    let texture = images.get(image_id)?;
+                    let span = image.opaque_span(line, &texture.alpha_rows)?;
+                    let start = span.start.max(range.start as i32);
+                    let end = span.end.min(range.end as i32);
+                    (start < end).then_some((start as usize, end as usize, command_first))
+                });
+                let active = &self.active;
+                buffer.process_line(line as usize, range.clone(), |pixels| {
+                    let mut draw = |first: usize, start: usize, end: usize| {
+                        if start >= end {
+                            return;
+                        }
+                        let offset = start - range.start;
+                        let mut buffer = LineBuffer {
+                            pixels: &mut pixels[offset..offset + end - start],
+                            x: start,
+                            height,
+                            line: line as usize,
+                        };
+                        if clipped {
+                            draw_commands::<true, _>(
+                                commands,
+                                &active[first..],
+                                &self.clip_ranges,
+                                images,
+                                text,
+                                &mut buffer,
+                            );
+                        } else {
+                            draw_commands::<false, _>(
+                                commands,
+                                &active[first..],
+                                &self.clip_ranges,
+                                images,
+                                text,
+                                &mut buffer,
+                            );
+                        }
+                    };
+                    if let Some((start, end, occluder)) = occluder {
+                        draw(first, range.start, start);
+                        draw(occluder, start, end);
+                        draw(first, end, range.end);
                     } else {
-                        draw_commands::<false, _>(
-                            commands,
-                            active,
-                            &self.clip_ranges,
-                            images,
-                            text,
-                            &mut buffer,
-                        );
+                        draw(first, range.start, range.end);
                     }
                 });
             }

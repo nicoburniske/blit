@@ -518,6 +518,135 @@ fn dropped_image_slots_are_reused_after_end_frame() {
 }
 
 #[test]
+fn image_alpha_rows_are_cached_and_used() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static BLENDED: AtomicUsize = AtomicUsize::new(0);
+    static COPIED: AtomicUsize = AtomicUsize::new(0);
+
+    #[derive(Clone, Copy)]
+    struct TrackingPixel;
+
+    impl Pixel for TrackingPixel {
+        fn blend_translucent(&mut self, _color: PremultipliedRgbaColor) {
+            unreachable!()
+        }
+
+        fn from_rgb(_red: u8, _green: u8, _blue: u8) -> Self {
+            Self
+        }
+
+        fn blend_texture_slice_rgba(
+            pixels: &mut [Self],
+            source: &[PremultipliedRgbaColor],
+            _opacity: u8,
+        ) {
+            BLENDED.fetch_add(pixels.len().min(source.len()), Ordering::Relaxed);
+        }
+
+        fn copy_texture_slice_rgba(pixels: &mut [Self], source: &[PremultipliedRgbaColor]) {
+            COPIED.fetch_add(pixels.len().min(source.len()), Ordering::Relaxed);
+        }
+
+        fn blend_texture_slice_alpha(pixels: &mut [Self], _color: Color, alpha: &[u8]) {
+            BLENDED.fetch_add(pixels.len().min(alpha.len()), Ordering::Relaxed);
+        }
+    }
+
+    let alpha = [
+        0, 255, 255, 255, 0, 0, 0, 255, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 255, 255, 0, 0,
+        255, 255,
+    ];
+    let mut pixels = [0; 6 * 4 * 4];
+    for (pixel, alpha) in pixels.chunks_exact_mut(4).zip(alpha) {
+        pixel.copy_from_slice(&[alpha / 2, alpha / 4, alpha / 8, alpha]);
+    }
+    let mut renderer = Renderer::new(VecBuffer::<TrackingPixel>::new(6, 4), renderer_config())
+        .strategy(Scanline::default());
+    let image = renderer.create_image(ImageData::new(
+        ImagePixels::Owned(pixels.into()),
+        ImageFormat::Rgba8Premultiplied,
+        6,
+        4,
+    ));
+    let key = RendererImageId::from(KeyData::from_ffi(image.0));
+    let rows = &renderer.context.images[key].alpha_rows;
+    assert!(rows.iter().map(|row| row.visible_start).eq([1, 1, 0, 0]));
+    assert!(rows.iter().map(|row| row.visible_end).eq([4, 4, 6, 6]));
+    assert!(rows.iter().map(|row| row.opaque_start).eq([1, 1, 0, 0]));
+    assert!(rows.iter().map(|row| row.opaque_end).eq([4, 4, 2, 2]));
+    assert!(renderer.context.images[key].has_opaque_spans);
+    assert!(!renderer.context.images[key].opaque);
+
+    let screen = renderer.screen();
+    let request = ImageRequest {
+        image,
+        area: screen.to_logical(1.0),
+        fit: ImageFit::Fill,
+        sampling: ImageSampling::Nearest,
+        opacity: 1.0,
+        colorize: None,
+        nine_slice: None,
+        horizontal_tiling: blit::widgets::ImageTiling::None,
+        vertical_tiling: blit::widgets::ImageTiling::None,
+    };
+    BLENDED.store(0, Ordering::Relaxed);
+    COPIED.store(0, Ordering::Relaxed);
+    renderer.begin_frame();
+    renderer.draw_image(&request, screen);
+    renderer.end_frame(&[screen]);
+    assert_eq!(COPIED.load(Ordering::Relaxed), 10);
+    assert_eq!(BLENDED.load(Ordering::Relaxed), 8);
+
+    BLENDED.store(0, Ordering::Relaxed);
+    COPIED.store(0, Ordering::Relaxed);
+    renderer.begin_frame();
+    renderer.draw_image(
+        &ImageRequest {
+            opacity: 0.5,
+            ..request
+        },
+        screen,
+    );
+    renderer.end_frame(&[screen]);
+    assert_eq!(COPIED.load(Ordering::Relaxed), 0);
+    assert_eq!(BLENDED.load(Ordering::Relaxed), 18);
+
+    let image = renderer.create_image(ImageData::new(
+        ImagePixels::Owned(
+            [
+                0, 64, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 0, 0, 255, 255, 255, 255, 255,
+                255,
+            ]
+            .into(),
+        ),
+        ImageFormat::Alpha8(Color::WHITE),
+        6,
+        4,
+    ));
+    let key = RendererImageId::from(KeyData::from_ffi(image.0));
+    let rows = &renderer.context.images[key].alpha_rows;
+    assert!(rows.iter().map(|row| row.visible_start).eq([1, 0, 1, 0]));
+    assert!(rows.iter().map(|row| row.visible_end).eq([3, 0, 4, 6]));
+    assert!(
+        rows.iter()
+            .all(|row| row.opaque_start == 0 && row.opaque_end == 0)
+    );
+    BLENDED.store(0, Ordering::Relaxed);
+    renderer.begin_frame();
+    renderer.draw_image(
+        &ImageRequest {
+            image,
+            opacity: 1.0,
+            ..request
+        },
+        screen,
+    );
+    renderer.end_frame(&[screen]);
+    assert_eq!(BLENDED.load(Ordering::Relaxed), 11);
+}
+
+#[test]
 fn frame_is_rendered_once_per_affected_line_in_order() {
     let mut renderer = Renderer::new(
         TrackingBuffer {
@@ -789,6 +918,105 @@ fn scanline_skips_commands_behind_opaque_content() {
         RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed),
         16
     );
+
+    static PARTIAL_IMAGE_PIXELS: [u8; 24] = [
+        0, 0, 0, 0, 0, 128, 0, 128, 0, 255, 0, 255, 0, 255, 0, 255, 0, 128, 0, 128, 0, 0, 0, 0,
+    ];
+    static UNDERLAY_ALPHA: [u8; 1] = [128];
+    let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(6, 1), renderer_config())
+        .strategy(Scanline::default());
+    let partial_image = renderer.create_image(ImageData::new(
+        ImagePixels::Static(&PARTIAL_IMAGE_PIXELS),
+        ImageFormat::Rgba8Premultiplied,
+        6,
+        1,
+    ));
+    let screen = renderer.screen();
+    let underlay = renderer.create_image(ImageData::new(
+        ImagePixels::Static(&UNDERLAY_ALPHA),
+        ImageFormat::Alpha8(Color::BLACK),
+        1,
+        1,
+    ));
+    let underlay = ImageRequest {
+        image: underlay,
+        area: screen.to_logical(1.0),
+        fit: ImageFit::Fill,
+        sampling: ImageSampling::Nearest,
+        opacity: 1.0,
+        colorize: None,
+        nine_slice: None,
+        horizontal_tiling: blit::widgets::ImageTiling::None,
+        vertical_tiling: blit::widgets::ImageTiling::None,
+    };
+    let partial_image = ImageRequest {
+        image: partial_image,
+        area: screen.to_logical(1.0),
+        fit: ImageFit::Fill,
+        sampling: ImageSampling::Nearest,
+        opacity: 1.0,
+        colorize: None,
+        nine_slice: None,
+        horizontal_tiling: blit::widgets::ImageTiling::None,
+        vertical_tiling: blit::widgets::ImageTiling::None,
+    };
+    let background =
+        Rectangle::new(screen.to_logical(1.0)).background(Color::from_rgba8(255, 0, 0, 128));
+    let overlay =
+        Rectangle::new(screen.to_logical(1.0)).background(Color::from_rgba8(0, 0, 255, 128));
+    RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+    renderer.begin_frame();
+    renderer.draw_rectangle(&background, screen);
+    renderer.draw_image(&underlay, screen);
+    renderer.draw_image(&partial_image, screen);
+    renderer.draw_rectangle(&overlay, screen);
+    renderer.end_frame(&[screen]);
+    assert_eq!(
+        RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed),
+        14
+    );
+    for (rendered, source) in renderer
+        .buffer()
+        .pixels()
+        .iter()
+        .zip(PARTIAL_IMAGE_PIXELS.chunks_exact(4))
+    {
+        let mut expected = 0;
+        expected.blend(PremultipliedRgbaColor::new(
+            Color::from_rgba8(255, 0, 0, 128),
+            255,
+        ));
+        expected.blend(PremultipliedRgbaColor::new(Color::BLACK, 128));
+        expected.blend(PremultipliedRgbaColor {
+            red: source[0],
+            green: source[1],
+            blue: source[2],
+            alpha: source[3],
+        });
+        expected.blend(PremultipliedRgbaColor::new(
+            Color::from_rgba8(0, 0, 255, 128),
+            255,
+        ));
+        assert_eq!(rendered.color, expected);
+    }
+
+    RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+    renderer.begin_frame();
+    renderer.draw_rectangle(&background, screen);
+    renderer.draw_image(&underlay, screen);
+    renderer.draw_image(
+        &ImageRequest {
+            opacity: 0.5,
+            ..partial_image
+        },
+        screen,
+    );
+    renderer.draw_rectangle(&overlay, screen);
+    renderer.end_frame(&[screen]);
+    assert_eq!(
+        RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed),
+        18
+    );
 }
 
 #[test]
@@ -853,7 +1081,7 @@ fn cached_dirty_ranges_match_direct_rendering() {
 }
 
 #[test]
-fn box_shadows_match_between_strategies_and_reuse_masks() {
+fn box_shadows_match_between_strategies_and_cache_sizes() {
     fn render<S: RenderStrategy<VecBuffer<u32>>>(strategy: S) -> Renderer<VecBuffer<u32>, S> {
         let mut renderer = Renderer::new(VecBuffer::<u32>::new(128, 96), renderer_config())
             .with_scale_factor(2.0)
@@ -894,7 +1122,20 @@ fn box_shadows_match_between_strategies_and_reuse_masks() {
         renderer.draw_box_shadow(&first, screen);
         renderer.draw_box_shadow(&second, screen);
         renderer.end_frame(&[screen]);
-        assert_eq!(renderer.context.images.len(), 1);
+        assert_eq!(renderer.context.images.len(), 2);
+        renderer.begin_frame();
+        renderer.draw_box_shadow(
+            &BoxShadowRequest {
+                area: LogicalRect {
+                    x: 20.0,
+                    ..first.area
+                },
+                ..first
+            },
+            screen,
+        );
+        renderer.end_frame(&[screen]);
+        assert_eq!(renderer.context.images.len(), 2);
         renderer
     }
 

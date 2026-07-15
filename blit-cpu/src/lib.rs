@@ -11,7 +11,7 @@ use blit::{
     FontId, ImageData, ImageId, LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, TextRequest,
     widgets::{Border, BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
 };
-use render::{image, rectangle, shadow};
+use render::{image, image_patch::AlphaRow, rectangle, shadow};
 use strategy::{
     clip::ClipStack,
     command::{CommandList, PreparedText},
@@ -152,6 +152,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                             bounds,
                             self.context.clips.current(),
                             texture.opaque,
+                            texture.has_opaque_spans,
                         )
                     });
                 }
@@ -173,6 +174,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                         bounds,
                         self.context.clips.current(),
                         texture.opaque,
+                        texture.has_opaque_spans,
                     )
                 },
             );
@@ -272,6 +274,8 @@ pub struct RenderContext<B: PixelBuffer> {
 
 pub struct StoredImage {
     data: ImageData,
+    alpha_rows: Box<[AlphaRow]>,
+    has_opaque_spans: bool,
     opaque: bool,
     live: bool,
 }
@@ -281,23 +285,101 @@ impl StoredImage {
         let width = data.texture_rect.width as usize;
         let height = data.texture_rect.height as usize;
         let bytes = data.pixels.bytes();
-        let opaque = match data.format {
-            blit::ImageFormat::Rgb8 => true,
-            blit::ImageFormat::Rgba8 | blit::ImageFormat::Rgba8Premultiplied => {
-                (0..height).all(|line| {
-                    bytes[line * data.stride_bytes..][..width * 4]
-                        .chunks_exact(4)
-                        .all(|pixel| pixel[3] == 255)
-                })
+        let mut has_opaque_spans = false;
+        let mut opaque = true;
+        let rgba_opaque = || {
+            (0..height).all(|line| {
+                bytes[line * data.stride_bytes..][..width * 4]
+                    .chunks_exact(4)
+                    .all(|pixel| pixel[3] == 255)
+            })
+        };
+        let alpha_rows = match data.format {
+            blit::ImageFormat::Rgb8 => Box::default(),
+            blit::ImageFormat::Rgba8 => {
+                opaque = rgba_opaque();
+                Box::default()
             }
-            blit::ImageFormat::Alpha8(_) => (0..height).all(|line| {
-                bytes[line * data.stride_bytes..][..width]
-                    .iter()
-                    .all(|alpha| *alpha == 255)
-            }),
+            blit::ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => {
+                opaque = rgba_opaque();
+                Box::default()
+            }
+            blit::ImageFormat::Rgba8Premultiplied => {
+                let mut rows = Vec::with_capacity(height);
+                for y in 0..height {
+                    let row = &bytes[y * data.stride_bytes..][..width * 4];
+                    let mut visible_start = width;
+                    let mut visible_end = 0;
+                    let mut run_start = 0;
+                    let mut opaque_start = 0;
+                    let mut opaque_end = 0;
+                    for (x, alpha) in row
+                        .chunks_exact(4)
+                        .map(|pixel| pixel[3])
+                        .chain([0])
+                        .enumerate()
+                    {
+                        if alpha != 0 {
+                            visible_start = visible_start.min(x);
+                            visible_end = x + 1;
+                        }
+                        if alpha == 255 {
+                            continue;
+                        }
+                        if x - run_start > opaque_end - opaque_start {
+                            opaque_start = run_start;
+                            opaque_end = x;
+                        }
+                        run_start = x + 1;
+                    }
+                    visible_start = visible_start.min(visible_end);
+                    has_opaque_spans |= opaque_start < opaque_end;
+                    opaque &= opaque_start == 0 && opaque_end == width;
+                    rows.push(AlphaRow {
+                        visible_start: visible_start as u16,
+                        visible_end: visible_end as u16,
+                        opaque_start: opaque_start as u16,
+                        opaque_end: opaque_end as u16,
+                    });
+                }
+                rows.into_boxed_slice()
+            }
+            blit::ImageFormat::Alpha8(_) if width > u16::MAX as usize => {
+                opaque = (0..height).all(|line| {
+                    bytes[line * data.stride_bytes..][..width]
+                        .iter()
+                        .all(|alpha| *alpha == 255)
+                });
+                Box::default()
+            }
+            blit::ImageFormat::Alpha8(_) => {
+                let mut rows = Vec::with_capacity(height);
+                for y in 0..height {
+                    let row = &bytes[y * data.stride_bytes..][..width];
+                    let mut visible_start = width;
+                    let mut visible_end = 0;
+                    for (x, alpha) in row.iter().enumerate() {
+                        if *alpha != 0 {
+                            visible_start = visible_start.min(x);
+                            visible_end = x + 1;
+                        }
+                        opaque &= *alpha == 255;
+                    }
+                    visible_start = visible_start.min(visible_end);
+                    rows.push(AlphaRow {
+                        visible_start: visible_start as u16,
+                        visible_end: visible_end as u16,
+                        opaque_start: 0,
+                        opaque_end: 0,
+                    });
+                }
+                rows.into_boxed_slice()
+            }
         };
         Self {
             data,
+            alpha_rows,
+            has_opaque_spans,
             opaque,
             live: true,
         }
