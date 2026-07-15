@@ -19,7 +19,7 @@ struct BgrPixel {
 }
 
 impl Pixel for BgrPixel {
-    fn blend(&mut self, color: PremultipliedRgbaColor) {
+    fn blend_translucent(&mut self, color: PremultipliedRgbaColor) {
         let inverse = 255 - color.alpha as u16;
         self.red = (self.red as u16 * inverse / 255) as u8 + color.red;
         self.green = (self.green as u16 * inverse / 255) as u8 + color.green;
@@ -521,7 +521,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     }
 
     impl Pixel for CountingPixel {
-        fn blend(&mut self, color: PremultipliedRgbaColor) {
+        fn blend_translucent(&mut self, color: PremultipliedRgbaColor) {
             self.color.blend(color);
             self.draws += 1;
         }

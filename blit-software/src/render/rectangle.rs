@@ -284,11 +284,7 @@ impl Gradient {
         for (index, pixel) in pixels.iter_mut().enumerate() {
             let x = start + index as i32;
             let color = sampler.sample(x).coverage(coverage);
-            if color.alpha == 255 {
-                *pixel = P::from_rgb(color.red, color.green, color.blue);
-            } else {
-                pixel.blend(color);
-            }
+            pixel.blend(color);
         }
     }
 }
