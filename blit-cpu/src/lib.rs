@@ -233,6 +233,12 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             .measure(request, self.context.scale_factor)
     }
 
+    pub fn measure_text_height(&mut self, request: &TextRequest<'_>) -> f32 {
+        self.context
+            .text
+            .measure_height(request, self.context.scale_factor)
+    }
+
     pub fn text_cursor_rect(
         &mut self,
         request: &TextRequest<'_>,

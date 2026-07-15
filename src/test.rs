@@ -65,6 +65,10 @@ impl PlatformImpl for TestPlatform {
         }
     }
 
+    fn measure_text_height(&mut self, request: &TextRequest<'_>) -> f32 {
+        request.style.size
+    }
+
     fn text_cursor_rect(&mut self, request: &TextRequest<'_>, _: usize) -> LogicalRect {
         request.area
     }

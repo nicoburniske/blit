@@ -105,6 +105,45 @@ impl ParagraphCache {
         self.create(key, request, area, scale_factor, fonts)
     }
 
+    pub fn measure_height(
+        &mut self,
+        request: &TextRequest<'_>,
+        scale_factor: f32,
+        fonts: &mut FontCache,
+    ) -> f32 {
+        let Some(font) = fonts.font(request.style.font, request.style.weight) else {
+            return request.style.size;
+        };
+        let size = request.style.size * scale_factor;
+        let area = request.area.to_physical(scale_factor);
+        self.layout.reset(&LayoutSettings {
+            max_width: (request.options.wrap != TextWrap::None).then_some(area.width.max(0) as f32),
+            wrap_style: match request.options.wrap {
+                TextWrap::Character => WrapStyle::Letter,
+                TextWrap::None | TextWrap::Word => WrapStyle::Word,
+            },
+            ..LayoutSettings::default()
+        });
+        self.layout
+            .append(&[font], &FontTextStyle::new(request.text, size, 0));
+        self.layout
+            .lines()
+            .and_then(|lines| {
+                lines
+                    .iter()
+                    .take(request.options.max_lines.map_or(usize::MAX, usize::from))
+                    .last()
+            })
+            .map_or_else(
+                || {
+                    font.horizontal_line_metrics(size)
+                        .map_or(size, |line| line.new_line_size.ceil())
+                },
+                |line| line.baseline_y - line.max_ascent + line.max_new_line_size,
+            )
+            / scale_factor
+    }
+
     pub fn take(
         &mut self,
         request: &TextRequest<'_>,
@@ -554,5 +593,24 @@ mod tests {
             &mut fonts,
         ));
         assert_eq!(truncated, ellipsis);
+
+        for text in ["", "first", "first\nsecond", "first\n"] {
+            let request = TextRequest {
+                text,
+                area,
+                offset_x: 0.0,
+                color: Color::WHITE,
+                style: TextStyle::default(),
+                options: TextOptions::default(),
+                intrinsic_height: true,
+            };
+            let height = paragraphs.measure_height(&request, 1.0, &mut fonts);
+            let paragraph = paragraphs.get(&request, 1.0, &mut fonts);
+            let paragraph = match &paragraph {
+                Ok(paragraph) => *paragraph,
+                Err(paragraph) => paragraph,
+            };
+            assert_eq!(height, paragraph.layout_height, "{text:?}");
+        }
     }
 }

@@ -182,6 +182,10 @@ impl PlatformImpl for TestPlatform {
         self.renderer.measure_text(request)
     }
 
+    fn measure_text_height(&mut self, request: &TextRequest<'_>) -> f32 {
+        self.renderer.measure_text_height(request)
+    }
+
     fn text_cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize) -> LogicalRect {
         self.renderer.text_cursor_rect(request, byte_offset)
     }
