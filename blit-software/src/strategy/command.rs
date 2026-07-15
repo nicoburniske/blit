@@ -143,6 +143,16 @@ impl CommandList {
         header.left..header.right
     }
 
+    pub fn bounds(&self, offset: usize) -> PhysicalRect {
+        let header = self.header(offset);
+        PhysicalRect {
+            x: header.left,
+            y: header.top,
+            width: header.right - header.left,
+            height: header.bottom - header.top,
+        }
+    }
+
     pub fn clip(&self, offset: usize) -> ClipId {
         self.header(offset).clip
     }

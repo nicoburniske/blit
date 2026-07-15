@@ -68,10 +68,6 @@ impl ClipSpan {
 }
 
 impl ClipStack {
-    pub fn is_active(&self) -> bool {
-        self.current != 0
-    }
-
     #[inline]
     pub fn current(&self) -> ClipId {
         self.current

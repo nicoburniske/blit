@@ -11,7 +11,11 @@ pub use strategy::{Direct, RenderStrategy, Scanline};
 
 use blit::{
     FontId, ImageData, ImageId, LogicalPoint, LogicalRect, PhysicalRect, TextRequest,
-    widgets::{BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
+    widgets::{Border, BorderRadius, BoxShadowRequest, ImageRequest, Rectangle},
+};
+use strategy::{
+    clip::ClipStack,
+    command::{CommandList, PreparedText},
 };
 
 pub struct RendererConfig {
@@ -42,8 +46,10 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 has_dead_images: false,
                 shadows: shadow::Cache::new(config.shadow_cache_capacity),
                 text: TextRenderer::new(config),
+                commands: CommandList::default(),
+                clips: ClipStack::default(),
             },
-            strategy: Direct::default(),
+            strategy: Direct,
         }
     }
 
@@ -83,44 +89,114 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         &mut self.context.buffer
     }
 
-    pub fn begin_frame(&mut self, damage: &[PhysicalRect]) {
-        self.strategy.begin_frame(&mut self.context, damage)
+    pub fn begin_frame(&mut self) {
+        assert!(self.context.commands.is_empty());
     }
 
-    pub fn add_damage(&mut self, area: PhysicalRect) {
-        self.strategy.add_damage(area)
-    }
-
-    pub fn end_frame(&mut self) {
-        self.strategy.end_frame(&mut self.context);
+    pub fn end_frame(&mut self, damage: &[PhysicalRect]) {
+        self.strategy.render(&mut self.context, damage);
+        self.context.commands.clear();
+        self.context.clips.clear();
         self.context.finish_frame();
     }
 
     pub fn push_rounded_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
-        self.strategy
-            .push_rounded_clip(area, radius, self.context.scale_factor)
+        self.context
+            .clips
+            .push(area, radius, self.context.scale_factor)
     }
 
     pub fn pop_rounded_clip(&mut self) {
-        self.strategy.pop_rounded_clip()
+        self.context.clips.pop()
     }
 
     pub fn draw_rectangle(&mut self, request: &Rectangle<'_>, clip: PhysicalRect) {
-        self.strategy
-            .draw_rectangle(&mut self.context, request, clip)
+        if let Border::Gradient { width, gradient } = request.border
+            && let Some(prepared) =
+                rectangle::Gradient::new(request, width, gradient, self.context.scale_factor)
+            && let Some(bounds) = prepared.geometry.intersection(clip)
+        {
+            if self.context.commands.push_gradient_rectangle(
+                prepared,
+                gradient.stops,
+                bounds,
+                self.context.clips.current(),
+            ) {
+                return;
+            }
+        }
+        if let Some(rectangle) = rectangle::Prepared::new(request, self.context.scale_factor)
+            && let Some(bounds) = rectangle.geometry.intersection(clip)
+        {
+            self.context
+                .commands
+                .push_rectangle(rectangle, bounds, self.context.clips.current());
+        }
     }
 
     pub fn draw_box_shadow(&mut self, request: &BoxShadowRequest, clip: PhysicalRect) {
-        self.strategy
-            .draw_box_shadow(&mut self.context, request, clip)
+        let Some(request) = self.context.shadows.prepare(
+            &mut self.context.images,
+            request,
+            self.context.scale_factor,
+        ) else {
+            return;
+        };
+        match request {
+            shadow::Prepared::Rectangle(rectangle) => self.draw_rectangle(&rectangle, clip),
+            shadow::Prepared::Image(request) => {
+                let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
+                if let Some(texture) = self.context.images.get(image) {
+                    image::prepare(&request, &texture.data, clip, 1.0, |image, bounds| {
+                        self.context.commands.push_image(
+                            image,
+                            bounds,
+                            self.context.clips.current(),
+                            texture.opaque,
+                        )
+                    });
+                }
+            }
+        }
     }
 
     pub fn draw_image(&mut self, request: &ImageRequest, clip: PhysicalRect) {
-        self.strategy.draw_image(&mut self.context, request, clip)
+        let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
+        if let Some(texture) = self.context.images.get(image) {
+            image::prepare(
+                request,
+                &texture.data,
+                clip,
+                self.context.scale_factor,
+                |image, bounds| {
+                    self.context.commands.push_image(
+                        image,
+                        bounds,
+                        self.context.clips.current(),
+                        texture.opaque,
+                    )
+                },
+            );
+        }
     }
 
     pub fn draw_text(&mut self, request: &TextRequest<'_>, clip: PhysicalRect) {
-        self.strategy.draw_text(&mut self.context, request, clip)
+        let area = request.area.to_physical(self.context.scale_factor);
+        let Some(bounds) = area.intersection(clip) else {
+            return;
+        };
+        self.context.commands.push_text(
+            PreparedText {
+                paragraph: self
+                    .context
+                    .text
+                    .prepare(request, self.context.scale_factor),
+                area,
+                color: request.color,
+            },
+            bounds,
+            self.context.clips.current(),
+        );
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageId {
@@ -174,6 +250,8 @@ pub struct RenderContext<B: PixelBuffer> {
     has_dead_images: bool,
     shadows: shadow::Cache,
     text: TextRenderer,
+    commands: CommandList,
+    clips: ClipStack,
 }
 
 struct StoredImage {
