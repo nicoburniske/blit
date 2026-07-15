@@ -7,4 +7,4 @@ publish = false
 [dependencies]
 blit = { path = ".." }
 minifb = "0.28.0"
-blit-software = { path = "../blit-software" }
+blit-cpu = { path = "../blit-cpu" }
