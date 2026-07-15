@@ -150,6 +150,11 @@ impl TextRenderer {
         }
     }
 
+    pub fn measure_height(&mut self, request: &TextRequest<'_>, scale_factor: f32) -> f32 {
+        self.paragraphs
+            .measure_height(request, scale_factor, &mut self.fonts)
+    }
+
     pub fn cursor_rect(
         &mut self,
         request: &TextRequest<'_>,

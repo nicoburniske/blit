@@ -5,10 +5,6 @@ pub trait SizedComponent {
 
     fn measure(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize;
 
-    fn measure_height(&self, ui: &mut Ui, available: LogicalRect) -> f32 {
-        self.measure(ui, available).height
-    }
-
     fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output;
 }
 

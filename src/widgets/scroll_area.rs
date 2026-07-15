@@ -126,10 +126,10 @@ impl Area<'_> {
             width: self.bounds.width,
             height: f32::INFINITY,
         };
-        let height = component.measure_height(self.ui, available);
-        assert!(height.is_finite() && height >= 0.0);
+        let size = component.measure(self.ui, available);
         let area = LogicalRect {
-            height,
+            width: size.width.clamp(0.0, available.width),
+            height: size.height,
             ..available
         };
         self.cursor += area.height + self.spacing;
