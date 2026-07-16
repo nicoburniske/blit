@@ -1,12 +1,7 @@
-[package]
-name = "blit"
-version = "0.1.0"
-edition = "2024"
-license = "MIT OR Apache-2.0"
-
-[dependencies]
-unicode-segmentation = "1.12"
-
 [workspace]
-members = ["blit-cpu", "example"]
-resolver = "3"
+resolver = "2"
+members = ["core", "cpu", "font"]
+
+[workspace.dependencies]
+blit = { path = "core" }
+blit-font = { path = "font" }
