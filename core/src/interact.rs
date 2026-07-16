@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     geometry::{LogicalPoint, PhysicalPoint, PhysicalRect},
-    input::Input,
+    input::{Input, PointerButton},
 };
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
@@ -101,14 +101,15 @@ impl InteractionState {
         self.pointer.event = PointerEvent::None;
 
         match *input {
-            Input::PointerDown { position } => {
+            Input::PointerDown { position, button: PointerButton::Primary, .. } => {
                 self.pointer.origin = position;
                 self.pointer.position = Some(position);
                 self.pointer.down = true;
                 self.pointer.dragging = false;
                 self.pointer.event = PointerEvent::Down;
             }
-            Input::PointerMove { position } => {
+            Input::PointerDown { position, .. } => self.pointer.position = Some(position),
+            Input::PointerMove { position, .. } => {
                 let previous = self.pointer.position.unwrap_or(position);
                 let delta = LogicalPoint { x: position.x - previous.x, y: position.y - previous.y };
                 self.pointer.position = Some(position);
@@ -122,13 +123,14 @@ impl InteractionState {
                     }
                 }
             }
-            Input::PointerUp { position, leave } => {
+            Input::PointerUp { position, button: PointerButton::Primary, leave, .. } => {
                 self.pointer.position = Some(position);
                 self.pointer.down = false;
                 self.pointer.event = PointerEvent::Up { leave };
             }
+            Input::PointerUp { position, .. } => self.pointer.position = Some(position),
             Input::PointerLeave => self.pointer.position = None,
-            Input::Scroll { position, delta_x, delta_y } => {
+            Input::Scroll { position, delta_x, delta_y, .. } => {
                 self.pointer.position = Some(position);
                 self.pointer.event = PointerEvent::Scroll(LogicalPoint { x: delta_x, y: delta_y });
             }

@@ -4,7 +4,7 @@ use super::{SizedWidget, Text};
 use crate::{
     color::Color,
     geometry::{LogicalInsets, LogicalRect, LogicalSize},
-    input::Input,
+    input::{Input, Key},
     interact::{Sense, WidgetId},
     keyboard::{KeyboardKind, KeyboardRequest},
     paint::{BorderRadius, Rectangle, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap},
@@ -108,15 +108,17 @@ impl TextInput<'_> {
             }
         }
 
-        match ui.input().clone() {
-            Input::Char(character) if self.state.focused && !self.read_only && !character.is_control() => {
+        match *ui.input() {
+            Input::Text(character) if self.state.focused && !self.read_only && !character.is_control() => {
                 self.delete_selection();
                 self.state.text.insert(self.state.cursor, character);
                 self.state.cursor += character.len_utf8();
                 self.state.anchor = self.state.cursor;
                 response.edited = true;
             }
-            Input::Backspace if self.state.focused && !self.read_only => {
+            Input::Key(key)
+                if key.pressed && key.key == Key::Backspace && self.state.focused && !self.read_only =>
+            {
                 if self.delete_selection() {
                     response.edited = true;
                 } else if self.state.cursor != 0 {
@@ -130,7 +132,9 @@ impl TextInput<'_> {
                     response.edited = true;
                 }
             }
-            Input::Delete if self.state.focused && !self.read_only => {
+            Input::Key(key)
+                if key.pressed && key.key == Key::Delete && self.state.focused && !self.read_only =>
+            {
                 if self.delete_selection() {
                     response.edited = true;
                 } else if self.state.cursor < self.state.text.len() {
@@ -141,8 +145,8 @@ impl TextInput<'_> {
                     response.edited = true;
                 }
             }
-            Input::CursorLeft if self.state.focused => {
-                self.state.cursor = if self.state.cursor != self.state.anchor {
+            Input::Key(key) if key.pressed && key.key == Key::ArrowLeft && self.state.focused => {
+                self.state.cursor = if !key.modifiers.shift() && self.state.cursor != self.state.anchor {
                     self.state.cursor.min(self.state.anchor)
                 } else {
                     self.state.text[..self.state.cursor]
@@ -150,18 +154,36 @@ impl TextInput<'_> {
                         .next_back()
                         .map_or(0, |(offset, _)| offset)
                 };
-                self.state.anchor = self.state.cursor;
+                if !key.modifiers.shift() {
+                    self.state.anchor = self.state.cursor;
+                }
             }
-            Input::CursorRight if self.state.focused => {
-                self.state.cursor = if self.state.cursor != self.state.anchor {
+            Input::Key(key) if key.pressed && key.key == Key::ArrowRight && self.state.focused => {
+                self.state.cursor = if !key.modifiers.shift() && self.state.cursor != self.state.anchor {
                     self.state.cursor.max(self.state.anchor)
                 } else {
                     self.state.cursor
                         + self.state.text[self.state.cursor..].graphemes(true).next().map_or(0, str::len)
                 };
-                self.state.anchor = self.state.cursor;
+                if !key.modifiers.shift() {
+                    self.state.anchor = self.state.cursor;
+                }
             }
-            Input::Enter if self.state.focused => response.accepted = true,
+            Input::Key(key) if key.pressed && key.key == Key::Home && self.state.focused => {
+                self.state.cursor = 0;
+                if !key.modifiers.shift() {
+                    self.state.anchor = self.state.cursor;
+                }
+            }
+            Input::Key(key) if key.pressed && key.key == Key::End && self.state.focused => {
+                self.state.cursor = self.state.text.len();
+                if !key.modifiers.shift() {
+                    self.state.anchor = self.state.cursor;
+                }
+            }
+            Input::Key(key) if key.pressed && key.key == Key::Enter && self.state.focused => {
+                response.accepted = true
+            }
             _ => {}
         }
         if response.edited {

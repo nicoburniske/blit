@@ -449,6 +449,20 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         self.shared.full_repaint = true;
     }
 
+    pub fn refresh_screen(&mut self) {
+        let physical_screen = self.platform.screen();
+        let scale_factor = self.platform.scale_factor();
+        assert!(scale_factor.is_finite() && scale_factor > 0.0);
+        if self.physical_screen == physical_screen && self.scale_factor == scale_factor {
+            return;
+        }
+        self.physical_screen = physical_screen;
+        self.screen = physical_screen.to_logical(scale_factor);
+        self.scale_factor = scale_factor;
+        self.previous_damage.clear();
+        self.invalidate_all();
+    }
+
     pub fn screen(&self) -> LogicalRect { self.screen }
 
     fn record<R>(&mut self, time: Duration, input: Input, render: impl FnOnce(&mut Ui) -> R) -> R {
