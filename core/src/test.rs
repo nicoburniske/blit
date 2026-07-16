@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::{
     animation::{Easing, Transition},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
-    input::Input,
+    input::{Input, Key, KeyInput, Modifiers, PointerButton},
     interact::{Sense, WidgetId},
     keyboard::KeyboardRequest,
     paint,
@@ -86,6 +86,9 @@ impl PlatformImpl for TestPlatform {
 }
 
 #[test]
+fn input_stays_compact() { assert_eq!(std::mem::size_of::<Input>(), 20) }
+
+#[test]
 fn paint_changes_produce_automatic_damage() {
     let screen = PhysicalRect { x: 0, y: 0, width: 10, height: 10 };
     let first = LogicalRect { x: 1.0, y: 2.0, width: 3.0, height: 4.0 };
@@ -162,8 +165,17 @@ fn render_batch_processes_each_input() {
     runtime.render_batch(
         Duration::ZERO,
         [
-            Input::PointerDown { position: LogicalPoint { x: 5.0, y: 5.0 } },
-            Input::PointerUp { position: LogicalPoint { x: 5.0, y: 5.0 }, leave: false },
+            Input::PointerDown {
+                position: LogicalPoint { x: 5.0, y: 5.0 },
+                button: PointerButton::Primary,
+                modifiers: Modifiers::NONE,
+            },
+            Input::PointerUp {
+                position: LogicalPoint { x: 5.0, y: 5.0 },
+                button: PointerButton::Primary,
+                modifiers: Modifiers::NONE,
+                leave: false,
+            },
         ],
         |ui| clicked |= widget::Button::new(&button).render(ui, area).clicked(),
     );
@@ -188,7 +200,12 @@ fn scroll_area_advances_by_widget_height() {
 
     let positions = runtime.render(
         Duration::ZERO,
-        Input::Scroll { position: LogicalPoint { x: 5.0, y: 5.0 }, delta_x: 0.0, delta_y: 3.0 },
+        Input::Scroll {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            delta_x: 0.0,
+            delta_y: 3.0,
+            modifiers: Modifiers::NONE,
+        },
         |ui| {
             let mut area = widget::ScrollArea::vertical(&mut state).spacing(1.0).begin(ui, viewport);
             let positions = [area.add(FixedSize(8.0)).unwrap().y, area.add(FixedSize(8.0)).unwrap().y];
@@ -225,31 +242,51 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
         |ui: &mut Ui, input: &mut widget::TextInputState| widget::TextInput::new(input).render(ui, area);
 
     runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut input));
-    runtime.render(Duration::ZERO, Input::PointerDown { position: LogicalPoint { x: 1.0, y: 1.0 } }, |ui| {
-        render(ui, &mut input)
-    });
     runtime.render(
         Duration::ZERO,
-        Input::PointerUp { position: LogicalPoint { x: 1.0, y: 1.0 }, leave: false },
+        Input::PointerDown {
+            position: LogicalPoint { x: 1.0, y: 1.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+        },
+        |ui| render(ui, &mut input),
+    );
+    runtime.render(
+        Duration::ZERO,
+        Input::PointerUp {
+            position: LogicalPoint { x: 1.0, y: 1.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+            leave: false,
+        },
         |ui| render(ui, &mut input),
     );
 
-    runtime.render(Duration::ZERO, Input::Backspace, |ui| render(ui, &mut input));
+    runtime.render(Duration::ZERO, Input::Key(KeyInput::new(Key::Backspace)), |ui| render(ui, &mut input));
     assert_eq!(input.text, "aé");
 
-    runtime.render(Duration::ZERO, Input::CursorLeft, |ui| render(ui, &mut input));
-    runtime.render(Duration::ZERO, Input::Delete, |ui| render(ui, &mut input));
+    runtime.render(Duration::ZERO, Input::Key(KeyInput::new(Key::ArrowLeft)), |ui| render(ui, &mut input));
+    runtime.render(Duration::ZERO, Input::Key(KeyInput::new(Key::Delete)), |ui| render(ui, &mut input));
     assert_eq!(input.text, "a");
 
-    let response = runtime.render(Duration::ZERO, Input::Char('界'), |ui| render(ui, &mut input));
+    let response = runtime.render(Duration::ZERO, Input::Text('界'), |ui| render(ui, &mut input));
     assert!(response.edited);
     assert_eq!(input.text, "a界");
 
-    let response = runtime.render(Duration::ZERO, Input::Enter, |ui| render(ui, &mut input));
+    let response =
+        runtime.render(Duration::ZERO, Input::Key(KeyInput::new(Key::Enter)), |ui| render(ui, &mut input));
     assert!(response.accepted);
 
+    let response = runtime.render(
+        Duration::ZERO,
+        Input::Key(KeyInput { pressed: false, ..KeyInput::new(Key::Backspace) }),
+        |ui| render(ui, &mut input),
+    );
+    assert!(!response.edited);
+    assert_eq!(input.text, "a界");
+
     input.text = "e\u{301}".into();
-    runtime.render(Duration::ZERO, Input::Backspace, |ui| render(ui, &mut input));
+    runtime.render(Duration::ZERO, Input::Key(KeyInput::new(Key::Backspace)), |ui| render(ui, &mut input));
     assert!(input.text.is_empty());
 }
 
@@ -268,15 +305,28 @@ fn scroll_drag_cancels_button_click() {
     };
 
     runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
-    runtime.render(Duration::ZERO, Input::PointerDown { position: LogicalPoint { x: 5.0, y: 5.0 } }, |ui| {
-        render(ui, &mut state)
-    });
-    runtime.render(Duration::ZERO, Input::PointerMove { position: LogicalPoint { x: 5.0, y: -5.0 } }, |ui| {
-        render(ui, &mut state)
-    });
+    runtime.render(
+        Duration::ZERO,
+        Input::PointerDown {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+        },
+        |ui| render(ui, &mut state),
+    );
+    runtime.render(
+        Duration::ZERO,
+        Input::PointerMove { position: LogicalPoint { x: 5.0, y: -5.0 }, modifiers: Modifiers::NONE },
+        |ui| render(ui, &mut state),
+    );
     let response = runtime.render(
         Duration::ZERO,
-        Input::PointerUp { position: LogicalPoint { x: 5.0, y: 5.0 }, leave: false },
+        Input::PointerUp {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+            leave: false,
+        },
         |ui| render(ui, &mut state),
     );
 
@@ -309,12 +359,23 @@ fn button_click_requires_matching_press_and_release() {
     let area = runtime.screen();
 
     runtime.render(Duration::ZERO, Input::None, |ui| widget::Button::new(&button).render(ui, area));
-    runtime.render(Duration::ZERO, Input::PointerDown { position: LogicalPoint { x: 5.0, y: 5.0 } }, |ui| {
-        widget::Button::new(&button).render(ui, area)
-    });
+    runtime.render(
+        Duration::ZERO,
+        Input::PointerDown {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+        },
+        |ui| widget::Button::new(&button).render(ui, area),
+    );
     let response = runtime.render(
         Duration::ZERO,
-        Input::PointerUp { position: LogicalPoint { x: 5.0, y: 5.0 }, leave: false },
+        Input::PointerUp {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+            leave: false,
+        },
         |ui| widget::Button::new(&button).render(ui, area),
     );
 
@@ -336,9 +397,15 @@ fn pointer_damage_renders_immediately_and_replays_once() {
     });
     assert!(!runtime.has_pending_redraw());
 
-    runtime.render(Duration::ZERO, Input::PointerDown { position: LogicalPoint { x: 5.0, y: 5.0 } }, |ui| {
-        widget::Button::new(&button).render(ui, area)
-    });
+    runtime.render(
+        Duration::ZERO,
+        Input::PointerDown {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+        },
+        |ui| widget::Button::new(&button).render(ui, area),
+    );
     assert_eq!(runtime.platform().damage, [area.to_physical(1.0), area.to_physical(1.0)]);
     assert!(runtime.has_pending_redraw());
 
@@ -361,10 +428,16 @@ fn focus_moves_between_text_inputs() {
     };
 
     runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut first, &mut second));
-    runtime.render(Duration::ZERO, Input::PointerDown { position: LogicalPoint { x: 2.0, y: 7.0 } }, |ui| {
-        render(ui, &mut first, &mut second)
-    });
-    runtime.render(Duration::ZERO, Input::Char('x'), |ui| render(ui, &mut first, &mut second));
+    runtime.render(
+        Duration::ZERO,
+        Input::PointerDown {
+            position: LogicalPoint { x: 2.0, y: 7.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+        },
+        |ui| render(ui, &mut first, &mut second),
+    );
+    runtime.render(Duration::ZERO, Input::Text('x'), |ui| render(ui, &mut first, &mut second));
 
     assert!(first.text.is_empty());
     assert_eq!(second.text, "x");
@@ -381,7 +454,7 @@ fn text_input_can_be_focused_by_id() {
         ui.focus(id);
         widget::TextInput::new(&mut input).render(ui, area);
     });
-    let focused = runtime.render(Duration::ZERO, Input::Char('x'), |ui| {
+    let focused = runtime.render(Duration::ZERO, Input::Text('x'), |ui| {
         widget::TextInput::new(&mut input).render(ui, area);
         ui.is_focused(id)
     });
@@ -393,7 +466,7 @@ fn text_input_can_be_focused_by_id() {
         ui.clear_focus();
         widget::TextInput::new(&mut input).render(ui, area);
     });
-    let focused = runtime.render(Duration::ZERO, Input::Char('y'), |ui| {
+    let focused = runtime.render(Duration::ZERO, Input::Text('y'), |ui| {
         widget::TextInput::new(&mut input).render(ui, area);
         ui.is_focused(id)
     });
@@ -680,7 +753,7 @@ fn only_topmost_widget_is_hovered() {
     runtime.render(Duration::ZERO, Input::None, &render);
     let (back, front) = runtime.render(
         Duration::ZERO,
-        Input::PointerMove { position: LogicalPoint { x: 5.0, y: 5.0 } },
+        Input::PointerMove { position: LogicalPoint { x: 5.0, y: 5.0 }, modifiers: Modifiers::NONE },
         render,
     );
 
