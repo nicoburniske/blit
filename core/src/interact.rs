@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     geometry::{LogicalPoint, PhysicalPoint, PhysicalRect},
-    input::{Input, PointerButton},
+    input::{Input, PointerButton, ScrollPhase},
 };
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
@@ -32,13 +32,16 @@ pub struct Sense {
     click: bool,
     drag: bool,
     focus: bool,
+    scroll: bool,
 }
 
 impl Sense {
-    pub const CLICK: Self = Self { click: true, drag: false, focus: false };
-    pub const CLICK_AND_DRAG: Self = Self { click: true, drag: true, focus: false };
-    pub const DRAG: Self = Self { click: false, drag: true, focus: false };
-    pub const FOCUS: Self = Self { click: true, drag: false, focus: true };
+    pub const CLICK: Self = Self { click: true, drag: false, focus: false, scroll: false };
+    pub const CLICK_AND_DRAG: Self = Self { click: true, drag: true, focus: false, scroll: false };
+    pub const DRAG: Self = Self { click: false, drag: true, focus: false, scroll: false };
+    pub const FOCUS: Self = Self { click: true, drag: false, focus: true, scroll: false };
+    pub const SCROLL: Self = Self { click: false, drag: false, focus: false, scroll: true };
+    pub const SCROLL_AND_DRAG: Self = Self { click: false, drag: true, focus: false, scroll: true };
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -48,7 +51,10 @@ pub struct Interaction {
     pub clicked: bool,
     pub dragged: bool,
     pub drag_delta: LogicalPoint,
+    pub drag_released: bool,
     pub scroll_delta: LogicalPoint,
+    pub scroll_continuous: bool,
+    pub scroll_phase: Option<ScrollPhase>,
 }
 
 #[derive(Default)]
@@ -83,7 +89,11 @@ enum PointerEvent {
     Up {
         leave: bool,
     },
-    Scroll(LogicalPoint),
+    Scroll {
+        delta: LogicalPoint,
+        continuous: bool,
+        phase: ScrollPhase,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -130,9 +140,13 @@ impl InteractionState {
             }
             Input::PointerUp { position, .. } => self.pointer.position = Some(position),
             Input::PointerLeave => self.pointer.position = None,
-            Input::Scroll { position, delta_x, delta_y, .. } => {
+            Input::Scroll { position, delta_x, delta_y, continuous, phase, .. } => {
                 self.pointer.position = Some(position);
-                self.pointer.event = PointerEvent::Scroll(LogicalPoint { x: delta_x, y: delta_y });
+                self.pointer.event = PointerEvent::Scroll {
+                    delta: LogicalPoint { x: delta_x, y: delta_y },
+                    continuous,
+                    phase,
+                };
             }
             _ => {}
         }
@@ -144,14 +158,20 @@ impl InteractionState {
             self.previous_hits
                 .iter()
                 .rev()
-                .find(|item| item.sense.drag && item.area.contains(position.x, position.y))
+                .find(|item| item.sense.scroll && item.area.contains(position.x, position.y))
                 .map(|item| item.id)
         });
 
         if matches!(self.pointer.event, PointerEvent::Down) {
             self.active = hovered.filter(|item| item.sense.click).map(|item| item.id);
             self.focused = hovered.filter(|item| item.sense.focus).map(|item| item.id);
-            self.drag_owner = self.scroll_owner;
+            self.drag_owner = position.and_then(|position| {
+                self.previous_hits
+                    .iter()
+                    .rev()
+                    .find(|item| item.sense.drag && item.area.contains(position.x, position.y))
+                    .map(|item| item.id)
+            });
         }
     }
 
@@ -175,9 +195,17 @@ impl InteractionState {
                 PointerEvent::Move(delta) if active && self.pointer.dragging => delta,
                 _ => LogicalPoint::default(),
             },
+            drag_released: active
+                && self.pointer.dragging
+                && matches!(self.pointer.event, PointerEvent::Up { .. }),
             scroll_delta: match self.pointer.event {
-                PointerEvent::Scroll(delta) if self.scroll_owner == Some(id) => delta,
+                PointerEvent::Scroll { delta, .. } if self.scroll_owner == Some(id) => delta,
                 _ => LogicalPoint::default(),
+            },
+            scroll_continuous: matches!(self.pointer.event, PointerEvent::Scroll { continuous: true, .. }),
+            scroll_phase: match self.pointer.event {
+                PointerEvent::Scroll { phase, .. } if self.scroll_owner == Some(id) => Some(phase),
+                _ => None,
             },
         }
     }

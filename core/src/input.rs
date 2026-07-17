@@ -25,11 +25,21 @@ pub enum Input {
         delta_x: f32,
         delta_y: f32,
         modifiers: Modifiers,
+        continuous: bool,
+        phase: ScrollPhase,
     },
     /// committed text from a keyboard or ime
     Text(char),
     /// a logical key press
     Key(KeyInput),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ScrollPhase {
+    Started,
+    #[default]
+    Moved,
+    Ended,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,12 +89,20 @@ impl Modifiers {
     pub const SUPER: Self = Self(1 << 3);
 
     pub const fn new(shift: bool, control: bool, alt: bool, super_key: bool) -> Self {
-        Self(
-            shift as u8 * Self::SHIFT.0
-                | control as u8 * Self::CONTROL.0
-                | alt as u8 * Self::ALT.0
-                | super_key as u8 * Self::SUPER.0,
-        )
+        let mut bits = 0;
+        if shift {
+            bits |= Self::SHIFT.0;
+        }
+        if control {
+            bits |= Self::CONTROL.0;
+        }
+        if alt {
+            bits |= Self::ALT.0;
+        }
+        if super_key {
+            bits |= Self::SUPER.0;
+        }
+        Self(bits)
     }
 
     pub const fn contains(self, modifiers: Self) -> bool { self.0 & modifiers.0 == modifiers.0 }
