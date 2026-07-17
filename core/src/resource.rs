@@ -2,6 +2,7 @@
 
 use std::{
     cell::OnceCell,
+    fmt,
     marker::PhantomData,
     ops::{Deref, DerefMut},
     ptr::NonNull,
@@ -207,6 +208,10 @@ impl Deref for StringHandle {
     type Target = str;
 
     fn deref(&self) -> &Self::Target { self.platform.inner().string(self.id) }
+}
+
+impl fmt::Display for StringHandle {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result { formatter.write_str(self) }
 }
 
 impl Drop for StringHandle {

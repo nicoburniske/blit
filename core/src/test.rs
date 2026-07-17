@@ -198,22 +198,38 @@ fn scroll_area_advances_by_widget_height() {
     assert_eq!(positions, [0.0, 9.0]);
     assert_eq!(state.content_height, 17.0);
 
-    let positions = runtime.render(
+    runtime.render(
         Duration::ZERO,
         Input::Scroll {
             position: LogicalPoint { x: 5.0, y: 5.0 },
             delta_x: 0.0,
             delta_y: 3.0,
             modifiers: Modifiers::NONE,
+            continuous: false,
+            phase: crate::input::ScrollPhase::Moved,
         },
         |ui| {
             let mut area = widget::ScrollArea::vertical(&mut state).spacing(1.0).begin(ui, viewport);
-            let positions = [area.add(FixedSize(8.0)).unwrap().y, area.add(FixedSize(8.0)).unwrap().y];
+            area.add(FixedSize(8.0));
+            area.add(FixedSize(8.0));
             area.finish();
-            positions
         },
     );
-    assert_eq!(positions, [-3.0, 6.0]);
+    let positions = runtime.render(Duration::from_millis(25), Input::None, |ui| {
+        let mut area = widget::ScrollArea::vertical(&mut state).spacing(1.0).begin(ui, viewport);
+        let positions = [area.add(FixedSize(8.0)).unwrap().y, area.add(FixedSize(8.0)).unwrap().y];
+        area.finish();
+        positions
+    });
+    assert!(positions[0] < 0.0 && positions[0] > -3.0);
+
+    let positions = runtime.render(Duration::from_millis(50), Input::None, |ui| {
+        let mut area = widget::ScrollArea::vertical(&mut state).spacing(1.0).begin(ui, viewport);
+        let positions = [area.add(FixedSize(8.0)).unwrap().y, area.add(FixedSize(8.0)).unwrap().y];
+        area.finish();
+        positions
+    });
+    assert!(positions[0] < -1.5 && positions[0] > -3.0);
 }
 
 #[test]

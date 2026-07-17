@@ -1,0 +1,17 @@
+[package]
+name = "blit-desktop"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+blit.workspace = true
+blit-cpu = { path = "../cpu" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+softbuffer = { version = "0.4.8", default-features = false, features = ["wayland", "wayland-dlopen"] }
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "wayland", "wayland-dlopen", "wayland-csd-adwaita-notitle"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+softbuffer = { version = "0.4.8", default-features = false }
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }

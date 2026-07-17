@@ -145,7 +145,19 @@ pub struct VecBuffer<P> {
 
 impl<P: Pixel> VecBuffer<P> {
     pub fn new(width: usize, height: usize) -> Self {
-        Self { pixels: vec![P::background(); width * height], width, height }
+        let len = width.checked_mul(height).expect("pixel buffer dimensions overflow");
+        Self { pixels: vec![P::background(); len], width, height }
+    }
+
+    pub fn resize(&mut self, width: usize, height: usize) {
+        if self.width == width && self.height == height {
+            return;
+        }
+        let len = width.checked_mul(height).expect("pixel buffer dimensions overflow");
+        self.pixels.clear();
+        self.pixels.resize(len, P::background());
+        self.width = width;
+        self.height = height;
     }
 
     pub fn pixels(&self) -> &[P] { &self.pixels }

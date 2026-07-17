@@ -80,6 +80,11 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
 
     pub fn scale_factor(&self) -> f32 { self.context.scale_factor }
 
+    pub fn set_scale_factor(&mut self, scale_factor: f32) {
+        assert!(scale_factor.is_finite() && scale_factor > 0.0);
+        self.context.scale_factor = scale_factor;
+    }
+
     pub fn buffer(&self) -> &B { &self.context.buffer }
 
     pub fn buffer_mut(&mut self) -> &mut B { &mut self.context.buffer }
