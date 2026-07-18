@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "cpu", "desktop", "font"]
+members = ["cache","core", "cpu", "desktop", "font"]
 
 [workspace.dependencies]
 blit = { path = "core" }
