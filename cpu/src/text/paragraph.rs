@@ -4,24 +4,34 @@ use blit::{
     paint::{FontId, HorizontalAlign, TextOverflow, TextRequest, TextWrap, VerticalAlign},
     resource::StringId,
 };
+use blit_cache::{Cache, Scale};
 use blit_font::{Layout, LayoutSettings};
 
 use super::font::FontCache;
-use crate::cache::Cache;
 
 /// stores measured and rasterized paragraphs between frames
-///
-/// active entries stay outside the cache until the frame ends
 pub struct ParagraphCache {
-    cache: Cache<ParagraphKey, Paragraph>,
+    cache: Cache<ParagraphKey, Paragraph, ParagraphScale>,
     /// reusable layout scratch state
     layout: Layout,
+}
+
+struct ParagraphScale;
+
+impl Scale<ParagraphKey, Paragraph> for ParagraphScale {
+    fn weight(&self, _key: &ParagraphKey, paragraph: &Paragraph) -> usize {
+        size_of::<Paragraph>()
+            + paragraph
+                .rendered
+                .as_ref()
+                .map_or(0, |rendered| rendered.alpha.len() + rendered.carets.len() * size_of::<Caret>())
+    }
 }
 
 impl ParagraphCache {
     pub fn new(capacity: usize, metric_cache_capacity: usize) -> Self {
         Self {
-            cache: Cache::new(capacity),
+            cache: Cache::new(ParagraphScale, capacity),
             layout: Layout::with_metric_cache_capacity(metric_cache_capacity),
         }
     }
@@ -35,56 +45,46 @@ impl ParagraphCache {
         scale_factor: f32,
         fonts: &mut FontCache,
     ) -> f32 {
-        if let Some(paragraph) = self.cache.get(&key) {
-            return paragraph.layout_height / scale_factor;
+        let Self { cache, layout } = self;
+        match cache.get_or_insert_with(key, || Paragraph {
+            layout_height: Self::layout_height(layout, request, text, scale_factor, fonts),
+            rendered: None,
+        }) {
+            Ok(paragraph) => paragraph.layout_height / scale_factor,
+            Err(paragraph) => paragraph.layout_height / scale_factor,
         }
-        let layout_height = self.layout_height(request, text, scale_factor, fonts);
-        let paragraph = Paragraph { layout_height, rendered: None };
-        let _ = self.cache.insert_unique(key, paragraph, size_of::<Paragraph>());
-        layout_height / scale_factor
     }
 
-    /// removes or creates an entry for the current frame
-    pub fn take(
+    /// gets and rasterizes an entry without evicting until the frame ends
+    pub fn prepare(
         &mut self,
         key: ParagraphKey,
         request: &TextRequest,
         text: &str,
         scale_factor: f32,
         fonts: &mut FontCache,
-    ) -> Paragraph {
-        if let Some(paragraph) = self.cache.pop(&key) {
-            return paragraph;
-        }
-        Paragraph { layout_height: self.layout_height(request, text, scale_factor, fonts), rendered: None }
+    ) -> usize {
+        let Self { cache, layout } = self;
+        let Ok((_, index)) = cache.get_or_insert_deferred_with(key, || Paragraph {
+            layout_height: Self::layout_height(layout, request, text, scale_factor, fonts),
+            rendered: None,
+        }) else {
+            panic!("paragraph cache capacity must fit an entry");
+        };
+        cache.update_index(index, |paragraph| {
+            if paragraph.rendered.is_none() {
+                paragraph.rendered = Some(Self::render(layout, request, text, scale_factor, fonts));
+            }
+        });
+        index
     }
 
-    /// rasterizes an entry when pixels or carets are needed
-    pub fn prepare(
-        &mut self,
-        paragraph: &mut Paragraph,
-        request: &TextRequest,
-        text: &str,
-        scale_factor: f32,
-        fonts: &mut FontCache,
-    ) {
-        if paragraph.rendered.is_none() {
-            paragraph.rendered = Some(self.render(request, text, scale_factor, fonts));
-        }
-    }
+    pub fn get(&self, index: usize) -> &Paragraph { self.cache.get_index(index) }
 
-    /// returns an entry to the cache after the frame
-    pub fn restore(&mut self, key: ParagraphKey, paragraph: Paragraph) {
-        let weight = size_of::<Paragraph>()
-            + paragraph
-                .rendered
-                .as_ref()
-                .map_or(0, |rendered| rendered.alpha.len() + rendered.carets.len() * size_of::<Caret>());
-        let _ = self.cache.insert_unique(key, paragraph, weight);
-    }
+    pub fn finish_frame(&mut self) { self.cache.trim_to_weight() }
 
     pub fn retain_strings(&mut self, mut live: impl FnMut(StringId) -> bool) {
-        self.cache.retain(|key, _| live(key.string));
+        self.cache.retain(|(key, _)| live(key.string));
     }
 
     /// builds a position independent cache key
@@ -153,7 +153,7 @@ pub struct ParagraphKey {
 
 impl ParagraphCache {
     fn layout_height(
-        &mut self,
+        layout: &mut Layout,
         request: &TextRequest,
         text: &str,
         scale_factor: f32,
@@ -164,7 +164,7 @@ impl ParagraphCache {
         };
         let size = request.style.size * scale_factor;
         let area = request.area.to_physical(scale_factor);
-        self.layout.layout(
+        layout.layout(
             font,
             text,
             size,
@@ -174,7 +174,7 @@ impl ParagraphCache {
                 ..LayoutSettings::default()
             },
         );
-        self.layout
+        layout
             .lines()
             .and_then(|lines| {
                 lines.iter().take(request.options.max_lines.map_or(usize::MAX, usize::from)).next_back()
@@ -186,7 +186,7 @@ impl ParagraphCache {
     }
 
     fn render(
-        &mut self,
+        layout: &mut Layout,
         request: &TextRequest,
         text: &str,
         scale_factor: f32,
@@ -208,7 +208,7 @@ impl ParagraphCache {
 
         let size = request.style.size * scale_factor;
         let max_width = (request.options.wrap != TextWrap::None).then_some(area.width.max(0) as f32);
-        self.layout.layout(
+        layout.layout(
             font,
             text,
             size,
@@ -216,7 +216,7 @@ impl ParagraphCache {
         );
 
         let mut rendered = None;
-        if let Some(lines) = self.layout.lines() {
+        if let Some(lines) = layout.lines() {
             let mut visible_lines = lines.len();
             if let Some(max_lines) = request.options.max_lines {
                 visible_lines = visible_lines.min(max_lines as usize);
@@ -234,7 +234,7 @@ impl ParagraphCache {
                 visible_lines = visible_lines.min(fitting_lines);
             }
 
-            let glyphs = self.layout.glyphs();
+            let glyphs = layout.glyphs();
             let lines_truncated = visible_lines < lines.len();
             let line_overflows = visible_lines != 0 && request.options.wrap == TextWrap::None && {
                 let line = lines[visible_lines - 1];
@@ -271,7 +271,7 @@ impl ParagraphCache {
             }
         }
 
-        self.layout.layout(
+        layout.layout(
             font,
             rendered.as_deref().unwrap_or(text),
             size,
@@ -283,11 +283,11 @@ impl ParagraphCache {
                 wrap: request.options.wrap,
             },
         );
-        let layout_height = self.layout.lines().map_or_else(
+        let layout_height = layout.lines().map_or_else(
             || font.horizontal_line_metrics(size).new_line_size.ceil(),
-            |_| self.layout.height(),
+            |_| layout.height(),
         );
-        let glyphs = self.layout.glyphs();
+        let glyphs = layout.glyphs();
         let natural_width = glyphs.iter().map(|glyph| glyph.x + glyph.width as f32).fold(0.0, f32::max);
         let offset_x = if request.options.wrap == TextWrap::None {
             match request.options.horizontal_align {
@@ -301,7 +301,7 @@ impl ParagraphCache {
         let paint_offset_x = offset_x - request.offset_x * scale_factor;
         let mut carets = Vec::with_capacity(glyphs.len() + 1);
         let mut layout_width = 0.0f32;
-        if let Some(lines) = self.layout.lines() {
+        if let Some(lines) = layout.lines() {
             for line in lines {
                 let start = line.glyph_start.min(glyphs.len());
                 let end = line.glyph_end.saturating_add(1).min(glyphs.len());
@@ -412,17 +412,13 @@ mod tests {
     use super::*;
     use crate::{Font, FontFace};
 
-    fn render(
+    fn prepare(
         paragraphs: &mut ParagraphCache,
         request: &TextRequest,
         text: &str,
         fonts: &mut FontCache,
-    ) -> (f32, RenderedParagraph) {
-        let key = ParagraphCache::key(request, 1.0);
-        let mut paragraph = paragraphs.take(key, request, text, 1.0, fonts);
-        let layout_height = paragraph.layout_height;
-        paragraphs.prepare(&mut paragraph, request, text, 1.0, fonts);
-        (layout_height, paragraph.rendered.unwrap())
+    ) -> usize {
+        paragraphs.prepare(ParagraphCache::key(request, 1.0), request, text, 1.0, fonts)
     }
 
     #[test]
@@ -433,97 +429,54 @@ mod tests {
             FontCache::new(vec![FontFace { id: FontId::default(), weight: 400, font }], 1024 * 1024);
         let mut paragraphs = ParagraphCache::new(1024 * 1024, 256);
         let area = LogicalRect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 };
-        let (_, missing) = render(
-            &mut paragraphs,
-            &TextRequest {
-                text: StringId(1),
-                area,
-                offset_x: 0.0,
-                color: Color::WHITE,
-                style: TextStyle { font: FontId(9), ..TextStyle::default() },
-                options: TextOptions::default(),
-                intrinsic_height: false,
-            },
-            "missing",
-            &mut fonts,
-        );
+        let request = TextRequest {
+            text: StringId(1),
+            area,
+            offset_x: 0.0,
+            color: Color::WHITE,
+            style: TextStyle { font: FontId(9), ..TextStyle::default() },
+            options: TextOptions::default(),
+            intrinsic_height: false,
+        };
+        let index = prepare(&mut paragraphs, &request, "missing", &mut fonts);
+        let missing = paragraphs.get(index).rendered.as_ref().unwrap();
         assert_eq!((missing.width, missing.height), (0, 0));
 
-        let snapshot = |paragraph: RenderedParagraph| {
-            (paragraph.x, paragraph.y, paragraph.width, paragraph.height, paragraph.alpha.to_vec())
+        let request = TextRequest {
+            text: StringId(2),
+            area,
+            offset_x: 0.0,
+            color: Color::WHITE,
+            style: TextStyle::default(),
+            options: TextOptions { max_lines: Some(1), ..TextOptions::default() },
+            intrinsic_height: false,
         };
-        let one_line = snapshot(
-            render(
-                &mut paragraphs,
-                &TextRequest {
-                    text: StringId(2),
-                    area,
-                    offset_x: 0.0,
-                    color: Color::WHITE,
-                    style: TextStyle::default(),
-                    options: TextOptions { max_lines: Some(1), ..TextOptions::default() },
-                    intrinsic_height: false,
-                },
-                "first\nsecond",
-                &mut fonts,
-            )
-            .1,
+        let one_line = prepare(&mut paragraphs, &request, "first\nsecond", &mut fonts);
+        let request = TextRequest { text: StringId(3), options: TextOptions::default(), ..request };
+        let first = prepare(&mut paragraphs, &request, "first", &mut fonts);
+        let one_line = paragraphs.get(one_line).rendered.as_ref().unwrap();
+        let first = paragraphs.get(first).rendered.as_ref().unwrap();
+        assert_eq!(
+            (one_line.x, one_line.y, one_line.width, one_line.height, &one_line.alpha),
+            (first.x, first.y, first.width, first.height, &first.alpha),
         );
-        let first = snapshot(
-            render(
-                &mut paragraphs,
-                &TextRequest {
-                    text: StringId(3),
-                    area,
-                    offset_x: 0.0,
-                    color: Color::WHITE,
-                    style: TextStyle::default(),
-                    options: TextOptions::default(),
-                    intrinsic_height: false,
-                },
-                "first",
-                &mut fonts,
-            )
-            .1,
-        );
-        assert_eq!(one_line, first);
 
         let narrow = LogicalRect { width: 12.0, ..area };
-        let truncated = snapshot(
-            render(
-                &mut paragraphs,
-                &TextRequest {
-                    text: StringId(4),
-                    area: narrow,
-                    offset_x: 0.0,
-                    color: Color::WHITE,
-                    style: TextStyle::default(),
-                    options: TextOptions { overflow: TextOverflow::Ellipsis, ..TextOptions::default() },
-                    intrinsic_height: false,
-                },
-                "WWWW",
-                &mut fonts,
-            )
-            .1,
+        let request = TextRequest {
+            text: StringId(4),
+            area: narrow,
+            options: TextOptions { overflow: TextOverflow::Ellipsis, ..TextOptions::default() },
+            ..request
+        };
+        let truncated = prepare(&mut paragraphs, &request, "WWWW", &mut fonts);
+        let request = TextRequest { text: StringId(5), options: TextOptions::default(), ..request };
+        let ellipsis = prepare(&mut paragraphs, &request, "…", &mut fonts);
+        let truncated = paragraphs.get(truncated).rendered.as_ref().unwrap();
+        let ellipsis = paragraphs.get(ellipsis).rendered.as_ref().unwrap();
+        assert_eq!(
+            (truncated.x, truncated.y, truncated.width, truncated.height, &truncated.alpha),
+            (ellipsis.x, ellipsis.y, ellipsis.width, ellipsis.height, &ellipsis.alpha),
         );
-        let ellipsis = snapshot(
-            render(
-                &mut paragraphs,
-                &TextRequest {
-                    text: StringId(5),
-                    area: narrow,
-                    offset_x: 0.0,
-                    color: Color::WHITE,
-                    style: TextStyle::default(),
-                    options: TextOptions::default(),
-                    intrinsic_height: false,
-                },
-                "…",
-                &mut fonts,
-            )
-            .1,
-        );
-        assert_eq!(truncated, ellipsis);
 
         for (id, text) in ["", "first", "first\nsecond", "first\n"].into_iter().enumerate() {
             let request = TextRequest {
@@ -535,8 +488,9 @@ mod tests {
                 options: TextOptions::default(),
                 intrinsic_height: true,
             };
-            let (height, paragraph) = render(&mut paragraphs, &request, text, &mut fonts);
-            assert_eq!(height, paragraph.layout_height, "{text:?}");
+            let index = prepare(&mut paragraphs, &request, text, &mut fonts);
+            let paragraph = paragraphs.get(index);
+            assert_eq!(paragraph.layout_height, paragraph.rendered.as_ref().unwrap().layout_height, "{text:?}");
         }
     }
 
@@ -561,12 +515,15 @@ mod tests {
             },
             intrinsic_height: false,
         };
-        let multiline = render(&mut paragraphs, &request(1), "4 failed attempts\n", &mut fonts).1;
-        let single = render(&mut paragraphs, &request(2), "4 failed attempts", &mut fonts).1;
-
+        let request = request(1);
+        let multiline = prepare(&mut paragraphs, &request, "4 failed attempts\n", &mut fonts);
+        let request = TextRequest { text: StringId(2), ..request };
+        let single = prepare(&mut paragraphs, &request, "4 failed attempts", &mut fonts);
+        let multiline = paragraphs.get(multiline).rendered.as_ref().unwrap();
+        let single = paragraphs.get(single).rendered.as_ref().unwrap();
         assert_eq!(
-            (multiline.x, multiline.y, multiline.width, multiline.height, &*multiline.alpha),
-            (single.x, single.y, single.width, single.height, &*single.alpha),
+            (multiline.x, multiline.y, multiline.width, multiline.height, &multiline.alpha),
+            (single.x, single.y, single.width, single.height, &single.alpha),
         );
     }
 }

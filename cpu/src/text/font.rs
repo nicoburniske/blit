@@ -1,9 +1,10 @@
 use std::{cmp::Reverse, mem::size_of};
 
 use blit::paint::FontId;
+use blit_cache::{Cache, Scale};
 use blit_font::{GlyphRasterConfig, Metrics, Rasterizer};
 
-use crate::{cache::Cache, Font, FontFace};
+use crate::{Font, FontFace};
 
 pub struct CachedGlyph {
     pub metrics: Metrics,
@@ -12,14 +13,22 @@ pub struct CachedGlyph {
 
 pub struct FontCache {
     faces: Vec<FontFace>,
-    glyphs: Cache<GlyphKey, CachedGlyph>,
+    glyphs: Cache<GlyphKey, CachedGlyph, GlyphScale>,
     rasterizer: Rasterizer,
+}
+
+struct GlyphScale;
+
+impl Scale<GlyphKey, CachedGlyph> for GlyphScale {
+    fn weight(&self, _key: &GlyphKey, glyph: &CachedGlyph) -> usize {
+        size_of::<CachedGlyph>() + glyph.alpha.len()
+    }
 }
 
 impl FontCache {
     pub fn new(faces: Vec<FontFace>, capacity: usize) -> Self {
         assert!(!faces.is_empty());
-        Self { faces, glyphs: Cache::new(capacity), rasterizer: Rasterizer::default() }
+        Self { faces, glyphs: Cache::new(GlyphScale, capacity), rasterizer: Rasterizer::default() }
     }
 
     pub fn font(&self, id: FontId, weight: u16) -> Option<(usize, &Font)> {
@@ -37,9 +46,7 @@ impl FontCache {
         glyphs.get_or_insert_with(key, || {
             let font = &faces[key.face].font;
             let (metrics, alpha) = rasterizer.rasterize(font, key.glyph.glyph_id, key.glyph.size);
-            let glyph = CachedGlyph { metrics, alpha: alpha.into_boxed_slice() };
-            let weight = size_of::<CachedGlyph>() + glyph.alpha.len();
-            (glyph, weight)
+            CachedGlyph { metrics, alpha: alpha.into_boxed_slice() }
         })
     }
 }
