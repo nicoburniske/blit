@@ -1,4 +1,6 @@
 //! weighted lru cache
+//!
+//! can have deferred weight trimming (wait until end of frame)
 
 mod list;
 
@@ -27,11 +29,11 @@ where
     K: std::hash::Hash + PartialEq,
     S: Scale<K, V>,
 {
-    pub fn new(scale: S, max_weight: usize, capacity: usize) -> Self {
+    pub fn new(scale: S, max_weight: usize) -> Self {
         Self {
             hash_builder: Default::default(),
             table: Default::default(),
-            entries: list::LruList::<Entry<K, V>>::new(capacity),
+            entries: list::LruList::<Entry<K, V>>::new(),
             scale,
             weight: 0,
             max_weight,
@@ -46,6 +48,20 @@ where
             .copied()?;
         self.entries.promote(index);
         Some(&self.entries.get(index).value)
+    }
+
+    pub fn get_index(&self, index: usize) -> &V {
+        &self.entries.get(index).value
+    }
+
+    pub fn update_index<R>(&mut self, index: usize, update: impl FnOnce(&mut V) -> R) -> R {
+        let entry = self.entries.get(index);
+        let old_weight = self.scale.weight(&entry.key, &entry.value);
+        self.entries.promote(index);
+        let result = update(&mut self.entries.get_mut(index).value);
+        let entry = self.entries.get(index);
+        self.weight = self.weight - old_weight + self.scale.weight(&entry.key, &entry.value);
+        result
     }
 
     // if it cannot fit, returns value as error
@@ -120,10 +136,7 @@ where
                 self.weight -= self.scale.weight(&entry.key, &entry.value);
             }
         }
-        let index = match self.entries.insert(Entry { key, value }) {
-            Ok((_, index)) => index,
-            Err(entry) => return Err(entry.value),
-        };
+        let (_, index) = self.entries.insert(Entry { key, value });
         let entries = &self.entries;
         let hash_builder = &self.hash_builder;
         self.table.insert_unique(hash, index, |index| {
@@ -146,9 +159,17 @@ mod test {
         }
     }
 
+    struct ValueWeight;
+
+    impl Scale<u32, u32> for ValueWeight {
+        fn weight(&self, _key: &u32, value: &u32) -> usize {
+            *value as usize
+        }
+    }
+
     #[test]
     fn deferred_eviction() {
-        let mut cache = Cache::new(UnitWeight, 2, 3);
+        let mut cache = Cache::new(UnitWeight, 2);
 
         assert_eq!(
             cache
@@ -172,7 +193,7 @@ mod test {
 
     #[test]
     fn immediate_eviction() {
-        let mut cache = Cache::new(UnitWeight, 2, 3);
+        let mut cache = Cache::new(UnitWeight, 2);
 
         cache.get_or_insert_with(1, || 10).unwrap();
         cache.get_or_insert_with(2, || 20).unwrap();
@@ -183,5 +204,22 @@ mod test {
         assert_eq!(cache.get(&2), None);
         assert_eq!(cache.get(&3), Some(&30));
         assert_eq!(cache.table.len(), 2);
+    }
+
+    #[test]
+    fn index_access_updates_weight() {
+        let mut cache = Cache::new(ValueWeight, 2);
+
+        let (_, first) = cache.get_or_insert_deferred_with(1, || 1).unwrap();
+        cache.get_or_insert_deferred_with(2, || 1).unwrap();
+        cache.update_index(first, |value| *value = 2);
+
+        assert_eq!(cache.get_index(first), &2);
+        assert_eq!(cache.weight, 3);
+
+        cache.trim_to_weight();
+
+        assert_eq!(cache.get(&1), Some(&2));
+        assert_eq!(cache.get(&2), None);
     }
 }
