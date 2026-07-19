@@ -55,14 +55,17 @@ impl FontCache {
             glyphs,
             rasterizer,
         } = self;
-        glyphs.get_or_insert_with(key, || {
-            let font = &faces[key.face].font;
-            let (metrics, alpha) = rasterizer.rasterize(font, key.glyph.glyph_id, key.glyph.size);
-            CachedGlyph {
-                metrics,
-                alpha: alpha.into_boxed_slice(),
-            }
-        })
+        glyphs
+            .get_or_insert(key, || {
+                let font = &faces[key.face].font;
+                let (metrics, alpha) =
+                    rasterizer.rasterize(font, key.glyph.glyph_id, key.glyph.size);
+                CachedGlyph {
+                    metrics,
+                    alpha: alpha.into_boxed_slice(),
+                }
+            })
+            .map(|(glyph, _)| glyph)
     }
 }
 
