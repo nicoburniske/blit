@@ -133,9 +133,9 @@ impl<T> LruList<T> {
     }
 
     // removes least recently used
-    pub fn pop(&mut self) -> Option<T> {
+    pub fn pop_with_index(&mut self) -> Option<(T, usize)> {
         let index = self.least_recent;
-        self.remove(index)
+        Some((self.remove(index)?, index))
     }
 
     pub fn remove(&mut self, index: usize) -> Option<T> {
@@ -269,7 +269,7 @@ mod test {
             ],
         }
 
-        assert_eq!(lru.pop(), Some(1));
+        assert_eq!(lru.pop_with_index(), Some((1, 1)));
         assert_lru! {
             lru,
             recent: [least: 2, most: 0],
@@ -281,7 +281,7 @@ mod test {
             ],
         }
 
-        assert_eq!(lru.pop(), Some(2));
+        assert_eq!(lru.pop_with_index(), Some((2, 2)));
         assert_lru! {
             lru,
             recent: [least: 0, most: 0],
@@ -293,7 +293,7 @@ mod test {
             ],
         }
 
-        assert_eq!(lru.pop(), Some(0));
+        assert_eq!(lru.pop_with_index(), Some((0, 0)));
         assert_lru! {
             lru,
             recent: [least: usize::MAX, most: usize::MAX],
