@@ -34,12 +34,12 @@ impl TextRenderer {
         text: &str,
         scale_factor: f32,
     ) -> (usize, PhysicalRect) {
-        let key = ParagraphCache::key(request, scale_factor);
+        let key = ParagraphCache::raster_key(request, scale_factor);
         let index = self
             .paragraphs
             .prepare(key, request, text, scale_factor, &mut self.fonts);
         let area = request.area.to_physical(scale_factor);
-        let paragraph = self.paragraphs.get(index).rendered.as_ref().unwrap();
+        let paragraph = self.paragraphs.get(index);
         if paragraph.width == 0 || paragraph.height == 0 {
             return (index, PhysicalRect::default());
         }
@@ -63,9 +63,7 @@ impl TextRenderer {
         row: PixelSpan<'_, P>,
         clip: PhysicalRect,
     ) {
-        let Some(paragraph) = self.paragraphs.get(paragraph).rendered.as_ref() else {
-            return;
-        };
+        let paragraph = self.paragraphs.get(paragraph);
         let paragraph_rect = PhysicalRect {
             x: area.x + paragraph.x,
             y: area.y + paragraph.y,
@@ -111,7 +109,7 @@ impl TextRenderer {
         scale_factor: f32,
     ) -> usize {
         let (paragraph, _) = self.prepare(request, text, scale_factor);
-        let paragraph = self.paragraphs.get(paragraph).rendered.as_ref().unwrap();
+        let paragraph = self.paragraphs.get(paragraph);
         let x = (position.x - request.area.x) * scale_factor;
         let y = (position.y - request.area.y) * scale_factor;
         paragraph
@@ -127,18 +125,13 @@ impl TextRenderer {
     }
 
     pub fn measure(&mut self, request: &TextRequest, text: &str, scale_factor: f32) -> LogicalSize {
-        let (paragraph, _) = self.prepare(request, text, scale_factor);
-        let paragraph = self.paragraphs.get(paragraph).rendered.as_ref().unwrap();
-        LogicalSize {
-            width: paragraph.layout_width / scale_factor,
-            height: paragraph.layout_height / scale_factor,
-        }
+        let key = ParagraphCache::layout_key(request, scale_factor);
+        self.paragraphs
+            .measure(key, request, text, scale_factor, &mut self.fonts)
     }
 
     pub fn measure_height(&mut self, request: &TextRequest, text: &str, scale_factor: f32) -> f32 {
-        let key = ParagraphCache::key(request, scale_factor);
-        self.paragraphs
-            .measure_height(key, request, text, scale_factor, &mut self.fonts)
+        self.measure(request, text, scale_factor).height
     }
 
     pub fn cursor_rect(
@@ -149,7 +142,7 @@ impl TextRenderer {
         scale_factor: f32,
     ) -> LogicalRect {
         let (paragraph, _) = self.prepare(request, text, scale_factor);
-        let paragraph = self.paragraphs.get(paragraph).rendered.as_ref().unwrap();
+        let paragraph = self.paragraphs.get(paragraph);
         let Some(caret) = paragraph
             .carets
             .iter()
