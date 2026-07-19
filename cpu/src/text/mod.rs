@@ -8,21 +8,13 @@ use blit::{
     resource::StringId,
 };
 use font::FontCache;
-use paragraph::{Paragraph, ParagraphCache, ParagraphKey};
+use paragraph::ParagraphCache;
 
 use crate::{Pixel, PixelSpan, RendererConfig};
 
 pub struct TextRenderer {
     fonts: FontCache,
     paragraphs: ParagraphCache,
-    /// entries held for this frame and indexed by render commands
-    frame: Vec<PreparedParagraph>,
-}
-
-/// paragraph held outside the cache until the frame ends
-struct PreparedParagraph {
-    key: ParagraphKey,
-    paragraph: Paragraph,
 }
 
 impl TextRenderer {
@@ -33,27 +25,14 @@ impl TextRenderer {
                 config.paragraph_cache_capacity,
                 config.font_metric_cache_capacity,
             ),
-            frame: Vec::new(),
         }
     }
 
     pub fn prepare(&mut self, request: &TextRequest, text: &str, scale_factor: f32) -> (usize, PhysicalRect) {
         let key = ParagraphCache::key(request, scale_factor);
-        let index = self.frame.iter().position(|prepared| prepared.key == key).unwrap_or_else(|| {
-            let paragraph = self.paragraphs.take(key, request, text, scale_factor, &mut self.fonts);
-            let index = self.frame.len();
-            self.frame.push(PreparedParagraph { key, paragraph });
-            index
-        });
-        self.paragraphs.prepare(
-            &mut self.frame[index].paragraph,
-            request,
-            text,
-            scale_factor,
-            &mut self.fonts,
-        );
+        let index = self.paragraphs.prepare(key, request, text, scale_factor, &mut self.fonts);
         let area = request.area.to_physical(scale_factor);
-        let paragraph = self.frame[index].paragraph.rendered.as_ref().unwrap();
+        let paragraph = self.paragraphs.get(index).rendered.as_ref().unwrap();
         if paragraph.width == 0 || paragraph.height == 0 {
             return (index, PhysicalRect::default());
         }
@@ -77,11 +56,7 @@ impl TextRenderer {
         row: PixelSpan<'_, P>,
         clip: PhysicalRect,
     ) {
-        let Some(paragraph) =
-            self.frame.get(paragraph).and_then(|prepared| prepared.paragraph.rendered.as_ref())
-        else {
-            return;
-        };
+        let Some(paragraph) = self.paragraphs.get(paragraph).rendered.as_ref() else { return };
         let paragraph_rect = PhysicalRect {
             x: area.x + paragraph.x,
             y: area.y + paragraph.y,
@@ -105,9 +80,7 @@ impl TextRenderer {
     }
 
     pub fn finish_frame(&mut self) {
-        for prepared in self.frame.drain(..) {
-            self.paragraphs.restore(prepared.key, prepared.paragraph);
-        }
+        self.paragraphs.finish_frame();
     }
 
     pub fn retain_strings(&mut self, live: impl FnMut(StringId) -> bool) {
@@ -122,7 +95,7 @@ impl TextRenderer {
         scale_factor: f32,
     ) -> usize {
         let (paragraph, _) = self.prepare(request, text, scale_factor);
-        let paragraph = self.frame[paragraph].paragraph.rendered.as_ref().unwrap();
+        let paragraph = self.paragraphs.get(paragraph).rendered.as_ref().unwrap();
         let x = (position.x - request.area.x) * scale_factor;
         let y = (position.y - request.area.y) * scale_factor;
         paragraph
@@ -138,7 +111,7 @@ impl TextRenderer {
 
     pub fn measure(&mut self, request: &TextRequest, text: &str, scale_factor: f32) -> LogicalSize {
         let (paragraph, _) = self.prepare(request, text, scale_factor);
-        let paragraph = self.frame[paragraph].paragraph.rendered.as_ref().unwrap();
+        let paragraph = self.paragraphs.get(paragraph).rendered.as_ref().unwrap();
         LogicalSize {
             width: paragraph.layout_width / scale_factor,
             height: paragraph.layout_height / scale_factor,
@@ -147,9 +120,6 @@ impl TextRenderer {
 
     pub fn measure_height(&mut self, request: &TextRequest, text: &str, scale_factor: f32) -> f32 {
         let key = ParagraphCache::key(request, scale_factor);
-        if let Some(paragraph) = self.frame.iter().find(|prepared| prepared.key == key) {
-            return paragraph.paragraph.layout_height / scale_factor;
-        }
         self.paragraphs.measure_height(key, request, text, scale_factor, &mut self.fonts)
     }
 
@@ -161,7 +131,7 @@ impl TextRenderer {
         scale_factor: f32,
     ) -> LogicalRect {
         let (paragraph, _) = self.prepare(request, text, scale_factor);
-        let paragraph = self.frame[paragraph].paragraph.rendered.as_ref().unwrap();
+        let paragraph = self.paragraphs.get(paragraph).rendered.as_ref().unwrap();
         let Some(caret) = paragraph.carets.iter().min_by_key(|caret| caret.byte_offset.abs_diff(byte_offset))
         else {
             return LogicalRect {

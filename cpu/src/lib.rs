@@ -1,4 +1,3 @@
-mod cache;
 mod pixel;
 pub mod render;
 mod strategy;

@@ -6,6 +6,6 @@ publish = false
 
 [dependencies]
 blit = { workspace = true }
+blit_cache = { path = "../cache" }
 blit-font = { workspace = true }
-hashbrown = "0.14"
 slotmap = "1"

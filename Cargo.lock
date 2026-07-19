@@ -89,7 +89,7 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "blit-font",
- "hashbrown 0.14.5",
+ "blit_cache",
  "slotmap",
 ]
 
@@ -110,6 +110,13 @@ dependencies = [
  "blit",
  "ttf-parser",
  "unicode-linebreak",
+]
+
+[[package]]
+name = "blit_cache"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.14.5",
 ]
 
 [[package]]
