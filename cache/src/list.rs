@@ -1,3 +1,5 @@
+use std::hint::unreachable_unchecked;
+
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct LruList<T> {
     capacity: usize,
@@ -7,11 +9,28 @@ pub struct LruList<T> {
     free_first: usize,
 }
 
-// if empty, next is the next free index
-// if present, prev/next are least/most recently used
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
-struct Node<T> {
-    value: Option<T>,
+enum Node<T> {
+    Value(Value<T>),
+    Empty { next: usize },
+}
+
+macro_rules! value_unchecked {
+    ($node:expr) => {
+        match $node {
+            Node::Value(value) => value,
+            Node::Empty { .. } => {
+                debug_assert!(false, "expected value node");
+                // safety: callers only pass nodes in the active list
+                unsafe { unreachable_unchecked() }
+            }
+        }
+    };
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+struct Value<T> {
+    value: T,
     prev: usize,
     next: usize,
 }
@@ -28,7 +47,10 @@ impl<T> LruList<T> {
     }
 
     pub fn get(&self, index: usize) -> &T {
-        self.items[index].value.as_ref().unwrap()
+        let Node::Value(value) = &self.items[index] else {
+            panic!("no value")
+        };
+        &value.value
     }
 
     // err if no more space
@@ -39,34 +61,39 @@ impl<T> LruList<T> {
                 return Err(value);
             }
 
-            self.items.push(Node {
-                value: None,
-                prev: usize::MAX,
+            self.items.push(Node::Value(Value {
+                value,
+                prev: self.most_recent,
                 next: usize::MAX,
-            });
+            }));
             self.items.len() - 1
         } else {
             // use the free list
             let index = self.free_first;
-            self.free_first = self.items[index].next;
+            let Node::Empty { next } = self.items[index] else {
+                // safety: free list only has free nodes
+                unsafe { unreachable_unchecked() }
+            };
+            self.free_first = next;
+            self.items[index] = Node::Value(Value {
+                value,
+                prev: self.most_recent,
+                next: usize::MAX,
+            });
             index
         };
 
-        if let Some(node) = self.items.get_mut(self.most_recent) {
-            node.next = index;
+        if let Some(value) = self.items.get_mut(self.most_recent) {
+            value_unchecked!(value).next = index;
         } else {
             self.least_recent = index;
         }
 
-        self.items[index] = Node {
-            value: Some(value),
-            prev: self.most_recent,
-            next: usize::MAX,
-        };
-
         self.most_recent = index;
 
-        Ok((self.items[index].value.as_ref().unwrap(), index))
+        let value = value_unchecked!(&self.items[index]);
+
+        Ok((&value.value, index))
     }
 
     // marks the entry as most recently used
@@ -76,8 +103,9 @@ impl<T> LruList<T> {
         }
 
         let (node_next, node_prev) = {
-            let node = &mut self.items[index];
-            assert!(node.value.is_some(), "promoting used value");
+            let Node::Value(node) = &mut self.items[index] else {
+                panic!("no value")
+            };
             let next = node.next;
             let prev = node.prev;
             node.next = usize::MAX;
@@ -86,15 +114,15 @@ impl<T> LruList<T> {
         };
 
         if let Some(node) = self.items.get_mut(node_prev) {
-            node.next = node_next;
+            value_unchecked!(node).next = node_next;
         }
 
         if let Some(node) = self.items.get_mut(node_next) {
-            node.prev = node_prev;
+            value_unchecked!(node).prev = node_prev;
         }
 
         if let Some(node) = self.items.get_mut(self.most_recent) {
-            node.next = index;
+            value_unchecked!(node).next = index;
         }
 
         self.most_recent = index;
@@ -111,45 +139,46 @@ impl<T> LruList<T> {
     }
 
     pub fn remove(&mut self, index: usize) -> Option<T> {
-        let (old_prev, old_next, value) = {
-            let node = self.items.get_mut(index)?;
-
-            let old_prev = node.prev;
-            let old_next = node.next;
-
-            node.next = self.free_first;
-            node.prev = usize::MAX;
-
-            (old_prev, old_next, node.value.take().unwrap())
+        let removed = {
+            let item = self.items.get_mut(index)?;
+            let Node::Value(value) = std::mem::replace(
+                item,
+                Node::Empty {
+                    next: self.free_first,
+                },
+            ) else {
+                panic!("not a value")
+            };
+            value
         };
 
         self.free_first = index;
 
         if self.least_recent == index {
-            self.least_recent = old_next;
+            self.least_recent = removed.next;
         }
 
         if self.most_recent == index {
-            self.most_recent = old_prev;
+            self.most_recent = removed.prev;
         }
 
-        if let Some(node) = self.items.get_mut(old_next) {
-            node.prev = old_prev;
+        if let Some(node) = self.items.get_mut(removed.next) {
+            value_unchecked!(node).prev = removed.prev;
         }
-        if let Some(node) = self.items.get_mut(old_prev) {
-            node.next = old_next;
+        if let Some(node) = self.items.get_mut(removed.prev) {
+            value_unchecked!(node).next = removed.next;
         }
 
-        Some(value)
+        Some(removed.value)
     }
 
     pub fn retain(&mut self, mut filter: impl FnMut(usize, &T) -> bool) {
         let mut index = self.least_recent;
         while index != usize::MAX {
             let node = &self.items[index];
-            let value = node.value.as_ref().unwrap();
-            let next = node.next;
-            if !filter(index, value) {
+            let value = value_unchecked!(node);
+            let next = value.next;
+            if !filter(index, &value.value) {
                 self.remove(index);
             }
             index = next;
@@ -162,19 +191,25 @@ mod test {
     use super::*;
 
     macro_rules! assert_lru {
+        (@node Value { value: $value:expr, prev: $prev:expr, next: $next:expr }) => {
+            Node::Value(Value {
+                value: $value,
+                prev: $prev,
+                next: $next,
+            })
+        };
+        (@node Empty { next: $next:expr }) => {
+            Node::Empty { next: $next }
+        };
         (
             $lru:ident,
             recent: [least: $least_recent:expr, most: $most_recent:expr],
             free: $free_first:expr,
-            nodes: [$(($value:expr, prev: $prev:expr, next: $next:expr)),* $(,)?],
+            nodes: [$($kind:ident { $($fields:tt)* }),* $(,)?],
         ) => {{
             let expected = LruList {
                 capacity: $lru.capacity,
-                items: vec![$(Node {
-                    value: $value,
-                    prev: $prev,
-                    next: $next,
-                }),*],
+                items: vec![$(assert_lru!(@node $kind { $($fields)* })),*],
                 least_recent: $least_recent,
                 most_recent: $most_recent,
                 free_first: $free_first,
@@ -196,7 +231,7 @@ mod test {
             lru,
             recent: [least: 0, most: 0],
             free: usize::MAX,
-            nodes: [(Some(0), prev: usize::MAX, next: usize::MAX)],
+            nodes: [Value { value: 0, prev: usize::MAX, next: usize::MAX }],
         }
 
         lru.insert(1).unwrap();
@@ -205,8 +240,8 @@ mod test {
             recent: [least: 0, most: 1],
             free: usize::MAX,
             nodes: [
-                (Some(0), prev: usize::MAX, next: 1),
-                (Some(1), prev: 0, next: usize::MAX),
+                Value { value: 0, prev: usize::MAX, next: 1 },
+                Value { value: 1, prev: 0, next: usize::MAX },
             ],
         }
 
@@ -216,9 +251,9 @@ mod test {
             recent: [least: 0, most: 2],
             free: usize::MAX,
             nodes: [
-                (Some(0), prev: usize::MAX, next: 1),
-                (Some(1), prev: 0, next: 2),
-                (Some(2), prev: 1, next: usize::MAX),
+                Value { value: 0, prev: usize::MAX, next: 1 },
+                Value { value: 1, prev: 0, next: 2 },
+                Value { value: 2, prev: 1, next: usize::MAX },
             ],
         }
 
@@ -228,9 +263,9 @@ mod test {
             recent: [least: 1, most: 0],
             free: usize::MAX,
             nodes: [
-                (Some(0), prev: 2, next: usize::MAX),
-                (Some(1), prev: usize::MAX, next: 2),
-                (Some(2), prev: 1, next: 0),
+                Value { value: 0, prev: 2, next: usize::MAX },
+                Value { value: 1, prev: usize::MAX, next: 2 },
+                Value { value: 2, prev: 1, next: 0 },
             ],
         }
 
@@ -240,9 +275,9 @@ mod test {
             recent: [least: 2, most: 0],
             free: 1,
             nodes: [
-                (Some(0), prev: 2, next: usize::MAX),
-                (None, prev: usize::MAX, next: usize::MAX),
-                (Some(2), prev: usize::MAX, next: 0),
+                Value { value: 0, prev: 2, next: usize::MAX },
+                Empty { next: usize::MAX },
+                Value { value: 2, prev: usize::MAX, next: 0 },
             ],
         }
 
@@ -252,9 +287,9 @@ mod test {
             recent: [least: 0, most: 0],
             free: 2,
             nodes: [
-                (Some(0), prev: usize::MAX, next: usize::MAX),
-                (None, prev: usize::MAX, next: usize::MAX),
-                (None, prev: usize::MAX, next: 1),
+                Value { value: 0, prev: usize::MAX, next: usize::MAX },
+                Empty { next: usize::MAX },
+                Empty { next: 1 },
             ],
         }
 
@@ -264,9 +299,9 @@ mod test {
             recent: [least: usize::MAX, most: usize::MAX],
             free: 0,
             nodes: [
-                (None, prev: usize::MAX, next: 2),
-                (None, prev: usize::MAX, next: usize::MAX),
-                (None, prev: usize::MAX, next: 1),
+                Empty { next: 2 },
+                Empty { next: usize::MAX },
+                Empty { next: 1 },
             ],
         }
 
@@ -276,9 +311,9 @@ mod test {
             recent: [least: 0, most: 0],
             free: 2,
             nodes: [
-                (Some(0), prev: usize::MAX, next: usize::MAX),
-                (None, prev: usize::MAX, next: usize::MAX),
-                (None, prev: usize::MAX, next: 1),
+                Value { value: 0, prev: usize::MAX, next: usize::MAX },
+                Empty { next: usize::MAX },
+                Empty { next: 1 },
             ],
         }
 
@@ -288,9 +323,9 @@ mod test {
             recent: [least: 0, most: 0],
             free: 2,
             nodes: [
-                (Some(0), prev: usize::MAX, next: usize::MAX),
-                (None, prev: usize::MAX, next: usize::MAX),
-                (None, prev: usize::MAX, next: 1),
+                Value { value: 0, prev: usize::MAX, next: usize::MAX },
+                Empty { next: usize::MAX },
+                Empty { next: 1 },
             ],
         }
     }
@@ -308,8 +343,8 @@ mod test {
             recent: [least: 1, most: 0],
             free: usize::MAX,
             nodes: [
-                (Some(2), prev: 1, next: usize::MAX),
-                (Some(1), prev: usize::MAX, next: 0),
+                Value { value: 2, prev: 1, next: usize::MAX },
+                Value { value: 1, prev: usize::MAX, next: 0 },
             ],
         }
     }
@@ -327,9 +362,9 @@ mod test {
             recent: [least: 0, most: 1],
             free: usize::MAX,
             nodes: [
-                (Some(0), prev: usize::MAX, next: 2),
-                (Some(1), prev: 2, next: usize::MAX),
-                (Some(2), prev: 0, next: 1),
+                Value { value: 0, prev: usize::MAX, next: 2 },
+                Value { value: 1, prev: 2, next: usize::MAX },
+                Value { value: 2, prev: 0, next: 1 },
             ],
         }
     }
@@ -347,9 +382,9 @@ mod test {
             recent: [least: 0, most: 2],
             free: 1,
             nodes: [
-                (Some(0), prev: usize::MAX, next: 2),
-                (None, prev: usize::MAX, next: usize::MAX),
-                (Some(2), prev: 0, next: usize::MAX),
+                Value { value: 0, prev: usize::MAX, next: 2 },
+                Empty { next: usize::MAX },
+                Value { value: 2, prev: 0, next: usize::MAX },
             ],
         }
 
@@ -359,9 +394,9 @@ mod test {
             recent: [least: 2, most: 2],
             free: 0,
             nodes: [
-                (None, prev: usize::MAX, next: 1),
-                (None, prev: usize::MAX, next: usize::MAX),
-                (Some(2), prev: usize::MAX, next: usize::MAX),
+                Empty { next: 1 },
+                Empty { next: usize::MAX },
+                Value { value: 2, prev: usize::MAX, next: usize::MAX },
             ],
         }
     }
@@ -380,9 +415,9 @@ mod test {
             recent: [least: 1, most: 1],
             free: 2,
             nodes: [
-                (None, prev: usize::MAX, next: usize::MAX),
-                (Some(1), prev: usize::MAX, next: usize::MAX),
-                (None, prev: usize::MAX, next: 0),
+                Empty { next: usize::MAX },
+                Value { value: 1, prev: usize::MAX, next: usize::MAX },
+                Empty { next: 0 },
             ],
         }
     }
