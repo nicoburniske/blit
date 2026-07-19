@@ -2,7 +2,6 @@ use std::hint::unreachable_unchecked;
 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct LruList<T> {
-    capacity: usize,
     items: Vec<Node<T>>,
     least_recent: usize,
     most_recent: usize,
@@ -36,9 +35,8 @@ struct Value<T> {
 }
 
 impl<T> LruList<T> {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            capacity,
             items: Vec::new(),
             least_recent: usize::MAX,
             most_recent: usize::MAX,
@@ -53,14 +51,15 @@ impl<T> LruList<T> {
         &value.value
     }
 
-    // err if no more space
-    pub fn insert(&mut self, value: T) -> Result<(&T, usize), T> {
-        let index = if self.free_first == usize::MAX {
-            // no free list. need to insert
-            if self.items.len() == self.capacity {
-                return Err(value);
-            }
+    pub fn get_mut(&mut self, index: usize) -> &mut T {
+        let Node::Value(value) = &mut self.items[index] else {
+            panic!("no value")
+        };
+        &mut value.value
+    }
 
+    pub fn insert(&mut self, value: T) -> (&T, usize) {
+        let index = if self.free_first == usize::MAX {
             self.items.push(Node::Value(Value {
                 value,
                 prev: self.most_recent,
@@ -68,7 +67,6 @@ impl<T> LruList<T> {
             }));
             self.items.len() - 1
         } else {
-            // use the free list
             let index = self.free_first;
             let Node::Empty { next } = self.items[index] else {
                 // safety: free list only has free nodes
@@ -93,7 +91,7 @@ impl<T> LruList<T> {
 
         let value = value_unchecked!(&self.items[index]);
 
-        Ok((&value.value, index))
+        (&value.value, index)
     }
 
     // marks the entry as most recently used
@@ -208,7 +206,6 @@ mod test {
             nodes: [$($kind:ident { $($fields:tt)* }),* $(,)?],
         ) => {{
             let expected = LruList {
-                capacity: $lru.capacity,
                 items: vec![$(assert_lru!(@node $kind { $($fields)* })),*],
                 least_recent: $least_recent,
                 most_recent: $most_recent,
@@ -224,9 +221,9 @@ mod test {
 
     #[test]
     fn basic() {
-        let mut lru = LruList::<u32>::new(5);
+        let mut lru = LruList::<u32>::new();
 
-        lru.insert(0).unwrap();
+        lru.insert(0);
         assert_lru! {
             lru,
             recent: [least: 0, most: 0],
@@ -234,7 +231,7 @@ mod test {
             nodes: [Value { value: 0, prev: usize::MAX, next: usize::MAX }],
         }
 
-        lru.insert(1).unwrap();
+        lru.insert(1);
         assert_lru! {
             lru,
             recent: [least: 0, most: 1],
@@ -245,7 +242,7 @@ mod test {
             ],
         }
 
-        lru.insert(2).unwrap();
+        lru.insert(2);
         assert_lru! {
             lru,
             recent: [least: 0, most: 2],
@@ -305,7 +302,7 @@ mod test {
             ],
         }
 
-        lru.insert(0).unwrap();
+        lru.insert(0);
         assert_lru! {
             lru,
             recent: [least: 0, most: 0],
@@ -332,11 +329,11 @@ mod test {
 
     #[test]
     fn reuse_only_free_slot() {
-        let mut lru = LruList::<u32>::new(2);
-        lru.insert(0).unwrap();
-        lru.insert(1).unwrap();
+        let mut lru = LruList::<u32>::new();
+        lru.insert(0);
+        lru.insert(1);
         assert_eq!(lru.remove(0), Some(0));
-        lru.insert(2).unwrap();
+        lru.insert(2);
 
         assert_lru! {
             lru,
@@ -351,10 +348,10 @@ mod test {
 
     #[test]
     fn promote_middle() {
-        let mut lru = LruList::<u32>::new(3);
-        lru.insert(0).unwrap();
-        lru.insert(1).unwrap();
-        lru.insert(2).unwrap();
+        let mut lru = LruList::<u32>::new();
+        lru.insert(0);
+        lru.insert(1);
+        lru.insert(2);
         lru.promote(1);
 
         assert_lru! {
@@ -371,10 +368,10 @@ mod test {
 
     #[test]
     fn remove() {
-        let mut lru = LruList::<u32>::new(5);
-        lru.insert(0).unwrap();
-        lru.insert(1).unwrap();
-        lru.insert(2).unwrap();
+        let mut lru = LruList::<u32>::new();
+        lru.insert(0);
+        lru.insert(1);
+        lru.insert(2);
 
         assert_eq!(lru.remove(1), Some(1));
         assert_lru! {
@@ -403,10 +400,10 @@ mod test {
 
     #[test]
     fn retain() {
-        let mut lru = LruList::<u32>::new(5);
-        lru.insert(0).unwrap();
-        lru.insert(1).unwrap();
-        lru.insert(2).unwrap();
+        let mut lru = LruList::<u32>::new();
+        lru.insert(0);
+        lru.insert(1);
+        lru.insert(2);
 
         lru.retain(|index, _| index % 2 != 0);
 
