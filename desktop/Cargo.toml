@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 blit.workspace = true
 blit-cpu = { path = "../cpu" }
+blit-executor.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 softbuffer = { version = "0.4.8", default-features = false, features = ["wayland", "wayland-dlopen"] }
