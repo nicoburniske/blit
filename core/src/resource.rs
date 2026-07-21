@@ -20,6 +20,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageFormat {
     Rgb8,
+    Luma8,
     Rgba8,
     Rgba8Premultiplied,
     Alpha8(Color),
@@ -30,7 +31,7 @@ impl ImageFormat {
         match self {
             Self::Rgb8 => 3,
             Self::Rgba8 | Self::Rgba8Premultiplied => 4,
-            Self::Alpha8(_) => 1,
+            Self::Luma8 | Self::Alpha8(_) => 1,
         }
     }
 }

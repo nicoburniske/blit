@@ -217,6 +217,25 @@ impl Prepared {
                     }
                 });
             }
+            ImageFormat::Luma8 if self.opacity == 255 => {
+                self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
+                    if source_x >= texture_x && source_x < texture_right {
+                        let luma = pixels[source_row + source_x - texture_x];
+                        row[destination] = P::from_rgb(luma, luma, luma);
+                    }
+                });
+            }
+            ImageFormat::Luma8 => {
+                self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
+                    if source_x >= texture_x && source_x < texture_right {
+                        let luma = pixels[source_row + source_x - texture_x];
+                        row[destination].blend(PremultipliedRgbaColor::new(
+                            Color::from_rgba8(luma, luma, luma, 255),
+                            self.opacity,
+                        ));
+                    }
+                });
+            }
             ImageFormat::Rgba8 => {
                 self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
@@ -283,8 +302,8 @@ impl Prepared {
     ) -> bool {
         if !matches!(
             self.format,
-            ImageFormat::Rgb8 | ImageFormat::Rgba8Premultiplied | ImageFormat::Alpha8(_)
-        ) || self.format == ImageFormat::Rgb8 && self.opacity != 255
+            ImageFormat::Rgb8 | ImageFormat::Luma8 | ImageFormat::Rgba8Premultiplied | ImageFormat::Alpha8(_)
+        ) || matches!(self.format, ImageFormat::Rgb8 | ImageFormat::Luma8) && self.opacity != 255
         {
             return false;
         }
@@ -311,6 +330,11 @@ impl Prepared {
                     let (prefix, source, suffix) = unsafe { bytes.align_to::<Rgb8Pixel>() };
                     assert!(prefix.is_empty() && suffix.is_empty());
                     P::blend_texture_slice_rgb(destination, source);
+                }
+                ImageFormat::Luma8 => {
+                    for (destination, luma) in destination.iter_mut().zip(&pixels[source_offset..][..len]) {
+                        *destination = P::from_rgb(*luma, *luma, *luma);
+                    }
                 }
                 ImageFormat::Rgba8Premultiplied => {
                     let bytes = &pixels[source_offset..source_offset + len * 4];
@@ -525,6 +549,16 @@ impl Prepared {
             },
             ImageFormat::Rgb8 => PremultipliedRgbaColor::new(
                 Color::from_rgba8(pixels[offset], pixels[offset + 1], pixels[offset + 2], 255),
+                self.opacity,
+            ),
+            ImageFormat::Luma8 if self.opacity == 255 => PremultipliedRgbaColor {
+                red: pixels[offset],
+                green: pixels[offset],
+                blue: pixels[offset],
+                alpha: 255,
+            },
+            ImageFormat::Luma8 => PremultipliedRgbaColor::new(
+                Color::from_rgba8(pixels[offset], pixels[offset], pixels[offset], 255),
                 self.opacity,
             ),
             ImageFormat::Rgba8 => PremultipliedRgbaColor::new(

@@ -303,7 +303,7 @@ impl StoredImage {
             })
         };
         let alpha_rows = match data.format {
-            blit::resource::ImageFormat::Rgb8 => Box::default(),
+            blit::resource::ImageFormat::Rgb8 | blit::resource::ImageFormat::Luma8 => Box::default(),
             blit::resource::ImageFormat::Rgba8 => {
                 opaque = rgba_opaque();
                 Box::default()
