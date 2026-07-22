@@ -3,13 +3,13 @@ use crate::{
     color::Color,
     geometry::{LogicalRect, LogicalSize},
     paint::{HorizontalAlign, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap, VerticalAlign},
-    resource::StringHandle,
+    resource::TextSource,
     Ui,
 };
 
 crate::widget! {
-    pub struct Text<'a> {
-        new(pub text: &'a StringHandle);
+    pub struct Text {
+        new(pub text: impl Into<TextSource>);
         pub color: Color = Color::BLACK,
         pub text_style: TextStyle,
         pub options: TextOptions,
@@ -20,7 +20,7 @@ crate::widget! {
     features: [text_style]
 }
 
-impl<'a> Text<'a> {
+impl Text {
     pub fn wrap(mut self, wrap: TextWrap) -> Self {
         self.options.wrap = wrap;
         self
@@ -48,7 +48,7 @@ impl<'a> Text<'a> {
 
     pub fn measure_exact(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize {
         let request = TextRequest {
-            text: self.text.id(),
+            text: self.text,
             area: LogicalRect { height: 0.0, ..available },
             offset_x: self.offset_x,
             color: self.color,
@@ -65,7 +65,7 @@ impl<'a> Text<'a> {
 
     pub fn render(self, ui: &mut Ui, area: LogicalRect) {
         let request = TextRequest {
-            text: self.text.id(),
+            text: self.text,
             area,
             offset_x: self.offset_x,
             color: self.color,
@@ -77,14 +77,14 @@ impl<'a> Text<'a> {
     }
 }
 
-impl SizedWidget for Text<'_> {
+impl SizedWidget for Text {
     type Output = ();
 
     fn measure(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize {
         let mut options = self.options;
         options.vertical_align = VerticalAlign::Top;
         let request = TextRequest {
-            text: self.text.id(),
+            text: self.text,
             area: LogicalRect { height: 0.0, ..available },
             offset_x: self.offset_x,
             color: self.color,

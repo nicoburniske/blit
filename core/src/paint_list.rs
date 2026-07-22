@@ -438,7 +438,7 @@ mod tests {
 
     fn text(id: u64) -> TextRequest {
         TextRequest {
-            text: StringId(id),
+            text: StringId(id).into(),
             area: LogicalRect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 },
             offset_x: 0.0,
             color: Color::BLACK,
@@ -484,7 +484,7 @@ mod tests {
             vertical_tiling: ImageTiling::Repeat,
         };
         let text = TextRequest {
-            text: StringId(9),
+            text: StringId(9).into(),
             area,
             offset_x: 3.0,
             color: Color::BLACK,

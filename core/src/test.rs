@@ -71,7 +71,11 @@ impl PlatformImpl for TestPlatform {
     }
 
     fn text_offset_at_position(&mut self, request: &paint::TextRequest, _: LogicalPoint) -> usize {
-        self.string(request.text).len()
+        match request.text {
+            resource::TextSource::Resource(string) => self.string(string),
+            resource::TextSource::Static(string) => string,
+        }
+        .len()
     }
 
     fn measure_text(&mut self, request: &paint::TextRequest) -> LogicalSize {
@@ -87,6 +91,24 @@ impl PlatformImpl for TestPlatform {
 
 #[test]
 fn input_stays_compact() { assert_eq!(std::mem::size_of::<Input>(), 20) }
+
+#[test]
+fn static_text_uses_no_string_resources() {
+    let mut runtime = Runtime::new(TestPlatform::default());
+    let area = runtime.screen();
+
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        widget::Text::new("label").render(ui, area);
+        widget::Button::new("button").render(ui, area);
+    });
+    assert!(runtime.platform().strings.is_empty());
+
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        widget::Text::new("label").render(ui, area);
+        widget::Button::new("button").render(ui, area);
+    });
+    assert!(runtime.platform().damage.is_empty());
+}
 
 #[test]
 fn paint_changes_produce_automatic_damage() {

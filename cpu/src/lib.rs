@@ -7,16 +7,16 @@ use blit::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     paint::{Border, BoxShadow, FontId, ImageRequest, Rectangle, TextRequest},
     paint_list::{Command, PaintList},
-    resource::{ImageData, ImageId, StringData, StringId},
+    resource::{ImageData, ImageId, StringData, StringId, TextSource},
 };
 pub use blit_font::Font;
 pub use pixel::{Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, VecBuffer};
 use render::{image, image_patch::AlphaRow, rectangle, shadow};
+pub use strategy::{Direct, RenderStrategy, Scanline};
 use strategy::{
     clip::ClipStack,
     command::{CommandList, PreparedText},
 };
-pub use strategy::{Direct, RenderStrategy, Scanline};
 
 pub struct RendererConfig {
     pub fonts: Vec<FontFace>,
@@ -57,7 +57,10 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
     }
 
     pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T> {
-        Renderer { context: self.context, strategy }
+        Renderer {
+            context: self.context,
+            strategy,
+        }
     }
 }
 
@@ -77,16 +80,22 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         }
     }
 
-    pub fn scale_factor(&self) -> f32 { self.context.scale_factor }
+    pub fn scale_factor(&self) -> f32 {
+        self.context.scale_factor
+    }
 
     pub fn set_scale_factor(&mut self, scale_factor: f32) {
         assert!(scale_factor.is_finite() && scale_factor > 0.0);
         self.context.scale_factor = scale_factor;
     }
 
-    pub fn buffer(&self) -> &B { &self.context.buffer }
+    pub fn buffer(&self) -> &B {
+        &self.context.buffer
+    }
 
-    pub fn buffer_mut(&mut self) -> &mut B { &mut self.context.buffer }
+    pub fn buffer_mut(&mut self) -> &mut B {
+        &mut self.context.buffer
+    }
 
     pub fn render(&mut self, paint: &PaintList, damage: &[PhysicalRect]) {
         assert!(self.context.commands.is_empty());
@@ -100,14 +109,19 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                 );
             }
             for record in paint.iter() {
-                if !damage.iter().any(|damage| record.bounds.intersection(*damage).is_some()) {
+                if !damage
+                    .iter()
+                    .any(|damage| record.bounds.intersection(*damage).is_some())
+                {
                     continue;
                 }
                 match record.command {
                     Command::Rectangle(rectangle) => {
                         self.prepare_rectangle(&rectangle, record.bounds, record.clip.0)
                     }
-                    Command::Image(image) => self.prepare_image(&image, record.bounds, record.clip.0),
+                    Command::Image(image) => {
+                        self.prepare_image(&image, record.bounds, record.clip.0)
+                    }
                     Command::Text(text) => {
                         self.prepare_text(&text, record.bounds, record.clip.0);
                     }
@@ -129,25 +143,35 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                 rectangle::Gradient::new(request, width, gradient, self.context.scale_factor)
             && let Some(bounds) = prepared.geometry.intersection(bounds)
         {
-            if self.context.commands.push_gradient_rectangle(prepared, gradient.stops, bounds, clip) {
+            if self
+                .context
+                .commands
+                .push_gradient_rectangle(prepared, gradient.stops, bounds, clip)
+            {
                 return;
             }
         }
         if let Some(rectangle) = rectangle::Prepared::new(request, self.context.scale_factor)
             && let Some(bounds) = rectangle.geometry.intersection(bounds)
         {
-            self.context.commands.push_rectangle(rectangle, bounds, clip);
+            self.context
+                .commands
+                .push_rectangle(rectangle, bounds, clip);
         }
     }
 
     fn prepare_box_shadow(&mut self, shadow: &BoxShadow, bounds: PhysicalRect, clip: u16) {
-        let Some(request) =
-            self.context.shadows.prepare(&mut self.context.images, shadow, self.context.scale_factor)
-        else {
+        let Some(request) = self.context.shadows.prepare(
+            &mut self.context.images,
+            shadow,
+            self.context.scale_factor,
+        ) else {
             return;
         };
         match request {
-            shadow::Prepared::Rectangle(rectangle) => self.prepare_rectangle(&rectangle, bounds, clip),
+            shadow::Prepared::Rectangle(rectangle) => {
+                self.prepare_rectangle(&rectangle, bounds, clip)
+            }
             shadow::Prepared::Image(request) => {
                 let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
                 if let Some(texture) = self.context.images.get(image) {
@@ -168,15 +192,21 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     fn prepare_image(&mut self, request: &ImageRequest, bounds: PhysicalRect, clip: u16) {
         let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
         if let Some(texture) = self.context.images.get(image) {
-            image::prepare(request, &texture.data, bounds, self.context.scale_factor, |image, bounds| {
-                self.context.commands.push_image(
-                    image,
-                    bounds,
-                    clip,
-                    texture.opaque,
-                    texture.has_opaque_spans,
-                )
-            });
+            image::prepare(
+                request,
+                &texture.data,
+                bounds,
+                self.context.scale_factor,
+                |image, bounds| {
+                    self.context.commands.push_image(
+                        image,
+                        bounds,
+                        clip,
+                        texture.opaque,
+                        texture.has_opaque_spans,
+                    )
+                },
+            );
         }
     }
 
@@ -188,12 +218,24 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     ) -> Option<PhysicalRect> {
         let area = request.area.to_physical(self.context.scale_factor);
         let visible_area = area.intersection(bounds)?;
-        let string = RendererStringId::from(KeyData::from_ffi(request.text.0));
-        let text = self.context.strings.get(string).expect("invalid StringHandle").data.as_ref();
-        let (paragraph, paragraph_bounds) =
-            self.context.text.prepare(request, text, self.context.scale_factor);
+        let RenderContext {
+            strings,
+            text,
+            scale_factor,
+            ..
+        } = &mut self.context;
+        let string = resolve_text(strings, request.text);
+        let (paragraph, paragraph_bounds) = text.prepare(request, string, *scale_factor);
         let bounds = paragraph_bounds.intersection(visible_area)?;
-        self.context.commands.push_text(PreparedText { paragraph, area, color: request.color }, bounds, clip);
+        self.context.commands.push_text(
+            PreparedText {
+                paragraph,
+                area,
+                color: request.color,
+            },
+            bounds,
+            clip,
+        );
         Some(bounds)
     }
 
@@ -212,7 +254,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     }
 
     pub fn create_string(&mut self, string: StringData) -> StringId {
-        let string = self.context.strings.insert(StoredString { data: string, live: true });
+        let string = self.context.strings.insert(StoredString {
+            data: string,
+            live: true,
+        });
         StringId(string.data().as_ffi())
     }
 
@@ -226,36 +271,60 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
 
     pub fn string(&self, string: StringId) -> &str {
         let string = RendererStringId::from(KeyData::from_ffi(string.0));
-        self.context.strings.get(string).expect("invalid StringHandle").data.as_ref()
+        self.context.strings[string].data.as_ref()
     }
 
-    pub fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
-        let string = RendererStringId::from(KeyData::from_ffi(request.text.0));
-        let text = self.context.strings.get(string).expect("invalid StringHandle").data.as_ref();
-        self.context.text.offset_at_position(request, text, position, self.context.scale_factor)
+    pub fn text_offset_at_position(
+        &mut self,
+        request: &TextRequest,
+        position: LogicalPoint,
+    ) -> usize {
+        let RenderContext {
+            strings,
+            text,
+            scale_factor,
+            ..
+        } = &mut self.context;
+        let string = resolve_text(strings, request.text);
+        text.offset_at_position(request, string, position, *scale_factor)
     }
 
     pub fn measure_text(&mut self, request: &TextRequest) -> LogicalSize {
-        let string = RendererStringId::from(KeyData::from_ffi(request.text.0));
-        let text = self.context.strings.get(string).expect("invalid StringHandle").data.as_ref();
-        self.context.text.measure(request, text, self.context.scale_factor)
+        let RenderContext {
+            strings,
+            text,
+            scale_factor,
+            ..
+        } = &mut self.context;
+        let string = resolve_text(strings, request.text);
+        text.measure(request, string, *scale_factor)
     }
 
     pub fn measure_text_height(&mut self, request: &TextRequest) -> f32 {
-        let string = RendererStringId::from(KeyData::from_ffi(request.text.0));
-        let text = self.context.strings.get(string).expect("invalid StringHandle").data.as_ref();
-        self.context.text.measure_height(request, text, self.context.scale_factor)
+        let RenderContext {
+            strings,
+            text,
+            scale_factor,
+            ..
+        } = &mut self.context;
+        let string = resolve_text(strings, request.text);
+        text.measure_height(request, string, *scale_factor)
     }
 
     pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        let string = RendererStringId::from(KeyData::from_ffi(request.text.0));
-        let text = self.context.strings.get(string).expect("invalid StringHandle").data.as_ref();
-        self.context.text.cursor_rect(request, text, byte_offset, self.context.scale_factor)
+        let RenderContext {
+            strings,
+            text,
+            scale_factor,
+            ..
+        } = &mut self.context;
+        let string = resolve_text(strings, request.text);
+        text.cursor_rect(request, string, byte_offset, *scale_factor)
     }
 }
 
 use pixel::PixelSpan;
-use slotmap::{new_key_type, Key, KeyData, SlotMap};
+use slotmap::{Key, KeyData, SlotMap, new_key_type};
 use text::TextRenderer;
 
 new_key_type! {
@@ -282,6 +351,16 @@ struct StoredString {
     live: bool,
 }
 
+fn resolve_text(strings: &SlotMap<RendererStringId, StoredString>, source: TextSource) -> &str {
+    match source {
+        TextSource::Resource(string) => {
+            let string = RendererStringId::from(KeyData::from_ffi(string.0));
+            strings[string].data.as_ref()
+        }
+        TextSource::Static(string) => string,
+    }
+}
+
 pub struct StoredImage {
     data: ImageData,
     alpha_rows: Box<[AlphaRow]>,
@@ -299,11 +378,15 @@ impl StoredImage {
         let mut opaque = true;
         let rgba_opaque = || {
             (0..height).all(|line| {
-                bytes[line * data.stride_bytes..][..width * 4].chunks_exact(4).all(|pixel| pixel[3] == 255)
+                bytes[line * data.stride_bytes..][..width * 4]
+                    .chunks_exact(4)
+                    .all(|pixel| pixel[3] == 255)
             })
         };
         let alpha_rows = match data.format {
-            blit::resource::ImageFormat::Rgb8 | blit::resource::ImageFormat::Luma8 => Box::default(),
+            blit::resource::ImageFormat::Rgb8 | blit::resource::ImageFormat::Luma8 => {
+                Box::default()
+            }
             blit::resource::ImageFormat::Rgba8 => {
                 opaque = rgba_opaque();
                 Box::default()
@@ -321,7 +404,12 @@ impl StoredImage {
                     let mut run_start = 0;
                     let mut opaque_start = 0;
                     let mut opaque_end = 0;
-                    for (x, alpha) in row.chunks_exact(4).map(|pixel| pixel[3]).chain([0]).enumerate() {
+                    for (x, alpha) in row
+                        .chunks_exact(4)
+                        .map(|pixel| pixel[3])
+                        .chain([0])
+                        .enumerate()
+                    {
                         if alpha != 0 {
                             visible_start = visible_start.min(x);
                             visible_end = x + 1;
@@ -348,8 +436,11 @@ impl StoredImage {
                 rows.into_boxed_slice()
             }
             blit::resource::ImageFormat::Alpha8(_) if width > u16::MAX as usize => {
-                opaque = (0..height)
-                    .all(|line| bytes[line * data.stride_bytes..][..width].iter().all(|alpha| *alpha == 255));
+                opaque = (0..height).all(|line| {
+                    bytes[line * data.stride_bytes..][..width]
+                        .iter()
+                        .all(|alpha| *alpha == 255)
+                });
                 Box::default()
             }
             blit::resource::ImageFormat::Alpha8(_) => {
@@ -376,7 +467,13 @@ impl StoredImage {
                 rows.into_boxed_slice()
             }
         };
-        Self { data, alpha_rows, has_opaque_spans, opaque, live: true }
+        Self {
+            data,
+            alpha_rows,
+            has_opaque_spans,
+            opaque,
+            live: true,
+        }
     }
 }
 

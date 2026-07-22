@@ -69,6 +69,23 @@ macro_rules! widget {
         @parse
         {$($widget:tt)*}
         {
+            new($($required_visibility:vis $required:ident: impl Into<$required_type:ty>),+ $(,)?);
+            $($fields:tt)*
+        }
+    ) => {
+        $crate::widget! {
+            @expand
+            [into]
+            {$($widget)*}
+            {$($required_visibility $required: $required_type),+}
+            {$($fields)*}
+        }
+    };
+
+    (
+        @parse
+        {$($widget:tt)*}
+        {
             new($($required_visibility:vis $required:ident: $required_type:ty),+ $(,)?);
             $($fields:tt)*
         }
@@ -155,6 +172,23 @@ macro_rules! widget {
     ) => {
         impl $($generics)* $name $($generics)* {
             $visibility fn new($($required: $required_type),+) -> Self {
+                $crate::widget!(@init {$($required),+} {$($field: $field_type $(= $default)?),*})
+            }
+        }
+    };
+
+    (
+        @constructor
+        [into]
+        [$visibility:vis]
+        [$name:ident]
+        [$($generics:tt)*]
+        {$($required:ident: $required_type:ty),+}
+        {$($field:ident: $field_type:ty $(= $default:expr)?),*}
+    ) => {
+        impl $($generics)* $name $($generics)* {
+            $visibility fn new($($required: impl Into<$required_type>),+) -> Self {
+                $(let $required = $required.into();)+
                 $crate::widget!(@init {$($required),+} {$($field: $field_type $(= $default)?),*})
             }
         }

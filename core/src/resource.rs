@@ -3,6 +3,7 @@
 use std::{
     cell::OnceCell,
     fmt,
+    hash::{Hash, Hasher},
     marker::PhantomData,
     ops::{Deref, DerefMut},
     ptr::NonNull,
@@ -177,6 +178,58 @@ impl From<&'static str> for StringData {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StringId(pub u64);
+
+#[derive(Clone, Copy, Debug)]
+pub enum TextSource {
+    Resource(StringId),
+    Static(&'static str),
+}
+
+impl PartialEq for TextSource {
+    fn eq(&self, other: &Self) -> bool {
+        match (*self, *other) {
+            (Self::Resource(left), Self::Resource(right)) => left == right,
+            (Self::Static(left), Self::Static(right)) => {
+                left.as_ptr() == right.as_ptr() && left.len() == right.len()
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for TextSource {}
+
+impl Hash for TextSource {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match *self {
+            Self::Resource(string) => {
+                0_u8.hash(state);
+                string.hash(state);
+            }
+            Self::Static(string) => {
+                1_u8.hash(state);
+                string.as_ptr().hash(state);
+                string.len().hash(state);
+            }
+        }
+    }
+}
+
+impl From<StringId> for TextSource {
+    fn from(string: StringId) -> Self { Self::Resource(string) }
+}
+
+impl From<&StringHandle> for TextSource {
+    fn from(string: &StringHandle) -> Self { Self::Resource(string.id()) }
+}
+
+impl From<&mut StringHandle> for TextSource {
+    fn from(string: &mut StringHandle) -> Self { Self::Resource(string.id()) }
+}
+
+impl From<&'static str> for TextSource {
+    fn from(string: &'static str) -> Self { Self::Static(string) }
+}
 
 #[derive(Debug)]
 pub struct StringHandle {

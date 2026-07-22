@@ -258,7 +258,6 @@ fn renderer_config() -> RendererConfig {
 fn renderer_supports_custom_pixel_layouts() {
     let mut renderer = Renderer::new(VecBuffer::<BgrPixel>::new(32, 24), renderer_config());
     let m = renderer.create_string(StringData::Static("M"));
-    let abc = renderer.create_string(StringData::Static("abc"));
     let clip = PhysicalRect { x: 0, y: 0, width: 32, height: 24 };
     let mut paint = PaintList::default();
     paint.push_rectangle(
@@ -273,7 +272,7 @@ fn renderer_supports_custom_pixel_layouts() {
     paint.clear();
     paint.push_text(
         TextRequest {
-            text: m,
+            text: m.into(),
             area: LogicalRect { x: 0.0, y: 0.0, width: 32.0, height: 24.0 },
             offset_x: 0.0,
             color: Color::WHITE,
@@ -288,7 +287,7 @@ fn renderer_supports_custom_pixel_layouts() {
     assert!(renderer.buffer().pixels().iter().any(|pixel| pixel.red > 12));
 
     let request = TextRequest {
-        text: abc,
+        text: "abc".into(),
         area: LogicalRect { x: 0.0, y: 0.0, width: 32.0, height: 24.0 },
         offset_x: 0.0,
         color: Color::WHITE,
@@ -310,7 +309,7 @@ fn commands_outside_damage_are_not_prepared() {
     let mut paint = PaintList::default();
     paint.push_text(
         TextRequest {
-            text: StringId(u64::MAX),
+            text: StringId(u64::MAX).into(),
             area: outside,
             offset_x: 0.0,
             color: Color::WHITE,
@@ -991,7 +990,7 @@ fn rounded_clips_match_between_strategies() {
             vertical_tiling: ImageTiling::None,
         };
         let text = TextRequest {
-            text: string,
+            text: string.into(),
             area,
             offset_x: 0.0,
             color: Color::WHITE,
@@ -1076,7 +1075,7 @@ fn strings_drop_after_frame_end() {
     let mut paint = PaintList::default();
     paint.push_text(
         TextRequest {
-            text: string,
+            text: string.into(),
             area: LogicalRect { x: 0.0, y: 0.0, width: 32.0, height: 24.0 },
             offset_x: 0.0,
             color: Color::WHITE,
@@ -1115,6 +1114,9 @@ fn managed_strings_deref_render_and_drop() {
         Text::new(&static_string)
             .color(Color::WHITE)
             .render(ui, LogicalRect { x: 0.0, y: 24.0, width: 96.0, height: 24.0 });
+        Text::new("literal")
+            .color(Color::WHITE)
+            .render(ui, LogicalRect { x: 48.0, y: 0.0, width: 48.0, height: 24.0 });
     });
     assert!(runtime.platform().renderer.buffer().pixels().iter().any(|pixel| *pixel != 0));
 
