@@ -3,7 +3,7 @@
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!("blit-desktop currently supports Linux and macOS only");
 
-pub use blit_executor::{AppMut, Ops, Scope, ScopeRef, TaskHandle, TaskId};
+pub use blit_executor::{AppMut, Project, Root, Scope, ScopeRef, TaskId};
 pub use winit::event_loop::EventLoopClosed;
 
 mod event_loop;
@@ -49,7 +49,7 @@ impl<T> EventLoopProxy<T> {
 pub trait Application: Sized + 'static {
     type Input: Send + 'static;
 
-    fn new(platform: Platform, input: EventLoopProxy<Self::Input>, ops: Ops<Self>) -> Self;
+    fn new(platform: Platform, input: EventLoopProxy<Self::Input>, root: Root<Self>) -> Self;
 
     fn input(&mut self, input: Self::Input);
 

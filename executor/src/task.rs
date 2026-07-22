@@ -21,29 +21,30 @@ new_key_type! {
 pub struct TaskHandle {
     executor: NonNull<TaskExecutor>,
     id: TaskId,
-    cancel_on_drop: bool,
     local: PhantomData<Rc<()>>,
 }
 
 impl TaskHandle {
-    pub fn detach(mut self) {
-        self.cancel_on_drop = false;
-    }
-
     pub fn id(&self) -> TaskId {
         self.id
     }
 
     pub fn is_finished(&self) -> bool {
-        task_finished(self.executor, self.id)
+        // safety: handles cannot outlive the pinned executor that created them
+        !unsafe { self.executor.as_ref() }
+            .tasks
+            .borrow()
+            .contains_key(self.id)
     }
 }
 
 impl Drop for TaskHandle {
     fn drop(&mut self) {
-        if self.cancel_on_drop {
-            cancel_task(self.executor, self.id);
-        }
+        // safety: handles cannot outlive the pinned executor that created them
+        let _ = unsafe { self.executor.as_ref() }
+            .tasks
+            .borrow_mut()
+            .remove(self.id);
     }
 }
 
@@ -75,7 +76,6 @@ impl TaskExecutor {
         TaskHandle {
             executor: NonNull::from(self),
             id,
-            cancel_on_drop: true,
             local: PhantomData,
         }
     }
@@ -108,14 +108,6 @@ impl TaskExecutor {
             future: task.future.take().expect("task already running"),
             wake: task.wake.clone(),
         })
-    }
-
-    fn cancel(&self, id: TaskId) {
-        let _ = self.tasks.borrow_mut().remove(id);
-    }
-
-    fn is_finished(&self, id: TaskId) -> bool {
-        !self.tasks.borrow().contains_key(id)
     }
 }
 
@@ -158,16 +150,6 @@ impl TaskWake {
     }
 }
 
-fn task_finished(executor: NonNull<TaskExecutor>, id: TaskId) -> bool {
-    // safety: handles cannot outlive the pinned executor that created them
-    unsafe { executor.as_ref() }.is_finished(id)
-}
-
-fn cancel_task(executor: NonNull<TaskExecutor>, id: TaskId) {
-    // safety: handles cannot outlive the pinned executor that created them
-    unsafe { executor.as_ref() }.cancel(id)
-}
-
 #[cfg(test)]
 mod test {
     use std::{
@@ -178,18 +160,13 @@ mod test {
 
     use super::*;
 
-    fn executor() -> (TaskExecutor, Arc<Mutex<VecDeque<TaskId>>>) {
+    #[test]
+    fn canceled_slots_reject_stale_ids() {
         let ready = Arc::new(Mutex::new(VecDeque::new()));
         let executor = TaskExecutor::new({
             let ready = ready.clone();
             move |task| ready.lock().unwrap().push_back(task)
         });
-        (executor, ready)
-    }
-
-    #[test]
-    fn canceled_slots_reject_stale_ids() {
-        let (executor, ready) = executor();
         let task = executor.spawn(pending::<()>());
         let stale = ready.lock().unwrap().pop_front().unwrap();
         drop(task);
