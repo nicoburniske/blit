@@ -11,7 +11,7 @@ use blit::{
     resource::{ImageData, ImageId, StringData, StringId},
 };
 use blit_cpu::{PixelBuffer, Renderer, Scanline};
-use blit_executor::LocalExecutor;
+use blit_executor::{LocalExecutor, TaskId};
 use softbuffer::{Context, Surface};
 use winit::{
     application::ApplicationHandler,
@@ -26,7 +26,7 @@ use crate::{Application, Config, EventLoopProxy, RunError, pixel::DesktopBuffer}
 
 pub enum Event<T> {
     Input(T),
-    TasksReady,
+    TaskReady(TaskId),
 }
 
 pub fn run<A: Application>(config: Config) -> Result<(), RunError> {
@@ -84,14 +84,12 @@ impl<A: Application> Active<A> {
             return Ok(());
         };
         self.surface.resize(width, height)?;
-        self
-            .runtime
+        self.runtime
             .platform()
             .renderer
             .buffer_mut()
             .resize(size.width as usize, size.height as usize);
-        self
-            .runtime
+        self.runtime
             .platform()
             .renderer
             .set_scale_factor(scale_factor as f32);
@@ -195,7 +193,6 @@ impl<A: Application> Runner<A> {
             self.fail(event_loop, error);
         }
     }
-
 }
 
 impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
@@ -233,8 +230,8 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
         };
         let mut runtime = blit::Runtime::new(platform);
         let wake = input.inner.clone();
-        let executor = Box::pin(LocalExecutor::new(move || {
-            let _ = wake.send_event(Event::TasksReady);
+        let executor = Box::pin(LocalExecutor::new(move |task| {
+            let _ = wake.send_event(Event::TaskReady(task));
         }));
         // safety: executor remains pinned and is dropped after app
         let ops = unsafe { executor.as_ref().ops() };
@@ -263,7 +260,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 active.app.input(input);
                 true
             }
-            Event::TasksReady => active.executor.as_ref().run(&mut active.app),
+            Event::TaskReady(task) => active.executor.as_ref().run(&mut active.app, task),
         };
         if request_frame {
             active.runtime.request_frame();

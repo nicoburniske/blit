@@ -3,7 +3,7 @@
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!("blit-desktop currently supports Linux and macOS only");
 
-pub use blit_executor::{AppMut, Ops, TaskHandle};
+pub use blit_executor::{AppMut, Ops, Scope, ScopeRef, TaskHandle, TaskId};
 pub use winit::event_loop::EventLoopClosed;
 
 mod event_loop;
@@ -41,7 +41,7 @@ impl<T> EventLoopProxy<T> {
             .send_event(event_loop::Event::Input(input))
             .map_err(|error| match error.0 {
                 event_loop::Event::Input(input) => EventLoopClosed(input),
-                event_loop::Event::TasksReady => unreachable!(),
+                event_loop::Event::TaskReady(_) => unreachable!(),
             })
     }
 }
