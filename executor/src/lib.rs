@@ -4,9 +4,8 @@
 
 use std::{
     cell::Cell,
-    future::Future,
     marker::{PhantomData, PhantomPinned},
-    ops::{Deref, DerefMut},
+    ops::{AsyncFnOnce, Deref, DerefMut},
     panic::Location,
     pin::Pin,
     ptr::NonNull,
@@ -17,54 +16,57 @@ mod scope;
 mod task;
 
 pub use scope::{Scope, ScopeRef};
-pub use task::{TaskHandle, TaskId};
+pub use task::TaskId;
 
-/// operations available to futures running on the application thread
-pub struct Ops<A: 'static> {
-    executor: NonNull<ExecutorCore>,
-    local: PhantomData<(Rc<()>, fn(&mut A))>,
+/// maps application state to nested state when it is available
+pub trait Project<T: 'static> {
+    fn project(&mut self) -> Option<&mut T>;
 }
 
-impl<A> Copy for Ops<A> {}
+/// owns tasks that access the root application state
+pub struct Root<T: 'static> {
+    scope: Scope<T>,
+}
 
-impl<A> Clone for Ops<A> {
-    fn clone(&self) -> Self {
-        *self
+impl<T: 'static> Root<T> {
+    /// runs an async function until it completes or this root is dropped
+    pub fn spawn<F>(&mut self, task: F) -> TaskId
+    where
+        F: for<'a> AsyncFnOnce(ScopeRef<'a, T>) -> () + 'static,
+    {
+        self.scope.spawn(task)
     }
-}
 
-impl<A: 'static> Ops<A> {
     /// creates a task scope mapped to state nested within the root application
-    pub fn map<T, M>(&self, mapper: &'static M) -> Scope<T>
+    pub fn map<U, M>(&self, mapper: &'static M) -> Scope<U>
     where
-        T: 'static,
-        M: for<'a> Fn(&'a mut A) -> Option<&'a mut T>,
+        U: 'static,
+        M: for<'a> Fn(&'a mut T) -> Option<&'a mut U>,
     {
-        scope::new(self.executor, mapper)
+        scope::mapped(&self.scope, mapper)
     }
 
-    /// schedules a `!Send` future on the local application thread
-    pub fn spawn<F>(&self, future: F) -> TaskHandle
+    /// creates a task scope projected from the root application
+    pub fn project<U>(&self) -> Scope<U>
     where
-        F: Future<Output = ()> + 'static,
+        U: 'static,
+        T: Project<U>,
     {
-        self.executor().tasks.spawn(future)
+        self.map(&T::project)
     }
 
-    #[track_caller]
-    /// provides mutable application access for the remainder of the current task poll
-    ///
-    /// the returned handle must be dropped before awaiting another future
-    pub fn app(&self) -> AppMut<A> {
-        borrow_app(self.executor, |root| Some(root.cast()))
+    /// cancels a task owned by this root
+    pub fn cancel(&mut self, id: TaskId) -> bool {
+        self.scope.cancel(id)
     }
 }
 
 #[must_not_suspend = "mutable app access cannot be held across a suspend point"]
 /// exclusive mutable application access during a task poll
 pub struct AppMut<A: 'static> {
-    ops: Ops<A>,
+    executor: NonNull<ExecutorCore>,
     app: NonNull<A>,
+    local: PhantomData<(Rc<()>, fn(&mut A))>,
 }
 
 /// a local task queue driven by a platform event loop
@@ -88,15 +90,14 @@ impl<A: 'static> LocalExecutor<A> {
         }
     }
 
-    /// creates a typed handle into this pinned executor
+    /// creates the root task scope for this pinned executor
     ///
     /// # Safety
     ///
-    /// the executor must remain pinned and alive whenever the returned handle can be used
-    pub unsafe fn ops(self: Pin<&Self>) -> Ops<A> {
-        Ops {
-            executor: NonNull::from(&self.get_ref().core),
-            local: PhantomData,
+    /// the executor must remain pinned and alive while the returned scope exists
+    pub unsafe fn root(self: Pin<&Self>) -> Root<A> {
+        Root {
+            scope: scope::identity(NonNull::from(&self.get_ref().core)),
         }
     }
 
@@ -138,20 +139,6 @@ struct ExecutorCore {
     borrowed_at: Cell<Option<&'static Location<'static>>>,
 }
 
-impl<A: 'static> Ops<A> {
-    fn from_executor(executor: NonNull<ExecutorCore>) -> Self {
-        Self {
-            executor,
-            local: PhantomData,
-        }
-    }
-
-    fn executor(&self) -> &ExecutorCore {
-        // safety: the platform keeps the pinned executor alive while Ops can be used
-        unsafe { self.executor.as_ref() }
-    }
-}
-
 impl<A> Deref for AppMut<A> {
     type Target = A;
 
@@ -170,42 +157,7 @@ impl<A> DerefMut for AppMut<A> {
 
 impl<A> Drop for AppMut<A> {
     fn drop(&mut self) {
-        self.ops.executor().borrowed_at.set(None);
-    }
-}
-
-#[track_caller]
-fn borrow_app<A>(
-    executor: NonNull<ExecutorCore>,
-    access: impl FnOnce(NonNull<()>) -> Option<NonNull<A>>,
-) -> AppMut<A> {
-    // safety: handles cannot outlive the pinned executor that created them
-    let executor_ref = unsafe { executor.as_ref() };
-    let Some(root) = executor_ref.root.get() else {
-        panic!("application access outside task poll");
-    };
-    if let Some(location) = executor_ref.borrowed_at.get() {
-        panic!("application already borrowed at {location}");
-    }
-    executor_ref.borrowed_at.set(Some(Location::caller()));
-    let Some(app) = access(root) else {
-        executor_ref.borrowed_at.set(None);
-        panic!("scoped application state unavailable");
-    };
-    AppMut {
-        ops: Ops::from_executor(executor),
-        app,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::mem::size_of;
-
-    use super::AppMut;
-
-    #[test]
-    fn app_mut_is_a_two_word_handle() {
-        assert_eq!(size_of::<AppMut<()>>(), size_of::<usize>() * 2);
+        // safety: the task scope cannot outlive its pinned executor
+        unsafe { self.executor.as_ref() }.borrowed_at.set(None);
     }
 }

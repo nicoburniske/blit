@@ -234,8 +234,8 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             let _ = wake.send_event(Event::TaskReady(task));
         }));
         // safety: executor remains pinned and is dropped after app
-        let ops = unsafe { executor.as_ref().ops() };
-        let app = A::new(*runtime.erased_platform(), input, ops);
+        let root = unsafe { executor.as_ref().root() };
+        let app = A::new(*runtime.erased_platform(), input, root);
         let scale_factor = window.scale_factor();
         let mut active = Box::new(Active {
             app,
