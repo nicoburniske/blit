@@ -2,7 +2,7 @@ use std::mem::size_of;
 
 use blit::{
     paint::{FontId, HorizontalAlign, TextOverflow, TextRequest, TextWrap, VerticalAlign},
-    resource::StringId,
+    resource::{StringId, TextSource},
 };
 use blit_cache::{Cache, Scale};
 use blit_font::{Layout, LayoutSettings};
@@ -84,14 +84,17 @@ impl ParagraphCache {
     pub fn finish_frame(&mut self) { self.cache.trim_to_weight() }
 
     pub fn retain_strings(&mut self, mut live: impl FnMut(StringId) -> bool) {
-        self.cache.retain(|(key, _)| live(key.string));
+        self.cache.retain(|(key, _)| match key.text {
+            TextSource::Resource(string) => live(string),
+            TextSource::Static(_) => true,
+        });
     }
 
     /// builds a position independent cache key
     pub fn key(request: &TextRequest, scale_factor: f32) -> ParagraphKey {
         let area = request.area.to_physical(scale_factor);
         ParagraphKey {
-            string: request.text,
+            text: request.text,
             width: area.width,
             height: if request.intrinsic_height { 0 } else { area.height },
             offset_x: (request.offset_x * scale_factor).round() as i32,
@@ -136,7 +139,7 @@ pub struct Caret {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ParagraphKey {
-    string: StringId,
+    text: TextSource,
     width: i32,
     height: i32,
     offset_x: i32,
@@ -430,7 +433,7 @@ mod tests {
         let mut paragraphs = ParagraphCache::new(1024 * 1024, 256);
         let area = LogicalRect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 };
         let request = TextRequest {
-            text: StringId(1),
+            text: StringId(1).into(),
             area,
             offset_x: 0.0,
             color: Color::WHITE,
@@ -443,7 +446,7 @@ mod tests {
         assert_eq!((missing.width, missing.height), (0, 0));
 
         let request = TextRequest {
-            text: StringId(2),
+            text: StringId(2).into(),
             area,
             offset_x: 0.0,
             color: Color::WHITE,
@@ -452,7 +455,7 @@ mod tests {
             intrinsic_height: false,
         };
         let one_line = prepare(&mut paragraphs, &request, "first\nsecond", &mut fonts);
-        let request = TextRequest { text: StringId(3), options: TextOptions::default(), ..request };
+        let request = TextRequest { text: StringId(3).into(), options: TextOptions::default(), ..request };
         let first = prepare(&mut paragraphs, &request, "first", &mut fonts);
         let one_line = paragraphs.get(one_line).rendered.as_ref().unwrap();
         let first = paragraphs.get(first).rendered.as_ref().unwrap();
@@ -463,13 +466,13 @@ mod tests {
 
         let narrow = LogicalRect { width: 12.0, ..area };
         let request = TextRequest {
-            text: StringId(4),
+            text: StringId(4).into(),
             area: narrow,
             options: TextOptions { overflow: TextOverflow::Ellipsis, ..TextOptions::default() },
             ..request
         };
         let truncated = prepare(&mut paragraphs, &request, "WWWW", &mut fonts);
-        let request = TextRequest { text: StringId(5), options: TextOptions::default(), ..request };
+        let request = TextRequest { text: StringId(5).into(), options: TextOptions::default(), ..request };
         let ellipsis = prepare(&mut paragraphs, &request, "…", &mut fonts);
         let truncated = paragraphs.get(truncated).rendered.as_ref().unwrap();
         let ellipsis = paragraphs.get(ellipsis).rendered.as_ref().unwrap();
@@ -480,7 +483,7 @@ mod tests {
 
         for (id, text) in ["", "first", "first\nsecond", "first\n"].into_iter().enumerate() {
             let request = TextRequest {
-                text: StringId(id as u64 + 6),
+                text: StringId(id as u64 + 6).into(),
                 area,
                 offset_x: 0.0,
                 color: Color::WHITE,
@@ -503,7 +506,7 @@ mod tests {
         let mut paragraphs = ParagraphCache::new(1024 * 1024, 256);
         let area = LogicalRect { x: 0.0, y: 0.0, width: 384.0, height: 36.0 };
         let request = |text| TextRequest {
-            text: StringId(text),
+            text: StringId(text).into(),
             area,
             offset_x: 0.0,
             color: Color::WHITE,
@@ -517,7 +520,7 @@ mod tests {
         };
         let request = request(1);
         let multiline = prepare(&mut paragraphs, &request, "4 failed attempts\n", &mut fonts);
-        let request = TextRequest { text: StringId(2), ..request };
+        let request = TextRequest { text: StringId(2).into(), ..request };
         let single = prepare(&mut paragraphs, &request, "4 failed attempts", &mut fonts);
         let multiline = paragraphs.get(multiline).rendered.as_ref().unwrap();
         let single = paragraphs.get(single).rendered.as_ref().unwrap();

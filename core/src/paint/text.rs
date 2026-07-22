@@ -1,4 +1,4 @@
-use crate::{color::Color, geometry::LogicalRect, resource::StringId};
+use crate::{color::Color, geometry::LogicalRect, resource::TextSource};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FontId(pub u16);
@@ -56,7 +56,7 @@ pub struct TextOptions {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextRequest {
-    pub text: StringId,
+    pub text: TextSource,
     pub area: LogicalRect,
     pub offset_x: f32,
     pub color: Color,

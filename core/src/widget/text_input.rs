@@ -270,7 +270,7 @@ impl TextInput<'_> {
         options.overflow = TextOverflow::Clip;
         options.max_lines = Some(1);
         TextRequest {
-            text: self.state.display.as_ref().unwrap().id(),
+            text: self.state.display.as_ref().unwrap().into(),
             area,
             offset_x: self.state.scroll_x,
             color: self.text_color,
