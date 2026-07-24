@@ -8,12 +8,14 @@ mod image;
 mod scroll_area;
 mod text;
 mod text_input;
+mod virtual_list;
 
 pub use button::{Button, Response};
 pub use image::Image;
 pub use scroll_area::{Area, ScrollArea, ScrollState};
 pub use text::Text;
 pub use text_input::{TextInput, TextInputResponse, TextInputState};
+pub use virtual_list::{VirtualList, VirtualListArea, VirtualListState};
 
 use crate::{
     geometry::{LogicalRect, LogicalSize},

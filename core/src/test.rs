@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{cell::Cell, time::Duration};
 
 use crate::{
     animation::{Easing, Transition},
@@ -388,6 +388,73 @@ fn scroll_area_measures_but_does_not_render_offscreen_widgets() {
 
     assert!(third.is_none());
     assert_eq!(state.content_height, 26.0);
+}
+
+#[test]
+fn virtual_list_measures_once_and_renders_visible_items() {
+    struct CountedSize<'a> {
+        height: f32,
+        measures: &'a Cell<usize>,
+        renders: &'a Cell<usize>,
+    }
+
+    impl widget::SizedWidget for CountedSize<'_> {
+        type Output = LogicalRect;
+
+        fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
+            self.measures.set(self.measures.get() + 1);
+            LogicalSize { width: available.width, height: self.height }
+        }
+
+        fn render(self, _: &mut Ui, area: LogicalRect) -> Self::Output {
+            self.renders.set(self.renders.get() + 1);
+            area
+        }
+    }
+
+    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut state = widget::VirtualListState::default();
+    let viewport = runtime.screen();
+    let heights = [4.0, 7.0, 5.0];
+    let measures = Cell::new(0);
+    let renders = Cell::new(0);
+
+    let range = runtime.render(Duration::ZERO, Input::None, |ui| {
+        let mut list = widget::VirtualList::vertical(&mut state, heights.len()).spacing(1.0);
+        for index in list.unmeasured() {
+            list.measure(
+                ui,
+                viewport,
+                index,
+                CountedSize { height: heights[index], measures: &measures, renders: &renders },
+            );
+        }
+        let mut area = list.begin(ui, viewport);
+        let range = area.range();
+        for index in range.clone() {
+            area.add(index, CountedSize { height: heights[index], measures: &measures, renders: &renders });
+        }
+        range
+    });
+    assert_eq!(range, 0..2);
+    assert_eq!(measures.get(), 3);
+    assert_eq!(renders.get(), 2);
+    assert_eq!(state.scroll().content_height, 18.0);
+
+    state.scroll_mut().scroll_to(8.0, viewport.height);
+    let range = runtime.render(Duration::ZERO, Input::None, |ui| {
+        let list = widget::VirtualList::vertical(&mut state, heights.len()).spacing(1.0);
+        assert!(list.unmeasured().is_empty());
+        let mut area = list.begin(ui, viewport);
+        let range = area.range();
+        for index in range.clone() {
+            area.add(index, CountedSize { height: heights[index], measures: &measures, renders: &renders });
+        }
+        range
+    });
+    assert_eq!(range, 1..3);
+    assert_eq!(measures.get(), 3);
+    assert_eq!(renders.get(), 4);
 }
 
 #[test]
