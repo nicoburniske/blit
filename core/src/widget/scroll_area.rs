@@ -116,6 +116,18 @@ impl<'a> ScrollArea<'a> {
     where
         'a: 'ui,
     {
+        self.begin_with_padding(ui, viewport, |_, padding| padding)
+    }
+
+    pub fn begin_with_padding<'ui>(
+        self,
+        ui: &'ui mut Ui,
+        viewport: LogicalRect,
+        padding: impl FnOnce(f32, LogicalInsets) -> LogicalInsets,
+    ) -> Area<'ui>
+    where
+        'a: 'ui,
+    {
         let sense = if self.drag_to_scroll { Sense::SCROLL_AND_DRAG } else { Sense::SCROLL };
         let interaction = ui.interact(ui.id(("scroll area", self.id)), viewport, sense);
         let now = ui.time();
@@ -196,7 +208,8 @@ impl<'a> ScrollArea<'a> {
             self.state.offset = self.state.offset.clamp(0.0, maximum);
         }
 
-        let bounds = viewport.inset(self.padding);
+        let padding = padding(self.state.offset, self.padding);
+        let bounds = viewport.inset(padding);
         let offset = self.state.offset;
         let previous_clip = ui.clip;
         ui.clip = viewport.to_physical(ui.scale_factor).intersection(previous_clip).unwrap_or_default();
@@ -206,7 +219,7 @@ impl<'a> ScrollArea<'a> {
             state: self.state,
             viewport,
             bounds,
-            padding: self.padding,
+            padding,
             offset,
             spacing: self.spacing,
             cursor: 0.0,
