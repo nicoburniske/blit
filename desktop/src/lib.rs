@@ -1,5 +1,3 @@
-#![feature(portable_simd)]
-
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!("blit-desktop currently supports Linux and macOS only");
 

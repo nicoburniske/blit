@@ -156,7 +156,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::{PixelBuffer, VecBuffer};
+    use crate::{PixelBuffer, VecBuffer, Xrgb8888};
 
     fn draw<B: PixelBuffer>(
         buffer: &mut B,
@@ -183,16 +183,16 @@ mod tests {
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
         };
-        let mut buffer = VecBuffer::<u32>::new(4, 4);
+        let mut buffer = VecBuffer::<Xrgb8888>::new(4, 4);
 
         draw(&mut buffer, &request, &texture, PhysicalRect { x: 1, y: 1, width: 2, height: 2 }, 1.0);
 
-        assert_eq!(buffer.pixels()[0], 0);
-        assert_eq!(buffer.pixels()[5], 0xff0000);
-        assert_eq!(buffer.pixels()[6], 0x00ff00);
-        assert_eq!(buffer.pixels()[9], 0x0000ff);
-        assert_eq!(buffer.pixels()[10], 0xffffff);
-        assert_eq!(buffer.pixels()[15], 0);
+        assert_eq!(buffer.pixels()[0].raw(), 0);
+        assert_eq!(buffer.pixels()[5].raw(), 0xff0000);
+        assert_eq!(buffer.pixels()[6].raw(), 0x00ff00);
+        assert_eq!(buffer.pixels()[9].raw(), 0x0000ff);
+        assert_eq!(buffer.pixels()[10].raw(), 0xffffff);
+        assert_eq!(buffer.pixels()[15].raw(), 0);
     }
 
     #[test]
@@ -210,11 +210,11 @@ mod tests {
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
         };
-        let mut buffer = VecBuffer::<u32>::new(1, 1);
+        let mut buffer = VecBuffer::<Xrgb8888>::new(1, 1);
 
         draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 1, height: 1 }, 1.0);
 
-        assert_eq!(buffer.pixels()[0], 0x808080);
+        assert_eq!(buffer.pixels()[0].raw(), 0x808080);
     }
 
     #[test]
@@ -232,11 +232,11 @@ mod tests {
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
         };
-        let mut buffer = VecBuffer::<u32>::new(3, 1);
+        let mut buffer = VecBuffer::<Xrgb8888>::new(3, 1);
 
         draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 3, height: 1 }, 1.0);
 
-        assert_eq!(buffer.pixels(), [0xff0000, 0x800080, 0x0000ff]);
+        assert_eq!(buffer.pixels(), [0xff0000, 0x800080, 0x0000ff].map(Xrgb8888::from_raw));
     }
 
     #[test]
@@ -254,11 +254,11 @@ mod tests {
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
         };
-        let mut buffer = VecBuffer::<u32>::new(2, 1);
+        let mut buffer = VecBuffer::<Xrgb8888>::new(2, 1);
 
         draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 2, height: 1 }, 1.0);
 
-        assert_eq!(buffer.pixels(), [0x800000, 0x004000]);
+        assert_eq!(buffer.pixels(), [0x800000, 0x004000].map(Xrgb8888::from_raw));
     }
 
     #[test]
@@ -276,11 +276,14 @@ mod tests {
             horizontal_tiling: ImageTiling::Repeat,
             vertical_tiling: ImageTiling::None,
         };
-        let mut buffer = VecBuffer::<u32>::new(5, 1);
+        let mut buffer = VecBuffer::<Xrgb8888>::new(5, 1);
 
         draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 5, height: 1 }, 1.0);
 
-        assert_eq!(buffer.pixels(), [0xff0000, 0x0000ff, 0xff0000, 0x0000ff, 0xff0000]);
+        assert_eq!(
+            buffer.pixels(),
+            [0xff0000, 0x0000ff, 0xff0000, 0x0000ff, 0xff0000].map(Xrgb8888::from_raw)
+        );
     }
 
     #[test]
@@ -298,13 +301,14 @@ mod tests {
             horizontal_tiling: ImageTiling::Round,
             vertical_tiling: ImageTiling::None,
         };
-        let mut buffer = VecBuffer::<u32>::new(8, 1);
+        let mut buffer = VecBuffer::<Xrgb8888>::new(8, 1);
 
         draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 8, height: 1 }, 1.0);
 
         assert_eq!(
             buffer.pixels(),
             [0xff0000, 0x00ff00, 0x0000ff, 0xff0000, 0x00ff00, 0x0000ff, 0xff0000, 0x00ff00]
+                .map(Xrgb8888::from_raw)
         );
     }
 
@@ -326,14 +330,14 @@ mod tests {
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
         };
-        let mut buffer = VecBuffer::<u32>::new(5, 5);
+        let mut buffer = VecBuffer::<Xrgb8888>::new(5, 5);
 
         draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 5, height: 5 }, 1.0);
 
-        assert_eq!(buffer.pixels()[0], 0xff0000);
-        assert_eq!(buffer.pixels()[4], 0x0000ff);
-        assert_eq!(buffer.pixels()[20], 0x800000);
-        assert_eq!(buffer.pixels()[24], 0x000080);
-        assert_eq!(buffer.pixels()[12], 0xff00ff);
+        assert_eq!(buffer.pixels()[0].raw(), 0xff0000);
+        assert_eq!(buffer.pixels()[4].raw(), 0x0000ff);
+        assert_eq!(buffer.pixels()[20].raw(), 0x800000);
+        assert_eq!(buffer.pixels()[24].raw(), 0x000080);
+        assert_eq!(buffer.pixels()[12].raw(), 0xff00ff);
     }
 }
