@@ -40,14 +40,14 @@ impl Pixel for BgrPixel {
 }
 
 struct TrackingBuffer {
-    pixels: Vec<u32>,
+    pixels: Vec<Xrgb8888>,
     lines: Vec<usize>,
     ranges: Vec<Range<usize>>,
     width: usize,
     height: usize,
 }
 
-struct RuntimePlatform<B: PixelBuffer = VecBuffer<u32>, S: RenderStrategy<B> = Scanline> {
+struct RuntimePlatform<B: PixelBuffer = VecBuffer<Xrgb8888>, S: RenderStrategy<B> = Scanline> {
     renderer: Renderer<B, S>,
     repaint_buffer: RepaintBuffer,
 }
@@ -87,7 +87,7 @@ impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl for 
 }
 
 struct SwappedBuffer {
-    pixels: [Vec<u32>; 2],
+    pixels: [Vec<Xrgb8888>; 2],
     active: usize,
     width: usize,
     height: usize,
@@ -97,7 +97,7 @@ struct SwappedBuffer {
 impl SwappedBuffer {
     fn new(width: usize, height: usize) -> Self {
         Self {
-            pixels: std::array::from_fn(|_| vec![0; width * height]),
+            pixels: std::array::from_fn(|_| vec![Xrgb8888::default(); width * height]),
             active: 0,
             width,
             height,
@@ -107,26 +107,26 @@ impl SwappedBuffer {
 
     fn swap(&mut self) { self.active ^= 1; }
 
-    fn pixels(&self) -> &[u32] { &self.pixels[self.active] }
+    fn pixels(&self) -> &[Xrgb8888] { &self.pixels[self.active] }
 
     fn take_rendered_pixels(&mut self) -> usize { std::mem::take(&mut self.rendered_pixels) }
 
-    fn replace_inactive(&mut self, pixel: u32) { self.pixels[self.active ^ 1].fill(pixel); }
+    fn replace_inactive(&mut self, pixel: Xrgb8888) { self.pixels[self.active ^ 1].fill(pixel); }
 }
 
 impl PixelBuffer for SwappedBuffer {
-    type Pixel = u32;
+    type Pixel = Xrgb8888;
 
     fn width(&self) -> usize { self.width }
 
     fn height(&self) -> usize { self.height }
 
-    fn line_mut(&mut self, line: usize) -> &mut [u32] {
+    fn line_mut(&mut self, line: usize) -> &mut [Xrgb8888] {
         let start = line * self.width;
         &mut self.pixels[self.active][start..start + self.width]
     }
 
-    fn process_line(&mut self, line: usize, range: Range<usize>, process: impl FnOnce(&mut [u32])) {
+    fn process_line(&mut self, line: usize, range: Range<usize>, process: impl FnOnce(&mut [Xrgb8888])) {
         self.rendered_pixels += range.len();
         let start = line * self.width;
         process(&mut self.pixels[self.active][start + range.start..start + range.end]);
@@ -221,18 +221,18 @@ fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, durati
 }
 
 impl PixelBuffer for TrackingBuffer {
-    type Pixel = u32;
+    type Pixel = Xrgb8888;
 
     fn width(&self) -> usize { self.width }
 
     fn height(&self) -> usize { self.height }
 
-    fn line_mut(&mut self, line: usize) -> &mut [u32] {
+    fn line_mut(&mut self, line: usize) -> &mut [Xrgb8888] {
         let start = line * self.width;
         &mut self.pixels[start..start + self.width]
     }
 
-    fn process_line(&mut self, line: usize, range: Range<usize>, process: impl FnOnce(&mut [u32])) {
+    fn process_line(&mut self, line: usize, range: Range<usize>, process: impl FnOnce(&mut [Xrgb8888])) {
         self.lines.push(line);
         self.ranges.push(range.clone());
         let start = line * self.width;
@@ -303,7 +303,7 @@ fn renderer_supports_custom_pixel_layouts() {
 
 #[test]
 fn commands_outside_damage_are_not_prepared() {
-    let mut renderer = Renderer::new(VecBuffer::<u32>::new(8, 4), renderer_config());
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(8, 4), renderer_config());
     let damaged = LogicalRect { x: 0.0, y: 0.0, width: 2.0, height: 2.0 };
     let outside = LogicalRect { x: 4.0, y: 0.0, width: 4.0, height: 4.0 };
     let mut paint = PaintList::default();
@@ -334,6 +334,7 @@ fn commands_outside_damage_are_not_prepared() {
             0xffffff, 0xffffff, 0, 0, 0, 0, 0, 0, 0xffffff, 0xffffff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0
         ]
+        .map(Xrgb8888::from_raw)
     );
 }
 
@@ -357,8 +358,9 @@ fn partial_frames_match_full_redraw() {
     harness.render_at(Duration::from_millis(111), 4.0, Duration::from_millis(100));
     assert!(!harness.partial.has_pending_redraw());
 
-    harness.partial.platform().renderer.buffer_mut().replace_inactive(0x00ff_00ff);
-    harness.full.platform().renderer.buffer_mut().replace_inactive(0x00ff_00ff);
+    let stale = Xrgb8888::from_raw(0x00ff_00ff);
+    harness.partial.platform().renderer.buffer_mut().replace_inactive(stale);
+    harness.full.platform().renderer.buffer_mut().replace_inactive(stale);
     harness.partial.invalidate_all();
     harness.render(4.0);
     harness.render(4.0);
@@ -404,7 +406,7 @@ fn partial_drag_rasterizes_less_than_full_redraw() {
 #[test]
 fn dropped_image_slots_are_reused_after_end_frame() {
     static PIXEL: [u8; 4] = [255, 255, 255, 255];
-    let mut renderer = Renderer::new(VecBuffer::<u32>::new(1, 1), renderer_config());
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config());
     let texture = ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1);
 
     let first = renderer.create_image(texture);
@@ -520,7 +522,7 @@ fn image_alpha_rows_are_cached_and_used() {
 
 #[test]
 fn direct_preserves_exact_overlapping_damage() {
-    let mut renderer = Renderer::new(VecBuffer::<u32>::new(4, 4), renderer_config());
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(4, 4), renderer_config());
     let screen = renderer.screen();
     let mut paint = PaintList::default();
     paint.push_rectangle(
@@ -538,20 +540,21 @@ fn direct_preserves_exact_overlapping_damage() {
     );
 
     let pixels = renderer.buffer().pixels();
-    assert_ne!(pixels[0], 0);
+    assert_ne!(pixels[0].raw(), 0);
     let painted = pixels[0];
+    let unpainted = Xrgb8888::default();
     assert_eq!(
         pixels,
         [
-            painted, 0, painted, painted, 0, 0, painted, painted, painted, painted, painted, painted,
-            painted, painted, painted, 0,
+            painted, unpainted, painted, painted, unpainted, unpainted, painted, painted, painted, painted, painted,
+            painted, painted, painted, painted, unpainted,
         ]
     );
 }
 
 #[test]
 fn direct_does_not_merge_touching_damage() {
-    let mut renderer = Renderer::new(VecBuffer::<u32>::new(3, 3), renderer_config());
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(3, 3), renderer_config());
     let screen = renderer.screen();
     let mut paint = PaintList::default();
     paint.push_rectangle(
@@ -564,12 +567,15 @@ fn direct_does_not_merge_touching_damage() {
         &[PhysicalRect { x: 0, y: 0, width: 2, height: 1 }, PhysicalRect { x: 2, y: 1, width: 1, height: 2 }],
     );
 
-    assert_eq!(renderer.buffer().pixels(), [0xffffff, 0xffffff, 0, 0, 0, 0xffffff, 0, 0, 0xffffff]);
+    assert_eq!(
+        renderer.buffer().pixels(),
+        [0xffffff, 0xffffff, 0, 0, 0, 0xffffff, 0, 0, 0xffffff].map(Xrgb8888::from_raw)
+    );
 }
 
 #[test]
 fn direct_preserves_damage_beyond_stack_capacity() {
-    let mut renderer = Renderer::new(VecBuffer::<u32>::new(9, 1), renderer_config());
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(9, 1), renderer_config());
     let screen = renderer.screen();
     let damage: [PhysicalRect; 9] =
         std::array::from_fn(|x| PhysicalRect { x: x as i32, y: 0, width: 1, height: 1 });
@@ -581,13 +587,19 @@ fn direct_preserves_damage_beyond_stack_capacity() {
     );
     renderer.render(&paint, &damage);
 
-    assert!(renderer.buffer().pixels().iter().all(|pixel| *pixel == 0xffffff));
+    assert!(renderer.buffer().pixels().iter().all(|pixel| pixel.raw() == 0xffffff));
 }
 
 #[test]
 fn frame_is_rendered_once_per_affected_line_in_order() {
     let mut renderer = Renderer::new(
-        TrackingBuffer { pixels: vec![0; 16], lines: Vec::new(), ranges: Vec::new(), width: 4, height: 4 },
+        TrackingBuffer {
+            pixels: vec![Xrgb8888::default(); 16],
+            lines: Vec::new(),
+            ranges: Vec::new(),
+            width: 4,
+            height: 4,
+        },
         renderer_config(),
     )
     .strategy(Scanline::default());
@@ -608,7 +620,13 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
 #[test]
 fn scanline_merges_overlapping_damage_per_line() {
     let mut renderer = Renderer::new(
-        TrackingBuffer { pixels: vec![0; 20], lines: Vec::new(), ranges: Vec::new(), width: 5, height: 4 },
+        TrackingBuffer {
+            pixels: vec![Xrgb8888::default(); 20],
+            lines: Vec::new(),
+            ranges: Vec::new(),
+            width: 5,
+            height: 4,
+        },
         renderer_config(),
     )
     .strategy(Scanline::default());
@@ -630,7 +648,13 @@ fn scanline_merges_overlapping_damage_per_line() {
 #[test]
 fn scanline_only_borrows_dirty_horizontal_ranges() {
     let mut renderer = Renderer::new(
-        TrackingBuffer { pixels: vec![0; 8], lines: Vec::new(), ranges: Vec::new(), width: 4, height: 2 },
+        TrackingBuffer {
+            pixels: vec![Xrgb8888::default(); 8],
+            lines: Vec::new(),
+            ranges: Vec::new(),
+            width: 4,
+            height: 2,
+        },
         renderer_config(),
     )
     .strategy(Scanline::default());
@@ -645,7 +669,10 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
 
     assert_eq!(renderer.buffer().ranges.len(), 1);
     assert_eq!(renderer.buffer().ranges[0], 1..3);
-    assert_eq!(renderer.buffer().pixels, [0, 0xffffff, 0xffffff, 0, 0, 0, 0, 0]);
+    assert_eq!(
+        renderer.buffer().pixels,
+        [0, 0xffffff, 0xffffff, 0, 0, 0, 0, 0].map(Xrgb8888::from_raw)
+    );
 }
 
 #[test]
@@ -654,7 +681,7 @@ fn scanline_skips_commands_behind_opaque_content() {
 
     #[derive(Clone, Copy, Default)]
     struct CountingPixel {
-        color: u32,
+        color: Xrgb8888,
         draws: u8,
     }
 
@@ -665,7 +692,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         }
 
         fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
-            Self { color: <u32 as Pixel>::from_rgb(red, green, blue), draws: 0 }
+            Self { color: Xrgb8888::from_rgb(red, green, blue), draws: 0 }
         }
 
         fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
@@ -675,7 +702,7 @@ fn scanline_skips_commands_behind_opaque_content() {
             match color.alpha {
                 0 => {}
                 255 => pixels.iter_mut().for_each(|pixel| {
-                    pixel.color = <u32 as Pixel>::from_rgb(color.red, color.green, color.blue);
+                    pixel.color = Xrgb8888::from_rgb(color.red, color.green, color.blue);
                     pixel.draws += 1;
                 }),
                 _ => pixels.iter_mut().for_each(|pixel| pixel.blend(color)),
@@ -843,7 +870,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     renderer.render(&paint, &[screen]);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 14);
     for (rendered, source) in renderer.buffer().pixels().iter().zip(PARTIAL_IMAGE_PIXELS.chunks_exact(4)) {
-        let mut expected = 0;
+        let mut expected = Xrgb8888::default();
         expected.blend(PremultipliedRgbaColor::new(Color::from_rgba8(255, 0, 0, 128), 255));
         expected.blend(PremultipliedRgbaColor::new(Color::BLACK, 128));
         expected.blend(PremultipliedRgbaColor {
@@ -868,9 +895,9 @@ fn scanline_skips_commands_behind_opaque_content() {
 
 #[test]
 fn cached_dirty_ranges_match_direct_rendering() {
-    let mut direct = Renderer::new(VecBuffer::<u32>::new(8, 8), renderer_config());
+    let mut direct = Renderer::new(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
     let mut scanline =
-        Renderer::new(VecBuffer::<u32>::new(8, 8), renderer_config()).strategy(Scanline::default());
+        Renderer::new(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config()).strategy(Scanline::default());
     let red = Rectangle::new(LogicalRect { x: 0.0, y: 0.0, width: 8.0, height: 8.0 })
         .background(Color::from_rgba8(255, 0, 0, 128));
     let green = Rectangle::new(red.area).background(Color::from_rgba8(0, 255, 0, 128));
@@ -891,8 +918,8 @@ fn cached_dirty_ranges_match_direct_rendering() {
 
 #[test]
 fn box_shadows_match_between_strategies_and_cache_sizes() {
-    fn render<S: RenderStrategy<VecBuffer<u32>>>(strategy: S) -> Renderer<VecBuffer<u32>, S> {
-        let mut renderer = Renderer::new(VecBuffer::<u32>::new(128, 96), renderer_config())
+    fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(strategy: S) -> Renderer<VecBuffer<Xrgb8888>, S> {
+        let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(128, 96), renderer_config())
             .with_scale_factor(2.0)
             .strategy(strategy);
         let screen = renderer.screen();
@@ -928,13 +955,13 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
     let direct = render(Direct::default());
     let scanline = render(Scanline::default());
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
-    assert!(direct.buffer().pixels().iter().any(|pixel| *pixel != 0));
+    assert!(direct.buffer().pixels().iter().any(|pixel| pixel.raw() != 0));
 }
 
 #[test]
 fn gradient_borders_match_between_strategies_and_rounded_clips() {
-    fn render<S: RenderStrategy<VecBuffer<u32>>>(strategy: S) -> Renderer<VecBuffer<u32>, S> {
-        let mut renderer = Renderer::new(VecBuffer::<u32>::new(48, 36), renderer_config()).strategy(strategy);
+    fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(strategy: S) -> Renderer<VecBuffer<Xrgb8888>, S> {
+        let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(48, 36), renderer_config()).strategy(strategy);
         let screen = renderer.screen();
         let mut paint = PaintList::default();
         let clip = paint.push_clip(
@@ -964,14 +991,14 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
     let direct = render(Direct::default());
     let scanline = render(Scanline::default());
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
-    assert_eq!(direct.buffer().pixels()[18 * 48 + 24], 0x0010_131a);
+    assert_eq!(direct.buffer().pixels()[18 * 48 + 24].raw(), 0x0010_131a);
 }
 
 #[test]
 fn rounded_clips_match_between_strategies() {
     static PIXEL: [u8; 3] = [0, 255, 0];
-    fn render<S: RenderStrategy<VecBuffer<u32>>>(strategy: S) -> Renderer<VecBuffer<u32>, S> {
-        let mut renderer = Renderer::new(VecBuffer::<u32>::new(16, 16), renderer_config()).strategy(strategy);
+    fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(strategy: S) -> Renderer<VecBuffer<Xrgb8888>, S> {
+        let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(strategy);
         let image =
             renderer.create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgb8, 1, 1));
         let string = renderer.create_string(StringData::Static("M"));
@@ -1027,19 +1054,19 @@ fn rounded_clips_match_between_strategies() {
     let scanline = render(Scanline::default());
 
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
-    assert_eq!(direct.buffer().pixels()[0], 0);
-    let edge = direct.buffer().pixels()[6];
+    assert_eq!(direct.buffer().pixels()[0].raw(), 0);
+    let edge = direct.buffer().pixels()[6].raw();
     assert!((1..255).contains(&((edge >> 8) & 0xff)));
-    let edge = direct.buffer().pixels()[9];
+    let edge = direct.buffer().pixels()[9].raw();
     assert!((1..255).contains(&((edge >> 16) & 0xff)));
-    assert_eq!(direct.buffer().pixels()[15 * 16 + 15], 0x0000_00ff);
+    assert_eq!(direct.buffer().pixels()[15 * 16 + 15].raw(), 0x0000_00ff);
 }
 
 #[test]
 fn dropped_image_remains_valid_until_frame_end() {
     static PIXEL: [u8; 4] = [255, 0, 0, 255];
     let mut renderer =
-        Renderer::new(VecBuffer::<u32>::new(1, 1), renderer_config()).strategy(Scanline::default());
+        Renderer::new(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).strategy(Scanline::default());
     let image = renderer.create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1));
     let damage = [PhysicalRect { x: 0, y: 0, width: 1, height: 1 }];
     let mut paint = PaintList::default();
@@ -1061,7 +1088,7 @@ fn dropped_image_remains_valid_until_frame_end() {
     renderer.drop_image(image);
     renderer.render(&paint, &damage);
 
-    assert_eq!(renderer.buffer().pixels()[0], 0x00ff_0000);
+    assert_eq!(renderer.buffer().pixels()[0].raw(), 0x00ff_0000);
     let image = RendererImageId::from(KeyData::from_ffi(image.0));
     assert!(!renderer.context.images.contains_key(image));
 }
@@ -1069,7 +1096,7 @@ fn dropped_image_remains_valid_until_frame_end() {
 #[test]
 fn strings_drop_after_frame_end() {
     let mut renderer =
-        Renderer::new(VecBuffer::<u32>::new(32, 24), renderer_config()).strategy(Scanline::default());
+        Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config()).strategy(Scanline::default());
     let damage = [PhysicalRect { x: 0, y: 0, width: 32, height: 24 }];
     let string = renderer.create_string(StringData::Owned(String::from("M").into_boxed_str()));
     let mut paint = PaintList::default();
@@ -1090,7 +1117,7 @@ fn strings_drop_after_frame_end() {
     assert_eq!(renderer.string(string), "M");
     renderer.render(&paint, &damage);
 
-    assert!(renderer.buffer().pixels().iter().any(|pixel| *pixel != 0));
+    assert!(renderer.buffer().pixels().iter().any(|pixel| pixel.raw() != 0));
     let string = RendererStringId::from(KeyData::from_ffi(string.0));
     assert!(!renderer.context.strings.contains_key(string));
 }
@@ -1098,7 +1125,7 @@ fn strings_drop_after_frame_end() {
 #[test]
 fn managed_strings_deref_render_and_drop() {
     let mut runtime = Runtime::new(RuntimePlatform {
-        renderer: Renderer::new(VecBuffer::<u32>::new(96, 48), renderer_config())
+        renderer: Renderer::new(VecBuffer::<Xrgb8888>::new(96, 48), renderer_config())
             .strategy(Scanline::default()),
         repaint_buffer: RepaintBuffer::Reused,
     });
@@ -1118,7 +1145,7 @@ fn managed_strings_deref_render_and_drop() {
             .color(Color::WHITE)
             .render(ui, LogicalRect { x: 48.0, y: 0.0, width: 48.0, height: 24.0 });
     });
-    assert!(runtime.platform().renderer.buffer().pixels().iter().any(|pixel| *pixel != 0));
+    assert!(runtime.platform().renderer.buffer().pixels().iter().any(|pixel| pixel.raw() != 0));
 
     assert!(runtime
         .platform()
