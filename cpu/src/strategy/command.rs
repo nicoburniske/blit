@@ -39,9 +39,16 @@ pub struct PreparedText {
 }
 
 impl CommandList {
-    pub fn is_empty(&self) -> bool { self.words.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.words.is_empty()
+    }
 
-    pub fn push_rectangle(&mut self, rectangle: PreparedRectangle, bounds: PhysicalRect, clip: ClipId) {
+    pub fn push_rectangle(
+        &mut self,
+        rectangle: PreparedRectangle,
+        bounds: PhysicalRect,
+        clip: ClipId,
+    ) {
         if clip == 0 && rectangle.is_opaque() {
             self.opaque.push(self.words.len());
         }
@@ -60,7 +67,10 @@ impl CommandList {
         };
         self.push_record(
             GRADIENT_RECTANGLE,
-            PreparedGradientRectangle { rectangle, stops_len },
+            PreparedGradientRectangle {
+                rectangle,
+                stops_len,
+            },
             stops,
             bounds,
             clip,
@@ -78,7 +88,9 @@ impl CommandList {
         let opaque = image.is_opaque(texture_opaque);
         if clip == 0 && opaque {
             self.opaque.push(self.words.len());
-        } else if clip == 0 && self.has_translucent_image && image.has_opaque_spans(texture_has_opaque_spans)
+        } else if clip == 0
+            && self.has_translucent_image
+            && image.has_opaque_spans(texture_has_opaque_spans)
         {
             self.partial_opaque.push(self.words.len());
         }
@@ -96,7 +108,9 @@ impl CommandList {
         let header = self.header(offset);
         match header.kind {
             RECTANGLE => Payload::Rectangle(unsafe {
-                &*record.add(payload_offset::<PreparedRectangle>()).cast::<PreparedRectangle>()
+                &*record
+                    .add(payload_offset::<PreparedRectangle>())
+                    .cast::<PreparedRectangle>()
             }),
             GRADIENT_RECTANGLE => {
                 let command = unsafe {
@@ -115,10 +129,14 @@ impl CommandList {
                 })
             }
             IMAGE => Payload::Image(unsafe {
-                &*record.add(payload_offset::<PreparedImage>()).cast::<PreparedImage>()
+                &*record
+                    .add(payload_offset::<PreparedImage>())
+                    .cast::<PreparedImage>()
             }),
             TEXT => Payload::Text(unsafe {
-                &*record.add(payload_offset::<PreparedText>()).cast::<PreparedText>()
+                &*record
+                    .add(payload_offset::<PreparedText>())
+                    .cast::<PreparedText>()
             }),
             _ => unreachable!(),
         }
@@ -144,11 +162,17 @@ impl CommandList {
         }
     }
 
-    pub fn clip(&self, offset: usize) -> ClipId { self.header(offset).clip }
+    pub fn clip(&self, offset: usize) -> ClipId {
+        self.header(offset).clip
+    }
 
-    pub fn opaque_offsets(&self) -> &[usize] { &self.opaque }
+    pub fn opaque_offsets(&self) -> &[usize] {
+        &self.opaque
+    }
 
-    pub fn partial_opaque_offsets(&self) -> &[usize] { &self.partial_opaque }
+    pub fn partial_opaque_offsets(&self) -> &[usize] {
+        &self.partial_opaque
+    }
 
     pub fn opaque_span(&self, offset: usize, line: i32) -> Option<std::ops::Range<i32>> {
         let bounds = self.horizontal_bounds(offset);
@@ -162,7 +186,12 @@ impl CommandList {
         (start < end).then_some(start..end)
     }
 
-    pub fn offsets(&self) -> Offsets<'_> { Offsets { commands: self, offset: 0 } }
+    pub fn offsets(&self) -> Offsets<'_> {
+        Offsets {
+            commands: self,
+            offset: 0,
+        }
+    }
 
     pub fn clear(&mut self) {
         self.words.clear();
@@ -186,7 +215,8 @@ impl CommandList {
     ) -> bool {
         assert!(align_of::<T>() <= align_of::<Word>());
         let payload_offset = payload_offset::<T>();
-        let stops_offset = (payload_offset + size_of::<T>()).next_multiple_of(align_of::<GradientStop>());
+        let stops_offset =
+            (payload_offset + size_of::<T>()).next_multiple_of(align_of::<GradientStop>());
         let bytes = if stops.is_empty() {
             payload_offset + size_of::<T>()
         } else {
@@ -198,7 +228,9 @@ impl CommandList {
         };
         self.has_clips |= clip != 0;
         let offset = self.words.len();
-        self.words.resize_with(offset + record_words as usize, || Word(MaybeUninit::uninit()));
+        self.words.resize_with(offset + record_words as usize, || {
+            Word(MaybeUninit::uninit())
+        });
         let record = unsafe { self.words.as_mut_ptr().add(offset).cast::<u8>() };
         unsafe {
             record.cast::<Header>().write(Header {
@@ -221,7 +253,9 @@ impl CommandList {
         true
     }
 
-    fn record_words(&self, offset: usize) -> usize { self.header(offset).record_words as usize }
+    fn record_words(&self, offset: usize) -> usize {
+        self.header(offset).record_words as usize
+    }
 
     fn header(&self, offset: usize) -> &Header {
         assert!(offset < self.words.len());
@@ -236,7 +270,9 @@ struct PreparedGradientRectangle {
     stops_len: u32,
 }
 
-fn payload_offset<T>() -> usize { size_of::<Header>().next_multiple_of(align_of::<T>()) }
+fn payload_offset<T>() -> usize {
+    size_of::<Header>().next_multiple_of(align_of::<T>())
+}
 
 pub struct Offsets<'a> {
     commands: &'a CommandList,

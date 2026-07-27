@@ -4,9 +4,10 @@ use blit::geometry::PhysicalRect;
 use slotmap::{KeyData, SlotMap};
 
 use super::{
+    RenderStrategy,
     clip::{ClipLine, ClipSpan},
     command::{CommandList, Payload},
-    raster, RenderStrategy,
+    raster,
 };
 use crate::{Pixel, PixelBuffer, RenderContext, RendererImageId, StoredImage, TextRenderer};
 
@@ -28,11 +29,17 @@ struct LineBuffer<'a, P> {
 impl<P: Pixel> PixelBuffer for LineBuffer<'_, P> {
     type Pixel = P;
 
-    fn x_offset(&self) -> usize { self.x }
+    fn x_offset(&self) -> usize {
+        self.x
+    }
 
-    fn width(&self) -> usize { self.pixels.len() }
+    fn width(&self) -> usize {
+        self.pixels.len()
+    }
 
-    fn height(&self) -> usize { self.height }
+    fn height(&self) -> usize {
+        self.height
+    }
 
     fn line_mut(&mut self, line: usize) -> &mut [P] {
         assert_eq!(line, self.line);
@@ -70,36 +77,54 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                 }
                 if start < clipped.full_start || end > clipped.full_end {
                     let payload = commands.get(*command);
-                    ClipSpan { start, end, full_start: clipped.full_start, full_end: clipped.full_end }
-                        .for_each(
-                            |x| {
-                                let mut id = clip_id;
-                                let mut coverage = 255u32;
-                                while id != 0 {
-                                    let Some(line) = &clip_ranges[id as usize - 1] else {
-                                        return 0;
-                                    };
-                                    coverage = (coverage * line.rounded.coverage(x) as u32 + 127) / 255;
-                                    id = line.parent;
-                                }
-                                coverage as u8
-                            },
-                            |range, coverage| {
-                                let clip = PhysicalRect {
-                                    x: range.start,
-                                    y: line,
-                                    width: range.end - range.start,
-                                    height: 1,
+                    ClipSpan {
+                        start,
+                        end,
+                        full_start: clipped.full_start,
+                        full_end: clipped.full_end,
+                    }
+                    .for_each(
+                        |x| {
+                            let mut id = clip_id;
+                            let mut coverage = 255u32;
+                            while id != 0 {
+                                let Some(line) = &clip_ranges[id as usize - 1] else {
+                                    return 0;
                                 };
-                                raster::draw_line(&payload, line, clip, coverage, images, text, buffer);
-                            },
-                        );
+                                coverage = (coverage * line.rounded.coverage(x) as u32 + 127) / 255;
+                                id = line.parent;
+                            }
+                            coverage as u8
+                        },
+                        |range, coverage| {
+                            let clip = PhysicalRect {
+                                x: range.start,
+                                y: line,
+                                width: range.end - range.start,
+                                height: 1,
+                            };
+                            raster::draw_line(&payload, line, clip, coverage, images, text, buffer);
+                        },
+                    );
                     continue;
                 }
             }
         }
-        let clip = PhysicalRect { x: start, y: line, width: end - start, height: 1 };
-        raster::draw_line(&commands.get(*command), line, clip, 255, images, text, buffer);
+        let clip = PhysicalRect {
+            x: start,
+            y: line,
+            width: end - start,
+            height: 1,
+        };
+        raster::draw_line(
+            &commands.get(*command),
+            line,
+            clip,
+            255,
+            images,
+            text,
+            buffer,
+        );
     }
 }
 
@@ -131,7 +156,11 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 let mut next_boundary = height as i32;
                 for region in damage {
                     let top = region.y.max(0).min(height as i32);
-                    let bottom = region.y.saturating_add(region.height).max(0).min(height as i32);
+                    let bottom = region
+                        .y
+                        .saturating_add(region.height)
+                        .max(0)
+                        .min(height as i32);
                     if bottom <= line {
                         continue;
                     }
@@ -141,7 +170,11 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     }
                     next_boundary = next_boundary.min(bottom);
                     let start = region.x.max(0).min(width as i32) as usize;
-                    let end = region.x.saturating_add(region.width).max(0).min(width as i32) as usize;
+                    let end = region
+                        .x
+                        .saturating_add(region.width)
+                        .max(0)
+                        .min(width as i32) as usize;
                     if start < end {
                         self.ranges.push(start..end);
                     }
@@ -167,8 +200,11 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 ranges_valid_until = next_boundary;
             }
 
-            self.active.retain(|command| commands.vertical_bounds(*command).end > line);
-            while next < self.starts.len() && commands.vertical_bounds(self.starts[next]).start <= line {
+            self.active
+                .retain(|command| commands.vertical_bounds(*command).end > line);
+            while next < self.starts.len()
+                && commands.vertical_bounds(self.starts[next]).start <= line
+            {
                 let command = self.starts[next];
                 if commands.vertical_bounds(command).end > line {
                     let position = self.active.binary_search(&command).unwrap_err();
@@ -178,7 +214,11 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
             }
             if self.active.is_empty() {
                 line = self.starts.get(next).map_or(ranges_valid_until, |command| {
-                    commands.vertical_bounds(*command).start.max(line + 1).min(ranges_valid_until)
+                    commands
+                        .vertical_bounds(*command)
+                        .start
+                        .max(line + 1)
+                        .min(ranges_valid_until)
                 });
                 continue;
             }
@@ -205,7 +245,12 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 if commands.partial_opaque_offsets().is_empty() {
                     let active = &self.active[first..];
                     buffer.process_line(line as usize, range.clone(), |pixels| {
-                        let mut buffer = LineBuffer { pixels, x: range.start, height, line: line as usize };
+                        let mut buffer = LineBuffer {
+                            pixels,
+                            x: range.start,
+                            height,
+                            line: line as usize,
+                        };
                         if clipped {
                             draw_commands::<true, _>(
                                 commands,
@@ -233,7 +278,9 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     [partial_opaque.partition_point(|command| *command <= self.active[first])..];
                 let occluder = partial_opaque.iter().rev().find_map(|command| {
                     let command_first = self.active.binary_search(command).ok()?;
-                    let Payload::Image(image) = commands.get(*command) else { unreachable!() };
+                    let Payload::Image(image) = commands.get(*command) else {
+                        unreachable!()
+                    };
                     let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
                     let texture = images.get(image_id)?;
                     let span = image.opaque_span(line, &texture.alpha_rows)?;

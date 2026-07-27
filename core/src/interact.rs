@@ -22,9 +22,13 @@ impl WidgetId {
         Self(hasher.finish())
     }
 
-    pub fn unique() -> Self { Self::new(("blit widget", NEXT_ID.fetch_add(1, Ordering::Relaxed))) }
+    pub fn unique() -> Self {
+        Self::new(("blit widget", NEXT_ID.fetch_add(1, Ordering::Relaxed)))
+    }
 
-    pub fn child(self, source: impl Hash) -> Self { Self::new((self, source)) }
+    pub fn child(self, source: impl Hash) -> Self {
+        Self::new((self, source))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -36,12 +40,42 @@ pub struct Sense {
 }
 
 impl Sense {
-    pub const CLICK: Self = Self { click: true, drag: false, focus: false, scroll: false };
-    pub const CLICK_AND_DRAG: Self = Self { click: true, drag: true, focus: false, scroll: false };
-    pub const DRAG: Self = Self { click: false, drag: true, focus: false, scroll: false };
-    pub const FOCUS: Self = Self { click: true, drag: false, focus: true, scroll: false };
-    pub const SCROLL: Self = Self { click: false, drag: false, focus: false, scroll: true };
-    pub const SCROLL_AND_DRAG: Self = Self { click: false, drag: true, focus: false, scroll: true };
+    pub const CLICK: Self = Self {
+        click: true,
+        drag: false,
+        focus: false,
+        scroll: false,
+    };
+    pub const CLICK_AND_DRAG: Self = Self {
+        click: true,
+        drag: true,
+        focus: false,
+        scroll: false,
+    };
+    pub const DRAG: Self = Self {
+        click: false,
+        drag: true,
+        focus: false,
+        scroll: false,
+    };
+    pub const FOCUS: Self = Self {
+        click: true,
+        drag: false,
+        focus: true,
+        scroll: false,
+    };
+    pub const SCROLL: Self = Self {
+        click: false,
+        drag: false,
+        focus: false,
+        scroll: true,
+    };
+    pub const SCROLL_AND_DRAG: Self = Self {
+        click: false,
+        drag: true,
+        focus: false,
+        scroll: true,
+    };
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -111,7 +145,11 @@ impl InteractionState {
         self.pointer.event = PointerEvent::None;
 
         match *input {
-            Input::PointerDown { position, button: PointerButton::Primary, .. } => {
+            Input::PointerDown {
+                position,
+                button: PointerButton::Primary,
+                ..
+            } => {
                 self.pointer.origin = position;
                 self.pointer.position = Some(position);
                 self.pointer.down = true;
@@ -121,7 +159,10 @@ impl InteractionState {
             Input::PointerDown { position, .. } => self.pointer.position = Some(position),
             Input::PointerMove { position, .. } => {
                 let previous = self.pointer.position.unwrap_or(position);
-                let delta = LogicalPoint { x: position.x - previous.x, y: position.y - previous.y };
+                let delta = LogicalPoint {
+                    x: position.x - previous.x,
+                    y: position.y - previous.y,
+                };
                 self.pointer.position = Some(position);
                 self.pointer.event = PointerEvent::Move(delta);
                 if self.pointer.down && !self.pointer.dragging {
@@ -133,17 +174,32 @@ impl InteractionState {
                     }
                 }
             }
-            Input::PointerUp { position, button: PointerButton::Primary, leave, .. } => {
+            Input::PointerUp {
+                position,
+                button: PointerButton::Primary,
+                leave,
+                ..
+            } => {
                 self.pointer.position = Some(position);
                 self.pointer.down = false;
                 self.pointer.event = PointerEvent::Up { leave };
             }
             Input::PointerUp { position, .. } => self.pointer.position = Some(position),
             Input::PointerLeave => self.pointer.position = None,
-            Input::Scroll { position, delta_x, delta_y, continuous, phase, .. } => {
+            Input::Scroll {
+                position,
+                delta_x,
+                delta_y,
+                continuous,
+                phase,
+                ..
+            } => {
                 self.pointer.position = Some(position);
                 self.pointer.event = PointerEvent::Scroll {
-                    delta: LogicalPoint { x: delta_x, y: delta_y },
+                    delta: LogicalPoint {
+                        x: delta_x,
+                        y: delta_y,
+                    },
                     continuous,
                     phase,
                 };
@@ -175,11 +231,20 @@ impl InteractionState {
         }
     }
 
-    pub fn interact(&mut self, id: WidgetId, area: Option<PhysicalRect>, sense: Sense) -> Interaction {
+    pub fn interact(
+        &mut self,
+        id: WidgetId,
+        area: Option<PhysicalRect>,
+        sense: Sense,
+    ) -> Interaction {
         #[cfg(debug_assertions)]
         assert!(self.seen.insert(id), "duplicate WidgetId {id:?}");
 
-        self.current_hits.push(HitItem { id, area: area.unwrap_or_default(), sense });
+        self.current_hits.push(HitItem {
+            id,
+            area: area.unwrap_or_default(),
+            sense,
+        });
 
         let active = self.active == Some(id);
         let hovered = self.hovered == Some(id);
@@ -202,7 +267,13 @@ impl InteractionState {
                 PointerEvent::Scroll { delta, .. } if self.scroll_owner == Some(id) => delta,
                 _ => LogicalPoint::default(),
             },
-            scroll_continuous: matches!(self.pointer.event, PointerEvent::Scroll { continuous: true, .. }),
+            scroll_continuous: matches!(
+                self.pointer.event,
+                PointerEvent::Scroll {
+                    continuous: true,
+                    ..
+                }
+            ),
             scroll_phase: match self.pointer.event {
                 PointerEvent::Scroll { phase, .. } if self.scroll_owner == Some(id) => Some(phase),
                 _ => None,
@@ -210,7 +281,9 @@ impl InteractionState {
         }
     }
 
-    pub fn is_focused(&self, id: WidgetId) -> bool { self.focused == Some(id) }
+    pub fn is_focused(&self, id: WidgetId) -> bool {
+        self.focused == Some(id)
+    }
 
     pub fn focus(&mut self, id: WidgetId) -> bool {
         if self.focused == Some(id) {
@@ -220,15 +293,25 @@ impl InteractionState {
         true
     }
 
-    pub fn clear_focus(&mut self) -> bool { self.focused.take().is_some() }
+    pub fn clear_focus(&mut self) -> bool {
+        self.focused.take().is_some()
+    }
 
-    pub fn pointer_position(&self) -> Option<LogicalPoint> { self.pointer.position }
+    pub fn pointer_position(&self) -> Option<LogicalPoint> {
+        self.pointer.position
+    }
 
     pub fn end_frame(&mut self, scale_factor: f32) -> bool {
-        if self.active.is_some_and(|id| !self.current_hits.iter().any(|item| item.id == id)) {
+        if self
+            .active
+            .is_some_and(|id| !self.current_hits.iter().any(|item| item.id == id))
+        {
             self.active = None;
         }
-        if self.focused.is_some_and(|id| !self.current_hits.iter().any(|item| item.id == id)) {
+        if self
+            .focused
+            .is_some_and(|id| !self.current_hits.iter().any(|item| item.id == id))
+        {
             self.focused = None;
         }
         if let PointerEvent::Up { leave } = self.pointer.event {
@@ -257,6 +340,9 @@ impl InteractionState {
     }
 
     fn hit(hits: &[HitItem], position: PhysicalPoint) -> Option<HitItem> {
-        hits.iter().rev().find(|item| item.area.contains(position.x, position.y)).copied()
+        hits.iter()
+            .rev()
+            .find(|item| item.area.contains(position.x, position.y))
+            .copied()
     }
 }

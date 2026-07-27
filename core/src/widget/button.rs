@@ -1,11 +1,11 @@
 use super::{SizedWidget, Text};
 use crate::{
+    Ui,
     color::Color,
     geometry::{LogicalInsets, LogicalRect, LogicalSize},
     interact::{Sense, WidgetId},
     paint::{BorderRadius, Rectangle, TextOptions, TextStyle},
     resource::TextSource,
-    Ui,
 };
 
 crate::widget! {
@@ -45,24 +45,43 @@ impl Button {
         let interaction = ui.interact(ui.id(("button", local_id)), area, Sense::CLICK);
         let active = interaction.pressed || interaction.clicked;
         Rectangle::new(area)
-            .background(if active { self.clicked_background } else { self.background })
-            .border(self.border_width, if active { self.clicked_border_color } else { self.border_color })
+            .background(if active {
+                self.clicked_background
+            } else {
+                self.background
+            })
+            .border(
+                self.border_width,
+                if active {
+                    self.clicked_border_color
+                } else {
+                    self.border_color
+                },
+            )
             .radius(self.radius)
             .opacity(self.opacity)
             .render(ui);
         Text::new(self.label)
-            .color(if active { self.clicked_text_color } else { self.text_color })
+            .color(if active {
+                self.clicked_text_color
+            } else {
+                self.text_color
+            })
             .font(self.text_style.font)
             .text_size(self.text_style.size)
             .text_weight(self.text_style.weight)
             .options(self.text_options)
             .render(ui, area.inset(self.padding));
-        Response { clicked: interaction.clicked }
+        Response {
+            clicked: interaction.clicked,
+        }
     }
 }
 
 impl Response {
-    pub fn clicked(self) -> bool { self.clicked }
+    pub fn clicked(self) -> bool {
+        self.clicked
+    }
 }
 
 impl SizedWidget for Button {
@@ -72,8 +91,13 @@ impl SizedWidget for Button {
         let height = (self.text_style.size + self.padding.top + self.padding.bottom)
             .max(self.border_width * 2.0)
             .min(available.height);
-        LogicalSize { width: available.width, height }
+        LogicalSize {
+            width: available.width,
+            height,
+        }
     }
 
-    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output { Button::render(self, ui, area) }
+    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
+        Button::render(self, ui, area)
+    }
 }

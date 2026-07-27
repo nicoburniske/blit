@@ -9,5 +9,6 @@ pub use box_shadow::BoxShadow;
 pub use image::{ImageFit, ImageRequest, ImageSampling, ImageTiling, NineSlice};
 pub use rectangle::{Border, BorderRadius, GradientStop, LinearGradient, Rectangle};
 pub use text::{
-    FontId, HorizontalAlign, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap, VerticalAlign,
+    FontId, HorizontalAlign, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap,
+    VerticalAlign,
 };

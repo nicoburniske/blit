@@ -35,13 +35,19 @@ impl Rasterizer {
         let Some(bounds) = face.glyph_bounding_box(ttf_parser::GlyphId(glyph.0)) else {
             return (metrics, Vec::new());
         };
-        let pixels = metrics.width.checked_mul(metrics.height).expect("glyph dimensions overflow");
+        let pixels = metrics
+            .width
+            .checked_mul(metrics.height)
+            .expect("glyph dimensions overflow");
         if pixels == 0 {
             return (metrics, Vec::new());
         }
 
         self.outline.reset(size, face.units_per_em() as f32);
-        if face.outline_glyph(ttf_parser::GlyphId(glyph.0), &mut self.outline).is_none() {
+        if face
+            .outline_glyph(ttf_parser::GlyphId(glyph.0), &mut self.outline)
+            .is_none()
+        {
             metrics.width = 0;
             metrics.height = 0;
             return (metrics, Vec::new());
@@ -54,7 +60,8 @@ impl Rasterizer {
         self.coverage.resize(coverage_len, 0.0);
         let scale = size / face.units_per_em() as f32;
         let mut offset_x = metrics.bounds.xmin.fract();
-        let mut offset_y = (1.0 - metrics.bounds.height.fract() - metrics.bounds.ymin.fract()).fract();
+        let mut offset_y =
+            (1.0 - metrics.bounds.height.fract() - metrics.bounds.ymin.fract()).fract();
         if offset_x < 0.0 {
             offset_x += 1.0;
         }
@@ -88,7 +95,12 @@ impl Rasterizer {
         }
         for index in 0..self.outline.mixed.len() {
             let line = self.outline.mixed[index];
-            self.mixed_line(width, line, line.coords * scale + offset, line.params * params);
+            self.mixed_line(
+                width,
+                line,
+                line.coords * scale + offset,
+                line.params * params,
+            );
         }
     }
 
@@ -122,7 +134,11 @@ impl Rasterizer {
             previous_y = target_y;
             target_y += direction_y;
         }
-        self.add(checked_index(end_x, end_y, width), previous_y - y1, middle_x);
+        self.add(
+            checked_index(end_x, end_y, width),
+            previous_y - y1,
+            middle_x,
+        );
     }
 
     fn mixed_line(&mut self, width: usize, line: Line, coordinates: f32x4, parameters: f32x4) {
@@ -167,7 +183,11 @@ impl Rasterizer {
             previous_x = next_x;
             previous_y = next_y;
         }
-        self.add(checked_index(end_x, end_y, width), previous_y - y1, ((previous_x + x1) / 2.0).fract());
+        self.add(
+            checked_index(end_x, end_y, width),
+            previous_y - y1,
+            ((previous_x + x1) / 2.0).fract(),
+        );
     }
 }
 
@@ -176,7 +196,10 @@ fn checked_index(x: f32, y: f32, width: usize) -> usize {
 }
 
 fn checked_index_i64(x: f32, y: f32, width: usize) -> i64 {
-    assert!(x.is_finite() && y.is_finite(), "non-finite raster coordinate");
+    assert!(
+        x.is_finite() && y.is_finite(),
+        "non-finite raster coordinate"
+    );
     let width = i64::try_from(width).expect("glyph width exceeds raster index");
     (y as i64)
         .checked_mul(width)
@@ -197,7 +220,12 @@ fn sub_integer(value: f32x4, other: f32x4) -> f32x4 {
 
 fn truncate(value: f32x4) -> f32x4 {
     let value = value.to_array();
-    f32x4::from_array([value[0].trunc(), value[1].trunc(), value[2].trunc(), value[3].trunc()])
+    f32x4::from_array([
+        value[0].trunc(),
+        value[1].trunc(),
+        value[2].trunc(),
+        value[3].trunc(),
+    ])
 }
 
 struct Outline {
@@ -222,7 +250,10 @@ impl Outline {
     }
 
     fn finish(&mut self, bounds: Rect) {
-        let bounds = Aabb { left: bounds.x_min as f32, top: bounds.y_max as f32 };
+        let bounds = Aabb {
+            left: bounds.x_min as f32,
+            top: bounds.y_max as f32,
+        };
         let reverse = self.area > 0.0;
         for line in self.vertical.iter_mut().chain(&mut self.mixed) {
             line.reposition(bounds, reverse);
@@ -257,9 +288,18 @@ impl OutlineBuilder for Outline {
 
     fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
         let next = Point { x, y };
-        let curve = Quadratic { start: self.previous, control: Point { x: x1, y: y1 }, end: next };
+        let curve = Quadratic {
+            start: self.previous,
+            control: Point { x: x1, y: y1 },
+            end: next,
+        };
         self.stack.clear();
-        self.stack.push(Segment { start: self.previous, start_time: 0.0, end: next, end_time: 1.0 });
+        self.stack.push(Segment {
+            start: self.previous,
+            start_time: 0.0,
+            end: next,
+            end_time: 1.0,
+        });
         while let Some(segment) = self.stack.pop() {
             let middle_time = (segment.start_time + segment.end_time) * 0.5;
             let middle = curve.point(middle_time);
@@ -297,7 +337,12 @@ impl OutlineBuilder for Outline {
             end: next,
         };
         self.stack.clear();
-        self.stack.push(Segment { start: self.previous, start_time: 0.0, end: next, end_time: 1.0 });
+        self.stack.push(Segment {
+            start: self.previous,
+            start_time: 0.0,
+            end: next,
+            end_time: 1.0,
+        });
         while let Some(segment) = self.stack.pop() {
             let middle_time = (segment.start_time + segment.end_time) * 0.5;
             let middle = curve.point(middle_time);
@@ -346,13 +391,25 @@ impl Line {
     fn new(start: Point, end: Point) -> Self {
         const FLOOR: u32 = 0;
         const CEIL: u32 = 1;
-        let (start_x_nudge, first_x) = if end.x >= start.x { (FLOOR, 1.0) } else { (CEIL, 0.0) };
-        let (start_y_nudge, first_y) = if end.y >= start.y { (FLOOR, 1.0) } else { (CEIL, 0.0) };
+        let (start_x_nudge, first_x) = if end.x >= start.x {
+            (FLOOR, 1.0)
+        } else {
+            (CEIL, 0.0)
+        };
+        let (start_y_nudge, first_y) = if end.y >= start.y {
+            (FLOOR, 1.0)
+        } else {
+            (CEIL, 0.0)
+        };
         let end_x_nudge = if end.x > start.x { CEIL } else { FLOOR };
         let end_y_nudge = if end.y > start.y { CEIL } else { FLOOR };
         let delta_x = end.x - start.x;
         let delta_y = end.y - start.y;
-        let inverse_x = if delta_x == 0.0 { f32::MAX } else { 1.0 / delta_x };
+        let inverse_x = if delta_x == 0.0 {
+            f32::MAX
+        } else {
+            1.0 / delta_x
+        };
         Self {
             coords: f32x4::from_array([start.x, start.y, end.x, end.y]),
             nudge: f32x4::from_array([
@@ -368,7 +425,11 @@ impl Line {
 
     fn reposition(&mut self, bounds: Aabb, reverse: bool) {
         let [x0, y0, x1, y1] = self.coords.to_array();
-        let (mut x0, mut y0, mut x1, mut y1) = if reverse { (x1, y1, x0, y0) } else { (x0, y0, x1, y1) };
+        let (mut x0, mut y0, mut x1, mut y1) = if reverse {
+            (x1, y1, x0, y0)
+        } else {
+            (x0, y0, x1, y1)
+        };
         x0 -= bounds.left;
         y0 = (y0 - bounds.top).abs();
         x1 -= bounds.left;
@@ -426,8 +487,14 @@ impl Cubic {
         let second = 3.0 * inverse * time * time;
         let end = time * time * time;
         Point {
-            x: start * self.start.x + first * self.first.x + second * self.second.x + end * self.end.x,
-            y: start * self.start.y + first * self.first.y + second * self.second.y + end * self.end.y,
+            x: start * self.start.x
+                + first * self.first.x
+                + second * self.second.x
+                + end * self.end.x,
+            y: start * self.start.y
+                + first * self.first.y
+                + second * self.second.y
+                + end * self.end.y,
         }
     }
 }

@@ -2,6 +2,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::{SizedWidget, Text};
 use crate::{
+    Ui,
     color::Color,
     geometry::{LogicalInsets, LogicalRect, LogicalSize},
     input::{Input, Key},
@@ -9,7 +10,6 @@ use crate::{
     keyboard::{KeyboardKind, KeyboardRequest},
     paint::{BorderRadius, Rectangle, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap},
     resource::StringHandle,
-    Ui,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -94,7 +94,9 @@ impl TextInput<'_> {
 
         if interaction.pressed {
             if let Some(position) = ui.pointer_position() {
-                let offset = ui.platform().text_offset_at_position(&self.request(inner), position);
+                let offset = ui
+                    .platform()
+                    .text_offset_at_position(&self.request(inner), position);
                 self.state.cursor = if !self.password_masked() {
                     offset
                 } else {
@@ -109,7 +111,9 @@ impl TextInput<'_> {
         }
 
         match *ui.input() {
-            Input::Text(character) if self.state.focused && !self.read_only && !character.is_control() => {
+            Input::Text(character)
+                if self.state.focused && !self.read_only && !character.is_control() =>
+            {
                 self.delete_selection();
                 self.state.text.insert(self.state.cursor, character);
                 self.state.cursor += character.len_utf8();
@@ -117,7 +121,10 @@ impl TextInput<'_> {
                 response.edited = true;
             }
             Input::Key(key)
-                if key.pressed && key.key == Key::Backspace && self.state.focused && !self.read_only =>
+                if key.pressed
+                    && key.key == Key::Backspace
+                    && self.state.focused
+                    && !self.read_only =>
             {
                 if self.delete_selection() {
                     response.edited = true;
@@ -133,38 +140,49 @@ impl TextInput<'_> {
                 }
             }
             Input::Key(key)
-                if key.pressed && key.key == Key::Delete && self.state.focused && !self.read_only =>
+                if key.pressed
+                    && key.key == Key::Delete
+                    && self.state.focused
+                    && !self.read_only =>
             {
                 if self.delete_selection() {
                     response.edited = true;
                 } else if self.state.cursor < self.state.text.len() {
                     let next = self.state.cursor
-                        + self.state.text[self.state.cursor..].graphemes(true).next().map_or(0, str::len);
+                        + self.state.text[self.state.cursor..]
+                            .graphemes(true)
+                            .next()
+                            .map_or(0, str::len);
                     self.state.text.drain(self.state.cursor..next);
                     self.state.anchor = self.state.cursor;
                     response.edited = true;
                 }
             }
             Input::Key(key) if key.pressed && key.key == Key::ArrowLeft && self.state.focused => {
-                self.state.cursor = if !key.modifiers.shift() && self.state.cursor != self.state.anchor {
-                    self.state.cursor.min(self.state.anchor)
-                } else {
-                    self.state.text[..self.state.cursor]
-                        .grapheme_indices(true)
-                        .next_back()
-                        .map_or(0, |(offset, _)| offset)
-                };
+                self.state.cursor =
+                    if !key.modifiers.shift() && self.state.cursor != self.state.anchor {
+                        self.state.cursor.min(self.state.anchor)
+                    } else {
+                        self.state.text[..self.state.cursor]
+                            .grapheme_indices(true)
+                            .next_back()
+                            .map_or(0, |(offset, _)| offset)
+                    };
                 if !key.modifiers.shift() {
                     self.state.anchor = self.state.cursor;
                 }
             }
             Input::Key(key) if key.pressed && key.key == Key::ArrowRight && self.state.focused => {
-                self.state.cursor = if !key.modifiers.shift() && self.state.cursor != self.state.anchor {
-                    self.state.cursor.max(self.state.anchor)
-                } else {
-                    self.state.cursor
-                        + self.state.text[self.state.cursor..].graphemes(true).next().map_or(0, str::len)
-                };
+                self.state.cursor =
+                    if !key.modifiers.shift() && self.state.cursor != self.state.anchor {
+                        self.state.cursor.max(self.state.anchor)
+                    } else {
+                        self.state.cursor
+                            + self.state.text[self.state.cursor..]
+                                .graphemes(true)
+                                .next()
+                                .map_or(0, str::len)
+                    };
                 if !key.modifiers.shift() {
                     self.state.anchor = self.state.cursor;
                 }
@@ -192,7 +210,9 @@ impl TextInput<'_> {
         }
 
         let cursor_offset = self.display_offset(self.state.cursor);
-        let cursor = ui.platform().text_cursor_rect(&self.request(inner), cursor_offset);
+        let cursor = ui
+            .platform()
+            .text_cursor_rect(&self.request(inner), cursor_offset);
         if cursor.x < inner.x {
             self.state.scroll_x = (self.state.scroll_x - (inner.x - cursor.x)).max(0.0);
         } else if cursor.x + self.cursor_width > inner.x + inner.width {
@@ -200,10 +220,18 @@ impl TextInput<'_> {
         }
 
         Rectangle::new(area)
-            .background(if self.state.focused { self.focused_background } else { self.background })
+            .background(if self.state.focused {
+                self.focused_background
+            } else {
+                self.background
+            })
             .border(
                 self.border_width,
-                if self.state.focused { self.focused_border_color } else { self.border_color },
+                if self.state.focused {
+                    self.focused_border_color
+                } else {
+                    self.border_color
+                },
             )
             .radius(self.radius)
             .opacity(self.opacity)
@@ -211,20 +239,27 @@ impl TextInput<'_> {
 
         let request = self.request(inner);
         if self.state.cursor != self.state.anchor {
-            let start = ui
-                .platform()
-                .text_cursor_rect(&request, self.display_offset(self.state.cursor.min(self.state.anchor)));
-            let end = ui
-                .platform()
-                .text_cursor_rect(&request, self.display_offset(self.state.cursor.max(self.state.anchor)));
+            let start = ui.platform().text_cursor_rect(
+                &request,
+                self.display_offset(self.state.cursor.min(self.state.anchor)),
+            );
+            let end = ui.platform().text_cursor_rect(
+                &request,
+                self.display_offset(self.state.cursor.max(self.state.anchor)),
+            );
             let left = start.x.max(inner.x);
             let right = end.x.min(inner.x + inner.width);
             let top = start.y.max(inner.y);
             let bottom = (start.y + start.height).min(inner.y + inner.height);
             if right > left && bottom > top {
-                Rectangle::new(LogicalRect { x: left, y: top, width: right - left, height: bottom - top })
-                    .background(self.selection_background)
-                    .render(ui);
+                Rectangle::new(LogicalRect {
+                    x: left,
+                    y: top,
+                    width: right - left,
+                    height: bottom - top,
+                })
+                .background(self.selection_background)
+                .render(ui);
             }
         }
 
@@ -238,8 +273,13 @@ impl TextInput<'_> {
             .render(ui, inner);
 
         if self.state.focused {
-            let cursor = ui.platform().text_cursor_rect(&request, self.display_offset(self.state.cursor));
-            let x = cursor.x.clamp(inner.x, (inner.x + inner.width - self.cursor_width).max(inner.x));
+            let cursor = ui
+                .platform()
+                .text_cursor_rect(&request, self.display_offset(self.state.cursor));
+            let x = cursor.x.clamp(
+                inner.x,
+                (inner.x + inner.width - self.cursor_width).max(inner.x),
+            );
             let top = cursor.y.max(inner.y);
             let bottom = (cursor.y + cursor.height).min(inner.y + inner.height);
             if bottom > top {
@@ -286,11 +326,18 @@ impl TextInput<'_> {
             return;
         }
         self.state.password_mask.clear();
-        self.state.password_mask.extend(std::iter::repeat_n('●', self.state.text.chars().count()));
+        self.state
+            .password_mask
+            .extend(std::iter::repeat_n('●', self.state.text.chars().count()));
     }
 
     fn sync_display(&mut self, ui: &mut Ui) {
-        if self.state.display.as_deref().is_none_or(|display| display != self.display_text()) {
+        if self
+            .state
+            .display
+            .as_deref()
+            .is_none_or(|display| display != self.display_text())
+        {
             let display = self.display_text().to_owned();
             self.state.display = Some(ui.platform().create_string(display));
         }
@@ -317,7 +364,8 @@ impl TextInput<'_> {
     }
 
     fn delete_selection(&mut self) -> bool {
-        let selection = self.state.cursor.min(self.state.anchor)..self.state.cursor.max(self.state.anchor);
+        let selection =
+            self.state.cursor.min(self.state.anchor)..self.state.cursor.max(self.state.anchor);
         if selection.is_empty() {
             return false;
         }
@@ -335,10 +383,15 @@ impl SizedWidget for TextInput<'_> {
         let height = (self.text_style.size + self.padding.top + self.padding.bottom)
             .max(self.border_width * 2.0)
             .min(available.height);
-        LogicalSize { width: available.width, height }
+        LogicalSize {
+            width: available.width,
+            height,
+        }
     }
 
-    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output { TextInput::render(self, ui, area) }
+    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
+        TextInput::render(self, ui, area)
+    }
 }
 
 #[cfg(test)]
@@ -347,7 +400,10 @@ mod tests {
 
     #[test]
     fn password_mask_uses_dots_and_maps_utf8_offsets() {
-        let mut state = TextInputState { text: "aé🙂".into(), ..TextInputState::default() };
+        let mut state = TextInputState {
+            text: "aé🙂".into(),
+            ..TextInputState::default()
+        };
         let mut input = TextInput::new(&mut state).keyboard_kind(KeyboardKind::Password);
 
         input.update_password_mask();

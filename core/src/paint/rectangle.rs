@@ -1,4 +1,4 @@
-use crate::{color::Color, geometry::LogicalRect, Ui};
+use crate::{Ui, color::Color, geometry::LogicalRect};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rectangle<'a> {
@@ -36,8 +36,12 @@ impl<'a> Rectangle<'a> {
     }
 
     pub fn uniform_radius(mut self, radius: f32) -> Self {
-        self.radius =
-            BorderRadius { top_left: radius, top_right: radius, bottom_right: radius, bottom_left: radius };
+        self.radius = BorderRadius {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        };
         self
     }
 
@@ -51,7 +55,9 @@ impl<'a> Rectangle<'a> {
         self
     }
 
-    pub fn render(self, ui: &mut Ui) { ui.paint_rectangle(self); }
+    pub fn render(self, ui: &mut Ui) {
+        ui.paint_rectangle(self);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -75,7 +81,12 @@ pub struct LinearGradient<'a> {
 }
 
 impl<'a> LinearGradient<'a> {
-    pub const fn new(stops: &'a [GradientStop]) -> Self { Self { stops, angle_degrees: 0.0 } }
+    pub const fn new(stops: &'a [GradientStop]) -> Self {
+        Self {
+            stops,
+            angle_degrees: 0.0,
+        }
+    }
 
     pub const fn angle(mut self, angle: f32) -> Self {
         self.angle_degrees = angle;
@@ -90,7 +101,9 @@ pub struct GradientStop {
 }
 
 impl GradientStop {
-    pub const fn new(position: f32, color: Color) -> Self { Self { position, color } }
+    pub const fn new(position: f32, color: Color) -> Self {
+        Self { position, color }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

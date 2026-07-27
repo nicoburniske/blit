@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use super::SizedWidget;
 use crate::{
+    Ui,
     geometry::{LogicalInsets, LogicalRect, PhysicalRect},
     input::ScrollPhase,
     interact::{Sense, WidgetId},
-    Ui,
 };
 
 const WHEEL_FRICTION: f32 = 64.0;
@@ -55,7 +55,9 @@ impl ScrollState {
         self.tracking = false;
     }
 
-    pub fn is_moving(&self) -> bool { self.velocity != 0.0 }
+    pub fn is_moving(&self) -> bool {
+        self.velocity != 0.0
+    }
 }
 
 pub struct ScrollArea<'a> {
@@ -128,14 +130,18 @@ impl<'a> ScrollArea<'a> {
     where
         'a: 'ui,
     {
-        let sense = if self.drag_to_scroll { Sense::SCROLL_AND_DRAG } else { Sense::SCROLL };
+        let sense = if self.drag_to_scroll {
+            Sense::SCROLL_AND_DRAG
+        } else {
+            Sense::SCROLL
+        };
         let interaction = ui.interact(ui.id(("scroll area", self.id)), viewport, sense);
         let now = ui.time();
-        let elapsed = self
-            .state
-            .last_frame
-            .replace(now)
-            .map_or(0.0, |previous| now.saturating_sub(previous).as_secs_f32().min(MAX_FRAME_TIME));
+        let elapsed = self.state.last_frame.replace(now).map_or(0.0, |previous| {
+            now.saturating_sub(previous)
+                .as_secs_f32()
+                .min(MAX_FRAME_TIME)
+        });
 
         let mut direct_delta = 0.0;
         let mut sample_velocity = false;
@@ -172,7 +178,8 @@ impl<'a> ScrollArea<'a> {
             } else if interaction.scroll_delta.y != 0.0 {
                 self.state.tracking = false;
                 self.state.continuous_inertia = false;
-                self.state.velocity += interaction.scroll_delta.y * WHEEL_FRICTION * self.scroll_speed;
+                self.state.velocity +=
+                    interaction.scroll_delta.y * WHEEL_FRICTION * self.scroll_speed;
             }
         }
 
@@ -180,7 +187,8 @@ impl<'a> ScrollArea<'a> {
         if direct_delta != 0.0 {
             self.state.offset = (self.state.offset + direct_delta).clamp(0.0, maximum);
             if sample_velocity && elapsed > 0.0 {
-                let measured = (direct_delta / elapsed).clamp(-MAX_SCROLL_VELOCITY, MAX_SCROLL_VELOCITY);
+                let measured =
+                    (direct_delta / elapsed).clamp(-MAX_SCROLL_VELOCITY, MAX_SCROLL_VELOCITY);
                 self.state.velocity = if self.state.velocity.signum() == measured.signum() {
                     self.state.velocity + (measured - self.state.velocity) * 0.5
                 } else {
@@ -194,7 +202,11 @@ impl<'a> ScrollArea<'a> {
         }
 
         if !self.state.tracking && self.state.velocity != 0.0 {
-            let friction = if self.state.continuous_inertia { self.inertia_friction } else { WHEEL_FRICTION };
+            let friction = if self.state.continuous_inertia {
+                self.inertia_friction
+            } else {
+                WHEEL_FRICTION
+            };
             let decay = (-friction * elapsed).exp();
             let offset = self.state.offset + self.state.velocity * (1.0 - decay) / friction;
             self.state.offset = offset.clamp(0.0, maximum);
@@ -212,7 +224,10 @@ impl<'a> ScrollArea<'a> {
         let bounds = viewport.inset(padding);
         let offset = self.state.offset;
         let previous_clip = ui.clip;
-        ui.clip = viewport.to_physical(ui.scale_factor).intersection(previous_clip).unwrap_or_default();
+        ui.clip = viewport
+            .to_physical(ui.scale_factor)
+            .intersection(previous_clip)
+            .unwrap_or_default();
 
         Area {
             ui,
@@ -251,8 +266,11 @@ impl Area<'_> {
             height: f32::INFINITY,
         };
         let size = widget.measure(self.ui, available);
-        let area =
-            LogicalRect { width: size.width.clamp(0.0, available.width), height: size.height, ..available };
+        let area = LogicalRect {
+            width: size.width.clamp(0.0, available.width),
+            height: size.height,
+            ..available
+        };
         self.cursor += area.height + self.spacing;
         self.count += 1;
         area.to_physical(self.ui.scale_factor)
@@ -260,14 +278,22 @@ impl Area<'_> {
             .map(|_| widget.render(self.ui, area))
     }
 
-    pub fn ui(&mut self) -> &mut Ui { self.ui }
+    pub fn ui(&mut self) -> &mut Ui {
+        self.ui
+    }
 
-    pub fn finish(self) { drop(self) }
+    pub fn finish(self) {
+        drop(self)
+    }
 }
 
 impl Drop for Area<'_> {
     fn drop(&mut self) {
-        let used_height = if self.count == 0 { 0.0 } else { self.cursor - self.spacing };
+        let used_height = if self.count == 0 {
+            0.0
+        } else {
+            self.cursor - self.spacing
+        };
         self.state.content_height = self.padding.top + used_height + self.padding.bottom;
         let maximum = self.state.maximum_offset(self.viewport.height);
         let clamped = self.state.offset.clamp(0.0, maximum);

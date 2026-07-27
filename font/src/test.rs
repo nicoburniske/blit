@@ -11,15 +11,25 @@ fn static_and_owned_fonts_match() {
     let glyph = static_font.glyph_id('M');
 
     assert_eq!(glyph, owned_font.glyph_id('M'));
-    assert_eq!(static_font.metrics(glyph, 24.0), owned_font.metrics(glyph, 24.0));
-    assert_eq!(static_font.horizontal_line_metrics(24.0), owned_font.horizontal_line_metrics(24.0));
+    assert_eq!(
+        static_font.metrics(glyph, 24.0),
+        owned_font.metrics(glyph, 24.0)
+    );
+    assert_eq!(
+        static_font.horizontal_line_metrics(24.0),
+        owned_font.horizontal_line_metrics(24.0)
+    );
 }
 
 #[test]
 fn layout_wraps_and_reuses_storage() {
     let font = Font::from_static(FONT).unwrap();
     let mut layout = Layout::default();
-    let settings = LayoutSettings { max_width: Some(40.0), wrap: TextWrap::Word, ..Default::default() };
+    let settings = LayoutSettings {
+        max_width: Some(40.0),
+        wrap: TextWrap::Word,
+        ..Default::default()
+    };
     layout.layout(&font, "one two three", 16.0, settings);
     assert!(layout.lines().unwrap().len() > 1);
     let allocated = layout.allocated_bytes();

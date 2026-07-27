@@ -28,9 +28,16 @@ impl TextRenderer {
         }
     }
 
-    pub fn prepare(&mut self, request: &TextRequest, text: &str, scale_factor: f32) -> (usize, PhysicalRect) {
+    pub fn prepare(
+        &mut self,
+        request: &TextRequest,
+        text: &str,
+        scale_factor: f32,
+    ) -> (usize, PhysicalRect) {
         let key = ParagraphCache::key(request, scale_factor);
-        let index = self.paragraphs.prepare(key, request, text, scale_factor, &mut self.fonts);
+        let index = self
+            .paragraphs
+            .prepare(key, request, text, scale_factor, &mut self.fonts);
         let area = request.area.to_physical(scale_factor);
         let paragraph = self.paragraphs.get(index).rendered.as_ref().unwrap();
         if paragraph.width == 0 || paragraph.height == 0 {
@@ -56,15 +63,24 @@ impl TextRenderer {
         row: PixelSpan<'_, P>,
         clip: PhysicalRect,
     ) {
-        let Some(paragraph) = self.paragraphs.get(paragraph).rendered.as_ref() else { return };
+        let Some(paragraph) = self.paragraphs.get(paragraph).rendered.as_ref() else {
+            return;
+        };
         let paragraph_rect = PhysicalRect {
             x: area.x + paragraph.x,
             y: area.y + paragraph.y,
             width: paragraph.width as i32,
             height: paragraph.height as i32,
         };
-        let line_rect = PhysicalRect { x: row.x, y: line, width: row.pixels.len() as i32, height: 1 };
-        let Some(clipped) = paragraph_rect.intersection(clip).and_then(|area| area.intersection(line_rect))
+        let line_rect = PhysicalRect {
+            x: row.x,
+            y: line,
+            width: row.pixels.len() as i32,
+            height: 1,
+        };
+        let Some(clipped) = paragraph_rect
+            .intersection(clip)
+            .and_then(|area| area.intersection(line_rect))
         else {
             return;
         };
@@ -103,7 +119,8 @@ impl TextRenderer {
             .iter()
             .min_by(|left, right| {
                 let left_distance = (left.x - x).powi(2) + (left.y + left.height / 2.0 - y).powi(2);
-                let right_distance = (right.x - x).powi(2) + (right.y + right.height / 2.0 - y).powi(2);
+                let right_distance =
+                    (right.x - x).powi(2) + (right.y + right.height / 2.0 - y).powi(2);
                 left_distance.total_cmp(&right_distance)
             })
             .map_or(0, |caret| caret.byte_offset.min(text.len()))
@@ -120,7 +137,8 @@ impl TextRenderer {
 
     pub fn measure_height(&mut self, request: &TextRequest, text: &str, scale_factor: f32) -> f32 {
         let key = ParagraphCache::key(request, scale_factor);
-        self.paragraphs.measure_height(key, request, text, scale_factor, &mut self.fonts)
+        self.paragraphs
+            .measure_height(key, request, text, scale_factor, &mut self.fonts)
     }
 
     pub fn cursor_rect(
@@ -132,7 +150,10 @@ impl TextRenderer {
     ) -> LogicalRect {
         let (paragraph, _) = self.prepare(request, text, scale_factor);
         let paragraph = self.paragraphs.get(paragraph).rendered.as_ref().unwrap();
-        let Some(caret) = paragraph.carets.iter().min_by_key(|caret| caret.byte_offset.abs_diff(byte_offset))
+        let Some(caret) = paragraph
+            .carets
+            .iter()
+            .min_by_key(|caret| caret.byte_offset.abs_diff(byte_offset))
         else {
             return LogicalRect {
                 x: request.area.x,

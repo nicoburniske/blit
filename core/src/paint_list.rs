@@ -1,14 +1,15 @@
 //! packed logical paint commands
 
 use std::{
-    mem::{align_of, size_of, size_of_val, MaybeUninit},
+    mem::{MaybeUninit, align_of, size_of, size_of_val},
     ptr,
 };
 
 use crate::{
     geometry::{LogicalRect, PhysicalRect},
     paint::{
-        Border, BorderRadius, BoxShadow, GradientStop, ImageRequest, LinearGradient, Rectangle, TextRequest,
+        Border, BorderRadius, BoxShadow, GradientStop, ImageRequest, LinearGradient, Rectangle,
+        TextRequest,
     },
 };
 
@@ -26,22 +27,33 @@ pub struct PaintList {
 }
 
 impl PaintList {
-    pub fn len(&self) -> usize { self.offsets.len() }
+    pub fn len(&self) -> usize {
+        self.offsets.len()
+    }
 
-    pub fn is_empty(&self) -> bool { self.offsets.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.offsets.is_empty()
+    }
 
     pub fn push_clip(&mut self, parent: ClipId, area: LogicalRect, radius: BorderRadius) -> ClipId {
         self.assert_clip(parent);
         let id = u16::try_from(self.clips.len() + 1).expect("too many paint list clips");
-        self.clips.push(ClipNode { parent, area, radius });
+        self.clips.push(ClipNode {
+            parent,
+            area,
+            radius,
+        });
         ClipId(id)
     }
 
     pub fn clip(&self, id: ClipId) -> Option<&ClipNode> {
-        id.0.checked_sub(1).and_then(|index| self.clips.get(index as usize))
+        id.0.checked_sub(1)
+            .and_then(|index| self.clips.get(index as usize))
     }
 
-    pub fn clips(&self) -> &[ClipNode] { &self.clips }
+    pub fn clips(&self) -> &[ClipNode] {
+        &self.clips
+    }
 
     pub fn push_rectangle(&mut self, rectangle: Rectangle<'_>, bounds: PhysicalRect, clip: ClipId) {
         let (border, stops) = match rectangle.border {
@@ -51,7 +63,8 @@ impl PaintList {
                 StoredBorder::Gradient {
                     width,
                     angle_degrees: gradient.angle_degrees,
-                    stops_len: u32::try_from(gradient.stops.len()).expect("too many gradient stops"),
+                    stops_len: u32::try_from(gradient.stops.len())
+                        .expect("too many gradient stops"),
                 },
                 gradient.stops,
             ),
@@ -91,12 +104,19 @@ impl PaintList {
         let record = unsafe { self.words.as_ptr().add(offset).cast::<u8>() };
         let command = match header.kind {
             RECTANGLE => {
-                let stored =
-                    unsafe { &*record.add(payload_offset::<StoredRectangle>()).cast::<StoredRectangle>() };
+                let stored = unsafe {
+                    &*record
+                        .add(payload_offset::<StoredRectangle>())
+                        .cast::<StoredRectangle>()
+                };
                 let border = match stored.border {
                     StoredBorder::None => Border::None,
                     StoredBorder::Solid { width, color } => Border::Solid { width, color },
-                    StoredBorder::Gradient { width, angle_degrees, stops_len } => {
+                    StoredBorder::Gradient {
+                        width,
+                        angle_degrees,
+                        stops_len,
+                    } => {
                         let offset = trailing_offset::<StoredRectangle, GradientStop>();
                         let stops = unsafe {
                             std::slice::from_raw_parts(
@@ -104,7 +124,10 @@ impl PaintList {
                                 stops_len as usize,
                             )
                         };
-                        Border::Gradient { width, gradient: LinearGradient::new(stops).angle(angle_degrees) }
+                        Border::Gradient {
+                            width,
+                            gradient: LinearGradient::new(stops).angle(angle_degrees),
+                        }
                     }
                 };
                 Command::Rectangle(Rectangle {
@@ -120,10 +143,20 @@ impl PaintList {
             BOX_SHADOW => Command::BoxShadow(unsafe { record_value::<BoxShadow>(record) }),
             _ => unreachable!(),
         };
-        Record { bounds: header.bounds, clip: header.clip, command }
+        Record {
+            bounds: header.bounds,
+            clip: header.clip,
+            command,
+        }
     }
 
-    pub fn iter(&self) -> Iter<'_> { Iter { list: self, front: 0, back: self.len() } }
+    pub fn iter(&self) -> Iter<'_> {
+        Iter {
+            list: self,
+            front: 0,
+            back: self.len(),
+        }
+    }
 
     pub fn clear(&mut self) {
         self.words.clear();
@@ -178,12 +211,20 @@ impl PaintList {
         let record_words = bytes.div_ceil(size_of::<Word>());
         let record_words = u32::try_from(record_words).expect("paint list record is too large");
         let offset = self.words.len();
-        let end = offset.checked_add(record_words as usize).expect("paint list is too large");
+        let end = offset
+            .checked_add(record_words as usize)
+            .expect("paint list is too large");
         let offset = u32::try_from(offset).expect("paint list is too large");
         self.words.resize_with(end, || Word(MaybeUninit::uninit()));
         let record = unsafe { self.words.as_mut_ptr().add(offset as usize).cast::<u8>() };
         unsafe {
-            record.cast::<Header>().write(Header { bounds, record_words, clip, kind, _reserved: 0 });
+            record.cast::<Header>().write(Header {
+                bounds,
+                record_words,
+                clip,
+                kind,
+                _reserved: 0,
+            });
             record.add(payload_offset).cast::<T>().write(payload);
             if !trailing.is_empty() {
                 record
@@ -196,7 +237,10 @@ impl PaintList {
     }
 
     fn assert_clip(&self, clip: ClipId) {
-        assert!(clip.0 as usize <= self.clips.len(), "invalid paint list clip");
+        assert!(
+            clip.0 as usize <= self.clips.len(),
+            "invalid paint list clip"
+        );
     }
 }
 
@@ -276,7 +320,8 @@ impl PaintListDiffer {
             }
             self.trace.reserve(edits as usize + 1);
             for diagonal in (-edits..=edits).step_by(2) {
-                self.trace.push(self.frontier[(frontier_offset as isize + diagonal) as usize]);
+                self.trace
+                    .push(self.frontier[(frontier_offset as isize + diagonal) as usize]);
             }
         }
 
@@ -385,7 +430,9 @@ impl DoubleEndedIterator for Iter<'_> {
 }
 
 impl ExactSizeIterator for Iter<'_> {
-    fn len(&self) -> usize { self.back - self.front }
+    fn len(&self) -> usize {
+        self.back - self.front
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -400,8 +447,15 @@ struct StoredRectangle {
 #[derive(Clone, Copy)]
 enum StoredBorder {
     None,
-    Solid { width: f32, color: crate::color::Color },
-    Gradient { width: f32, angle_degrees: f32, stops_len: u32 },
+    Solid {
+        width: f32,
+        color: crate::color::Color,
+    },
+    Gradient {
+        width: f32,
+        angle_degrees: f32,
+        stops_len: u32,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -417,7 +471,9 @@ struct Header {
 #[repr(C, align(8))]
 struct Word(MaybeUninit<[u8; 8]>);
 
-fn payload_offset<T>() -> usize { size_of::<Header>().next_multiple_of(align_of::<T>()) }
+fn payload_offset<T>() -> usize {
+    size_of::<Header>().next_multiple_of(align_of::<T>())
+}
 
 fn trailing_offset<T, U>() -> usize {
     (payload_offset::<T>() + size_of::<T>()).next_multiple_of(align_of::<U>())
@@ -439,7 +495,12 @@ mod tests {
     fn text(id: u64) -> TextRequest {
         TextRequest {
             text: StringId(id).into(),
-            area: LogicalRect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 },
+            area: LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
             offset_x: 0.0,
             color: Color::BLACK,
             style: TextStyle::default(),
@@ -448,7 +509,14 @@ mod tests {
         }
     }
 
-    fn bounds(x: i32) -> PhysicalRect { PhysicalRect { x, y: 0, width: 10, height: 10 } }
+    fn bounds(x: i32) -> PhysicalRect {
+        PhysicalRect {
+            x,
+            y: 0,
+            width: 10,
+            height: 10,
+        }
+    }
     use crate::{
         color::Color,
         geometry::LogicalRect,
@@ -461,12 +529,25 @@ mod tests {
 
     #[test]
     fn records_are_indexed_and_variable_data_is_inline() {
-        let area = LogicalRect { x: 1.0, y: 2.0, width: 30.0, height: 40.0 };
-        let bounds = PhysicalRect { x: 1, y: 2, width: 30, height: 40 };
+        let area = LogicalRect {
+            x: 1.0,
+            y: 2.0,
+            width: 30.0,
+            height: 40.0,
+        };
+        let bounds = PhysicalRect {
+            x: 1,
+            y: 2,
+            width: 30,
+            height: 40,
+        };
         let mut list = PaintList::default();
         let clip = list.push_clip(ClipId::default(), area, BorderRadius::default());
         {
-            let stops = [GradientStop::new(0.0, Color::BLACK), GradientStop::new(1.0, Color::WHITE)];
+            let stops = [
+                GradientStop::new(0.0, Color::BLACK),
+                GradientStop::new(1.0, Color::WHITE),
+            ];
             let rectangle = Rectangle::new(area)
                 .background(Color::GRAY)
                 .gradient_border(2.0, LinearGradient::new(&stops).angle(45.0));
@@ -500,33 +581,82 @@ mod tests {
         assert_eq!(list.len(), 4);
         assert_eq!(
             list.clip(clip),
-            Some(&ClipNode { parent: ClipId(0), area, radius: BorderRadius::default() })
+            Some(&ClipNode {
+                parent: ClipId(0),
+                area,
+                radius: BorderRadius::default()
+            })
         );
-        let Command::Rectangle(stored) = list.get(0).command else { panic!() };
-        let Border::Gradient { width, gradient } = stored.border else { panic!() };
+        let Command::Rectangle(stored) = list.get(0).command else {
+            panic!()
+        };
+        let Border::Gradient { width, gradient } = stored.border else {
+            panic!()
+        };
         assert_eq!(width, 2.0);
         assert_eq!(gradient.angle_degrees, 45.0);
         assert_eq!(gradient.stops[0].color, Color::BLACK);
-        assert_eq!(list.get(1), Record { bounds, clip, command: Command::Image(image) });
-        assert_eq!(list.get(2), Record { bounds, clip, command: Command::Text(text) });
-        assert_eq!(list.get(3), Record { bounds, clip, command: Command::BoxShadow(shadow) });
+        assert_eq!(
+            list.get(1),
+            Record {
+                bounds,
+                clip,
+                command: Command::Image(image)
+            }
+        );
+        assert_eq!(
+            list.get(2),
+            Record {
+                bounds,
+                clip,
+                command: Command::Text(text)
+            }
+        );
+        assert_eq!(
+            list.get(3),
+            Record {
+                bounds,
+                clip,
+                command: Command::BoxShadow(shadow)
+            }
+        );
         assert_eq!(list.iter().next_back(), Some(list.get(3)));
     }
 
     #[test]
     fn clear_keeps_storage_for_reuse() {
         let mut list = PaintList::default();
-        let area = LogicalRect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 };
+        let area = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+        };
         let bounds = area.to_physical(1.0);
-        list.push_rectangle(Rectangle::new(area).border(1.0, Color::BLACK), bounds, ClipId(0));
+        list.push_rectangle(
+            Rectangle::new(area).border(1.0, Color::BLACK),
+            bounds,
+            ClipId(0),
+        );
         list.push_clip(ClipId(0), area, BorderRadius::default());
-        let capacities = (list.words.capacity(), list.offsets.capacity(), list.clips.capacity());
+        let capacities = (
+            list.words.capacity(),
+            list.offsets.capacity(),
+            list.clips.capacity(),
+        );
 
         list.clear();
 
         assert!(list.is_empty());
         assert!(list.clips().is_empty());
-        assert_eq!((list.words.capacity(), list.offsets.capacity(), list.clips.capacity()), capacities);
+        assert_eq!(
+            (
+                list.words.capacity(),
+                list.offsets.capacity(),
+                list.clips.capacity()
+            ),
+            capacities
+        );
     }
 
     #[test]
@@ -555,8 +685,16 @@ mod tests {
 
     #[test]
     fn diff_compares_clip_chains_by_value() {
-        let area = LogicalRect { x: 1.0, y: 2.0, width: 30.0, height: 40.0 };
-        let radius = BorderRadius { top_left: 2.0, ..BorderRadius::default() };
+        let area = LogicalRect {
+            x: 1.0,
+            y: 2.0,
+            width: 30.0,
+            height: 40.0,
+        };
+        let radius = BorderRadius {
+            top_left: 2.0,
+            ..BorderRadius::default()
+        };
         let mut old = PaintList::default();
         let old_clip = old.push_clip(ClipId(0), area, radius);
         old.push_text(text(1), bounds(0), old_clip);
@@ -595,11 +733,13 @@ mod tests {
             let mut lengths = [[0usize; 9]; 9];
             for left_index in 0..left.len() {
                 for right_index in 0..right.len() {
-                    lengths[left_index + 1][right_index + 1] = if left[left_index] == right[right_index] {
-                        lengths[left_index][right_index] + 1
-                    } else {
-                        lengths[left_index][right_index + 1].max(lengths[left_index + 1][right_index])
-                    };
+                    lengths[left_index + 1][right_index + 1] =
+                        if left[left_index] == right[right_index] {
+                            lengths[left_index][right_index] + 1
+                        } else {
+                            lengths[left_index][right_index + 1]
+                                .max(lengths[left_index + 1][right_index])
+                        };
                 }
             }
             lengths[left.len()][right.len()]
@@ -612,24 +752,35 @@ mod tests {
         for _ in 0..500 {
             let mut old_values = [0u64; 8];
             let mut new_values = [0u64; 8];
-            random = random.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            random = random
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
             let old_len = ((random >> 32) as usize) % 9;
-            random = random.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            random = random
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
             let new_len = ((random >> 32) as usize) % 9;
             old.clear();
             new.clear();
             for value in &mut old_values[..old_len] {
-                random = random.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                random = random
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1);
                 *value = random >> 61;
                 old.push_text(text(*value), bounds(*value as i32), ClipId(0));
             }
             for value in &mut new_values[..new_len] {
-                random = random.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                random = random
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1);
                 *value = random >> 61;
                 new.push_text(text(*value), bounds(*value as i32), ClipId(0));
             }
             let common = lcs(&old_values[..old_len], &new_values[..new_len]);
-            assert_eq!(differ.diff(&old, &new).len(), old_len + new_len - common * 2);
+            assert_eq!(
+                differ.diff(&old, &new).len(),
+                old_len + new_len - common * 2
+            );
         }
     }
 }

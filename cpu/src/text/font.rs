@@ -28,7 +28,11 @@ impl Scale<GlyphKey, CachedGlyph> for GlyphScale {
 impl FontCache {
     pub fn new(faces: Vec<FontFace>, capacity: usize) -> Self {
         assert!(!faces.is_empty());
-        Self { faces, glyphs: Cache::new(GlyphScale, capacity), rasterizer: Rasterizer::default() }
+        Self {
+            faces,
+            glyphs: Cache::new(GlyphScale, capacity),
+            rasterizer: Rasterizer::default(),
+        }
     }
 
     pub fn font(&self, id: FontId, weight: u16) -> Option<(usize, &Font)> {
@@ -40,13 +44,24 @@ impl FontCache {
             .map(|(index, face)| (index, &face.font))
     }
 
-    pub fn glyph(&mut self, face: usize, glyph: GlyphRasterConfig) -> Result<&CachedGlyph, CachedGlyph> {
+    pub fn glyph(
+        &mut self,
+        face: usize,
+        glyph: GlyphRasterConfig,
+    ) -> Result<&CachedGlyph, CachedGlyph> {
         let key = GlyphKey { face, glyph };
-        let Self { faces, glyphs, rasterizer } = self;
+        let Self {
+            faces,
+            glyphs,
+            rasterizer,
+        } = self;
         glyphs.get_or_insert_with(key, || {
             let font = &faces[key.face].font;
             let (metrics, alpha) = rasterizer.rasterize(font, key.glyph.glyph_id, key.glyph.size);
-            CachedGlyph { metrics, alpha: alpha.into_boxed_slice() }
+            CachedGlyph {
+                metrics,
+                alpha: alpha.into_boxed_slice(),
+            }
         })
     }
 }

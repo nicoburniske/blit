@@ -42,7 +42,13 @@ pub struct TextStyle {
 }
 
 impl Default for TextStyle {
-    fn default() -> Self { Self { font: FontId::default(), size: 16.0, weight: 400 } }
+    fn default() -> Self {
+        Self {
+            font: FontId::default(),
+            size: 16.0,
+            weight: 400,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

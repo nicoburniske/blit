@@ -1,9 +1,9 @@
 use std::ops::Range;
 
-use super::{scroll_area, ScrollArea, ScrollState, SizedWidget};
+use super::{ScrollArea, ScrollState, SizedWidget, scroll_area};
 use crate::{
-    geometry::{LogicalInsets, LogicalRect, LogicalSize},
     Ui,
+    geometry::{LogicalInsets, LogicalRect, LogicalSize},
 };
 
 #[derive(Debug)]
@@ -35,9 +35,13 @@ impl VirtualListState {
         self.offsets_dirty = true;
     }
 
-    pub fn scroll(&self) -> &ScrollState { &self.scroll }
+    pub fn scroll(&self) -> &ScrollState {
+        &self.scroll
+    }
 
-    pub fn scroll_mut(&mut self) -> &mut ScrollState { &mut self.scroll }
+    pub fn scroll_mut(&mut self) -> &mut ScrollState {
+        &mut self.scroll
+    }
 }
 
 pub struct VirtualList<'a> {
@@ -66,7 +70,9 @@ impl<'a> VirtualList<'a> {
         }
     }
 
-    pub fn unmeasured(&self) -> Range<usize> { self.state.measured..self.state.sizes.len() }
+    pub fn unmeasured(&self) -> Range<usize> {
+        self.state.measured..self.state.sizes.len()
+    }
 
     pub fn measure<W: SizedWidget>(
         &mut self,
@@ -75,9 +81,18 @@ impl<'a> VirtualList<'a> {
         index: usize,
         widget: W,
     ) {
-        assert_eq!(index, self.state.measured, "virtual list items must be measured in order");
+        assert_eq!(
+            index, self.state.measured,
+            "virtual list items must be measured in order"
+        );
         let available = viewport.inset(self.padding);
-        self.state.sizes[index] = widget.measure(ui, LogicalRect { height: f32::INFINITY, ..available });
+        self.state.sizes[index] = widget.measure(
+            ui,
+            LogicalRect {
+                height: f32::INFINITY,
+                ..available
+            },
+        );
         self.state.measured += 1;
         self.state.offsets_dirty = true;
     }
@@ -125,7 +140,9 @@ impl<'a> VirtualList<'a> {
             self.state.offsets.reserve(self.state.sizes.len() + 1);
             self.state.offsets.push(0.0);
             for size in &self.state.sizes {
-                self.state.offsets.push(self.state.offsets.last().unwrap() + size.height + self.spacing);
+                self.state
+                    .offsets
+                    .push(self.state.offsets.last().unwrap() + size.height + self.spacing);
             }
             self.state.offsets_dirty = false;
         }
@@ -149,8 +166,12 @@ impl<'a> VirtualList<'a> {
             .begin_with_padding(ui, viewport, |offset, mut padding| {
                 let start_offset = (offset - padding.top).max(0.0);
                 let end_offset = (offset + viewport.height - padding.top).max(0.0);
-                let mut start = offsets.partition_point(|item| *item <= start_offset).saturating_sub(1);
-                let mut end = offsets.partition_point(|item| *item < end_offset).min(sizes.len());
+                let mut start = offsets
+                    .partition_point(|item| *item <= start_offset)
+                    .saturating_sub(1);
+                let mut end = offsets
+                    .partition_point(|item| *item < end_offset)
+                    .min(sizes.len());
                 if !sizes.is_empty() && start == end {
                     if start == sizes.len() {
                         start -= 1;
@@ -164,7 +185,12 @@ impl<'a> VirtualList<'a> {
                 padding
             });
 
-        VirtualListArea { area, range, sizes, next: 0 }
+        VirtualListArea {
+            area,
+            range,
+            sizes,
+            next: 0,
+        }
     }
 }
 
@@ -176,18 +202,34 @@ pub struct VirtualListArea<'a> {
 }
 
 impl VirtualListArea<'_> {
-    pub fn range(&self) -> Range<usize> { self.range.clone() }
-
-    pub fn add<W: SizedWidget>(&mut self, index: usize, widget: W) -> Option<W::Output> {
-        assert_eq!(index, self.range.start + self.next, "virtual list items must be added in order");
-        assert!(index < self.range.end, "virtual list item is outside the visible range");
-        self.next += 1;
-        self.area.add(Measured { widget, size: self.sizes[index] })
+    pub fn range(&self) -> Range<usize> {
+        self.range.clone()
     }
 
-    pub fn ui(&mut self) -> &mut Ui { self.area.ui() }
+    pub fn add<W: SizedWidget>(&mut self, index: usize, widget: W) -> Option<W::Output> {
+        assert_eq!(
+            index,
+            self.range.start + self.next,
+            "virtual list items must be added in order"
+        );
+        assert!(
+            index < self.range.end,
+            "virtual list item is outside the visible range"
+        );
+        self.next += 1;
+        self.area.add(Measured {
+            widget,
+            size: self.sizes[index],
+        })
+    }
 
-    pub fn finish(self) { drop(self) }
+    pub fn ui(&mut self) -> &mut Ui {
+        self.area.ui()
+    }
+
+    pub fn finish(self) {
+        drop(self)
+    }
 }
 
 struct Measured<W> {
@@ -198,7 +240,11 @@ struct Measured<W> {
 impl<W: SizedWidget> SizedWidget for Measured<W> {
     type Output = W::Output;
 
-    fn measure(&self, _: &mut Ui, _: LogicalRect) -> LogicalSize { self.size }
+    fn measure(&self, _: &mut Ui, _: LogicalRect) -> LogicalSize {
+        self.size
+    }
 
-    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output { self.widget.render(ui, area) }
+    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
+        self.widget.render(ui, area)
+    }
 }

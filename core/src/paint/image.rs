@@ -32,7 +32,14 @@ pub struct NineSlice {
 }
 
 impl NineSlice {
-    pub const fn uniform(value: u16) -> Self { Self { top: value, right: value, bottom: value, left: value } }
+    pub const fn uniform(value: u16) -> Self {
+        Self {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

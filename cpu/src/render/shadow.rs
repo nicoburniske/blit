@@ -1,6 +1,8 @@
 use blit::{
     geometry::{LogicalRect, PhysicalRect},
-    paint::{BorderRadius, BoxShadow, ImageFit, ImageRequest, ImageSampling, ImageTiling, Rectangle},
+    paint::{
+        BorderRadius, BoxShadow, ImageFit, ImageRequest, ImageSampling, ImageTiling, Rectangle,
+    },
     resource::{ImageData, ImageFormat, ImageId, ImagePixels},
 };
 use slotmap::{Key, SlotMap};
@@ -37,7 +39,12 @@ pub enum Prepared {
 }
 
 impl Cache {
-    pub fn new(capacity: usize) -> Self { Self { capacity, ..Default::default() } }
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            ..Default::default()
+        }
+    }
 
     pub fn prepare(
         &mut self,
@@ -64,7 +71,9 @@ impl Cache {
             bottom_left: (shadow.radius.bottom_left + shadow.spread).max(0.0),
         };
         if shadow.blur <= 0.0 {
-            return Some(Prepared::Rectangle(Rectangle::new(area).background(shadow.color).radius(radius)));
+            return Some(Prepared::Rectangle(
+                Rectangle::new(area).background(shadow.color).radius(radius),
+            ));
         }
         let shape = area.to_physical(scale_factor);
         if shape.width <= 0 || shape.height <= 0 {
@@ -93,17 +102,28 @@ impl Cache {
             let height = bounds.height as usize;
             let bytes = width.checked_mul(height)?;
             let mut alpha = vec![0u8; bytes];
-            let shape = PhysicalRect { x: key.blur, y: key.blur, width: key.width, height: key.height };
+            let shape = PhysicalRect {
+                x: key.blur,
+                y: key.blur,
+                width: key.width,
+                height: key.height,
+            };
             for y in shape.y..shape.y + shape.height {
                 let line = RoundedLine::new(shape, radii, y)?;
-                for x in line.visible_start().max(shape.x)..line.visible_end().min(shape.x + shape.width) {
+                for x in
+                    line.visible_start().max(shape.x)..line.visible_end().min(shape.x + shape.width)
+                {
                     alpha[y as usize * width + x as usize] = line.coverage(x);
                 }
             }
             let mut scratch = vec![0u8; bytes];
             let radius = key.blur / 3;
             let remainder = key.blur % 3;
-            for radius in [radius + i32::from(remainder > 0), radius + i32::from(remainder > 1), radius] {
+            for radius in [
+                radius + i32::from(remainder > 0),
+                radius + i32::from(remainder > 1),
+                radius,
+            ] {
                 if radius != 0 {
                     box_blur(&alpha, &mut scratch, width, height, radius, true);
                     box_blur(&scratch, &mut alpha, width, height, radius, false);
@@ -116,7 +136,12 @@ impl Cache {
                 height,
             );
             let image = images.insert(StoredImage::new(data));
-            self.entries.push(Entry { key, image, bytes, last_used: self.clock });
+            self.entries.push(Entry {
+                key,
+                image,
+                bytes,
+                last_used: self.clock,
+            });
             self.bytes += bytes;
             image
         };
@@ -161,7 +186,11 @@ fn box_blur(
 ) {
     let radius = radius as usize;
     let divisor = radius * 2 + 1;
-    let (lines, length, stride) = if horizontal { (height, width, 1) } else { (width, height, width) };
+    let (lines, length, stride) = if horizontal {
+        (height, width, 1)
+    } else {
+        (width, height, width)
+    };
     for line in 0..lines {
         let base = if horizontal { line * width } else { line };
         let mut sum = 0usize;

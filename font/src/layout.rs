@@ -1,7 +1,7 @@
 use std::{hash::Hash, mem::size_of};
 
 use blit::paint::{HorizontalAlign, TextWrap, VerticalAlign};
-use unicode_linebreak::{linebreaks, BreakOpportunity};
+use unicode_linebreak::{BreakOpportunity, linebreaks};
 
 use crate::{Font, GlyphId, LineMetrics, Metrics, UnscaledMetrics};
 
@@ -16,7 +16,9 @@ pub struct Layout {
 }
 
 impl Default for Layout {
-    fn default() -> Self { Self::with_metric_cache_capacity(DEFAULT_METRIC_CACHE_CAPACITY) }
+    fn default() -> Self {
+        Self::with_metric_cache_capacity(DEFAULT_METRIC_CACHE_CAPACITY)
+    }
 }
 
 impl Layout {
@@ -82,7 +84,9 @@ impl Layout {
                 .and_then(|slot| self.metrics[slot])
                 .filter(|cached| cached.font == font.id() && cached.character == character)
                 .unwrap_or_else(|| {
-                    let glyph = face.glyph_index(character).map_or(GlyphId(0), |id| GlyphId(id.0));
+                    let glyph = face
+                        .glyph_index(character)
+                        .map_or(GlyphId(0), |id| GlyphId(id.0));
                     let cached = CachedMetrics {
                         font: font.id(),
                         character,
@@ -107,11 +111,17 @@ impl Layout {
                 && pen - line_start_pen + advance > max_width
             {
                 let wrap_at = if settings.wrap == TextWrap::Word {
-                    last_break.filter(|index| *index > line_start).unwrap_or(glyph_index)
+                    last_break
+                        .filter(|index| *index > line_start)
+                        .unwrap_or(glyph_index)
                 } else {
                     glyph_index
                 };
-                let wrap_pen = if wrap_at == glyph_index { pen } else { self.glyphs[wrap_at].pen_x };
+                let wrap_pen = if wrap_at == glyph_index {
+                    pen
+                } else {
+                    self.glyphs[wrap_at].pen_x
+                };
                 self.push_line(line_start, wrap_at, line_start_pen, wrap_pen, metrics);
                 line_start = wrap_at;
                 line_start_pen = wrap_pen;
@@ -155,8 +165,9 @@ impl Layout {
             VerticalAlign::Center => 0.5,
             VerticalAlign::Bottom => 1.0,
         };
-        let vertical_offset =
-            settings.max_height.map_or(0.0, |height| ((height - self.height) * vertical_align).floor());
+        let vertical_offset = settings.max_height.map_or(0.0, |height| {
+            ((height - self.height) * vertical_align).floor()
+        });
         let horizontal_align = match settings.horizontal_align {
             HorizontalAlign::Left => 0.0,
             HorizontalAlign::Center => 0.5,
@@ -165,8 +176,9 @@ impl Layout {
 
         for (index, line) in self.lines.iter_mut().enumerate() {
             let baseline = vertical_offset + metrics.ascent + index as f32 * metrics.new_line_size;
-            let horizontal_offset =
-                settings.max_width.map_or(0.0, |width| ((width - line.width) * horizontal_align).floor());
+            let horizontal_offset = settings.max_width.map_or(0.0, |width| {
+                ((width - line.width) * horizontal_align).floor()
+            });
             line.baseline_y = baseline;
             for glyph in &mut self.glyphs[line.glyph_start..=line.glyph_end] {
                 let offset = horizontal_offset - line.start_x;
@@ -177,11 +189,17 @@ impl Layout {
         }
     }
 
-    pub fn glyphs(&self) -> &[GlyphPosition] { &self.glyphs }
+    pub fn glyphs(&self) -> &[GlyphPosition] {
+        &self.glyphs
+    }
 
-    pub fn lines(&self) -> Option<&[LinePosition]> { (!self.lines.is_empty()).then_some(&self.lines) }
+    pub fn lines(&self) -> Option<&[LinePosition]> {
+        (!self.lines.is_empty()).then_some(&self.lines)
+    }
 
-    pub fn height(&self) -> f32 { self.height }
+    pub fn height(&self) -> f32 {
+        self.height
+    }
 
     pub fn allocated_bytes(&self) -> usize {
         self.glyphs.capacity() * size_of::<GlyphPosition>()
@@ -189,7 +207,14 @@ impl Layout {
             + self.metrics.capacity() * size_of::<Option<CachedMetrics>>()
     }
 
-    fn push_line(&mut self, start: usize, end: usize, start_x: f32, end_x: f32, metrics: LineMetrics) {
+    fn push_line(
+        &mut self,
+        start: usize,
+        end: usize,
+        start_x: f32,
+        end_x: f32,
+        metrics: LineMetrics,
+    ) {
         if start == end {
             return;
         }
@@ -276,7 +301,13 @@ pub struct CharacterData {
 }
 
 impl CharacterData {
-    fn new(character: char) -> Self { Self { control: matches!(character, '\0'..='\u{1f}' | '\u{7f}') } }
+    fn new(character: char) -> Self {
+        Self {
+            control: matches!(character, '\0'..='\u{1f}' | '\u{7f}'),
+        }
+    }
 
-    pub fn is_control(self) -> bool { self.control }
+    pub fn is_control(self) -> bool {
+        self.control
+    }
 }
