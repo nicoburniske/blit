@@ -229,16 +229,18 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
 
             for range in &self.ranges {
                 let first = commands
-                    .opaque_offsets()
+                    .occluding_offsets()
                     .iter()
                     .rev()
                     .find(|command| {
                         let vertical = commands.vertical_bounds(**command);
                         vertical.start <= line
                             && vertical.end > line
-                            && commands.opaque_span(**command, line).is_some_and(|span| {
-                                span.start <= range.start as i32 && span.end >= range.end as i32
-                            })
+                            && commands
+                                .occluding_span(**command, line)
+                                .is_some_and(|span| {
+                                    span.start <= range.start as i32 && span.end >= range.end as i32
+                                })
                     })
                     .map(|command| self.active.binary_search(command).unwrap())
                     .unwrap_or(0);

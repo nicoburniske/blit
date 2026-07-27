@@ -419,6 +419,70 @@ fn renderer_supports_custom_pixel_layouts() {
 }
 
 #[test]
+fn replacement_rectangles_overwrite_stale_pixels() {
+    fn render<S: RenderStrategy<VecBuffer<Argb8888>>>(
+        strategy: S,
+        replace: bool,
+        stale: Argb8888,
+    ) -> Vec<Argb8888> {
+        let mut renderer =
+            Renderer::new(VecBuffer::<Argb8888>::new(12, 10), renderer_config()).strategy(strategy);
+        renderer.buffer_mut().pixels_mut().fill(stale);
+        let screen = renderer.screen();
+        let area = LogicalRect {
+            width: 12.0,
+            height: 10.0,
+            ..LogicalRect::default()
+        };
+        let mut rectangle = Rectangle::new(area)
+            .background(Color::from_rgba8(40, 120, 220, 144))
+            .border(2.0, Color::from_rgba8(240, 80, 30, 192))
+            .uniform_radius(5.0);
+        if replace {
+            rectangle = rectangle.replace(true);
+        }
+        let mut paint = PaintList::default();
+        paint.push_rectangle(rectangle, screen, ClipId::default());
+        renderer.render(&paint, &[screen]);
+        renderer.buffer().pixels().to_vec()
+    }
+
+    let transparent = Argb8888::default();
+    let stale = Argb8888::from_raw(0xff32_6496);
+    let expected = render(Direct::default(), false, transparent);
+    let direct = render(Direct::default(), true, stale);
+    let scanline = render(Scanline::default(), true, stale);
+
+    assert_eq!(direct, expected);
+    assert_eq!(scanline, expected);
+    assert_eq!(expected[0], transparent);
+    assert_ne!(expected[12 / 2 + 10 / 2 * 12], transparent);
+
+    let mut renderer = Renderer::new(VecBuffer::<Argb8888>::new(12, 10), renderer_config());
+    renderer.buffer_mut().pixels_mut().fill(stale);
+    let screen = renderer.screen();
+    let mut paint = PaintList::default();
+    paint.push_rectangle(
+        Rectangle::new(LogicalRect {
+            width: 12.0,
+            height: 10.0,
+            ..LogicalRect::default()
+        })
+        .replace(true),
+        screen,
+        ClipId::default(),
+    );
+    renderer.render(&paint, &[screen]);
+    assert!(
+        renderer
+            .buffer()
+            .pixels()
+            .iter()
+            .all(|pixel| *pixel == transparent)
+    );
+}
+
+#[test]
 fn commands_outside_damage_are_not_prepared() {
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(8, 4), renderer_config());
     let damaged = LogicalRect {
