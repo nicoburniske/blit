@@ -52,7 +52,12 @@ pub struct KeyInput {
 
 impl KeyInput {
     pub const fn new(key: Key) -> Self {
-        Self { key, modifiers: Modifiers::NONE, pressed: true, repeat: false }
+        Self {
+            key,
+            modifiers: Modifiers::NONE,
+            pressed: true,
+            repeat: false,
+        }
     }
 }
 
@@ -105,15 +110,25 @@ impl Modifiers {
         Self(bits)
     }
 
-    pub const fn contains(self, modifiers: Self) -> bool { self.0 & modifiers.0 == modifiers.0 }
+    pub const fn contains(self, modifiers: Self) -> bool {
+        self.0 & modifiers.0 == modifiers.0
+    }
 
-    pub const fn shift(self) -> bool { self.contains(Self::SHIFT) }
+    pub const fn shift(self) -> bool {
+        self.contains(Self::SHIFT)
+    }
 
-    pub const fn control(self) -> bool { self.contains(Self::CONTROL) }
+    pub const fn control(self) -> bool {
+        self.contains(Self::CONTROL)
+    }
 
-    pub const fn alt(self) -> bool { self.contains(Self::ALT) }
+    pub const fn alt(self) -> bool {
+        self.contains(Self::ALT)
+    }
 
-    pub const fn super_key(self) -> bool { self.contains(Self::SUPER) }
+    pub const fn super_key(self) -> bool {
+        self.contains(Self::SUPER)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

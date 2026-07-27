@@ -14,7 +14,12 @@ pub fn prepare(
     mut emit: impl FnMut(Prepared, PhysicalRect),
 ) {
     let geometry = request.area.to_physical(scale_factor);
-    let source = PhysicalRect { x: 0, y: 0, width: texture.size.width, height: texture.size.height };
+    let source = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: texture.size.width,
+        height: texture.size.height,
+    };
     if geometry.width <= 0
         || geometry.height <= 0
         || source.width <= 0
@@ -43,10 +48,24 @@ pub fn prepare(
             (slice.bottom as f32 * scale_factor).round() as i32,
             geometry.height,
         );
-        let source_x = [0, slice.left as i32, source.width - slice.right as i32, source.width];
-        let source_y = [0, slice.top as i32, source.height - slice.bottom as i32, source.height];
-        let destination_x =
-            [geometry.x, geometry.x + left, geometry.x + geometry.width - right, geometry.x + geometry.width];
+        let source_x = [
+            0,
+            slice.left as i32,
+            source.width - slice.right as i32,
+            source.width,
+        ];
+        let source_y = [
+            0,
+            slice.top as i32,
+            source.height - slice.bottom as i32,
+            source.height,
+        ];
+        let destination_x = [
+            geometry.x,
+            geometry.x + left,
+            geometry.x + geometry.width - right,
+            geometry.x + geometry.width,
+        ];
         let destination_y = [
             geometry.y,
             geometry.y + top,
@@ -79,7 +98,11 @@ pub fn prepare(
                         } else {
                             ImageTiling::None
                         },
-                        vertical_tiling: if row == 1 { request.vertical_tiling } else { ImageTiling::None },
+                        vertical_tiling: if row == 1 {
+                            request.vertical_tiling
+                        } else {
+                            ImageTiling::None
+                        },
                     },
                     scale_factor,
                 ) {
@@ -90,8 +113,8 @@ pub fn prepare(
         return;
     }
 
-    let tiled =
-        request.horizontal_tiling != ImageTiling::None || request.vertical_tiling != ImageTiling::None;
+    let tiled = request.horizontal_tiling != ImageTiling::None
+        || request.vertical_tiling != ImageTiling::None;
     let display = if tiled {
         geometry
     } else {
@@ -165,16 +188,25 @@ mod tests {
         clip: PhysicalRect,
         scale_factor: f32,
     ) {
-        prepare(request, texture, clip, scale_factor, |image, clip| image.draw(buffer, texture, &[], clip));
+        prepare(request, texture, clip, scale_factor, |image, clip| {
+            image.draw(buffer, texture, &[], clip)
+        });
     }
 
     #[test]
     fn nearest_scaled_image_respects_clip() {
-        static PIXELS: [u8; 16] = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255];
+        static PIXELS: [u8; 16] = [
+            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+        ];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8, 2, 2);
         let request = ImageRequest {
             image: ImageId(0),
-            area: LogicalRect { x: 0.0, y: 0.0, width: 4.0, height: 4.0 },
+            area: LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 4.0,
+                height: 4.0,
+            },
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
@@ -185,7 +217,18 @@ mod tests {
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(4, 4);
 
-        draw(&mut buffer, &request, &texture, PhysicalRect { x: 1, y: 1, width: 2, height: 2 }, 1.0);
+        draw(
+            &mut buffer,
+            &request,
+            &texture,
+            PhysicalRect {
+                x: 1,
+                y: 1,
+                width: 2,
+                height: 2,
+            },
+            1.0,
+        );
 
         assert_eq!(buffer.pixels()[0].raw(), 0);
         assert_eq!(buffer.pixels()[5].raw(), 0xff0000);
@@ -198,10 +241,20 @@ mod tests {
     #[test]
     fn colorize_uses_rgba_alpha() {
         static PIXELS: [u8; 4] = [16, 8, 4, 128];
-        let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8Premultiplied, 1, 1);
+        let texture = ImageData::new(
+            ImagePixels::Static(&PIXELS),
+            ImageFormat::Rgba8Premultiplied,
+            1,
+            1,
+        );
         let request = ImageRequest {
             image: ImageId(0),
-            area: LogicalRect { x: 0.0, y: 0.0, width: 1.0, height: 1.0 },
+            area: LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            },
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
@@ -212,7 +265,18 @@ mod tests {
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(1, 1);
 
-        draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 1, height: 1 }, 1.0);
+        draw(
+            &mut buffer,
+            &request,
+            &texture,
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+            1.0,
+        );
 
         assert_eq!(buffer.pixels()[0].raw(), 0x808080);
     }
@@ -223,7 +287,12 @@ mod tests {
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8, 2, 1);
         let request = ImageRequest {
             image: ImageId(0),
-            area: LogicalRect { x: 0.0, y: 0.0, width: 3.0, height: 1.0 },
+            area: LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 3.0,
+                height: 1.0,
+            },
             fit: ImageFit::Fill,
             sampling: ImageSampling::Bilinear,
             opacity: 1.0,
@@ -234,18 +303,42 @@ mod tests {
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(3, 1);
 
-        draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 3, height: 1 }, 1.0);
+        draw(
+            &mut buffer,
+            &request,
+            &texture,
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 3,
+                height: 1,
+            },
+            1.0,
+        );
 
-        assert_eq!(buffer.pixels(), [0xff0000, 0x800080, 0x0000ff].map(Xrgb8888::from_raw));
+        assert_eq!(
+            buffer.pixels(),
+            [0xff0000, 0x800080, 0x0000ff].map(Xrgb8888::from_raw)
+        );
     }
 
     #[test]
     fn unscaled_premultiplied_image_applies_opacity() {
         static PIXELS: [u8; 8] = [255, 0, 0, 255, 0, 128, 0, 128];
-        let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8Premultiplied, 2, 1);
+        let texture = ImageData::new(
+            ImagePixels::Static(&PIXELS),
+            ImageFormat::Rgba8Premultiplied,
+            2,
+            1,
+        );
         let request = ImageRequest {
             image: ImageId(0),
-            area: LogicalRect { x: 0.0, y: 0.0, width: 2.0, height: 1.0 },
+            area: LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 2.0,
+                height: 1.0,
+            },
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 0.5,
@@ -256,9 +349,23 @@ mod tests {
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(2, 1);
 
-        draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 2, height: 1 }, 1.0);
+        draw(
+            &mut buffer,
+            &request,
+            &texture,
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 1,
+            },
+            1.0,
+        );
 
-        assert_eq!(buffer.pixels(), [0x800000, 0x004000].map(Xrgb8888::from_raw));
+        assert_eq!(
+            buffer.pixels(),
+            [0x800000, 0x004000].map(Xrgb8888::from_raw)
+        );
     }
 
     #[test]
@@ -267,7 +374,12 @@ mod tests {
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgb8, 2, 1);
         let request = ImageRequest {
             image: ImageId(0),
-            area: LogicalRect { x: 0.0, y: 0.0, width: 5.0, height: 1.0 },
+            area: LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 5.0,
+                height: 1.0,
+            },
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
@@ -278,7 +390,18 @@ mod tests {
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(5, 1);
 
-        draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 5, height: 1 }, 1.0);
+        draw(
+            &mut buffer,
+            &request,
+            &texture,
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 5,
+                height: 1,
+            },
+            1.0,
+        );
 
         assert_eq!(
             buffer.pixels(),
@@ -292,7 +415,12 @@ mod tests {
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgb8, 3, 1);
         let request = ImageRequest {
             image: ImageId(0),
-            area: LogicalRect { x: 0.0, y: 0.0, width: 8.0, height: 1.0 },
+            area: LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 8.0,
+                height: 1.0,
+            },
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
@@ -303,25 +431,43 @@ mod tests {
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(8, 1);
 
-        draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 8, height: 1 }, 1.0);
+        draw(
+            &mut buffer,
+            &request,
+            &texture,
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 8,
+                height: 1,
+            },
+            1.0,
+        );
 
         assert_eq!(
             buffer.pixels(),
-            [0xff0000, 0x00ff00, 0x0000ff, 0xff0000, 0x00ff00, 0x0000ff, 0xff0000, 0x00ff00]
-                .map(Xrgb8888::from_raw)
+            [
+                0xff0000, 0x00ff00, 0x0000ff, 0xff0000, 0x00ff00, 0x0000ff, 0xff0000, 0x00ff00
+            ]
+            .map(Xrgb8888::from_raw)
         );
     }
 
     #[test]
     fn nine_slice_preserves_corners() {
         static PIXELS: [u8; 27] = [
-            255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0, 255, 0, 255, 0, 255, 255, 128, 0, 0, 0, 128, 0, 0,
-            0, 128,
+            255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0, 255, 0, 255, 0, 255, 255, 128, 0, 0, 0,
+            128, 0, 0, 0, 128,
         ];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgb8, 3, 3);
         let request = ImageRequest {
             image: ImageId(0),
-            area: LogicalRect { x: 0.0, y: 0.0, width: 5.0, height: 5.0 },
+            area: LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 5.0,
+                height: 5.0,
+            },
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
@@ -332,7 +478,18 @@ mod tests {
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(5, 5);
 
-        draw(&mut buffer, &request, &texture, PhysicalRect { x: 0, y: 0, width: 5, height: 5 }, 1.0);
+        draw(
+            &mut buffer,
+            &request,
+            &texture,
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 5,
+                height: 5,
+            },
+            1.0,
+        );
 
         assert_eq!(buffer.pixels()[0].raw(), 0xff0000);
         assert_eq!(buffer.pixels()[4].raw(), 0x0000ff);

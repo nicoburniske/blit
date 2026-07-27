@@ -1,5 +1,5 @@
 use super::BorderRadius;
-use crate::{color::Color, geometry::LogicalRect, Ui};
+use crate::{Ui, color::Color, geometry::LogicalRect};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BoxShadow {
@@ -41,8 +41,12 @@ impl BoxShadow {
     }
 
     pub fn uniform_radius(mut self, radius: f32) -> Self {
-        self.radius =
-            BorderRadius { top_left: radius, top_right: radius, bottom_right: radius, bottom_left: radius };
+        self.radius = BorderRadius {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        };
         self
     }
 
@@ -63,5 +67,7 @@ impl BoxShadow {
         }
     }
 
-    pub fn render(self, ui: &mut Ui) { ui.paint_box_shadow(self); }
+    pub fn render(self, ui: &mut Ui) {
+        ui.paint_box_shadow(self);
+    }
 }

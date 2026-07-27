@@ -1,6 +1,6 @@
 use blit::geometry::PhysicalRect;
 
-use super::{raster, RenderStrategy};
+use super::{RenderStrategy, raster};
 use crate::{PixelBuffer, RenderContext};
 
 #[derive(Default)]
@@ -60,7 +60,11 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                         raster::draw_line(
                             &payload,
                             line,
-                            PhysicalRect { y: line, height: 1, ..bounds },
+                            PhysicalRect {
+                                y: line,
+                                height: 1,
+                                ..bounds
+                            },
                             255,
                             images,
                             text,
@@ -105,13 +109,25 @@ fn subtract(area: PhysicalRect, cut: PhysicalRect, output: &mut Vec<PhysicalRect
     let overlap_right = overlap.x + overlap.width;
     let overlap_bottom = overlap.y + overlap.height;
     if area.y < overlap.y {
-        output.push(PhysicalRect { height: overlap.y - area.y, ..area });
+        output.push(PhysicalRect {
+            height: overlap.y - area.y,
+            ..area
+        });
     }
     if overlap_bottom < area_bottom {
-        output.push(PhysicalRect { y: overlap_bottom, height: area_bottom - overlap_bottom, ..area });
+        output.push(PhysicalRect {
+            y: overlap_bottom,
+            height: area_bottom - overlap_bottom,
+            ..area
+        });
     }
     if area.x < overlap.x {
-        output.push(PhysicalRect { y: overlap.y, width: overlap.x - area.x, height: overlap.height, ..area });
+        output.push(PhysicalRect {
+            y: overlap.y,
+            width: overlap.x - area.x,
+            height: overlap.height,
+            ..area
+        });
     }
     if overlap_right < area_right {
         output.push(PhysicalRect {

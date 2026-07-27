@@ -34,7 +34,14 @@ pub struct LogicalInsets {
 }
 
 impl LogicalInsets {
-    pub const fn uniform(value: f32) -> Self { Self { top: value, right: value, bottom: value, left: value } }
+    pub const fn uniform(value: f32) -> Self {
+        Self {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        }
+    }
 }
 
 impl LogicalRect {
@@ -110,7 +117,12 @@ impl LogicalRect {
         let y = (self.y * scale_factor).floor() as i32;
         let right = ((self.x + self.width) * scale_factor).ceil() as i32;
         let bottom = ((self.y + self.height) * scale_factor).ceil() as i32;
-        PhysicalRect { x, y, width: right.saturating_sub(x), height: bottom.saturating_sub(y) }
+        PhysicalRect {
+            x,
+            y,
+            width: right.saturating_sub(x),
+            height: bottom.saturating_sub(y),
+        }
     }
 }
 
@@ -134,9 +146,20 @@ impl PhysicalRect {
     pub fn intersection(self, other: Self) -> Option<Self> {
         let x = self.x.max(other.x);
         let y = self.y.max(other.y);
-        let right = self.x.saturating_add(self.width).min(other.x.saturating_add(other.width));
-        let bottom = self.y.saturating_add(self.height).min(other.y.saturating_add(other.height));
-        (right > x && bottom > y).then_some(Self { x, y, width: right - x, height: bottom - y })
+        let right = self
+            .x
+            .saturating_add(self.width)
+            .min(other.x.saturating_add(other.width));
+        let bottom = self
+            .y
+            .saturating_add(self.height)
+            .min(other.y.saturating_add(other.height));
+        (right > x && bottom > y).then_some(Self {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+        })
     }
 
     pub fn touches(self, other: Self) -> bool {
@@ -152,10 +175,20 @@ impl PhysicalRect {
         Self {
             x,
             y,
-            width: self.x.saturating_add(self.width).max(other.x.saturating_add(other.width)) - x,
-            height: self.y.saturating_add(self.height).max(other.y.saturating_add(other.height)) - y,
+            width: self
+                .x
+                .saturating_add(self.width)
+                .max(other.x.saturating_add(other.width))
+                - x,
+            height: self
+                .y
+                .saturating_add(self.height)
+                .max(other.y.saturating_add(other.height))
+                - y,
         }
     }
 
-    pub fn area(self) -> i64 { self.width as i64 * self.height as i64 }
+    pub fn area(self) -> i64 {
+        self.width as i64 * self.height as i64
+    }
 }

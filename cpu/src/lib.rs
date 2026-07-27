@@ -12,7 +12,9 @@ use blit::{
     resource::{ImageData, ImageId, StringData, StringId, TextSource},
 };
 pub use blit_font::Font;
-pub use pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888};
+pub use pixel::{
+    Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
+};
 use render::{image, image_patch::AlphaRow, rectangle, shadow};
 pub use strategy::{Direct, RenderStrategy, Scanline};
 use strategy::{

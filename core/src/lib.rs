@@ -39,13 +39,21 @@ pub struct Ui {
 }
 
 impl Ui {
-    pub fn platform(&mut self) -> &mut Platform { &mut self.shared_mut().platform }
+    pub fn platform(&mut self) -> &mut Platform {
+        &mut self.shared_mut().platform
+    }
 
-    pub fn screen(&self) -> LogicalRect { self.screen }
+    pub fn screen(&self) -> LogicalRect {
+        self.screen
+    }
 
-    pub fn input(&self) -> &Input { &self.input }
+    pub fn input(&self) -> &Input {
+        &self.input
+    }
 
-    pub fn time(&self) -> Duration { self.time }
+    pub fn time(&self) -> Duration {
+        self.time
+    }
 
     /// animates a value toward `target`, keyed by `id`
     ///
@@ -78,16 +86,28 @@ impl Ui {
         let initial = transitions.map(|transition| transition.target);
         begin_animations(self, ids, initial, |index, animation| {
             let transition = transitions[index];
-            animation.advance(transition.target, transition.duration, transition.easing, time)
+            animation.advance(
+                transition.target,
+                transition.duration,
+                transition.easing,
+                time,
+            )
         })
     }
 
     /// animates a repeating value from `0.0` up to `1.0`, keyed by `id`
     ///
     /// zero duration stops the loop and resets the value
-    pub fn animate_loop(&mut self, id: WidgetId, duration: Duration, easing: Easing) -> AnimationScope<'_> {
+    pub fn animate_loop(
+        &mut self,
+        id: WidgetId,
+        duration: Duration,
+        easing: Easing,
+    ) -> AnimationScope<'_> {
         let time = self.time;
-        begin_animations(self, [id], [0.0], |_, animation| animation.advance_loop(duration, easing, time))
+        begin_animations(self, [id], [0.0], |_, animation| {
+            animation.advance_loop(duration, easing, time)
+        })
     }
 
     /// returns `true` once when `duration` has elapsed for `id`
@@ -105,12 +125,17 @@ impl Ui {
     /// scheduled from the frame that observes it. the timer is removed when it
     /// is not called during a frame; `duration` must not be zero
     pub fn timer_loop(&mut self, id: WidgetId, duration: Duration) -> bool {
-        assert!(!duration.is_zero(), "looping timer duration must not be zero");
+        assert!(
+            !duration.is_zero(),
+            "looping timer duration must not be zero"
+        );
         begin_timer(self, id, duration, Some(duration))
     }
 
     /// creates a [`WidgetId`] beneath the current id scope
-    pub fn id(&self, source: impl std::hash::Hash) -> WidgetId { self.current_id.child(source) }
+    pub fn id(&self, source: impl std::hash::Hash) -> WidgetId {
+        self.current_id.child(source)
+    }
 
     /// begins a nested id scope derived from `source`
     ///
@@ -129,15 +154,26 @@ impl Ui {
     pub fn begin_clip(&mut self, area: LogicalRect) -> ClipScope<'_> {
         let previous = self.clip;
         let previous_paint_clip = self.paint_clip;
-        self.clip = area.to_physical(self.scale_factor).intersection(previous).unwrap_or_default();
-        ClipScope { ui: self, previous, previous_paint_clip }
+        self.clip = area
+            .to_physical(self.scale_factor)
+            .intersection(previous)
+            .unwrap_or_default();
+        ClipScope {
+            ui: self,
+            previous,
+            previous_paint_clip,
+        }
     }
 
     /// limits drawing to the rounded rectangle and interaction to its bounds
     ///
     /// the bounds are intersected with the current clip, allowing scopes to
     /// nest. the previous clip is restored when the returned value is dropped
-    pub fn begin_rounded_clip(&mut self, area: LogicalRect, radius: paint::BorderRadius) -> ClipScope<'_> {
+    pub fn begin_rounded_clip(
+        &mut self,
+        area: LogicalRect,
+        radius: paint::BorderRadius,
+    ) -> ClipScope<'_> {
         let mut scope = self.begin_clip(area);
         if scope.clip.width > 0 && scope.clip.height > 0 {
             let parent = scope.paint_clip;
@@ -151,7 +187,9 @@ impl Ui {
         self.shared_mut().interaction.interact(id, area, sense)
     }
 
-    pub fn is_focused(&self, id: WidgetId) -> bool { self.shared().interaction.is_focused(id) }
+    pub fn is_focused(&self, id: WidgetId) -> bool {
+        self.shared().interaction.is_focused(id)
+    }
 
     pub fn focus(&mut self, id: WidgetId) {
         if self.shared_mut().interaction.focus(id) {
@@ -165,9 +203,13 @@ impl Ui {
         }
     }
 
-    pub fn pointer_position(&self) -> Option<LogicalPoint> { self.shared().interaction.pointer_position() }
+    pub fn pointer_position(&self) -> Option<LogicalPoint> {
+        self.shared().interaction.pointer_position()
+    }
 
-    pub fn request_frame(&mut self) { self.shared_mut().frame_requested = true }
+    pub fn request_frame(&mut self) {
+        self.shared_mut().frame_requested = true
+    }
 
     pub fn invalidate_all(&mut self) {
         let shared = self.shared_mut();
@@ -176,7 +218,11 @@ impl Ui {
     }
 
     pub fn paint_rectangle(&mut self, rectangle: paint::Rectangle<'_>) {
-        let Some(bounds) = rectangle.area.to_physical(self.scale_factor).intersection(self.clip) else {
+        let Some(bounds) = rectangle
+            .area
+            .to_physical(self.scale_factor)
+            .intersection(self.clip)
+        else {
             return;
         };
         let clip = self.paint_clip;
@@ -184,7 +230,11 @@ impl Ui {
     }
 
     pub fn paint_box_shadow(&mut self, shadow: paint::BoxShadow) {
-        let Some(bounds) = shadow.bounds().to_physical(self.scale_factor).intersection(self.clip) else {
+        let Some(bounds) = shadow
+            .bounds()
+            .to_physical(self.scale_factor)
+            .intersection(self.clip)
+        else {
             return;
         };
         let clip = self.paint_clip;
@@ -192,7 +242,11 @@ impl Ui {
     }
 
     pub fn paint_image(&mut self, image: paint::ImageRequest) {
-        let Some(bounds) = image.area.to_physical(self.scale_factor).intersection(self.clip) else {
+        let Some(bounds) = image
+            .area
+            .to_physical(self.scale_factor)
+            .intersection(self.clip)
+        else {
             return;
         };
         let clip = self.paint_clip;
@@ -200,7 +254,11 @@ impl Ui {
     }
 
     pub fn paint_text(&mut self, text: paint::TextRequest) {
-        let Some(bounds) = text.area.to_physical(self.scale_factor).intersection(self.clip) else {
+        let Some(bounds) = text
+            .area
+            .to_physical(self.scale_factor)
+            .intersection(self.clip)
+        else {
             return;
         };
         let clip = self.paint_clip;
@@ -215,13 +273,19 @@ pub struct AnimationScope<'a, const N: usize = 1> {
 }
 
 impl AnimationScope<'_, 1> {
-    pub fn value(&self) -> f32 { self.values[0] }
+    pub fn value(&self) -> f32 {
+        self.values[0]
+    }
 }
 
 impl<const N: usize> AnimationScope<'_, N> {
-    pub fn values(&self) -> [f32; N] { self.values }
+    pub fn values(&self) -> [f32; N] {
+        self.values
+    }
 
-    pub fn is_active(&self) -> bool { self.active.iter().any(|active| *active) }
+    pub fn is_active(&self) -> bool {
+        self.active.iter().any(|active| *active)
+    }
 
     pub fn finish(self) {}
 }
@@ -229,11 +293,15 @@ impl<const N: usize> AnimationScope<'_, N> {
 impl<const N: usize> Deref for AnimationScope<'_, N> {
     type Target = Ui;
 
-    fn deref(&self) -> &Self::Target { self.ui }
+    fn deref(&self) -> &Self::Target {
+        self.ui
+    }
 }
 
 impl<const N: usize> DerefMut for AnimationScope<'_, N> {
-    fn deref_mut(&mut self) -> &mut Self::Target { self.ui }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ui
+    }
 }
 
 pub struct IdScope<'a> {
@@ -242,13 +310,19 @@ pub struct IdScope<'a> {
 }
 
 impl IdScope<'_> {
-    pub fn ui(&mut self) -> &mut Ui { self.ui }
+    pub fn ui(&mut self) -> &mut Ui {
+        self.ui
+    }
 
-    pub fn finish(self) { drop(self) }
+    pub fn finish(self) {
+        drop(self)
+    }
 }
 
 impl Drop for IdScope<'_> {
-    fn drop(&mut self) { self.ui.current_id = self.previous; }
+    fn drop(&mut self) {
+        self.ui.current_id = self.previous;
+    }
 }
 
 pub struct ClipScope<'a> {
@@ -258,17 +332,23 @@ pub struct ClipScope<'a> {
 }
 
 impl ClipScope<'_> {
-    pub fn finish(self) { drop(self) }
+    pub fn finish(self) {
+        drop(self)
+    }
 }
 
 impl Deref for ClipScope<'_> {
     type Target = Ui;
 
-    fn deref(&self) -> &Self::Target { self.ui }
+    fn deref(&self) -> &Self::Target {
+        self.ui
+    }
 }
 
 impl DerefMut for ClipScope<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target { self.ui }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ui
+    }
 }
 
 impl Drop for ClipScope<'_> {
@@ -295,11 +375,17 @@ fn begin_animations<const N: usize>(
             let index = match animations.binary_search_by_key(&id, |animation| animation.id) {
                 Ok(index) => index,
                 Err(index) => {
-                    animations.insert(index, animation::AnimationState::new(id, initial[value_index]));
+                    animations.insert(
+                        index,
+                        animation::AnimationState::new(id, initial[value_index]),
+                    );
                     index
                 }
             };
-            assert!(!animations[index].seen, "duplicate animation WidgetId {id:?}");
+            assert!(
+                !animations[index].seen,
+                "duplicate animation WidgetId {id:?}"
+            );
             advance(value_index, &mut animations[index]);
             (animations[index].value, animations[index].is_active())
         };
@@ -338,7 +424,9 @@ impl Ui {
         unsafe { self.shared.as_mut() }
     }
 
-    fn paint_mut(&mut self) -> &mut PaintList { &mut self.shared_mut().paint }
+    fn paint_mut(&mut self) -> &mut PaintList {
+        &mut self.shared_mut().paint
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -404,11 +492,20 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         }
     }
 
-    pub fn platform(&mut self) -> &mut P { self.platform.as_mut() }
+    pub fn platform(&mut self) -> &mut P {
+        self.platform.as_mut()
+    }
 
-    pub fn erased_platform(&mut self) -> &mut Platform { &mut self.shared.platform }
+    pub fn erased_platform(&mut self) -> &mut Platform {
+        &mut self.shared.platform
+    }
 
-    pub fn render<R>(&mut self, time: Duration, input: Input, render: impl FnOnce(&mut Ui) -> R) -> R {
+    pub fn render<R>(
+        &mut self,
+        time: Duration,
+        input: Input,
+        render: impl FnOnce(&mut Ui) -> R,
+    ) -> R {
         self.shared.frame_requested = false;
         let output = self.record(time, input, render);
         self.commit();
@@ -435,14 +532,24 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         self.shared.frame_requested
             || self.shared.full_repaint
             || self.repaint_buffer == RepaintBuffer::Swapped && !self.previous_damage.is_empty()
-            || self.shared.animations.iter().any(animation::AnimationState::is_active)
+            || self
+                .shared
+                .animations
+                .iter()
+                .any(animation::AnimationState::is_active)
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
-        self.shared.timers.iter().filter_map(timer::TimerState::deadline).min()
+        self.shared
+            .timers
+            .iter()
+            .filter_map(timer::TimerState::deadline)
+            .min()
     }
 
-    pub fn request_frame(&mut self) { self.shared.frame_requested = true }
+    pub fn request_frame(&mut self) {
+        self.shared.frame_requested = true
+    }
 
     pub fn invalidate_all(&mut self) {
         self.shared.frame_requested = true;
@@ -463,7 +570,9 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         self.invalidate_all();
     }
 
-    pub fn screen(&self) -> LogicalRect { self.screen }
+    pub fn screen(&self) -> LogicalRect {
+        self.screen
+    }
 
     fn record<R>(&mut self, time: Duration, input: Input, render: impl FnOnce(&mut Ui) -> R) -> R {
         self.shared.paint.clear();
@@ -473,7 +582,9 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         for timer in &mut self.shared.timers {
             timer.seen = false;
         }
-        self.shared.interaction.begin_frame(&input, self.scale_factor);
+        self.shared
+            .interaction
+            .begin_frame(&input, self.scale_factor);
         let mut ui = Ui {
             shared: NonNull::from(&mut self.shared),
             time,
@@ -501,16 +612,19 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         if std::mem::take(&mut self.shared.full_repaint) {
             self.render_damage.push(self.physical_screen);
         } else {
-            self.render_damage.extend_from_slice(self.differ.diff(&self.previous_paint, &self.shared.paint));
+            self.render_damage
+                .extend_from_slice(self.differ.diff(&self.previous_paint, &self.shared.paint));
         }
         let current_damage_len = self.render_damage.len();
         if self.repaint_buffer == RepaintBuffer::Swapped {
             self.render_damage.extend_from_slice(&self.previous_damage);
         }
-        self.platform.render(&self.shared.paint, &self.render_damage);
+        self.platform
+            .render(&self.shared.paint, &self.render_damage);
         self.previous_damage.clear();
         if self.repaint_buffer == RepaintBuffer::Swapped {
-            self.previous_damage.extend_from_slice(&self.render_damage[..current_damage_len]);
+            self.previous_damage
+                .extend_from_slice(&self.render_damage[..current_damage_len]);
         }
         std::mem::swap(&mut self.previous_paint, &mut self.shared.paint);
     }

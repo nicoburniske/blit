@@ -11,11 +11,27 @@ pub struct TimerState {
 }
 
 impl TimerState {
-    pub fn new(id: WidgetId, duration: Duration, interval: Option<Duration>, now: Duration) -> Self {
-        Self { id, deadline: now.saturating_add(duration), interval, seen: false, fired: false }
+    pub fn new(
+        id: WidgetId,
+        duration: Duration,
+        interval: Option<Duration>,
+        now: Duration,
+    ) -> Self {
+        Self {
+            id,
+            deadline: now.saturating_add(duration),
+            interval,
+            seen: false,
+            fired: false,
+        }
     }
 
-    pub fn advance(&mut self, duration: Duration, interval: Option<Duration>, now: Duration) -> bool {
+    pub fn advance(
+        &mut self,
+        duration: Duration,
+        interval: Option<Duration>,
+        now: Duration,
+    ) -> bool {
         if self.interval != interval {
             self.deadline = now.saturating_add(duration);
             self.interval = interval;
@@ -34,5 +50,7 @@ impl TimerState {
         true
     }
 
-    pub fn deadline(&self) -> Option<Duration> { (!self.fired).then_some(self.deadline) }
+    pub fn deadline(&self) -> Option<Duration> {
+        (!self.fired).then_some(self.deadline)
+    }
 }

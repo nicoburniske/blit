@@ -18,8 +18,8 @@ pub use text_input::{TextInput, TextInputResponse, TextInputState};
 pub use virtual_list::{VirtualList, VirtualListArea, VirtualListState};
 
 use crate::{
-    geometry::{LogicalRect, LogicalSize},
     Ui,
+    geometry::{LogicalRect, LogicalSize},
 };
 
 pub trait SizedWidget {

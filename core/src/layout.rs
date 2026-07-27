@@ -50,7 +50,12 @@ pub struct RepeatedAreas {
 
 impl Default for Layout {
     fn default() -> Self {
-        Self { direction: Direction::Horizontal, align: LayoutAlign::Start, spacing: 0.0, constraints: [] }
+        Self {
+            direction: Direction::Horizontal,
+            align: LayoutAlign::Start,
+            spacing: 0.0,
+            constraints: [],
+        }
     }
 }
 
@@ -71,11 +76,21 @@ impl<const N: usize> Layout<N> {
     }
 
     pub fn constraints<const M: usize>(self, constraints: [Constraint; M]) -> Layout<M> {
-        Layout { direction: self.direction, align: self.align, spacing: self.spacing, constraints }
+        Layout {
+            direction: self.direction,
+            align: self.align,
+            spacing: self.spacing,
+            constraints,
+        }
     }
 
     pub fn repeat(self, constraint: Constraint) -> RepeatedLayout {
-        RepeatedLayout { direction: self.direction, align: self.align, spacing: self.spacing, constraint }
+        RepeatedLayout {
+            direction: self.direction,
+            align: self.align,
+            spacing: self.spacing,
+            constraint,
+        }
     }
 
     pub fn areas(self, area: LogicalRect) -> [LogicalRect; N] {
@@ -101,10 +116,15 @@ impl<const N: usize> Layout<N> {
                     flexible[index] = true;
                     weights[index] = 1.0;
                 }
-                Constraint::Percentage(percent) => sizes[index] = available * percent.max(0.0) / 100.0,
+                Constraint::Percentage(percent) => {
+                    sizes[index] = available * percent.max(0.0) / 100.0
+                }
                 Constraint::Ratio(numerator, denominator) => {
-                    sizes[index] =
-                        if denominator == 0 { 0.0 } else { available * numerator as f32 / denominator as f32 }
+                    sizes[index] = if denominator == 0 {
+                        0.0
+                    } else {
+                        available * numerator as f32 / denominator as f32
+                    }
                 }
                 Constraint::Fill(weight) => {
                     flexible[index] = true;
@@ -138,7 +158,8 @@ impl<const N: usize> Layout<N> {
                 };
                 sizes[index] += added;
                 remaining -= added;
-                if matches!(self.constraints[index], Constraint::Max(maximum) if sizes[index] >= maximum) {
+                if matches!(self.constraints[index], Constraint::Max(maximum) if sizes[index] >= maximum)
+                {
                     flexible[index] = false;
                 }
             }
@@ -160,10 +181,18 @@ impl<const N: usize> Layout<N> {
         std::array::from_fn(|index| {
             let size = sizes[index].min(available).max(0.0);
             let result = match self.direction {
-                Direction::Horizontal => {
-                    LogicalRect { x: cursor, y: area.y, width: size, height: area.height }
-                }
-                Direction::Vertical => LogicalRect { x: area.x, y: cursor, width: area.width, height: size },
+                Direction::Horizontal => LogicalRect {
+                    x: cursor,
+                    y: area.y,
+                    width: size,
+                    height: area.height,
+                },
+                Direction::Vertical => LogicalRect {
+                    x: area.x,
+                    y: cursor,
+                    width: area.width,
+                    height: size,
+                },
             };
             cursor += size + self.spacing;
             result
@@ -178,7 +207,11 @@ impl RepeatedLayout {
             Direction::Vertical => area.height,
         };
         let available = (total - self.spacing * count.saturating_sub(1) as f32).max(0.0);
-        let equal = if count == 0 { 0.0 } else { available / count as f32 };
+        let equal = if count == 0 {
+            0.0
+        } else {
+            available / count as f32
+        };
         let size = match self.constraint {
             Constraint::Length(length) => length.max(0.0),
             Constraint::Min(minimum) => equal.max(minimum),
@@ -211,12 +244,13 @@ impl RepeatedLayout {
             } + match self.align {
                 LayoutAlign::Start => 0.0,
                 LayoutAlign::Center => {
-                    (total - (size * count as f32 + self.spacing * count.saturating_sub(1) as f32)).max(0.0)
+                    (total - (size * count as f32 + self.spacing * count.saturating_sub(1) as f32))
+                        .max(0.0)
                         / 2.0
                 }
-                LayoutAlign::End => {
-                    (total - (size * count as f32 + self.spacing * count.saturating_sub(1) as f32)).max(0.0)
-                }
+                LayoutAlign::End => (total
+                    - (size * count as f32 + self.spacing * count.saturating_sub(1) as f32))
+                    .max(0.0),
             },
             remaining: count,
         }
@@ -231,19 +265,27 @@ impl Iterator for RepeatedAreas {
             return None;
         }
         let area = match self.direction {
-            Direction::Horizontal => {
-                LogicalRect { x: self.cursor, y: self.area.y, width: self.size, height: self.area.height }
-            }
-            Direction::Vertical => {
-                LogicalRect { x: self.area.x, y: self.cursor, width: self.area.width, height: self.size }
-            }
+            Direction::Horizontal => LogicalRect {
+                x: self.cursor,
+                y: self.area.y,
+                width: self.size,
+                height: self.area.height,
+            },
+            Direction::Vertical => LogicalRect {
+                x: self.area.x,
+                y: self.cursor,
+                width: self.area.width,
+                height: self.size,
+            },
         };
         self.cursor += self.size + self.spacing;
         self.remaining -= 1;
         Some(area)
     }
 
-    fn size_hint(&self) -> (usize, Option<usize>) { (self.remaining, Some(self.remaining)) }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
 }
 
 impl ExactSizeIterator for RepeatedAreas {}
@@ -256,7 +298,12 @@ mod tests {
     fn minimum_takes_space_left_by_length() {
         let [main, sidebar] = Layout::default()
             .constraints([Constraint::Min(0.0), Constraint::Length(36.0)])
-            .areas(LogicalRect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 });
+            .areas(LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 50.0,
+            });
 
         assert_eq!(main.width, 64.0);
         assert_eq!(sidebar.x, 64.0);
@@ -269,7 +316,15 @@ mod tests {
             .direction(Direction::Vertical)
             .spacing(2.0)
             .repeat(Constraint::Length(8.0))
-            .areas(LogicalRect { x: 0.0, y: 0.0, width: 20.0, height: 100.0 }, 7);
+            .areas(
+                LogicalRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 20.0,
+                    height: 100.0,
+                },
+                7,
+            );
 
         assert_eq!(areas.len(), 7);
         assert_eq!(areas.last().unwrap().y, 60.0);
@@ -281,7 +336,15 @@ mod tests {
             .align(LayoutAlign::Center)
             .spacing(4.0)
             .repeat(Constraint::Length(8.0))
-            .areas(LogicalRect { x: 0.0, y: 0.0, width: 40.0, height: 10.0 }, 3)
+            .areas(
+                LogicalRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 40.0,
+                    height: 10.0,
+                },
+                3,
+            )
             .collect();
 
         assert_eq!(areas[0].x, 4.0);

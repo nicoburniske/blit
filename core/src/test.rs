@@ -1,6 +1,7 @@
 use std::{cell::Cell, time::Duration};
 
 use crate::{
+    RepaintBuffer, Runtime, Ui,
     animation::{Easing, Transition},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
@@ -9,7 +10,7 @@ use crate::{
     paint,
     paint_list::{ClipId, PaintList},
     platform::PlatformImpl,
-    resource, widget, RepaintBuffer, Runtime, Ui,
+    resource, widget,
 };
 
 #[derive(Default)]
@@ -29,10 +30,15 @@ impl widget::SizedWidget for FixedSize {
     type Output = LogicalRect;
 
     fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
-        LogicalSize { width: available.width, height: self.0 }
+        LogicalSize {
+            width: available.width,
+            height: self.0,
+        }
     }
 
-    fn render(self, _: &mut Ui, area: LogicalRect) -> Self::Output { area }
+    fn render(self, _: &mut Ui, area: LogicalRect) -> Self::Output {
+        area
+    }
 }
 
 impl PlatformImpl for TestPlatform {
@@ -51,11 +57,22 @@ impl PlatformImpl for TestPlatform {
         }
     }
 
-    fn screen(&mut self) -> PhysicalRect { PhysicalRect { x: 0, y: 0, width: 10, height: 10 } }
+    fn screen(&mut self) -> PhysicalRect {
+        PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+        }
+    }
 
-    fn repaint_buffer(&self) -> RepaintBuffer { self.repaint_buffer }
+    fn repaint_buffer(&self) -> RepaintBuffer {
+        self.repaint_buffer
+    }
 
-    fn create_image(&mut self, _: resource::ImageData) -> resource::ImageId { resource::ImageId(0) }
+    fn create_image(&mut self, _: resource::ImageData) -> resource::ImageId {
+        resource::ImageId(0)
+    }
 
     fn drop_image(&mut self, _: resource::ImageId) {}
 
@@ -64,10 +81,15 @@ impl PlatformImpl for TestPlatform {
         resource::StringId(self.strings.len() as u64)
     }
 
-    fn drop_string(&mut self, string: resource::StringId) { self.dead_strings.push(string.0 as usize - 1); }
+    fn drop_string(&mut self, string: resource::StringId) {
+        self.dead_strings.push(string.0 as usize - 1);
+    }
 
     fn string(&self, string: resource::StringId) -> &str {
-        self.strings[string.0 as usize - 1].as_ref().unwrap().as_ref()
+        self.strings[string.0 as usize - 1]
+            .as_ref()
+            .unwrap()
+            .as_ref()
     }
 
     fn text_offset_at_position(&mut self, request: &paint::TextRequest, _: LogicalPoint) -> usize {
@@ -79,18 +101,27 @@ impl PlatformImpl for TestPlatform {
     }
 
     fn measure_text(&mut self, request: &paint::TextRequest) -> LogicalSize {
-        LogicalSize { width: request.area.width, height: request.style.size }
+        LogicalSize {
+            width: request.area.width,
+            height: request.style.size,
+        }
     }
 
-    fn measure_text_height(&mut self, request: &paint::TextRequest) -> f32 { request.style.size }
+    fn measure_text_height(&mut self, request: &paint::TextRequest) -> f32 {
+        request.style.size
+    }
 
-    fn text_cursor_rect(&mut self, request: &paint::TextRequest, _: usize) -> LogicalRect { request.area }
+    fn text_cursor_rect(&mut self, request: &paint::TextRequest, _: usize) -> LogicalRect {
+        request.area
+    }
 
     fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
 }
 
 #[test]
-fn input_stays_compact() { assert_eq!(std::mem::size_of::<Input>(), 20) }
+fn input_stays_compact() {
+    assert_eq!(std::mem::size_of::<Input>(), 20)
+}
 
 #[test]
 fn static_text_uses_no_string_resources() {
@@ -112,18 +143,39 @@ fn static_text_uses_no_string_resources() {
 
 #[test]
 fn paint_changes_produce_automatic_damage() {
-    let screen = PhysicalRect { x: 0, y: 0, width: 10, height: 10 };
-    let first = LogicalRect { x: 1.0, y: 2.0, width: 3.0, height: 4.0 };
-    let second = LogicalRect { x: 5.0, y: 2.0, width: 3.0, height: 4.0 };
+    let screen = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+    };
+    let first = LogicalRect {
+        x: 1.0,
+        y: 2.0,
+        width: 3.0,
+        height: 4.0,
+    };
+    let second = LogicalRect {
+        x: 5.0,
+        y: 2.0,
+        width: 3.0,
+        height: 4.0,
+    };
     let mut runtime = Runtime::new(TestPlatform::default());
 
-    runtime.render(Duration::ZERO, Input::None, |ui| paint::Rectangle::new(first).render(ui));
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        paint::Rectangle::new(first).render(ui)
+    });
     assert_eq!(runtime.platform().damage, [screen]);
 
-    runtime.render(Duration::ZERO, Input::None, |ui| paint::Rectangle::new(first).render(ui));
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        paint::Rectangle::new(first).render(ui)
+    });
     assert!(runtime.platform().damage.is_empty());
 
-    runtime.render(Duration::ZERO, Input::None, |ui| paint::Rectangle::new(second).render(ui));
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        paint::Rectangle::new(second).render(ui)
+    });
     assert_eq!(runtime.platform().damage.len(), 2);
     assert!(runtime.platform().damage.contains(&first.to_physical(1.0)));
     assert!(runtime.platform().damage.contains(&second.to_physical(1.0)));
@@ -131,8 +183,16 @@ fn paint_changes_produce_automatic_damage() {
 
 #[test]
 fn swapped_buffer_replays_semantic_damage_once() {
-    let screen = PhysicalRect { x: 0, y: 0, width: 10, height: 10 };
-    let platform = TestPlatform { repaint_buffer: RepaintBuffer::Swapped, ..TestPlatform::default() };
+    let screen = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+    };
+    let platform = TestPlatform {
+        repaint_buffer: RepaintBuffer::Swapped,
+        ..TestPlatform::default()
+    };
     let mut runtime = Runtime::new(platform);
 
     runtime.render(Duration::ZERO, Input::None, |_| {});
@@ -146,8 +206,18 @@ fn swapped_buffer_replays_semantic_damage_once() {
 
 #[test]
 fn render_batch_commits_only_the_final_scene() {
-    let first = LogicalRect { x: 0.0, y: 0.0, width: 2.0, height: 2.0 };
-    let second = LogicalRect { x: 8.0, y: 8.0, width: 2.0, height: 2.0 };
+    let first = LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 2.0,
+        height: 2.0,
+    };
+    let second = LogicalRect {
+        x: 8.0,
+        y: 8.0,
+        width: 2.0,
+        height: 2.0,
+    };
     let mut runtime = Runtime::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |_| {});
 
@@ -181,7 +251,9 @@ fn render_batch_processes_each_input() {
     let mut runtime = Runtime::new(TestPlatform::default());
     let button = runtime.erased_platform().create_string("button");
     let area = runtime.screen();
-    runtime.render(Duration::ZERO, Input::None, |ui| widget::Button::new(&button).render(ui, area));
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        widget::Button::new(&button).render(ui, area)
+    });
 
     let mut clicked = false;
     runtime.render_batch(
@@ -212,8 +284,13 @@ fn scroll_area_advances_by_widget_height() {
     let viewport = runtime.screen();
 
     let positions = runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut area = widget::ScrollArea::vertical(&mut state).spacing(1.0).begin(ui, viewport);
-        let positions = [area.add(FixedSize(8.0)).unwrap().y, area.add(FixedSize(8.0)).unwrap().y];
+        let mut area = widget::ScrollArea::vertical(&mut state)
+            .spacing(1.0)
+            .begin(ui, viewport);
+        let positions = [
+            area.add(FixedSize(8.0)).unwrap().y,
+            area.add(FixedSize(8.0)).unwrap().y,
+        ];
         area.finish();
         positions
     });
@@ -231,23 +308,35 @@ fn scroll_area_advances_by_widget_height() {
             phase: crate::input::ScrollPhase::Moved,
         },
         |ui| {
-            let mut area = widget::ScrollArea::vertical(&mut state).spacing(1.0).begin(ui, viewport);
+            let mut area = widget::ScrollArea::vertical(&mut state)
+                .spacing(1.0)
+                .begin(ui, viewport);
             area.add(FixedSize(8.0));
             area.add(FixedSize(8.0));
             area.finish();
         },
     );
     let positions = runtime.render(Duration::from_millis(25), Input::None, |ui| {
-        let mut area = widget::ScrollArea::vertical(&mut state).spacing(1.0).begin(ui, viewport);
-        let positions = [area.add(FixedSize(8.0)).unwrap().y, area.add(FixedSize(8.0)).unwrap().y];
+        let mut area = widget::ScrollArea::vertical(&mut state)
+            .spacing(1.0)
+            .begin(ui, viewport);
+        let positions = [
+            area.add(FixedSize(8.0)).unwrap().y,
+            area.add(FixedSize(8.0)).unwrap().y,
+        ];
         area.finish();
         positions
     });
     assert!(positions[0] < 0.0 && positions[0] > -3.0);
 
     let positions = runtime.render(Duration::from_millis(50), Input::None, |ui| {
-        let mut area = widget::ScrollArea::vertical(&mut state).spacing(1.0).begin(ui, viewport);
-        let positions = [area.add(FixedSize(8.0)).unwrap().y, area.add(FixedSize(8.0)).unwrap().y];
+        let mut area = widget::ScrollArea::vertical(&mut state)
+            .spacing(1.0)
+            .begin(ui, viewport);
+        let positions = [
+            area.add(FixedSize(8.0)).unwrap().y,
+            area.add(FixedSize(8.0)).unwrap().y,
+        ];
         area.finish();
         positions
     });
@@ -257,27 +346,56 @@ fn scroll_area_advances_by_widget_height() {
 #[test]
 fn logical_rect_rounds_outward_to_pixels() {
     assert_eq!(
-        LogicalRect { x: 1.2, y: 2.8, width: 3.1, height: 4.1 }.to_physical(1.0),
-        PhysicalRect { x: 1, y: 2, width: 4, height: 5 }
+        LogicalRect {
+            x: 1.2,
+            y: 2.8,
+            width: 3.1,
+            height: 4.1
+        }
+        .to_physical(1.0),
+        PhysicalRect {
+            x: 1,
+            y: 2,
+            width: 4,
+            height: 5
+        }
     );
 }
 
 #[test]
 fn logical_rect_can_be_inset_by_axis() {
     assert_eq!(
-        LogicalRect { x: 10.0, y: 20.0, width: 100.0, height: 80.0 }.inset_x(10.0).inset_y(5.0),
-        LogicalRect { x: 20.0, y: 25.0, width: 80.0, height: 70.0 }
+        LogicalRect {
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 80.0
+        }
+        .inset_x(10.0)
+        .inset_y(5.0),
+        LogicalRect {
+            x: 20.0,
+            y: 25.0,
+            width: 80.0,
+            height: 70.0
+        }
     );
 }
 
 #[test]
 fn text_input_edits_at_utf8_cursor_boundaries() {
     let mut runtime = Runtime::new(TestPlatform::default());
-    let area = LogicalRect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 };
+    let area = LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 10.0,
+        height: 10.0,
+    };
     let mut input = widget::TextInputState::default();
     input.text = "aé🙂".into();
-    let render =
-        |ui: &mut Ui, input: &mut widget::TextInputState| widget::TextInput::new(input).render(ui, area);
+    let render = |ui: &mut Ui, input: &mut widget::TextInputState| {
+        widget::TextInput::new(input).render(ui, area)
+    };
 
     runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut input));
     runtime.render(
@@ -300,31 +418,55 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
         |ui| render(ui, &mut input),
     );
 
-    runtime.render(Duration::ZERO, Input::Key(KeyInput::new(Key::Backspace)), |ui| render(ui, &mut input));
+    runtime.render(
+        Duration::ZERO,
+        Input::Key(KeyInput::new(Key::Backspace)),
+        |ui| render(ui, &mut input),
+    );
     assert_eq!(input.text, "aé");
 
-    runtime.render(Duration::ZERO, Input::Key(KeyInput::new(Key::ArrowLeft)), |ui| render(ui, &mut input));
-    runtime.render(Duration::ZERO, Input::Key(KeyInput::new(Key::Delete)), |ui| render(ui, &mut input));
+    runtime.render(
+        Duration::ZERO,
+        Input::Key(KeyInput::new(Key::ArrowLeft)),
+        |ui| render(ui, &mut input),
+    );
+    runtime.render(
+        Duration::ZERO,
+        Input::Key(KeyInput::new(Key::Delete)),
+        |ui| render(ui, &mut input),
+    );
     assert_eq!(input.text, "a");
 
-    let response = runtime.render(Duration::ZERO, Input::Text('界'), |ui| render(ui, &mut input));
+    let response = runtime.render(Duration::ZERO, Input::Text('界'), |ui| {
+        render(ui, &mut input)
+    });
     assert!(response.edited);
     assert_eq!(input.text, "a界");
 
-    let response =
-        runtime.render(Duration::ZERO, Input::Key(KeyInput::new(Key::Enter)), |ui| render(ui, &mut input));
+    let response = runtime.render(
+        Duration::ZERO,
+        Input::Key(KeyInput::new(Key::Enter)),
+        |ui| render(ui, &mut input),
+    );
     assert!(response.accepted);
 
     let response = runtime.render(
         Duration::ZERO,
-        Input::Key(KeyInput { pressed: false, ..KeyInput::new(Key::Backspace) }),
+        Input::Key(KeyInput {
+            pressed: false,
+            ..KeyInput::new(Key::Backspace)
+        }),
         |ui| render(ui, &mut input),
     );
     assert!(!response.edited);
     assert_eq!(input.text, "a界");
 
     input.text = "e\u{301}".into();
-    runtime.render(Duration::ZERO, Input::Key(KeyInput::new(Key::Backspace)), |ui| render(ui, &mut input));
+    runtime.render(
+        Duration::ZERO,
+        Input::Key(KeyInput::new(Key::Backspace)),
+        |ui| render(ui, &mut input),
+    );
     assert!(input.text.is_empty());
 }
 
@@ -354,7 +496,10 @@ fn scroll_drag_cancels_button_click() {
     );
     runtime.render(
         Duration::ZERO,
-        Input::PointerMove { position: LogicalPoint { x: 5.0, y: -5.0 }, modifiers: Modifiers::NONE },
+        Input::PointerMove {
+            position: LogicalPoint { x: 5.0, y: -5.0 },
+            modifiers: Modifiers::NONE,
+        },
         |ui| render(ui, &mut state),
     );
     let response = runtime.render(
@@ -378,7 +523,9 @@ fn scroll_area_measures_but_does_not_render_offscreen_widgets() {
     let viewport = runtime.screen();
 
     let third = runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut area = widget::ScrollArea::vertical(&mut state).spacing(1.0).begin(ui, viewport);
+        let mut area = widget::ScrollArea::vertical(&mut state)
+            .spacing(1.0)
+            .begin(ui, viewport);
         assert!(area.add(FixedSize(8.0)).is_some());
         assert!(area.add(FixedSize(8.0)).is_some());
         let third = area.add(FixedSize(8.0));
@@ -403,7 +550,10 @@ fn virtual_list_measures_once_and_renders_visible_items() {
 
         fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
             self.measures.set(self.measures.get() + 1);
-            LogicalSize { width: available.width, height: self.height }
+            LogicalSize {
+                width: available.width,
+                height: self.height,
+            }
         }
 
         fn render(self, _: &mut Ui, area: LogicalRect) -> Self::Output {
@@ -426,13 +576,24 @@ fn virtual_list_measures_once_and_renders_visible_items() {
                 ui,
                 viewport,
                 index,
-                CountedSize { height: heights[index], measures: &measures, renders: &renders },
+                CountedSize {
+                    height: heights[index],
+                    measures: &measures,
+                    renders: &renders,
+                },
             );
         }
         let mut area = list.begin(ui, viewport);
         let range = area.range();
         for index in range.clone() {
-            area.add(index, CountedSize { height: heights[index], measures: &measures, renders: &renders });
+            area.add(
+                index,
+                CountedSize {
+                    height: heights[index],
+                    measures: &measures,
+                    renders: &renders,
+                },
+            );
         }
         range
     });
@@ -448,7 +609,14 @@ fn virtual_list_measures_once_and_renders_visible_items() {
         let mut area = list.begin(ui, viewport);
         let range = area.range();
         for index in range.clone() {
-            area.add(index, CountedSize { height: heights[index], measures: &measures, renders: &renders });
+            area.add(
+                index,
+                CountedSize {
+                    height: heights[index],
+                    measures: &measures,
+                    renders: &renders,
+                },
+            );
         }
         range
     });
@@ -463,7 +631,9 @@ fn button_click_requires_matching_press_and_release() {
     let button = runtime.erased_platform().create_string("button");
     let area = runtime.screen();
 
-    runtime.render(Duration::ZERO, Input::None, |ui| widget::Button::new(&button).render(ui, area));
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        widget::Button::new(&button).render(ui, area)
+    });
     runtime.render(
         Duration::ZERO,
         Input::PointerDown {
@@ -489,7 +659,10 @@ fn button_click_requires_matching_press_and_release() {
 
 #[test]
 fn pointer_damage_renders_immediately_and_replays_once() {
-    let platform = TestPlatform { repaint_buffer: RepaintBuffer::Swapped, ..TestPlatform::default() };
+    let platform = TestPlatform {
+        repaint_buffer: RepaintBuffer::Swapped,
+        ..TestPlatform::default()
+    };
     let mut runtime = Runtime::new(platform);
     let button = runtime.erased_platform().create_string("button");
     let area = runtime.screen();
@@ -511,7 +684,10 @@ fn pointer_damage_renders_immediately_and_replays_once() {
         },
         |ui| widget::Button::new(&button).render(ui, area),
     );
-    assert_eq!(runtime.platform().damage, [area.to_physical(1.0), area.to_physical(1.0)]);
+    assert_eq!(
+        runtime.platform().damage,
+        [area.to_physical(1.0), area.to_physical(1.0)]
+    );
     assert!(runtime.has_pending_redraw());
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
@@ -525,14 +701,25 @@ fn focus_moves_between_text_inputs() {
     let mut runtime = Runtime::new(TestPlatform::default());
     let mut first = widget::TextInputState::default();
     let mut second = widget::TextInputState::default();
-    let first_area = LogicalRect { x: 0.0, y: 0.0, width: 10.0, height: 5.0 };
-    let second_area = LogicalRect { y: 5.0, ..first_area };
-    let render = |ui: &mut Ui, first: &mut widget::TextInputState, second: &mut widget::TextInputState| {
-        widget::TextInput::new(first).render(ui, first_area);
-        widget::TextInput::new(second).render(ui, second_area);
+    let first_area = LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 10.0,
+        height: 5.0,
     };
+    let second_area = LogicalRect {
+        y: 5.0,
+        ..first_area
+    };
+    let render =
+        |ui: &mut Ui, first: &mut widget::TextInputState, second: &mut widget::TextInputState| {
+            widget::TextInput::new(first).render(ui, first_area);
+            widget::TextInput::new(second).render(ui, second_area);
+        };
 
-    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut first, &mut second));
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        render(ui, &mut first, &mut second)
+    });
     runtime.render(
         Duration::ZERO,
         Input::PointerDown {
@@ -542,7 +729,9 @@ fn focus_moves_between_text_inputs() {
         },
         |ui| render(ui, &mut first, &mut second),
     );
-    runtime.render(Duration::ZERO, Input::Text('x'), |ui| render(ui, &mut first, &mut second));
+    runtime.render(Duration::ZERO, Input::Text('x'), |ui| {
+        render(ui, &mut first, &mut second)
+    });
 
     assert!(first.text.is_empty());
     assert_eq!(second.text, "x");
@@ -601,8 +790,18 @@ fn stored_widget_id_is_not_changed_by_scope() {
 fn clip_scopes_limit_paint_and_restore_the_parent_clip() {
     for rounded in [false, true] {
         let mut runtime = Runtime::new(TestPlatform::default());
-        let clip = LogicalRect { x: 2.0, y: 2.0, width: 4.0, height: 4.0 };
-        let outside = LogicalRect { x: 8.0, y: 8.0, width: 2.0, height: 2.0 };
+        let clip = LogicalRect {
+            x: 2.0,
+            y: 2.0,
+            width: 4.0,
+            height: 4.0,
+        };
+        let outside = LogicalRect {
+            x: 8.0,
+            y: 8.0,
+            width: 2.0,
+            height: 2.0,
+        };
 
         runtime.render(Duration::ZERO, Input::None, |ui| {
             let screen = ui.screen();
@@ -617,9 +816,15 @@ fn clip_scopes_limit_paint_and_restore_the_parent_clip() {
             paint::Rectangle::new(outside).render(ui);
         });
 
-        assert_eq!(runtime.platform().paint_bounds, [clip.to_physical(1.0), outside.to_physical(1.0)]);
+        assert_eq!(
+            runtime.platform().paint_bounds,
+            [clip.to_physical(1.0), outside.to_physical(1.0)]
+        );
         assert_eq!(runtime.platform().clip_count, usize::from(rounded));
-        assert_eq!(runtime.platform().paint_clips[0] != ClipId::default(), rounded);
+        assert_eq!(
+            runtime.platform().paint_clips[0] != ClipId::default(),
+            rounded
+        );
         assert_eq!(runtime.platform().paint_clips[1], ClipId::default());
     }
 }
@@ -646,8 +851,9 @@ fn animation_is_keyed_and_target_driven() {
     let id = WidgetId::new("offset");
     let duration = Duration::from_millis(100);
 
-    let initial = runtime
-        .render(Duration::ZERO, Input::None, |ui| ui.animate(id, 0.0, duration, Easing::Linear).value());
+    let initial = runtime.render(Duration::ZERO, Input::None, |ui| {
+        ui.animate(id, 0.0, duration, Easing::Linear).value()
+    });
     let started = runtime.render(Duration::from_millis(10), Input::None, |ui| {
         ui.animate(id, 10.0, duration, Easing::Linear).value()
     });
@@ -690,10 +896,11 @@ fn grouped_animations_advance_independently() {
         let animation = ui.animate_values(id, transitions(15.0, 20.0));
         (animation.values(), animation.is_active())
     });
-    let (finished, finished_active) = runtime.render(Duration::from_millis(210), Input::None, |ui| {
-        let animation = ui.animate_values(id, transitions(15.0, 20.0));
-        (animation.values(), animation.is_active())
-    });
+    let (finished, finished_active) =
+        runtime.render(Duration::from_millis(210), Input::None, |ui| {
+            let animation = ui.animate_values(id, transitions(15.0, 20.0));
+            (animation.values(), animation.is_active())
+        });
 
     assert_eq!(changed, [5.0, 5.0]);
     assert_eq!(middle, [10.0, 10.0]);
@@ -704,17 +911,27 @@ fn grouped_animations_advance_independently() {
 
 #[test]
 fn swapped_animation_damage_history_is_bounded() {
-    let platform = TestPlatform { repaint_buffer: RepaintBuffer::Swapped, ..TestPlatform::default() };
+    let platform = TestPlatform {
+        repaint_buffer: RepaintBuffer::Swapped,
+        ..TestPlatform::default()
+    };
     let mut runtime = Runtime::new(platform);
     let id = WidgetId::new("bounded animation damage");
     let render = |ui: &mut Ui, target| {
         let mut animation = ui.animate(id, target, Duration::ZERO, Easing::Linear);
-        paint::Rectangle::new(LogicalRect { x: animation.value(), y: 0.0, width: 2.0, height: 2.0 })
-            .render(&mut animation);
+        paint::Rectangle::new(LogicalRect {
+            x: animation.value(),
+            y: 0.0,
+            width: 2.0,
+            height: 2.0,
+        })
+        .render(&mut animation);
     };
     {
         let mut frame = |target, time| {
-            runtime.render(Duration::from_millis(time), Input::None, |ui| render(ui, target));
+            runtime.render(Duration::from_millis(time), Input::None, |ui| {
+                render(ui, target)
+            });
             runtime.platform().damage.clone()
         };
 
@@ -733,11 +950,20 @@ fn swapped_animation_damage_history_is_bounded() {
 fn immediate_animation_does_not_replay_on_reused_buffer() {
     let mut runtime = Runtime::new(TestPlatform::default());
     let id = WidgetId::new("immediate animation");
-    let old = LogicalRect { x: 0.0, y: 0.0, width: 2.0, height: 2.0 };
+    let old = LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 2.0,
+        height: 2.0,
+    };
     let new = LogicalRect { x: 8.0, ..old };
     let render = |ui: &mut Ui, target| {
         let mut animation = ui.animate(id, target, Duration::ZERO, Easing::Linear);
-        paint::Rectangle::new(LogicalRect { x: animation.value(), ..old }).render(&mut animation);
+        paint::Rectangle::new(LogicalRect {
+            x: animation.value(),
+            ..old
+        })
+        .render(&mut animation);
     };
 
     runtime.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
@@ -755,14 +981,24 @@ fn nested_animations_can_paint_through_their_scopes() {
     let mut runtime = Runtime::new(TestPlatform::default());
     let outer_id = WidgetId::new("outer animation");
     let inner_id = WidgetId::new("inner animation");
-    let area = LogicalRect { x: 2.0, y: 3.0, width: 4.0, height: 5.0 };
+    let area = LogicalRect {
+        x: 2.0,
+        y: 3.0,
+        width: 4.0,
+        height: 5.0,
+    };
 
     let (offset, opacity) = runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut outer = ui.animate(outer_id, 2.0, Duration::ZERO, Easing::Linear);
         let offset = outer.value();
         let mut inner = outer.animate(inner_id, 0.5, Duration::ZERO, Easing::Linear);
         let opacity = inner.value();
-        paint::Rectangle::new(LogicalRect { x: area.x + offset, ..area }).opacity(opacity).render(&mut inner);
+        paint::Rectangle::new(LogicalRect {
+            x: area.x + offset,
+            ..area
+        })
+        .opacity(opacity)
+        .render(&mut inner);
         (offset, opacity)
     });
 
@@ -776,18 +1012,21 @@ fn looping_animation_repeats() {
     let id = WidgetId::new("looping animation");
 
     let value = runtime.render(Duration::from_millis(100), Input::None, |ui| {
-        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear).value()
+        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear)
+            .value()
     });
     assert_eq!(value, 0.0);
     assert!(runtime.has_pending_redraw());
 
     let value = runtime.render(Duration::from_millis(350), Input::None, |ui| {
-        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear).value()
+        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear)
+            .value()
     });
     assert_eq!(value, 0.25);
 
     let value = runtime.render(Duration::from_millis(1350), Input::None, |ui| {
-        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear).value()
+        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear)
+            .value()
     });
     assert_eq!(value, 0.25);
     assert!(runtime.has_pending_redraw());
@@ -809,20 +1048,29 @@ fn timers_fire_and_report_the_next_deadline() {
         assert!(!ui.timer(once, Duration::from_millis(100)));
         assert!(!ui.timer_loop(repeating, Duration::from_millis(50)));
     });
-    assert_eq!(runtime.next_timer_deadline(), Some(Duration::from_millis(60)));
+    assert_eq!(
+        runtime.next_timer_deadline(),
+        Some(Duration::from_millis(60))
+    );
     assert!(!runtime.has_pending_redraw());
 
     runtime.render(Duration::from_millis(60), Input::None, |ui| {
         assert!(!ui.timer(once, Duration::from_millis(100)));
         assert!(ui.timer_loop(repeating, Duration::from_millis(50)));
     });
-    assert_eq!(runtime.next_timer_deadline(), Some(Duration::from_millis(110)));
+    assert_eq!(
+        runtime.next_timer_deadline(),
+        Some(Duration::from_millis(110))
+    );
 
     runtime.render(Duration::from_millis(110), Input::None, |ui| {
         assert!(ui.timer(once, Duration::from_millis(100)));
         assert!(ui.timer_loop(repeating, Duration::from_millis(50)));
     });
-    assert_eq!(runtime.next_timer_deadline(), Some(Duration::from_millis(160)));
+    assert_eq!(
+        runtime.next_timer_deadline(),
+        Some(Duration::from_millis(160))
+    );
 
     runtime.render(Duration::from_millis(111), Input::None, |ui| {
         assert!(!ui.timer(once, Duration::from_millis(100)));
@@ -858,7 +1106,10 @@ fn only_topmost_widget_is_hovered() {
     runtime.render(Duration::ZERO, Input::None, &render);
     let (back, front) = runtime.render(
         Duration::ZERO,
-        Input::PointerMove { position: LogicalPoint { x: 5.0, y: 5.0 }, modifiers: Modifiers::NONE },
+        Input::PointerMove {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            modifiers: Modifiers::NONE,
+        },
         render,
     );
 

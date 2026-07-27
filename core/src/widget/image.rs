@@ -1,10 +1,10 @@
 use super::SizedWidget;
 use crate::{
+    Ui,
     color::Color,
     geometry::{LogicalRect, LogicalSize},
     paint::{ImageFit, ImageRequest, ImageSampling, ImageTiling, NineSlice},
     resource::ImageHandle,
-    Ui,
 };
 
 crate::widget! {
@@ -57,11 +57,19 @@ impl SizedWidget for Image<'_> {
 
     fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
         let size = self.resource.size();
-        let height =
-            if size.width == 0 { 0.0 } else { available.width * size.height as f32 / size.width as f32 }
-                .min(available.height);
-        LogicalSize { width: available.width, height }
+        let height = if size.width == 0 {
+            0.0
+        } else {
+            available.width * size.height as f32 / size.width as f32
+        }
+        .min(available.height);
+        LogicalSize {
+            width: available.width,
+            height,
+        }
     }
 
-    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output { Image::render(self, ui, area) }
+    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
+        Image::render(self, ui, area)
+    }
 }

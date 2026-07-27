@@ -82,16 +82,22 @@ impl RoundedLine {
         })
     }
 
-    pub fn visible_start(self) -> i32 { self.x.saturating_add(self.left_start.floor() as i32) }
-
-    pub fn visible_end(self) -> i32 {
-        self.x.saturating_add(self.right_end.ceil().min(self.width as u32) as i32)
+    pub fn visible_start(self) -> i32 {
+        self.x.saturating_add(self.left_start.floor() as i32)
     }
 
-    pub fn full_start(self) -> i32 { self.x.saturating_add(self.left_end.ceil() as i32) }
+    pub fn visible_end(self) -> i32 {
+        self.x
+            .saturating_add(self.right_end.ceil().min(self.width as u32) as i32)
+    }
+
+    pub fn full_start(self) -> i32 {
+        self.x.saturating_add(self.left_end.ceil() as i32)
+    }
 
     pub fn full_end(self) -> i32 {
-        self.x.saturating_add(self.right_start.floor().min(self.width as u32) as i32)
+        self.x
+            .saturating_add(self.right_start.floor().min(self.width as u32) as i32)
     }
 
     pub fn coverage(self, x: i32) -> u8 {
@@ -132,14 +138,24 @@ pub struct RoundedGradient {
     pub bottom_clip: i32,
 }
 
-pub fn draw_line<P: Pixel>(span: PhysicalRect, line: i32, rounded: &RoundedRectangle, row: &mut [P]) {
+pub fn draw_line<P: Pixel>(
+    span: PhysicalRect,
+    line: i32,
+    rounded: &RoundedRectangle,
+    row: &mut [P],
+) {
     let width = row.len();
     let (y, border, [x1, x2, x3, x4, x5, x6, x7, x8]) = line_edges(
         span,
         line,
         rounded.radii,
         rounded.border_width,
-        [rounded.left_clip, rounded.right_clip, rounded.top_clip, rounded.bottom_clip],
+        [
+            rounded.left_clip,
+            rounded.right_clip,
+            rounded.top_clip,
+            rounded.bottom_clip,
+        ],
         width,
     );
     let anti_alias = |x1: Shifted, x2: Shifted, process_pixel: &mut dyn FnMut(usize, u32)| {
@@ -150,7 +166,11 @@ pub fn draw_line<P: Pixel>(span: PhysicalRect, line: i32, rounded: &RoundedRecta
 
     anti_alias(x1, x2, &mut |x, coverage| {
         if x < width {
-            let color = if border == Shifted::ZERO { rounded.inner_color } else { rounded.border_color };
+            let color = if border == Shifted::ZERO {
+                rounded.inner_color
+            } else {
+                rounded.border_color
+            };
             row[x].blend(color.coverage(coverage));
         }
     });
@@ -171,7 +191,11 @@ pub fn draw_line<P: Pixel>(span: PhysicalRect, line: i32, rounded: &RoundedRecta
             }
             anti_alias(x3, x4, &mut |x, coverage| {
                 if x < width {
-                    row[x].blend(interpolate(coverage, rounded.border_color, rounded.inner_color));
+                    row[x].blend(interpolate(
+                        coverage,
+                        rounded.border_color,
+                        rounded.inner_color,
+                    ));
                 }
             });
         }
@@ -183,7 +207,11 @@ pub fn draw_line<P: Pixel>(span: PhysicalRect, line: i32, rounded: &RoundedRecta
         if border > Shifted::ZERO {
             anti_alias(x5, x6, &mut |x, coverage| {
                 if x < width {
-                    row[x].blend(interpolate(coverage, rounded.inner_color, rounded.border_color));
+                    row[x].blend(interpolate(
+                        coverage,
+                        rounded.inner_color,
+                        rounded.border_color,
+                    ));
                 }
             });
             if Shifted::ONE + x6 <= x7 {
@@ -197,7 +225,11 @@ pub fn draw_line<P: Pixel>(span: PhysicalRect, line: i32, rounded: &RoundedRecta
     }
     anti_alias(x7, x8, &mut |x, coverage| {
         if x < width {
-            let color = if border == Shifted::ZERO { rounded.inner_color } else { rounded.border_color };
+            let color = if border == Shifted::ZERO {
+                rounded.inner_color
+            } else {
+                rounded.border_color
+            };
             row[x].blend(color.coverage(255 - coverage));
         }
     });
@@ -216,7 +248,12 @@ pub fn draw_gradient_line<P: Pixel>(
         line,
         rounded.radii,
         rounded.border_width,
-        [rounded.left_clip, rounded.right_clip, rounded.top_clip, rounded.bottom_clip],
+        [
+            rounded.left_clip,
+            rounded.right_clip,
+            rounded.top_clip,
+            rounded.bottom_clip,
+        ],
         width,
     );
     for x in x1.floor()..x2.ceil() {
@@ -267,7 +304,9 @@ pub fn draw_gradient_line<P: Pixel>(
     for x in x7.floor()..x8.ceil() {
         let x = x as usize;
         if x < width {
-            row[x].blend(border_color(span.x + x as i32).coverage(255 - edge_coverage(x7, x8, x as i32)));
+            row[x].blend(
+                border_color(span.x + x as i32).coverage(255 - edge_coverage(x7, x8, x as i32)),
+            );
         }
     }
 }
@@ -341,34 +380,50 @@ struct Shifted(u32);
 impl Add for Shifted {
     type Output = Self;
 
-    fn add(self, other: Self) -> Self { Self(self.0 + other.0) }
+    fn add(self, other: Self) -> Self {
+        Self(self.0 + other.0)
+    }
 }
 
 impl Sub for Shifted {
     type Output = Self;
 
-    fn sub(self, other: Self) -> Self { Self(self.0 - other.0) }
+    fn sub(self, other: Self) -> Self {
+        Self(self.0 - other.0)
+    }
 }
 
 impl Mul for Shifted {
     type Output = Self;
 
-    fn mul(self, other: Self) -> Self { Self(self.0 * other.0) }
+    fn mul(self, other: Self) -> Self {
+        Self(self.0 * other.0)
+    }
 }
 
 impl Shifted {
     const ONE: Self = Self(1 << 4);
     const ZERO: Self = Self(0);
 
-    fn new(value: i32) -> Self { Self((value.max(0) as u32) << 4) }
+    fn new(value: i32) -> Self {
+        Self((value.max(0) as u32) << 4)
+    }
 
-    fn floor(self) -> u32 { self.0 >> 4 }
+    fn floor(self) -> u32 {
+        self.0 >> 4
+    }
 
-    fn ceil(self) -> u32 { (self.0 + Self::ONE.0 - 1) >> 4 }
+    fn ceil(self) -> u32 {
+        (self.0 + Self::ONE.0 - 1) >> 4
+    }
 
-    fn saturating_sub(self, other: Self) -> Self { Self(self.0.saturating_sub(other.0)) }
+    fn saturating_sub(self, other: Self) -> Self {
+        Self(self.0.saturating_sub(other.0))
+    }
 
-    fn sqrt(self) -> Self { Self(self.0.isqrt()) }
+    fn sqrt(self) -> Self {
+        Self(self.0.isqrt())
+    }
 }
 
 fn calculate_edges(radius: i32, y: i32, border: Shifted) -> (Shifted, Shifted, Shifted, Shifted) {
@@ -377,8 +432,10 @@ fn calculate_edges(radius: i32, y: i32, border: Shifted) -> (Shifted, Shifted, S
     let y = radius - Shifted::new(y);
     let inner_radius = radius.saturating_sub(border);
     let x4 = radius - (inner_radius * inner_radius).saturating_sub(y * y).sqrt();
-    let x3 =
-        radius - (inner_radius * inner_radius).saturating_sub((y - Shifted::ONE) * (y - Shifted::ONE)).sqrt();
+    let x3 = radius
+        - (inner_radius * inner_radius)
+            .saturating_sub((y - Shifted::ONE) * (y - Shifted::ONE))
+            .sqrt();
     (x1, x2, x3, x4)
 }
 
@@ -386,7 +443,10 @@ fn outer_edges(radius: i32, y: i32) -> (Shifted, Shifted) {
     let radius = Shifted::new(radius);
     let y = radius - Shifted::new(y);
     let x2 = radius - (radius * radius).saturating_sub(y * y).sqrt();
-    let x1 = radius - (radius * radius).saturating_sub((y - Shifted::ONE) * (y - Shifted::ONE)).sqrt();
+    let x1 = radius
+        - (radius * radius)
+            .saturating_sub((y - Shifted::ONE) * (y - Shifted::ONE))
+            .sqrt();
     (x1, x2)
 }
 

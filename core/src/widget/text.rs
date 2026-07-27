@@ -1,10 +1,12 @@
 use super::SizedWidget;
 use crate::{
+    Ui,
     color::Color,
     geometry::{LogicalRect, LogicalSize},
-    paint::{HorizontalAlign, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap, VerticalAlign},
+    paint::{
+        HorizontalAlign, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap, VerticalAlign,
+    },
     resource::TextSource,
-    Ui,
 };
 
 crate::widget! {
@@ -49,7 +51,10 @@ impl Text {
     pub fn measure_exact(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize {
         let request = TextRequest {
             text: self.text,
-            area: LogicalRect { height: 0.0, ..available },
+            area: LogicalRect {
+                height: 0.0,
+                ..available
+            },
             offset_x: self.offset_x,
             color: self.color,
             style: self.text_style,
@@ -85,7 +90,10 @@ impl SizedWidget for Text {
         options.vertical_align = VerticalAlign::Top;
         let request = TextRequest {
             text: self.text,
-            area: LogicalRect { height: 0.0, ..available },
+            area: LogicalRect {
+                height: 0.0,
+                ..available
+            },
             offset_x: self.offset_x,
             color: self.color,
             style: self.text_style,
@@ -94,7 +102,10 @@ impl SizedWidget for Text {
         };
         LogicalSize {
             width: available.width,
-            height: ui.platform().measure_text_height(&request).min(available.height),
+            height: ui
+                .platform()
+                .measure_text_height(&request)
+                .min(available.height),
         }
     }
 

@@ -29,7 +29,14 @@ pub fn draw_line<B: PixelBuffer>(
                 &covered
             };
             let x = buffer.x_offset() as i32;
-            rectangle.draw_line(line, clip, PixelSpan { x, pixels: buffer.line_mut(line as usize) });
+            rectangle.draw_line(
+                line,
+                clip,
+                PixelSpan {
+                    x,
+                    pixels: buffer.line_mut(line as usize),
+                },
+            );
         }
         Payload::GradientRectangle(rectangle, stops) => {
             let x = buffer.x_offset() as i32;
@@ -38,7 +45,10 @@ pub fn draw_line<B: PixelBuffer>(
                 line,
                 clip,
                 coverage,
-                PixelSpan { x, pixels: buffer.line_mut(line as usize) },
+                PixelSpan {
+                    x,
+                    pixels: buffer.line_mut(line as usize),
+                },
             );
         }
         Payload::Image(request) => {
@@ -69,7 +79,10 @@ pub fn draw_line<B: PixelBuffer>(
                 command.area,
                 color,
                 line,
-                PixelSpan { x, pixels: buffer.line_mut(line as usize) },
+                PixelSpan {
+                    x,
+                    pixels: buffer.line_mut(line as usize),
+                },
                 clip,
             );
         }

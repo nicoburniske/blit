@@ -11,7 +11,9 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-pub use layout::{CharacterData, GlyphPosition, GlyphRasterConfig, Layout, LayoutSettings, LinePosition};
+pub use layout::{
+    CharacterData, GlyphPosition, GlyphRasterConfig, Layout, LayoutSettings, LinePosition,
+};
 pub use raster::Rasterizer;
 use ttf_parser::{Face, FaceParsingError, Rect};
 
@@ -30,16 +32,24 @@ pub struct Font {
 impl Font {
     pub fn from_static(data: &'static [u8]) -> Result<Self, InvalidFont> {
         Face::parse(data, 0).map_err(InvalidFont)?;
-        Ok(Self { data: FontData::Static(data), id: NEXT_FONT_ID.fetch_add(1, Ordering::Relaxed) })
+        Ok(Self {
+            data: FontData::Static(data),
+            id: NEXT_FONT_ID.fetch_add(1, Ordering::Relaxed),
+        })
     }
 
     pub fn from_owned(data: Box<[u8]>) -> Result<Self, InvalidFont> {
         Face::parse(&data, 0).map_err(InvalidFont)?;
-        Ok(Self { data: FontData::Owned(data), id: NEXT_FONT_ID.fetch_add(1, Ordering::Relaxed) })
+        Ok(Self {
+            data: FontData::Owned(data),
+            id: NEXT_FONT_ID.fetch_add(1, Ordering::Relaxed),
+        })
     }
 
     pub fn glyph_id(&self, character: char) -> GlyphId {
-        self.face().glyph_index(character).map_or(GlyphId(0), |id| GlyphId(id.0))
+        self.face()
+            .glyph_index(character)
+            .map_or(GlyphId(0), |id| GlyphId(id.0))
     }
 
     pub fn metrics(&self, glyph: GlyphId, size: f32) -> Metrics {
@@ -61,15 +71,23 @@ impl Font {
         }
     }
 
-    fn id(&self) -> usize { self.id }
+    fn id(&self) -> usize {
+        self.id
+    }
 
     fn metrics_from_face(face: &Face<'_>, glyph: GlyphId, size: f32) -> Metrics {
-        Self::scale_metrics(Self::unscaled_metrics_from_face(face, glyph), face.units_per_em(), size)
+        Self::scale_metrics(
+            Self::unscaled_metrics_from_face(face, glyph),
+            face.units_per_em(),
+            size,
+        )
     }
 
     fn unscaled_metrics_from_face(face: &Face<'_>, glyph: GlyphId) -> UnscaledMetrics {
         UnscaledMetrics {
-            advance_width: face.glyph_hor_advance(ttf_parser::GlyphId(glyph.0)).unwrap_or(0),
+            advance_width: face
+                .glyph_hor_advance(ttf_parser::GlyphId(glyph.0))
+                .unwrap_or(0),
             bounds: face.glyph_bounding_box(ttf_parser::GlyphId(glyph.0)),
         }
     }
@@ -82,7 +100,10 @@ impl Font {
         let scale = size / units_per_em as f32;
         let advance_width = metrics.advance_width as f32 * scale;
         let Some(bounds) = metrics.bounds else {
-            return Metrics { advance_width, ..Metrics::default() };
+            return Metrics {
+                advance_width,
+                ..Metrics::default()
+            };
         };
         let bounds = OutlineBounds {
             xmin: bounds.x_min as f32 * scale,
@@ -116,7 +137,12 @@ impl Font {
         let ascent = face.ascender() as f32 * scale;
         let descent = face.descender() as f32 * scale;
         let line_gap = face.line_gap() as f32 * scale;
-        LineMetrics { ascent, descent, line_gap, new_line_size: ascent - descent + line_gap }
+        LineMetrics {
+            ascent,
+            descent,
+            line_gap,
+            new_line_size: ascent - descent + line_gap,
+        }
     }
 }
 

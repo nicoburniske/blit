@@ -32,7 +32,11 @@ pub struct Transition {
 
 impl Transition {
     pub const fn new(target: f32, duration: Duration, easing: Easing) -> Self {
-        Self { target, duration, easing }
+        Self {
+            target,
+            duration,
+            easing,
+        }
     }
 }
 
@@ -63,7 +67,9 @@ impl AnimationState {
         }
     }
 
-    pub fn is_active(&self) -> bool { self.started_at.is_some() }
+    pub fn is_active(&self) -> bool {
+        self.started_at.is_some()
+    }
 
     pub fn advance(&mut self, target: f32, duration: Duration, easing: Easing, now: Duration) {
         if self.looping {
@@ -73,8 +79,9 @@ impl AnimationState {
             self.looping = false;
         }
         if let Some(started_at) = self.started_at {
-            let progress =
-                (now.saturating_sub(started_at).as_secs_f32() / self.duration.as_secs_f32()).min(1.0);
+            let progress = (now.saturating_sub(started_at).as_secs_f32()
+                / self.duration.as_secs_f32())
+            .min(1.0);
             self.value = self.start + (self.target - self.start) * self.easing.apply(progress);
             if progress == 1.0 {
                 self.value = self.target;

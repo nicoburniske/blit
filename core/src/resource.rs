@@ -65,12 +65,18 @@ impl ImageData {
     pub fn new(pixels: ImagePixels, format: ImageFormat, width: usize, height: usize) -> Self {
         let width = i32::try_from(width).expect("image width is too large");
         let height = i32::try_from(height).expect("image height is too large");
-        let stride_bytes =
-            (width as usize).checked_mul(format.bytes_per_pixel()).expect("image width is too large");
+        let stride_bytes = (width as usize)
+            .checked_mul(format.bytes_per_pixel())
+            .expect("image width is too large");
         let texture = Self {
             pixels,
             size: PhysicalSize { width, height },
-            texture_rect: PhysicalRect { x: 0, y: 0, width, height },
+            texture_rect: PhysicalRect {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            },
             stride_bytes,
             format,
         };
@@ -82,16 +88,18 @@ impl ImageData {
         assert!(self.size.width > 0 && self.size.height > 0);
         assert!(self.texture_rect.x >= 0 && self.texture_rect.y >= 0);
         assert!(self.texture_rect.width > 0 && self.texture_rect.height > 0);
-        assert!(self
-            .texture_rect
-            .x
-            .checked_add(self.texture_rect.width)
-            .is_some_and(|right| right <= self.size.width));
-        assert!(self
-            .texture_rect
-            .y
-            .checked_add(self.texture_rect.height)
-            .is_some_and(|bottom| bottom <= self.size.height));
+        assert!(
+            self.texture_rect
+                .x
+                .checked_add(self.texture_rect.width)
+                .is_some_and(|right| right <= self.size.width)
+        );
+        assert!(
+            self.texture_rect
+                .y
+                .checked_add(self.texture_rect.height)
+                .is_some_and(|bottom| bottom <= self.size.height)
+        );
         let row_bytes = (self.texture_rect.width as usize)
             .checked_mul(self.format.bytes_per_pixel())
             .expect("image row is too large");
@@ -118,25 +126,45 @@ impl ImageHandle {
     pub fn empty() -> Self {
         Self {
             id: ImageId(0),
-            size: PhysicalSize { width: 0, height: 0 },
+            size: PhysicalSize {
+                width: 0,
+                height: 0,
+            },
             platform: None,
             not_send_or_sync: PhantomData,
         }
     }
 
-    pub(crate) fn new(id: ImageId, size: PhysicalSize, platform: NonNull<dyn PlatformImpl>) -> Self {
-        Self { id, size, platform: Some(platform), not_send_or_sync: PhantomData }
+    pub(crate) fn new(
+        id: ImageId,
+        size: PhysicalSize,
+        platform: NonNull<dyn PlatformImpl>,
+    ) -> Self {
+        Self {
+            id,
+            size,
+            platform: Some(platform),
+            not_send_or_sync: PhantomData,
+        }
     }
 
-    pub fn id(&self) -> ImageId { self.id }
+    pub fn id(&self) -> ImageId {
+        self.id
+    }
 
-    pub fn size(&self) -> PhysicalSize { self.size }
+    pub fn size(&self) -> PhysicalSize {
+        self.size
+    }
 
-    pub fn is_empty(&self) -> bool { self.platform.is_none() }
+    pub fn is_empty(&self) -> bool {
+        self.platform.is_none()
+    }
 }
 
 impl Default for ImageHandle {
-    fn default() -> Self { Self::empty() }
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 impl Drop for ImageHandle {
@@ -165,15 +193,21 @@ impl AsRef<str> for StringData {
 }
 
 impl From<Box<str>> for StringData {
-    fn from(string: Box<str>) -> Self { Self::Owned(string) }
+    fn from(string: Box<str>) -> Self {
+        Self::Owned(string)
+    }
 }
 
 impl From<String> for StringData {
-    fn from(string: String) -> Self { Self::Owned(string.into_boxed_str()) }
+    fn from(string: String) -> Self {
+        Self::Owned(string.into_boxed_str())
+    }
 }
 
 impl From<&'static str> for StringData {
-    fn from(string: &'static str) -> Self { Self::Static(string) }
+    fn from(string: &'static str) -> Self {
+        Self::Static(string)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -216,19 +250,27 @@ impl Hash for TextSource {
 }
 
 impl From<StringId> for TextSource {
-    fn from(string: StringId) -> Self { Self::Resource(string) }
+    fn from(string: StringId) -> Self {
+        Self::Resource(string)
+    }
 }
 
 impl From<&StringHandle> for TextSource {
-    fn from(string: &StringHandle) -> Self { Self::Resource(string.id()) }
+    fn from(string: &StringHandle) -> Self {
+        Self::Resource(string.id())
+    }
 }
 
 impl From<&mut StringHandle> for TextSource {
-    fn from(string: &mut StringHandle) -> Self { Self::Resource(string.id()) }
+    fn from(string: &mut StringHandle) -> Self {
+        Self::Resource(string.id())
+    }
 }
 
 impl From<&'static str> for TextSource {
-    fn from(string: &'static str) -> Self { Self::Static(string) }
+    fn from(string: &'static str) -> Self {
+        Self::Static(string)
+    }
 }
 
 #[derive(Debug)]
@@ -238,9 +280,13 @@ pub struct StringHandle {
 }
 
 impl StringHandle {
-    pub(crate) fn new(id: StringId, platform: Platform) -> Self { Self { id, platform } }
+    pub(crate) fn new(id: StringId, platform: Platform) -> Self {
+        Self { id, platform }
+    }
 
-    pub fn id(&self) -> StringId { self.id }
+    pub fn id(&self) -> StringId {
+        self.id
+    }
 
     pub fn replace(&mut self, string: impl Into<StringData>) {
         let platform = self.platform.inner();
@@ -250,22 +296,32 @@ impl StringHandle {
     }
 
     pub fn edit(&mut self) -> StringGuard<'_> {
-        StringGuard { handle: self, string: OnceCell::new(), dirty: false }
+        StringGuard {
+            handle: self,
+            string: OnceCell::new(),
+            dirty: false,
+        }
     }
 }
 
 impl AsRef<StringHandle> for StringHandle {
-    fn as_ref(&self) -> &StringHandle { self }
+    fn as_ref(&self) -> &StringHandle {
+        self
+    }
 }
 
 impl Deref for StringHandle {
     type Target = str;
 
-    fn deref(&self) -> &Self::Target { self.platform.inner().string(self.id) }
+    fn deref(&self) -> &Self::Target {
+        self.platform.inner().string(self.id)
+    }
 }
 
 impl fmt::Display for StringHandle {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result { formatter.write_str(self) }
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self)
+    }
 }
 
 impl Drop for StringHandle {
@@ -284,7 +340,9 @@ pub struct StringGuard<'a> {
 impl Deref for StringGuard<'_> {
     type Target = String;
 
-    fn deref(&self) -> &Self::Target { self.string.get_or_init(|| (**self.handle).to_owned()) }
+    fn deref(&self) -> &Self::Target {
+        self.string.get_or_init(|| (**self.handle).to_owned())
+    }
 }
 
 impl DerefMut for StringGuard<'_> {

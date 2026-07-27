@@ -14,6 +14,11 @@ impl Color {
     pub const WHITE: Self = Self::from_rgba8(255, 255, 255, 255);
 
     pub const fn from_rgba8(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
-        Self { red, green, blue, alpha }
+        Self {
+            red,
+            green,
+            blue,
+            alpha,
+        }
     }
 }
