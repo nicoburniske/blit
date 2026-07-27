@@ -229,7 +229,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
 
             for range in &self.ranges {
                 let first = commands
-                    .occluding_offsets()
+                    .overwrite_offsets()
                     .iter()
                     .rev()
                     .find(|command| {
@@ -237,7 +237,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         vertical.start <= line
                             && vertical.end > line
                             && commands
-                                .occluding_span(**command, line)
+                                .overwrite_span(**command, line)
                                 .is_some_and(|span| {
                                     span.start <= range.start as i32 && span.end >= range.end as i32
                                 })
@@ -278,7 +278,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 let partial_opaque = commands.partial_opaque_offsets();
                 let partial_opaque = &partial_opaque
                     [partial_opaque.partition_point(|command| *command <= self.active[first])..];
-                let occluder = partial_opaque.iter().rev().find_map(|command| {
+                let overwrite = partial_opaque.iter().rev().find_map(|command| {
                     let command_first = self.active.binary_search(command).ok()?;
                     let Payload::Image(image) = commands.get(*command) else {
                         unreachable!()
@@ -323,9 +323,9 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             );
                         }
                     };
-                    if let Some((start, end, occluder)) = occluder {
+                    if let Some((start, end, overwrite)) = overwrite {
                         draw(first, range.start, start);
-                        draw(occluder, start, end);
+                        draw(overwrite, start, end);
                         draw(first, end, range.end);
                     } else {
                         draw(first, range.start, range.end);
