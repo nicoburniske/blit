@@ -69,14 +69,14 @@ impl Prepared {
         })
     }
 
-    pub fn is_occluding(&self) -> bool {
+    pub fn overwrites(&self) -> bool {
         self.replace
             || self.inner_color.alpha == 255
                 && (self.border_width == 0 || self.border_color.alpha == 255)
     }
 
-    pub fn occluding_span(&self, line: i32) -> Option<Range<i32>> {
-        if !self.is_occluding()
+    pub fn overwrite_span(&self, line: i32) -> Option<Range<i32>> {
+        if !self.overwrites()
             || line < self.geometry.y
             || line >= self.geometry.y + self.geometry.height
         {
@@ -230,11 +230,11 @@ impl Gradient {
         })
     }
 
-    pub fn is_occluding(&self) -> bool {
+    pub fn overwrites(&self) -> bool {
         self.replace
     }
 
-    pub fn occluding_span(&self, line: i32) -> Option<Range<i32>> {
+    pub fn overwrite_span(&self, line: i32) -> Option<Range<i32>> {
         (self.replace && line >= self.geometry.y && line < self.geometry.y + self.geometry.height)
             .then_some(self.geometry.x..self.geometry.x + self.geometry.width)
     }

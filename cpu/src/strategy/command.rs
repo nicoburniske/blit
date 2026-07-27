@@ -17,7 +17,7 @@ const TEXT: u8 = 3;
 #[derive(Default)]
 pub struct CommandList {
     words: Vec<Word>,
-    occluding: Vec<usize>,
+    overwrites: Vec<usize>,
     partial_opaque: Vec<usize>,
     has_translucent_image: bool,
     pub has_clips: bool,
@@ -49,8 +49,8 @@ impl CommandList {
         bounds: PhysicalRect,
         clip: ClipId,
     ) {
-        if clip == 0 && rectangle.is_occluding() {
-            self.occluding.push(self.words.len());
+        if clip == 0 && rectangle.overwrites() {
+            self.overwrites.push(self.words.len());
         }
         self.push(RECTANGLE, rectangle, bounds, clip)
     }
@@ -76,8 +76,8 @@ impl CommandList {
             bounds,
             clip,
         );
-        if pushed && clip == 0 && rectangle.is_occluding() {
-            self.occluding.push(offset);
+        if pushed && clip == 0 && rectangle.overwrites() {
+            self.overwrites.push(offset);
         }
         pushed
     }
@@ -92,7 +92,7 @@ impl CommandList {
     ) {
         let opaque = image.is_opaque(texture_opaque);
         if clip == 0 && opaque {
-            self.occluding.push(self.words.len());
+            self.overwrites.push(self.words.len());
         } else if clip == 0
             && self.has_translucent_image
             && image.has_opaque_spans(texture_has_opaque_spans)
@@ -171,20 +171,20 @@ impl CommandList {
         self.header(offset).clip
     }
 
-    pub fn occluding_offsets(&self) -> &[usize] {
-        &self.occluding
+    pub fn overwrite_offsets(&self) -> &[usize] {
+        &self.overwrites
     }
 
     pub fn partial_opaque_offsets(&self) -> &[usize] {
         &self.partial_opaque
     }
 
-    pub fn occluding_span(&self, offset: usize, line: i32) -> Option<std::ops::Range<i32>> {
+    pub fn overwrite_span(&self, offset: usize, line: i32) -> Option<std::ops::Range<i32>> {
         let bounds = self.horizontal_bounds(offset);
         let span = match self.get(offset) {
-            Payload::Rectangle(rectangle) => rectangle.occluding_span(line)?,
+            Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
             Payload::Image(_) => bounds.clone(),
-            Payload::GradientRectangle(rectangle, _) => rectangle.occluding_span(line)?,
+            Payload::GradientRectangle(rectangle, _) => rectangle.overwrite_span(line)?,
             Payload::Text(_) => return None,
         };
         let start = span.start.max(bounds.start);
@@ -201,7 +201,7 @@ impl CommandList {
 
     pub fn clear(&mut self) {
         self.words.clear();
-        self.occluding.clear();
+        self.overwrites.clear();
         self.partial_opaque.clear();
         self.has_translucent_image = false;
         self.has_clips = false;
