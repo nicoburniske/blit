@@ -77,6 +77,7 @@ impl PaintList {
                 border,
                 radius: rectangle.radius,
                 opacity: rectangle.opacity,
+                replace: rectangle.replace,
             },
             stops,
             bounds,
@@ -136,6 +137,7 @@ impl PaintList {
                     border,
                     radius: stored.radius,
                     opacity: stored.opacity,
+                    replace: stored.replace,
                 })
             }
             IMAGE => Command::Image(unsafe { record_value::<ImageRequest>(record) }),
@@ -442,6 +444,7 @@ struct StoredRectangle {
     border: StoredBorder,
     radius: BorderRadius,
     opacity: f32,
+    replace: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -550,7 +553,8 @@ mod tests {
             ];
             let rectangle = Rectangle::new(area)
                 .background(Color::GRAY)
-                .gradient_border(2.0, LinearGradient::new(&stops).angle(45.0));
+                .gradient_border(2.0, LinearGradient::new(&stops).angle(45.0))
+                .replace(true);
             list.push_rectangle(rectangle, bounds, clip);
         }
         let image = ImageRequest {
@@ -594,6 +598,7 @@ mod tests {
             panic!()
         };
         assert_eq!(width, 2.0);
+        assert!(stored.replace);
         assert_eq!(gradient.angle_degrees, 45.0);
         assert_eq!(gradient.stops[0].color, Color::BLACK);
         assert_eq!(

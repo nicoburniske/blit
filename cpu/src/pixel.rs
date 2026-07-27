@@ -50,6 +50,10 @@ pub struct Rgb8Pixel {
 }
 
 pub trait Pixel: Copy {
+    fn replace(&mut self, color: PremultipliedRgbaColor) {
+        *self = Self::from_premultiplied(color);
+    }
+
     /// composites `color`, skipping transparent colors and replacing opaque pixels
     #[inline(always)]
     fn blend(&mut self, color: PremultipliedRgbaColor) {
@@ -63,10 +67,18 @@ pub trait Pixel: Copy {
     /// composites `color`; `blend` only calls this when alpha is in `1..=254`
     fn blend_translucent(&mut self, color: PremultipliedRgbaColor);
 
+    fn from_premultiplied(color: PremultipliedRgbaColor) -> Self {
+        Self::from_rgb(color.red, color.green, color.blue)
+    }
+
     fn from_rgb(red: u8, green: u8, blue: u8) -> Self;
 
     fn background() -> Self {
         Self::from_rgb(0, 0, 0)
+    }
+
+    fn replace_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
+        pixels.fill(Self::from_premultiplied(color));
     }
 
     fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
@@ -153,6 +165,20 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
             ((((self.0 & ALPHA) >> shift) * inverse / 255 + color.alpha as u32) << shift) & ALPHA
         };
         self.0 = red << RED | green << GREEN | blue << BLUE | alpha;
+    }
+
+    fn from_premultiplied(color: PremultipliedRgbaColor) -> Self {
+        let alpha = if ALPHA == 0 {
+            0
+        } else {
+            (color.alpha as u32) << ALPHA.trailing_zeros()
+        };
+        Self(
+            (color.red as u32) << RED
+                | (color.green as u32) << GREEN
+                | (color.blue as u32) << BLUE
+                | alpha,
+        )
     }
 
     fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
