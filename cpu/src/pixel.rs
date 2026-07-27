@@ -118,16 +118,16 @@ pub trait Pixel: Copy {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct PackedPixel<const RED: u8, const GREEN: u8, const BLUE: u8, const OPAQUE: u32>(u32);
+pub struct PackedPixel<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32>(u32);
 
 pub type Xrgb8888 = PackedPixel<16, 8, 0, 0>;
 pub type Argb8888 = PackedPixel<16, 8, 0, 0xff00_0000>;
 pub type Rgba8888 = PackedPixel<24, 16, 8, 0x0000_00ff>;
 
-impl<const RED: u8, const GREEN: u8, const BLUE: u8, const OPAQUE: u32>
-    PackedPixel<RED, GREEN, BLUE, OPAQUE>
+impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32>
+    PackedPixel<RED, GREEN, BLUE, ALPHA>
 {
     pub const fn from_raw(raw: u32) -> Self {
         Self(raw)
@@ -138,27 +138,29 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const OPAQUE: u32>
     }
 }
 
-impl<const RED: u8, const GREEN: u8, const BLUE: u8, const OPAQUE: u32> Default
-    for PackedPixel<RED, GREEN, BLUE, OPAQUE>
-{
-    fn default() -> Self {
-        Self(OPAQUE)
-    }
-}
-
-impl<const RED: u8, const GREEN: u8, const BLUE: u8, const OPAQUE: u32> Pixel
-    for PackedPixel<RED, GREEN, BLUE, OPAQUE>
+impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
+    for PackedPixel<RED, GREEN, BLUE, ALPHA>
 {
     fn blend_translucent(&mut self, color: PremultipliedRgbaColor) {
         let inverse = 255 - color.alpha as u32;
         let red = ((self.0 >> RED) & 0xff) * inverse / 255 + color.red as u32;
         let green = ((self.0 >> GREEN) & 0xff) * inverse / 255 + color.green as u32;
         let blue = ((self.0 >> BLUE) & 0xff) * inverse / 255 + color.blue as u32;
-        self.0 = red << RED | green << GREEN | blue << BLUE | OPAQUE;
+        let alpha = if ALPHA == 0 {
+            0
+        } else {
+            let shift = ALPHA.trailing_zeros();
+            ((((self.0 & ALPHA) >> shift) * inverse / 255 + color.alpha as u32) << shift) & ALPHA
+        };
+        self.0 = red << RED | green << GREEN | blue << BLUE | alpha;
     }
 
     fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
-        Self((red as u32) << RED | (green as u32) << GREEN | (blue as u32) << BLUE | OPAQUE)
+        Self((red as u32) << RED | (green as u32) << GREEN | (blue as u32) << BLUE | ALPHA)
+    }
+
+    fn background() -> Self {
+        Self(0)
     }
 
     fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
@@ -178,7 +180,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const OPAQUE: u32> Pixel
         let blue = U32x8::splat(color.blue as u32);
         for pixels in chunks {
             let destination = U32x8::from_array((*pixels).map(|pixel| pixel.0));
-            *pixels = blend::<RED, GREEN, BLUE, OPAQUE>(destination, alpha, red, green, blue)
+            *pixels = blend::<RED, GREEN, BLUE, ALPHA>(destination, alpha, red, green, blue)
                 .to_array()
                 .map(Self);
         }
@@ -205,10 +207,9 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const OPAQUE: u32> Pixel
             let green = divide_by_255(color_green * source_alpha);
             let blue = divide_by_255(color_blue * source_alpha);
             let destination = U32x8::from_array((*pixels).map(|pixel| pixel.0));
-            *pixels =
-                blend::<RED, GREEN, BLUE, OPAQUE>(destination, source_alpha, red, green, blue)
-                    .to_array()
-                    .map(Self);
+            *pixels = blend::<RED, GREEN, BLUE, ALPHA>(destination, source_alpha, red, green, blue)
+                .to_array()
+                .map(Self);
         }
         for (pixel, alpha) in pixel_tail.iter_mut().zip(alpha_tail) {
             pixel.blend(PremultipliedRgbaColor::new(color, *alpha));
@@ -220,7 +221,7 @@ fn divide_by_255(value: U32x8) -> U32x8 {
     (value + U32x8::splat(1) + (value >> U32x8::splat(8))) >> U32x8::splat(8)
 }
 
-fn blend<const RED: u8, const GREEN: u8, const BLUE: u8, const OPAQUE: u32>(
+fn blend<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32>(
     destination: U32x8,
     alpha: U32x8,
     red: U32x8,
@@ -237,10 +238,16 @@ fn blend<const RED: u8, const GREEN: u8, const BLUE: u8, const OPAQUE: u32>(
     let blue =
         divide_by_255(((destination >> U32x8::splat(BLUE as u32)) & U32x8::splat(0xff)) * inverse)
             + blue;
-    red << U32x8::splat(RED as u32)
+    let output = red << U32x8::splat(RED as u32)
         | green << U32x8::splat(GREEN as u32)
-        | blue << U32x8::splat(BLUE as u32)
-        | U32x8::splat(OPAQUE)
+        | blue << U32x8::splat(BLUE as u32);
+    if ALPHA == 0 {
+        output
+    } else {
+        let shift = U32x8::splat(ALPHA.trailing_zeros());
+        let destination_alpha = (destination & U32x8::splat(ALPHA)) >> shift;
+        output | (divide_by_255(destination_alpha * inverse) + alpha) << shift
+    }
 }
 
 /// a borrowed scanline span whose first pixel is at the absolute x coordinate
@@ -332,19 +339,52 @@ mod test {
     use super::*;
 
     #[test]
-    fn packed_formats_place_channels_and_opaque_alpha() {
+    fn packed_formats_place_channels_and_default_to_transparent() {
         assert_eq!(Xrgb8888::from_rgb(0x12, 0x34, 0x56).raw(), 0x0012_3456);
         assert_eq!(Argb8888::from_rgb(0x12, 0x34, 0x56).raw(), 0xff12_3456);
         assert_eq!(Rgba8888::from_rgb(0x12, 0x34, 0x56).raw(), 0x1234_56ff);
-        assert_eq!(Argb8888::default().raw(), 0xff00_0000);
-        assert_eq!(Rgba8888::default().raw(), 0x0000_00ff);
+        assert_eq!(Argb8888::default().raw(), 0);
+        assert_eq!(Rgba8888::default().raw(), 0);
+        assert_eq!(Argb8888::background().raw(), 0);
+        assert_eq!(Rgba8888::background().raw(), 0);
+    }
+
+    #[test]
+    fn alpha_formats_composite_translucent_pixels() {
+        let color = PremultipliedRgbaColor {
+            red: 100,
+            green: 50,
+            blue: 25,
+            alpha: 128,
+        };
+        let mut argb = Argb8888::default();
+        argb.blend(color);
+        assert_eq!(argb.raw(), 0x8064_3219);
+        argb.blend(color);
+        assert_eq!(argb.raw(), 0xbf95_4a25);
+
+        let mut rgba = Rgba8888::default();
+        rgba.blend(color);
+        assert_eq!(rgba.raw(), 0x6432_1980);
+        rgba.blend(color);
+        assert_eq!(rgba.raw(), 0x954a_25bf);
     }
 
     #[test]
     fn simd_blending_matches_scalar_blending_for_each_format() {
         fn check<P: Pixel + std::fmt::Debug + PartialEq>() {
             let mut actual: [P; 11] = std::array::from_fn(|index| {
-                P::from_rgb(index as u8 * 17, 220 - index as u8 * 11, index as u8 * 7)
+                let mut pixel = P::background();
+                pixel.blend(PremultipliedRgbaColor::new(
+                    Color::from_rgba8(
+                        index as u8 * 17,
+                        220 - index as u8 * 11,
+                        index as u8 * 7,
+                        181,
+                    ),
+                    index as u8 * 23,
+                ));
+                pixel
             });
             let mut expected = actual;
             let alpha = [0, 1, 32, 64, 96, 127, 128, 160, 224, 254, 255];
