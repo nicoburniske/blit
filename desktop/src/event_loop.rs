@@ -543,12 +543,8 @@ impl PlatformImpl for DesktopPlatform {
         self.renderer.text_offset_at_position(request, position)
     }
 
-    fn measure_text(&mut self, request: &TextRequest) -> LogicalSize {
+    fn measure_text(&mut self, request: &blit::paint::TextLayoutRequest) -> LogicalSize {
         self.renderer.measure_text(request)
-    }
-
-    fn measure_text_height(&mut self, request: &TextRequest) -> f32 {
-        self.renderer.measure_text_height(request)
     }
 
     fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {

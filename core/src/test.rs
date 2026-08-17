@@ -7,6 +7,7 @@ use crate::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
     interact::{Sense, WidgetId},
     keyboard::KeyboardRequest,
+    layout::Constraints,
     paint,
     paint_list::{ClipId, PaintList},
     platform::PlatformImpl,
@@ -29,11 +30,11 @@ struct FixedSize(f32);
 impl widget::SizedWidget for FixedSize {
     type Output = LogicalRect;
 
-    fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
-        LogicalSize {
-            width: available.width,
+    fn measure(&self, _: &mut Ui, constraints: Constraints) -> LogicalSize {
+        constraints.constrain(LogicalSize {
+            width: constraints.max.width,
             height: self.0,
-        }
+        })
     }
 
     fn render(self, _: &mut Ui, area: LogicalRect) -> Self::Output {
@@ -100,15 +101,16 @@ impl PlatformImpl for TestPlatform {
         .len()
     }
 
-    fn measure_text(&mut self, request: &paint::TextRequest) -> LogicalSize {
+    fn measure_text(&mut self, request: &paint::TextLayoutRequest) -> LogicalSize {
+        let text = match request.text {
+            resource::TextSource::Resource(string) => self.string(string),
+            resource::TextSource::Static(string) => string,
+        };
         LogicalSize {
-            width: request.area.width,
+            width: (text.chars().count() as f32 * request.style.size)
+                .min(request.max_width.unwrap_or(f32::INFINITY)),
             height: request.style.size,
         }
-    }
-
-    fn measure_text_height(&mut self, request: &paint::TextRequest) -> f32 {
-        request.style.size
     }
 
     fn text_cursor_rect(&mut self, request: &paint::TextRequest, _: usize) -> LogicalRect {
@@ -548,12 +550,12 @@ fn virtual_list_measures_once_and_renders_visible_items() {
     impl widget::SizedWidget for CountedSize<'_> {
         type Output = LogicalRect;
 
-        fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
+        fn measure(&self, _: &mut Ui, constraints: Constraints) -> LogicalSize {
             self.measures.set(self.measures.get() + 1);
-            LogicalSize {
-                width: available.width,
+            constraints.constrain(LogicalSize {
+                width: constraints.max.width,
                 height: self.height,
-            }
+            })
         }
 
         fn render(self, _: &mut Ui, area: LogicalRect) -> Self::Output {

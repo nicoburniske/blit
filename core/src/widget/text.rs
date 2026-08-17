@@ -3,8 +3,10 @@ use crate::{
     Ui,
     color::Color,
     geometry::{LogicalRect, LogicalSize},
+    layout::Constraints,
     paint::{
-        HorizontalAlign, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap, VerticalAlign,
+        HorizontalAlign, TextLayoutRequest, TextOptions, TextOverflow, TextRequest, TextStyle,
+        TextWrap, VerticalAlign,
     },
     resource::TextSource,
 };
@@ -16,8 +18,6 @@ crate::widget! {
         pub text_style: TextStyle,
         pub options: TextOptions,
         pub offset_x: f32,
-        #[skip]
-        pub intrinsic_height: bool,
     }
     features: [text_style]
 }
@@ -48,26 +48,6 @@ impl Text {
         self
     }
 
-    pub fn measure_exact(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize {
-        let request = TextRequest {
-            text: self.text,
-            area: LogicalRect {
-                height: 0.0,
-                ..available
-            },
-            offset_x: self.offset_x,
-            color: self.color,
-            style: self.text_style,
-            options: self.options,
-            intrinsic_height: true,
-        };
-        let measured = ui.platform().measure_text(&request);
-        LogicalSize {
-            width: measured.width.clamp(0.0, available.width.max(0.0)),
-            height: measured.height.clamp(0.0, available.height.max(0.0)),
-        }
-    }
-
     pub fn render(self, ui: &mut Ui, area: LogicalRect) {
         let request = TextRequest {
             text: self.text,
@@ -76,7 +56,6 @@ impl Text {
             color: self.color,
             style: self.text_style,
             options: self.options,
-            intrinsic_height: self.intrinsic_height,
         };
         ui.paint_text(request);
     }
@@ -85,34 +64,21 @@ impl Text {
 impl SizedWidget for Text {
     type Output = ();
 
-    fn measure(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize {
-        let mut options = self.options;
-        options.vertical_align = VerticalAlign::Top;
-        let request = TextRequest {
+    fn measure(&self, ui: &mut Ui, constraints: Constraints) -> LogicalSize {
+        let request = TextLayoutRequest {
             text: self.text,
-            area: LogicalRect {
-                height: 0.0,
-                ..available
-            },
-            offset_x: self.offset_x,
-            color: self.color,
             style: self.text_style,
-            options,
-            intrinsic_height: true,
+            wrap: self.options.wrap,
+            max_width: (self.options.wrap != TextWrap::None && constraints.max.width.is_finite())
+                .then_some(constraints.max.width.max(0.0)),
+            max_lines: self.options.max_lines,
         };
-        LogicalSize {
-            width: available.width,
-            height: ui
-                .platform()
-                .measure_text_height(&request)
-                .min(available.height),
-        }
+        constraints.constrain(ui.platform().measure_text(&request))
     }
 
     fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
         let mut text = self;
         text.options.vertical_align = VerticalAlign::Top;
-        text.intrinsic_height = true;
         Text::render(text, ui, area)
     }
 }

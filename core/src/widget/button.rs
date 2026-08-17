@@ -4,7 +4,8 @@ use crate::{
     color::Color,
     geometry::{LogicalInsets, LogicalRect, LogicalSize},
     interact::{Sense, WidgetId},
-    paint::{BorderRadius, Rectangle, TextOptions, TextStyle},
+    layout::Constraints,
+    paint::{BorderRadius, Rectangle, TextLayoutRequest, TextOptions, TextStyle, TextWrap},
     resource::TextSource,
 };
 
@@ -87,14 +88,22 @@ impl Response {
 impl SizedWidget for Button {
     type Output = Response;
 
-    fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
-        let height = (self.text_style.size + self.padding.top + self.padding.bottom)
-            .max(self.border_width * 2.0)
-            .min(available.height);
-        LogicalSize {
-            width: available.width,
-            height,
-        }
+    fn measure(&self, ui: &mut Ui, constraints: Constraints) -> LogicalSize {
+        let horizontal_padding = self.padding.left + self.padding.right;
+        let text = ui.platform().measure_text(&TextLayoutRequest {
+            text: self.label,
+            style: self.text_style,
+            wrap: self.text_options.wrap,
+            max_width: (self.text_options.wrap != TextWrap::None
+                && constraints.max.width.is_finite())
+            .then_some((constraints.max.width - horizontal_padding).max(0.0)),
+            max_lines: self.text_options.max_lines,
+        });
+        constraints.constrain(LogicalSize {
+            width: (text.width + horizontal_padding).max(self.border_width * 2.0),
+            height: (text.height + self.padding.top + self.padding.bottom)
+                .max(self.border_width * 2.0),
+        })
     }
 
     fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {

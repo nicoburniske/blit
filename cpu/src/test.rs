@@ -10,7 +10,8 @@ use blit::{
     keyboard::KeyboardRequest,
     paint::{
         BorderRadius, BoxShadow, GradientStop, ImageFit, ImageRequest, ImageSampling, ImageTiling,
-        LinearGradient, Rectangle, TextOptions, TextRequest, TextStyle,
+        LinearGradient, Rectangle, TextLayoutRequest, TextOptions, TextRequest, TextStyle,
+        TextWrap,
     },
     paint_list::{ClipId, PaintList},
     platform::PlatformImpl,
@@ -93,12 +94,8 @@ impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
         self.renderer.text_offset_at_position(request, position)
     }
 
-    fn measure_text(&mut self, request: &TextRequest) -> LogicalSize {
+    fn measure_text(&mut self, request: &blit::paint::TextLayoutRequest) -> LogicalSize {
         self.renderer.measure_text(request)
-    }
-
-    fn measure_text_height(&mut self, request: &TextRequest) -> f32 {
-        self.renderer.measure_text_height(request)
     }
 
     fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
@@ -378,7 +375,6 @@ fn renderer_supports_custom_pixel_layouts() {
             color: Color::WHITE,
             style: TextStyle::default(),
             options: TextOptions::default(),
-            intrinsic_height: false,
         },
         clip,
         ClipId::default(),
@@ -404,7 +400,6 @@ fn renderer_supports_custom_pixel_layouts() {
         color: Color::WHITE,
         style: TextStyle::default(),
         options: TextOptions::default(),
-        intrinsic_height: false,
     };
     assert_eq!(
         renderer.text_offset_at_position(&request, LogicalPoint { x: 100.0, y: 12.0 },),
@@ -413,6 +408,27 @@ fn renderer_supports_custom_pixel_layouts() {
     let start = renderer.text_cursor_rect(&request, 0);
     let end = renderer.text_cursor_rect(&request, "abc".len());
     assert!(end.x > start.x);
+}
+
+#[test]
+fn text_measurement_reports_wrapped_layout_size() {
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
+    let request = TextLayoutRequest {
+        text: "hello world".into(),
+        style: TextStyle::default(),
+        wrap: TextWrap::None,
+        max_width: None,
+        max_lines: None,
+    };
+    let unwrapped = renderer.measure_text(&request);
+    let wrapped = renderer.measure_text(&TextLayoutRequest {
+        wrap: TextWrap::Word,
+        max_width: Some(unwrapped.width / 2.0),
+        ..request
+    });
+
+    assert!(wrapped.width < unwrapped.width);
+    assert!(wrapped.height > unwrapped.height);
 }
 
 #[test]
@@ -503,7 +519,6 @@ fn commands_outside_damage_are_not_prepared() {
             color: Color::WHITE,
             style: TextStyle::default(),
             options: TextOptions::default(),
-            intrinsic_height: false,
         },
         outside.to_physical(1.0),
         ClipId::default(),
@@ -1528,7 +1543,6 @@ fn rounded_clips_match_between_strategies() {
             color: Color::WHITE,
             style: TextStyle::default(),
             options: TextOptions::default(),
-            intrinsic_height: false,
         };
 
         let mut paint = PaintList::default();
@@ -1652,7 +1666,6 @@ fn strings_drop_after_frame_end() {
             color: Color::WHITE,
             style: TextStyle::default(),
             options: TextOptions::default(),
-            intrinsic_height: false,
         },
         damage[0],
         ClipId::default(),

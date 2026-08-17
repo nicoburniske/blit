@@ -1,7 +1,10 @@
 use std::mem::size_of;
 
 use blit::{
-    paint::{FontId, HorizontalAlign, TextOverflow, TextRequest, TextWrap, VerticalAlign},
+    paint::{
+        FontId, HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextWrap,
+        VerticalAlign,
+    },
     resource::{StringId, TextSource},
 };
 use blit_cache::{DeferredCache, Scale};
@@ -48,7 +51,7 @@ impl ParagraphCache {
     pub fn measure(
         &mut self,
         key: LayoutKey,
-        request: &TextRequest,
+        request: &TextLayoutRequest,
         text: &str,
         scale_factor: f32,
         fonts: &mut FontCache,
@@ -85,12 +88,12 @@ impl ParagraphCache {
         let Ok((_, index)) = rasters.get_or_insert(key, || {
             let layout_key = LayoutKey::paint(request, scale_factor);
             let Ok((_, layout_index)) = layouts.get_or_insert(layout_key, || {
-                Self::layout(layout, request, text, scale_factor, fonts)
+                Self::layout_for_paint(layout, request, text, scale_factor, fonts)
             }) else {
                 panic!("paragraph cache capacity must fit a layout");
             };
             let paragraph = layouts.get_index(layout_index);
-            Self::rasterize(layout, paragraph, request, text, scale_factor, fonts)
+            Self::render(layout, paragraph, request, text, scale_factor, fonts)
         }) else {
             panic!("paragraph cache capacity must fit an entry");
         };
@@ -127,12 +130,23 @@ impl ParagraphCache {
             overflow: request.options.overflow,
             horizontal_align: request.options.horizontal_align,
             vertical_align: request.options.vertical_align,
-            intrinsic_height: request.intrinsic_height,
         }
     }
 
-    pub fn layout_key(request: &TextRequest, scale_factor: f32) -> LayoutKey {
-        LayoutKey::paint(request, scale_factor)
+    pub fn layout_key(request: &TextLayoutRequest, scale_factor: f32) -> LayoutKey {
+        LayoutKey {
+            text: request.text,
+            max_width: (request.wrap != TextWrap::None).then(|| {
+                request.max_width.map_or(i32::MAX, |width| {
+                    (width.max(0.0) * scale_factor).ceil() as i32
+                })
+            }),
+            font: request.style.font,
+            size: (request.style.size * scale_factor).to_bits(),
+            weight: request.style.weight,
+            wrap: request.wrap,
+            max_lines: request.max_lines,
+        }
     }
 }
 
@@ -180,13 +194,12 @@ pub struct RasterKey {
     overflow: TextOverflow,
     horizontal_align: HorizontalAlign,
     vertical_align: VerticalAlign,
-    intrinsic_height: bool,
 }
 
 impl ParagraphCache {
     fn layout(
         layout: &mut Layout,
-        request: &TextRequest,
+        request: &TextLayoutRequest,
         text: &str,
         scale_factor: f32,
         fonts: &mut FontCache,
@@ -207,33 +220,65 @@ impl ParagraphCache {
             text,
             size,
             LayoutSettings {
-                max_width: (request.options.wrap != TextWrap::None)
-                    .then_some((request.area.width.max(0.0) * scale_factor).ceil()),
-                wrap: request.options.wrap,
+                max_width: (request.wrap != TextWrap::None).then_some(
+                    request
+                        .max_width
+                        .map_or(f32::MAX, |width| (width.max(0.0) * scale_factor).ceil()),
+                ),
+                wrap: request.wrap,
                 ..LayoutSettings::default()
             },
         );
-        let lines = layout.lines().map_or(&[][..], |lines| lines);
-        let visible = &lines[..lines
-            .len()
-            .min(request.options.max_lines.map_or(usize::MAX, usize::from))];
         ParagraphLayout {
-            size: blit::geometry::LogicalSize {
-                width: visible
-                    .iter()
-                    .map(|line| Self::line_width(line, layout.glyphs()))
-                    .fold(0.0, f32::max),
-                height: visible.last().map_or_else(
-                    || font.horizontal_line_metrics(size).new_line_size.ceil(),
-                    |line| line.baseline_y - line.max_ascent + line.max_new_line_size,
-                ),
-            },
+            size: Self::layout_size(layout, font, size, request.max_lines),
             glyphs: layout.glyphs().into(),
-            lines: lines.into(),
+            lines: layout
+                .lines()
+                .map_or_else(Box::<[blit_font::LinePosition]>::default, Into::into),
         }
     }
 
-    fn rasterize(
+    fn layout_for_paint(
+        layout: &mut Layout,
+        request: &TextRequest,
+        text: &str,
+        scale_factor: f32,
+        fonts: &mut FontCache,
+    ) -> ParagraphLayout {
+        Self::layout(
+            layout,
+            &TextLayoutRequest {
+                text: request.text,
+                style: request.style,
+                wrap: request.options.wrap,
+                max_width: (request.options.wrap != TextWrap::None)
+                    .then_some(request.area.width.max(0.0)),
+                max_lines: request.options.max_lines,
+            },
+            text,
+            scale_factor,
+            fonts,
+        )
+    }
+
+    fn layout_size(
+        layout: &Layout,
+        font: &blit_font::Font,
+        size: f32,
+        max_lines: Option<u16>,
+    ) -> blit::geometry::LogicalSize {
+        let lines = layout.lines().map_or(&[][..], |lines| lines);
+        let lines = &lines[..lines.len().min(max_lines.map_or(usize::MAX, usize::from))];
+        blit::geometry::LogicalSize {
+            width: lines.iter().map(|line| line.width).fold(0.0, f32::max),
+            height: lines.last().map_or_else(
+                || font.horizontal_line_metrics(size).new_line_size.ceil(),
+                |line| line.baseline_y - line.max_ascent + line.max_new_line_size,
+            ),
+        }
+    }
+
+    fn render(
         layout: &mut Layout,
         paragraph: &ParagraphLayout,
         request: &TextRequest,
@@ -258,7 +303,7 @@ impl ParagraphCache {
             .lines
             .len()
             .min(request.options.max_lines.map_or(usize::MAX, usize::from));
-        if request.options.overflow == TextOverflow::Ellipsis && !request.intrinsic_height {
+        if request.options.overflow == TextOverflow::Ellipsis {
             let mut height = 0.0;
             let mut fitting_lines = 0;
             for line in &paragraph.lines {
@@ -343,14 +388,10 @@ impl ParagraphCache {
         let content_height = lines.last().map_or(0.0, |line| {
             line.baseline_y - line.max_ascent + line.max_new_line_size
         });
-        let vertical_offset = if request.intrinsic_height {
-            0.0
-        } else {
-            match request.options.vertical_align {
-                VerticalAlign::Top => 0.0,
-                VerticalAlign::Center => ((area.height as f32 - content_height) / 2.0).floor(),
-                VerticalAlign::Bottom => (area.height as f32 - content_height).floor(),
-            }
+        let vertical_offset = match request.options.vertical_align {
+            VerticalAlign::Top => 0.0,
+            VerticalAlign::Center => ((area.height as f32 - content_height) / 2.0).floor(),
+            VerticalAlign::Bottom => (area.height as f32 - content_height).floor(),
         };
         let paint_offset_x = request.offset_x * scale_factor;
         let offsets = |line: &blit_font::LinePosition| {
@@ -359,12 +400,8 @@ impl ParagraphCache {
             } else {
                 match request.options.horizontal_align {
                     HorizontalAlign::Left => 0.0,
-                    HorizontalAlign::Center => {
-                        ((area.width as f32 - Self::line_width(line, glyphs)) / 2.0).floor()
-                    }
-                    HorizontalAlign::Right => {
-                        (area.width as f32 - Self::line_width(line, glyphs)).floor()
-                    }
+                    HorizontalAlign::Center => ((area.width as f32 - line.width) / 2.0).floor(),
+                    HorizontalAlign::Right => (area.width as f32 - line.width).floor(),
                 }
             };
             (horizontal - paint_offset_x, vertical_offset)
@@ -411,11 +448,7 @@ impl ParagraphCache {
             });
         }
         let mut left = area.width;
-        let bounds_height = if request.intrinsic_height {
-            i32::MAX
-        } else {
-            area.height
-        };
+        let bounds_height = area.height;
         let mut top = bounds_height;
         let mut right = 0;
         let mut bottom = 0;
@@ -474,16 +507,6 @@ impl ParagraphCache {
             carets: carets.into_boxed_slice(),
         }
     }
-
-    fn line_width(line: &blit_font::LinePosition, glyphs: &[blit_font::GlyphPosition]) -> f32 {
-        let start = line.glyph_start.min(glyphs.len());
-        let end = line.glyph_end.saturating_add(1).min(glyphs.len());
-        glyphs[start..end].first().map_or(0.0, |first| {
-            glyphs[start..end]
-                .last()
-                .map_or(0.0, |last| last.pen_x + last.advance - first.pen_x)
-        })
-    }
 }
 
 impl LayoutKey {
@@ -507,7 +530,8 @@ mod tests {
         color::Color,
         geometry::LogicalRect,
         paint::{
-            FontId, HorizontalAlign, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap,
+            FontId, HorizontalAlign, TextLayoutRequest, TextOptions, TextOverflow, TextRequest,
+            TextStyle, TextWrap,
         },
     };
 
@@ -556,12 +580,18 @@ mod tests {
                 wrap: TextWrap::Word,
                 ..TextOptions::default()
             },
-            intrinsic_height: true,
         };
-        let key = ParagraphCache::layout_key(&request, 1.0);
+        let layout_request = TextLayoutRequest {
+            text: request.text,
+            style: request.style,
+            wrap: request.options.wrap,
+            max_width: Some(request.area.width),
+            max_lines: request.options.max_lines,
+        };
+        let key = ParagraphCache::layout_key(&layout_request, 1.0);
         assert_eq!(key, ParagraphCache::raster_key(&request, 1.0).layout);
 
-        paragraphs.measure(key, &request, "hello world", 1.0, &mut fonts);
+        paragraphs.measure(key, &layout_request, "hello world", 1.0, &mut fonts);
         let glyphs = paragraphs.layouts.get(&key).unwrap().glyphs.as_ptr();
         prepare(&mut paragraphs, &request, "hello world", &mut fonts);
 
@@ -599,7 +629,6 @@ mod tests {
                 ..TextStyle::default()
             },
             options: TextOptions::default(),
-            intrinsic_height: false,
         };
         let index = prepare(&mut paragraphs, &request, "missing", &mut fonts);
         let missing = paragraphs.get(index);
@@ -615,7 +644,6 @@ mod tests {
                 max_lines: Some(1),
                 ..TextOptions::default()
             },
-            intrinsic_height: false,
         };
         let one_line = prepare(&mut paragraphs, &request, "first\nsecond", &mut fonts);
         let request = TextRequest {
@@ -710,7 +738,6 @@ mod tests {
                 horizontal_align: HorizontalAlign::Center,
                 ..TextOptions::default()
             },
-            intrinsic_height: false,
         };
         let request = request(1);
         let multiline = prepare(&mut paragraphs, &request, "4 failed attempts\n", &mut fonts);

@@ -270,8 +270,8 @@ pub struct LinePosition {
     pub max_new_line_size: f32,
     pub glyph_start: usize,
     pub glyph_end: usize,
-    start_x: f32,
-    width: f32,
+    pub start_x: f32,
+    pub width: f32,
 }
 
 #[derive(Clone, Copy, Debug)]

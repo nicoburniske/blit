@@ -7,7 +7,7 @@ mod text;
 
 use blit::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
-    paint::{Border, BoxShadow, FontId, ImageRequest, Rectangle, TextRequest},
+    paint::{Border, BoxShadow, FontId, ImageRequest, Rectangle, TextLayoutRequest, TextRequest},
     paint_list::{Command, PaintList},
     resource::{ImageData, ImageId, StringData, StringId, TextSource},
 };
@@ -293,7 +293,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         text.offset_at_position(request, string, position, *scale_factor)
     }
 
-    pub fn measure_text(&mut self, request: &TextRequest) -> LogicalSize {
+    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
         let RenderContext {
             strings,
             text,
@@ -302,17 +302,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         } = &mut self.context;
         let string = resolve_text(strings, request.text);
         text.measure(request, string, *scale_factor)
-    }
-
-    pub fn measure_text_height(&mut self, request: &TextRequest) -> f32 {
-        let RenderContext {
-            strings,
-            text,
-            scale_factor,
-            ..
-        } = &mut self.context;
-        let string = resolve_text(strings, request.text);
-        text.measure_height(request, string, *scale_factor)
     }
 
     pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {

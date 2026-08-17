@@ -508,7 +508,6 @@ mod tests {
             color: Color::BLACK,
             style: TextStyle::default(),
             options: TextOptions::default(),
-            intrinsic_height: false,
         }
     }
 
@@ -575,7 +574,6 @@ mod tests {
             color: Color::BLACK,
             style: TextStyle::default(),
             options: TextOptions::default(),
-            intrinsic_height: false,
         };
         let shadow = BoxShadow::new(area, Color::GRAY).blur(4.0);
         list.push_image(image, bounds, clip);

@@ -4,7 +4,7 @@ mod paragraph;
 use blit::{
     color::Color,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
-    paint::TextRequest,
+    paint::{TextLayoutRequest, TextRequest},
     resource::StringId,
 };
 use font::FontCache;
@@ -124,14 +124,15 @@ impl TextRenderer {
             .map_or(0, |caret| caret.byte_offset.min(text.len()))
     }
 
-    pub fn measure(&mut self, request: &TextRequest, text: &str, scale_factor: f32) -> LogicalSize {
+    pub fn measure(
+        &mut self,
+        request: &TextLayoutRequest,
+        text: &str,
+        scale_factor: f32,
+    ) -> LogicalSize {
         let key = ParagraphCache::layout_key(request, scale_factor);
         self.paragraphs
             .measure(key, request, text, scale_factor, &mut self.fonts)
-    }
-
-    pub fn measure_height(&mut self, request: &TextRequest, text: &str, scale_factor: f32) -> f32 {
-        self.measure(request, text, scale_factor).height
     }
 
     pub fn cursor_rect(
