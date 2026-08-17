@@ -20,12 +20,16 @@ pub use virtual_list::{VirtualList, VirtualListArea, VirtualListState};
 use crate::{
     Ui,
     geometry::{LogicalRect, LogicalSize},
+    layout::Constraints,
 };
 
 pub trait SizedWidget {
     type Output;
 
-    fn measure(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize;
+    /// chooses a preferred size within valid constraints
+    ///
+    /// an axis is exact when its minimum and maximum are equal
+    fn measure(&self, ui: &mut Ui, constraints: Constraints) -> LogicalSize;
 
     fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output;
 }

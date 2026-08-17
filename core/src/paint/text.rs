@@ -68,5 +68,13 @@ pub struct TextRequest {
     pub color: Color,
     pub style: TextStyle,
     pub options: TextOptions,
-    pub intrinsic_height: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextLayoutRequest {
+    pub text: TextSource,
+    pub style: TextStyle,
+    pub wrap: TextWrap,
+    pub max_width: Option<f32>,
+    pub max_lines: Option<u16>,
 }

@@ -3,9 +3,10 @@ use std::time::Duration;
 use super::SizedWidget;
 use crate::{
     Ui,
-    geometry::{LogicalInsets, LogicalRect, PhysicalRect},
+    geometry::{LogicalInsets, LogicalRect, LogicalSize, PhysicalRect},
     input::ScrollPhase,
     interact::{Sense, WidgetId},
+    layout::Constraints,
 };
 
 const WHEEL_FRICTION: f32 = 64.0;
@@ -265,7 +266,19 @@ impl Area<'_> {
             width: self.bounds.width,
             height: f32::INFINITY,
         };
-        let size = widget.measure(self.ui, available);
+        let size = widget.measure(
+            self.ui,
+            Constraints {
+                min: LogicalSize {
+                    width: available.width,
+                    height: 0.0,
+                },
+                max: LogicalSize {
+                    width: available.width,
+                    height: f32::INFINITY,
+                },
+            },
+        );
         let area = LogicalRect {
             width: size.width.clamp(0.0, available.width),
             height: size.height,

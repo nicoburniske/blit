@@ -4,7 +4,7 @@ use crate::{
     RepaintBuffer,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     keyboard::KeyboardRequest,
-    paint::TextRequest,
+    paint::{TextLayoutRequest, TextRequest},
     paint_list::PaintList,
     resource::{ImageData, ImageHandle, ImageId, StringData, StringHandle, StringId},
 };
@@ -29,13 +29,8 @@ pub trait PlatformImpl {
     fn string(&self, string: StringId) -> &str;
 
     fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize;
-    /// returns the typographic size after wrapping and overflow handling
-    ///
-    /// includes whitespace width, ignores alignment and offsets, and reports the full content size
-    /// for clipped overflow
-    fn measure_text(&mut self, request: &TextRequest) -> LogicalSize;
-    /// returns the typographic height after wrapping
-    fn measure_text_height(&mut self, request: &TextRequest) -> f32;
+    /// returns the typographic size without rasterizing
+    fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize;
     /// returns the cursor position and line height for the nearest valid byte offset
     fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect;
 
@@ -81,13 +76,8 @@ impl Platform {
     }
 
     #[inline]
-    pub fn measure_text(&mut self, request: &TextRequest) -> LogicalSize {
+    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
         self.inner().measure_text(request)
-    }
-
-    #[inline]
-    pub fn measure_text_height(&mut self, request: &TextRequest) -> f32 {
-        self.inner().measure_text_height(request)
     }
 
     #[inline]

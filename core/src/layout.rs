@@ -1,4 +1,22 @@
-use crate::geometry::LogicalRect;
+use crate::geometry::{LogicalRect, LogicalSize};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Constraints {
+    /// finite, non-negative, and no greater than `max`
+    pub min: LogicalSize,
+    /// no less than `min`. infinity means unbounded
+    pub max: LogicalSize,
+}
+
+impl Constraints {
+    /// clamps `size` to these valid constraints
+    pub fn constrain(self, size: LogicalSize) -> LogicalSize {
+        LogicalSize {
+            width: size.width.clamp(self.min.width, self.max.width),
+            height: size.height.clamp(self.min.height, self.max.height),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Direction {

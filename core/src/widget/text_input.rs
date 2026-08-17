@@ -8,6 +8,7 @@ use crate::{
     input::{Input, Key},
     interact::{Sense, WidgetId},
     keyboard::{KeyboardKind, KeyboardRequest},
+    layout::Constraints,
     paint::{BorderRadius, Rectangle, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap},
     resource::StringHandle,
 };
@@ -35,6 +36,7 @@ crate::widget! {
         pub text_style: TextStyle,
         pub text_options: TextOptions,
         pub padding: LogicalInsets = LogicalInsets::uniform(4.0),
+        pub preferred_width: f32 = 160.0,
         pub read_only: bool,
         pub keyboard_kind: KeyboardKind,
         pub request_caps: bool,
@@ -316,7 +318,6 @@ impl TextInput<'_> {
             color: self.text_color,
             style: self.text_style,
             options,
-            intrinsic_height: false,
         }
     }
 
@@ -379,14 +380,13 @@ impl TextInput<'_> {
 impl SizedWidget for TextInput<'_> {
     type Output = TextInputResponse;
 
-    fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
+    fn measure(&self, _: &mut Ui, constraints: Constraints) -> LogicalSize {
         let height = (self.text_style.size + self.padding.top + self.padding.bottom)
-            .max(self.border_width * 2.0)
-            .min(available.height);
-        LogicalSize {
-            width: available.width,
+            .max(self.border_width * 2.0);
+        constraints.constrain(LogicalSize {
+            width: self.preferred_width,
             height,
-        }
+        })
     }
 
     fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {

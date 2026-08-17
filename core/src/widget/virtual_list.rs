@@ -4,6 +4,7 @@ use super::{ScrollArea, ScrollState, SizedWidget, scroll_area};
 use crate::{
     Ui,
     geometry::{LogicalInsets, LogicalRect, LogicalSize},
+    layout::Constraints,
 };
 
 #[derive(Debug)]
@@ -88,9 +89,15 @@ impl<'a> VirtualList<'a> {
         let available = viewport.inset(self.padding);
         self.state.sizes[index] = widget.measure(
             ui,
-            LogicalRect {
-                height: f32::INFINITY,
-                ..available
+            Constraints {
+                min: LogicalSize {
+                    width: available.width,
+                    height: 0.0,
+                },
+                max: LogicalSize {
+                    width: available.width,
+                    height: f32::INFINITY,
+                },
             },
         );
         self.state.measured += 1;
@@ -240,8 +247,8 @@ struct Measured<W> {
 impl<W: SizedWidget> SizedWidget for Measured<W> {
     type Output = W::Output;
 
-    fn measure(&self, _: &mut Ui, _: LogicalRect) -> LogicalSize {
-        self.size
+    fn measure(&self, _: &mut Ui, constraints: Constraints) -> LogicalSize {
+        constraints.constrain(self.size)
     }
 
     fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {

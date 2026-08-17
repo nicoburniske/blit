@@ -3,6 +3,7 @@ use crate::{
     Ui,
     color::Color,
     geometry::{LogicalRect, LogicalSize},
+    layout::Constraints,
     paint::{ImageFit, ImageRequest, ImageSampling, ImageTiling, NineSlice},
     resource::ImageHandle,
 };
@@ -55,18 +56,22 @@ impl<'a> Image<'a> {
 impl SizedWidget for Image<'_> {
     type Output = ();
 
-    fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
+    fn measure(&self, _: &mut Ui, constraints: Constraints) -> LogicalSize {
         let size = self.resource.size();
-        let height = if size.width == 0 {
-            0.0
-        } else {
-            available.width * size.height as f32 / size.width as f32
+        if size.width == 0 || size.height == 0 {
+            return constraints.constrain(LogicalSize::default());
         }
-        .min(available.height);
-        LogicalSize {
-            width: available.width,
-            height,
-        }
+        let width = size.width as f32;
+        let height = size.height as f32;
+        let scale = 1.0f32
+            .min(constraints.max.width / width)
+            .min(constraints.max.height / height)
+            .max(constraints.min.width / width)
+            .max(constraints.min.height / height);
+        constraints.constrain(LogicalSize {
+            width: width * scale,
+            height: height * scale,
+        })
     }
 
     fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
