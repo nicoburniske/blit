@@ -2,6 +2,9 @@
 resolver = "2"
 members = ["cache", "core", "cpu", "desktop", "executor", "font"]
 
+[workspace.package]
+license = "MIT"
+
 [workspace.dependencies]
 blit = { path = "core" }
 blit-executor = { path = "executor" }
