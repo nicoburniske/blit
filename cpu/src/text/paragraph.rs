@@ -460,10 +460,7 @@ mod tests {
 
     #[test]
     fn font_lookup_and_overflow_are_exact() {
-        let font = Font::from_static(include_bytes!(
-            "../../../resources/fonts/Montserrat-Regular.ttf"
-        ))
-        .unwrap();
+        let font = Font::from_static(include_bytes!(env!("BLIT_TEST_FONT"))).unwrap();
         let mut fonts = FontCache::new(
             vec![FontFace {
                 id: FontId::default(),
@@ -591,10 +588,7 @@ mod tests {
 
     #[test]
     fn control_glyphs_are_not_rasterized() {
-        let font = Font::from_static(include_bytes!(
-            "../../../resources/fonts/Montserrat-Medium.ttf"
-        ))
-        .unwrap();
+        let font = Font::from_static(include_bytes!(env!("BLIT_TEST_FONT"))).unwrap();
         let mut fonts = FontCache::new(
             vec![FontFace {
                 id: FontId::default(),

@@ -323,10 +323,7 @@ fn renderer_config() -> RendererConfig {
         fonts: vec![FontFace {
             id: FontId::default(),
             weight: 400,
-            font: Font::from_static(include_bytes!(
-                "../../resources/fonts/Montserrat-Regular.ttf"
-            ))
-            .unwrap(),
+            font: Font::from_static(include_bytes!(env!("BLIT_TEST_FONT"))).unwrap(),
         }],
         font_metric_cache_capacity: 256,
         glyph_cache_capacity: 1024 * 1024,

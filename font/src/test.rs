@@ -2,7 +2,7 @@ use blit::paint::TextWrap;
 
 use crate::{Font, Layout, LayoutSettings, Rasterizer};
 
-static FONT: &[u8] = include_bytes!("../../resources/fonts/Montserrat-Regular.ttf");
+static FONT: &[u8] = include_bytes!(env!("BLIT_TEST_FONT"));
 
 #[test]
 fn static_and_owned_fonts_match() {
