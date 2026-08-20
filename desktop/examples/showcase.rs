@@ -1,7 +1,7 @@
 use blit::{
     Align, Axis, Clip, Container, Justify, Sizing, Ui,
     geometry::LogicalInsets,
-    interact::Sense,
+    interact::{Sense, WidgetId},
     paint::{FontId, HorizontalAlign, TextWrap},
     platform::Platform,
     widget::{Button, Rectangle, Text},
@@ -314,7 +314,7 @@ impl Application for Showcase {
                 let width_delta = {
                     let mut row = shell.row(Container::new().fixed(self.width + 12.0, self.height));
                     {
-                        let mut layout = row.stack(
+                        let mut layout = row.flow(
                             axis,
                             Container::new()
                                 .fixed(self.width, self.height)
@@ -363,7 +363,7 @@ impl Application for Showcase {
                         }
                     }
                     {
-                        let id = row.id("layout width grip");
+                        let id = WidgetId::new("layout width grip");
                         let mut grip = row.column(
                             Container::new()
                                 .fixed(12.0, self.height)
@@ -390,7 +390,7 @@ impl Application for Showcase {
                 let (height_delta, corner_delta) = {
                     let mut row = shell.row(Container::new().fixed(self.width + 12.0, 12.0));
                     let height_delta = {
-                        let id = row.id("layout height grip");
+                        let id = WidgetId::new("layout height grip");
                         let mut grip = row.row(
                             Container::new()
                                 .fixed(self.width, 12.0)
@@ -413,7 +413,7 @@ impl Application for Showcase {
                         interaction.drag_delta.y
                     };
                     let corner_delta = {
-                        let id = row.id("layout corner grip");
+                        let id = WidgetId::new("layout corner grip");
                         let mut grip = row.row(
                             Container::new()
                                 .fixed(12.0, 12.0)

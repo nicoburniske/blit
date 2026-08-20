@@ -359,7 +359,7 @@ fn scroll_uses_natural_content_geometry_and_offsets_commands() {
     let mut runtime = Runtime::new(TestPlatform::default());
     let mut state = widget::ScrollState::default();
     let render = |ui: &mut Ui, state: &mut widget::ScrollState| {
-        let mut scroll = widget::ScrollArea::vertical(state).spacing(1.0).begin(ui);
+        let mut scroll = widget::ScrollArea::vertical(state).gap(1.0).begin(ui);
         scroll.add(
             widget::Rectangle::new()
                 .height(Sizing::fixed(8.0))
@@ -605,24 +605,6 @@ fn focus_moves_between_text_inputs_and_clears_when_absent() {
     runtime.render(Duration::ZERO, Input::None, |_| {});
     let id = second.id;
     assert!(!runtime.render(Duration::ZERO, Input::None, |ui| ui.is_focused(id)));
-}
-
-#[test]
-fn text_input_can_be_focused_by_id_inside_an_id_scope() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let mut state = widget::TextInputState::default();
-    let id = state.id;
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        ui.focus(id);
-        let mut scope = ui.begin_scope("login");
-        scope.ui().add(widget::TextInput::new(&mut state));
-    });
-    runtime.render(Duration::ZERO, Input::Text('x'), |ui| {
-        ui.add(widget::TextInput::new(&mut state));
-    });
-
-    assert_eq!(state.text, "x");
 }
 
 #[test]

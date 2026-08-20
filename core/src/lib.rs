@@ -21,11 +21,7 @@ pub use container::{Align, Axis, Container, Item, Justify, Scope, Sizing};
 pub use graph::{Content, ImageContent, NodeId, TextCaret, TextContent, TextSelection};
 pub use style::{Appearance, Clip, Shadow};
 
-use std::{
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
-    time::Duration,
-};
+use std::{ptr::NonNull, time::Duration};
 
 use animation::{Easing, Transition};
 use command_list::{CommandDiffConfig, CommandList, CommandListDiffer};
@@ -39,7 +35,6 @@ pub struct Ui {
     time: Duration,
     input: Input,
     screen: LogicalRect,
-    current_id: WidgetId,
 }
 
 impl Ui {
@@ -60,7 +55,7 @@ impl Ui {
         container::open(self, Axis::Vertical, container)
     }
 
-    pub fn stack(&mut self, axis: Axis, container: Container<'_>) -> Scope<'_> {
+    pub fn flow(&mut self, axis: Axis, container: Container<'_>) -> Scope<'_> {
         container::open(self, axis, container)
     }
 
@@ -94,7 +89,7 @@ impl Ui {
         target: f32,
         duration: Duration,
         easing: Easing,
-    ) -> AnimationScope<'_> {
+    ) -> Animation {
         let time = self.time;
         begin_animations(self, [id], [target], |_, animation| {
             animation.advance(target, duration, easing, time)
@@ -109,7 +104,7 @@ impl Ui {
         &mut self,
         id: WidgetId,
         transitions: [Transition; N],
-    ) -> AnimationScope<'_, N> {
+    ) -> Animation<N> {
         let time = self.time;
         let ids = std::array::from_fn(|index| id.child(("animation value", index)));
         let initial = transitions.map(|transition| transition.target);
@@ -127,12 +122,7 @@ impl Ui {
     /// animates a repeating value from `0.0` up to `1.0`, keyed by `id`
     ///
     /// zero duration stops the loop and resets the value
-    pub fn animate_loop(
-        &mut self,
-        id: WidgetId,
-        duration: Duration,
-        easing: Easing,
-    ) -> AnimationScope<'_> {
+    pub fn animate_loop(&mut self, id: WidgetId, duration: Duration, easing: Easing) -> Animation {
         let time = self.time;
         begin_animations(self, [id], [0.0], |_, animation| {
             animation.advance_loop(duration, easing, time)
@@ -159,21 +149,6 @@ impl Ui {
             "looping timer duration must not be zero"
         );
         begin_timer(self, id, duration, Some(duration))
-    }
-
-    /// creates a [`WidgetId`] beneath the current id scope
-    pub fn id(&self, source: impl std::hash::Hash) -> WidgetId {
-        self.current_id.child(source)
-    }
-
-    /// begins a nested id scope derived from `source`
-    ///
-    /// ids created through the scoped [`Ui`] are children of this scope. the
-    /// previous scope is restored when the returned value is dropped
-    pub fn begin_scope(&mut self, source: impl std::hash::Hash) -> IdScope<'_> {
-        let previous = self.current_id;
-        self.current_id = self.current_id.child(source);
-        IdScope { ui: self, previous }
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {
@@ -258,62 +233,25 @@ impl Ui {
     }
 }
 
-pub struct AnimationScope<'a, const N: usize = 1> {
-    ui: &'a mut Ui,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Animation<const N: usize = 1> {
     values: [f32; N],
-    active: [bool; N],
+    active: bool,
 }
 
-impl AnimationScope<'_, 1> {
-    pub fn value(&self) -> f32 {
+impl Animation<1> {
+    pub fn value(self) -> f32 {
         self.values[0]
     }
 }
 
-impl<const N: usize> AnimationScope<'_, N> {
-    pub fn values(&self) -> [f32; N] {
+impl<const N: usize> Animation<N> {
+    pub fn values(self) -> [f32; N] {
         self.values
     }
 
-    pub fn is_active(&self) -> bool {
-        self.active.iter().any(|active| *active)
-    }
-
-    pub fn finish(self) {}
-}
-
-impl<const N: usize> Deref for AnimationScope<'_, N> {
-    type Target = Ui;
-
-    fn deref(&self) -> &Self::Target {
-        self.ui
-    }
-}
-
-impl<const N: usize> DerefMut for AnimationScope<'_, N> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ui
-    }
-}
-
-pub struct IdScope<'a> {
-    ui: &'a mut Ui,
-    previous: WidgetId,
-}
-
-impl IdScope<'_> {
-    pub fn ui(&mut self) -> &mut Ui {
-        self.ui
-    }
-
-    pub fn finish(self) {
-        drop(self)
-    }
-}
-
-impl Drop for IdScope<'_> {
-    fn drop(&mut self) {
-        self.ui.current_id = self.previous;
+    pub fn is_active(self) -> bool {
+        self.active
     }
 }
 
@@ -322,11 +260,11 @@ fn begin_animations<const N: usize>(
     ids: [WidgetId; N],
     initial: [f32; N],
     mut advance: impl FnMut(usize, &mut animation::AnimationState),
-) -> AnimationScope<'_, N> {
+) -> Animation<N> {
     assert!(N != 0, "animation groups must contain at least one value");
 
     let mut values = [0.0; N];
-    let mut active = [false; N];
+    let mut active = false;
     for value_index in 0..N {
         let id = ids[value_index];
         let (value, value_active) = {
@@ -349,10 +287,10 @@ fn begin_animations<const N: usize>(
             (animations[index].value, animations[index].is_active())
         };
         values[value_index] = value;
-        active[value_index] = value_active;
+        active |= value_active;
     }
 
-    AnimationScope { ui, values, active }
+    Animation { values, active }
 }
 
 fn begin_timer(ui: &mut Ui, id: WidgetId, duration: Duration, interval: Option<Duration>) -> bool {
@@ -550,7 +488,6 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             time,
             input,
             screen: self.screen,
-            current_id: WidgetId::new("blit root"),
         };
         let output = render(&mut ui);
         {

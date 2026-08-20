@@ -263,7 +263,7 @@ impl FrameGraph {
             container.appearance,
             ContentId::NONE,
             container.clip,
-            container.geometry_id,
+            container.id,
             container.interaction,
         );
         self.open.push(node);
