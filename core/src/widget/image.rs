@@ -2,7 +2,6 @@ use super::Widget;
 use crate::{
     Content, ImageContent, Item, Sizing, Ui,
     color::Color,
-    element::NodeSpec,
     geometry::LogicalSize,
     paint::{ImageFit, ImageSampling, ImageTiling, NineSlice},
     resource::ImageHandle,
@@ -45,7 +44,7 @@ impl Widget for Image<'_> {
             return;
         }
         let size = self.resource.size();
-        ui.leaf(NodeSpec::leaf(
+        ui.frame_mut().add_leaf(
             Item {
                 width: self.width,
                 height: self.height,
@@ -64,6 +63,6 @@ impl Widget for Image<'_> {
                 horizontal_tiling: self.horizontal_tiling,
                 vertical_tiling: self.vertical_tiling,
             }),
-        ));
+        );
     }
 }

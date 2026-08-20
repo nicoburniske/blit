@@ -2,7 +2,6 @@ use super::Widget;
 use crate::{
     Content, Item, Sizing, TextContent, Ui,
     color::Color,
-    element::NodeSpec,
     paint::{HorizontalAlign, TextOptions, TextOverflow, TextStyle, TextWrap, VerticalAlign},
     resource::TextSource,
 };
@@ -51,7 +50,7 @@ impl Widget for Text {
     type Output = ();
 
     fn build(self, ui: &mut Ui) {
-        let spec = NodeSpec::leaf(
+        ui.frame_mut().add_leaf(
             Item {
                 width: self.width,
                 height: self.height,
@@ -66,6 +65,5 @@ impl Widget for Text {
                 caret: None,
             }),
         );
-        ui.leaf(spec);
     }
 }

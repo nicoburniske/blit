@@ -1,8 +1,7 @@
 use super::Widget;
 use crate::{
-    Appearance, Clip, Item, Sizing, Ui,
+    Appearance, Clip, Content, Item, Sizing, Ui,
     color::Color,
-    element::NodeSpec,
     interact::{Interaction, Sense, WidgetId},
     paint::{Border, BorderRadius},
 };
@@ -98,11 +97,20 @@ impl Widget for Rectangle {
     type Output = Interaction;
 
     fn build(self, ui: &mut Ui) -> Interaction {
-        let mut spec = NodeSpec::leaf(self.item, crate::Content::Rectangle);
-        spec.id = self.id;
-        spec.appearance = self.appearance;
-        spec.clip = self.clip;
-        spec.interaction = self.interaction;
-        ui.leaf(spec)
+        let interaction = self
+            .interaction
+            .map_or_default(|(id, sense)| ui.widget_interaction(id, sense));
+        let node = ui
+            .frame_mut()
+            .add_leaf(self.item, Content::Rectangle(self.appearance));
+        let frame = ui.frame_mut();
+        frame.set_clip(node, self.clip);
+        if let Some(id) = self.id {
+            frame.set_id(node, id);
+        }
+        if let Some((id, sense)) = self.interaction {
+            frame.set_interaction(node, id, sense);
+        }
+        interaction
     }
 }
