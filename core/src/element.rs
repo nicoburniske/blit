@@ -670,7 +670,10 @@ impl FrameGraph {
                 geometry.register(id, ElementGeometry { area: node.area });
             }
         }
+        self.nodes.clear();
         self.open.clear();
+        self.scratch.clear();
+        self.gradient_stops.clear();
     }
 
     fn measure_intrinsic(&mut self, platform: &mut Platform) {
