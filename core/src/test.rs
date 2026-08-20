@@ -323,7 +323,7 @@ fn scroll_uses_natural_content_geometry_and_offsets_commands() {
     runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
     assert_eq!(state.content_height, 17.0);
 
-    state.scroll_to(7.0, 10.0);
+    state.scroll_to(7.0);
     runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
     assert_eq!(runtime.platform().rectangle_areas[0].y, -7.0);
     assert_eq!(runtime.platform().paint_bounds[0].y, 0);
