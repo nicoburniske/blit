@@ -23,7 +23,7 @@ pub use style::{Appearance, Clip, Shadow};
 
 use std::{ptr::NonNull, time::Duration};
 
-use animation::{Easing, Transition};
+use animation::Easing;
 use command_list::{CommandDiffConfig, CommandList, CommandListDiffer};
 use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
 use input::Input;
@@ -89,42 +89,19 @@ impl Ui {
         target: f32,
         duration: Duration,
         easing: Easing,
-    ) -> Animation {
+    ) -> f32 {
         let time = self.time;
-        begin_animations(self, [id], [target], |_, animation| {
+        begin_animation(self, id, target, |animation| {
             animation.advance(target, duration, easing, time)
-        })
-    }
-
-    /// animates independent values keyed by `id`
-    ///
-    /// each value follows [`Ui::animate`] with its own target, duration, and
-    /// easing. array order must remain stable between frames
-    pub fn animate_values<const N: usize>(
-        &mut self,
-        id: WidgetId,
-        transitions: [Transition; N],
-    ) -> Animation<N> {
-        let time = self.time;
-        let ids = std::array::from_fn(|index| id.child(("animation value", index)));
-        let initial = transitions.map(|transition| transition.target);
-        begin_animations(self, ids, initial, |index, animation| {
-            let transition = transitions[index];
-            animation.advance(
-                transition.target,
-                transition.duration,
-                transition.easing,
-                time,
-            )
         })
     }
 
     /// animates a repeating value from `0.0` up to `1.0`, keyed by `id`
     ///
     /// zero duration stops the loop and resets the value
-    pub fn animate_loop(&mut self, id: WidgetId, duration: Duration, easing: Easing) -> Animation {
+    pub fn animate_loop(&mut self, id: WidgetId, duration: Duration, easing: Easing) -> f32 {
         let time = self.time;
-        begin_animations(self, [id], [0.0], |_, animation| {
+        begin_animation(self, id, 0.0, |animation| {
             animation.advance_loop(duration, easing, time)
         })
     }
@@ -233,64 +210,26 @@ impl Ui {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Animation<const N: usize = 1> {
-    values: [f32; N],
-    active: bool,
-}
-
-impl Animation<1> {
-    pub fn value(self) -> f32 {
-        self.values[0]
-    }
-}
-
-impl<const N: usize> Animation<N> {
-    pub fn values(self) -> [f32; N] {
-        self.values
-    }
-
-    pub fn is_active(self) -> bool {
-        self.active
-    }
-}
-
-fn begin_animations<const N: usize>(
+fn begin_animation(
     ui: &mut Ui,
-    ids: [WidgetId; N],
-    initial: [f32; N],
-    mut advance: impl FnMut(usize, &mut animation::AnimationState),
-) -> Animation<N> {
-    assert!(N != 0, "animation groups must contain at least one value");
-
-    let mut values = [0.0; N];
-    let mut active = false;
-    for value_index in 0..N {
-        let id = ids[value_index];
-        let (value, value_active) = {
-            let animations = &mut ui.shared_mut().animations;
-            let index = match animations.binary_search_by_key(&id, |animation| animation.id) {
-                Ok(index) => index,
-                Err(index) => {
-                    animations.insert(
-                        index,
-                        animation::AnimationState::new(id, initial[value_index]),
-                    );
-                    index
-                }
-            };
-            assert!(
-                !animations[index].seen,
-                "duplicate animation WidgetId {id:?}"
-            );
-            advance(value_index, &mut animations[index]);
-            (animations[index].value, animations[index].is_active())
-        };
-        values[value_index] = value;
-        active |= value_active;
-    }
-
-    Animation { values, active }
+    id: WidgetId,
+    initial: f32,
+    advance: impl FnOnce(&mut animation::AnimationState),
+) -> f32 {
+    let animations = &mut ui.shared_mut().animations;
+    let index = match animations.binary_search_by_key(&id, |animation| animation.id) {
+        Ok(index) => index,
+        Err(index) => {
+            animations.insert(index, animation::AnimationState::new(id, initial));
+            index
+        }
+    };
+    assert!(
+        !animations[index].seen,
+        "duplicate animation WidgetId {id:?}"
+    );
+    advance(&mut animations[index]);
+    animations[index].value
 }
 
 fn begin_timer(ui: &mut Ui, id: WidgetId, duration: Duration, interval: Option<Duration>) -> bool {

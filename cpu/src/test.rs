@@ -240,7 +240,7 @@ impl CoherenceHarness {
 
 fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, duration: Duration) {
     let screen_width = ui.screen().width;
-    let x = ui.animate(id, position, duration, Easing::Linear).value();
+    let x = ui.animate(id, position, duration, Easing::Linear);
     let mut scene = ui.column(
         Container::new()
             .grow()
