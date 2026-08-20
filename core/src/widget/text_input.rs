@@ -92,7 +92,7 @@ impl Widget for TextInput<'_> {
 
         let id = self.state.id;
         let text_id = id.child("text");
-        let previous_text_area = ui.geometry(text_id).map(|geometry| geometry.area);
+        let previous_text_area = ui.geometry(text_id);
         let focused = ui.is_focused(id);
         self.state.focused = focused;
         let mut input = ui.row(

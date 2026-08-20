@@ -250,8 +250,8 @@ fn wrapped_text_uses_its_resolved_width() {
     assert_eq!(runtime.platform().text_areas[0].width, 10.0);
     let geometry = runtime.render(Duration::ZERO, Input::None, |ui| ui.geometry(id).unwrap());
 
-    assert_eq!(geometry.area.width, 10.0);
-    assert_eq!(geometry.area.height, 8.0);
+    assert_eq!(geometry.width, 10.0);
+    assert_eq!(geometry.height, 8.0);
     runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.add(widget::Text::new("no wrap"));
     });
@@ -298,8 +298,8 @@ fn resolved_geometry_is_available_on_the_next_frame() {
     });
 
     let geometry = runtime.render(Duration::ZERO, Input::None, |ui| ui.geometry(id).unwrap());
-    assert_eq!(geometry.area.width, 3.0);
-    assert_eq!(geometry.area.height, 4.0);
+    assert_eq!(geometry.width, 3.0);
+    assert_eq!(geometry.height, 4.0);
 }
 
 #[test]
