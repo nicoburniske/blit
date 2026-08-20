@@ -18,6 +18,9 @@ const ROWS: usize = 256;
 const CELLS_PER_ROW: usize = 3;
 const ITEMS: usize = ROWS * CELLS_PER_ROW;
 
+#[global_allocator]
+static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
+
 fn main() {
     divan::main()
 }
@@ -112,6 +115,7 @@ impl PlatformImpl for NoopPlatform {
 
 fn benchmark_frame(bencher: divan::Bencher, frame: fn(&mut Ui)) {
     let mut runtime = Runtime::new(NoopPlatform);
+    runtime.render(Duration::ZERO, Input::None, frame);
     runtime.render(Duration::ZERO, Input::None, frame);
     bencher
         .counter(ItemsCount::new(ITEMS))
