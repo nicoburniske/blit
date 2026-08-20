@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::{
     Align, Clip, Container, Justify, RepaintBuffer, Runtime, Sizing, Ui,
-    animation::{Easing, Transition},
+    animation::Easing,
     color::Color,
     command_list::{ClipId, Command, CommandList},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
@@ -615,7 +615,7 @@ fn animation_is_keyed_and_target_driven() {
 
     assert_eq!(
         runtime.render(Duration::ZERO, Input::None, |ui| {
-            ui.animate(id, 0.0, duration, Easing::Linear).value()
+            ui.animate(id, 0.0, duration, Easing::Linear)
         }),
         0.0
     );
@@ -624,40 +624,17 @@ fn animation_is_keyed_and_target_driven() {
     });
     assert_eq!(
         runtime.render(Duration::from_millis(60), Input::None, |ui| {
-            ui.animate(id, 10.0, duration, Easing::Linear).value()
+            ui.animate(id, 10.0, duration, Easing::Linear)
         }),
         5.0
     );
-    let animation = runtime.render(Duration::from_millis(110), Input::None, |ui| {
-        let animation = ui.animate(id, 10.0, duration, Easing::Linear);
-        (animation.value(), animation.is_active())
-    });
-    assert_eq!(animation, (10.0, false));
-}
-
-#[test]
-fn grouped_animations_advance_independently() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let id = WidgetId::new("position");
-    let transitions = |x, y| {
-        [
-            Transition::new(x, Duration::from_millis(100), Easing::Linear),
-            Transition::new(y, Duration::from_millis(200), Easing::Linear),
-        ]
-    };
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        ui.animate_values(id, transitions(0.0, 0.0));
-    });
-    runtime.render(Duration::from_millis(10), Input::None, |ui| {
-        ui.animate_values(id, transitions(10.0, 20.0));
-    });
     assert_eq!(
-        runtime.render(Duration::from_millis(60), Input::None, |ui| {
-            ui.animate_values(id, transitions(10.0, 20.0)).values()
+        runtime.render(Duration::from_millis(110), Input::None, |ui| {
+            ui.animate(id, 10.0, duration, Easing::Linear)
         }),
-        [5.0, 5.0]
+        10.0
     );
+    assert!(!runtime.has_pending_redraw());
 }
 
 #[test]
@@ -668,8 +645,7 @@ fn looping_animation_and_timers_schedule_frames() {
 
     runtime.render(Duration::from_millis(10), Input::None, |ui| {
         assert_eq!(
-            ui.animate_loop(animation, Duration::from_secs(1), Easing::Linear)
-                .value(),
+            ui.animate_loop(animation, Duration::from_secs(1), Easing::Linear),
             0.0
         );
         assert!(!ui.timer_loop(timer, Duration::from_millis(50)));
@@ -682,8 +658,7 @@ fn looping_animation_and_timers_schedule_frames() {
 
     runtime.render(Duration::from_millis(60), Input::None, |ui| {
         assert_eq!(
-            ui.animate_loop(animation, Duration::from_secs(1), Easing::Linear)
-                .value(),
+            ui.animate_loop(animation, Duration::from_secs(1), Easing::Linear),
             0.05
         );
         assert!(ui.timer_loop(timer, Duration::from_millis(50)));
