@@ -1,7 +1,7 @@
 use std::{ops::Range, time::Duration};
 
 use blit::{
-    RepaintBuffer, Runtime,
+    Element, Layout, RepaintBuffer, Runtime, Sizing,
     animation::Easing,
     color::Color,
     command_list::{ClipId, CommandList},
@@ -239,51 +239,46 @@ impl CoherenceHarness {
 }
 
 fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, duration: Duration) {
-    let screen = ui.screen();
-    Rectangle::new(screen)
-        .background(Color::from_rgba8(24, 36, 48, 255))
-        .render(ui);
-    for (index, color) in [
-        Color::from_rgba8(90, 30, 40, 255),
-        Color::from_rgba8(30, 80, 50, 255),
-        Color::from_rgba8(40, 50, 100, 255),
-        Color::from_rgba8(100, 80, 30, 255),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        Rectangle::new(LogicalRect {
-            x: index as f32 * screen.width / 4.0,
-            width: screen.width / 4.0,
-            ..screen
-        })
-        .background(color)
-        .render(ui);
-    }
-
-    let mut movement = ui.animate(id, position, duration, Easing::Linear);
-    let x = movement.value();
-    Rectangle::new(LogicalRect {
-        x,
-        y: 6.0,
-        width: 12.0,
-        height: 20.0,
-    })
-    .background(Color::from_rgba8(20, 20, 20, 160))
-    .uniform_radius(4.0)
-    .render(&mut movement);
-    Rectangle::new(LogicalRect {
-        x: x + 4.0,
-        y: 10.0,
-        width: 4.0,
-        height: 12.0,
-    })
-    .background(if position < screen.width / 2.0 {
-        Color::from_rgba8(230, 220, 180, 255)
-    } else {
-        Color::from_rgba8(180, 210, 240, 255)
-    })
-    .render(&mut movement);
+    let screen_width = ui.screen().width;
+    let x = ui.animate(id, position, duration, Easing::Linear).value();
+    let mut scene = ui.element(
+        Element::new(
+            Layout::vertical()
+                .width(Sizing::grow())
+                .height(Sizing::grow()),
+        )
+        .background(Color::from_rgba8(24, 36, 48, 255)),
+    );
+    let mut row = scene.element(Element::new(
+        Layout::horizontal()
+            .width(Sizing::grow())
+            .height(Sizing::fixed(20.0)),
+    ));
+    drop(row.element(Element::new(Layout::vertical().width(Sizing::fixed(x)))));
+    let mut movement = row.element(
+        Element::new(
+            Layout::vertical()
+                .width(Sizing::fixed(12.0))
+                .height(Sizing::fixed(20.0))
+                .padding(blit::geometry::LogicalInsets::uniform(4.0)),
+        )
+        .background(Color::from_rgba8(20, 20, 20, 160))
+        .uniform_radius(4.0),
+    );
+    drop(
+        movement.element(
+            Element::new(
+                Layout::vertical()
+                    .width(Sizing::grow())
+                    .height(Sizing::grow()),
+            )
+            .background(if position < screen_width / 2.0 {
+                Color::from_rgba8(230, 220, 180, 255)
+            } else {
+                Color::from_rgba8(180, 210, 240, 255)
+            }),
+        ),
+    );
 }
 
 impl PixelBuffer for TrackingBuffer {
@@ -1700,33 +1695,20 @@ fn managed_strings_deref_render_and_drop() {
     assert_eq!(&*owned, "managed");
     assert_eq!(&*static_string, "static");
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        Text::new(&owned).color(Color::WHITE).render(
-            ui,
-            LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 96.0,
-                height: 24.0,
-            },
-        );
-        Text::new(&static_string).color(Color::WHITE).render(
-            ui,
-            LogicalRect {
-                x: 0.0,
-                y: 24.0,
-                width: 96.0,
-                height: 24.0,
-            },
-        );
-        Text::new("literal").color(Color::WHITE).render(
-            ui,
-            LogicalRect {
-                x: 48.0,
-                y: 0.0,
-                width: 48.0,
-                height: 24.0,
-            },
-        );
+        let mut column = ui.element(Element::new(
+            Layout::vertical()
+                .width(Sizing::grow())
+                .height(Sizing::grow()),
+        ));
+        let mut row = column.element(Element::new(
+            Layout::horizontal()
+                .width(Sizing::grow())
+                .height(Sizing::fixed(24.0)),
+        ));
+        row.add(Text::new(&owned).color(Color::WHITE));
+        row.add(Text::new("literal").color(Color::WHITE));
+        drop(row);
+        column.add(Text::new(&static_string).color(Color::WHITE));
     });
     assert!(
         runtime
@@ -1757,15 +1739,7 @@ fn managed_strings_deref_render_and_drop() {
     assert_ne!(static_string.id(), old);
     assert_eq!(runtime.platform().renderer.context.strings.len(), 3);
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        Text::new(&static_string).color(Color::WHITE).render(
-            ui,
-            LogicalRect {
-                x: 0.0,
-                y: 24.0,
-                width: 96.0,
-                height: 24.0,
-            },
-        );
+        ui.add(Text::new(&static_string).color(Color::WHITE));
     });
     assert_eq!(runtime.platform().renderer.context.strings.len(), 2);
 

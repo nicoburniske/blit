@@ -1,13 +1,8 @@
-use super::{SizedWidget, Widget};
+use super::Widget;
 use crate::{
     Content, Element, Layout, TextContent, Ui,
     color::Color,
-    geometry::{LogicalRect, LogicalSize},
-    layout::Constraints,
-    paint::{
-        HorizontalAlign, TextLayoutRequest, TextOptions, TextOverflow, TextRequest, TextStyle,
-        TextWrap, VerticalAlign,
-    },
+    paint::{HorizontalAlign, TextOptions, TextOverflow, TextStyle, TextWrap, VerticalAlign},
     resource::TextSource,
 };
 
@@ -47,40 +42,6 @@ impl Text {
         self.options.max_lines = Some(max_lines);
         self
     }
-
-    pub fn render(self, ui: &mut Ui, area: LogicalRect) {
-        let request = TextRequest {
-            text: self.text,
-            area,
-            offset_x: self.offset_x,
-            color: self.color,
-            style: self.text_style,
-            options: self.options,
-        };
-        ui.paint_text(request);
-    }
-}
-
-impl SizedWidget for Text {
-    type Output = ();
-
-    fn measure(&self, ui: &mut Ui, constraints: Constraints) -> LogicalSize {
-        let request = TextLayoutRequest {
-            text: self.text,
-            style: self.text_style,
-            wrap: self.options.wrap,
-            max_width: (self.options.wrap != TextWrap::None && constraints.max.width.is_finite())
-                .then_some(constraints.max.width.max(0.0)),
-            max_lines: self.options.max_lines,
-        };
-        constraints.constrain(ui.platform().measure_text(&request))
-    }
-
-    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
-        let mut text = self;
-        text.options.vertical_align = VerticalAlign::Top;
-        Text::render(text, ui, area)
-    }
 }
 
 impl Widget for Text {
@@ -94,6 +55,8 @@ impl Widget for Text {
                 style: self.text_style,
                 options: self.options,
                 offset_x: self.offset_x,
+                selection: None,
+                caret: None,
             })),
         ));
     }

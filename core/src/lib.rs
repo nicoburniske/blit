@@ -6,7 +6,6 @@ pub mod geometry;
 pub mod input;
 pub mod interact;
 pub mod keyboard;
-pub mod layout;
 pub mod paint;
 pub mod platform;
 pub mod resource;
@@ -17,7 +16,7 @@ pub mod widget;
 
 pub use element::{
     Align, Appearance, Axis, Clip, Content, Element, ElementGeometry, ElementScope, ImageContent,
-    Justify, Layout, Shadow, Sizing, TextContent,
+    Justify, Layout, Shadow, Sizing, TextCaret, TextContent, TextSelection,
 };
 
 use std::{
@@ -27,7 +26,7 @@ use std::{
 };
 
 use animation::{Easing, Transition};
-use command_list::{ClipId, CommandList, CommandListDiffer};
+use command_list::{CommandList, CommandListDiffer};
 use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
 use input::Input;
 use interact::{Interaction, Sense, WidgetId};
@@ -38,13 +37,14 @@ pub struct Ui {
     time: Duration,
     input: Input,
     screen: LogicalRect,
-    clip: PhysicalRect,
-    scale_factor: f32,
-    paint_clip: ClipId,
     current_id: WidgetId,
 }
 
 impl Ui {
+    pub fn add<W: widget::Widget>(&mut self, widget: W) -> W::Output {
+        widget.build(self)
+    }
+
     /// declares a frame-local element and opens its child scope
     pub fn element(&mut self, element: Element<'_>) -> ElementScope<'_> {
         element::open(self, element)
@@ -162,46 +162,6 @@ impl Ui {
         IdScope { ui: self, previous }
     }
 
-    /// limits drawing and interaction to `area`
-    ///
-    /// the area is intersected with the current clip, allowing scopes to nest
-    /// the previous clip is restored when the returned value is dropped
-    pub fn begin_clip(&mut self, area: LogicalRect) -> ClipScope<'_> {
-        let previous = self.clip;
-        let previous_paint_clip = self.paint_clip;
-        self.clip = area
-            .to_physical(self.scale_factor)
-            .intersection(previous)
-            .unwrap_or_default();
-        ClipScope {
-            ui: self,
-            previous,
-            previous_paint_clip,
-        }
-    }
-
-    /// limits drawing to the rounded rectangle and interaction to its bounds
-    ///
-    /// the bounds are intersected with the current clip, allowing scopes to
-    /// nest. the previous clip is restored when the returned value is dropped
-    pub fn begin_rounded_clip(
-        &mut self,
-        area: LogicalRect,
-        radius: paint::BorderRadius,
-    ) -> ClipScope<'_> {
-        let mut scope = self.begin_clip(area);
-        if scope.clip.width > 0 && scope.clip.height > 0 {
-            let parent = scope.paint_clip;
-            scope.paint_clip = scope.paint_mut().push_clip(parent, area, radius);
-        }
-        scope
-    }
-
-    pub fn interact(&mut self, id: WidgetId, area: LogicalRect, sense: Sense) -> Interaction {
-        let area = area.to_physical(self.scale_factor).intersection(self.clip);
-        self.shared_mut().interaction.interact(id, area, sense)
-    }
-
     pub fn is_focused(&self, id: WidgetId) -> bool {
         self.shared().interaction.is_focused(id)
     }
@@ -230,54 +190,6 @@ impl Ui {
         let shared = self.shared_mut();
         shared.frame_requested = true;
         shared.full_repaint = true;
-    }
-
-    pub fn paint_rectangle(&mut self, rectangle: paint::Rectangle<'_>) {
-        let Some(bounds) = rectangle
-            .area
-            .to_physical(self.scale_factor)
-            .intersection(self.clip)
-        else {
-            return;
-        };
-        let clip = self.paint_clip;
-        self.paint_mut().push_rectangle(rectangle, bounds, clip);
-    }
-
-    pub fn paint_box_shadow(&mut self, shadow: paint::BoxShadow) {
-        let Some(bounds) = shadow
-            .bounds()
-            .to_physical(self.scale_factor)
-            .intersection(self.clip)
-        else {
-            return;
-        };
-        let clip = self.paint_clip;
-        self.paint_mut().push_box_shadow(shadow, bounds, clip);
-    }
-
-    pub fn paint_image(&mut self, image: paint::ImageRequest) {
-        let Some(bounds) = image
-            .area
-            .to_physical(self.scale_factor)
-            .intersection(self.clip)
-        else {
-            return;
-        };
-        let clip = self.paint_clip;
-        self.paint_mut().push_image(image, bounds, clip);
-    }
-
-    pub fn paint_text(&mut self, text: paint::TextRequest) {
-        let Some(bounds) = text
-            .area
-            .to_physical(self.scale_factor)
-            .intersection(self.clip)
-        else {
-            return;
-        };
-        let clip = self.paint_clip;
-        self.paint_mut().push_text(text, bounds, clip);
     }
 }
 
@@ -337,39 +249,6 @@ impl IdScope<'_> {
 impl Drop for IdScope<'_> {
     fn drop(&mut self) {
         self.ui.current_id = self.previous;
-    }
-}
-
-pub struct ClipScope<'a> {
-    ui: &'a mut Ui,
-    previous: PhysicalRect,
-    previous_paint_clip: ClipId,
-}
-
-impl ClipScope<'_> {
-    pub fn finish(self) {
-        drop(self)
-    }
-}
-
-impl Deref for ClipScope<'_> {
-    type Target = Ui;
-
-    fn deref(&self) -> &Self::Target {
-        self.ui
-    }
-}
-
-impl DerefMut for ClipScope<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ui
-    }
-}
-
-impl Drop for ClipScope<'_> {
-    fn drop(&mut self) {
-        self.ui.clip = self.previous;
-        self.ui.paint_clip = self.previous_paint_clip;
     }
 }
 
@@ -437,10 +316,6 @@ impl Ui {
     fn shared_mut(&mut self) -> &mut UiShared {
         // only used in context of render
         unsafe { self.shared.as_mut() }
-    }
-
-    fn paint_mut(&mut self) -> &mut CommandList {
-        &mut self.shared_mut().paint
     }
 
     fn frame_mut(&mut self) -> &mut element::FrameGraph {
@@ -622,9 +497,6 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             time,
             input,
             screen: self.screen,
-            clip: self.physical_screen,
-            scale_factor: self.scale_factor,
-            paint_clip: ClipId::default(),
             current_id: WidgetId::new("blit root"),
         };
         let output = render(&mut ui);

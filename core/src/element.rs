@@ -6,7 +6,7 @@ use crate::{
     Ui,
     color::Color,
     command_list::{ClipId, CommandList},
-    geometry::{LogicalInsets, LogicalRect, LogicalSize},
+    geometry::{LogicalInsets, LogicalPoint, LogicalRect, LogicalSize},
     interact::{Interaction, InteractionState, Sense, WidgetId},
     paint::{
         Border, BorderRadius, BoxShadow, ImageFit, ImageRequest, ImageSampling, ImageTiling,
@@ -25,6 +25,7 @@ pub struct Element<'a> {
     appearance: Appearance<'a>,
     content: Content,
     clip: Clip,
+    offset: LogicalPoint,
     interaction: Option<(WidgetId, Sense)>,
 }
 
@@ -45,6 +46,7 @@ pub struct Layout {
     gap: f32,
     align: Align,
     justify: Justify,
+    overflow: bool,
 }
 
 /// sizing behavior on one axis
@@ -107,7 +109,7 @@ pub struct Shadow {
     spread: f32,
 }
 
-/// clipping applied to an element's children
+/// clipping applied to an element's content and descendants
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Clip {
     #[default]
@@ -132,6 +134,24 @@ pub struct TextContent {
     pub style: TextStyle,
     pub options: TextOptions,
     pub offset_x: f32,
+    pub selection: Option<TextSelection>,
+    pub caret: Option<TextCaret>,
+}
+
+/// selection painted behind text
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextSelection {
+    pub start: usize,
+    pub end: usize,
+    pub color: Color,
+}
+
+/// caret painted over text
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextCaret {
+    pub offset: usize,
+    pub width: f32,
+    pub color: Color,
 }
 
 /// image content and its intrinsic size
@@ -163,6 +183,7 @@ impl<'a> Element<'a> {
             appearance: Appearance::new(),
             content: Content::None,
             clip: Clip::None,
+            offset: LogicalPoint { x: 0.0, y: 0.0 },
             interaction: None,
         }
     }
@@ -232,6 +253,12 @@ impl<'a> Element<'a> {
         self
     }
 
+    /// offsets descendants without changing this element's layout
+    pub const fn offset(mut self, offset: LogicalPoint) -> Self {
+        self.offset = offset;
+        self
+    }
+
     pub const fn interact(mut self, id: WidgetId, sense: Sense) -> Self {
         self.id = Some(id);
         self.interaction = Some((id, sense));
@@ -261,6 +288,7 @@ impl Layout {
             gap: 0.0,
             align: Align::Stretch,
             justify: Justify::Start,
+            overflow: false,
         }
     }
 
@@ -291,6 +319,12 @@ impl Layout {
 
     pub const fn justify(mut self, justify: Justify) -> Self {
         self.justify = justify;
+        self
+    }
+
+    /// lets children retain their natural size beyond the flow axis
+    pub const fn overflow(mut self, overflow: bool) -> Self {
+        self.overflow = overflow;
         self
     }
 }
@@ -485,10 +519,12 @@ struct Node {
     appearance: StoredAppearance,
     content: Content,
     clip_children: Clip,
+    offset: LogicalPoint,
     interaction: Option<(WidgetId, Sense)>,
     intrinsic: LogicalSize,
     area: LogicalRect,
     clip: ClipId,
+    content_clip: ClipId,
 }
 
 struct StoredAppearance {
@@ -531,10 +567,12 @@ impl FrameGraph {
             appearance: StoredAppearance::default(),
             content: Content::None,
             clip_children: Clip::None,
+            offset: LogicalPoint::default(),
             interaction: None,
             intrinsic: LogicalSize::default(),
             area: screen,
             clip: ClipId::default(),
+            content_clip: ClipId::default(),
         });
         self.open.push(NodeId(0));
     }
@@ -555,10 +593,12 @@ impl FrameGraph {
             appearance,
             content: element.content,
             clip_children: element.clip,
+            offset: element.offset,
             interaction: element.interaction,
             intrinsic: LogicalSize::default(),
             area: LogicalRect::default(),
             clip: ClipId::default(),
+            content_clip: ClipId::default(),
         });
         if let Some(last) = self.nodes[parent.0].last_child {
             self.nodes[last.0].next_sibling = Some(node);
@@ -619,7 +659,7 @@ impl FrameGraph {
         self.measure_container_heights();
         self.resolve_axis(Axis::Vertical);
         self.resolve_clips(commands);
-        self.emit(commands, scale_factor);
+        self.emit(platform, commands, scale_factor);
         self.register_hits(commands, interaction, scale_factor);
         for node in &self.nodes {
             if let Some(id) = node.id {
@@ -684,11 +724,17 @@ impl FrameGraph {
         let mut cross: f32 = 0.0;
         let mut count = 0usize;
         loop {
-            let size = self.nodes[child.0].intrinsic;
-            let (child_main, child_cross) = match layout.axis {
-                Axis::Horizontal => (size.width, size.height),
-                Axis::Vertical => (size.height, size.width),
+            let node = &self.nodes[child.0];
+            let (main_axis, cross_axis) = match layout.axis {
+                Axis::Horizontal => (Axis::Horizontal, Axis::Vertical),
+                Axis::Vertical => (Axis::Vertical, Axis::Horizontal),
             };
+            let child_main =
+                node.sizing(main_axis)
+                    .resolve(node.intrinsic(main_axis), f32::INFINITY, false);
+            let child_cross =
+                node.sizing(cross_axis)
+                    .resolve(node.intrinsic(cross_axis), f32::INFINITY, true);
             main += child_main;
             cross = cross.max(child_cross);
             count += 1;
@@ -736,14 +782,14 @@ impl FrameGraph {
         let parent_area = self.nodes[parent.0].area;
         let (origin, available, flow, leading, trailing) = match axis {
             Axis::Horizontal => (
-                parent_area.x,
+                parent_area.x + self.nodes[parent.0].offset.x,
                 parent_area.width,
                 layout.axis == Axis::Horizontal,
                 layout.padding.left,
                 layout.padding.right,
             ),
             Axis::Vertical => (
-                parent_area.y,
+                parent_area.y + self.nodes[parent.0].offset.y,
                 parent_area.height,
                 layout.axis == Axis::Vertical,
                 layout.padding.top,
@@ -780,7 +826,15 @@ impl FrameGraph {
         loop {
             let node = &mut self.nodes[child.0];
             let sizing = node.sizing(axis);
-            let size = sizing.resolve(node.intrinsic(axis), available, false);
+            let size = sizing.resolve(
+                node.intrinsic(axis),
+                if layout.overflow {
+                    f32::INFINITY
+                } else {
+                    available
+                },
+                false,
+            );
             node.set_size(axis, size);
             used += size;
             count += 1;
@@ -792,7 +846,7 @@ impl FrameGraph {
         }
         let gaps = layout.gap.max(0.0) * count.saturating_sub(1) as f32;
         let free = available - used - gaps;
-        if free < 0.0 {
+        if free < 0.0 && !layout.overflow {
             let mut capacity = 0.0;
             child = self.nodes[parent.0].first_child.unwrap();
             loop {
@@ -891,6 +945,7 @@ impl FrameGraph {
                     commands.push_clip(self.nodes[index].clip, self.nodes[index].area, radius)
                 }
             };
+            self.nodes[index].content_clip = child_clip;
             let mut child = self.nodes[index].first_child;
             while let Some(child_id) = child {
                 self.nodes[child_id.0].clip = child_clip;
@@ -900,7 +955,7 @@ impl FrameGraph {
         }
     }
 
-    fn emit(&self, commands: &mut CommandList, scale_factor: f32) {
+    fn emit(&self, platform: &mut Platform, commands: &mut CommandList, scale_factor: f32) {
         for node in self.nodes.iter().skip(1) {
             if let Some(shadow) = node.appearance.shadow {
                 let shadow = BoxShadow::new(node.area, shadow.color)
@@ -941,18 +996,64 @@ impl FrameGraph {
             }
             match node.content {
                 Content::None => {}
-                Content::Text(text) => commands.push_text(
-                    TextRequest {
+                Content::Text(text) => {
+                    let request = TextRequest {
                         text: text.text,
                         area: node.area,
                         offset_x: text.offset_x,
                         color: text.color,
                         style: text.style,
                         options: text.options,
-                    },
-                    node.area.to_physical(scale_factor),
-                    node.clip,
-                ),
+                    };
+                    if let Some(selection) = text.selection {
+                        let start = platform.text_cursor_rect(&request, selection.start);
+                        let end = platform.text_cursor_rect(&request, selection.end);
+                        let left = start.x.max(node.area.x);
+                        let right = end.x.min(node.area.x + node.area.width);
+                        let top = start.y.max(node.area.y);
+                        let bottom = (start.y + start.height).min(node.area.y + node.area.height);
+                        if right > left && bottom > top {
+                            let area = LogicalRect {
+                                x: left,
+                                y: top,
+                                width: right - left,
+                                height: bottom - top,
+                            };
+                            commands.push_rectangle(
+                                Rectangle::new(area).background(selection.color),
+                                area.to_physical(scale_factor),
+                                node.content_clip,
+                            );
+                        }
+                    }
+                    commands.push_text(
+                        request,
+                        node.area.to_physical(scale_factor),
+                        node.content_clip,
+                    );
+                    if let Some(caret) = text.caret {
+                        let cursor = platform.text_cursor_rect(&request, caret.offset);
+                        let x = cursor.x.clamp(
+                            node.area.x,
+                            (node.area.x + node.area.width - caret.width).max(node.area.x),
+                        );
+                        let top = cursor.y.max(node.area.y);
+                        let bottom = (cursor.y + cursor.height).min(node.area.y + node.area.height);
+                        if bottom > top {
+                            let area = LogicalRect {
+                                x,
+                                y: top,
+                                width: caret.width.min(node.area.width),
+                                height: bottom - top,
+                            };
+                            commands.push_rectangle(
+                                Rectangle::new(area).background(caret.color),
+                                area.to_physical(scale_factor),
+                                node.content_clip,
+                            );
+                        }
+                    }
+                }
                 Content::Image(image) => commands.push_image(
                     ImageRequest {
                         image: image.image,
@@ -966,7 +1067,7 @@ impl FrameGraph {
                         vertical_tiling: image.vertical_tiling,
                     },
                     node.area.to_physical(scale_factor),
-                    node.clip,
+                    node.content_clip,
                 ),
             }
         }
