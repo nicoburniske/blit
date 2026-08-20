@@ -21,6 +21,27 @@ pub struct AlphaRow {
     pub opaque_end: u16,
 }
 
+#[derive(Default)]
+pub struct AlphaRows(pub Box<[u16]>);
+
+impl AlphaRows {
+    pub fn get(&self, format: ImageFormat, index: usize) -> Option<AlphaRow> {
+        let stride = match format {
+            ImageFormat::Rgba8Premultiplied => 4,
+            ImageFormat::Alpha8(_) => 2,
+            _ => return None,
+        };
+        let start = index.checked_mul(stride)?;
+        let row = self.0.get(start..start + stride)?;
+        Some(AlphaRow {
+            visible_start: row[0],
+            visible_end: row[1],
+            opaque_start: if stride == 4 { row[2] } else { 0 },
+            opaque_end: if stride == 4 { row[3] } else { 0 },
+        })
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Prepared {
     pub image: ImageId,
@@ -109,14 +130,14 @@ impl Prepared {
         line: i32,
         bounds: PhysicalRect,
         texture: &ImageData,
-        alpha_rows: &[AlphaRow],
+        alpha_rows: &AlphaRows,
     ) -> Option<Range<i32>> {
         let texture_y = texture.texture_rect.y as usize;
         let AlphaRow {
             opaque_start,
             opaque_end,
             ..
-        } = *alpha_rows.get(self.source_y(line).checked_sub(texture_y)?)?;
+        } = alpha_rows.get(texture.format, self.source_y(line).checked_sub(texture_y)?)?;
         let start = self.display.x + texture.texture_rect.x + opaque_start as i32 - self.source.x;
         let end = self.display.x + texture.texture_rect.x + opaque_end as i32 - self.source.x;
         let start = start.max(bounds.x);
@@ -128,7 +149,7 @@ impl Prepared {
         &self,
         buffer: &mut B,
         texture: &ImageData,
-        alpha_rows: &[AlphaRow],
+        alpha_rows: &AlphaRows,
         clip: PhysicalRect,
     ) {
         let screen = PhysicalRect {
@@ -159,7 +180,7 @@ impl Prepared {
         clipped: PhysicalRect,
         screen_x: i32,
         y: i32,
-        alpha_rows: &[AlphaRow],
+        alpha_rows: &AlphaRows,
     ) {
         let source_y = self.source_y(y);
         let texture_x = texture.texture_rect.x as usize;
@@ -199,7 +220,7 @@ impl Prepared {
                 clipped,
                 screen_x,
                 source_y,
-                alpha_rows.get(source_y - texture_y).copied(),
+                alpha_rows.get(texture.format, source_y - texture_y),
             )
         {
             return;

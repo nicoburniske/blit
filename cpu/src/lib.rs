@@ -15,7 +15,7 @@ pub use blit_font::Font;
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
-use render::{image, image_patch::AlphaRow, rectangle, shadow};
+use render::{image, image_patch::AlphaRows, rectangle, shadow};
 pub use strategy::{Direct, RenderStrategy, Scanline};
 use strategy::{
     clip::ClipStack,
@@ -356,7 +356,7 @@ fn resolve_text(strings: &SlotMap<RendererStringId, StoredString>, source: TextS
 
 pub struct StoredImage {
     data: ImageData,
-    alpha_rows: Box<[AlphaRow]>,
+    alpha_rows: AlphaRows,
     has_opaque_spans: bool,
     opaque: bool,
     live: bool,
@@ -368,7 +368,6 @@ impl StoredImage {
         let height = data.texture_rect.height as usize;
         let bytes = data.pixels.bytes();
         let mut has_opaque_spans = false;
-        let mut opaque = true;
         let rgba_opaque = || {
             (0..height).all(|line| {
                 bytes[line * data.stride_bytes..][..width * 4]
@@ -376,20 +375,19 @@ impl StoredImage {
                     .all(|pixel| pixel[3] == 255)
             })
         };
-        let alpha_rows = match data.format {
+        let (alpha_rows, opaque) = match data.format {
             blit::resource::ImageFormat::Rgb8 | blit::resource::ImageFormat::Luma8 => {
-                Box::default()
+                (AlphaRows::default(), true)
             }
-            blit::resource::ImageFormat::Rgba8 => {
-                opaque = rgba_opaque();
-                Box::default()
+            blit::resource::ImageFormat::Rgba8 => (AlphaRows::default(), rgba_opaque()),
+            blit::resource::ImageFormat::Rgba8Premultiplied if rgba_opaque() => {
+                (AlphaRows::default(), true)
             }
             blit::resource::ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => {
-                opaque = rgba_opaque();
-                Box::default()
+                (AlphaRows::default(), false)
             }
             blit::resource::ImageFormat::Rgba8Premultiplied => {
-                let mut rows = Vec::with_capacity(height);
+                let mut rows = Vec::with_capacity(height * 4);
                 for y in 0..height {
                     let row = &bytes[y * data.stride_bytes..][..width * 4];
                     let mut visible_start = width;
@@ -418,26 +416,29 @@ impl StoredImage {
                     }
                     visible_start = visible_start.min(visible_end);
                     has_opaque_spans |= opaque_start < opaque_end;
-                    opaque &= opaque_start == 0 && opaque_end == width;
-                    rows.push(AlphaRow {
-                        visible_start: visible_start as u16,
-                        visible_end: visible_end as u16,
-                        opaque_start: opaque_start as u16,
-                        opaque_end: opaque_end as u16,
-                    });
+                    rows.extend([
+                        visible_start as u16,
+                        visible_end as u16,
+                        opaque_start as u16,
+                        opaque_end as u16,
+                    ]);
                 }
-                rows.into_boxed_slice()
+                (AlphaRows(rows.into_boxed_slice()), false)
             }
-            blit::resource::ImageFormat::Alpha8(_) if width > u16::MAX as usize => {
-                opaque = (0..height).all(|line| {
+            blit::resource::ImageFormat::Alpha8(_)
+                if (0..height).all(|line| {
                     bytes[line * data.stride_bytes..][..width]
                         .iter()
                         .all(|alpha| *alpha == 255)
-                });
-                Box::default()
+                }) =>
+            {
+                (AlphaRows::default(), true)
+            }
+            blit::resource::ImageFormat::Alpha8(_) if width > u16::MAX as usize => {
+                (AlphaRows::default(), false)
             }
             blit::resource::ImageFormat::Alpha8(_) => {
-                let mut rows = Vec::with_capacity(height);
+                let mut rows = Vec::with_capacity(height * 2);
                 for y in 0..height {
                     let row = &bytes[y * data.stride_bytes..][..width];
                     let mut visible_start = width;
@@ -447,17 +448,11 @@ impl StoredImage {
                             visible_start = visible_start.min(x);
                             visible_end = x + 1;
                         }
-                        opaque &= *alpha == 255;
                     }
                     visible_start = visible_start.min(visible_end);
-                    rows.push(AlphaRow {
-                        visible_start: visible_start as u16,
-                        visible_end: visible_end as u16,
-                        opaque_start: 0,
-                        opaque_end: 0,
-                    });
+                    rows.extend([visible_start as u16, visible_end as u16]);
                 }
-                rows.into_boxed_slice()
+                (AlphaRows(rows.into_boxed_slice()), false)
             }
         };
         Self {

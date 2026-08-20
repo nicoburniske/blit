@@ -861,6 +861,8 @@ fn image_alpha_rows_are_cached_and_used() {
     ));
     let key = RendererImageId::from(KeyData::from_ffi(image.0));
     let rows = &renderer.context.images[key].alpha_rows;
+    let rows: [_; 4] =
+        std::array::from_fn(|index| rows.get(ImageFormat::Rgba8Premultiplied, index).unwrap());
     assert!(rows.iter().map(|row| row.visible_start).eq([1, 1, 0, 0]));
     assert!(rows.iter().map(|row| row.visible_end).eq([4, 4, 6, 6]));
     assert!(rows.iter().map(|row| row.opaque_start).eq([1, 1, 0, 0]));
@@ -917,6 +919,8 @@ fn image_alpha_rows_are_cached_and_used() {
     ));
     let key = RendererImageId::from(KeyData::from_ffi(image.0));
     let rows = &renderer.context.images[key].alpha_rows;
+    let rows: [_; 4] =
+        std::array::from_fn(|index| rows.get(ImageFormat::Alpha8(Color::WHITE), index).unwrap());
     assert!(rows.iter().map(|row| row.visible_start).eq([1, 0, 1, 0]));
     assert!(rows.iter().map(|row| row.visible_end).eq([3, 0, 4, 6]));
     assert!(
@@ -936,6 +940,38 @@ fn image_alpha_rows_are_cached_and_used() {
     );
     renderer.render(&paint, &[screen]);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 11);
+
+    let image = renderer.create_image(ImageData::new(
+        ImagePixels::Static(&[255; 6 * 4]),
+        ImageFormat::Alpha8(Color::WHITE),
+        6,
+        4,
+    ));
+    let key = RendererImageId::from(KeyData::from_ffi(image.0));
+    let image = &renderer.context.images[key];
+    assert!(image.opaque);
+    assert!(
+        image
+            .alpha_rows
+            .get(ImageFormat::Alpha8(Color::WHITE), 0)
+            .is_none()
+    );
+
+    let image = renderer.create_image(ImageData::new(
+        ImagePixels::Static(&[255; 6 * 4 * 4]),
+        ImageFormat::Rgba8Premultiplied,
+        6,
+        4,
+    ));
+    let key = RendererImageId::from(KeyData::from_ffi(image.0));
+    let image = &renderer.context.images[key];
+    assert!(image.opaque);
+    assert!(
+        image
+            .alpha_rows
+            .get(ImageFormat::Rgba8Premultiplied, 0)
+            .is_none()
+    );
 }
 
 #[test]
