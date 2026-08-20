@@ -28,6 +28,7 @@ use command_list::{CommandDiffConfig, CommandList, CommandListDiffer};
 use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
 use input::Input;
 use interact::{Interaction, Sense, WidgetId};
+use paint::{TextRunId, TextStyle};
 use platform::{Platform, PlatformImpl};
 
 pub struct Ui {
@@ -161,6 +162,10 @@ impl Ui {
 
 #[doc(hidden)]
 impl Ui {
+    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.shared_mut().platform.text_run(text, style)
+    }
+
     pub fn add_leaf(&mut self, item: Item, content: Content) -> NodeId {
         self.frame_mut().add_leaf(item, content)
     }

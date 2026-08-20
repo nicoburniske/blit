@@ -53,6 +53,47 @@ where
         Some(&self.entries.get(index).value)
     }
 
+    pub fn get_or_insert_by<Q>(
+        &mut self,
+        query: &Q,
+        equivalent: impl Fn(&K, &V) -> bool,
+        insert: impl FnOnce() -> (K, V),
+    ) -> Result<(&V, usize), V>
+    where
+        Q: std::hash::Hash + ?Sized,
+    {
+        let hash = self.hash_builder.hash_one(query);
+        if let Some(index) = self
+            .table
+            .find(hash, |index| {
+                let entry = self.entries.get(*index);
+                equivalent(&entry.key, &entry.value)
+            })
+            .copied()
+        {
+            self.entries.promote(index);
+            return Ok((&self.entries.get(index).value, index));
+        }
+
+        let (key, value) = insert();
+        debug_assert_eq!(hash, self.hash_builder.hash_one(&key));
+        let weight = self.scale.weight(&key, &value);
+        if TRIM_ON_INSERT && weight > self.max_weight {
+            return Err(value);
+        }
+        let (_, index) = self.entries.insert(Entry { key, value });
+        let entries = &self.entries;
+        let hash_builder = &self.hash_builder;
+        self.table.insert_unique(hash, index, |index| {
+            hash_builder.hash_one(&entries.get(*index).key)
+        });
+        self.weight += weight;
+        if TRIM_ON_INSERT {
+            self.trim_to_weight();
+        }
+        Ok((&self.entries.get(index).value, index))
+    }
+
     pub fn get_index(&self, index: usize) -> &V {
         &self.entries.get(index).value
     }
@@ -96,7 +137,7 @@ where
 
         let value = f();
         let weight = self.scale.weight(&key, &value);
-        if weight > self.max_weight {
+        if TRIM_ON_INSERT && weight > self.max_weight {
             return Err(value);
         }
         let (_, index) = self.entries.insert(Entry { key, value });

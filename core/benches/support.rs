@@ -7,9 +7,9 @@ use blit::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     interact::{Sense, WidgetId},
     keyboard::KeyboardRequest,
-    paint::{self, TextLayoutRequest},
+    paint::{self, TextLayoutRequest, TextRunId, TextStyle},
     platform::PlatformImpl,
-    resource::{ImageData, ImageId, StringData, StringId},
+    resource::{ImageData, ImageId},
     widget::Rectangle,
 };
 
@@ -43,14 +43,8 @@ impl PlatformImpl for NoopPlatform {
 
     fn drop_image(&mut self, _: ImageId) {}
 
-    fn create_string(&mut self, _: StringData) -> StringId {
-        StringId(0)
-    }
-
-    fn drop_string(&mut self, _: StringId) {}
-
-    fn string(&self, _: StringId) -> &str {
-        unreachable!()
+    fn text_run(&mut self, _: &str, _: TextStyle) -> TextRunId {
+        TextRunId(1)
     }
 
     fn text_offset_at_position(&mut self, _: &paint::TextRequest, _: LogicalPoint) -> usize {

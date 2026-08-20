@@ -3,12 +3,11 @@ use crate::{
     Content, Item, Sizing, TextContent, Ui,
     color::Color,
     paint::{HorizontalAlign, TextOptions, TextOverflow, TextStyle, TextWrap, VerticalAlign},
-    resource::TextSource,
 };
 
 crate::widget! {
-    pub struct Text {
-        new(pub text: impl Into<TextSource>);
+    pub struct Text<'a> {
+        new(pub text: &'a str);
         pub color: Color = Color::BLACK,
         pub text_style: TextStyle,
         pub options: TextOptions,
@@ -19,7 +18,7 @@ crate::widget! {
     features: [text_style]
 }
 
-impl Text {
+impl Text<'_> {
     pub fn wrap(mut self, wrap: TextWrap) -> Self {
         self.options.wrap = wrap;
         self
@@ -46,17 +45,18 @@ impl Text {
     }
 }
 
-impl Widget for Text {
+impl Widget for Text<'_> {
     type Output = ();
 
     fn build(self, ui: &mut Ui) {
+        let text = ui.text_run(self.text, self.text_style);
         ui.add_leaf(
             Item {
                 width: self.width,
                 height: self.height,
             },
             Content::Text(TextContent {
-                text: self.text,
+                text,
                 color: self.color,
                 style: self.text_style,
                 options: self.options,

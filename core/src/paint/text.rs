@@ -1,7 +1,11 @@
-use crate::{color::Color, geometry::LogicalRect, resource::TextSource};
+use crate::{color::Color, geometry::LogicalRect};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FontId(pub u16);
+
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TextRunId(pub u64);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum TextWrap {
@@ -62,7 +66,7 @@ pub struct TextOptions {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextRequest {
-    pub text: TextSource,
+    pub text: TextRunId,
     pub area: LogicalRect,
     pub offset_x: f32,
     pub color: Color,
@@ -72,7 +76,7 @@ pub struct TextRequest {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextLayoutRequest {
-    pub text: TextSource,
+    pub text: TextRunId,
     pub style: TextStyle,
     pub wrap: TextWrap,
     pub max_width: Option<f32>,

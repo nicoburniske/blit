@@ -8,10 +8,10 @@ use crate::{
     paint::{
         Border, BorderRadius, BoxShadow, ImageFit, ImageRequest, ImageSampling, ImageTiling,
         LinearGradient, NineSlice, Rectangle, TextLayoutRequest, TextOptions, TextRequest,
-        TextStyle, TextWrap,
+        TextRunId, TextStyle, TextWrap,
     },
     platform::Platform,
-    resource::{ImageId, TextSource},
+    resource::ImageId,
     style::{Appearance, Clip, Shadow},
 };
 
@@ -29,7 +29,7 @@ pub enum Content {
 /// text resolved after its node width is known
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextContent {
-    pub text: TextSource,
+    pub text: TextRunId,
     pub color: Color,
     pub style: TextStyle,
     pub options: TextOptions,

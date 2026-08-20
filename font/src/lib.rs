@@ -12,7 +12,7 @@ use std::{
 };
 
 pub use layout::{
-    CharacterData, GlyphPosition, GlyphRasterConfig, Layout, LayoutSettings, LinePosition,
+    CharacterData, GlyphPosition, GlyphRasterConfig, Layout, LayoutSettings, LinePosition, TextRun,
 };
 pub use raster::Rasterizer;
 use ttf_parser::{Face, FaceParsingError, Rect};

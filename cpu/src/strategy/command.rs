@@ -30,7 +30,8 @@ pub enum Payload<'a> {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct PreparedText {
-    pub paragraph: usize,
+    pub glyph_start: u32,
+    pub glyph_end: u32,
     pub area: PhysicalRect,
     pub color: Color,
 }
