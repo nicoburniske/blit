@@ -341,6 +341,14 @@ pub enum RepaintBuffer {
     Swapped,
 }
 
+/// retained frame graph memory after its buffers have grown
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameGraphMemory {
+    pub node_size: usize,
+    pub node_capacity: usize,
+    pub heap_bytes: usize,
+}
+
 pub struct Runtime<P: PlatformImpl> {
     platform: Box<P>,
     shared: UiShared,
@@ -483,6 +491,10 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
 
     pub fn screen(&self) -> LogicalRect {
         self.screen
+    }
+
+    pub fn frame_graph_memory(&self) -> FrameGraphMemory {
+        self.shared.frame.memory()
     }
 
     fn record<R>(&mut self, time: Duration, input: Input, render: impl FnOnce(&mut Ui) -> R) -> R {

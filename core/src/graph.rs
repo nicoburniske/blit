@@ -1,4 +1,5 @@
 use crate::{
+    FrameGraphMemory,
     color::Color,
     command_list::{ClipId, CommandList},
     element::{
@@ -191,6 +192,17 @@ impl FrameGraph {
         self.open.clear();
         self.scratch.clear();
         self.gradient_stops.clear();
+    }
+
+    pub fn memory(&self) -> FrameGraphMemory {
+        FrameGraphMemory {
+            node_size: size_of::<Node>(),
+            node_capacity: self.nodes.capacity(),
+            heap_bytes: self.nodes.capacity() * size_of::<Node>()
+                + self.open.capacity() * size_of::<NodeId>()
+                + self.scratch.capacity() * size_of::<NodeId>()
+                + self.gradient_stops.capacity() * size_of::<crate::paint::GradientStop>(),
+        }
     }
 
     fn measure_intrinsic(&mut self, platform: &mut Platform) {

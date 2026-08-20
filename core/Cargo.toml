@@ -13,3 +13,7 @@ divan = "0.1"
 [[bench]]
 name = "core"
 harness = false
+
+[[bench]]
+name = "memory"
+harness = false
