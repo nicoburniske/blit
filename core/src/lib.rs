@@ -16,7 +16,10 @@ mod test;
 mod timer;
 pub mod widget;
 
-pub use container::{Align, Axis, Container, Item, Justify, Scope, Sizing};
+pub use container::{
+    Absolute, Align, Anchor, Axis, Container, Item, Justify, PositionTarget, Positioned, Scope,
+    Sizing,
+};
 #[doc(hidden)]
 pub use graph::{Content, ImageContent, NodeId, TextCaret, TextContent, TextSelection};
 pub use style::{Appearance, Clip, Shadow};
@@ -58,6 +61,10 @@ impl Ui {
 
     pub fn flow(&mut self, axis: Axis, container: Container<'_>) -> Scope<'_> {
         container::open(self, axis, container)
+    }
+
+    pub fn absolute(&mut self, absolute: Absolute) -> Positioned<'_> {
+        container::positioned(self, absolute)
     }
 
     pub fn geometry(&self, id: WidgetId) -> Option<LogicalRect> {
@@ -178,7 +185,22 @@ impl Ui {
         let interaction = container
             .interaction
             .map_or_default(|(id, sense)| self.shared_mut().interaction.response(id, sense));
-        let node = self.frame_mut().add_container(axis, container);
+        let node = self.frame_mut().add_container(axis, container, None);
+        (node, interaction)
+    }
+
+    pub fn open_absolute_container(
+        &mut self,
+        axis: Axis,
+        container: Container<'_>,
+        absolute: Absolute,
+    ) -> (NodeId, Interaction) {
+        let interaction = container
+            .interaction
+            .map_or_default(|(id, sense)| self.shared_mut().interaction.response(id, sense));
+        let node = self
+            .frame_mut()
+            .add_container(axis, container, Some(absolute));
         (node, interaction)
     }
 
