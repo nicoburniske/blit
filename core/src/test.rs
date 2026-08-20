@@ -21,6 +21,7 @@ struct TestPlatform {
     damage: Vec<PhysicalRect>,
     paint_bounds: Vec<PhysicalRect>,
     paint_clips: Vec<ClipId>,
+    rectangle_areas: Vec<LogicalRect>,
     text_areas: Vec<LogicalRect>,
     clip_count: usize,
     repaint_buffer: RepaintBuffer,
@@ -32,12 +33,15 @@ impl PlatformImpl for TestPlatform {
         self.damage.extend_from_slice(damage);
         self.paint_bounds.clear();
         self.paint_clips.clear();
+        self.rectangle_areas.clear();
         self.text_areas.clear();
         for record in commands.iter() {
             self.paint_bounds.push(record.bounds);
             self.paint_clips.push(record.clip);
-            if let Command::Text(text) = record.command {
-                self.text_areas.push(text.area);
+            match record.command {
+                Command::Rectangle(rectangle) => self.rectangle_areas.push(rectangle.area),
+                Command::Text(text) => self.text_areas.push(text.area),
+                Command::Image(_) | Command::BoxShadow(_) => {}
             }
         }
         self.clip_count = commands.clips().len();
@@ -294,7 +298,8 @@ fn scroll_uses_natural_content_geometry_and_offsets_commands() {
 
     state.scroll_to(7.0, 10.0);
     runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
-    assert_eq!(runtime.platform().paint_bounds[0].y, -7);
+    assert_eq!(runtime.platform().rectangle_areas[0].y, -7.0);
+    assert_eq!(runtime.platform().paint_bounds[0].y, 0);
     assert_eq!(runtime.platform().paint_bounds[1].y, 2);
     assert_eq!(runtime.platform().clip_count, 1);
 }

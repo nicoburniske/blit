@@ -58,6 +58,19 @@ impl LogicalRect {
         x >= self.x && y >= self.y && x < self.x + self.width && y < self.y + self.height
     }
 
+    pub fn intersection(self, other: Self) -> Option<Self> {
+        let x = self.x.max(other.x);
+        let y = self.y.max(other.y);
+        let right = (self.x + self.width).min(other.x + other.width);
+        let bottom = (self.y + self.height).min(other.y + other.height);
+        (right > x && bottom > y).then_some(Self {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+        })
+    }
+
     pub fn inset(self, insets: LogicalInsets) -> Self {
         Self {
             x: self.x + insets.left,
