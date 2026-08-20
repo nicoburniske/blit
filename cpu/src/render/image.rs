@@ -177,7 +177,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::{PixelBuffer, VecBuffer, Xrgb8888};
+    use crate::{PixelBuffer, VecBuffer, Xrgb8888, render::image_patch::AlphaRows};
 
     fn draw<B: PixelBuffer>(
         buffer: &mut B,
@@ -186,8 +186,9 @@ mod tests {
         clip: PhysicalRect,
         scale_factor: f32,
     ) {
+        let alpha_rows = AlphaRows::default();
         prepare(request, texture, clip, scale_factor, |image, clip| {
-            image.draw(buffer, texture, &[], clip)
+            image.draw(buffer, texture, &alpha_rows, clip)
         });
     }
 
