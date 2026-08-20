@@ -5,13 +5,13 @@ use crate::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     keyboard::KeyboardRequest,
     paint::{TextLayoutRequest, TextRequest},
-    paint_list::PaintList,
+    command_list::CommandList,
     resource::{ImageData, ImageHandle, ImageId, StringData, StringHandle, StringId},
 };
 
 pub trait PlatformImpl {
     /// damage may overlap and each covered pixel must be rendered once
-    fn render(&mut self, paint: &PaintList, damage: &[PhysicalRect]);
+    fn render(&mut self, paint: &CommandList, damage: &[PhysicalRect]);
     fn screen(&mut self) -> PhysicalRect;
     fn scale_factor(&mut self) -> f32 {
         1.0

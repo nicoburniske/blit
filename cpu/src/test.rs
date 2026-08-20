@@ -13,7 +13,7 @@ use blit::{
         LinearGradient, Rectangle, TextLayoutRequest, TextOptions, TextRequest, TextStyle,
         TextWrap,
     },
-    paint_list::{ClipId, PaintList},
+    command_list::{ClipId, CommandList},
     platform::PlatformImpl,
     resource::{ImageData, ImageFormat, ImageId, ImagePixels, StringData, StringId},
     widget::Text,
@@ -58,7 +58,7 @@ struct RuntimePlatform<B: PixelBuffer = VecBuffer<Xrgb8888>, S: RenderStrategy<B
 impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
     for RuntimePlatform<B, S>
 {
-    fn render(&mut self, paint: &PaintList, damage: &[PhysicalRect]) {
+    fn render(&mut self, paint: &CommandList, damage: &[PhysicalRect]) {
         self.renderer.render(paint, damage)
     }
 
@@ -339,7 +339,7 @@ fn renderer_supports_custom_pixel_layouts() {
         width: 32,
         height: 24,
     };
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(LogicalRect {
             x: 0.0,
@@ -454,7 +454,7 @@ fn replacement_rectangles_overwrite_stale_pixels() {
         if replace {
             rectangle = rectangle.replace(true);
         }
-        let mut paint = PaintList::default();
+        let mut paint = CommandList::default();
         paint.push_rectangle(rectangle, screen, ClipId::default());
         renderer.render(&paint, &[screen]);
         renderer.buffer().pixels().to_vec()
@@ -474,7 +474,7 @@ fn replacement_rectangles_overwrite_stale_pixels() {
     let mut renderer = Renderer::new(VecBuffer::<Argb8888>::new(12, 10), renderer_config());
     renderer.buffer_mut().pixels_mut().fill(stale);
     let screen = renderer.screen();
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(LogicalRect {
             width: 12.0,
@@ -510,7 +510,7 @@ fn commands_outside_damage_are_not_prepared() {
         width: 4.0,
         height: 4.0,
     };
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_text(
         TextRequest {
             text: StringId(u64::MAX).into(),
@@ -632,7 +632,7 @@ fn dropped_image_slots_are_reused_after_end_frame() {
     let first_key = RendererImageId::from(KeyData::from_ffi(first.0));
     assert!(renderer.context.images.contains_key(first_key));
 
-    renderer.render(&PaintList::default(), &[]);
+    renderer.render(&CommandList::default(), &[]);
     assert!(!renderer.context.images.contains_key(first_key));
 
     let second = renderer.create_image(ImageData::new(
@@ -719,7 +719,7 @@ fn image_alpha_rows_are_cached_and_used() {
     };
     BLENDED.store(0, Ordering::Relaxed);
     COPIED.store(0, Ordering::Relaxed);
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_image(request, screen, ClipId::default());
     renderer.render(&paint, &[screen]);
     assert_eq!(COPIED.load(Ordering::Relaxed), 10);
@@ -779,7 +779,7 @@ fn image_alpha_rows_are_cached_and_used() {
 fn direct_preserves_exact_overlapping_damage() {
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(4, 4), renderer_config());
     let screen = renderer.screen();
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(screen.to_logical(1.0)).background(Color::from_rgba8(255, 0, 0, 128)),
         screen,
@@ -826,7 +826,7 @@ fn direct_preserves_exact_overlapping_damage() {
 fn direct_does_not_merge_touching_damage() {
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(3, 3), renderer_config());
     let screen = renderer.screen();
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(screen.to_logical(1.0)).background(Color::WHITE),
         screen,
@@ -866,7 +866,7 @@ fn direct_preserves_damage_beyond_stack_capacity() {
         width: 1,
         height: 1,
     });
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(screen.to_logical(1.0)).background(Color::WHITE),
         screen,
@@ -910,7 +910,7 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
             height: 1,
         },
     ];
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(LogicalRect {
             x: 0.0,
@@ -946,7 +946,7 @@ fn scanline_merges_overlapping_damage_per_line() {
         renderer_config(),
     )
     .strategy(Scanline::default());
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(LogicalRect {
             x: 0.0,
@@ -1004,7 +1004,7 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
         width: 2,
         height: 1,
     }];
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(LogicalRect {
             x: 0.0,
@@ -1078,7 +1078,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         height: 2.0,
         ..LogicalRect::default()
     };
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
         screen,
@@ -1369,7 +1369,7 @@ fn cached_dirty_ranges_match_direct_rendering() {
         width: 8,
         height: 8,
     };
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(red, clip, ClipId::default());
     paint.push_rectangle(green, clip, ClipId::default());
     direct.render(&paint, &damage);
@@ -1415,7 +1415,7 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
             color: Color::from_rgba8(20, 80, 220, 140),
             ..first
         };
-        let mut paint = PaintList::default();
+        let mut paint = CommandList::default();
         paint.push_box_shadow(first, screen, ClipId::default());
         paint.push_box_shadow(second, screen, ClipId::default());
         renderer.render(&paint, &[screen]);
@@ -1457,7 +1457,7 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
         let mut renderer =
             Renderer::new(VecBuffer::<Xrgb8888>::new(48, 36), renderer_config()).strategy(strategy);
         let screen = renderer.screen();
-        let mut paint = PaintList::default();
+        let mut paint = CommandList::default();
         let clip = paint.push_clip(
             ClipId::default(),
             LogicalRect {
@@ -1545,7 +1545,7 @@ fn rounded_clips_match_between_strategies() {
             options: TextOptions::default(),
         };
 
-        let mut paint = PaintList::default();
+        let mut paint = CommandList::default();
         let outer_clip = paint.push_clip(
             ClipId::default(),
             area,
@@ -1612,7 +1612,7 @@ fn dropped_image_remains_valid_until_frame_end() {
         width: 1,
         height: 1,
     }];
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_image(
         ImageRequest {
             image,
@@ -1652,7 +1652,7 @@ fn strings_drop_after_frame_end() {
         height: 24,
     }];
     let string = renderer.create_string(StringData::Owned(String::from("M").into_boxed_str()));
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_text(
         TextRequest {
             text: string.into(),

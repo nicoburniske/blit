@@ -7,7 +7,7 @@ use blit::{
 
 use crate::render::rounded::{Radii, RoundedLine};
 
-pub type ClipId = u16;
+pub type ClipId = u32;
 
 #[derive(Default)]
 pub struct ClipStack {
@@ -82,7 +82,7 @@ impl ClipStack {
             "invalid rounded clip parent"
         );
         let area = area.to_physical(scale_factor);
-        let id = u16::try_from(self.nodes.len() + 1).expect("too many rounded clips in one frame");
+        let id = u32::try_from(self.nodes.len() + 1).expect("too many rounded clips in one frame");
         self.nodes.push(ClipNode {
             parent,
             area,

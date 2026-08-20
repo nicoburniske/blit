@@ -1,4 +1,5 @@
 pub mod animation;
+pub mod command_list;
 pub mod color;
 pub mod geometry;
 pub mod input;
@@ -6,7 +7,6 @@ pub mod interact;
 pub mod keyboard;
 pub mod layout;
 pub mod paint;
-pub mod paint_list;
 pub mod platform;
 pub mod resource;
 #[cfg(test)]
@@ -24,7 +24,7 @@ use animation::{Easing, Transition};
 use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
 use input::Input;
 use interact::{Interaction, Sense, WidgetId};
-use paint_list::{ClipId, PaintList, PaintListDiffer};
+use command_list::{ClipId, CommandList, CommandListDiffer};
 use platform::{Platform, PlatformImpl};
 
 pub struct Ui {
@@ -424,7 +424,7 @@ impl Ui {
         unsafe { self.shared.as_mut() }
     }
 
-    fn paint_mut(&mut self) -> &mut PaintList {
+    fn paint_mut(&mut self) -> &mut CommandList {
         &mut self.shared_mut().paint
     }
 }
@@ -445,15 +445,15 @@ pub struct Runtime<P: PlatformImpl> {
     screen: LogicalRect,
     physical_screen: PhysicalRect,
     scale_factor: f32,
-    previous_paint: PaintList,
-    differ: PaintListDiffer,
+    previous_paint: CommandList,
+    differ: CommandListDiffer,
     previous_damage: Vec<PhysicalRect>,
     render_damage: Vec<PhysicalRect>,
 }
 
 struct UiShared {
     platform: Platform,
-    paint: PaintList,
+    paint: CommandList,
     interaction: interact::InteractionState,
     animations: Vec<animation::AnimationState>,
     timers: Vec<timer::TimerState>,
@@ -474,7 +474,7 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             platform,
             shared: UiShared {
                 platform: erased_platform,
-                paint: PaintList::default(),
+                paint: CommandList::default(),
                 interaction: interact::InteractionState::default(),
                 animations: Vec::new(),
                 timers: Vec::new(),
@@ -485,8 +485,8 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             screen,
             physical_screen,
             scale_factor,
-            previous_paint: PaintList::default(),
-            differ: PaintListDiffer::default(),
+            previous_paint: CommandList::default(),
+            differ: CommandListDiffer::default(),
             previous_damage: Vec::new(),
             render_damage: Vec::new(),
         }

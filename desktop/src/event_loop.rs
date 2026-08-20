@@ -6,7 +6,7 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
     keyboard::KeyboardRequest,
     paint::TextRequest,
-    paint_list::PaintList,
+    command_list::CommandList,
     platform::PlatformImpl,
     resource::{ImageData, ImageId, StringData, StringId},
 };
@@ -498,7 +498,7 @@ struct DesktopPlatform {
 }
 
 impl PlatformImpl for DesktopPlatform {
-    fn render(&mut self, paint: &PaintList, damage: &[PhysicalRect]) {
+    fn render(&mut self, paint: &CommandList, damage: &[PhysicalRect]) {
         if self.ime_allowed != self.ime_requested {
             self.window.set_ime_allowed(self.ime_requested);
             self.ime_allowed = self.ime_requested;
