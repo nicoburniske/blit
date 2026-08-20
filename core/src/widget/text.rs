@@ -50,7 +50,7 @@ impl Widget for Text {
     type Output = ();
 
     fn build(self, ui: &mut Ui) {
-        ui.frame_mut().add_leaf(
+        ui.add_leaf(
             Item {
                 width: self.width,
                 height: self.height,

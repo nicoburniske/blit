@@ -154,7 +154,16 @@ impl<'a> ScrollArea<'a> {
         } else {
             Sense::SCROLL
         };
-        let interaction = ui.widget_interaction(id, sense);
+        let (viewport, interaction) = ui.open_container(
+            Axis::Vertical,
+            Container::new()
+                .width(self.width)
+                .height(self.height)
+                .overflow(true)
+                .id(id)
+                .clip(Clip::Bounds)
+                .interact(id, sense),
+        );
         let now = ui.time();
         let elapsed = self.state.last_frame.replace(now).map_or(0.0, |previous| {
             now.saturating_sub(previous)
@@ -239,17 +248,7 @@ impl<'a> ScrollArea<'a> {
             self.state.offset = self.state.offset.clamp(0.0, maximum);
         }
 
-        let viewport = ui.frame_mut().add_container(
-            Axis::Vertical,
-            Container::new()
-                .width(self.width)
-                .height(self.height)
-                .overflow(true)
-                .id(id)
-                .clip(Clip::Bounds)
-                .interact(id, sense),
-        );
-        let content = ui.frame_mut().add_container(
+        let (content, _) = ui.open_container(
             Axis::Vertical,
             Container::new()
                 .width(Sizing::grow())
@@ -298,7 +297,7 @@ impl DerefMut for ScrollScope<'_> {
 
 impl Drop for ScrollScope<'_> {
     fn drop(&mut self) {
-        self.ui.close_node(self.content);
-        self.ui.close_node(self.viewport);
+        self.ui.close_container(self.content);
+        self.ui.close_container(self.viewport);
     }
 }

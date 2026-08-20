@@ -2,21 +2,82 @@ use crate::{
     FrameGraphMemory,
     color::Color,
     command_list::{ClipId, CommandList},
-    frame::{
-        Align, Appearance, Axis, Clip, Container, Content, Flow, ImageContent, Item, Justify,
-        Shadow, Sizing, TextContent,
-    },
-    geometry::{LogicalRect, LogicalSize},
+    container::{Align, Axis, Container, Item, Justify, Sizing},
+    geometry::{LogicalInsets, LogicalPoint, LogicalRect, LogicalSize},
     interact::{InteractionState, Sense, WidgetId},
     paint::{
-        Border, BorderRadius, BoxShadow, ImageRequest, LinearGradient, Rectangle,
-        TextLayoutRequest, TextRequest, TextWrap,
+        Border, BorderRadius, BoxShadow, ImageFit, ImageRequest, ImageSampling, ImageTiling,
+        LinearGradient, NineSlice, Rectangle, TextLayoutRequest, TextOptions, TextRequest,
+        TextStyle, TextWrap,
     },
     platform::Platform,
+    resource::{ImageId, TextSource},
+    style::{Appearance, Clip, Shadow},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NodeId(u32);
+
+/// intrinsic leaf content
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Content {
+    Rectangle(Appearance<'static>),
+    Text(TextContent),
+    Image(ImageContent),
+}
+
+/// text resolved after its node width is known
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextContent {
+    pub text: TextSource,
+    pub color: Color,
+    pub style: TextStyle,
+    pub options: TextOptions,
+    pub offset_x: f32,
+    pub selection: Option<TextSelection>,
+    pub caret: Option<TextCaret>,
+}
+
+/// selection painted behind text
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextSelection {
+    pub start: usize,
+    pub end: usize,
+    pub color: Color,
+}
+
+/// caret painted over text
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextCaret {
+    pub offset: usize,
+    pub width: f32,
+    pub color: Color,
+}
+
+/// image content and its intrinsic size
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImageContent {
+    pub image: ImageId,
+    pub intrinsic: LogicalSize,
+    pub fit: ImageFit,
+    pub sampling: ImageSampling,
+    pub opacity: f32,
+    pub colorize: Option<Color>,
+    pub nine_slice: Option<NineSlice>,
+    pub horizontal_tiling: ImageTiling,
+    pub vertical_tiling: ImageTiling,
+}
+
+#[derive(Clone, Copy)]
+struct Flow {
+    axis: Axis,
+    padding: LogicalInsets,
+    gap: f32,
+    align: Align,
+    justify: Justify,
+    allow_overflow: bool,
+    child_offset: LogicalPoint,
+}
 
 #[derive(Clone, Copy, Default)]
 struct PayloadId(u32);
@@ -157,12 +218,12 @@ impl FrameGraph {
         self.gradient_stops.clear();
         self.flows.push(Flow {
             axis: Axis::Vertical,
-            padding: crate::geometry::LogicalInsets::uniform(0.0),
+            padding: LogicalInsets::uniform(0.0),
             gap: 0.0,
             align: Align::Stretch,
             justify: Justify::Start,
-            overflow: false,
-            offset: crate::geometry::LogicalPoint::default(),
+            allow_overflow: false,
+            child_offset: LogicalPoint::default(),
         });
         self.nodes.push(Node {
             subtree_end: 1,
@@ -182,15 +243,22 @@ impl FrameGraph {
         self.open.push(NodeId::ROOT);
     }
 
-    pub fn add_container(&mut self, axis: Axis, mut container: Container<'_>) -> NodeId {
-        container.flow.axis = axis;
+    pub fn add_container(&mut self, axis: Axis, container: Container<'_>) -> NodeId {
         let node = self.append(
             container.item,
-            Some(container.flow),
+            Some(Flow {
+                axis,
+                padding: container.padding,
+                gap: container.gap,
+                align: container.align,
+                justify: container.justify,
+                allow_overflow: container.allow_overflow,
+                child_offset: container.child_offset,
+            }),
             container.appearance,
             ContentId::NONE,
             container.clip,
-            container.id,
+            container.geometry_id,
             container.interaction,
         );
         self.open.push(node);
@@ -484,14 +552,14 @@ impl FrameGraph {
         let parent_area = self.nodes[parent].area;
         let (origin, available, flow, leading, trailing) = match axis {
             Axis::Horizontal => (
-                parent_area.x + layout.offset.x,
+                parent_area.x + layout.child_offset.x,
                 parent_area.width,
                 layout.axis == Axis::Horizontal,
                 layout.padding.left,
                 layout.padding.right,
             ),
             Axis::Vertical => (
-                parent_area.y + layout.offset.y,
+                parent_area.y + layout.child_offset.y,
                 parent_area.height,
                 layout.axis == Axis::Vertical,
                 layout.padding.top,
@@ -527,7 +595,7 @@ impl FrameGraph {
             let sizing = node.sizing(axis);
             let size = sizing.resolve(
                 node.size(axis),
-                if layout.overflow {
+                if layout.allow_overflow {
                     f32::INFINITY
                 } else {
                     available
@@ -542,7 +610,7 @@ impl FrameGraph {
         }
         let gaps = layout.gap.max(0.0) * count.saturating_sub(1) as f32;
         let free = available - used - gaps;
-        if free < 0.0 && !layout.overflow {
+        if free < 0.0 && !layout.allow_overflow {
             let mut capacity = 0.0;
             child = parent + 1;
             while child < end {

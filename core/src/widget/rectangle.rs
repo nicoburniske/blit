@@ -90,19 +90,11 @@ impl Widget for Rectangle {
     type Output = Interaction;
 
     fn build(self, ui: &mut Ui) -> Interaction {
-        let interaction = self
-            .interaction
-            .map_or_default(|(id, sense)| ui.widget_interaction(id, sense));
-        let node = ui
-            .frame_mut()
-            .add_leaf(self.item, Content::Rectangle(self.appearance));
-        let frame = ui.frame_mut();
+        let node = ui.add_leaf(self.item, Content::Rectangle(self.appearance));
         if let Some(id) = self.id {
-            frame.set_id(node, id);
+            ui.set_node_id(node, id);
         }
-        if let Some((id, sense)) = self.interaction {
-            frame.set_interaction(node, id, sense);
-        }
-        interaction
+        self.interaction
+            .map_or_default(|(id, sense)| ui.interact_node(node, id, sense))
     }
 }

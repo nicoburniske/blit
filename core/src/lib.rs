@@ -1,7 +1,7 @@
 pub mod animation;
 pub mod color;
 pub mod command_list;
-mod frame;
+mod container;
 pub mod geometry;
 pub(crate) mod graph;
 pub mod input;
@@ -10,15 +10,16 @@ pub mod keyboard;
 pub mod paint;
 pub mod platform;
 pub mod resource;
+mod style;
 #[cfg(test)]
 mod test;
 mod timer;
 pub mod widget;
 
-pub use frame::{
-    Align, Appearance, Axis, Clip, Container, Content, ImageContent, Item, Justify, Scope, Shadow,
-    Sizing, TextCaret, TextContent, TextSelection,
-};
+pub use container::{Align, Axis, Container, Item, Justify, Scope, Sizing};
+#[doc(hidden)]
+pub use graph::{Content, ImageContent, NodeId, TextCaret, TextContent, TextSelection};
+pub use style::{Appearance, Clip, Shadow};
 
 use std::{
     ops::{Deref, DerefMut},
@@ -47,15 +48,15 @@ impl Ui {
     }
 
     pub fn row(&mut self, container: Container<'_>) -> Scope<'_> {
-        frame::open_container(self, Axis::Horizontal, container)
+        container::open(self, Axis::Horizontal, container)
     }
 
     pub fn column(&mut self, container: Container<'_>) -> Scope<'_> {
-        frame::open_container(self, Axis::Vertical, container)
+        container::open(self, Axis::Vertical, container)
     }
 
     pub fn stack(&mut self, axis: Axis, container: Container<'_>) -> Scope<'_> {
-        frame::open_container(self, axis, container)
+        container::open(self, axis, container)
     }
 
     pub fn geometry(&self, id: WidgetId) -> Option<LogicalRect> {
@@ -201,6 +202,57 @@ impl Ui {
     }
 }
 
+#[doc(hidden)]
+impl Ui {
+    pub fn add_leaf(&mut self, item: Item, content: Content) -> NodeId {
+        self.frame_mut().add_leaf(item, content)
+    }
+
+    pub fn open_container(
+        &mut self,
+        axis: Axis,
+        container: Container<'_>,
+    ) -> (NodeId, Interaction) {
+        let interaction = container
+            .interaction
+            .map_or_default(|(id, sense)| self.shared_mut().interaction.response(id, sense));
+        let node = self.frame_mut().add_container(axis, container);
+        (node, interaction)
+    }
+
+    pub fn close_container(&mut self, node: NodeId) {
+        self.frame_mut().close(node)
+    }
+
+    pub fn set_node_id(&mut self, node: NodeId, id: WidgetId) {
+        self.frame_mut().set_id(node, id)
+    }
+
+    pub fn interact_node(&mut self, node: NodeId, id: WidgetId, sense: Sense) -> Interaction {
+        let interaction = self.shared_mut().interaction.response(id, sense);
+        self.frame_mut().set_interaction(node, id, sense);
+        interaction
+    }
+
+    pub fn set_node_appearance(&mut self, node: NodeId, appearance: Appearance<'_>) {
+        self.frame_mut().set_appearance(node, appearance)
+    }
+
+    fn shared(&self) -> &UiShared {
+        // only used in context of render
+        unsafe { self.shared.as_ref() }
+    }
+
+    fn shared_mut(&mut self) -> &mut UiShared {
+        // only used in context of render
+        unsafe { self.shared.as_mut() }
+    }
+
+    fn frame_mut(&mut self) -> &mut graph::FrameGraph {
+        &mut self.shared_mut().frame
+    }
+}
+
 pub struct AnimationScope<'a, const N: usize = 1> {
     ui: &'a mut Ui,
     values: [f32; N],
@@ -309,34 +361,6 @@ fn begin_timer(ui: &mut Ui, id: WidgetId, duration: Duration, interval: Option<D
     };
     assert!(!timer.seen, "duplicate timer WidgetId {id:?}");
     timer.advance(duration, interval, time)
-}
-
-//
-// internals
-//
-
-impl Ui {
-    fn shared(&self) -> &UiShared {
-        // only used in context of render
-        unsafe { self.shared.as_ref() }
-    }
-
-    fn shared_mut(&mut self) -> &mut UiShared {
-        // only used in context of render
-        unsafe { self.shared.as_mut() }
-    }
-
-    fn frame_mut(&mut self) -> &mut graph::FrameGraph {
-        &mut self.shared_mut().frame
-    }
-
-    fn close_node(&mut self, node: graph::NodeId) {
-        self.frame_mut().close(node)
-    }
-
-    fn widget_interaction(&mut self, id: WidgetId, sense: Sense) -> Interaction {
-        self.shared_mut().interaction.response(id, sense)
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
