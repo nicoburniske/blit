@@ -4,11 +4,15 @@ use blit::{
     color::Color,
     command_list::{ClipId, CommandList},
     geometry::{LogicalRect, PhysicalRect},
-    paint::{FontId, Rectangle},
+    paint::{
+        BoxShadow, FontId, GradientStop, ImageFit, ImageRequest, ImageSampling, ImageTiling,
+        LinearGradient, Rectangle, TextOptions, TextRequest, TextStyle, TextWrap,
+    },
+    resource::{ImageData, ImageFormat, ImagePixels, TextSource},
 };
 use blit_cpu::{
-    Font, FontFace, Pixel, PremultipliedRgbaColor, Renderer, RendererConfig, Scanline, VecBuffer,
-    Xrgb8888,
+    Direct, Font, FontFace, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
+    RendererConfig, Scanline, VecBuffer, Xrgb8888,
 };
 use divan::counter::ItemsCount;
 
@@ -74,24 +78,435 @@ fn render_rectangles(bencher: divan::Bencher) {
         width: WIDTH as i32,
         height: HEIGHT as i32,
     }];
-    let mut renderer = Renderer::new(
-        VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT),
+    let mut renderer = renderer(WIDTH, HEIGHT, Scanline::default());
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(PIXELS))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+}
+
+#[divan::bench]
+fn tiny_rectangles_direct(bencher: divan::Bencher) {
+    benchmark_tiny_rectangles(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn tiny_rectangles_scanline(bencher: divan::Bencher) {
+    benchmark_tiny_rectangles(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn sparse_tiles_direct(bencher: divan::Bencher) {
+    benchmark_sparse_tiles(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn sparse_tiles_scanline(bencher: divan::Bencher) {
+    benchmark_sparse_tiles(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn overlapping_rectangles_direct(bencher: divan::Bencher) {
+    benchmark_overlapping_rectangles(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn overlapping_rectangles_scanline(bencher: divan::Bencher) {
+    benchmark_overlapping_rectangles(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn small_images_direct(bencher: divan::Bencher) {
+    benchmark_small_images(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn small_images_scanline(bencher: divan::Bencher) {
+    benchmark_small_images(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn text_labels_direct(bencher: divan::Bencher) {
+    benchmark_text_labels(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn text_labels_scanline(bencher: divan::Bencher) {
+    benchmark_text_labels(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn wrapped_paragraph_direct(bencher: divan::Bencher) {
+    benchmark_wrapped_paragraph(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn wrapped_paragraph_scanline(bencher: divan::Bencher) {
+    benchmark_wrapped_paragraph(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn rounded_clip_direct(bencher: divan::Bencher) {
+    benchmark_rounded_clip(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn rounded_clip_scanline(bencher: divan::Bencher) {
+    benchmark_rounded_clip(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn gradient_border(bencher: divan::Bencher) {
+    let mut commands = CommandList::default();
+    let area = LogicalRect {
+        x: 48.0,
+        y: 160.0,
+        width: 384.0,
+        height: 480.0,
+    };
+    let stops = [
+        GradientStop::new(0.0, Color::from_rgba8(32, 96, 192, 255)),
+        GradientStop::new(0.5, Color::from_rgba8(224, 64, 96, 255)),
+        GradientStop::new(1.0, Color::from_rgba8(240, 192, 48, 255)),
+    ];
+    commands.push_rectangle(
+        Rectangle::new(area)
+            .background(Color::from_rgba8(16, 24, 40, 255))
+            .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
+            .uniform_radius(24.0),
+        area.to_physical(1.0),
+        ClipId::default(),
+    );
+    let damage = [area.to_physical(1.0)];
+    let mut renderer = renderer(WIDTH, HEIGHT, Scanline::default());
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(area.to_physical(1.0).height as usize))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+}
+
+#[divan::bench]
+fn cached_shadow(bencher: divan::Bencher) {
+    let area = LogicalRect {
+        x: 64.0,
+        y: 176.0,
+        width: 352.0,
+        height: 448.0,
+    };
+    let shadow = BoxShadow::new(area, Color::from_rgba8(0, 0, 0, 128))
+        .uniform_radius(24.0)
+        .blur(16.0);
+    let mut commands = CommandList::default();
+    commands.push_box_shadow(shadow, shadow.bounds().to_physical(1.0), ClipId::default());
+    let damage = [shadow.bounds().to_physical(1.0)];
+    let mut renderer = renderer(WIDTH, HEIGHT, Scanline::default());
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(damage[0].height as usize))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+}
+
+fn benchmark_tiny_rectangles<S>(bencher: divan::Bencher, strategy: S)
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    const SIDE: usize = 32;
+    let mut commands = CommandList::default();
+    for index in 0..SIDE * SIDE {
+        let area = LogicalRect {
+            x: (index % SIDE) as f32,
+            y: (index / SIDE) as f32,
+            width: 1.0,
+            height: 1.0,
+        };
+        commands.push_rectangle(
+            Rectangle::new(area).background(Color::from_rgba8(
+                index as u8,
+                (index * 31) as u8,
+                (index * 67) as u8,
+                255,
+            )),
+            area.to_physical(1.0),
+            ClipId::default(),
+        );
+    }
+    let damage = [PhysicalRect {
+        x: 0,
+        y: 0,
+        width: SIDE as i32,
+        height: SIDE as i32,
+    }];
+    let mut renderer = renderer(SIDE, SIDE, strategy);
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(SIDE * SIDE))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+}
+
+fn benchmark_sparse_tiles<S>(bencher: divan::Bencher, strategy: S)
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    const DAMAGED: [usize; 16] = [0, 2, 5, 7, 9, 12, 18, 23, 24, 31, 33, 38, 45, 50, 56, 63];
+    let mut commands = CommandList::default();
+    let mut damage = Vec::with_capacity(DAMAGED.len());
+    for index in 0..64 {
+        let area = LogicalRect {
+            x: 36.0 + (index % 8) as f32 * 52.0,
+            y: 144.0 + (index / 8) as f32 * 64.0,
+            width: 44.0,
+            height: 44.0,
+        };
+        commands.push_rectangle(
+            Rectangle::new(area)
+                .background(Color::from_rgba8(40, 72, 112, 255))
+                .uniform_radius(8.0),
+            area.to_physical(1.0),
+            ClipId::default(),
+        );
+        if DAMAGED.contains(&index) {
+            damage.push(area.to_physical(1.0));
+        }
+    }
+    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(DAMAGED.len()))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+}
+
+fn benchmark_overlapping_rectangles<S>(bencher: divan::Bencher, strategy: S)
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    const COMMANDS: usize = 128;
+    const SIZE: usize = 96;
+    let area = LogicalRect {
+        width: SIZE as f32,
+        height: SIZE as f32,
+        ..LogicalRect::default()
+    };
+    let mut commands = CommandList::default();
+    for index in 0..COMMANDS {
+        commands.push_rectangle(
+            Rectangle::new(area).background(Color::from_rgba8(
+                (index * 13) as u8,
+                (index * 29) as u8,
+                (index * 47) as u8,
+                if index + 1 == COMMANDS { 255 } else { 64 },
+            )),
+            area.to_physical(1.0),
+            ClipId::default(),
+        );
+    }
+    let damage = [area.to_physical(1.0)];
+    let mut renderer = renderer(SIZE, SIZE, strategy);
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(COMMANDS))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+}
+
+fn benchmark_small_images<S>(bencher: divan::Bencher, strategy: S)
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    const COMMANDS: usize = 240;
+    const IMAGE_SIZE: usize = 8;
+    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
+    let image = renderer.create_image(ImageData::new(
+        ImagePixels::Owned(
+            [38, 96, 176]
+                .repeat(IMAGE_SIZE * IMAGE_SIZE)
+                .into_boxed_slice(),
+        ),
+        ImageFormat::Rgb8,
+        IMAGE_SIZE,
+        IMAGE_SIZE,
+    ));
+    let mut commands = CommandList::default();
+    for index in 0..COMMANDS {
+        let area = LogicalRect {
+            x: 8.0 + (index % 12) as f32 * 38.0,
+            y: 10.0 + (index / 12) as f32 * 38.0,
+            width: 28.0,
+            height: 28.0,
+        };
+        commands.push_image(
+            ImageRequest {
+                image,
+                area,
+                fit: ImageFit::Fill,
+                sampling: ImageSampling::Nearest,
+                opacity: 1.0,
+                colorize: None,
+                nine_slice: None,
+                horizontal_tiling: ImageTiling::None,
+                vertical_tiling: ImageTiling::None,
+            },
+            area.to_physical(1.0),
+            ClipId::default(),
+        );
+    }
+    let damage = [PhysicalRect {
+        x: 0,
+        y: 0,
+        width: WIDTH as i32,
+        height: HEIGHT as i32,
+    }];
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(COMMANDS))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+}
+
+fn benchmark_text_labels<S>(bencher: divan::Bencher, strategy: S)
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    const COMMANDS: usize = 48;
+    let mut commands = CommandList::default();
+    for index in 0..COMMANDS {
+        let area = LogicalRect {
+            x: 12.0 + (index % 3) as f32 * 156.0,
+            y: 12.0 + (index / 3) as f32 * 42.0,
+            width: 144.0,
+            height: 28.0,
+        };
+        commands.push_text(
+            TextRequest {
+                text: TextSource::Static("secure approval"),
+                area,
+                offset_x: 0.0,
+                color: Color::from_rgba8(224, 232, 240, 255),
+                style: TextStyle::default(),
+                options: TextOptions::default(),
+            },
+            area.to_physical(1.0),
+            ClipId::default(),
+        );
+    }
+    let damage = [PhysicalRect {
+        x: 0,
+        y: 0,
+        width: WIDTH as i32,
+        height: HEIGHT as i32,
+    }];
+    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(COMMANDS))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+}
+
+fn benchmark_wrapped_paragraph<S>(bencher: divan::Bencher, strategy: S)
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    let area = LogicalRect {
+        x: 40.0,
+        y: 180.0,
+        width: 400.0,
+        height: 320.0,
+    };
+    let mut commands = CommandList::default();
+    commands.push_text(
+        TextRequest {
+            text: TextSource::Static(
+                "Passport keeps your keys offline while making secure approvals clear and deliberate. Every transaction is reviewed on the trusted display before it is signed. Recovery information stays under your control, and the device never needs to expose private keys.",
+            ),
+            area,
+            offset_x: 0.0,
+            color: Color::from_rgba8(224, 232, 240, 255),
+            style: TextStyle {
+                size: 20.0,
+                ..TextStyle::default()
+            },
+            options: TextOptions {
+                wrap: TextWrap::Word,
+                ..TextOptions::default()
+            },
+        },
+        area.to_physical(1.0),
+        ClipId::default(),
+    );
+    let damage = [area.to_physical(1.0)];
+    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(1usize))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+}
+
+fn benchmark_rounded_clip<S>(bencher: divan::Bencher, strategy: S)
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    const COMMANDS: usize = 128;
+    const SIZE: usize = 128;
+    let area = LogicalRect {
+        width: SIZE as f32,
+        height: SIZE as f32,
+        ..LogicalRect::default()
+    };
+    let mut commands = CommandList::default();
+    let clip = commands.push_clip(
+        ClipId::default(),
+        area,
+        blit::paint::BorderRadius {
+            top_left: 48.0,
+            top_right: 48.0,
+            bottom_right: 48.0,
+            bottom_left: 48.0,
+        },
+    );
+    for index in 0..COMMANDS {
+        commands.push_rectangle(
+            Rectangle::new(area).background(Color::from_rgba8(
+                (index * 17) as u8,
+                (index * 31) as u8,
+                (index * 53) as u8,
+                16,
+            )),
+            area.to_physical(1.0),
+            clip,
+        );
+    }
+    let damage = [area.to_physical(1.0)];
+    let mut renderer = renderer(SIZE, SIZE, strategy);
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(COMMANDS))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+}
+
+fn renderer<S>(width: usize, height: usize, strategy: S) -> Renderer<VecBuffer<Xrgb8888>, S>
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    Renderer::new(
+        VecBuffer::new(width, height),
         RendererConfig {
             fonts: vec![FontFace {
                 id: FontId::default(),
                 weight: 400,
                 font: Font::from_static(include_bytes!(env!("BLIT_TEST_FONT"))).unwrap(),
             }],
-            font_metric_cache_capacity: 1,
-            glyph_cache_capacity: 1,
-            paragraph_cache_capacity: 1,
-            shadow_cache_capacity: 0,
+            font_metric_cache_capacity: 512,
+            glyph_cache_capacity: 512 * 1024,
+            paragraph_cache_capacity: 512 * 1024,
+            shadow_cache_capacity: 512 * 1024,
         },
     )
-    .strategy(Scanline::default());
-    renderer.render(&commands, &damage);
-
-    bencher
-        .counter(ItemsCount::new(PIXELS))
-        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+    .strategy(strategy)
 }
