@@ -172,7 +172,6 @@ pub struct ImageContent {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ElementGeometry {
     pub area: LogicalRect,
-    pub content: LogicalSize,
 }
 
 impl<'a> Element<'a> {
@@ -260,7 +259,6 @@ impl<'a> Element<'a> {
     }
 
     pub const fn interact(mut self, id: WidgetId, sense: Sense) -> Self {
-        self.id = Some(id);
         self.interaction = Some((id, sense));
         self
     }
@@ -669,13 +667,7 @@ impl FrameGraph {
         self.register_hits(interaction, scale_factor);
         for node in &self.nodes {
             if let Some(id) = node.id {
-                geometry.register(
-                    id,
-                    ElementGeometry {
-                        area: node.area,
-                        content: node.intrinsic,
-                    },
-                );
+                geometry.register(id, ElementGeometry { area: node.area });
             }
         }
         self.open.clear();

@@ -26,6 +26,7 @@ pub struct ScrollState {
     tracking: bool,
     continuous_inertia: bool,
     last_frame: Option<Duration>,
+    viewport_height: f32,
 }
 
 impl Default for ScrollState {
@@ -38,23 +39,24 @@ impl Default for ScrollState {
             tracking: false,
             continuous_inertia: false,
             last_frame: None,
+            viewport_height: 0.0,
         }
     }
 }
 
 impl ScrollState {
-    pub fn maximum_offset(&self, viewport_height: f32) -> f32 {
-        (self.content_height - viewport_height).max(0.0)
+    pub fn maximum_offset(&self) -> f32 {
+        (self.content_height - self.viewport_height).max(0.0)
     }
 
-    pub fn scroll_by(&mut self, pixels: f32, viewport_height: f32) {
-        self.offset = (self.offset + pixels).clamp(0.0, self.maximum_offset(viewport_height));
+    pub fn scroll_by(&mut self, pixels: f32) {
+        self.offset = (self.offset + pixels).clamp(0.0, self.maximum_offset());
         self.velocity = 0.0;
         self.tracking = false;
     }
 
-    pub fn scroll_to(&mut self, offset: f32, viewport_height: f32) {
-        self.offset = offset.clamp(0.0, self.maximum_offset(viewport_height));
+    pub fn scroll_to(&mut self, offset: f32) {
+        self.offset = offset.clamp(0.0, self.maximum_offset());
         self.velocity = 0.0;
         self.tracking = false;
     }
@@ -142,7 +144,7 @@ impl<'a> ScrollArea<'a> {
     pub fn begin(self, ui: &'a mut Ui) -> ScrollScope<'a> {
         let id = ui.id(("scroll area", self.id));
         let content_id = id.child("content");
-        let viewport_height = ui.geometry(id).map_or(0.0, |geometry| geometry.area.height);
+        self.state.viewport_height = ui.geometry(id).map_or(0.0, |geometry| geometry.area.height);
         if let Some(geometry) = ui.geometry(content_id) {
             self.state.content_height = geometry.area.height;
         }
@@ -200,7 +202,7 @@ impl<'a> ScrollArea<'a> {
             }
         }
 
-        let maximum = self.state.maximum_offset(viewport_height);
+        let maximum = self.state.maximum_offset();
         if direct_delta != 0.0 {
             self.state.offset = (self.state.offset + direct_delta).clamp(0.0, maximum);
             if sample_velocity && elapsed > 0.0 {
@@ -244,6 +246,7 @@ impl<'a> ScrollArea<'a> {
                     .height(self.height)
                     .overflow(true),
             )
+            .id(id)
             .clip(Clip::Bounds)
             .interact(id, sense),
         );
