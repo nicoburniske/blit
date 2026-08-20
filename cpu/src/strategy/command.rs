@@ -14,9 +14,8 @@ pub type CommandId = u32;
 pub struct CommandList {
     commands: Vec<StoredCommand>,
     gradient_stops: Vec<GradientStop>,
-    overwrites: Vec<CommandId>,
-    partial_opaque: Vec<CommandId>,
     has_translucent_image: bool,
+    has_partial_opaque: bool,
     pub has_clips: bool,
 }
 
@@ -47,10 +46,13 @@ impl CommandList {
         clip: ClipId,
     ) {
         let overwrites = clip == 0 && rectangle.overwrites();
-        let id = self.push(StoredPayload::Rectangle(rectangle), bounds, clip);
-        if overwrites {
-            self.overwrites.push(id);
-        }
+        self.push(
+            StoredPayload::Rectangle(rectangle),
+            bounds,
+            clip,
+            overwrites,
+            false,
+        );
     }
 
     pub fn push_gradient_rectangle(
@@ -70,17 +72,17 @@ impl CommandList {
             return false;
         };
         self.gradient_stops.extend_from_slice(stops);
-        let id = self.push(
+        let overwrites = clip == 0 && rectangle.overwrites();
+        self.push(
             StoredPayload::GradientRectangle {
                 rectangle,
                 stops: start..end,
             },
             bounds,
             clip,
+            overwrites,
+            false,
         );
-        if clip == 0 && rectangle.overwrites() {
-            self.overwrites.push(id);
-        }
         true
     }
 
@@ -92,17 +94,20 @@ impl CommandList {
         opaque: bool,
         has_opaque_spans: bool,
     ) {
-        let id = self.push(StoredPayload::Image(image), bounds, clip);
-        if clip == 0 && opaque {
-            self.overwrites.push(id);
-        } else if clip == 0 && self.has_translucent_image && has_opaque_spans {
-            self.partial_opaque.push(id);
-        }
+        let partial_opaque = clip == 0 && !opaque && self.has_translucent_image && has_opaque_spans;
+        self.push(
+            StoredPayload::Image(image),
+            bounds,
+            clip,
+            clip == 0 && opaque,
+            partial_opaque,
+        );
         self.has_translucent_image |= !opaque;
+        self.has_partial_opaque |= partial_opaque;
     }
 
     pub fn push_text(&mut self, text: PreparedText, bounds: PhysicalRect, clip: ClipId) {
-        self.push(StoredPayload::Text(text), bounds, clip);
+        self.push(StoredPayload::Text(text), bounds, clip, false, false);
     }
 
     #[inline]
@@ -136,12 +141,16 @@ impl CommandList {
         self.commands[id as usize].clip
     }
 
-    pub fn overwrite_offsets(&self) -> &[CommandId] {
-        &self.overwrites
+    pub fn overwrites(&self, id: CommandId) -> bool {
+        self.commands[id as usize].overwrites
     }
 
-    pub fn partial_opaque_offsets(&self) -> &[CommandId] {
-        &self.partial_opaque
+    pub fn has_partial_opaque(&self) -> bool {
+        self.has_partial_opaque
+    }
+
+    pub fn partial_opaque(&self, id: CommandId) -> bool {
+        self.commands[id as usize].partial_opaque
     }
 
     pub fn overwrite_span(&self, id: CommandId, line: i32) -> Option<Range<i32>> {
@@ -164,27 +173,35 @@ impl CommandList {
     pub fn clear(&mut self) {
         self.commands.clear();
         self.gradient_stops.clear();
-        self.overwrites.clear();
-        self.partial_opaque.clear();
         self.has_translucent_image = false;
+        self.has_partial_opaque = false;
         self.has_clips = false;
     }
 
-    fn push(&mut self, payload: StoredPayload, bounds: PhysicalRect, clip: ClipId) -> CommandId {
-        let id = command_id(self.commands.len());
+    fn push(
+        &mut self,
+        payload: StoredPayload,
+        bounds: PhysicalRect,
+        clip: ClipId,
+        overwrites: bool,
+        partial_opaque: bool,
+    ) {
         self.has_clips |= clip != 0;
         self.commands.push(StoredCommand {
             bounds,
             clip,
+            overwrites,
+            partial_opaque,
             payload,
         });
-        id
     }
 }
 
 struct StoredCommand {
     bounds: PhysicalRect,
     clip: ClipId,
+    overwrites: bool,
+    partial_opaque: bool,
     payload: StoredPayload,
 }
 
