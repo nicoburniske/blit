@@ -151,11 +151,60 @@ impl CommandList {
     }
 
     fn equivalent(&self, index: usize, other: &Self, other_index: usize) -> bool {
-        let left = self.get(index);
-        let right = other.get(other_index);
-        left.bounds == right.bounds
-            && left.command == right.command
-            && self.clips_equal(left.clip, other, right.clip)
+        let left = &self.commands[index];
+        let right = &other.commands[other_index];
+        if left.bounds != right.bounds || !self.clips_equal(left.clip, other, right.clip) {
+            return false;
+        }
+        match (&left.kind, &right.kind) {
+            (CommandKind::Rectangle(left), CommandKind::Rectangle(right)) => {
+                left.area == right.area
+                    && left.background == right.background
+                    && left.radius == right.radius
+                    && left.opacity == right.opacity
+                    && left.replace == right.replace
+                    && match (left.border, right.border) {
+                        (StoredBorder::None, StoredBorder::None) => true,
+                        (
+                            StoredBorder::Solid {
+                                width: left_width,
+                                color: left_color,
+                            },
+                            StoredBorder::Solid {
+                                width: right_width,
+                                color: right_color,
+                            },
+                        ) => left_width == right_width && left_color == right_color,
+                        (
+                            StoredBorder::Gradient {
+                                width: left_width,
+                                angle_degrees: left_angle,
+                                start: left_start,
+                                len: left_len,
+                            },
+                            StoredBorder::Gradient {
+                                width: right_width,
+                                angle_degrees: right_angle,
+                                start: right_start,
+                                len: right_len,
+                            },
+                        ) => {
+                            let left_start = left_start as usize;
+                            let right_start = right_start as usize;
+                            left_width == right_width
+                                && left_angle == right_angle
+                                && self.gradient_stops[left_start..left_start + left_len as usize]
+                                    == other.gradient_stops
+                                        [right_start..right_start + right_len as usize]
+                        }
+                        _ => false,
+                    }
+            }
+            (CommandKind::Image(left), CommandKind::Image(right)) => left == right,
+            (CommandKind::Text(left), CommandKind::Text(right)) => left == right,
+            (CommandKind::BoxShadow(left), CommandKind::BoxShadow(right)) => left == right,
+            _ => false,
+        }
     }
 
     fn clips_equal(&self, mut clip: ClipId, other: &Self, mut other_clip: ClipId) -> bool {
