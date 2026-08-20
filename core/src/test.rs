@@ -23,6 +23,7 @@ struct TestPlatform {
     paint_clips: Vec<ClipId>,
     rectangle_areas: Vec<LogicalRect>,
     text_areas: Vec<LogicalRect>,
+    text_widths: Vec<Option<f32>>,
     clip_count: usize,
     repaint_buffer: RepaintBuffer,
 }
@@ -94,6 +95,7 @@ impl PlatformImpl for TestPlatform {
     }
 
     fn measure_text(&mut self, request: &paint::TextLayoutRequest) -> LogicalSize {
+        self.text_widths.push(request.max_width);
         let text = match request.text {
             resource::TextSource::Resource(string) => self.string(string),
             resource::TextSource::Static(string) => string,
@@ -212,11 +214,16 @@ fn wrapped_text_uses_its_resolved_width() {
             ),
         );
     });
+    assert_eq!(runtime.platform().text_widths, [None, Some(10.0)]);
+    assert_eq!(runtime.platform().text_areas[0].width, 10.0);
     let geometry = runtime.render(Duration::ZERO, Input::None, |ui| ui.geometry(id).unwrap());
 
     assert_eq!(geometry.area.width, 10.0);
     assert_eq!(geometry.area.height, 8.0);
-    assert_eq!(runtime.platform().text_areas, []);
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        ui.add(widget::Text::new("no wrap"));
+    });
+    assert_eq!(runtime.platform().text_widths.len(), 3);
 }
 
 #[test]
@@ -276,6 +283,26 @@ fn resolved_geometry_is_available_on_the_next_frame() {
     let geometry = runtime.render(Duration::ZERO, Input::None, |ui| ui.geometry(id).unwrap());
     assert_eq!(geometry.area.width, 3.0);
     assert_eq!(geometry.area.height, 4.0);
+}
+
+#[test]
+fn fixed_sizing_can_overflow_parent_bounds() {
+    let mut runtime = Runtime::new(TestPlatform::default());
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        drop(
+            ui.element(
+                Element::new(
+                    Layout::vertical()
+                        .width(Sizing::fixed(20.0))
+                        .height(Sizing::fixed(2.0)),
+                )
+                .background(Color::BLACK),
+            ),
+        );
+    });
+
+    assert_eq!(runtime.platform().rectangle_areas[0].width, 20.0);
+    assert_eq!(runtime.platform().paint_bounds[0].width, 10);
 }
 
 #[test]

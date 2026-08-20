@@ -705,6 +705,9 @@ impl FrameGraph {
             let Content::Text(text) = node.content else {
                 continue;
             };
+            if text.options.wrap == TextWrap::None {
+                continue;
+            }
             node.intrinsic = platform.measure_text(&TextLayoutRequest {
                 text: text.text,
                 style: text.style,
@@ -1168,7 +1171,7 @@ impl Sizing {
             Self::Fit { .. } => self.clamp(intrinsic.min(available)),
             Self::Grow { .. } if cross => self.clamp(available),
             Self::Grow { .. } => self.clamp(intrinsic.min(available)),
-            Self::Fixed(size) => size.max(0.0).min(available),
+            Self::Fixed(size) => size.max(0.0),
         }
     }
 
