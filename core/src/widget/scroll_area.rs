@@ -3,7 +3,6 @@ use std::{
     time::Duration,
 };
 
-use super::Widget;
 use crate::{
     Axis, Clip, Container, Sizing, Ui,
     geometry::{LogicalInsets, LogicalPoint},
@@ -70,7 +69,7 @@ pub struct ScrollArea<'a> {
     state: &'a mut ScrollState,
     width: Sizing,
     height: Sizing,
-    spacing: f32,
+    gap: f32,
     padding: LogicalInsets,
     scroll_speed: f32,
     inertia_friction: f32,
@@ -92,7 +91,7 @@ impl<'a> ScrollArea<'a> {
             state,
             width: Sizing::grow(),
             height: Sizing::grow(),
-            spacing: 0.0,
+            gap: 0.0,
             padding: LogicalInsets::default(),
             scroll_speed: 1.0,
             inertia_friction: 6.0,
@@ -111,8 +110,8 @@ impl<'a> ScrollArea<'a> {
         self
     }
 
-    pub fn spacing(mut self, spacing: f32) -> Self {
-        self.spacing = spacing.max(0.0);
+    pub fn gap(mut self, gap: f32) -> Self {
+        self.gap = gap.max(0.0);
         self
     }
 
@@ -142,7 +141,7 @@ impl<'a> ScrollArea<'a> {
     }
 
     pub fn begin(self, ui: &'a mut Ui) -> ScrollScope<'a> {
-        let id = ui.id(("scroll area", self.id));
+        let id = WidgetId::new(("scroll area", self.id));
         let content_id = id.child("content");
         self.state.viewport_height = ui.geometry(id).map_or(0.0, |area| area.height);
         if let Some(area) = ui.geometry(content_id) {
@@ -253,7 +252,7 @@ impl<'a> ScrollArea<'a> {
             Container::new()
                 .width(Sizing::grow())
                 .padding(self.padding)
-                .gap(self.spacing)
+                .gap(self.gap)
                 .id(content_id)
                 .offset(LogicalPoint {
                     x: 0.0,
@@ -270,15 +269,9 @@ impl<'a> ScrollArea<'a> {
 }
 
 impl ScrollScope<'_> {
-    pub fn add<W: Widget>(&mut self, widget: W) -> W::Output {
-        widget.build(self.ui)
-    }
-
     pub fn interaction(&self) -> Interaction {
         self.interaction
     }
-
-    pub fn finish(self) {}
 }
 
 impl Deref for ScrollScope<'_> {

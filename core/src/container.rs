@@ -9,12 +9,11 @@ use crate::{
     interact::{Interaction, Sense, WidgetId},
     paint::{Border, BorderRadius, LinearGradient},
     style::{Appearance, Clip, Shadow},
-    widget::Widget,
 };
 
 /// configuration for a child-bearing layout scope
 pub struct Container<'a> {
-    pub geometry_id: Option<WidgetId>,
+    pub id: Option<WidgetId>,
     pub item: Item,
     pub padding: LogicalInsets,
     pub gap: f32,
@@ -82,7 +81,7 @@ pub enum Justify {
 impl<'a> Container<'a> {
     pub const fn new() -> Self {
         Self {
-            geometry_id: None,
+            id: None,
             item: Item::new(),
             padding: LogicalInsets {
                 top: 0.0,
@@ -149,7 +148,7 @@ impl<'a> Container<'a> {
     }
 
     pub const fn id(mut self, id: WidgetId) -> Self {
-        self.geometry_id = Some(id);
+        self.id = Some(id);
         self
     }
 
@@ -272,10 +271,6 @@ impl Sizing {
 }
 
 impl Scope<'_> {
-    pub fn add<W: Widget>(&mut self, widget: W) -> W::Output {
-        widget.build(self.ui)
-    }
-
     pub fn interaction(&self) -> Interaction {
         self.interaction
     }

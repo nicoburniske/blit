@@ -52,7 +52,7 @@ impl Widget for Button {
 
     fn build(self, ui: &mut Ui) -> Response {
         let local_id = self.id.unwrap_or_else(|| WidgetId::new(self.label));
-        let id = ui.id(("button", local_id));
+        let id = WidgetId::new(("button", local_id));
         let mut button = ui.row(
             Container::new()
                 .padding(self.padding)
