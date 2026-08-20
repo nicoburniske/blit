@@ -261,7 +261,7 @@ impl Widget for TextInput<'_> {
                     .id(text_id)
                     .clip(Clip::Bounds),
             );
-            text.frame_mut().add_leaf(
+            text.add_leaf(
                 Item {
                     width: Sizing::grow(),
                     height: Sizing::fit(),

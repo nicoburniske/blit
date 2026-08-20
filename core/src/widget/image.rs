@@ -44,7 +44,7 @@ impl Widget for Image<'_> {
             return;
         }
         let size = self.resource.size();
-        ui.frame_mut().add_leaf(
+        ui.add_leaf(
             Item {
                 width: self.width,
                 height: self.height,
