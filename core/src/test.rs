@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::{
-    Align, Clip, Element, Justify, Layout, RepaintBuffer, Runtime, Sizing, Ui,
+    Align, Clip, Container, Element, Justify, Layout, RepaintBuffer, Runtime, Sizing, Ui,
     animation::{Easing, Transition},
     color::Color,
     command_list::{ClipId, Command, CommandList},
@@ -126,6 +126,43 @@ impl PlatformImpl for TestPlatform {
     }
 
     fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
+}
+
+#[test]
+fn container_scopes_and_block_leaves_resolve_layout() {
+    let mut runtime = Runtime::new(TestPlatform::default());
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        let mut row = ui.row(Container::new().fixed(10.0, 10.0).gap(2.0));
+        row.add(
+            widget::Block::new()
+                .fixed(2.0, 4.0)
+                .background(Color::BLACK),
+        );
+        row.add(
+            widget::Block::new()
+                .width(Sizing::grow())
+                .height(Sizing::fixed(4.0))
+                .background(Color::WHITE),
+        );
+    });
+
+    assert_eq!(
+        runtime.platform().rectangle_areas,
+        [
+            LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 2.0,
+                height: 4.0,
+            },
+            LogicalRect {
+                x: 4.0,
+                y: 0.0,
+                width: 6.0,
+                height: 4.0,
+            },
+        ]
+    );
 }
 
 #[test]

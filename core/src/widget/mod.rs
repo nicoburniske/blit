@@ -1,11 +1,13 @@
 //! frame-local widgets declare elements through [`Widget::build`]
 
+mod block;
 mod button;
 mod image;
 mod scroll_area;
 mod text;
 mod text_input;
 
+pub use block::Block;
 pub use button::{Button, Response};
 pub use image::Image;
 pub use scroll_area::{ScrollArea, ScrollScope, ScrollState};

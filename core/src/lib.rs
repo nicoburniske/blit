@@ -16,8 +16,8 @@ mod timer;
 pub mod widget;
 
 pub use element::{
-    Align, Appearance, Axis, Clip, Content, Element, ElementGeometry, ElementScope, ImageContent,
-    Justify, Layout, Shadow, Sizing, TextCaret, TextContent, TextSelection,
+    Align, Appearance, Axis, Clip, Container, Content, Element, ElementGeometry, ElementScope,
+    ImageContent, Justify, Layout, Scope, Shadow, Sizing, TextCaret, TextContent, TextSelection,
 };
 
 use std::{
@@ -46,9 +46,25 @@ impl Ui {
         widget.build(self)
     }
 
-    /// declares a frame-local element and opens its child scope
+    pub fn row(&mut self, container: Container<'_>) -> Scope<'_> {
+        element::open(self, container.into_element(Axis::Horizontal))
+    }
+
+    pub fn column(&mut self, container: Container<'_>) -> Scope<'_> {
+        element::open(self, container.into_element(Axis::Vertical))
+    }
+
+    pub fn stack(&mut self, axis: Axis, container: Container<'_>) -> Scope<'_> {
+        element::open(self, container.into_element(axis))
+    }
+
+    /// declares a raw frame-local element and opens its child scope
     pub fn element(&mut self, element: Element<'_>) -> ElementScope<'_> {
         element::open(self, element)
+    }
+
+    pub(crate) fn leaf(&mut self, element: Element<'_>) -> Interaction {
+        element::leaf(self, element)
     }
 
     pub fn geometry(&self, id: WidgetId) -> Option<ElementGeometry> {

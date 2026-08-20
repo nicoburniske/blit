@@ -27,12 +27,19 @@ pub struct Element<'a> {
     pub interaction: Option<(WidgetId, Sense)>,
 }
 
+/// configuration for a child-bearing layout scope
+pub struct Container<'a> {
+    element: Element<'a>,
+}
+
 /// scoped child declaration
 pub struct ElementScope<'a> {
     ui: &'a mut Ui,
     node: NodeId,
     interaction: Interaction,
 }
+
+pub type Scope<'a> = ElementScope<'a>;
 
 /// geometry of an element and its children
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -259,6 +266,142 @@ impl<'a> Element<'a> {
     pub const fn interact(mut self, id: WidgetId, sense: Sense) -> Self {
         self.interaction = Some((id, sense));
         self
+    }
+}
+
+impl<'a> Container<'a> {
+    pub const fn new() -> Self {
+        Self {
+            element: Element::new(Layout::vertical()),
+        }
+    }
+
+    pub const fn width(mut self, width: Sizing) -> Self {
+        self.element.layout.width = width;
+        self
+    }
+
+    pub const fn height(mut self, height: Sizing) -> Self {
+        self.element.layout.height = height;
+        self
+    }
+
+    pub const fn fixed(mut self, width: f32, height: f32) -> Self {
+        self.element.layout.width = Sizing::fixed(width);
+        self.element.layout.height = Sizing::fixed(height);
+        self
+    }
+
+    pub const fn grow(mut self) -> Self {
+        self.element.layout.width = Sizing::grow();
+        self.element.layout.height = Sizing::grow();
+        self
+    }
+
+    pub const fn padding(mut self, padding: LogicalInsets) -> Self {
+        self.element.layout.padding = padding;
+        self
+    }
+
+    pub const fn gap(mut self, gap: f32) -> Self {
+        self.element.layout.gap = gap;
+        self
+    }
+
+    pub const fn align(mut self, align: Align) -> Self {
+        self.element.layout.align = align;
+        self
+    }
+
+    pub const fn justify(mut self, justify: Justify) -> Self {
+        self.element.layout.justify = justify;
+        self
+    }
+
+    pub const fn overflow(mut self, overflow: bool) -> Self {
+        self.element.layout.overflow = overflow;
+        self
+    }
+
+    pub const fn id(mut self, id: WidgetId) -> Self {
+        self.element.id = Some(id);
+        self
+    }
+
+    pub const fn appearance(mut self, appearance: Appearance<'a>) -> Self {
+        self.element.appearance = appearance;
+        self
+    }
+
+    pub const fn background(mut self, color: Color) -> Self {
+        self.element.appearance.background = color;
+        self
+    }
+
+    pub const fn border(mut self, width: f32, color: Color) -> Self {
+        self.element.appearance.border = Border::Solid { width, color };
+        self
+    }
+
+    pub const fn gradient_border(mut self, width: f32, gradient: LinearGradient<'a>) -> Self {
+        self.element.appearance.border = Border::Gradient { width, gradient };
+        self
+    }
+
+    pub const fn radius(mut self, radius: BorderRadius) -> Self {
+        self.element.appearance.radius = radius;
+        self
+    }
+
+    pub const fn uniform_radius(mut self, radius: f32) -> Self {
+        self.element.appearance.radius = BorderRadius {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        };
+        self
+    }
+
+    pub const fn opacity(mut self, opacity: f32) -> Self {
+        self.element.appearance.opacity = opacity;
+        self
+    }
+
+    pub const fn replace(mut self, replace: bool) -> Self {
+        self.element.appearance.replace = replace;
+        self
+    }
+
+    pub const fn shadow(mut self, shadow: Shadow) -> Self {
+        self.element.appearance.shadow = Some(shadow);
+        self
+    }
+
+    pub const fn clip(mut self, clip: Clip) -> Self {
+        self.element.clip = clip;
+        self
+    }
+
+    pub const fn offset(mut self, offset: LogicalPoint) -> Self {
+        self.element.offset = offset;
+        self
+    }
+
+    pub const fn interact(mut self, id: WidgetId, sense: Sense) -> Self {
+        self.element.interaction = Some((id, sense));
+        self
+    }
+
+    pub(crate) fn into_element(mut self, axis: Axis) -> Element<'a> {
+        self.element.layout.axis = axis;
+        self.element
+    }
+}
+
+impl Default for Container<'_> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -503,4 +646,12 @@ pub(crate) fn open<'a>(ui: &'a mut Ui, element: Element<'_>) -> ElementScope<'a>
         node,
         interaction,
     }
+}
+
+pub(crate) fn leaf(ui: &mut Ui, element: Element<'_>) -> Interaction {
+    let interaction = element
+        .interaction
+        .map_or_default(|(id, sense)| ui.element_interaction(id, sense));
+    ui.frame_mut().push_leaf(element);
+    interaction
 }

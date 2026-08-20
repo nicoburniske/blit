@@ -1,6 +1,6 @@
 use super::Widget;
 use crate::{
-    Content, Element, ImageContent, Layout, Ui,
+    Content, Element, ImageContent, Layout, Sizing, Ui,
     color::Color,
     geometry::LogicalSize,
     paint::{ImageFit, ImageSampling, ImageTiling, NineSlice},
@@ -12,6 +12,8 @@ crate::widget! {
         new(pub resource: &'a ImageHandle);
         pub fit: ImageFit,
         pub sampling: ImageSampling,
+        pub width: Sizing = Sizing::fit(),
+        pub height: Sizing = Sizing::fit(),
         pub opacity: f32 = 1.0,
         #[skip]
         pub colorize: Option<Color>,
@@ -42,9 +44,9 @@ impl Widget for Image<'_> {
             return;
         }
         let size = self.resource.size();
-        drop(
-            ui.element(
-                Element::new(Layout::horizontal()).content(Content::Image(ImageContent {
+        ui.leaf(
+            Element::new(Layout::horizontal().width(self.width).height(self.height)).content(
+                Content::Image(ImageContent {
                     image: self.resource.id(),
                     intrinsic: LogicalSize {
                         width: size.width as f32,
@@ -57,7 +59,7 @@ impl Widget for Image<'_> {
                     nine_slice: self.nine_slice,
                     horizontal_tiling: self.horizontal_tiling,
                     vertical_tiling: self.vertical_tiling,
-                })),
+                }),
             ),
         );
     }
