@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 use crate::{
     Ui,
     color::Color,
-    geometry::{LogicalInsets, LogicalPoint, LogicalRect, LogicalSize},
+    geometry::{LogicalInsets, LogicalPoint, LogicalSize},
     graph::NodeId,
     interact::{Interaction, Sense, WidgetId},
     paint::{
@@ -168,12 +168,6 @@ pub struct ImageContent {
     pub nine_slice: Option<NineSlice>,
     pub horizontal_tiling: ImageTiling,
     pub vertical_tiling: ImageTiling,
-}
-
-/// geometry resolved for a stable widget ID in the previous frame
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct WidgetGeometry {
-    pub area: LogicalRect,
 }
 
 impl<'a> Container<'a> {

@@ -144,9 +144,9 @@ impl<'a> ScrollArea<'a> {
     pub fn begin(self, ui: &'a mut Ui) -> ScrollScope<'a> {
         let id = ui.id(("scroll area", self.id));
         let content_id = id.child("content");
-        self.state.viewport_height = ui.geometry(id).map_or(0.0, |geometry| geometry.area.height);
-        if let Some(geometry) = ui.geometry(content_id) {
-            self.state.content_height = geometry.area.height;
+        self.state.viewport_height = ui.geometry(id).map_or(0.0, |area| area.height);
+        if let Some(area) = ui.geometry(content_id) {
+            self.state.content_height = area.height;
         }
 
         let sense = if self.drag_to_scroll {

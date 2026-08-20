@@ -17,7 +17,7 @@ pub mod widget;
 
 pub use frame::{
     Align, Appearance, Axis, Clip, Container, Content, ImageContent, Item, Justify, Scope, Shadow,
-    Sizing, TextCaret, TextContent, TextSelection, WidgetGeometry,
+    Sizing, TextCaret, TextContent, TextSelection,
 };
 
 use std::{
@@ -58,7 +58,7 @@ impl Ui {
         frame::open_container(self, axis, container)
     }
 
-    pub fn geometry(&self, id: WidgetId) -> Option<WidgetGeometry> {
+    pub fn geometry(&self, id: WidgetId) -> Option<LogicalRect> {
         self.shared().geometry.get(id)
     }
 

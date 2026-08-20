@@ -4,7 +4,7 @@ use crate::{
     command_list::{ClipId, CommandList},
     frame::{
         Align, Appearance, Axis, Clip, Container, Content, Flow, ImageContent, Item, Justify,
-        Shadow, Sizing, TextContent, WidgetGeometry,
+        Shadow, Sizing, TextContent,
     },
     geometry::{LogicalPoint, LogicalRect, LogicalSize},
     interact::{InteractionState, Sense, WidgetId},
@@ -28,7 +28,6 @@ struct ContentId(u32);
 pub struct FrameGraph {
     nodes: Vec<Node>,
     open: Vec<NodeId>,
-    scratch: Vec<NodeId>,
     texts: Vec<TextContent>,
     images: Vec<ImageContent>,
     flows: Vec<Flow>,
@@ -397,12 +396,7 @@ impl FrameGraph {
         self.emit(platform, commands, scale_factor);
         self.register_hits(interaction, scale_factor);
         for record in &self.geometry {
-            geometry.register(
-                record.id,
-                WidgetGeometry {
-                    area: self.nodes[record.node.index()].area,
-                },
-            );
+            geometry.register(record.id, self.nodes[record.node.index()].area);
         }
         self.nodes.clear();
         self.open.clear();
@@ -424,7 +418,6 @@ impl FrameGraph {
             node_capacity: self.nodes.capacity(),
             heap_bytes: self.nodes.capacity() * size_of::<Node>()
                 + self.open.capacity() * size_of::<NodeId>()
-                + self.scratch.capacity() * size_of::<NodeId>()
                 + self.texts.capacity() * size_of::<TextContent>()
                 + self.images.capacity() * size_of::<ImageContent>()
                 + self.flows.capacity() * size_of::<Flow>()
@@ -982,18 +975,18 @@ impl Sizing {
 
 #[derive(Default)]
 pub struct GeometryState {
-    previous: Vec<(WidgetId, WidgetGeometry)>,
-    current: Vec<(WidgetId, WidgetGeometry)>,
+    previous: Vec<(WidgetId, LogicalRect)>,
+    current: Vec<(WidgetId, LogicalRect)>,
 }
 
 impl GeometryState {
-    pub fn get(&self, id: WidgetId) -> Option<WidgetGeometry> {
+    pub fn get(&self, id: WidgetId) -> Option<LogicalRect> {
         self.previous
             .iter()
             .find_map(|(candidate, geometry)| (*candidate == id).then_some(*geometry))
     }
 
-    pub fn register(&mut self, id: WidgetId, geometry: WidgetGeometry) {
+    pub fn register(&mut self, id: WidgetId, geometry: LogicalRect) {
         self.current.push((id, geometry));
     }
 
