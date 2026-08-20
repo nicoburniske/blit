@@ -1,6 +1,6 @@
 use super::Widget;
 use crate::{
-    Appearance, Clip, Content, Item, Sizing, Ui,
+    Appearance, Content, Item, Sizing, Ui,
     color::Color,
     interact::{Interaction, Sense, WidgetId},
     paint::{Border, BorderRadius},
@@ -10,7 +10,6 @@ pub struct Rectangle {
     id: Option<WidgetId>,
     item: Item,
     appearance: Appearance<'static>,
-    clip: Clip,
     interaction: Option<(WidgetId, Sense)>,
 }
 
@@ -20,7 +19,6 @@ impl Rectangle {
             id: None,
             item: Item::new(),
             appearance: Appearance::new(),
-            clip: Clip::None,
             interaction: None,
         }
     }
@@ -71,11 +69,6 @@ impl Rectangle {
         self
     }
 
-    pub const fn clip(mut self, clip: Clip) -> Self {
-        self.clip = clip;
-        self
-    }
-
     pub const fn id(mut self, id: WidgetId) -> Self {
         self.id = Some(id);
         self
@@ -104,7 +97,6 @@ impl Widget for Rectangle {
             .frame_mut()
             .add_leaf(self.item, Content::Rectangle(self.appearance));
         let frame = ui.frame_mut();
-        frame.set_clip(node, self.clip);
         if let Some(id) = self.id {
             frame.set_id(node, id);
         }

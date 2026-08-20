@@ -30,7 +30,6 @@ pub struct Container<'a> {
     pub(crate) flow: Flow,
     pub(crate) appearance: Appearance<'a>,
     pub(crate) clip: Clip,
-    pub(crate) offset: LogicalPoint,
     pub(crate) interaction: Option<(WidgetId, Sense)>,
 }
 
@@ -42,6 +41,7 @@ pub(crate) struct Flow {
     pub align: Align,
     pub justify: Justify,
     pub overflow: bool,
+    pub offset: LogicalPoint,
 }
 
 /// scoped child declaration
@@ -178,7 +178,6 @@ impl<'a> Container<'a> {
             flow: Flow::new(Axis::Vertical),
             appearance: Appearance::new(),
             clip: Clip::None,
-            offset: LogicalPoint { x: 0.0, y: 0.0 },
             interaction: None,
         }
     }
@@ -291,7 +290,7 @@ impl<'a> Container<'a> {
     }
 
     pub const fn offset(mut self, offset: LogicalPoint) -> Self {
-        self.offset = offset;
+        self.flow.offset = offset;
         self
     }
 
@@ -336,6 +335,7 @@ impl Flow {
             align: Align::Stretch,
             justify: Justify::Start,
             overflow: false,
+            offset: LogicalPoint { x: 0.0, y: 0.0 },
         }
     }
 }
