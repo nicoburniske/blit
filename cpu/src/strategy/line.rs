@@ -285,7 +285,12 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     };
                     let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
                     let texture = images.get(image_id)?;
-                    let span = image.opaque_span(line, &texture.alpha_rows)?;
+                    let span = image.opaque_span(
+                        line,
+                        commands.bounds(*command),
+                        &texture.data,
+                        &texture.alpha_rows,
+                    )?;
                     let start = span.start.max(range.start as i32);
                     let end = span.end.min(range.end as i32);
                     (start < end).then_some((start as usize, end as usize, command_first))

@@ -184,8 +184,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                             image,
                             bounds,
                             clip,
-                            texture.opaque,
-                            texture.has_opaque_spans,
+                            image.is_opaque(&texture.data, texture.opaque),
+                            image.has_opaque_spans(&texture.data, texture.has_opaque_spans),
                         )
                     });
                 }
@@ -206,8 +206,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                         image,
                         bounds,
                         clip,
-                        texture.opaque,
-                        texture.has_opaque_spans,
+                        image.is_opaque(&texture.data, texture.opaque),
+                        image.has_opaque_spans(&texture.data, texture.has_opaque_spans),
                     )
                 },
             );

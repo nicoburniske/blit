@@ -29,8 +29,8 @@ pub fn prepare(
         return;
     }
 
-    let mut record = |prepared: Prepared| {
-        if let Some(clip) = prepared.bounds.intersection(clip) {
+    let mut record = |prepared: Prepared, bounds: PhysicalRect| {
+        if let Some(clip) = bounds.intersection(clip) {
             emit(prepared, clip);
         }
     };
@@ -88,7 +88,6 @@ pub fn prepare(
                 };
                 if let Some(prepared) = Prepared::new(
                     request,
-                    texture,
                     Patch {
                         source,
                         display,
@@ -106,7 +105,7 @@ pub fn prepare(
                     },
                     scale_factor,
                 ) {
-                    record(prepared);
+                    record(prepared, display);
                 }
             }
         }
@@ -146,7 +145,6 @@ pub fn prepare(
     };
     if let Some(prepared) = Prepared::new(
         request,
-        texture,
         Patch {
             source,
             display,
@@ -156,7 +154,7 @@ pub fn prepare(
         },
         scale_factor,
     ) {
-        record(prepared);
+        record(prepared, bounds);
     }
 }
 

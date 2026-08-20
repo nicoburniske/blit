@@ -24,22 +24,15 @@ pub struct AlphaRow {
 #[derive(Clone, Copy)]
 pub struct Prepared {
     pub image: ImageId,
-    pub bounds: PhysicalRect,
     display: PhysicalRect,
     source: PhysicalRect,
-    texture_rect: PhysicalRect,
-    stride_bytes: usize,
-    bytes_per_pixel: usize,
-    format: ImageFormat,
     colorize: Option<Color>,
     pub opacity: u8,
-    sampling: ImageSampling,
+    flags: u8,
     step_x: u64,
     step_y: u64,
     scale_x: f32,
     scale_y: f32,
-    wrap_x: bool,
-    wrap_y: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -52,12 +45,7 @@ pub struct Patch {
 }
 
 impl Prepared {
-    pub fn new(
-        request: &ImageRequest,
-        texture: &ImageData,
-        patch: Patch,
-        scale_factor: f32,
-    ) -> Option<Self> {
+    pub fn new(request: &ImageRequest, patch: Patch, scale_factor: f32) -> Option<Self> {
         let Patch {
             source,
             display,
@@ -81,57 +69,58 @@ impl Prepared {
             axis(source.height, display.height, vertical_tiling, scale_factor);
         Some(Self {
             image: request.image,
-            bounds,
             display,
             source,
-            texture_rect: texture.texture_rect,
-            stride_bytes: texture.stride_bytes,
-            bytes_per_pixel: texture.format.bytes_per_pixel(),
-            format: texture.format,
             colorize: request.colorize,
             opacity: (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
-            sampling: request.sampling,
+            flags: u8::from(request.sampling == ImageSampling::Bilinear) * flag::BILINEAR
+                | u8::from(wrap_x) * flag::WRAP_X
+                | u8::from(wrap_y) * flag::WRAP_Y,
             step_x,
             step_y,
             scale_x,
             scale_y,
-            wrap_x,
-            wrap_y,
         })
     }
 
-    pub fn is_opaque(&self, pixels_opaque: bool) -> bool {
+    pub fn is_opaque(&self, texture: &ImageData, pixels_opaque: bool) -> bool {
         pixels_opaque
             && self.opacity == 255
-            && self.source.intersection(self.texture_rect) == Some(self.source)
+            && self.source.intersection(texture.texture_rect) == Some(self.source)
             && match self.colorize {
                 Some(color) => color.alpha == 255,
-                None => !matches!(self.format, ImageFormat::Alpha8(color) if color.alpha != 255),
+                None => !matches!(texture.format, ImageFormat::Alpha8(color) if color.alpha != 255),
             }
     }
 
-    pub fn has_opaque_spans(&self, texture_has_opaque_spans: bool) -> bool {
+    pub fn has_opaque_spans(&self, texture: &ImageData, texture_has_opaque_spans: bool) -> bool {
         texture_has_opaque_spans
             && self.opacity == 255
             && self.colorize.is_none()
-            && self.sampling == ImageSampling::Nearest
+            && self.flags & flag::BILINEAR == 0
             && self.step_x == FIXED_ONE
-            && !self.wrap_x
-            && !self.wrap_y
-            && self.source.intersection(self.texture_rect) == Some(self.source)
+            && self.flags & flag::WRAP_X == 0
+            && self.flags & flag::WRAP_Y == 0
+            && self.source.intersection(texture.texture_rect) == Some(self.source)
     }
 
-    pub fn opaque_span(&self, line: i32, alpha_rows: &[AlphaRow]) -> Option<Range<i32>> {
-        let texture_y = self.texture_rect.y as usize;
+    pub fn opaque_span(
+        &self,
+        line: i32,
+        bounds: PhysicalRect,
+        texture: &ImageData,
+        alpha_rows: &[AlphaRow],
+    ) -> Option<Range<i32>> {
+        let texture_y = texture.texture_rect.y as usize;
         let AlphaRow {
             opaque_start,
             opaque_end,
             ..
         } = *alpha_rows.get(self.source_y(line).checked_sub(texture_y)?)?;
-        let start = self.display.x + self.texture_rect.x + opaque_start as i32 - self.source.x;
-        let end = self.display.x + self.texture_rect.x + opaque_end as i32 - self.source.x;
-        let start = start.max(self.bounds.x);
-        let end = end.min(self.bounds.x + self.bounds.width);
+        let start = self.display.x + texture.texture_rect.x + opaque_start as i32 - self.source.x;
+        let end = self.display.x + texture.texture_rect.x + opaque_end as i32 - self.source.x;
+        let start = start.max(bounds.x);
+        let end = end.min(bounds.x.saturating_add(bounds.width));
         (start < end).then_some(start..end)
     }
 
@@ -149,20 +138,15 @@ impl Prepared {
             height: buffer.height() as i32,
         };
         let pixels = texture.pixels.bytes();
-        let Some(clipped) = self
-            .bounds
-            .intersection(clip)
-            .and_then(|area| area.intersection(screen))
-        else {
+        let Some(clipped) = clip.intersection(screen) else {
             return;
         };
         for y in clipped.y..clipped.y + clipped.height {
             let row = buffer.line_mut(y as usize);
-            match self.sampling {
-                ImageSampling::Nearest => {
-                    self.draw_nearest(row, pixels, clipped, screen.x, y, alpha_rows)
-                }
-                ImageSampling::Bilinear => self.draw_bilinear(row, pixels, clipped, screen.x, y),
+            if self.flags & flag::BILINEAR == 0 {
+                self.draw_nearest(row, pixels, texture, clipped, screen.x, y, alpha_rows)
+            } else {
+                self.draw_bilinear(row, pixels, texture, clipped, screen.x, y)
             }
         }
     }
@@ -171,26 +155,27 @@ impl Prepared {
         &self,
         row: &mut [P],
         pixels: &[u8],
+        texture: &ImageData,
         clipped: PhysicalRect,
         screen_x: i32,
         y: i32,
         alpha_rows: &[AlphaRow],
     ) {
         let source_y = self.source_y(y);
-        let texture_x = self.texture_rect.x as usize;
-        let texture_y = self.texture_rect.y as usize;
-        if source_y < texture_y || source_y >= texture_y + self.texture_rect.height as usize {
+        let texture_x = texture.texture_rect.x as usize;
+        let texture_y = texture.texture_rect.y as usize;
+        if source_y < texture_y || source_y >= texture_y + texture.texture_rect.height as usize {
             return;
         }
-        let source_row = (source_y - texture_y) * self.stride_bytes;
-        let texture_right = texture_x + self.texture_rect.width as usize;
-        if self.colorize.is_some() && !matches!(self.format, ImageFormat::Alpha8(_)) {
+        let source_row = (source_y - texture_y) * texture.stride_bytes;
+        let texture_right = texture_x + texture.texture_rect.width as usize;
+        if self.colorize.is_some() && !matches!(texture.format, ImageFormat::Alpha8(_)) {
             self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
-                row[destination].blend(self.source_pixel(pixels, source_x, source_y));
+                row[destination].blend(self.source_pixel(texture, pixels, source_x, source_y));
             });
             return;
         }
-        if let ImageFormat::Alpha8(color) = self.format
+        if let ImageFormat::Alpha8(color) = texture.format
             && self.source.width == 1
         {
             let source_x = self.source.x as usize;
@@ -210,6 +195,7 @@ impl Prepared {
             && self.draw_spans(
                 row,
                 pixels,
+                texture,
                 clipped,
                 screen_x,
                 source_y,
@@ -218,7 +204,7 @@ impl Prepared {
         {
             return;
         }
-        match self.format {
+        match texture.format {
             ImageFormat::Rgb8 if self.opacity == 255 => {
                 self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
@@ -322,25 +308,27 @@ impl Prepared {
         &self,
         row: &mut [P],
         pixels: &[u8],
+        texture: &ImageData,
         clipped: PhysicalRect,
         screen_x: i32,
         source_y: usize,
         alpha_row: Option<AlphaRow>,
     ) -> bool {
         if !matches!(
-            self.format,
+            texture.format,
             ImageFormat::Rgb8
                 | ImageFormat::Luma8
                 | ImageFormat::Rgba8Premultiplied
                 | ImageFormat::Alpha8(_)
-        ) || matches!(self.format, ImageFormat::Rgb8 | ImageFormat::Luma8) && self.opacity != 255
+        ) || matches!(texture.format, ImageFormat::Rgb8 | ImageFormat::Luma8)
+            && self.opacity != 255
         {
             return false;
         }
-        let texture_x = self.texture_rect.x as usize;
-        let texture_y = self.texture_rect.y as usize;
-        let texture_right = texture_x + self.texture_rect.width as usize;
-        let source_row = (source_y - texture_y) * self.stride_bytes;
+        let texture_x = texture.texture_rect.x as usize;
+        let texture_y = texture.texture_rect.y as usize;
+        let texture_right = texture_x + texture.texture_rect.width as usize;
+        let source_row = (source_y - texture_y) * texture.stride_bytes;
         let mut destination_x = clipped.x;
         let destination_end = clipped.x + clipped.width;
         let mut source = self.source_fixed_x(destination_x);
@@ -354,8 +342,9 @@ impl Prepared {
             }
             let destination = (destination_x - screen_x) as usize;
             let destination = &mut row[destination..destination + len];
-            let source_offset = source_row + (source_x - texture_x) * self.bytes_per_pixel;
-            match self.format {
+            let source_offset =
+                source_row + (source_x - texture_x) * texture.format.bytes_per_pixel();
+            match texture.format {
                 ImageFormat::Rgb8 => {
                     let bytes = &pixels[source_offset..source_offset + len * 3];
                     let (prefix, source, suffix) = unsafe { bytes.align_to::<Rgb8Pixel>() };
@@ -454,7 +443,8 @@ impl Prepared {
             }
             destination_x += len as i32;
             source += (len as u64) << FIXED_SHIFT;
-            if self.wrap_x && source >= (self.source.width as u64) << FIXED_SHIFT {
+            if self.flags & flag::WRAP_X != 0 && source >= (self.source.width as u64) << FIXED_SHIFT
+            {
                 source %= (self.source.width as u64) << FIXED_SHIFT;
             }
         }
@@ -475,7 +465,7 @@ impl Prepared {
                 + (source >> FIXED_SHIFT).min(self.source.width as u64 - 1) as usize;
             process((x - screen_x) as usize, source_x);
             source += self.step_x;
-            if self.wrap_x && source >= source_span {
+            if self.flags & flag::WRAP_X != 0 && source >= source_span {
                 source %= source_span;
             }
         }
@@ -485,6 +475,7 @@ impl Prepared {
         &self,
         row: &mut [P],
         pixels: &[u8],
+        texture: &ImageData,
         clipped: PhysicalRect,
         screen_x: i32,
         y: i32,
@@ -493,7 +484,7 @@ impl Prepared {
         let top = source_y.floor() as usize;
         let bottom = if top + 1 < self.source.height as usize {
             top + 1
-        } else if self.wrap_y {
+        } else if self.flags & flag::WRAP_Y != 0 {
             0
         } else {
             top
@@ -504,28 +495,32 @@ impl Prepared {
             let left = source_x.floor() as usize;
             let right = if left + 1 < self.source.width as usize {
                 left + 1
-            } else if self.wrap_x {
+            } else if self.flags & flag::WRAP_X != 0 {
                 0
             } else {
                 left
             };
             let horizontal = source_x - left as f32;
             let top_left = self.source_pixel(
+                texture,
                 pixels,
                 self.source.x as usize + left,
                 self.source.y as usize + top,
             );
             let top_right = self.source_pixel(
+                texture,
                 pixels,
                 self.source.x as usize + right,
                 self.source.y as usize + top,
             );
             let bottom_left = self.source_pixel(
+                texture,
                 pixels,
                 self.source.x as usize + left,
                 self.source.y as usize + bottom,
             );
             let bottom_right = self.source_pixel(
+                texture,
                 pixels,
                 self.source.x as usize + right,
                 self.source.y as usize + bottom,
@@ -568,7 +563,7 @@ impl Prepared {
     fn source_y(&self, y: i32) -> usize {
         let mut source = (y - self.display.y) as u64 * self.step_y;
         let source_span = (self.source.height as u64) << FIXED_SHIFT;
-        if self.wrap_y {
+        if self.flags & flag::WRAP_Y != 0 {
             source %= source_span;
         }
         self.source.y as usize + (source >> FIXED_SHIFT).min(self.source.height as u64 - 1) as usize
@@ -576,7 +571,7 @@ impl Prepared {
 
     fn source_fixed_x(&self, x: i32) -> u64 {
         let source = (x - self.display.x) as u64 * self.step_x;
-        if self.wrap_x {
+        if self.flags & flag::WRAP_X != 0 {
             source % ((self.source.width as u64) << FIXED_SHIFT)
         } else {
             source
@@ -585,7 +580,7 @@ impl Prepared {
 
     fn source_float_x(&self, x: i32) -> f32 {
         let source = ((x - self.display.x) as f32 + 0.5) * self.scale_x - 0.5;
-        if self.wrap_x {
+        if self.flags & flag::WRAP_X != 0 {
             source.rem_euclid(self.source.width as f32)
         } else {
             source.clamp(0.0, self.source.width as f32 - 1.0)
@@ -594,25 +589,32 @@ impl Prepared {
 
     fn source_float_y(&self, y: i32) -> f32 {
         let source = ((y - self.display.y) as f32 + 0.5) * self.scale_y - 0.5;
-        if self.wrap_y {
+        if self.flags & flag::WRAP_Y != 0 {
             source.rem_euclid(self.source.height as f32)
         } else {
             source.clamp(0.0, self.source.height as f32 - 1.0)
         }
     }
 
-    fn source_pixel(&self, pixels: &[u8], x: usize, y: usize) -> PremultipliedRgbaColor {
-        let texture_x = self.texture_rect.x as usize;
-        let texture_y = self.texture_rect.y as usize;
+    fn source_pixel(
+        &self,
+        texture: &ImageData,
+        pixels: &[u8],
+        x: usize,
+        y: usize,
+    ) -> PremultipliedRgbaColor {
+        let texture_x = texture.texture_rect.x as usize;
+        let texture_y = texture.texture_rect.y as usize;
         if x < texture_x
             || y < texture_y
-            || x >= texture_x + self.texture_rect.width as usize
-            || y >= texture_y + self.texture_rect.height as usize
+            || x >= texture_x + texture.texture_rect.width as usize
+            || y >= texture_y + texture.texture_rect.height as usize
         {
             return PremultipliedRgbaColor::default();
         }
-        let offset = (y - texture_y) * self.stride_bytes + (x - texture_x) * self.bytes_per_pixel;
-        let pixel = match self.format {
+        let offset = (y - texture_y) * texture.stride_bytes
+            + (x - texture_x) * texture.format.bytes_per_pixel();
+        let pixel = match texture.format {
             ImageFormat::Rgba8Premultiplied if self.opacity == 255 => PremultipliedRgbaColor {
                 red: pixels[offset],
                 green: pixels[offset + 1],
@@ -684,4 +686,10 @@ fn axis(source: i32, target: i32, tiling: ImageTiling, scale_factor: f32) -> (u6
             )
         }
     }
+}
+
+mod flag {
+    pub const BILINEAR: u8 = 1;
+    pub const WRAP_X: u8 = 2;
+    pub const WRAP_Y: u8 = 4;
 }

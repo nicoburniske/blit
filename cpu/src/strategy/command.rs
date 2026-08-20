@@ -87,16 +87,12 @@ impl CommandList {
         image: PreparedImage,
         bounds: PhysicalRect,
         clip: ClipId,
-        texture_opaque: bool,
-        texture_has_opaque_spans: bool,
+        opaque: bool,
+        has_opaque_spans: bool,
     ) {
-        let opaque = image.is_opaque(texture_opaque);
         if clip == 0 && opaque {
             self.overwrites.push(self.commands.len());
-        } else if clip == 0
-            && self.has_translucent_image
-            && image.has_opaque_spans(texture_has_opaque_spans)
-        {
+        } else if clip == 0 && self.has_translucent_image && has_opaque_spans {
             self.partial_opaque.push(self.commands.len());
         }
         self.has_translucent_image |= !opaque;
