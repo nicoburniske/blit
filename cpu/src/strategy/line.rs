@@ -6,15 +6,15 @@ use slotmap::{KeyData, SlotMap};
 use super::{
     RenderStrategy,
     clip::{ClipLine, ClipSpan},
-    command::{CommandList, Payload},
+    command::{CommandId, CommandList, Payload},
     raster,
 };
 use crate::{Pixel, PixelBuffer, RenderContext, RendererImageId, StoredImage, TextRenderer};
 
 #[derive(Default)]
 pub struct Scanline {
-    starts: Vec<usize>,
-    active: Vec<usize>,
+    starts: Vec<CommandId>,
+    active: Vec<CommandId>,
     ranges: Vec<Range<usize>>,
     clip_ranges: Vec<Option<ClipLine>>,
 }
@@ -49,7 +49,7 @@ impl<P: Pixel> PixelBuffer for LineBuffer<'_, P> {
 
 fn draw_commands<const CLIPPED: bool, P: Pixel>(
     commands: &CommandList,
-    active: &[usize],
+    active: &[CommandId],
     clip_ranges: &[Option<ClipLine>],
     images: &SlotMap<RendererImageId, StoredImage>,
     text: &TextRenderer,

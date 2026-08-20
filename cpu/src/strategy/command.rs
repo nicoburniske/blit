@@ -8,12 +8,14 @@ use crate::render::{
     rectangle::{Gradient as PreparedGradient, Prepared as PreparedRectangle},
 };
 
+pub type CommandId = u32;
+
 #[derive(Default)]
 pub struct CommandList {
     commands: Vec<StoredCommand>,
     gradient_stops: Vec<GradientStop>,
-    overwrites: Vec<usize>,
-    partial_opaque: Vec<usize>,
+    overwrites: Vec<CommandId>,
+    partial_opaque: Vec<CommandId>,
     has_translucent_image: bool,
     pub has_clips: bool,
 }
@@ -104,7 +106,7 @@ impl CommandList {
     }
 
     #[inline]
-    pub fn get(&self, id: usize) -> Payload<'_> {
+    pub fn get(&self, id: CommandId) -> Payload<'_> {
         match &self.commands[id as usize].payload {
             StoredPayload::Rectangle(rectangle) => Payload::Rectangle(rectangle),
             StoredPayload::GradientRectangle { rectangle, stops } => Payload::GradientRectangle(
@@ -116,33 +118,33 @@ impl CommandList {
         }
     }
 
-    pub fn vertical_bounds(&self, id: usize) -> Range<i32> {
+    pub fn vertical_bounds(&self, id: CommandId) -> Range<i32> {
         let bounds = self.commands[id as usize].bounds;
         bounds.y..bounds.y.saturating_add(bounds.height)
     }
 
-    pub fn horizontal_bounds(&self, id: usize) -> Range<i32> {
+    pub fn horizontal_bounds(&self, id: CommandId) -> Range<i32> {
         let bounds = self.commands[id as usize].bounds;
         bounds.x..bounds.x.saturating_add(bounds.width)
     }
 
-    pub fn bounds(&self, id: usize) -> PhysicalRect {
+    pub fn bounds(&self, id: CommandId) -> PhysicalRect {
         self.commands[id as usize].bounds
     }
 
-    pub fn clip(&self, id: usize) -> ClipId {
+    pub fn clip(&self, id: CommandId) -> ClipId {
         self.commands[id as usize].clip
     }
 
-    pub fn overwrite_offsets(&self) -> &[usize] {
+    pub fn overwrite_offsets(&self) -> &[CommandId] {
         &self.overwrites
     }
 
-    pub fn partial_opaque_offsets(&self) -> &[usize] {
+    pub fn partial_opaque_offsets(&self) -> &[CommandId] {
         &self.partial_opaque
     }
 
-    pub fn overwrite_span(&self, id: usize, line: i32) -> Option<Range<i32>> {
+    pub fn overwrite_span(&self, id: CommandId, line: i32) -> Option<Range<i32>> {
         let bounds = self.horizontal_bounds(id);
         let span = match self.get(id) {
             Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
@@ -155,8 +157,8 @@ impl CommandList {
         (start < end).then_some(start..end)
     }
 
-    pub fn offsets(&self) -> Range<usize> {
-        0..self.commands.len()
+    pub fn offsets(&self) -> Range<CommandId> {
+        0..command_id(self.commands.len())
     }
 
     pub fn clear(&mut self) {
@@ -168,8 +170,8 @@ impl CommandList {
         self.has_clips = false;
     }
 
-    fn push(&mut self, payload: StoredPayload, bounds: PhysicalRect, clip: ClipId) -> usize {
-        let id = self.commands.len();
+    fn push(&mut self, payload: StoredPayload, bounds: PhysicalRect, clip: ClipId) -> CommandId {
+        let id = command_id(self.commands.len());
         self.has_clips |= clip != 0;
         self.commands.push(StoredCommand {
             bounds,
@@ -194,4 +196,9 @@ enum StoredPayload {
     },
     Image(PreparedImage),
     Text(PreparedText),
+}
+
+#[track_caller]
+fn command_id(index: usize) -> CommandId {
+    CommandId::try_from(index).expect("too many CPU commands in one frame")
 }
