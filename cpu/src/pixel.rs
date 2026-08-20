@@ -5,6 +5,7 @@ use std::{
 
 use blit::color::Color;
 
+type U16x8 = Simd<u16, 8>;
 type U32x8 = Simd<u32, 8>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -174,10 +175,10 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
         }
 
         let (chunks, tail) = pixels.as_chunks_mut::<8>();
-        let alpha = U32x8::splat(color.alpha as u32);
-        let red = U32x8::splat(color.red as u32);
-        let green = U32x8::splat(color.green as u32);
-        let blue = U32x8::splat(color.blue as u32);
+        let alpha = U16x8::splat(color.alpha as u16);
+        let red = U16x8::splat(color.red as u16);
+        let green = U16x8::splat(color.green as u16);
+        let blue = U16x8::splat(color.blue as u16);
         for pixels in chunks {
             let destination = U32x8::from_array((*pixels).map(|pixel| pixel.0));
             *pixels = blend::<RED, GREEN, BLUE, ALPHA>(destination, alpha, red, green, blue)
@@ -196,13 +197,17 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
         let len = pixels.len().min(alpha.len());
         let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
         let (alpha_chunks, alpha_tail) = alpha[..len].as_chunks::<8>();
-        let color_alpha = U32x8::splat(color.alpha as u32);
-        let color_red = U32x8::splat(color.red as u32);
-        let color_green = U32x8::splat(color.green as u32);
-        let color_blue = U32x8::splat(color.blue as u32);
+        let color_alpha = U16x8::splat(color.alpha as u16);
+        let color_red = U16x8::splat(color.red as u16);
+        let color_green = U16x8::splat(color.green as u16);
+        let color_blue = U16x8::splat(color.blue as u16);
         for (pixels, alpha) in pixel_chunks.iter_mut().zip(alpha_chunks) {
-            let coverage = Simd::<u8, 8>::from_array(*alpha).cast::<u32>();
-            let source_alpha = divide_by_255(color_alpha * coverage);
+            let coverage = Simd::<u8, 8>::from_array(*alpha).cast::<u16>();
+            let source_alpha = if color.alpha == 255 {
+                coverage
+            } else {
+                divide_by_255(color_alpha * coverage)
+            };
             let red = divide_by_255(color_red * source_alpha);
             let green = divide_by_255(color_green * source_alpha);
             let blue = divide_by_255(color_blue * source_alpha);
@@ -217,36 +222,36 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
     }
 }
 
-fn divide_by_255(value: U32x8) -> U32x8 {
-    (value + U32x8::splat(1) + (value >> U32x8::splat(8))) >> U32x8::splat(8)
+fn divide_by_255(value: U16x8) -> U16x8 {
+    (value + U16x8::splat(1) + (value >> U16x8::splat(8))) >> U16x8::splat(8)
 }
 
 fn blend<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32>(
     destination: U32x8,
-    alpha: U32x8,
-    red: U32x8,
-    green: U32x8,
-    blue: U32x8,
+    alpha: U16x8,
+    red: U16x8,
+    green: U16x8,
+    blue: U16x8,
 ) -> U32x8 {
-    let inverse = U32x8::splat(255) - alpha;
-    let red =
-        divide_by_255(((destination >> U32x8::splat(RED as u32)) & U32x8::splat(0xff)) * inverse)
-            + red;
-    let green =
-        divide_by_255(((destination >> U32x8::splat(GREEN as u32)) & U32x8::splat(0xff)) * inverse)
-            + green;
-    let blue =
-        divide_by_255(((destination >> U32x8::splat(BLUE as u32)) & U32x8::splat(0xff)) * inverse)
-            + blue;
-    let output = red << U32x8::splat(RED as u32)
-        | green << U32x8::splat(GREEN as u32)
-        | blue << U32x8::splat(BLUE as u32);
+    let inverse = U16x8::splat(255) - alpha;
+    let red = divide_by_255(
+        ((destination >> U32x8::splat(RED as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse,
+    ) + red;
+    let green = divide_by_255(
+        ((destination >> U32x8::splat(GREEN as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse,
+    ) + green;
+    let blue = divide_by_255(
+        ((destination >> U32x8::splat(BLUE as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse,
+    ) + blue;
+    let output = red.cast::<u32>() << U32x8::splat(RED as u32)
+        | green.cast::<u32>() << U32x8::splat(GREEN as u32)
+        | blue.cast::<u32>() << U32x8::splat(BLUE as u32);
     if ALPHA == 0 {
         output
     } else {
         let shift = U32x8::splat(ALPHA.trailing_zeros());
-        let destination_alpha = (destination & U32x8::splat(ALPHA)) >> shift;
-        output | (divide_by_255(destination_alpha * inverse) + alpha) << shift
+        let destination_alpha = ((destination & U32x8::splat(ALPHA)) >> shift).cast::<u16>();
+        output | (divide_by_255(destination_alpha * inverse) + alpha).cast::<u32>() << shift
     }
 }
 

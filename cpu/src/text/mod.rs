@@ -5,6 +5,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     mem::size_of,
+    ptr::NonNull,
 };
 
 use blit::{
@@ -26,6 +27,7 @@ pub struct TextRenderer {
     next_run: u32,
     paragraphs: ParagraphCache,
     prepared: Vec<PreparedGlyph>,
+    coverage: Vec<u8>,
 }
 
 struct CachedRun {
@@ -61,9 +63,11 @@ struct RunQuery {
 }
 
 pub struct PreparedGlyph {
-    pub cache: usize,
-    pub x: i32,
-    pub y: i32,
+    alpha: NonNull<u8>,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
 }
 
 impl TextRenderer {
@@ -75,6 +79,7 @@ impl TextRenderer {
             next_run: 1,
             paragraphs: ParagraphCache::new(config.paragraph_cache_capacity),
             prepared: Vec::new(),
+            coverage: Vec::new(),
         }
     }
 
@@ -163,10 +168,14 @@ impl TextRenderer {
         }
         let start = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
         for glyph in &paragraph.glyphs {
+            let cached = self.fonts.glyph(paragraph.face, glyph.key);
+            let cached = self.fonts.get(cached);
             self.prepared.push(PreparedGlyph {
-                cache: self.fonts.glyph(paragraph.face, glyph.key),
+                alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),
                 x: glyph.x,
                 y: glyph.y,
+                width: u32::try_from(cached.metrics.width).expect("glyph is too wide"),
+                height: u32::try_from(cached.metrics.height).expect("glyph is too tall"),
             });
         }
         let end = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
@@ -183,7 +192,7 @@ impl TextRenderer {
     }
 
     pub fn draw_line<P: Pixel>(
-        &self,
+        &mut self,
         glyph_start: u32,
         glyph_end: u32,
         area: PhysicalRect,
@@ -196,16 +205,26 @@ impl TextRenderer {
             return;
         }
         let row_end = row.x.saturating_add(row.pixels.len() as i32);
+        if self.coverage.len() < row.pixels.len() {
+            self.coverage.resize(row.pixels.len(), 0);
+        }
+        let coverage = &mut self.coverage[..row.pixels.len()];
+        let clear_start = (clip.x - row.x).max(0).min(row.pixels.len() as i32) as usize;
+        let clear_end = (clip.x.saturating_add(clip.width) - row.x)
+            .max(0)
+            .min(row.pixels.len() as i32) as usize;
+        coverage[clear_start..clear_end].fill(0);
+        let mut touched_start = row.pixels.len();
+        let mut touched_end = 0usize;
         for glyph in &self.prepared[glyph_start as usize..glyph_end as usize] {
-            let cached = self.fonts.get(glyph.cache);
             let x = area.x.saturating_add(glyph.x);
             let y = area.y.saturating_add(glyph.y);
-            if line < y || line >= y.saturating_add(cached.metrics.height as i32) {
+            if line < y || line >= y.saturating_add(glyph.height as i32) {
                 continue;
             }
             let left = x.max(row.x).max(clip.x);
             let right = x
-                .saturating_add(cached.metrics.width as i32)
+                .saturating_add(glyph.width as i32)
                 .min(row_end)
                 .min(clip.x.saturating_add(clip.width));
             if left >= right {
@@ -214,20 +233,36 @@ impl TextRenderer {
             let source_x = (left - x) as usize;
             let source_y = (line - y) as usize;
             let len = (right - left) as usize;
-            let source = source_y * cached.metrics.width + source_x;
+            let source = source_y * glyph.width as usize + source_x;
+            // safety: glyph alpha allocations remain live until finish_frame
+            let alpha =
+                unsafe { std::slice::from_raw_parts(glyph.alpha.as_ptr().add(source), len) };
+            let destination_start = (left - row.x) as usize;
+            let destination_end = destination_start + len;
+            let overlap = touched_end.saturating_sub(destination_start).min(len);
+            let destination = &mut coverage[destination_start..destination_end];
+            for (destination, source) in destination[..overlap].iter_mut().zip(alpha) {
+                *destination =
+                    (*source as u16 + *destination as u16 * (255 - *source as u16) / 255) as u8;
+            }
+            destination[overlap..].copy_from_slice(&alpha[overlap..]);
+            touched_start = touched_start.min(destination_start);
+            touched_end = touched_end.max(destination_end);
+        }
+        if touched_start < touched_end {
             P::blend_alpha_slice(
-                &mut row.pixels[(left - row.x) as usize..][..len],
+                &mut row.pixels[touched_start..touched_end],
                 color,
-                &cached.alpha[source..source + len],
+                &coverage[touched_start..touched_end],
             );
         }
     }
 
     pub fn finish_frame(&mut self) {
+        self.prepared.clear();
         self.paragraphs.finish_frame();
         self.runs.trim_to_weight();
         self.fonts.finish_frame();
-        self.prepared.clear();
     }
 
     pub fn offset_at_position(

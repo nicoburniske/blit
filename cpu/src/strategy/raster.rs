@@ -11,7 +11,7 @@ pub fn draw_line<B: PixelBuffer>(
     clip: PhysicalRect,
     coverage: u8,
     images: &SlotMap<RendererImageId, StoredImage>,
-    text: &TextRenderer,
+    text: &mut TextRenderer,
     buffer: &mut B,
 ) {
     match payload {

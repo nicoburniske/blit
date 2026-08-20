@@ -41,7 +41,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
         let commands = &context.commands;
         let clips = &context.clips;
         let images = &context.images;
-        let text = &context.text;
+        let text = &mut context.text;
         let buffer = &mut context.buffer;
 
         for offset in commands.offsets() {
