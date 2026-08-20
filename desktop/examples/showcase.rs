@@ -2,9 +2,9 @@ use blit::{
     Align, Axis, Clip, Container, Justify, Sizing, Ui,
     geometry::LogicalInsets,
     interact::Sense,
-    paint::{FontId, HorizontalAlign, TextWrap, VerticalAlign},
+    paint::{FontId, HorizontalAlign, TextWrap},
     platform::Platform,
-    widget::{Block, Button, Text},
+    widget::{Button, Rectangle, Text},
 };
 use blit_cpu::{Font, FontFace, RendererConfig};
 use blit_desktop::{Application, Config, EventLoopProxy, Root};
@@ -344,20 +344,21 @@ impl Application for Showcase {
                             } else {
                                 Sizing::fixed(cross)
                             };
-                            let (width, height) = match axis {
-                                Axis::Horizontal => (main, cross),
-                                Axis::Vertical => (cross, main),
+                            let item = match axis {
+                                Axis::Horizontal => Container::new().width(main).height(cross),
+                                Axis::Vertical => Container::new().width(cross).height(main),
                             };
-                            layout.add(
-                                Text::new(label)
-                                    .width(width)
-                                    .height(height)
+                            let mut rectangle = layout.column(
+                                item.align(Align::Stretch)
+                                    .justify(Justify::Center)
                                     .background(colors::ITEMS[index])
-                                    .uniform_radius(5.0)
+                                    .uniform_radius(5.0),
+                            );
+                            rectangle.add(
+                                Text::new(label)
                                     .color(colors::WHITE)
                                     .text_size(11.0 * zoom)
-                                    .align(HorizontalAlign::Center)
-                                    .vertical_align(VerticalAlign::Center),
+                                    .align(HorizontalAlign::Center),
                             );
                         }
                     }
@@ -373,7 +374,7 @@ impl Application for Showcase {
                         );
                         let interaction = grip.interaction();
                         grip.add(
-                            Block::new()
+                            Rectangle::new()
                                 .fixed(3.0, 48.0)
                                 .background(if interaction.hovered || interaction.dragged {
                                     colors::ACCENT
@@ -400,7 +401,7 @@ impl Application for Showcase {
                         );
                         let interaction = grip.interaction();
                         grip.add(
-                            Block::new()
+                            Rectangle::new()
                                 .fixed(48.0, 3.0)
                                 .background(if interaction.hovered || interaction.dragged {
                                     colors::ACCENT
@@ -423,7 +424,7 @@ impl Application for Showcase {
                         );
                         let interaction = grip.interaction();
                         grip.add(
-                            Block::new()
+                            Rectangle::new()
                                 .fixed(6.0, 6.0)
                                 .background(if interaction.hovered || interaction.dragged {
                                     colors::ACCENT

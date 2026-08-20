@@ -5,7 +5,7 @@ use std::{
 
 use super::Widget;
 use crate::{
-    Clip, Element, Layout, Sizing, Ui,
+    Axis, Clip, Container, Sizing, Ui,
     geometry::{LogicalInsets, LogicalPoint},
     graph::NodeId,
     input::ScrollPhase,
@@ -240,28 +240,26 @@ impl<'a> ScrollArea<'a> {
         }
 
         let viewport = ui.frame_mut().push(
-            Element::new(
-                Layout::vertical()
-                    .width(self.width)
-                    .height(self.height)
-                    .overflow(true),
-            )
-            .id(id)
-            .clip(Clip::Bounds)
-            .interact(id, sense),
+            Container::new()
+                .width(self.width)
+                .height(self.height)
+                .overflow(true)
+                .id(id)
+                .clip(Clip::Bounds)
+                .interact(id, sense)
+                .into_spec(Axis::Vertical),
         );
         let content = ui.frame_mut().push(
-            Element::new(
-                Layout::vertical()
-                    .width(Sizing::grow())
-                    .padding(self.padding)
-                    .gap(self.spacing),
-            )
-            .id(content_id)
-            .offset(LogicalPoint {
-                x: 0.0,
-                y: -self.state.offset,
-            }),
+            Container::new()
+                .width(Sizing::grow())
+                .padding(self.padding)
+                .gap(self.spacing)
+                .id(content_id)
+                .offset(LogicalPoint {
+                    x: 0.0,
+                    y: -self.state.offset,
+                })
+                .into_spec(Axis::Vertical),
         );
         ScrollScope {
             ui,

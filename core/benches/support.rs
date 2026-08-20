@@ -10,7 +10,7 @@ use blit::{
     paint::{self, TextLayoutRequest},
     platform::PlatformImpl,
     resource::{ImageData, ImageId, StringData, StringId},
-    widget::Block,
+    widget::Rectangle,
 };
 
 pub const ROWS: usize = 256;
@@ -80,9 +80,9 @@ pub fn layout_frame(ui: &mut Ui) {
                 .height(Sizing::fixed(20.0))
                 .gap(4.0),
         );
-        row.add(Block::new().width(Sizing::fixed(120.0)));
-        row.add(Block::new().width(Sizing::grow()));
-        row.add(Block::new().width(Sizing::fixed(80.0)));
+        row.add(Rectangle::new().width(Sizing::fixed(120.0)));
+        row.add(Rectangle::new().width(Sizing::grow()));
+        row.add(Rectangle::new().width(Sizing::fixed(80.0)));
     }
 }
 
@@ -101,7 +101,7 @@ pub fn command_frame(ui: &mut Ui) {
         {
             let id = WidgetId::new(row_index * CELLS_PER_ROW + cell_index);
             row.add(
-                Block::new()
+                Rectangle::new()
                     .width(width)
                     .background(Color::BLACK)
                     .interact(id, Sense::CLICK),

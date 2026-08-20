@@ -17,7 +17,8 @@ pub mod widget;
 
 pub use element::{
     Align, Appearance, Axis, Clip, Container, Content, Element, ElementGeometry, ElementScope,
-    ImageContent, Justify, Layout, Scope, Shadow, Sizing, TextCaret, TextContent, TextSelection,
+    ImageContent, Item, Justify, Layout, Scope, Shadow, Sizing, TextCaret, TextContent,
+    TextSelection,
 };
 
 use std::{
@@ -47,15 +48,15 @@ impl Ui {
     }
 
     pub fn row(&mut self, container: Container<'_>) -> Scope<'_> {
-        element::open(self, container.into_element(Axis::Horizontal))
+        element::open_container(self, Axis::Horizontal, container)
     }
 
     pub fn column(&mut self, container: Container<'_>) -> Scope<'_> {
-        element::open(self, container.into_element(Axis::Vertical))
+        element::open_container(self, Axis::Vertical, container)
     }
 
     pub fn stack(&mut self, axis: Axis, container: Container<'_>) -> Scope<'_> {
-        element::open(self, container.into_element(axis))
+        element::open_container(self, axis, container)
     }
 
     /// declares a raw frame-local element and opens its child scope
@@ -63,8 +64,8 @@ impl Ui {
         element::open(self, element)
     }
 
-    pub(crate) fn leaf(&mut self, element: Element<'_>) -> Interaction {
-        element::leaf(self, element)
+    pub(crate) fn leaf(&mut self, spec: element::NodeSpec<'_>) -> Interaction {
+        element::leaf(self, spec)
     }
 
     pub fn geometry(&self, id: WidgetId) -> Option<ElementGeometry> {

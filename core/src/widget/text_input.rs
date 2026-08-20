@@ -2,8 +2,9 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::Widget;
 use crate::{
-    Appearance, Clip, Content, Element, Layout, Sizing, TextCaret, TextContent, TextSelection, Ui,
+    Appearance, Clip, Container, Content, Item, Sizing, TextCaret, TextContent, TextSelection, Ui,
     color::Color,
+    element::NodeSpec,
     geometry::{LogicalInsets, LogicalRect},
     input::{Input, Key},
     interact::{Sense, WidgetId},
@@ -95,32 +96,30 @@ impl Widget for TextInput<'_> {
         let previous_text_area = ui.geometry(text_id).map(|geometry| geometry.area);
         let focused = ui.is_focused(id);
         self.state.focused = focused;
-        let mut input = ui.element(
-            Element::new(
-                Layout::horizontal()
-                    .width(Sizing::grow().max(self.preferred_width))
-                    .height(Sizing::fit().min(self.border_width * 2.0))
-                    .padding(self.padding),
-            )
-            .appearance(
-                Appearance::new()
-                    .background(if focused {
-                        self.focused_background
-                    } else {
-                        self.background
-                    })
-                    .border(
-                        self.border_width,
-                        if focused {
-                            self.focused_border_color
+        let mut input = ui.row(
+            Container::new()
+                .width(Sizing::grow().max(self.preferred_width))
+                .height(Sizing::fit().min(self.border_width * 2.0))
+                .padding(self.padding)
+                .appearance(
+                    Appearance::new()
+                        .background(if focused {
+                            self.focused_background
                         } else {
-                            self.border_color
-                        },
-                    )
-                    .radius(self.radius)
-                    .opacity(self.opacity),
-            )
-            .interact(id, Sense::FOCUS),
+                            self.background
+                        })
+                        .border(
+                            self.border_width,
+                            if focused {
+                                self.focused_border_color
+                            } else {
+                                self.border_color
+                            },
+                        )
+                        .radius(self.radius)
+                        .opacity(self.opacity),
+                )
+                .interact(id, Sense::FOCUS),
         );
         let interaction = input.interaction();
         let mut response = TextInputResponse::default();
@@ -256,22 +255,24 @@ impl Widget for TextInput<'_> {
             width: self.cursor_width,
             color: self.cursor_color,
         });
-        drop(
-            input.element(
-                Element::new(Layout::horizontal().width(Sizing::grow()))
-                    .id(text_id)
-                    .clip(Clip::Bounds)
-                    .content(Content::Text(TextContent {
-                        text: self.state.display.as_ref().unwrap().into(),
-                        color: self.text_color,
-                        style: self.text_style,
-                        options,
-                        offset_x: self.state.scroll_x,
-                        selection,
-                        caret,
-                    })),
-            ),
+        let mut text = NodeSpec::leaf(
+            Item {
+                width: Sizing::grow(),
+                height: Sizing::fit(),
+            },
+            Content::Text(TextContent {
+                text: self.state.display.as_ref().unwrap().into(),
+                color: self.text_color,
+                style: self.text_style,
+                options,
+                offset_x: self.state.scroll_x,
+                selection,
+                caret,
+            }),
         );
+        text.id = Some(text_id);
+        text.clip = Clip::Bounds;
+        input.leaf(text);
 
         if focused {
             input.platform().show_keyboard(&KeyboardRequest {

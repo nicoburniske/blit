@@ -1,7 +1,8 @@
 use super::Widget;
 use crate::{
-    Content, Element, ImageContent, Layout, Sizing, Ui,
+    Content, ImageContent, Item, Sizing, Ui,
     color::Color,
+    element::NodeSpec,
     geometry::LogicalSize,
     paint::{ImageFit, ImageSampling, ImageTiling, NineSlice},
     resource::ImageHandle,
@@ -44,23 +45,25 @@ impl Widget for Image<'_> {
             return;
         }
         let size = self.resource.size();
-        ui.leaf(
-            Element::new(Layout::horizontal().width(self.width).height(self.height)).content(
-                Content::Image(ImageContent {
-                    image: self.resource.id(),
-                    intrinsic: LogicalSize {
-                        width: size.width as f32,
-                        height: size.height as f32,
-                    },
-                    fit: self.fit,
-                    sampling: self.sampling,
-                    opacity: self.opacity,
-                    colorize: self.colorize,
-                    nine_slice: self.nine_slice,
-                    horizontal_tiling: self.horizontal_tiling,
-                    vertical_tiling: self.vertical_tiling,
-                }),
-            ),
-        );
+        ui.leaf(NodeSpec::leaf(
+            Item {
+                width: self.width,
+                height: self.height,
+            },
+            Content::Image(ImageContent {
+                image: self.resource.id(),
+                intrinsic: LogicalSize {
+                    width: size.width as f32,
+                    height: size.height as f32,
+                },
+                fit: self.fit,
+                sampling: self.sampling,
+                opacity: self.opacity,
+                colorize: self.colorize,
+                nine_slice: self.nine_slice,
+                horizontal_tiling: self.horizontal_tiling,
+                vertical_tiling: self.vertical_tiling,
+            }),
+        ));
     }
 }

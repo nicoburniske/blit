@@ -3,8 +3,8 @@ use crate::{
     color::Color,
     command_list::{ClipId, CommandList},
     element::{
-        Align, Appearance, Axis, Clip, Content, Element, ElementGeometry, ImageContent, Justify,
-        Layout, Shadow, Sizing, TextContent,
+        Align, Appearance, Axis, Clip, Content, ElementGeometry, Flow, ImageContent, Item, Justify,
+        NodeSpec, Shadow, Sizing, TextContent,
     },
     geometry::{LogicalPoint, LogicalRect, LogicalSize},
     interact::{InteractionState, Sense, WidgetId},
@@ -31,6 +31,7 @@ pub struct FrameGraph {
     scratch: Vec<NodeId>,
     texts: Vec<TextContent>,
     images: Vec<ImageContent>,
+    flows: Vec<Flow>,
     appearances: Vec<StoredAppearance>,
     shadows: Vec<Shadow>,
     clip_specs: Vec<Clip>,
@@ -40,10 +41,9 @@ pub struct FrameGraph {
 }
 
 struct Node {
-    first_child: NodeId,
-    last_child: NodeId,
-    next_sibling: NodeId,
-    layout: Layout,
+    subtree_end: u32,
+    item: Item,
+    flow: PayloadId,
     content: ContentId,
     appearance: PayloadId,
     shadow: PayloadId,
@@ -92,12 +92,12 @@ enum StoredBorder {
 
 enum ContentRef {
     None,
+    Rectangle,
     Text(usize),
     Image(usize),
 }
 
 impl NodeId {
-    const NONE: Self = Self(0);
     const ROOT: Self = Self(1);
 
     fn new(index: usize) -> Self {
@@ -106,10 +106,6 @@ impl NodeId {
 
     fn index(self) -> usize {
         self.0.checked_sub(1).expect("missing element") as usize
-    }
-
-    fn some(self) -> Option<Self> {
-        (self != Self::NONE).then_some(self)
     }
 }
 
@@ -128,9 +124,10 @@ impl PayloadId {
 impl ContentId {
     const IMAGE: u32 = 1 << 31;
     const NONE: Self = Self(0);
+    const RECTANGLE: Self = Self(1);
 
     fn text(index: usize) -> Self {
-        let id = u32::try_from(index + 1).expect("too much text in one frame");
+        let id = u32::try_from(index + 2).expect("too much text in one frame");
         assert!(id < Self::IMAGE, "too much text in one frame");
         Self(id)
     }
@@ -144,7 +141,8 @@ impl ContentId {
     fn get(self) -> ContentRef {
         match self.0 {
             0 => ContentRef::None,
-            id if id & Self::IMAGE == 0 => ContentRef::Text(id as usize - 1),
+            1 => ContentRef::Rectangle,
+            id if id & Self::IMAGE == 0 => ContentRef::Text(id as usize - 2),
             id => ContentRef::Image((id & !Self::IMAGE) as usize - 1),
         }
     }
@@ -157,19 +155,28 @@ impl FrameGraph {
         self.scratch.clear();
         self.texts.clear();
         self.images.clear();
+        self.flows.clear();
         self.appearances.clear();
         self.shadows.clear();
         self.clip_specs.clear();
         self.geometry.clear();
         self.interactions.clear();
         self.gradient_stops.clear();
+        self.flows.push(Flow {
+            axis: Axis::Vertical,
+            padding: crate::geometry::LogicalInsets::uniform(0.0),
+            gap: 0.0,
+            align: Align::Stretch,
+            justify: Justify::Start,
+            overflow: false,
+        });
         self.nodes.push(Node {
-            first_child: NodeId::NONE,
-            last_child: NodeId::NONE,
-            next_sibling: NodeId::NONE,
-            layout: Layout::vertical()
-                .width(Sizing::fixed(screen.width))
-                .height(Sizing::fixed(screen.height)),
+            subtree_end: 1,
+            item: Item {
+                width: Sizing::fixed(screen.width),
+                height: Sizing::fixed(screen.height),
+            },
+            flow: PayloadId::new(0),
             content: ContentId::NONE,
             appearance: PayloadId::NONE,
             shadow: PayloadId::NONE,
@@ -185,25 +192,29 @@ impl FrameGraph {
         self.open.push(NodeId::ROOT);
     }
 
-    pub fn push(&mut self, element: Element<'_>) -> NodeId {
-        let node = self.append(element);
+    pub fn push(&mut self, spec: NodeSpec<'_>) -> NodeId {
+        let node = self.append(spec);
         self.open.push(node);
         node
     }
 
-    pub fn push_leaf(&mut self, element: Element<'_>) {
-        self.append(element);
+    pub fn push_leaf(&mut self, spec: NodeSpec<'_>) {
+        self.append(spec);
     }
 
-    fn append(&mut self, element: Element<'_>) -> NodeId {
-        let parent = *self
-            .open
+    fn append(&mut self, spec: NodeSpec<'_>) -> NodeId {
+        self.open
             .last()
             .expect("element declaration requires a root");
         let node = NodeId::new(self.nodes.len());
-        let content = self.store_content(element.content);
-        let (appearance, shadow) = self.store_appearance(element.appearance);
-        let clip_spec = match element.clip {
+        let content = self.store_content(spec.content);
+        let (appearance, shadow) = self.store_appearance(spec.appearance);
+        let flow = spec.flow.map_or(PayloadId::NONE, |flow| {
+            let id = PayloadId::new(self.flows.len());
+            self.flows.push(flow);
+            id
+        });
+        let clip_spec = match spec.clip {
             Clip::None => PayloadId::NONE,
             clip => {
                 let id = PayloadId::new(self.clip_specs.len());
@@ -212,15 +223,15 @@ impl FrameGraph {
             }
         };
         self.nodes.push(Node {
-            first_child: NodeId::NONE,
-            last_child: NodeId::NONE,
-            next_sibling: NodeId::NONE,
-            layout: element.layout,
+            subtree_end: u32::try_from(self.nodes.len() + 1)
+                .expect("too many elements in one frame"),
+            item: spec.item,
+            flow,
             appearance,
             shadow,
             content,
             clip_spec,
-            offset: element.offset,
+            offset: spec.offset,
             intrinsic: LogicalSize::default(),
             area: LogicalRect::default(),
             clip: ClipId::default(),
@@ -228,16 +239,10 @@ impl FrameGraph {
             clip_bounds: LogicalRect::default(),
             content_clip_bounds: LogicalRect::default(),
         });
-        if let Some(last) = self.nodes[parent.index()].last_child.some() {
-            self.nodes[last.index()].next_sibling = node;
-        } else {
-            self.nodes[parent.index()].first_child = node;
-        }
-        self.nodes[parent.index()].last_child = node;
-        if let Some(id) = element.id {
+        if let Some(id) = spec.id {
             self.geometry.push(GeometryRecord { node, id });
         }
-        if let Some((id, sense)) = element.interaction {
+        if let Some((id, sense)) = spec.interaction {
             self.interactions
                 .push(InteractionRecord { node, id, sense });
         }
@@ -253,6 +258,7 @@ impl FrameGraph {
     fn store_content(&mut self, content: Content) -> ContentId {
         match content {
             Content::None => ContentId::NONE,
+            Content::Rectangle => ContentId::RECTANGLE,
             Content::Text(text) => {
                 let id = ContentId::text(self.texts.len());
                 self.texts.push(text);
@@ -307,6 +313,14 @@ impl FrameGraph {
 
     pub fn close(&mut self, node: NodeId) {
         assert_eq!(self.open.pop(), Some(node), "elements must close in order");
+        let end = u32::try_from(self.nodes.len()).expect("too many elements in one frame");
+        let stored = &mut self.nodes[node.index()];
+        stored.subtree_end = end;
+        if end as usize == node.index() + 1 && stored.flow.get() == self.flows.len().checked_sub(1)
+        {
+            self.flows.pop();
+            stored.flow = PayloadId::NONE;
+        }
     }
 
     pub fn finish(
@@ -322,6 +336,8 @@ impl FrameGraph {
             [NodeId::ROOT],
             "an element scope was not dropped"
         );
+        self.nodes[0].subtree_end =
+            u32::try_from(self.nodes.len()).expect("too many elements in one frame");
         self.measure_intrinsic(platform);
         self.resolve_axis(Axis::Horizontal);
         self.measure_wrapped_text(platform);
@@ -343,6 +359,7 @@ impl FrameGraph {
         self.scratch.clear();
         self.texts.clear();
         self.images.clear();
+        self.flows.clear();
         self.appearances.clear();
         self.shadows.clear();
         self.clip_specs.clear();
@@ -360,6 +377,7 @@ impl FrameGraph {
                 + self.scratch.capacity() * size_of::<NodeId>()
                 + self.texts.capacity() * size_of::<TextContent>()
                 + self.images.capacity() * size_of::<ImageContent>()
+                + self.flows.capacity() * size_of::<Flow>()
                 + self.appearances.capacity() * size_of::<StoredAppearance>()
                 + self.shadows.capacity() * size_of::<Shadow>()
                 + self.clip_specs.capacity() * size_of::<Clip>()
@@ -369,10 +387,31 @@ impl FrameGraph {
         }
     }
 
+    fn first_child(&self, parent: NodeId) -> Option<NodeId> {
+        let index = parent.index() + 1;
+        (index < self.nodes[parent.index()].subtree_end as usize).then(|| NodeId::new(index))
+    }
+
+    fn next_sibling(&self, parent: NodeId, child: NodeId) -> Option<NodeId> {
+        let index = self.nodes[child.index()].subtree_end as usize;
+        (index < self.nodes[parent.index()].subtree_end as usize).then(|| NodeId::new(index))
+    }
+
+    fn has_children(&self, node: NodeId) -> bool {
+        node.index() + 1 < self.nodes[node.index()].subtree_end as usize
+    }
+
+    fn flow(&self, node: NodeId) -> Flow {
+        self.flows[self.nodes[node.index()]
+            .flow
+            .get()
+            .expect("layout parent has no flow")]
+    }
+
     fn measure_intrinsic(&mut self, platform: &mut Platform) {
         for node in &mut self.nodes {
             node.intrinsic = match node.content.get() {
-                ContentRef::None => LogicalSize::default(),
+                ContentRef::None | ContentRef::Rectangle => LogicalSize::default(),
                 ContentRef::Text(index) => {
                     let text = self.texts[index];
                     platform.measure_text(&TextLayoutRequest {
@@ -417,10 +456,10 @@ impl FrameGraph {
     }
 
     fn measure_container(&mut self, id: NodeId, width: bool) {
-        let Some(mut child) = self.nodes[id.index()].first_child.some() else {
+        let Some(mut child) = self.first_child(id) else {
             return;
         };
-        let layout = self.nodes[id.index()].layout;
+        let layout = self.flow(id);
         let mut main: f32 = 0.0;
         let mut cross: f32 = 0.0;
         let mut count = 0usize;
@@ -439,7 +478,7 @@ impl FrameGraph {
             main += child_main;
             cross = cross.max(child_cross);
             count += 1;
-            let Some(next) = self.nodes[child.index()].next_sibling.some() else {
+            let Some(next) = self.next_sibling(id, child) else {
                 break;
             };
             child = next;
@@ -467,19 +506,19 @@ impl FrameGraph {
         self.scratch.push(NodeId::ROOT);
         while let Some(parent) = self.scratch.pop() {
             self.resolve_children(parent, axis);
-            let mut child = self.nodes[parent.index()].first_child;
-            while let Some(id) = child.some() {
-                if self.nodes[id.index()].first_child != NodeId::NONE {
+            let mut child = self.first_child(parent);
+            while let Some(id) = child {
+                if self.has_children(id) {
                     self.scratch.push(id);
                 }
-                child = self.nodes[id.index()].next_sibling;
+                child = self.next_sibling(parent, id);
             }
         }
     }
 
     fn resolve_children(&mut self, parent: NodeId, axis: Axis) {
-        let layout = self.nodes[parent.index()].layout;
-        let Some(mut child) = self.nodes[parent.index()].first_child.some() else {
+        let layout = self.flow(parent);
+        let Some(mut child) = self.first_child(parent) else {
             return;
         };
         let parent_area = self.nodes[parent.index()].area;
@@ -515,7 +554,7 @@ impl FrameGraph {
                     Align::End => (available - size).max(0.0),
                 };
                 self.nodes[child.index()].set_axis(axis, origin + leading + offset, size);
-                let Some(next) = self.nodes[child.index()].next_sibling.some() else {
+                let Some(next) = self.next_sibling(parent, child) else {
                     break;
                 };
                 child = next;
@@ -542,7 +581,7 @@ impl FrameGraph {
             used += size;
             count += 1;
             grow += usize::from(matches!(sizing, Sizing::Grow { .. }));
-            let Some(next) = node.next_sibling.some() else {
+            let Some(next) = self.next_sibling(parent, child) else {
                 break;
             };
             child = next;
@@ -551,18 +590,18 @@ impl FrameGraph {
         let free = available - used - gaps;
         if free < 0.0 && !layout.overflow {
             let mut capacity = 0.0;
-            child = self.nodes[parent.index()].first_child;
+            child = self.first_child(parent).unwrap();
             loop {
                 let node = &self.nodes[child.index()];
                 capacity += node.size(axis) - node.sizing(axis).minimum();
-                let Some(next) = node.next_sibling.some() else {
+                let Some(next) = self.next_sibling(parent, child) else {
                     break;
                 };
                 child = next;
             }
             if capacity > 0.0 {
                 let deficit = (-free).min(capacity);
-                child = self.nodes[parent.index()].first_child;
+                child = self.first_child(parent).unwrap();
                 loop {
                     let node = &mut self.nodes[child.index()];
                     let available_shrink = node.size(axis) - node.sizing(axis).minimum();
@@ -570,7 +609,7 @@ impl FrameGraph {
                         axis,
                         node.size(axis) - deficit * available_shrink / capacity,
                     );
-                    let Some(next) = node.next_sibling.some() else {
+                    let Some(next) = self.next_sibling(parent, child) else {
                         break;
                     };
                     child = next;
@@ -580,13 +619,13 @@ impl FrameGraph {
         let free = free.max(0.0);
         if grow != 0 {
             let share = free / grow as f32;
-            child = self.nodes[parent.index()].first_child;
+            child = self.first_child(parent).unwrap();
             loop {
                 let node = &mut self.nodes[child.index()];
                 if let Sizing::Grow { .. } = node.sizing(axis) {
                     node.set_size(axis, node.sizing(axis).clamp(node.size(axis) + share));
                 }
-                let Some(next) = node.next_sibling.some() else {
+                let Some(next) = self.next_sibling(parent, child) else {
                     break;
                 };
                 child = next;
@@ -611,12 +650,12 @@ impl FrameGraph {
             _ => (0.0, 0.0),
         };
         let mut cursor = origin + leading + offset;
-        child = self.nodes[parent.index()].first_child;
+        child = self.first_child(parent).unwrap();
         loop {
             let size = self.nodes[child.index()].size(axis);
             self.nodes[child.index()].set_axis(axis, cursor, size);
             cursor += size + layout.gap.max(0.0) + extra_gap;
-            let Some(next) = self.nodes[child.index()].next_sibling.some() else {
+            let Some(next) = self.next_sibling(parent, child) else {
                 break;
             };
             child = next;
@@ -625,10 +664,10 @@ impl FrameGraph {
 
     fn children_size(&self, parent: NodeId, axis: Axis) -> f32 {
         let mut total = 0.0;
-        let mut child = self.nodes[parent.index()].first_child;
-        while let Some(id) = child.some() {
+        let mut child = self.first_child(parent);
+        while let Some(id) = child {
             total += self.nodes[id.index()].size(axis);
-            child = self.nodes[id.index()].next_sibling;
+            child = self.next_sibling(parent, id);
         }
         total
     }
@@ -659,11 +698,12 @@ impl FrameGraph {
                     .intersection(self.nodes[index].area)
                     .unwrap_or_default(),
             };
-            let mut child = self.nodes[index].first_child;
-            while let Some(child_id) = child.some() {
+            let parent = NodeId::new(index);
+            let mut child = self.first_child(parent);
+            while let Some(child_id) = child {
                 self.nodes[child_id.index()].clip = child_clip;
                 self.nodes[child_id.index()].clip_bounds = self.nodes[index].content_clip_bounds;
-                child = self.nodes[child_id.index()].next_sibling;
+                child = self.next_sibling(parent, child_id);
             }
         }
     }
@@ -708,7 +748,7 @@ impl FrameGraph {
                 }
             }
             match node.content.get() {
-                ContentRef::None => {}
+                ContentRef::None | ContentRef::Rectangle => {}
                 ContentRef::Text(index) => {
                     let text = self.texts[index];
                     let request = TextRequest {
@@ -823,8 +863,8 @@ impl Node {
 
     fn sizing(&self, axis: Axis) -> Sizing {
         match axis {
-            Axis::Horizontal => self.layout.width,
-            Axis::Vertical => self.layout.height,
+            Axis::Horizontal => self.item.width,
+            Axis::Vertical => self.item.height,
         }
     }
 
