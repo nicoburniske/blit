@@ -1,10 +1,10 @@
 use blit::{
-    Align, Axis, Clip, Element, Justify, Layout, Sizing, Ui,
+    Align, Axis, Clip, Container, Justify, Sizing, Ui,
     geometry::LogicalInsets,
     interact::Sense,
-    paint::{FontId, HorizontalAlign, TextWrap},
+    paint::{FontId, HorizontalAlign, TextWrap, VerticalAlign},
     platform::Platform,
-    widget::{Button, Text},
+    widget::{Block, Button, Text},
 };
 use blit_cpu::{Font, FontFace, RendererConfig};
 use blit_desktop::{Application, Config, EventLoopProxy, Root};
@@ -55,30 +55,25 @@ impl Application for Showcase {
         self.width = self.width.clamp(240.0, max_width);
         self.height = self.height.clamp(180.0, max_height);
 
-        let mut root = ui.element(
-            Element::new(
-                Layout::vertical()
-                    .width(Sizing::grow())
-                    .height(Sizing::grow())
-                    .padding(LogicalInsets::uniform(20.0))
-                    .gap(16.0),
-            )
-            .background(colors::BACKGROUND)
-            .replace(true),
+        let mut root = ui.column(
+            Container::new()
+                .grow()
+                .padding(LogicalInsets::uniform(20.0))
+                .gap(16.0)
+                .background(colors::BACKGROUND)
+                .replace(true),
         );
 
-        root.add(|ui: &mut Ui| {
-            let mut header = ui.element(
-                Element::new(
-                    Layout::horizontal()
-                        .width(Sizing::grow())
-                        .align(Align::Center)
-                        .justify(Justify::SpaceBetween),
-                )
-                .background(colors::BACKGROUND),
+        {
+            let mut header = root.row(
+                Container::new()
+                    .width(Sizing::grow())
+                    .align(Align::Center)
+                    .justify(Justify::SpaceBetween)
+                    .background(colors::BACKGROUND),
             );
-            header.add(|ui: &mut Ui| {
-                let mut title = ui.element(Element::new(Layout::vertical().gap(3.0)));
+            {
+                let mut title = header.column(Container::new().gap(3.0));
                 title.add(
                     Text::new("BLIT / LAYOUT PLAYGROUND")
                         .color(colors::TEXT)
@@ -91,7 +86,7 @@ impl Application for Showcase {
                     .color(colors::TEXT_MUTED)
                     .text_size(12.0),
                 );
-            });
+            }
             if header
                 .add(
                     choice("Reset", false)
@@ -110,32 +105,22 @@ impl Application for Showcase {
                 self.width = 640.0;
                 self.height = 440.0;
             }
-        });
+        }
 
         {
-            let mut body = root.element(
-                Element::new(
-                    Layout::horizontal()
-                        .width(Sizing::grow())
-                        .height(Sizing::grow())
-                        .gap(16.0),
-                )
-                .clip(Clip::Bounds),
-            );
+            let mut body = root.row(Container::new().grow().gap(16.0).clip(Clip::Bounds));
 
             {
-                let mut controls = body.element(
-                    Element::new(
-                        Layout::vertical()
-                            .width(Sizing::fixed(310.0))
-                            .height(Sizing::grow())
-                            .padding(LogicalInsets::uniform(15.0))
-                            .gap(11.0),
-                    )
-                    .background(colors::SURFACE)
-                    .border(1.0, colors::BORDER)
-                    .uniform_radius(11.0)
-                    .clip(Clip::Bounds),
+                let mut controls = body.column(
+                    Container::new()
+                        .width(Sizing::fixed(310.0))
+                        .height(Sizing::grow())
+                        .padding(LogicalInsets::uniform(15.0))
+                        .gap(11.0)
+                        .background(colors::SURFACE)
+                        .border(1.0, colors::BORDER)
+                        .uniform_radius(11.0)
+                        .clip(Clip::Bounds),
                 );
                 controls.add(
                     Text::new("LAYOUT PARAMETERS")
@@ -145,9 +130,7 @@ impl Application for Showcase {
 
                 controls.add(Text::new("axis").color(colors::TEXT_MUTED).text_size(11.0));
                 {
-                    let mut row = controls.element(Element::new(
-                        Layout::horizontal().width(Sizing::grow()).gap(6.0),
-                    ));
+                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(6.0));
                     for (index, label) in ["Horizontal", "Vertical"].into_iter().enumerate() {
                         if row
                             .add(choice(label, self.axis == index).id(("axis", index)))
@@ -164,9 +147,7 @@ impl Application for Showcase {
                         .text_size(11.0),
                 );
                 for start in [0, 3] {
-                    let mut row = controls.element(Element::new(
-                        Layout::horizontal().width(Sizing::grow()).gap(6.0),
-                    ));
+                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(6.0));
                     for (index, label) in ["Start", "Center", "End", "Between", "Around", "Evenly"]
                         .into_iter()
                         .enumerate()
@@ -188,9 +169,7 @@ impl Application for Showcase {
 
                 controls.add(Text::new("align").color(colors::TEXT_MUTED).text_size(11.0));
                 {
-                    let mut row = controls.element(Element::new(
-                        Layout::horizontal().width(Sizing::grow()).gap(5.0),
-                    ));
+                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(5.0));
                     for (index, label) in ["Start", "Center", "End", "Stretch"]
                         .into_iter()
                         .enumerate()
@@ -214,9 +193,7 @@ impl Application for Showcase {
                         .text_size(11.0),
                 );
                 {
-                    let mut row = controls.element(Element::new(
-                        Layout::horizontal().width(Sizing::grow()).gap(6.0),
-                    ));
+                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(6.0));
                     for (index, label) in ["Fixed", "Fit", "Grow"].into_iter().enumerate() {
                         if row
                             .add(choice(label, self.sizing == index).id(("sizing", index)))
@@ -229,9 +206,7 @@ impl Application for Showcase {
 
                 controls.add(Text::new("zoom").color(colors::TEXT_MUTED).text_size(11.0));
                 {
-                    let mut row = controls.element(Element::new(
-                        Layout::horizontal().width(Sizing::grow()).gap(5.0),
-                    ));
+                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(5.0));
                     for (index, label) in ["50%", "75%", "100%", "125%", "150%"]
                         .into_iter()
                         .enumerate()
@@ -251,9 +226,7 @@ impl Application for Showcase {
 
                 controls.add(Text::new("gap").color(colors::TEXT_MUTED).text_size(11.0));
                 {
-                    let mut row = controls.element(Element::new(
-                        Layout::horizontal().width(Sizing::grow()).gap(5.0),
-                    ));
+                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(5.0));
                     for (index, label) in ["0", "4", "8", "16", "24"].into_iter().enumerate() {
                         if row
                             .add(
@@ -274,9 +247,7 @@ impl Application for Showcase {
                         .text_size(11.0),
                 );
                 {
-                    let mut row = controls.element(Element::new(
-                        Layout::horizontal().width(Sizing::grow()).gap(5.0),
-                    ));
+                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(5.0));
                     for (index, label) in ["0", "4", "8", "16", "24"].into_iter().enumerate() {
                         if row
                             .add(
@@ -300,17 +271,14 @@ impl Application for Showcase {
             }
 
             {
-                let mut preview = body.element(
-                    Element::new(
-                        Layout::vertical()
-                            .width(Sizing::grow())
-                            .height(Sizing::grow())
-                            .padding(LogicalInsets::uniform(12.0))
-                            .gap(9.0),
-                    )
-                    .background(colors::SURFACE)
-                    .border(1.0, colors::BORDER)
-                    .uniform_radius(11.0),
+                let mut preview = body.column(
+                    Container::new()
+                        .grow()
+                        .padding(LogicalInsets::uniform(12.0))
+                        .gap(9.0)
+                        .background(colors::SURFACE)
+                        .border(1.0, colors::BORDER)
+                        .uniform_radius(11.0),
                 );
                 preview.add(
                     Text::new("DRAG THE RIGHT EDGE, BOTTOM EDGE, OR CORNER • ZOOM SCALES CONTENT")
@@ -332,45 +300,32 @@ impl Application for Showcase {
                 ][self.justify];
                 let align = [Align::Start, Align::Center, Align::End, Align::Stretch][self.align];
 
-                let mut viewport = preview.element(
-                    Element::new(
-                        Layout::vertical()
-                            .width(Sizing::grow())
-                            .height(Sizing::grow())
-                            .padding(LogicalInsets::uniform(8.0)),
-                    )
-                    .background(colors::TRACK)
-                    .uniform_radius(8.0)
-                    .clip(Clip::Bounds),
+                let mut viewport = preview.column(
+                    Container::new()
+                        .grow()
+                        .padding(LogicalInsets::uniform(8.0))
+                        .background(colors::TRACK)
+                        .uniform_radius(8.0)
+                        .clip(Clip::Bounds),
                 );
-                let mut shell = viewport.element(Element::new(
-                    Layout::vertical()
-                        .width(Sizing::fixed(self.width + 12.0))
-                        .height(Sizing::fixed(self.height + 12.0)),
-                ));
+                let mut shell =
+                    viewport.column(Container::new().fixed(self.width + 12.0, self.height + 12.0));
 
                 let width_delta = {
-                    let mut row = shell.element(Element::new(
-                        Layout::horizontal()
-                            .width(Sizing::fixed(self.width + 12.0))
-                            .height(Sizing::fixed(self.height)),
-                    ));
+                    let mut row = shell.row(Container::new().fixed(self.width + 12.0, self.height));
                     {
-                        let mut layout = row.element(
-                            Element::new(Layout {
-                                axis,
-                                width: Sizing::fixed(self.width),
-                                height: Sizing::fixed(self.height),
-                                padding: LogicalInsets::uniform(padding),
-                                gap,
-                                align,
-                                justify,
-                                overflow: false,
-                            })
-                            .background(colors::CANVAS)
-                            .border(2.0, colors::CANVAS_BORDER)
-                            .uniform_radius(8.0)
-                            .clip(Clip::Bounds),
+                        let mut layout = row.stack(
+                            axis,
+                            Container::new()
+                                .fixed(self.width, self.height)
+                                .padding(LogicalInsets::uniform(padding))
+                                .gap(gap)
+                                .align(align)
+                                .justify(justify)
+                                .background(colors::CANVAS)
+                                .border(2.0, colors::CANVAS_BORDER)
+                                .uniform_radius(8.0)
+                                .clip(Clip::Bounds),
                         );
 
                         for (index, label) in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
@@ -389,117 +344,93 @@ impl Application for Showcase {
                             } else {
                                 Sizing::fixed(cross)
                             };
-                            let child_layout = match axis {
-                                Axis::Horizontal => Layout::vertical().width(main).height(cross),
-                                Axis::Vertical => Layout::vertical().width(cross).height(main),
+                            let (width, height) = match axis {
+                                Axis::Horizontal => (main, cross),
+                                Axis::Vertical => (cross, main),
                             };
-                            let mut rectangle = layout.element(
-                                Element::new(
-                                    child_layout.align(Align::Stretch).justify(Justify::Center),
-                                )
-                                .background(colors::ITEMS[index])
-                                .uniform_radius(5.0),
-                            );
-                            rectangle.add(
+                            layout.add(
                                 Text::new(label)
+                                    .width(width)
+                                    .height(height)
+                                    .background(colors::ITEMS[index])
+                                    .uniform_radius(5.0)
                                     .color(colors::WHITE)
                                     .text_size(11.0 * zoom)
-                                    .align(HorizontalAlign::Center),
+                                    .align(HorizontalAlign::Center)
+                                    .vertical_align(VerticalAlign::Center),
                             );
                         }
                     }
                     {
                         let id = row.id("layout width grip");
-                        let mut grip = row.element(
-                            Element::new(
-                                Layout::vertical()
-                                    .width(Sizing::fixed(12.0))
-                                    .height(Sizing::fixed(self.height))
-                                    .align(Align::Center)
-                                    .justify(Justify::Center),
-                            )
-                            .id(id)
-                            .interact(id, Sense::DRAG),
+                        let mut grip = row.column(
+                            Container::new()
+                                .fixed(12.0, self.height)
+                                .align(Align::Center)
+                                .justify(Justify::Center)
+                                .id(id)
+                                .interact(id, Sense::DRAG),
                         );
                         let interaction = grip.interaction();
-                        grip.element(
-                            Element::new(
-                                Layout::vertical()
-                                    .width(Sizing::fixed(3.0))
-                                    .height(Sizing::fixed(48.0)),
-                            )
-                            .background(if interaction.hovered || interaction.dragged {
-                                colors::ACCENT
-                            } else {
-                                colors::GRIP
-                            })
-                            .uniform_radius(1.5),
+                        grip.add(
+                            Block::new()
+                                .fixed(3.0, 48.0)
+                                .background(if interaction.hovered || interaction.dragged {
+                                    colors::ACCENT
+                                } else {
+                                    colors::GRIP
+                                })
+                                .uniform_radius(1.5),
                         );
                         interaction.drag_delta.x
                     }
                 };
 
                 let (height_delta, corner_delta) = {
-                    let mut row = shell.element(Element::new(
-                        Layout::horizontal()
-                            .width(Sizing::fixed(self.width + 12.0))
-                            .height(Sizing::fixed(12.0)),
-                    ));
+                    let mut row = shell.row(Container::new().fixed(self.width + 12.0, 12.0));
                     let height_delta = {
                         let id = row.id("layout height grip");
-                        let mut grip = row.element(
-                            Element::new(
-                                Layout::horizontal()
-                                    .width(Sizing::fixed(self.width))
-                                    .height(Sizing::fixed(12.0))
-                                    .align(Align::Center)
-                                    .justify(Justify::Center),
-                            )
-                            .id(id)
-                            .interact(id, Sense::DRAG),
+                        let mut grip = row.row(
+                            Container::new()
+                                .fixed(self.width, 12.0)
+                                .align(Align::Center)
+                                .justify(Justify::Center)
+                                .id(id)
+                                .interact(id, Sense::DRAG),
                         );
                         let interaction = grip.interaction();
-                        grip.element(
-                            Element::new(
-                                Layout::horizontal()
-                                    .width(Sizing::fixed(48.0))
-                                    .height(Sizing::fixed(3.0)),
-                            )
-                            .background(if interaction.hovered || interaction.dragged {
-                                colors::ACCENT
-                            } else {
-                                colors::GRIP
-                            })
-                            .uniform_radius(1.5),
+                        grip.add(
+                            Block::new()
+                                .fixed(48.0, 3.0)
+                                .background(if interaction.hovered || interaction.dragged {
+                                    colors::ACCENT
+                                } else {
+                                    colors::GRIP
+                                })
+                                .uniform_radius(1.5),
                         );
                         interaction.drag_delta.y
                     };
                     let corner_delta = {
                         let id = row.id("layout corner grip");
-                        let mut grip = row.element(
-                            Element::new(
-                                Layout::horizontal()
-                                    .width(Sizing::fixed(12.0))
-                                    .height(Sizing::fixed(12.0))
-                                    .align(Align::Center)
-                                    .justify(Justify::Center),
-                            )
-                            .id(id)
-                            .interact(id, Sense::DRAG),
+                        let mut grip = row.row(
+                            Container::new()
+                                .fixed(12.0, 12.0)
+                                .align(Align::Center)
+                                .justify(Justify::Center)
+                                .id(id)
+                                .interact(id, Sense::DRAG),
                         );
                         let interaction = grip.interaction();
-                        grip.element(
-                            Element::new(
-                                Layout::horizontal()
-                                    .width(Sizing::fixed(6.0))
-                                    .height(Sizing::fixed(6.0)),
-                            )
-                            .background(if interaction.hovered || interaction.dragged {
-                                colors::ACCENT
-                            } else {
-                                colors::GRIP_CORNER
-                            })
-                            .uniform_radius(3.0),
+                        grip.add(
+                            Block::new()
+                                .fixed(6.0, 6.0)
+                                .background(if interaction.hovered || interaction.dragged {
+                                    colors::ACCENT
+                                } else {
+                                    colors::GRIP_CORNER
+                                })
+                                .uniform_radius(3.0),
                         );
                         interaction.drag_delta
                     };

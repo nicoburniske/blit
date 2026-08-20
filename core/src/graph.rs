@@ -186,6 +186,16 @@ impl FrameGraph {
     }
 
     pub fn push(&mut self, element: Element<'_>) -> NodeId {
+        let node = self.append(element);
+        self.open.push(node);
+        node
+    }
+
+    pub fn push_leaf(&mut self, element: Element<'_>) {
+        self.append(element);
+    }
+
+    fn append(&mut self, element: Element<'_>) -> NodeId {
         let parent = *self
             .open
             .last()
@@ -231,7 +241,6 @@ impl FrameGraph {
             self.interactions
                 .push(InteractionRecord { node, id, sense });
         }
-        self.open.push(node);
         node
     }
 
@@ -460,7 +469,9 @@ impl FrameGraph {
             self.resolve_children(parent, axis);
             let mut child = self.nodes[parent.index()].first_child;
             while let Some(id) = child.some() {
-                self.scratch.push(id);
+                if self.nodes[id.index()].first_child != NodeId::NONE {
+                    self.scratch.push(id);
+                }
                 child = self.nodes[id.index()].next_sibling;
             }
         }

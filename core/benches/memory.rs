@@ -5,7 +5,7 @@ use std::{
 };
 
 use blit::{
-    Clip, Element, FrameGraphMemory, Layout, Runtime, Sizing, Ui,
+    Clip, Container, FrameGraphMemory, Runtime, Sizing, Ui,
     color::Color,
     geometry::LogicalInsets,
     input::Input,
@@ -81,66 +81,66 @@ fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
 }
 
 fn representative_frame(ui: &mut Ui) {
-    let mut root = ui.element(Element::new(
-        Layout::vertical()
+    let mut root = ui.column(
+        Container::new()
             .width(Sizing::grow())
             .padding(LogicalInsets::uniform(8.0))
             .gap(8.0),
-    ));
-    let mut header = root.element(
-        Element::new(
-            Layout::horizontal()
-                .width(Sizing::grow())
-                .height(Sizing::fixed(48.0)),
-        )
-        .background(Color::from_rgba8(30, 35, 45, 255)),
     );
-    header.add(Text::new("dashboard"));
-    drop(header);
+    {
+        let mut header = root.row(
+            Container::new()
+                .width(Sizing::grow())
+                .height(Sizing::fixed(48.0))
+                .background(Color::from_rgba8(30, 35, 45, 255)),
+        );
+        header.add(Text::new("dashboard"));
+    }
 
-    let mut body = root.element(
-        Element::new(
-            Layout::horizontal()
+    {
+        let mut body = root.row(
+            Container::new()
                 .width(Sizing::grow())
                 .height(Sizing::grow())
-                .gap(12.0),
-        )
-        .clip(Clip::Bounds),
-    );
-    let mut sidebar = body.element(Element::new(
-        Layout::vertical()
-            .width(Sizing::fixed(180.0))
-            .height(Sizing::grow())
-            .gap(6.0),
-    ));
-    for _ in 0..8 {
-        sidebar.add(Text::new("navigation"));
-    }
-    drop(sidebar);
-
-    let mut main = body.element(Element::new(
-        Layout::vertical()
-            .width(Sizing::grow())
-            .height(Sizing::grow())
-            .gap(8.0),
-    ));
-    for card_index in 0..8 {
-        let mut card = main.element(
-            Element::new(Layout::vertical().width(Sizing::grow()).gap(4.0))
-                .background(Color::from_rgba8(240, 240, 244, 255))
-                .interact(WidgetId::new(card_index), Sense::CLICK),
+                .gap(12.0)
+                .clip(Clip::Bounds),
         );
-        card.add(Text::new("card title"));
-        for _ in 0..3 {
-            let mut row = card.element(Element::new(
-                Layout::horizontal().width(Sizing::grow()).gap(8.0),
-            ));
-            row.add(Text::new("label"));
-            row.add(Text::new("value"));
+        {
+            let mut sidebar = body.column(
+                Container::new()
+                    .width(Sizing::fixed(180.0))
+                    .height(Sizing::grow())
+                    .gap(6.0),
+            );
+            for _ in 0..8 {
+                sidebar.add(Text::new("navigation"));
+            }
+        }
+
+        {
+            let mut main = body.column(
+                Container::new()
+                    .width(Sizing::grow())
+                    .height(Sizing::grow())
+                    .gap(8.0),
+            );
+            for card_index in 0..8 {
+                let mut card = main.column(
+                    Container::new()
+                        .width(Sizing::grow())
+                        .gap(4.0)
+                        .background(Color::from_rgba8(240, 240, 244, 255))
+                        .interact(WidgetId::new(card_index), Sense::CLICK),
+                );
+                card.add(Text::new("card title"));
+                for _ in 0..3 {
+                    let mut row = card.row(Container::new().width(Sizing::grow()).gap(8.0));
+                    row.add(Text::new("label"));
+                    row.add(Text::new("value"));
+                }
+            }
         }
     }
-    drop(main);
-    drop(body);
     root.add(Text::new("status"));
 }
 

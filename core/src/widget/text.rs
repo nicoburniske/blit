@@ -1,8 +1,11 @@
 use super::Widget;
 use crate::{
-    Content, Element, Layout, TextContent, Ui,
+    Content, Element, Layout, Sizing, TextContent, Ui,
     color::Color,
-    paint::{HorizontalAlign, TextOptions, TextOverflow, TextStyle, TextWrap, VerticalAlign},
+    paint::{
+        BorderRadius, HorizontalAlign, TextOptions, TextOverflow, TextStyle, TextWrap,
+        VerticalAlign,
+    },
     resource::TextSource,
 };
 
@@ -13,8 +16,14 @@ crate::widget! {
         pub text_style: TextStyle,
         pub options: TextOptions,
         pub offset_x: f32,
+        pub width: Sizing = Sizing::fit(),
+        pub height: Sizing = Sizing::fit(),
+        pub background: Color = Color::TRANSPARENT,
+        pub border_color: Color,
+        pub border_width: f32,
+        pub radius: BorderRadius,
     }
-    features: [text_style]
+    features: [border, radius, text_style]
 }
 
 impl Text {
@@ -48,8 +57,8 @@ impl Widget for Text {
     type Output = ();
 
     fn build(self, ui: &mut Ui) {
-        drop(ui.element(
-            Element::new(Layout::horizontal()).content(Content::Text(TextContent {
+        let element = Element::new(Layout::horizontal().width(self.width).height(self.height))
+            .content(Content::Text(TextContent {
                 text: self.text,
                 color: self.color,
                 style: self.text_style,
@@ -57,7 +66,13 @@ impl Widget for Text {
                 offset_x: self.offset_x,
                 selection: None,
                 caret: None,
-            })),
-        ));
+            }))
+            .background(self.background)
+            .radius(self.radius);
+        ui.leaf(if self.border_width > 0.0 {
+            element.border(self.border_width, self.border_color)
+        } else {
+            element
+        });
     }
 }

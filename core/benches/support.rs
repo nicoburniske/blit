@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use blit::{
-    Element, Layout, RepaintBuffer, Sizing, Ui,
+    Container, RepaintBuffer, Sizing, Ui,
     color::Color,
     command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
@@ -10,6 +10,7 @@ use blit::{
     paint::{self, TextLayoutRequest},
     platform::PlatformImpl,
     resource::{ImageData, ImageId, StringData, StringId},
+    widget::Block,
 };
 
 pub const ROWS: usize = 256;
@@ -71,44 +72,39 @@ impl PlatformImpl for NoopPlatform {
 }
 
 pub fn layout_frame(ui: &mut Ui) {
-    let mut column = ui.element(Element::new(
-        Layout::vertical().width(Sizing::grow()).gap(2.0),
-    ));
+    let mut column = ui.column(Container::new().width(Sizing::grow()).gap(2.0));
     for _ in 0..ROWS {
-        let mut row = column.element(Element::new(
-            Layout::horizontal()
+        let mut row = column.row(
+            Container::new()
                 .width(Sizing::grow())
                 .height(Sizing::fixed(20.0))
                 .gap(4.0),
-        ));
-        drop(row.element(Element::new(Layout::vertical().width(Sizing::fixed(120.0)))));
-        drop(row.element(Element::new(Layout::vertical().width(Sizing::grow()))));
-        drop(row.element(Element::new(Layout::vertical().width(Sizing::fixed(80.0)))));
+        );
+        row.add(Block::new().width(Sizing::fixed(120.0)));
+        row.add(Block::new().width(Sizing::grow()));
+        row.add(Block::new().width(Sizing::fixed(80.0)));
     }
 }
 
 pub fn command_frame(ui: &mut Ui) {
-    let mut column = ui.element(Element::new(
-        Layout::vertical().width(Sizing::grow()).gap(2.0),
-    ));
+    let mut column = ui.column(Container::new().width(Sizing::grow()).gap(2.0));
     for row_index in 0..ROWS {
-        let mut row = column.element(Element::new(
-            Layout::horizontal()
+        let mut row = column.row(
+            Container::new()
                 .width(Sizing::grow())
                 .height(Sizing::fixed(20.0))
                 .gap(4.0),
-        ));
+        );
         for (cell_index, width) in [Sizing::fixed(120.0), Sizing::grow(), Sizing::fixed(80.0)]
             .into_iter()
             .enumerate()
         {
             let id = WidgetId::new(row_index * CELLS_PER_ROW + cell_index);
-            drop(
-                row.element(
-                    Element::new(Layout::vertical().width(width))
-                        .background(Color::BLACK)
-                        .interact(id, Sense::CLICK),
-                ),
+            row.add(
+                Block::new()
+                    .width(width)
+                    .background(Color::BLACK)
+                    .interact(id, Sense::CLICK),
             );
         }
     }
