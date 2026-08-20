@@ -347,7 +347,7 @@ pub struct Runtime<P: PlatformImpl> {
     screen: LogicalRect,
     physical_screen: PhysicalRect,
     scale_factor: f32,
-    previous_paint: CommandList,
+    previous_commands: CommandList,
     differ: CommandListDiffer,
     previous_damage: Vec<PhysicalRect>,
     render_damage: Vec<PhysicalRect>,
@@ -356,7 +356,7 @@ pub struct Runtime<P: PlatformImpl> {
 struct UiShared {
     platform: Platform,
     frame: element::FrameGraph,
-    paint: CommandList,
+    commands: CommandList,
     interaction: interact::InteractionState,
     geometry: element::GeometryState,
     animations: Vec<animation::AnimationState>,
@@ -379,7 +379,7 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             shared: UiShared {
                 platform: erased_platform,
                 frame: element::FrameGraph::default(),
-                paint: CommandList::default(),
+                commands: CommandList::default(),
                 interaction: interact::InteractionState::default(),
                 geometry: element::GeometryState::default(),
                 animations: Vec::new(),
@@ -391,7 +391,7 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             screen,
             physical_screen,
             scale_factor,
-            previous_paint: CommandList::default(),
+            previous_commands: CommandList::default(),
             differ: CommandListDiffer::default(),
             previous_damage: Vec::new(),
             render_damage: Vec::new(),
@@ -485,7 +485,7 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
     }
 
     fn record<R>(&mut self, time: Duration, input: Input, render: impl FnOnce(&mut Ui) -> R) -> R {
-        self.shared.paint.clear();
+        self.shared.commands.clear();
         self.shared.frame.begin(self.screen);
         for animation in &mut self.shared.animations {
             animation.seen = false;
@@ -509,7 +509,7 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             let mut frame = std::mem::take(&mut shared.frame);
             frame.finish(
                 &mut shared.platform,
-                &mut shared.paint,
+                &mut shared.commands,
                 &mut shared.interaction,
                 &mut shared.geometry,
                 self.scale_factor,
@@ -530,20 +530,22 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         if std::mem::take(&mut self.shared.full_repaint) {
             self.render_damage.push(self.physical_screen);
         } else {
-            self.render_damage
-                .extend_from_slice(self.differ.diff(&self.previous_paint, &self.shared.paint));
+            self.render_damage.extend_from_slice(
+                self.differ
+                    .diff(&self.previous_commands, &self.shared.commands),
+            );
         }
         let current_damage_len = self.render_damage.len();
         if self.repaint_buffer == RepaintBuffer::Swapped {
             self.render_damage.extend_from_slice(&self.previous_damage);
         }
         self.platform
-            .render(&self.shared.paint, &self.render_damage);
+            .render(&self.shared.commands, &self.render_damage);
         self.previous_damage.clear();
         if self.repaint_buffer == RepaintBuffer::Swapped {
             self.previous_damage
                 .extend_from_slice(&self.render_damage[..current_damage_len]);
         }
-        std::mem::swap(&mut self.previous_paint, &mut self.shared.paint);
+        std::mem::swap(&mut self.previous_commands, &mut self.shared.commands);
     }
 }
