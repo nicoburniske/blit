@@ -129,17 +129,17 @@ impl PlatformImpl for TestPlatform {
 }
 
 #[test]
-fn container_scopes_and_block_leaves_resolve_layout() {
+fn container_scopes_and_rectangle_leaves_resolve_layout() {
     let mut runtime = Runtime::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut row = ui.row(Container::new().fixed(10.0, 10.0).gap(2.0));
         row.add(
-            widget::Block::new()
+            widget::Rectangle::new()
                 .fixed(2.0, 4.0)
                 .background(Color::BLACK),
         );
         row.add(
-            widget::Block::new()
+            widget::Rectangle::new()
                 .width(Sizing::grow())
                 .height(Sizing::fixed(4.0))
                 .background(Color::WHITE),

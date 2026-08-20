@@ -1,6 +1,6 @@
 use super::{Text, Widget};
 use crate::{
-    Appearance, Element, Layout, Ui,
+    Appearance, Container, Ui,
     color::Color,
     geometry::LogicalInsets,
     interact::{Sense, WidgetId},
@@ -53,8 +53,10 @@ impl Widget for Button {
     fn build(self, ui: &mut Ui) -> Response {
         let local_id = self.id.unwrap_or_else(|| WidgetId::new(self.label));
         let id = ui.id(("button", local_id));
-        let mut button = ui.element(
-            Element::new(Layout::horizontal().padding(self.padding)).interact(id, Sense::CLICK),
+        let mut button = ui.row(
+            Container::new()
+                .padding(self.padding)
+                .interact(id, Sense::CLICK),
         );
         let interaction = button.interaction();
         let active = interaction.pressed || interaction.clicked;
