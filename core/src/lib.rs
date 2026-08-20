@@ -3,6 +3,7 @@ pub mod color;
 pub mod command_list;
 mod element;
 pub mod geometry;
+pub(crate) mod graph;
 pub mod input;
 pub mod interact;
 pub mod keyboard;
@@ -318,11 +319,11 @@ impl Ui {
         unsafe { self.shared.as_mut() }
     }
 
-    fn frame_mut(&mut self) -> &mut element::FrameGraph {
+    fn frame_mut(&mut self) -> &mut graph::FrameGraph {
         &mut self.shared_mut().frame
     }
 
-    fn close_element(&mut self, node: element::NodeId) {
+    fn close_element(&mut self, node: graph::NodeId) {
         self.frame_mut().close(node)
     }
 
@@ -355,10 +356,10 @@ pub struct Runtime<P: PlatformImpl> {
 
 struct UiShared {
     platform: Platform,
-    frame: element::FrameGraph,
+    frame: graph::FrameGraph,
     commands: CommandList,
     interaction: interact::InteractionState,
-    geometry: element::GeometryState,
+    geometry: graph::GeometryState,
     animations: Vec<animation::AnimationState>,
     timers: Vec<timer::TimerState>,
     frame_requested: bool,
@@ -378,10 +379,10 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             platform,
             shared: UiShared {
                 platform: erased_platform,
-                frame: element::FrameGraph::default(),
+                frame: graph::FrameGraph::default(),
                 commands: CommandList::default(),
                 interaction: interact::InteractionState::default(),
-                geometry: element::GeometryState::default(),
+                geometry: graph::GeometryState::default(),
                 animations: Vec::new(),
                 timers: Vec::new(),
                 frame_requested: true,

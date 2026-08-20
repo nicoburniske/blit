@@ -6,8 +6,8 @@ use std::{
 use super::Widget;
 use crate::{
     Clip, Element, Layout, Sizing, Ui,
-    element::NodeId,
     geometry::{LogicalInsets, LogicalPoint},
+    graph::NodeId,
     input::ScrollPhase,
     interact::{Interaction, Sense, WidgetId},
 };
