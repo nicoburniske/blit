@@ -1,15 +1,14 @@
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::{SizedWidget, Text};
+use super::Widget;
 use crate::{
-    Ui,
+    Appearance, Clip, Content, Element, Layout, Sizing, TextCaret, TextContent, TextSelection, Ui,
     color::Color,
-    geometry::{LogicalInsets, LogicalRect, LogicalSize},
+    geometry::{LogicalInsets, LogicalRect},
     input::{Input, Key},
     interact::{Sense, WidgetId},
     keyboard::{KeyboardKind, KeyboardRequest},
-    layout::Constraints,
-    paint::{BorderRadius, Rectangle, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap},
+    paint::{BorderRadius, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap},
     resource::StringHandle,
 };
 
@@ -76,8 +75,10 @@ impl Default for TextInputState {
     }
 }
 
-impl TextInput<'_> {
-    pub fn render(mut self, ui: &mut Ui, area: LogicalRect) -> TextInputResponse {
+impl Widget for TextInput<'_> {
+    type Output = TextInputResponse;
+
+    fn build(mut self, ui: &mut Ui) -> TextInputResponse {
         self.state.cursor = self.state.cursor.min(self.state.text.len());
         while !self.state.text.is_char_boundary(self.state.cursor) {
             self.state.cursor -= 1;
@@ -88,34 +89,62 @@ impl TextInput<'_> {
         }
         self.update_password_mask();
         self.sync_display(ui);
-        let inner = area.inset(self.padding);
-        let mut response = TextInputResponse::default();
-        let interaction = ui.interact(self.state.id, area, Sense::FOCUS);
-        let focused = ui.is_focused(self.state.id);
-        self.state.focused = focused;
 
-        if interaction.pressed {
-            if let Some(position) = ui.pointer_position() {
-                let offset = ui
-                    .platform()
-                    .text_offset_at_position(&self.request(inner), position);
-                self.state.cursor = if !self.password_masked() {
-                    offset
-                } else {
-                    self.state
-                        .text
-                        .char_indices()
-                        .nth(offset / '●'.len_utf8())
-                        .map_or(self.state.text.len(), |(offset, _)| offset)
-                };
-                self.state.anchor = self.state.cursor;
-            }
+        let id = self.state.id;
+        let text_id = id.child("text");
+        let previous_text_area = ui.geometry(text_id).map(|geometry| geometry.area);
+        let focused = ui.is_focused(id);
+        self.state.focused = focused;
+        let mut input = ui.element(
+            Element::new(
+                Layout::horizontal()
+                    .width(Sizing::grow().max(self.preferred_width))
+                    .height(Sizing::fit().min(self.border_width * 2.0))
+                    .padding(self.padding),
+            )
+            .appearance(
+                Appearance::new()
+                    .background(if focused {
+                        self.focused_background
+                    } else {
+                        self.background
+                    })
+                    .border(
+                        self.border_width,
+                        if focused {
+                            self.focused_border_color
+                        } else {
+                            self.border_color
+                        },
+                    )
+                    .radius(self.radius)
+                    .opacity(self.opacity),
+            )
+            .interact(id, Sense::FOCUS),
+        );
+        let interaction = input.interaction();
+        let mut response = TextInputResponse::default();
+
+        if interaction.pressed
+            && let (Some(position), Some(area)) = (input.pointer_position(), previous_text_area)
+        {
+            let offset = input
+                .platform()
+                .text_offset_at_position(&self.request(area), position);
+            self.state.cursor = if !self.password_masked() {
+                offset
+            } else {
+                self.state
+                    .text
+                    .char_indices()
+                    .nth(offset / '●'.len_utf8())
+                    .map_or(self.state.text.len(), |(offset, _)| offset)
+            };
+            self.state.anchor = self.state.cursor;
         }
 
-        match *ui.input() {
-            Input::Text(character)
-                if self.state.focused && !self.read_only && !character.is_control() =>
-            {
+        match *input.input() {
+            Input::Text(character) if focused && !self.read_only && !character.is_control() => {
                 self.delete_selection();
                 self.state.text.insert(self.state.cursor, character);
                 self.state.cursor += character.len_utf8();
@@ -123,10 +152,7 @@ impl TextInput<'_> {
                 response.edited = true;
             }
             Input::Key(key)
-                if key.pressed
-                    && key.key == Key::Backspace
-                    && self.state.focused
-                    && !self.read_only =>
+                if key.pressed && key.key == Key::Backspace && focused && !self.read_only =>
             {
                 if self.delete_selection() {
                     response.edited = true;
@@ -142,10 +168,7 @@ impl TextInput<'_> {
                 }
             }
             Input::Key(key)
-                if key.pressed
-                    && key.key == Key::Delete
-                    && self.state.focused
-                    && !self.read_only =>
+                if key.pressed && key.key == Key::Delete && focused && !self.read_only =>
             {
                 if self.delete_selection() {
                     response.edited = true;
@@ -160,7 +183,7 @@ impl TextInput<'_> {
                     response.edited = true;
                 }
             }
-            Input::Key(key) if key.pressed && key.key == Key::ArrowLeft && self.state.focused => {
+            Input::Key(key) if key.pressed && key.key == Key::ArrowLeft && focused => {
                 self.state.cursor =
                     if !key.modifiers.shift() && self.state.cursor != self.state.anchor {
                         self.state.cursor.min(self.state.anchor)
@@ -174,7 +197,7 @@ impl TextInput<'_> {
                     self.state.anchor = self.state.cursor;
                 }
             }
-            Input::Key(key) if key.pressed && key.key == Key::ArrowRight && self.state.focused => {
+            Input::Key(key) if key.pressed && key.key == Key::ArrowRight && focused => {
                 self.state.cursor =
                     if !key.modifiers.shift() && self.state.cursor != self.state.anchor {
                         self.state.cursor.max(self.state.anchor)
@@ -189,112 +212,69 @@ impl TextInput<'_> {
                     self.state.anchor = self.state.cursor;
                 }
             }
-            Input::Key(key) if key.pressed && key.key == Key::Home && self.state.focused => {
+            Input::Key(key) if key.pressed && key.key == Key::Home && focused => {
                 self.state.cursor = 0;
                 if !key.modifiers.shift() {
                     self.state.anchor = self.state.cursor;
                 }
             }
-            Input::Key(key) if key.pressed && key.key == Key::End && self.state.focused => {
+            Input::Key(key) if key.pressed && key.key == Key::End && focused => {
                 self.state.cursor = self.state.text.len();
                 if !key.modifiers.shift() {
                     self.state.anchor = self.state.cursor;
                 }
             }
-            Input::Key(key) if key.pressed && key.key == Key::Enter && self.state.focused => {
+            Input::Key(key) if key.pressed && key.key == Key::Enter && focused => {
                 response.accepted = true
             }
             _ => {}
         }
         if response.edited {
             self.update_password_mask();
-            self.sync_display(ui);
+            self.sync_display(&mut input);
         }
 
-        let cursor_offset = self.display_offset(self.state.cursor);
-        let cursor = ui
-            .platform()
-            .text_cursor_rect(&self.request(inner), cursor_offset);
-        if cursor.x < inner.x {
-            self.state.scroll_x = (self.state.scroll_x - (inner.x - cursor.x)).max(0.0);
-        } else if cursor.x + self.cursor_width > inner.x + inner.width {
-            self.state.scroll_x += cursor.x + self.cursor_width - inner.x - inner.width;
-        }
-
-        Rectangle::new(area)
-            .background(if self.state.focused {
-                self.focused_background
-            } else {
-                self.background
-            })
-            .border(
-                self.border_width,
-                if self.state.focused {
-                    self.focused_border_color
-                } else {
-                    self.border_color
-                },
-            )
-            .radius(self.radius)
-            .opacity(self.opacity)
-            .render(ui);
-
-        let request = self.request(inner);
-        if self.state.cursor != self.state.anchor {
-            let start = ui.platform().text_cursor_rect(
-                &request,
-                self.display_offset(self.state.cursor.min(self.state.anchor)),
-            );
-            let end = ui.platform().text_cursor_rect(
-                &request,
-                self.display_offset(self.state.cursor.max(self.state.anchor)),
-            );
-            let left = start.x.max(inner.x);
-            let right = end.x.min(inner.x + inner.width);
-            let top = start.y.max(inner.y);
-            let bottom = (start.y + start.height).min(inner.y + inner.height);
-            if right > left && bottom > top {
-                Rectangle::new(LogicalRect {
-                    x: left,
-                    y: top,
-                    width: right - left,
-                    height: bottom - top,
-                })
-                .background(self.selection_background)
-                .render(ui);
-            }
-        }
-
-        Text::new(self.state.display.as_ref().unwrap())
-            .offset_x(self.state.scroll_x)
-            .color(self.text_color)
-            .font(self.text_style.font)
-            .text_size(self.text_style.size)
-            .text_weight(self.text_style.weight)
-            .options(request.options)
-            .render(ui, inner);
-
-        if self.state.focused {
-            let cursor = ui
+        if let Some(area) = previous_text_area {
+            let cursor = input
                 .platform()
-                .text_cursor_rect(&request, self.display_offset(self.state.cursor));
-            let x = cursor.x.clamp(
-                inner.x,
-                (inner.x + inner.width - self.cursor_width).max(inner.x),
-            );
-            let top = cursor.y.max(inner.y);
-            let bottom = (cursor.y + cursor.height).min(inner.y + inner.height);
-            if bottom > top {
-                Rectangle::new(LogicalRect {
-                    x,
-                    y: top,
-                    width: self.cursor_width.min(inner.width),
-                    height: bottom - top,
-                })
-                .background(self.cursor_color)
-                .render(ui);
+                .text_cursor_rect(&self.request(area), self.display_offset(self.state.cursor));
+            if cursor.x < area.x {
+                self.state.scroll_x = (self.state.scroll_x - (area.x - cursor.x)).max(0.0);
+            } else if cursor.x + self.cursor_width > area.x + area.width {
+                self.state.scroll_x += cursor.x + self.cursor_width - area.x - area.width;
             }
-            ui.platform().show_keyboard(&KeyboardRequest {
+        }
+
+        let options = self.single_line_options();
+        let selection = (self.state.cursor != self.state.anchor).then(|| TextSelection {
+            start: self.display_offset(self.state.cursor.min(self.state.anchor)),
+            end: self.display_offset(self.state.cursor.max(self.state.anchor)),
+            color: self.selection_background,
+        });
+        let caret = focused.then(|| TextCaret {
+            offset: self.display_offset(self.state.cursor),
+            width: self.cursor_width,
+            color: self.cursor_color,
+        });
+        drop(
+            input.element(
+                Element::new(Layout::horizontal().width(Sizing::grow()))
+                    .id(text_id)
+                    .clip(Clip::Bounds)
+                    .content(Content::Text(TextContent {
+                        text: self.state.display.as_ref().unwrap().into(),
+                        color: self.text_color,
+                        style: self.text_style,
+                        options,
+                        offset_x: self.state.scroll_x,
+                        selection,
+                        caret,
+                    })),
+            ),
+        );
+
+        if focused {
+            input.platform().show_keyboard(&KeyboardRequest {
                 kind: self.keyboard_kind,
                 request_caps: self.request_caps,
                 accept_button_text: self.accept_button_text,
@@ -302,22 +282,28 @@ impl TextInput<'_> {
                 delete_button_enabled: self.delete_button_enabled && !self.state.text.is_empty(),
             });
         }
-
         response
     }
+}
 
+impl TextInput<'_> {
     fn request(&self, area: LogicalRect) -> TextRequest {
-        let mut options = self.text_options;
-        options.wrap = TextWrap::None;
-        options.overflow = TextOverflow::Clip;
-        options.max_lines = Some(1);
         TextRequest {
             text: self.state.display.as_ref().unwrap().into(),
             area,
             offset_x: self.state.scroll_x,
             color: self.text_color,
             style: self.text_style,
-            options,
+            options: self.single_line_options(),
+        }
+    }
+
+    fn single_line_options(&self) -> TextOptions {
+        TextOptions {
+            wrap: TextWrap::None,
+            overflow: TextOverflow::Clip,
+            max_lines: Some(1),
+            ..self.text_options
         }
     }
 
@@ -374,23 +360,6 @@ impl TextInput<'_> {
         self.state.anchor = selection.start;
         self.state.text.drain(selection);
         true
-    }
-}
-
-impl SizedWidget for TextInput<'_> {
-    type Output = TextInputResponse;
-
-    fn measure(&self, _: &mut Ui, constraints: Constraints) -> LogicalSize {
-        let height = (self.text_style.size + self.padding.top + self.padding.bottom)
-            .max(self.border_width * 2.0);
-        constraints.constrain(LogicalSize {
-            width: self.preferred_width,
-            height,
-        })
-    }
-
-    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
-        TextInput::render(self, ui, area)
     }
 }
 

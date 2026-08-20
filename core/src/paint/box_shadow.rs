@@ -1,5 +1,5 @@
 use super::BorderRadius;
-use crate::{Ui, color::Color, geometry::LogicalRect};
+use crate::{color::Color, geometry::LogicalRect};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BoxShadow {
@@ -65,9 +65,5 @@ impl BoxShadow {
             width: self.area.width + outset * 2.0,
             height: self.area.height + outset * 2.0,
         }
-    }
-
-    pub fn render(self, ui: &mut Ui) {
-        ui.paint_box_shadow(self);
     }
 }

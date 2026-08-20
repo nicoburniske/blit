@@ -1,11 +1,10 @@
-use super::{SizedWidget, Text, Widget};
+use super::{Text, Widget};
 use crate::{
     Appearance, Element, Layout, Ui,
     color::Color,
-    geometry::{LogicalInsets, LogicalRect, LogicalSize},
+    geometry::LogicalInsets,
     interact::{Sense, WidgetId},
-    layout::Constraints,
-    paint::{BorderRadius, Rectangle, TextLayoutRequest, TextOptions, TextStyle, TextWrap},
+    paint::{BorderRadius, TextOptions, TextStyle},
     resource::TextSource,
 };
 
@@ -40,74 +39,11 @@ impl Button {
         self.id = Some(WidgetId::new(source));
         self
     }
-
-    pub fn render(self, ui: &mut Ui, area: LogicalRect) -> Response {
-        let local_id = self.id.unwrap_or_else(|| WidgetId::new(self.label));
-        let interaction = ui.interact(ui.id(("button", local_id)), area, Sense::CLICK);
-        let active = interaction.pressed || interaction.clicked;
-        Rectangle::new(area)
-            .background(if active {
-                self.clicked_background
-            } else {
-                self.background
-            })
-            .border(
-                self.border_width,
-                if active {
-                    self.clicked_border_color
-                } else {
-                    self.border_color
-                },
-            )
-            .radius(self.radius)
-            .opacity(self.opacity)
-            .render(ui);
-        Text::new(self.label)
-            .color(if active {
-                self.clicked_text_color
-            } else {
-                self.text_color
-            })
-            .font(self.text_style.font)
-            .text_size(self.text_style.size)
-            .text_weight(self.text_style.weight)
-            .options(self.text_options)
-            .render(ui, area.inset(self.padding));
-        Response {
-            clicked: interaction.clicked,
-        }
-    }
 }
 
 impl Response {
     pub fn clicked(self) -> bool {
         self.clicked
-    }
-}
-
-impl SizedWidget for Button {
-    type Output = Response;
-
-    fn measure(&self, ui: &mut Ui, constraints: Constraints) -> LogicalSize {
-        let horizontal_padding = self.padding.left + self.padding.right;
-        let text = ui.platform().measure_text(&TextLayoutRequest {
-            text: self.label,
-            style: self.text_style,
-            wrap: self.text_options.wrap,
-            max_width: (self.text_options.wrap != TextWrap::None
-                && constraints.max.width.is_finite())
-            .then_some((constraints.max.width - horizontal_padding).max(0.0)),
-            max_lines: self.text_options.max_lines,
-        });
-        constraints.constrain(LogicalSize {
-            width: (text.width + horizontal_padding).max(self.border_width * 2.0),
-            height: (text.height + self.padding.top + self.padding.bottom)
-                .max(self.border_width * 2.0),
-        })
-    }
-
-    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
-        Button::render(self, ui, area)
     }
 }
 

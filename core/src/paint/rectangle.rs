@@ -1,4 +1,4 @@
-use crate::{Ui, color::Color, geometry::LogicalRect};
+use crate::{color::Color, geometry::LogicalRect};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rectangle<'a> {
@@ -61,10 +61,6 @@ impl<'a> Rectangle<'a> {
     pub fn gradient_border(mut self, width: f32, gradient: LinearGradient<'a>) -> Self {
         self.border = Border::Gradient { width, gradient };
         self
-    }
-
-    pub fn render(self, ui: &mut Ui) {
-        ui.paint_rectangle(self);
     }
 }
 

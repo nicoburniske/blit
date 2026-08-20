@@ -1,43 +1,23 @@
-//! widgets receive their geometry through `render`
-//! and may participate in layout through [`SizedWidget`]
-//!
-//! paint primitives own their geometry because they represent fully resolved draw operations
+//! frame-local widgets declare elements through [`Widget::build`]
 
 mod button;
 mod image;
 mod scroll_area;
 mod text;
 mod text_input;
-mod virtual_list;
 
 pub use button::{Button, Response};
 pub use image::Image;
-pub use scroll_area::{Area, ScrollArea, ScrollState};
+pub use scroll_area::{ScrollArea, ScrollScope, ScrollState};
 pub use text::Text;
 pub use text_input::{TextInput, TextInputResponse, TextInputState};
-pub use virtual_list::{VirtualList, VirtualListArea, VirtualListState};
 
-use crate::{
-    Ui,
-    geometry::{LogicalRect, LogicalSize},
-    layout::Constraints,
-};
+use crate::Ui;
 
 pub trait Widget {
     type Output;
 
     fn build(self, ui: &mut Ui) -> Self::Output;
-}
-
-pub trait SizedWidget {
-    type Output;
-
-    /// chooses a preferred size within valid constraints
-    ///
-    /// an axis is exact when its minimum and maximum are equal
-    fn measure(&self, ui: &mut Ui, constraints: Constraints) -> LogicalSize;
-
-    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output;
 }
 
 #[macro_export]

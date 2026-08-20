@@ -1,12 +1,15 @@
-use std::time::Duration;
+use std::{
+    ops::{Deref, DerefMut},
+    time::Duration,
+};
 
-use super::SizedWidget;
+use super::Widget;
 use crate::{
-    Ui,
-    geometry::{LogicalInsets, LogicalRect, LogicalSize, PhysicalRect},
+    Clip, Element, Layout, Sizing, Ui,
+    element::NodeId,
+    geometry::{LogicalInsets, LogicalPoint},
     input::ScrollPhase,
-    interact::{Sense, WidgetId},
-    layout::Constraints,
+    interact::{Interaction, Sense, WidgetId},
 };
 
 const WHEEL_FRICTION: f32 = 64.0;
@@ -63,6 +66,8 @@ impl ScrollState {
 
 pub struct ScrollArea<'a> {
     state: &'a mut ScrollState,
+    width: Sizing,
+    height: Sizing,
     spacing: f32,
     padding: LogicalInsets,
     scroll_speed: f32,
@@ -71,11 +76,20 @@ pub struct ScrollArea<'a> {
     id: WidgetId,
 }
 
+pub struct ScrollScope<'a> {
+    ui: &'a mut Ui,
+    viewport: NodeId,
+    content: NodeId,
+    interaction: Interaction,
+}
+
 impl<'a> ScrollArea<'a> {
     pub fn vertical(state: &'a mut ScrollState) -> Self {
         let id = state.id;
         Self {
             state,
+            width: Sizing::grow(),
+            height: Sizing::grow(),
             spacing: 0.0,
             padding: LogicalInsets::default(),
             scroll_speed: 1.0,
@@ -83,6 +97,16 @@ impl<'a> ScrollArea<'a> {
             drag_to_scroll: true,
             id,
         }
+    }
+
+    pub fn width(mut self, width: Sizing) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub fn height(mut self, height: Sizing) -> Self {
+        self.height = height;
+        self
     }
 
     pub fn spacing(mut self, spacing: f32) -> Self {
@@ -115,28 +139,20 @@ impl<'a> ScrollArea<'a> {
         self
     }
 
-    pub fn begin<'ui>(self, ui: &'ui mut Ui, viewport: LogicalRect) -> Area<'ui>
-    where
-        'a: 'ui,
-    {
-        self.begin_with_padding(ui, viewport, |_, padding| padding)
-    }
+    pub fn begin(self, ui: &'a mut Ui) -> ScrollScope<'a> {
+        let id = ui.id(("scroll area", self.id));
+        let content_id = id.child("content");
+        let viewport_height = ui.geometry(id).map_or(0.0, |geometry| geometry.area.height);
+        if let Some(geometry) = ui.geometry(content_id) {
+            self.state.content_height = geometry.area.height;
+        }
 
-    pub fn begin_with_padding<'ui>(
-        self,
-        ui: &'ui mut Ui,
-        viewport: LogicalRect,
-        padding: impl FnOnce(f32, LogicalInsets) -> LogicalInsets,
-    ) -> Area<'ui>
-    where
-        'a: 'ui,
-    {
         let sense = if self.drag_to_scroll {
             Sense::SCROLL_AND_DRAG
         } else {
             Sense::SCROLL
         };
-        let interaction = ui.interact(ui.id(("scroll area", self.id)), viewport, sense);
+        let interaction = ui.element_interaction(id, sense);
         let now = ui.time();
         let elapsed = self.state.last_frame.replace(now).map_or(0.0, |previous| {
             now.saturating_sub(previous)
@@ -184,7 +200,7 @@ impl<'a> ScrollArea<'a> {
             }
         }
 
-        let maximum = self.state.maximum_offset(viewport.height);
+        let maximum = self.state.maximum_offset(viewport_height);
         if direct_delta != 0.0 {
             self.state.offset = (self.state.offset + direct_delta).clamp(0.0, maximum);
             if sample_velocity && elapsed > 0.0 {
@@ -221,100 +237,67 @@ impl<'a> ScrollArea<'a> {
             self.state.offset = self.state.offset.clamp(0.0, maximum);
         }
 
-        let padding = padding(self.state.offset, self.padding);
-        let bounds = viewport.inset(padding);
-        let offset = self.state.offset;
-        let previous_clip = ui.clip;
-        ui.clip = viewport
-            .to_physical(ui.scale_factor)
-            .intersection(previous_clip)
-            .unwrap_or_default();
-
-        Area {
+        let viewport = ui.frame_mut().push(
+            Element::new(
+                Layout::vertical()
+                    .width(self.width)
+                    .height(self.height)
+                    .overflow(true),
+            )
+            .clip(Clip::Bounds)
+            .interact(id, sense),
+        );
+        let content = ui.frame_mut().push(
+            Element::new(
+                Layout::vertical()
+                    .width(Sizing::grow())
+                    .padding(self.padding)
+                    .gap(self.spacing),
+            )
+            .id(content_id)
+            .offset(LogicalPoint {
+                x: 0.0,
+                y: -self.state.offset,
+            }),
+        );
+        ScrollScope {
             ui,
-            state: self.state,
             viewport,
-            bounds,
-            padding,
-            offset,
-            spacing: self.spacing,
-            cursor: 0.0,
-            count: 0,
-            previous_clip,
+            content,
+            interaction,
         }
     }
 }
 
-pub struct Area<'a> {
-    ui: &'a mut Ui,
-    state: &'a mut ScrollState,
-    viewport: LogicalRect,
-    bounds: LogicalRect,
-    padding: LogicalInsets,
-    offset: f32,
-    spacing: f32,
-    cursor: f32,
-    count: usize,
-    previous_clip: PhysicalRect,
-}
-
-impl Area<'_> {
-    pub fn add<W: SizedWidget>(&mut self, widget: W) -> Option<W::Output> {
-        let available = LogicalRect {
-            x: self.bounds.x,
-            y: self.bounds.y + self.cursor - self.offset,
-            width: self.bounds.width,
-            height: f32::INFINITY,
-        };
-        let size = widget.measure(
-            self.ui,
-            Constraints {
-                min: LogicalSize {
-                    width: available.width,
-                    height: 0.0,
-                },
-                max: LogicalSize {
-                    width: available.width,
-                    height: f32::INFINITY,
-                },
-            },
-        );
-        let area = LogicalRect {
-            width: size.width.clamp(0.0, available.width),
-            height: size.height,
-            ..available
-        };
-        self.cursor += area.height + self.spacing;
-        self.count += 1;
-        area.to_physical(self.ui.scale_factor)
-            .intersection(self.ui.clip)
-            .map(|_| widget.render(self.ui, area))
+impl ScrollScope<'_> {
+    pub fn add<W: Widget>(&mut self, widget: W) -> W::Output {
+        widget.build(self.ui)
     }
 
-    pub fn ui(&mut self) -> &mut Ui {
+    pub fn interaction(&self) -> Interaction {
+        self.interaction
+    }
+
+    pub fn finish(self) {}
+}
+
+impl Deref for ScrollScope<'_> {
+    type Target = Ui;
+
+    fn deref(&self) -> &Self::Target {
         self.ui
     }
+}
 
-    pub fn finish(self) {
-        drop(self)
+impl DerefMut for ScrollScope<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ui
     }
 }
 
-impl Drop for Area<'_> {
+impl Drop for ScrollScope<'_> {
     fn drop(&mut self) {
-        let used_height = if self.count == 0 {
-            0.0
-        } else {
-            self.cursor - self.spacing
-        };
-        self.state.content_height = self.padding.top + used_height + self.padding.bottom;
-        let maximum = self.state.maximum_offset(self.viewport.height);
-        let clamped = self.state.offset.clamp(0.0, maximum);
-        if clamped != self.state.offset {
-            self.state.offset = clamped;
-            self.state.velocity = 0.0;
-            self.ui.request_frame();
-        }
-        self.ui.clip = self.previous_clip;
+        self.ui.close_element(self.content);
+        self.ui.close_element(self.viewport);
     }
 }

@@ -231,17 +231,6 @@ impl InteractionState {
         }
     }
 
-    pub fn interact(
-        &mut self,
-        id: WidgetId,
-        area: Option<PhysicalRect>,
-        sense: Sense,
-    ) -> Interaction {
-        let interaction = self.response(id, sense);
-        self.register(id, area, sense);
-        interaction
-    }
-
     pub fn response(&mut self, id: WidgetId, _sense: Sense) -> Interaction {
         #[cfg(debug_assertions)]
         assert!(self.seen.insert(id), "duplicate WidgetId {id:?}");
