@@ -26,7 +26,7 @@ use std::{
 };
 
 use animation::{Easing, Transition};
-use command_list::{CommandList, CommandListDiffer};
+use command_list::{CommandDiffConfig, CommandList, CommandListDiffer};
 use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
 use input::Input;
 use interact::{Interaction, Sense, WidgetId};
@@ -460,6 +460,10 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
     pub fn invalidate_all(&mut self) {
         self.shared.frame_requested = true;
         self.shared.full_repaint = true;
+    }
+
+    pub fn set_command_diff_config(&mut self, config: CommandDiffConfig) {
+        self.differ.set_config(config);
     }
 
     pub fn refresh_screen(&mut self) {
