@@ -3,8 +3,8 @@ use crate::{
     color::Color,
     command_list::{ClipId, CommandList},
     element::{
-        Align, Appearance, Axis, Clip, Content, Element, ElementGeometry, Justify, Layout, Shadow,
-        Sizing,
+        Align, Appearance, Axis, Clip, Content, Element, ElementGeometry, ImageContent, Justify,
+        Layout, Shadow, Sizing, TextContent,
     },
     geometry::{LogicalPoint, LogicalRect, LogicalSize},
     interact::{InteractionState, Sense, WidgetId},
@@ -16,27 +16,39 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NodeId(usize);
+pub struct NodeId(u32);
+
+#[derive(Clone, Copy, Default)]
+struct PayloadId(u32);
+
+#[derive(Clone, Copy, Default)]
+struct ContentId(u32);
 
 #[derive(Default)]
 pub struct FrameGraph {
     nodes: Vec<Node>,
     open: Vec<NodeId>,
     scratch: Vec<NodeId>,
+    texts: Vec<TextContent>,
+    images: Vec<ImageContent>,
+    appearances: Vec<StoredAppearance>,
+    shadows: Vec<Shadow>,
+    clip_specs: Vec<Clip>,
+    geometry: Vec<GeometryRecord>,
+    interactions: Vec<InteractionRecord>,
     gradient_stops: Vec<crate::paint::GradientStop>,
 }
 
 struct Node {
-    id: Option<WidgetId>,
-    first_child: Option<NodeId>,
-    last_child: Option<NodeId>,
-    next_sibling: Option<NodeId>,
+    first_child: NodeId,
+    last_child: NodeId,
+    next_sibling: NodeId,
     layout: Layout,
-    appearance: StoredAppearance,
-    content: Content,
-    clip_children: Clip,
+    content: ContentId,
+    appearance: PayloadId,
+    shadow: PayloadId,
+    clip_spec: PayloadId,
     offset: LogicalPoint,
-    interaction: Option<(WidgetId, Sense)>,
     intrinsic: LogicalSize,
     area: LogicalRect,
     clip: ClipId,
@@ -45,13 +57,23 @@ struct Node {
     content_clip_bounds: LogicalRect,
 }
 
+struct GeometryRecord {
+    node: NodeId,
+    id: WidgetId,
+}
+
+struct InteractionRecord {
+    node: NodeId,
+    id: WidgetId,
+    sense: Sense,
+}
+
 struct StoredAppearance {
     background: Color,
     border: StoredBorder,
     radius: BorderRadius,
     opacity: f32,
     replace: bool,
-    shadow: Option<Shadow>,
 }
 
 enum StoredBorder {
@@ -68,25 +90,91 @@ enum StoredBorder {
     },
 }
 
+enum ContentRef {
+    None,
+    Text(usize),
+    Image(usize),
+}
+
+impl NodeId {
+    const NONE: Self = Self(0);
+    const ROOT: Self = Self(1);
+
+    fn new(index: usize) -> Self {
+        Self(u32::try_from(index + 1).expect("too many elements in one frame"))
+    }
+
+    fn index(self) -> usize {
+        self.0.checked_sub(1).expect("missing element") as usize
+    }
+
+    fn some(self) -> Option<Self> {
+        (self != Self::NONE).then_some(self)
+    }
+}
+
+impl PayloadId {
+    const NONE: Self = Self(0);
+
+    fn new(index: usize) -> Self {
+        Self(u32::try_from(index + 1).expect("too many element payloads in one frame"))
+    }
+
+    fn get(self) -> Option<usize> {
+        self.0.checked_sub(1).map(|index| index as usize)
+    }
+}
+
+impl ContentId {
+    const IMAGE: u32 = 1 << 31;
+    const NONE: Self = Self(0);
+
+    fn text(index: usize) -> Self {
+        let id = u32::try_from(index + 1).expect("too much text in one frame");
+        assert!(id < Self::IMAGE, "too much text in one frame");
+        Self(id)
+    }
+
+    fn image(index: usize) -> Self {
+        let id = u32::try_from(index + 1).expect("too many images in one frame");
+        assert!(id < Self::IMAGE, "too many images in one frame");
+        Self(Self::IMAGE | id)
+    }
+
+    fn get(self) -> ContentRef {
+        match self.0 {
+            0 => ContentRef::None,
+            id if id & Self::IMAGE == 0 => ContentRef::Text(id as usize - 1),
+            id => ContentRef::Image((id & !Self::IMAGE) as usize - 1),
+        }
+    }
+}
+
 impl FrameGraph {
     pub fn begin(&mut self, screen: LogicalRect) {
         self.nodes.clear();
         self.open.clear();
         self.scratch.clear();
+        self.texts.clear();
+        self.images.clear();
+        self.appearances.clear();
+        self.shadows.clear();
+        self.clip_specs.clear();
+        self.geometry.clear();
+        self.interactions.clear();
         self.gradient_stops.clear();
         self.nodes.push(Node {
-            first_child: None,
-            id: None,
-            last_child: None,
-            next_sibling: None,
+            first_child: NodeId::NONE,
+            last_child: NodeId::NONE,
+            next_sibling: NodeId::NONE,
             layout: Layout::vertical()
                 .width(Sizing::fixed(screen.width))
                 .height(Sizing::fixed(screen.height)),
-            appearance: StoredAppearance::default(),
-            content: Content::None,
-            clip_children: Clip::None,
+            content: ContentId::NONE,
+            appearance: PayloadId::NONE,
+            shadow: PayloadId::NONE,
+            clip_spec: PayloadId::NONE,
             offset: LogicalPoint::default(),
-            interaction: None,
             intrinsic: LogicalSize::default(),
             area: screen,
             clip: ClipId::default(),
@@ -94,7 +182,7 @@ impl FrameGraph {
             clip_bounds: screen,
             content_clip_bounds: screen,
         });
-        self.open.push(NodeId(0));
+        self.open.push(NodeId::ROOT);
     }
 
     pub fn push(&mut self, element: Element<'_>) -> NodeId {
@@ -102,19 +190,27 @@ impl FrameGraph {
             .open
             .last()
             .expect("element declaration requires a root");
-        let node = NodeId(self.nodes.len());
-        let appearance = self.store_appearance(element.appearance);
+        let node = NodeId::new(self.nodes.len());
+        let content = self.store_content(element.content);
+        let (appearance, shadow) = self.store_appearance(element.appearance);
+        let clip_spec = match element.clip {
+            Clip::None => PayloadId::NONE,
+            clip => {
+                let id = PayloadId::new(self.clip_specs.len());
+                self.clip_specs.push(clip);
+                id
+            }
+        };
         self.nodes.push(Node {
-            id: element.id,
-            first_child: None,
-            last_child: None,
-            next_sibling: None,
+            first_child: NodeId::NONE,
+            last_child: NodeId::NONE,
+            next_sibling: NodeId::NONE,
             layout: element.layout,
             appearance,
-            content: element.content,
-            clip_children: element.clip,
+            shadow,
+            content,
+            clip_spec,
             offset: element.offset,
-            interaction: element.interaction,
             intrinsic: LogicalSize::default(),
             area: LogicalRect::default(),
             clip: ClipId::default(),
@@ -122,44 +218,82 @@ impl FrameGraph {
             clip_bounds: LogicalRect::default(),
             content_clip_bounds: LogicalRect::default(),
         });
-        if let Some(last) = self.nodes[parent.0].last_child {
-            self.nodes[last.0].next_sibling = Some(node);
+        if let Some(last) = self.nodes[parent.index()].last_child.some() {
+            self.nodes[last.index()].next_sibling = node;
         } else {
-            self.nodes[parent.0].first_child = Some(node);
+            self.nodes[parent.index()].first_child = node;
         }
-        self.nodes[parent.0].last_child = Some(node);
+        self.nodes[parent.index()].last_child = node;
+        if let Some(id) = element.id {
+            self.geometry.push(GeometryRecord { node, id });
+        }
+        if let Some((id, sense)) = element.interaction {
+            self.interactions
+                .push(InteractionRecord { node, id, sense });
+        }
         self.open.push(node);
         node
     }
 
     pub fn set_appearance(&mut self, node: NodeId, appearance: Appearance<'_>) {
-        let appearance = self.store_appearance(appearance);
-        self.nodes[node.0].appearance = appearance;
+        let (appearance, shadow) = self.store_appearance(appearance);
+        self.nodes[node.index()].appearance = appearance;
+        self.nodes[node.index()].shadow = shadow;
     }
 
-    fn store_appearance(&mut self, appearance: Appearance<'_>) -> StoredAppearance {
-        let border = match appearance.border {
-            Border::None => StoredBorder::None,
-            Border::Solid { width, color } => StoredBorder::Solid { width, color },
-            Border::Gradient { width, gradient } => {
-                let start = self.gradient_stops.len();
-                self.gradient_stops.extend_from_slice(gradient.stops);
-                StoredBorder::Gradient {
-                    width,
-                    angle_degrees: gradient.angle_degrees,
-                    start,
-                    len: gradient.stops.len(),
-                }
+    fn store_content(&mut self, content: Content) -> ContentId {
+        match content {
+            Content::None => ContentId::NONE,
+            Content::Text(text) => {
+                let id = ContentId::text(self.texts.len());
+                self.texts.push(text);
+                id
             }
-        };
-        StoredAppearance {
-            background: appearance.background,
-            border,
-            radius: appearance.radius,
-            opacity: appearance.opacity,
-            replace: appearance.replace,
-            shadow: appearance.shadow,
+            Content::Image(image) => {
+                let id = ContentId::image(self.images.len());
+                self.images.push(image);
+                id
+            }
         }
+    }
+
+    fn store_appearance(&mut self, appearance: Appearance<'_>) -> (PayloadId, PayloadId) {
+        let stored = if appearance.background != Color::TRANSPARENT
+            || !matches!(appearance.border, Border::None)
+            || appearance.replace
+        {
+            let border = match appearance.border {
+                Border::None => StoredBorder::None,
+                Border::Solid { width, color } => StoredBorder::Solid { width, color },
+                Border::Gradient { width, gradient } => {
+                    let start = self.gradient_stops.len();
+                    self.gradient_stops.extend_from_slice(gradient.stops);
+                    StoredBorder::Gradient {
+                        width,
+                        angle_degrees: gradient.angle_degrees,
+                        start,
+                        len: gradient.stops.len(),
+                    }
+                }
+            };
+            let id = PayloadId::new(self.appearances.len());
+            self.appearances.push(StoredAppearance {
+                background: appearance.background,
+                border,
+                radius: appearance.radius,
+                opacity: appearance.opacity,
+                replace: appearance.replace,
+            });
+            id
+        } else {
+            PayloadId::NONE
+        };
+        let shadow = appearance.shadow.map_or(PayloadId::NONE, |shadow| {
+            let id = PayloadId::new(self.shadows.len());
+            self.shadows.push(shadow);
+            id
+        });
+        (stored, shadow)
     }
 
     pub fn close(&mut self, node: NodeId) {
@@ -174,7 +308,11 @@ impl FrameGraph {
         geometry: &mut GeometryState,
         scale_factor: f32,
     ) {
-        assert_eq!(self.open, [NodeId(0)], "an element scope was not dropped");
+        assert_eq!(
+            self.open,
+            [NodeId::ROOT],
+            "an element scope was not dropped"
+        );
         self.measure_intrinsic(platform);
         self.resolve_axis(Axis::Horizontal);
         self.measure_wrapped_text(platform);
@@ -183,14 +321,24 @@ impl FrameGraph {
         self.resolve_clips(commands);
         self.emit(platform, commands, scale_factor);
         self.register_hits(interaction, scale_factor);
-        for node in &self.nodes {
-            if let Some(id) = node.id {
-                geometry.register(id, ElementGeometry { area: node.area });
-            }
+        for record in &self.geometry {
+            geometry.register(
+                record.id,
+                ElementGeometry {
+                    area: self.nodes[record.node.index()].area,
+                },
+            );
         }
         self.nodes.clear();
         self.open.clear();
         self.scratch.clear();
+        self.texts.clear();
+        self.images.clear();
+        self.appearances.clear();
+        self.shadows.clear();
+        self.clip_specs.clear();
+        self.geometry.clear();
+        self.interactions.clear();
         self.gradient_stops.clear();
     }
 
@@ -201,34 +349,45 @@ impl FrameGraph {
             heap_bytes: self.nodes.capacity() * size_of::<Node>()
                 + self.open.capacity() * size_of::<NodeId>()
                 + self.scratch.capacity() * size_of::<NodeId>()
+                + self.texts.capacity() * size_of::<TextContent>()
+                + self.images.capacity() * size_of::<ImageContent>()
+                + self.appearances.capacity() * size_of::<StoredAppearance>()
+                + self.shadows.capacity() * size_of::<Shadow>()
+                + self.clip_specs.capacity() * size_of::<Clip>()
+                + self.geometry.capacity() * size_of::<GeometryRecord>()
+                + self.interactions.capacity() * size_of::<InteractionRecord>()
                 + self.gradient_stops.capacity() * size_of::<crate::paint::GradientStop>(),
         }
     }
 
     fn measure_intrinsic(&mut self, platform: &mut Platform) {
         for node in &mut self.nodes {
-            node.intrinsic = match node.content {
-                Content::None => LogicalSize::default(),
-                Content::Text(text) => platform.measure_text(&TextLayoutRequest {
-                    text: text.text,
-                    style: text.style,
-                    wrap: TextWrap::None,
-                    max_width: None,
-                    max_lines: text.options.max_lines,
-                }),
-                Content::Image(image) => image.intrinsic,
+            node.intrinsic = match node.content.get() {
+                ContentRef::None => LogicalSize::default(),
+                ContentRef::Text(index) => {
+                    let text = self.texts[index];
+                    platform.measure_text(&TextLayoutRequest {
+                        text: text.text,
+                        style: text.style,
+                        wrap: TextWrap::None,
+                        max_width: None,
+                        max_lines: text.options.max_lines,
+                    })
+                }
+                ContentRef::Image(index) => self.images[index].intrinsic,
             };
         }
         for index in (0..self.nodes.len()).rev() {
-            self.measure_container(NodeId(index), true);
+            self.measure_container(NodeId::new(index), true);
         }
     }
 
     fn measure_wrapped_text(&mut self, platform: &mut Platform) {
         for node in &mut self.nodes {
-            let Content::Text(text) = node.content else {
+            let ContentRef::Text(index) = node.content.get() else {
                 continue;
             };
+            let text = self.texts[index];
             if text.options.wrap == TextWrap::None {
                 continue;
             }
@@ -236,7 +395,7 @@ impl FrameGraph {
                 text: text.text,
                 style: text.style,
                 wrap: text.options.wrap,
-                max_width: (text.options.wrap != TextWrap::None).then_some(node.area.width),
+                max_width: Some(node.area.width),
                 max_lines: text.options.max_lines,
             });
         }
@@ -244,20 +403,20 @@ impl FrameGraph {
 
     fn measure_container_heights(&mut self) {
         for index in (0..self.nodes.len()).rev() {
-            self.measure_container(NodeId(index), false);
+            self.measure_container(NodeId::new(index), false);
         }
     }
 
     fn measure_container(&mut self, id: NodeId, width: bool) {
-        let Some(mut child) = self.nodes[id.0].first_child else {
+        let Some(mut child) = self.nodes[id.index()].first_child.some() else {
             return;
         };
-        let layout = self.nodes[id.0].layout;
+        let layout = self.nodes[id.index()].layout;
         let mut main: f32 = 0.0;
         let mut cross: f32 = 0.0;
         let mut count = 0usize;
         loop {
-            let node = &self.nodes[child.0];
+            let node = &self.nodes[child.index()];
             let (main_axis, cross_axis) = match layout.axis {
                 Axis::Horizontal => (Axis::Horizontal, Axis::Vertical),
                 Axis::Vertical => (Axis::Vertical, Axis::Horizontal),
@@ -271,7 +430,7 @@ impl FrameGraph {
             main += child_main;
             cross = cross.max(child_cross);
             count += 1;
-            let Some(next) = self.nodes[child.0].next_sibling else {
+            let Some(next) = self.nodes[child.index()].next_sibling.some() else {
                 break;
             };
             child = next;
@@ -288,41 +447,41 @@ impl FrameGraph {
             },
         };
         if width {
-            self.nodes[id.0].intrinsic.width = measured.width;
+            self.nodes[id.index()].intrinsic.width = measured.width;
         } else {
-            self.nodes[id.0].intrinsic.height = measured.height;
+            self.nodes[id.index()].intrinsic.height = measured.height;
         }
     }
 
     fn resolve_axis(&mut self, axis: Axis) {
         self.scratch.clear();
-        self.scratch.push(NodeId(0));
+        self.scratch.push(NodeId::ROOT);
         while let Some(parent) = self.scratch.pop() {
             self.resolve_children(parent, axis);
-            let mut child = self.nodes[parent.0].first_child;
-            while let Some(id) = child {
+            let mut child = self.nodes[parent.index()].first_child;
+            while let Some(id) = child.some() {
                 self.scratch.push(id);
-                child = self.nodes[id.0].next_sibling;
+                child = self.nodes[id.index()].next_sibling;
             }
         }
     }
 
     fn resolve_children(&mut self, parent: NodeId, axis: Axis) {
-        let layout = self.nodes[parent.0].layout;
-        let Some(mut child) = self.nodes[parent.0].first_child else {
+        let layout = self.nodes[parent.index()].layout;
+        let Some(mut child) = self.nodes[parent.index()].first_child.some() else {
             return;
         };
-        let parent_area = self.nodes[parent.0].area;
+        let parent_area = self.nodes[parent.index()].area;
         let (origin, available, flow, leading, trailing) = match axis {
             Axis::Horizontal => (
-                parent_area.x + self.nodes[parent.0].offset.x,
+                parent_area.x + self.nodes[parent.index()].offset.x,
                 parent_area.width,
                 layout.axis == Axis::Horizontal,
                 layout.padding.left,
                 layout.padding.right,
             ),
             Axis::Vertical => (
-                parent_area.y + self.nodes[parent.0].offset.y,
+                parent_area.y + self.nodes[parent.index()].offset.y,
                 parent_area.height,
                 layout.axis == Axis::Vertical,
                 layout.padding.top,
@@ -333,8 +492,8 @@ impl FrameGraph {
 
         if !flow {
             loop {
-                let sizing = self.nodes[child.0].sizing(axis);
-                let intrinsic = self.nodes[child.0].intrinsic(axis);
+                let sizing = self.nodes[child.index()].sizing(axis);
+                let intrinsic = self.nodes[child.index()].intrinsic(axis);
                 let mut size = sizing.resolve(intrinsic, available, true);
                 if layout.align == Align::Stretch && matches!(sizing, Sizing::Fit { .. }) {
                     size = sizing.clamp(available);
@@ -344,8 +503,8 @@ impl FrameGraph {
                     Align::Center => (available - size).max(0.0) / 2.0,
                     Align::End => (available - size).max(0.0),
                 };
-                self.nodes[child.0].set_axis(axis, origin + leading + offset, size);
-                let Some(next) = self.nodes[child.0].next_sibling else {
+                self.nodes[child.index()].set_axis(axis, origin + leading + offset, size);
+                let Some(next) = self.nodes[child.index()].next_sibling.some() else {
                     break;
                 };
                 child = next;
@@ -357,7 +516,7 @@ impl FrameGraph {
         let mut grow = 0usize;
         let mut used = 0.0;
         loop {
-            let node = &mut self.nodes[child.0];
+            let node = &mut self.nodes[child.index()];
             let sizing = node.sizing(axis);
             let size = sizing.resolve(
                 node.intrinsic(axis),
@@ -372,7 +531,7 @@ impl FrameGraph {
             used += size;
             count += 1;
             grow += usize::from(matches!(sizing, Sizing::Grow { .. }));
-            let Some(next) = node.next_sibling else {
+            let Some(next) = node.next_sibling.some() else {
                 break;
             };
             child = next;
@@ -381,26 +540,26 @@ impl FrameGraph {
         let free = available - used - gaps;
         if free < 0.0 && !layout.overflow {
             let mut capacity = 0.0;
-            child = self.nodes[parent.0].first_child.unwrap();
+            child = self.nodes[parent.index()].first_child;
             loop {
-                let node = &self.nodes[child.0];
+                let node = &self.nodes[child.index()];
                 capacity += node.size(axis) - node.sizing(axis).minimum();
-                let Some(next) = node.next_sibling else {
+                let Some(next) = node.next_sibling.some() else {
                     break;
                 };
                 child = next;
             }
             if capacity > 0.0 {
                 let deficit = (-free).min(capacity);
-                child = self.nodes[parent.0].first_child.unwrap();
+                child = self.nodes[parent.index()].first_child;
                 loop {
-                    let node = &mut self.nodes[child.0];
+                    let node = &mut self.nodes[child.index()];
                     let available_shrink = node.size(axis) - node.sizing(axis).minimum();
                     node.set_size(
                         axis,
                         node.size(axis) - deficit * available_shrink / capacity,
                     );
-                    let Some(next) = node.next_sibling else {
+                    let Some(next) = node.next_sibling.some() else {
                         break;
                     };
                     child = next;
@@ -410,13 +569,13 @@ impl FrameGraph {
         let free = free.max(0.0);
         if grow != 0 {
             let share = free / grow as f32;
-            child = self.nodes[parent.0].first_child.unwrap();
+            child = self.nodes[parent.index()].first_child;
             loop {
-                let node = &mut self.nodes[child.0];
+                let node = &mut self.nodes[child.index()];
                 if let Sizing::Grow { .. } = node.sizing(axis) {
                     node.set_size(axis, node.sizing(axis).clamp(node.size(axis) + share));
                 }
-                let Some(next) = node.next_sibling else {
+                let Some(next) = node.next_sibling.some() else {
                     break;
                 };
                 child = next;
@@ -441,12 +600,12 @@ impl FrameGraph {
             _ => (0.0, 0.0),
         };
         let mut cursor = origin + leading + offset;
-        child = self.nodes[parent.0].first_child.unwrap();
+        child = self.nodes[parent.index()].first_child;
         loop {
-            let size = self.nodes[child.0].size(axis);
-            self.nodes[child.0].set_axis(axis, cursor, size);
+            let size = self.nodes[child.index()].size(axis);
+            self.nodes[child.index()].set_axis(axis, cursor, size);
             cursor += size + layout.gap.max(0.0) + extra_gap;
-            let Some(next) = self.nodes[child.0].next_sibling else {
+            let Some(next) = self.nodes[child.index()].next_sibling.some() else {
                 break;
             };
             child = next;
@@ -455,10 +614,10 @@ impl FrameGraph {
 
     fn children_size(&self, parent: NodeId, axis: Axis) -> f32 {
         let mut total = 0.0;
-        let mut child = self.nodes[parent.0].first_child;
-        while let Some(id) = child {
-            total += self.nodes[id.0].size(axis);
-            child = self.nodes[id.0].next_sibling;
+        let mut child = self.nodes[parent.index()].first_child;
+        while let Some(id) = child.some() {
+            total += self.nodes[id.index()].size(axis);
+            child = self.nodes[id.index()].next_sibling;
         }
         total
     }
@@ -466,7 +625,11 @@ impl FrameGraph {
     fn resolve_clips(&mut self, commands: &mut CommandList) {
         self.nodes[0].clip = ClipId::default();
         for index in 0..self.nodes.len() {
-            let child_clip = match self.nodes[index].clip_children {
+            let clip = self.nodes[index]
+                .clip_spec
+                .get()
+                .map_or(Clip::None, |clip| self.clip_specs[clip]);
+            let child_clip = match clip {
                 Clip::None => self.nodes[index].clip,
                 Clip::Bounds => commands.push_clip(
                     self.nodes[index].clip,
@@ -478,7 +641,7 @@ impl FrameGraph {
                 }
             };
             self.nodes[index].content_clip = child_clip;
-            self.nodes[index].content_clip_bounds = match self.nodes[index].clip_children {
+            self.nodes[index].content_clip_bounds = match clip {
                 Clip::None => self.nodes[index].clip_bounds,
                 Clip::Bounds | Clip::Rounded(_) => self.nodes[index]
                     .clip_bounds
@@ -486,17 +649,17 @@ impl FrameGraph {
                     .unwrap_or_default(),
             };
             let mut child = self.nodes[index].first_child;
-            while let Some(child_id) = child {
-                self.nodes[child_id.0].clip = child_clip;
-                self.nodes[child_id.0].clip_bounds = self.nodes[index].content_clip_bounds;
-                child = self.nodes[child_id.0].next_sibling;
+            while let Some(child_id) = child.some() {
+                self.nodes[child_id.index()].clip = child_clip;
+                self.nodes[child_id.index()].clip_bounds = self.nodes[index].content_clip_bounds;
+                child = self.nodes[child_id.index()].next_sibling;
             }
         }
     }
 
     fn emit(&self, platform: &mut Platform, commands: &mut CommandList, scale_factor: f32) {
         for node in self.nodes.iter().skip(1) {
-            if let Some(shadow) = node.appearance.shadow {
+            if let Some(shadow) = node.shadow.get().map(|index| self.shadows[index]) {
                 let shadow = BoxShadow::new(node.area, shadow.color)
                     .radius(shadow.radius)
                     .offset(shadow.offset_x, shadow.offset_y)
@@ -506,8 +669,8 @@ impl FrameGraph {
                     commands.push_box_shadow(shadow, bounds, node.clip);
                 }
             }
-            if node.appearance.paints() {
-                let border = match node.appearance.border {
+            if let Some(appearance) = node.appearance.get().map(|index| &self.appearances[index]) {
+                let border = match appearance.border {
                     StoredBorder::None => Border::None,
                     StoredBorder::Solid { width, color } => Border::Solid { width, color },
                     StoredBorder::Gradient {
@@ -523,19 +686,20 @@ impl FrameGraph {
                 };
                 let rectangle = Rectangle {
                     area: node.area,
-                    background: node.appearance.background,
+                    background: appearance.background,
                     border,
-                    radius: node.appearance.radius,
-                    opacity: node.appearance.opacity,
-                    replace: node.appearance.replace,
+                    radius: appearance.radius,
+                    opacity: appearance.opacity,
+                    replace: appearance.replace,
                 };
                 if let Some(bounds) = node.visible_bounds(node.area, false, scale_factor) {
                     commands.push_rectangle(rectangle, bounds, node.clip);
                 }
             }
-            match node.content {
-                Content::None => {}
-                Content::Text(text) => {
+            match node.content.get() {
+                ContentRef::None => {}
+                ContentRef::Text(index) => {
+                    let text = self.texts[index];
                     let request = TextRequest {
                         text: text.text,
                         area: node.area,
@@ -595,7 +759,8 @@ impl FrameGraph {
                         }
                     }
                 }
-                Content::Image(image) => {
+                ContentRef::Image(index) => {
+                    let image = self.images[index];
                     if let Some(bounds) = node.visible_bounds(node.area, true, scale_factor) {
                         commands.push_image(
                             ImageRequest {
@@ -619,15 +784,13 @@ impl FrameGraph {
     }
 
     fn register_hits(&self, interaction: &mut InteractionState, scale_factor: f32) {
-        for node in &self.nodes {
-            let Some((id, sense)) = node.interaction else {
-                continue;
-            };
+        for record in &self.interactions {
+            let node = &self.nodes[record.node.index()];
             let area = node
                 .area
                 .intersection(node.clip_bounds)
                 .map(|area| area.to_physical(scale_factor));
-            interaction.register(id, area, sense);
+            interaction.register(record.id, area, record.sense);
         }
     }
 }
@@ -712,27 +875,6 @@ impl Sizing {
         match self {
             Self::Fit { min, .. } | Self::Grow { min, .. } => min.max(0.0),
             Self::Fixed(size) => size.max(0.0),
-        }
-    }
-}
-
-impl StoredAppearance {
-    fn paints(&self) -> bool {
-        self.background != Color::TRANSPARENT
-            || !matches!(self.border, StoredBorder::None)
-            || self.replace
-    }
-}
-
-impl Default for StoredAppearance {
-    fn default() -> Self {
-        Self {
-            background: Color::TRANSPARENT,
-            border: StoredBorder::None,
-            radius: BorderRadius::default(),
-            opacity: 1.0,
-            replace: false,
-            shadow: None,
         }
     }
 }
