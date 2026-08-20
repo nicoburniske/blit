@@ -11,6 +11,45 @@ use crate::{
     style::{Appearance, Clip, Shadow},
 };
 
+/// absolute placement of a container outside its parent's flow
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Absolute {
+    pub target: PositionTarget,
+    pub target_anchor: Anchor,
+    pub child_anchor: Anchor,
+    pub offset: LogicalPoint,
+}
+
+/// coordinate space used by absolute placement
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PositionTarget {
+    #[default]
+    Parent,
+    Screen,
+}
+
+/// point on a rectangle used for absolute attachment
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Anchor {
+    #[default]
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    Center,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+}
+
+/// pending absolute placement consumed by a container declaration
+#[must_use = "absolute placement must open a row, column, or flow"]
+pub struct Positioned<'a> {
+    ui: &'a mut Ui,
+    absolute: Absolute,
+}
+
 /// configuration for a child-bearing layout scope
 pub struct Container<'a> {
     pub id: Option<WidgetId>,
@@ -76,6 +115,58 @@ pub enum Justify {
     SpaceBetween,
     SpaceAround,
     SpaceEvenly,
+}
+
+impl Absolute {
+    pub const fn at(x: f32, y: f32) -> Self {
+        Self {
+            target: PositionTarget::Parent,
+            target_anchor: Anchor::TopLeft,
+            child_anchor: Anchor::TopLeft,
+            offset: LogicalPoint { x, y },
+        }
+    }
+
+    pub const fn screen(x: f32, y: f32) -> Self {
+        Self {
+            target: PositionTarget::Screen,
+            ..Self::at(x, y)
+        }
+    }
+
+    pub const fn attach(target: Anchor, child: Anchor) -> Self {
+        Self::at(0.0, 0.0).anchors(target, child)
+    }
+
+    pub const fn relative_to(mut self, target: PositionTarget) -> Self {
+        self.target = target;
+        self
+    }
+
+    pub const fn anchors(mut self, target: Anchor, child: Anchor) -> Self {
+        self.target_anchor = target;
+        self.child_anchor = child;
+        self
+    }
+
+    pub const fn offset(mut self, x: f32, y: f32) -> Self {
+        self.offset = LogicalPoint { x, y };
+        self
+    }
+}
+
+impl<'a> Positioned<'a> {
+    pub fn row(self, container: Container<'_>) -> Scope<'a> {
+        open_positioned(self.ui, Axis::Horizontal, container, self.absolute)
+    }
+
+    pub fn column(self, container: Container<'_>) -> Scope<'a> {
+        open_positioned(self.ui, Axis::Vertical, container, self.absolute)
+    }
+
+    pub fn flow(self, axis: Axis, container: Container<'_>) -> Scope<'a> {
+        open_positioned(self.ui, axis, container, self.absolute)
+    }
 }
 
 impl<'a> Container<'a> {
@@ -300,8 +391,26 @@ impl Drop for Scope<'_> {
     }
 }
 
+pub(crate) fn positioned(ui: &mut Ui, absolute: Absolute) -> Positioned<'_> {
+    Positioned { ui, absolute }
+}
+
 pub(crate) fn open<'a>(ui: &'a mut Ui, axis: Axis, container: Container<'_>) -> Scope<'a> {
     let (node, interaction) = ui.open_container(axis, container);
+    Scope {
+        ui,
+        node,
+        interaction,
+    }
+}
+
+fn open_positioned<'a>(
+    ui: &'a mut Ui,
+    axis: Axis,
+    container: Container<'_>,
+    absolute: Absolute,
+) -> Scope<'a> {
+    let (node, interaction) = ui.open_absolute_container(axis, container, absolute);
     Scope {
         ui,
         node,

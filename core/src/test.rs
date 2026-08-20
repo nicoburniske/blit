@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::{
-    Align, Clip, Container, Justify, RepaintBuffer, Runtime, Sizing, Ui,
+    Absolute, Align, Anchor, Clip, Container, Justify, RepaintBuffer, Runtime, Sizing, Ui,
     animation::Easing,
     color::Color,
     command_list::{ClipId, Command, CommandList},
@@ -181,6 +181,93 @@ fn container_scopes_and_rectangle_leaves_resolve_layout() {
                 x: 4.0,
                 y: 0.0,
                 width: 6.0,
+                height: 4.0,
+            },
+        ]
+    );
+}
+
+#[test]
+fn absolute_containers_do_not_participate_in_flow() {
+    let mut runtime = Runtime::new(TestPlatform::default());
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        let mut row = ui.row(Container::new().fixed(10.0, 10.0).gap(2.0));
+        row.add(
+            widget::Rectangle::new()
+                .fixed(2.0, 2.0)
+                .background(Color::BLACK),
+        );
+        row.absolute(Absolute::at(3.0, -1.0))
+            .column(Container::new().fixed(3.0, 2.0).background(Color::GRAY));
+        row.add(
+            widget::Rectangle::new()
+                .width(Sizing::grow())
+                .height(Sizing::fixed(2.0))
+                .background(Color::WHITE),
+        );
+        row.absolute(Absolute::screen(0.0, 0.0).anchors(Anchor::BottomRight, Anchor::BottomRight))
+            .column(Container::new().fixed(2.0, 2.0).background(Color::GRAY));
+    });
+
+    assert_eq!(
+        runtime.platform().rectangle_areas,
+        [
+            LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 2.0,
+                height: 2.0,
+            },
+            LogicalRect {
+                x: 3.0,
+                y: -1.0,
+                width: 3.0,
+                height: 2.0,
+            },
+            LogicalRect {
+                x: 4.0,
+                y: 0.0,
+                width: 6.0,
+                height: 2.0,
+            },
+            LogicalRect {
+                x: 8.0,
+                y: 8.0,
+                width: 2.0,
+                height: 2.0,
+            },
+        ]
+    );
+}
+
+#[test]
+fn absolute_container_fits_children_before_anchoring() {
+    let mut runtime = Runtime::new(TestPlatform::default());
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        let mut parent = ui.column(Container::new().fixed(10.0, 10.0));
+        let mut absolute = parent
+            .absolute(Absolute::attach(Anchor::BottomRight, Anchor::BottomRight).offset(-1.0, -2.0))
+            .column(Container::new().background(Color::GRAY));
+        absolute.add(
+            widget::Rectangle::new()
+                .fixed(3.0, 4.0)
+                .background(Color::WHITE),
+        );
+    });
+
+    assert_eq!(
+        runtime.platform().rectangle_areas,
+        [
+            LogicalRect {
+                x: 6.0,
+                y: 4.0,
+                width: 3.0,
+                height: 4.0,
+            },
+            LogicalRect {
+                x: 6.0,
+                y: 4.0,
+                width: 3.0,
                 height: 4.0,
             },
         ]

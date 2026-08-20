@@ -1,5 +1,5 @@
 use blit::{
-    Align, Axis, Clip, Container, Justify, Sizing, Ui,
+    Absolute, Align, Anchor, Axis, Clip, Container, Justify, Sizing, Ui,
     geometry::LogicalInsets,
     interact::{Sense, WidgetId},
     paint::{FontId, HorizontalAlign, TextWrap},
@@ -360,6 +360,30 @@ impl Application for Showcase {
                                     .text_size(11.0 * zoom)
                                     .align(HorizontalAlign::Center),
                             );
+                            let anchor = match index {
+                                0 => Some(Anchor::TopRight),
+                                4 => Some(Anchor::BottomLeft),
+                                9 => Some(Anchor::BottomRight),
+                                _ => None,
+                            };
+                            if let Some(anchor) = anchor {
+                                let mut badge = rectangle
+                                    .absolute(Absolute::attach(anchor, Anchor::Center))
+                                    .row(
+                                        Container::new()
+                                            .fixed((28.0 * zoom).max(20.0), (14.0 * zoom).max(10.0))
+                                            .align(Align::Center)
+                                            .justify(Justify::Center)
+                                            .background(colors::BACKGROUND)
+                                            .border(1.0, colors::WHITE)
+                                            .uniform_radius(5.0),
+                                    );
+                                badge.add(
+                                    Text::new("ABS")
+                                        .color(colors::WHITE)
+                                        .text_size((8.0 * zoom).max(7.0)),
+                                );
+                            }
                         }
                     }
                     {
@@ -383,6 +407,25 @@ impl Application for Showcase {
                                 })
                                 .uniform_radius(1.5),
                         );
+                        if interaction.hovered || interaction.dragged {
+                            let mut readout = grip
+                                .absolute(
+                                    Absolute::attach(Anchor::Left, Anchor::Right).offset(-8.0, 0.0),
+                                )
+                                .row(
+                                    Container::new()
+                                        .padding(LogicalInsets {
+                                            top: 4.0,
+                                            right: 7.0,
+                                            bottom: 4.0,
+                                            left: 7.0,
+                                        })
+                                        .background(colors::BACKGROUND)
+                                        .border(1.0, colors::ACCENT)
+                                        .uniform_radius(5.0),
+                                );
+                            readout.add(Text::new("DRAG X").color(colors::TEXT).text_size(9.0));
+                        }
                         interaction.drag_delta.x
                     }
                 };
@@ -443,6 +486,38 @@ impl Application for Showcase {
                     (self.height + height_delta + corner_delta.y).clamp(180.0, max_height);
             }
         }
+
+        let mut screen_badge = root
+            .absolute(
+                Absolute::screen(0.0, 0.0)
+                    .anchors(Anchor::BottomRight, Anchor::BottomRight)
+                    .offset(-16.0, -16.0),
+            )
+            .row(
+                Container::new()
+                    .padding(LogicalInsets {
+                        top: 6.0,
+                        right: 10.0,
+                        bottom: 6.0,
+                        left: 10.0,
+                    })
+                    .gap(6.0)
+                    .align(Align::Center)
+                    .background(colors::SURFACE_HIGH)
+                    .border(1.0, colors::ACCENT)
+                    .uniform_radius(7.0),
+            );
+        screen_badge.add(
+            Rectangle::new()
+                .fixed(6.0, 6.0)
+                .background(colors::ACCENT)
+                .uniform_radius(3.0),
+        );
+        screen_badge.add(
+            Text::new("SCREEN ABSOLUTE")
+                .color(colors::TEXT)
+                .text_size(10.0),
+        );
     }
 }
 
