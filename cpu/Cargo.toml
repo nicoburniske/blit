@@ -10,3 +10,10 @@ blit = { workspace = true }
 blit_cache = { path = "../cache" }
 blit-font = { workspace = true }
 slotmap = "1"
+
+[dev-dependencies]
+divan = "0.1"
+
+[[bench]]
+name = "cpu"
+harness = false

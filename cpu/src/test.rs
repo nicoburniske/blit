@@ -1,7 +1,8 @@
 use std::{ops::Range, time::Duration};
 
 use blit::{
-    Element, Layout, RepaintBuffer, Runtime, Sizing,
+    Appearance, Clip, Content, Element, ImageContent, Layout, RepaintBuffer, Runtime, Shadow,
+    Sizing, TextContent,
     animation::Easing,
     color::Color,
     command_list::{ClipId, CommandList},
@@ -322,6 +323,173 @@ fn renderer_config() -> RendererConfig {
         paragraph_cache_capacity: 1024 * 1024,
         shadow_cache_capacity: 1024 * 1024,
     }
+}
+
+#[test]
+fn resolved_elements_match_direct_commands() {
+    let platform = RuntimePlatform {
+        renderer: Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config())
+            .strategy(Scanline::default()),
+        repaint_buffer: RepaintBuffer::Reused,
+    };
+    let mut runtime = Runtime::new(platform);
+    let image = runtime.erased_platform().create_image(ImageData::new(
+        ImagePixels::Owned([220, 80, 40].repeat(8 * 8).into_boxed_slice()),
+        ImageFormat::Rgb8,
+        8,
+        8,
+    ));
+    let stops = [
+        GradientStop::new(0.0, Color::WHITE),
+        GradientStop::new(1.0, Color::BLACK),
+    ];
+    let radius = BorderRadius {
+        top_left: 4.0,
+        top_right: 4.0,
+        bottom_right: 4.0,
+        bottom_left: 4.0,
+    };
+    let screen = LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 32.0,
+        height: 24.0,
+    };
+    let shadow = Shadow::new(Color::from_rgba8(20, 30, 40, 128))
+        .radius(radius)
+        .offset(1.0, 1.0)
+        .blur(1.0);
+
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        let mut panel = ui.element(
+            Element::new(
+                Layout::vertical()
+                    .width(Sizing::grow())
+                    .height(Sizing::grow()),
+            )
+            .appearance(
+                Appearance::new()
+                    .background(Color::from_rgba8(40, 70, 100, 255))
+                    .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
+                    .radius(radius)
+                    .shadow(shadow),
+            )
+            .clip(Clip::Rounded(radius)),
+        );
+        drop(
+            panel.element(
+                Element::new(
+                    Layout::vertical()
+                        .width(Sizing::fixed(8.0))
+                        .height(Sizing::fixed(8.0)),
+                )
+                .content(Content::Image(ImageContent {
+                    image: image.id(),
+                    intrinsic: LogicalSize {
+                        width: 8.0,
+                        height: 8.0,
+                    },
+                    fit: ImageFit::Fill,
+                    sampling: ImageSampling::Nearest,
+                    opacity: 1.0,
+                    colorize: None,
+                    nine_slice: None,
+                    horizontal_tiling: ImageTiling::None,
+                    vertical_tiling: ImageTiling::None,
+                })),
+            ),
+        );
+        drop(
+            panel.element(
+                Element::new(
+                    Layout::vertical()
+                        .width(Sizing::fixed(24.0))
+                        .height(Sizing::fixed(8.0)),
+                )
+                .content(Content::Text(TextContent {
+                    text: "M".into(),
+                    color: Color::WHITE,
+                    style: TextStyle::default(),
+                    options: TextOptions::default(),
+                    offset_x: 0.0,
+                    selection: None,
+                    caret: None,
+                })),
+            ),
+        );
+    });
+
+    let mut direct = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config())
+        .strategy(Scanline::default());
+    let direct_image = direct.create_image(ImageData::new(
+        ImagePixels::Owned([220, 80, 40].repeat(8 * 8).into_boxed_slice()),
+        ImageFormat::Rgb8,
+        8,
+        8,
+    ));
+    let mut commands = CommandList::default();
+    let box_shadow = BoxShadow::new(screen, Color::from_rgba8(20, 30, 40, 128))
+        .radius(radius)
+        .offset(1.0, 1.0)
+        .blur(1.0);
+    commands.push_box_shadow(
+        box_shadow,
+        box_shadow.bounds().to_physical(1.0),
+        ClipId::default(),
+    );
+    commands.push_rectangle(
+        Rectangle::new(screen)
+            .background(Color::from_rgba8(40, 70, 100, 255))
+            .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
+            .radius(radius),
+        screen.to_physical(1.0),
+        ClipId::default(),
+    );
+    let clip = commands.push_clip(ClipId::default(), screen, radius);
+    let image_area = LogicalRect {
+        width: 8.0,
+        height: 8.0,
+        ..LogicalRect::default()
+    };
+    commands.push_image(
+        ImageRequest {
+            image: direct_image,
+            area: image_area,
+            fit: ImageFit::Fill,
+            sampling: ImageSampling::Nearest,
+            opacity: 1.0,
+            colorize: None,
+            nine_slice: None,
+            horizontal_tiling: ImageTiling::None,
+            vertical_tiling: ImageTiling::None,
+        },
+        image_area.to_physical(1.0),
+        clip,
+    );
+    let text_area = LogicalRect {
+        y: 8.0,
+        width: 24.0,
+        height: 8.0,
+        ..LogicalRect::default()
+    };
+    commands.push_text(
+        TextRequest {
+            text: "M".into(),
+            area: text_area,
+            offset_x: 0.0,
+            color: Color::WHITE,
+            style: TextStyle::default(),
+            options: TextOptions::default(),
+        },
+        text_area.to_physical(1.0),
+        clip,
+    );
+    direct.render(&commands, &[screen.to_physical(1.0)]);
+
+    assert_eq!(
+        runtime.platform().renderer.buffer().pixels(),
+        direct.buffer().pixels()
+    );
 }
 
 #[test]
