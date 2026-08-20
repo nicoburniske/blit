@@ -120,6 +120,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                     continue;
                 }
                 match record.command {
+                    Command::Clear => self.context.commands.push_clear(record.bounds),
                     Command::Rectangle(rectangle) => {
                         self.prepare_rectangle(&rectangle, record.bounds, record.clip.0)
                     }

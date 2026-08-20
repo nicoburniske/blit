@@ -49,6 +49,7 @@ impl Application for Showcase {
     fn input(&mut self, _: Self::Input) {}
 
     fn render(&mut self, ui: &mut Ui) {
+        ui.clear();
         let screen = ui.screen();
         let max_width = (screen.width - 420.0).max(240.0);
         let max_height = (screen.height - 190.0).max(180.0);
@@ -60,8 +61,7 @@ impl Application for Showcase {
                 .grow()
                 .padding(LogicalInsets::uniform(20.0))
                 .gap(16.0)
-                .background(colors::BACKGROUND)
-                .replace(true),
+                .background(colors::BACKGROUND),
         );
 
         {

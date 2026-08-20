@@ -87,6 +87,7 @@ struct ContentId(u32);
 
 #[derive(Default)]
 pub struct FrameGraph {
+    clear: bool,
     nodes: Vec<Node>,
     open: Vec<NodeId>,
     texts: Vec<TextContent>,
@@ -131,7 +132,6 @@ struct StoredAppearance {
     border: StoredBorder,
     radius: BorderRadius,
     opacity: f32,
-    replace: bool,
 }
 
 enum StoredBorder {
@@ -205,6 +205,7 @@ impl ContentId {
 
 impl FrameGraph {
     pub fn begin(&mut self, screen: LogicalRect) {
+        self.clear = false;
         self.nodes.clear();
         self.open.clear();
         self.texts.clear();
@@ -241,6 +242,10 @@ impl FrameGraph {
             clip_bounds: screen,
         });
         self.open.push(NodeId::ROOT);
+    }
+
+    pub fn clear(&mut self) {
+        self.clear = true;
     }
 
     pub fn add_container(&mut self, axis: Axis, container: Container<'_>) -> NodeId {
@@ -355,7 +360,6 @@ impl FrameGraph {
     fn store_appearance(&mut self, appearance: Appearance<'_>) -> (PayloadId, PayloadId) {
         let stored = if appearance.background != Color::TRANSPARENT
             || !matches!(appearance.border, Border::None)
-            || appearance.replace
         {
             let border = match appearance.border {
                 Border::None => StoredBorder::None,
@@ -377,7 +381,6 @@ impl FrameGraph {
                 border,
                 radius: appearance.radius,
                 opacity: appearance.opacity,
-                replace: appearance.replace,
             });
             id
         } else {
@@ -425,6 +428,9 @@ impl FrameGraph {
             self.measure_container(NodeId::new(index), Axis::Vertical);
         }
         self.resolve_axis(Axis::Vertical);
+        if self.clear {
+            commands.push_clear(self.nodes[0].area.to_physical(scale_factor));
+        }
         self.resolve_clips(commands);
         self.emit(platform, commands, scale_factor);
         self.register_hits(interaction, scale_factor);
@@ -743,7 +749,6 @@ impl FrameGraph {
                     border,
                     radius: appearance.radius,
                     opacity: appearance.opacity,
-                    replace: appearance.replace,
                 };
                 if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
                     commands.push_rectangle(rectangle, bounds, node.clip);

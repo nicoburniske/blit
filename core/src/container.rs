@@ -193,11 +193,6 @@ impl<'a> Container<'a> {
         self
     }
 
-    pub const fn replace(mut self, replace: bool) -> Self {
-        self.appearance.replace = replace;
-        self
-    }
-
     pub const fn shadow(mut self, shadow: Shadow) -> Self {
         self.appearance.shadow = Some(shadow);
         self
