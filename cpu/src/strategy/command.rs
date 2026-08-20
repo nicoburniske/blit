@@ -20,6 +20,7 @@ pub struct CommandList {
 }
 
 pub enum Payload<'a> {
+    Clear,
     Rectangle(&'a PreparedRectangle),
     GradientRectangle(&'a PreparedGradient, &'a [GradientStop]),
     Image(&'a PreparedImage),
@@ -37,6 +38,10 @@ pub struct PreparedText {
 impl CommandList {
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
+    }
+
+    pub fn push_clear(&mut self, bounds: PhysicalRect) {
+        self.push(StoredPayload::Clear, bounds, 0, true, false);
     }
 
     pub fn push_rectangle(
@@ -113,6 +118,7 @@ impl CommandList {
     #[inline]
     pub fn get(&self, id: CommandId) -> Payload<'_> {
         match &self.commands[id as usize].payload {
+            StoredPayload::Clear => Payload::Clear,
             StoredPayload::Rectangle(rectangle) => Payload::Rectangle(rectangle),
             StoredPayload::GradientRectangle { rectangle, stops } => Payload::GradientRectangle(
                 rectangle,
@@ -156,6 +162,7 @@ impl CommandList {
     pub fn overwrite_span(&self, id: CommandId, line: i32) -> Option<Range<i32>> {
         let bounds = self.horizontal_bounds(id);
         let span = match self.get(id) {
+            Payload::Clear => bounds.clone(),
             Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
             Payload::Image(_) => bounds.clone(),
             Payload::GradientRectangle(rectangle, _) => rectangle.overwrite_span(line)?,
@@ -206,6 +213,7 @@ struct StoredCommand {
 }
 
 enum StoredPayload {
+    Clear,
     Rectangle(PreparedRectangle),
     GradientRectangle {
         rectangle: PreparedGradient,

@@ -45,6 +45,10 @@ impl CommandList {
         &self.clips
     }
 
+    pub fn push_clear(&mut self, bounds: PhysicalRect) {
+        self.push(bounds, ClipId::default(), CommandKind::Clear)
+    }
+
     pub fn push_rectangle(&mut self, rectangle: Rectangle<'_>, bounds: PhysicalRect, clip: ClipId) {
         self.assert_clip(clip);
         let border = match rectangle.border {
@@ -73,7 +77,6 @@ impl CommandList {
                 border,
                 radius: rectangle.radius,
                 opacity: rectangle.opacity,
-                replace: rectangle.replace,
             }),
         });
     }
@@ -93,6 +96,7 @@ impl CommandList {
     pub fn get(&self, index: usize) -> Record<'_> {
         let stored = &self.commands[index];
         let command = match &stored.kind {
+            CommandKind::Clear => Command::Clear,
             CommandKind::Rectangle(rectangle) => {
                 let border = match rectangle.border {
                     StoredBorder::None => Border::None,
@@ -117,7 +121,6 @@ impl CommandList {
                     border,
                     radius: rectangle.radius,
                     opacity: rectangle.opacity,
-                    replace: rectangle.replace,
                 })
             }
             CommandKind::Image(image) => Command::Image(*image),
@@ -157,12 +160,12 @@ impl CommandList {
             return false;
         }
         match (&left.kind, &right.kind) {
+            (CommandKind::Clear, CommandKind::Clear) => true,
             (CommandKind::Rectangle(left), CommandKind::Rectangle(right)) => {
                 left.area == right.area
                     && left.background == right.background
                     && left.radius == right.radius
                     && left.opacity == right.opacity
-                    && left.replace == right.replace
                     && match (left.border, right.border) {
                         (StoredBorder::None, StoredBorder::None) => true,
                         (
@@ -436,6 +439,8 @@ pub struct Record<'a> {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Command<'a> {
+    /// restores target pixels to the renderer's default value
+    Clear,
     Rectangle(Rectangle<'a>),
     Image(ImageRequest),
     Text(TextRequest),
@@ -460,6 +465,7 @@ struct StoredCommand {
 }
 
 enum CommandKind {
+    Clear,
     Rectangle(StoredRectangle),
     Image(ImageRequest),
     Text(TextRequest),
@@ -472,7 +478,6 @@ struct StoredRectangle {
     border: StoredBorder,
     radius: BorderRadius,
     opacity: f32,
-    replace: bool,
 }
 
 #[derive(Clone, Copy)]

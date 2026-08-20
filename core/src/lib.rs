@@ -47,6 +47,11 @@ impl Ui {
         widget.build(self)
     }
 
+    /// restores damaged screen pixels to the render target's default value before painting
+    pub fn clear(&mut self) {
+        self.frame_mut().clear()
+    }
+
     pub fn row(&mut self, container: Container<'_>) -> Scope<'_> {
         container::open(self, Axis::Horizontal, container)
     }

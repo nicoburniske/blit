@@ -7,8 +7,6 @@ pub struct Rectangle<'a> {
     pub border: Border<'a>,
     pub radius: BorderRadius,
     pub opacity: f32,
-    /// replaces destination pixels in `area`, writing transparency outside rounded corners
-    pub replace: bool,
 }
 
 impl<'a> Rectangle<'a> {
@@ -19,7 +17,6 @@ impl<'a> Rectangle<'a> {
             border: Border::default(),
             radius: BorderRadius::default(),
             opacity: 1.0,
-            replace: false,
         }
     }
 
@@ -35,11 +32,6 @@ impl<'a> Rectangle<'a> {
 
     pub fn opacity(mut self, opacity: f32) -> Self {
         self.opacity = opacity;
-        self
-    }
-
-    pub fn replace(mut self, replace: bool) -> Self {
-        self.replace = replace;
         self
     }
 

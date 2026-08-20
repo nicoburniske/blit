@@ -2,7 +2,7 @@ use blit::geometry::PhysicalRect;
 use slotmap::{KeyData, SlotMap};
 
 use super::command::Payload;
-use crate::{PixelBuffer, PixelSpan, RendererImageId, StoredImage, TextRenderer};
+use crate::{Pixel, PixelBuffer, PixelSpan, RendererImageId, StoredImage, TextRenderer};
 
 #[inline(always)]
 pub fn draw_line<B: PixelBuffer>(
@@ -15,6 +15,12 @@ pub fn draw_line<B: PixelBuffer>(
     buffer: &mut B,
 ) {
     match payload {
+        Payload::Clear => {
+            let x = buffer.x_offset() as i32;
+            let start = (clip.x - x) as usize;
+            let end = start + clip.width as usize;
+            buffer.line_mut(line as usize)[start..end].fill(B::Pixel::background());
+        }
         Payload::Rectangle(rectangle) => {
             let covered;
             let rectangle = if coverage == 255 {

@@ -23,6 +23,7 @@ struct TestPlatform {
     paint_clips: Vec<ClipId>,
     rectangle_areas: Vec<LogicalRect>,
     text_areas: Vec<LogicalRect>,
+    clear_count: usize,
     text_widths: Vec<Option<f32>>,
     clip_count: usize,
     repaint_buffer: RepaintBuffer,
@@ -36,10 +37,12 @@ impl PlatformImpl for TestPlatform {
         self.paint_clips.clear();
         self.rectangle_areas.clear();
         self.text_areas.clear();
+        self.clear_count = 0;
         for record in commands.iter() {
             self.paint_bounds.push(record.bounds);
             self.paint_clips.push(record.clip);
             match record.command {
+                Command::Clear => self.clear_count += 1,
                 Command::Rectangle(rectangle) => self.rectangle_areas.push(rectangle.area),
                 Command::Text(text) => self.text_areas.push(text.area),
                 Command::Image(_) | Command::BoxShadow(_) => {}
@@ -126,6 +129,40 @@ impl PlatformImpl for TestPlatform {
     }
 
     fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
+}
+
+#[test]
+fn clear_is_the_stable_frame_background() {
+    let mut runtime = Runtime::new(TestPlatform::default());
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        ui.clear();
+        ui.add(
+            widget::Rectangle::new()
+                .fixed(2.0, 2.0)
+                .background(Color::WHITE),
+        );
+    });
+    runtime.render(Duration::ZERO, Input::None, |ui| ui.clear());
+
+    assert_eq!(runtime.platform().clear_count, 1);
+    assert_eq!(
+        runtime.platform().paint_bounds,
+        [PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+        }]
+    );
+    assert_eq!(
+        runtime.platform().damage,
+        [PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 2,
+        }]
+    );
 }
 
 #[test]

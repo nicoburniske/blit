@@ -12,7 +12,6 @@ pub struct Appearance<'a> {
     pub border: Border<'a>,
     pub radius: BorderRadius,
     pub opacity: f32,
-    pub replace: bool,
     pub shadow: Option<Shadow>,
 }
 
@@ -48,7 +47,6 @@ impl<'a> Appearance<'a> {
                 bottom_left: 0.0,
             },
             opacity: 1.0,
-            replace: false,
             shadow: None,
         }
     }
@@ -75,11 +73,6 @@ impl<'a> Appearance<'a> {
 
     pub const fn opacity(mut self, opacity: f32) -> Self {
         self.opacity = opacity;
-        self
-    }
-
-    pub const fn replace(mut self, replace: bool) -> Self {
-        self.replace = replace;
         self
     }
 

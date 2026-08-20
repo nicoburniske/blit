@@ -19,16 +19,12 @@ pub struct Prepared {
     border_width: i32,
     pub border_color: PremultipliedRgbaColor,
     pub inner_color: PremultipliedRgbaColor,
-    pub replace: bool,
 }
 
 impl Prepared {
     pub fn new(rectangle: &Rectangle<'_>, scale_factor: f32) -> Option<Self> {
         let geometry = rectangle.area.to_physical(scale_factor);
-        if geometry.width <= 0
-            || geometry.height <= 0
-            || (!rectangle.replace && rectangle.opacity <= 0.0)
-        {
+        if geometry.width <= 0 || geometry.height <= 0 || rectangle.opacity <= 0.0 {
             return None;
         }
         let (width, color) = match rectangle.border {
@@ -43,7 +39,7 @@ impl Prepared {
             border_width = 0;
         }
         let border_color = prepare_border_color(color, opacity, inner_color);
-        if !rectangle.replace && inner_color.alpha == 0 && border_width == 0 {
+        if inner_color.alpha == 0 && border_width == 0 {
             return None;
         }
         let radii = Radii::new(
@@ -65,14 +61,11 @@ impl Prepared {
             border_width,
             border_color,
             inner_color,
-            replace: rectangle.replace,
         })
     }
 
     pub fn overwrites(&self) -> bool {
-        self.replace
-            || self.inner_color.alpha == 255
-                && (self.border_width == 0 || self.border_color.alpha == 255)
+        self.inner_color.alpha == 255 && (self.border_width == 0 || self.border_color.alpha == 255)
     }
 
     pub fn overwrite_span(&self, line: i32) -> Option<Range<i32>> {
@@ -81,9 +74,6 @@ impl Prepared {
             || line >= self.geometry.y + self.geometry.height
         {
             return None;
-        }
-        if self.replace {
-            return Some(self.geometry.x..self.geometry.x + self.geometry.width);
         }
         let rounded = RoundedLine::new(self.geometry, self.radii, line)?;
         let start = rounded.full_start();
@@ -113,25 +103,15 @@ impl Prepared {
                 } else {
                     self.border_color
                 };
-                if self.replace {
-                    P::replace_slice(pixels, color);
-                } else {
-                    P::blend_slice(pixels, color);
-                }
+                P::blend_slice(pixels, color);
                 return;
             }
             let left = (self.inner.x - clipped.x).clamp(0, clipped.width) as usize;
             let right =
                 (self.inner.x + self.inner.width - clipped.x).clamp(0, clipped.width) as usize;
-            if self.replace {
-                P::replace_slice(&mut pixels[..left], self.border_color);
-                P::replace_slice(&mut pixels[left..right], self.inner_color);
-                P::replace_slice(&mut pixels[right..], self.border_color);
-            } else {
-                P::blend_slice(&mut pixels[..left], self.border_color);
-                P::blend_slice(&mut pixels[left..right], self.inner_color);
-                P::blend_slice(&mut pixels[right..], self.border_color);
-            }
+            P::blend_slice(&mut pixels[..left], self.border_color);
+            P::blend_slice(&mut pixels[left..right], self.inner_color);
+            P::blend_slice(&mut pixels[right..], self.border_color);
             return;
         }
         draw_line(
@@ -146,7 +126,6 @@ impl Prepared {
                 bottom_clip: self.geometry.y + self.geometry.height - clipped.y - clipped.height,
                 left_clip: clipped.x - self.geometry.x,
                 right_clip: self.geometry.x + self.geometry.width - clipped.x - clipped.width,
-                replace: self.replace,
             },
             pixels,
         );
@@ -163,7 +142,6 @@ pub struct Gradient {
     x_step: f32,
     y_step: f32,
     offset: f32,
-    replace: bool,
 }
 
 impl Gradient {
@@ -189,7 +167,7 @@ impl Gradient {
         let border_width = (width * scale_factor).round().max(0.0) as i32;
         if geometry.width <= 0
             || geometry.height <= 0
-            || (!rectangle.replace && rectangle.opacity <= 0.0)
+            || rectangle.opacity <= 0.0
             || border_width == 0
         {
             return None;
@@ -218,17 +196,15 @@ impl Gradient {
             x_step: direction_x / extent,
             y_step: direction_y / extent,
             offset: (0.5 * direction_x + 0.5 * direction_y - minimum) / extent,
-            replace: rectangle.replace,
         })
     }
 
     pub fn overwrites(&self) -> bool {
-        self.replace
+        false
     }
 
-    pub fn overwrite_span(&self, line: i32) -> Option<Range<i32>> {
-        (self.replace && line >= self.geometry.y && line < self.geometry.y + self.geometry.height)
-            .then_some(self.geometry.x..self.geometry.x + self.geometry.width)
+    pub fn overwrite_span(&self, _line: i32) -> Option<Range<i32>> {
+        None
     }
 
     pub fn draw_line<P: Pixel>(
@@ -266,11 +242,7 @@ impl Gradient {
             let right = (inner.x + inner.width - clipped.x).clamp(0, clipped.width) as usize;
             self.draw_span(stops, line, clipped.x, coverage, &mut pixels[..left]);
             let color = self.inner_color.coverage(coverage);
-            if self.replace {
-                P::replace_slice(&mut pixels[left..right], color);
-            } else {
-                P::blend_slice(&mut pixels[left..right], color);
-            }
+            P::blend_slice(&mut pixels[left..right], color);
             self.draw_span(
                 stops,
                 line,
@@ -295,7 +267,6 @@ impl Gradient {
                 bottom_clip: self.geometry.y + self.geometry.height - clipped.y - clipped.height,
                 left_clip: clipped.x - self.geometry.x,
                 right_clip: self.geometry.x + self.geometry.width - clipped.x - clipped.width,
-                replace: self.replace,
             },
             pixels,
             |x| sampler.sample(x).coverage(coverage),
@@ -317,11 +288,7 @@ impl Gradient {
         for (index, pixel) in pixels.iter_mut().enumerate() {
             let x = start + index as i32;
             let color = sampler.sample(x).coverage(coverage);
-            if self.replace {
-                pixel.replace(color);
-            } else {
-                pixel.blend(color);
-            }
+            pixel.blend(color);
         }
     }
 }

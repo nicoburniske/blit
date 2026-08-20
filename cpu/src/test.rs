@@ -553,29 +553,28 @@ fn text_measurement_reports_wrapped_layout_size() {
 }
 
 #[test]
-fn replacement_rectangles_overwrite_stale_pixels() {
+fn clear_resets_stale_pixels_before_drawing() {
     fn render<S: RenderStrategy<VecBuffer<Argb8888>>>(
         strategy: S,
-        replace: bool,
+        clear: bool,
         stale: Argb8888,
     ) -> Vec<Argb8888> {
         let mut renderer =
             Renderer::new(VecBuffer::<Argb8888>::new(12, 10), renderer_config()).strategy(strategy);
         renderer.buffer_mut().pixels_mut().fill(stale);
         let screen = renderer.screen();
-        let area = LogicalRect {
+        let rectangle = Rectangle::new(LogicalRect {
             width: 12.0,
             height: 10.0,
             ..LogicalRect::default()
-        };
-        let mut rectangle = Rectangle::new(area)
-            .background(Color::from_rgba8(40, 120, 220, 144))
-            .border(2.0, Color::from_rgba8(240, 80, 30, 192))
-            .uniform_radius(5.0);
-        if replace {
-            rectangle = rectangle.replace(true);
-        }
+        })
+        .background(Color::from_rgba8(40, 120, 220, 144))
+        .border(2.0, Color::from_rgba8(240, 80, 30, 192))
+        .uniform_radius(5.0);
         let mut paint = CommandList::default();
+        if clear {
+            paint.push_clear(screen);
+        }
         paint.push_rectangle(rectangle, screen, ClipId::default());
         renderer.render(&paint, &[screen]);
         renderer.buffer().pixels().to_vec()
@@ -596,16 +595,7 @@ fn replacement_rectangles_overwrite_stale_pixels() {
     renderer.buffer_mut().pixels_mut().fill(stale);
     let screen = renderer.screen();
     let mut paint = CommandList::default();
-    paint.push_rectangle(
-        Rectangle::new(LogicalRect {
-            width: 12.0,
-            height: 10.0,
-            ..LogicalRect::default()
-        })
-        .replace(true),
-        screen,
-        ClipId::default(),
-    );
+    paint.push_clear(screen);
     renderer.render(&paint, &[screen]);
     assert!(
         renderer
