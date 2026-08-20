@@ -20,6 +20,17 @@ pub trait Widget {
     fn build(self, ui: &mut Ui) -> Self::Output;
 }
 
+impl<F, R> Widget for F
+where
+    F: FnOnce(&mut Ui) -> R,
+{
+    type Output = R;
+
+    fn build(self, ui: &mut Ui) -> Self::Output {
+        self(ui)
+    }
+}
+
 #[macro_export]
 macro_rules! widget {
     (
