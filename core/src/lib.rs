@@ -1,6 +1,7 @@
 pub mod animation;
-pub mod command_list;
 pub mod color;
+pub mod command_list;
+mod element;
 pub mod geometry;
 pub mod input;
 pub mod interact;
@@ -14,6 +15,11 @@ mod test;
 mod timer;
 pub mod widget;
 
+pub use element::{
+    Align, Appearance, Axis, Clip, Content, Element, ElementGeometry, ElementScope, ImageContent,
+    Justify, Layout, Shadow, Sizing, TextContent,
+};
+
 use std::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
@@ -21,10 +27,10 @@ use std::{
 };
 
 use animation::{Easing, Transition};
+use command_list::{ClipId, CommandList, CommandListDiffer};
 use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
 use input::Input;
 use interact::{Interaction, Sense, WidgetId};
-use command_list::{ClipId, CommandList, CommandListDiffer};
 use platform::{Platform, PlatformImpl};
 
 pub struct Ui {
@@ -39,6 +45,15 @@ pub struct Ui {
 }
 
 impl Ui {
+    /// declares a frame-local element and opens its child scope
+    pub fn element(&mut self, element: Element<'_>) -> ElementScope<'_> {
+        element::open(self, element)
+    }
+
+    pub fn geometry(&self, id: WidgetId) -> Option<ElementGeometry> {
+        self.shared().geometry.get(id)
+    }
+
     pub fn platform(&mut self) -> &mut Platform {
         &mut self.shared_mut().platform
     }
@@ -427,6 +442,18 @@ impl Ui {
     fn paint_mut(&mut self) -> &mut CommandList {
         &mut self.shared_mut().paint
     }
+
+    fn frame_mut(&mut self) -> &mut element::FrameGraph {
+        &mut self.shared_mut().frame
+    }
+
+    fn close_element(&mut self, node: element::NodeId) {
+        self.frame_mut().close(node)
+    }
+
+    fn element_interaction(&mut self, id: WidgetId, sense: Sense) -> Interaction {
+        self.shared_mut().interaction.response(id, sense)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -453,8 +480,10 @@ pub struct Runtime<P: PlatformImpl> {
 
 struct UiShared {
     platform: Platform,
+    frame: element::FrameGraph,
     paint: CommandList,
     interaction: interact::InteractionState,
+    geometry: element::GeometryState,
     animations: Vec<animation::AnimationState>,
     timers: Vec<timer::TimerState>,
     frame_requested: bool,
@@ -474,8 +503,10 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
             platform,
             shared: UiShared {
                 platform: erased_platform,
+                frame: element::FrameGraph::default(),
                 paint: CommandList::default(),
                 interaction: interact::InteractionState::default(),
+                geometry: element::GeometryState::default(),
                 animations: Vec::new(),
                 timers: Vec::new(),
                 frame_requested: true,
@@ -576,6 +607,7 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
 
     fn record<R>(&mut self, time: Duration, input: Input, render: impl FnOnce(&mut Ui) -> R) -> R {
         self.shared.paint.clear();
+        self.shared.frame.begin(self.screen);
         for animation in &mut self.shared.animations {
             animation.seen = false;
         }
@@ -598,9 +630,19 @@ impl<P: PlatformImpl + 'static> Runtime<P> {
         let output = render(&mut ui);
         {
             let shared = ui.shared_mut();
+            let mut frame = std::mem::take(&mut shared.frame);
+            frame.finish(
+                &mut shared.platform,
+                &mut shared.paint,
+                &mut shared.interaction,
+                &mut shared.geometry,
+                self.scale_factor,
+            );
+            shared.frame = frame;
             if shared.interaction.end_frame(self.scale_factor) {
                 shared.frame_requested = true;
             }
+            shared.geometry.end_frame();
             shared.animations.retain(|animation| animation.seen);
             shared.timers.retain(|timer| timer.seen);
         }

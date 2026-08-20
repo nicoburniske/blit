@@ -23,6 +23,12 @@ use crate::{
     layout::Constraints,
 };
 
+pub trait Widget {
+    type Output;
+
+    fn build(self, ui: &mut Ui) -> Self::Output;
+}
+
 pub trait SizedWidget {
     type Output;
 

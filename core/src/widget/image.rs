@@ -1,6 +1,6 @@
-use super::SizedWidget;
+use super::{SizedWidget, Widget};
 use crate::{
-    Ui,
+    Content, Element, ImageContent, Layout, Ui,
     color::Color,
     geometry::{LogicalRect, LogicalSize},
     layout::Constraints,
@@ -76,5 +76,34 @@ impl SizedWidget for Image<'_> {
 
     fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
         Image::render(self, ui, area)
+    }
+}
+
+impl Widget for Image<'_> {
+    type Output = ();
+
+    fn build(self, ui: &mut Ui) {
+        if self.resource.is_empty() {
+            return;
+        }
+        let size = self.resource.size();
+        drop(
+            ui.element(
+                Element::new(Layout::horizontal()).content(Content::Image(ImageContent {
+                    image: self.resource.id(),
+                    intrinsic: LogicalSize {
+                        width: size.width as f32,
+                        height: size.height as f32,
+                    },
+                    fit: self.fit,
+                    sampling: self.sampling,
+                    opacity: self.opacity,
+                    colorize: self.colorize,
+                    nine_slice: self.nine_slice,
+                    horizontal_tiling: self.horizontal_tiling,
+                    vertical_tiling: self.vertical_tiling,
+                })),
+            ),
+        );
     }
 }

@@ -1,6 +1,6 @@
-use super::{SizedWidget, Text};
+use super::{SizedWidget, Text, Widget};
 use crate::{
-    Ui,
+    Appearance, Element, Layout, Ui,
     color::Color,
     geometry::{LogicalInsets, LogicalRect, LogicalSize},
     interact::{Sense, WidgetId},
@@ -108,5 +108,52 @@ impl SizedWidget for Button {
 
     fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
         Button::render(self, ui, area)
+    }
+}
+
+impl Widget for Button {
+    type Output = Response;
+
+    fn build(self, ui: &mut Ui) -> Response {
+        let local_id = self.id.unwrap_or_else(|| WidgetId::new(self.label));
+        let id = ui.id(("button", local_id));
+        let mut button = ui.element(
+            Element::new(Layout::horizontal().padding(self.padding)).interact(id, Sense::CLICK),
+        );
+        let interaction = button.interaction();
+        let active = interaction.pressed || interaction.clicked;
+        button.set_appearance(
+            Appearance::new()
+                .background(if active {
+                    self.clicked_background
+                } else {
+                    self.background
+                })
+                .border(
+                    self.border_width,
+                    if active {
+                        self.clicked_border_color
+                    } else {
+                        self.border_color
+                    },
+                )
+                .radius(self.radius)
+                .opacity(self.opacity),
+        );
+        button.add(
+            Text::new(self.label)
+                .color(if active {
+                    self.clicked_text_color
+                } else {
+                    self.text_color
+                })
+                .font(self.text_style.font)
+                .text_size(self.text_style.size)
+                .text_weight(self.text_style.weight)
+                .options(self.text_options),
+        );
+        Response {
+            clicked: interaction.clicked,
+        }
     }
 }

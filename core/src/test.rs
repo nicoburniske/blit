@@ -1,18 +1,95 @@
 use std::{cell::Cell, time::Duration};
 
 use crate::{
-    RepaintBuffer, Runtime, Ui,
+    Align, Clip, Element, Layout, RepaintBuffer, Runtime, Sizing, Ui,
     animation::{Easing, Transition},
+    color::Color,
+    command_list::{ClipId, CommandList},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
     interact::{Sense, WidgetId},
     keyboard::KeyboardRequest,
     layout::Constraints,
     paint,
-    command_list::{ClipId, CommandList},
     platform::PlatformImpl,
     resource, widget,
 };
+
+#[test]
+fn elements_resolve_flex_before_emitting_commands() {
+    let mut runtime = Runtime::new(TestPlatform::default());
+
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        let mut row = ui.element(Element::new(
+            Layout::horizontal()
+                .width(Sizing::grow())
+                .height(Sizing::fixed(10.0))
+                .align(Align::Stretch),
+        ));
+        drop(row.element(
+            Element::new(Layout::vertical().width(Sizing::fixed(2.0))).background(Color::BLACK),
+        ));
+        drop(row.element(
+            Element::new(Layout::vertical().width(Sizing::grow())).background(Color::GRAY),
+        ));
+        drop(row.element(
+            Element::new(Layout::vertical().width(Sizing::fixed(2.0))).background(Color::WHITE),
+        ));
+    });
+
+    assert_eq!(
+        runtime.platform().paint_bounds,
+        [
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 10,
+            },
+            PhysicalRect {
+                x: 2,
+                y: 0,
+                width: 6,
+                height: 10,
+            },
+            PhysicalRect {
+                x: 8,
+                y: 0,
+                width: 2,
+                height: 10,
+            },
+        ]
+    );
+}
+
+#[test]
+fn element_clips_resolve_for_descendants() {
+    let mut runtime = Runtime::new(TestPlatform::default());
+
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        let mut clipped = ui.element(
+            Element::new(
+                Layout::vertical()
+                    .width(Sizing::grow())
+                    .height(Sizing::fixed(5.0)),
+            )
+            .clip(Clip::Bounds),
+        );
+        drop(
+            clipped.element(
+                Element::new(
+                    Layout::vertical()
+                        .width(Sizing::grow())
+                        .height(Sizing::fixed(10.0)),
+                )
+                .background(Color::BLACK),
+            ),
+        );
+    });
+
+    assert_eq!(runtime.platform().clip_count, 1);
+    assert_ne!(runtime.platform().paint_clips, [ClipId::default()]);
+}
 
 #[derive(Default)]
 struct TestPlatform {

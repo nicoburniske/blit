@@ -2,11 +2,11 @@ use std::{num::NonZeroU32, pin::Pin, rc::Rc, time::Instant};
 
 use blit::{
     RepaintBuffer,
+    command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
     keyboard::KeyboardRequest,
     paint::TextRequest,
-    command_list::CommandList,
     platform::PlatformImpl,
     resource::{ImageData, ImageId, StringData, StringId},
 };

@@ -1,6 +1,6 @@
-use super::SizedWidget;
+use super::{SizedWidget, Widget};
 use crate::{
-    Ui,
+    Content, Element, Layout, TextContent, Ui,
     color::Color,
     geometry::{LogicalRect, LogicalSize},
     layout::Constraints,
@@ -80,5 +80,21 @@ impl SizedWidget for Text {
         let mut text = self;
         text.options.vertical_align = VerticalAlign::Top;
         Text::render(text, ui, area)
+    }
+}
+
+impl Widget for Text {
+    type Output = ();
+
+    fn build(self, ui: &mut Ui) {
+        drop(ui.element(
+            Element::new(Layout::horizontal()).content(Content::Text(TextContent {
+                text: self.text,
+                color: self.color,
+                style: self.text_style,
+                options: self.options,
+                offset_x: self.offset_x,
+            })),
+        ));
     }
 }

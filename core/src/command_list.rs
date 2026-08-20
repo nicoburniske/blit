@@ -39,8 +39,7 @@ impl CommandList {
     }
 
     pub fn clip(&self, id: ClipId) -> Option<&ClipNode> {
-        id.0
-            .checked_sub(1)
+        id.0.checked_sub(1)
             .and_then(|index| self.clips.get(index as usize))
     }
 
