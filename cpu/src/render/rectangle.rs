@@ -156,7 +156,6 @@ impl Prepared {
 #[derive(Clone, Copy)]
 pub struct Gradient {
     pub geometry: PhysicalRect,
-    inner: PhysicalRect,
     radii: Radii,
     border_width: i32,
     inner_color: PremultipliedRgbaColor,
@@ -203,12 +202,6 @@ impl Gradient {
             geometry.width,
             geometry.height,
         );
-        let inner = PhysicalRect {
-            x: geometry.x + border_width,
-            y: geometry.y + border_width,
-            width: (geometry.width - border_width * 2).max(0),
-            height: (geometry.height - border_width * 2).max(0),
-        };
         let angle = gradient.angle_degrees.to_radians();
         let direction_x = angle.cos();
         let direction_y = angle.sin();
@@ -218,7 +211,6 @@ impl Gradient {
             + direction_y.min(0.0) * geometry.height as f32;
         Some(Self {
             geometry,
-            inner,
             radii,
             border_width,
             inner_color,
@@ -260,13 +252,18 @@ impl Gradient {
         let coverage = coverage as u32;
         let pixels = &mut row.pixels[(clipped.x - row.x) as usize..][..clipped.width as usize];
         if self.radii.is_zero() {
-            if line < self.inner.y || line >= self.inner.y + self.inner.height {
+            let inner = PhysicalRect {
+                x: self.geometry.x + self.border_width,
+                y: self.geometry.y + self.border_width,
+                width: (self.geometry.width - self.border_width * 2).max(0),
+                height: (self.geometry.height - self.border_width * 2).max(0),
+            };
+            if line < inner.y || line >= inner.y + inner.height {
                 self.draw_span(stops, line, clipped.x, coverage, pixels);
                 return;
             }
-            let left = (self.inner.x - clipped.x).clamp(0, clipped.width) as usize;
-            let right =
-                (self.inner.x + self.inner.width - clipped.x).clamp(0, clipped.width) as usize;
+            let left = (inner.x - clipped.x).clamp(0, clipped.width) as usize;
+            let right = (inner.x + inner.width - clipped.x).clamp(0, clipped.width) as usize;
             self.draw_span(stops, line, clipped.x, coverage, &mut pixels[..left]);
             let color = self.inner_color.coverage(coverage);
             if self.replace {

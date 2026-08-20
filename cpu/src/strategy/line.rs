@@ -228,23 +228,22 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
             }
 
             for range in &self.ranges {
-                let first = commands
-                    .overwrite_offsets()
+                let first = self
+                    .active
                     .iter()
+                    .enumerate()
                     .rev()
-                    .find(|command| {
-                        let vertical = commands.vertical_bounds(**command);
-                        vertical.start <= line
-                            && vertical.end > line
+                    .find(|(_, command)| {
+                        commands.overwrites(**command)
                             && commands
                                 .overwrite_span(**command, line)
                                 .is_some_and(|span| {
                                     span.start <= range.start as i32 && span.end >= range.end as i32
                                 })
                     })
-                    .map(|command| self.active.binary_search(command).unwrap())
+                    .map(|(index, _)| index)
                     .unwrap_or(0);
-                if commands.partial_opaque_offsets().is_empty() {
+                if !commands.has_partial_opaque() {
                     let active = &self.active[first..];
                     buffer.process_line(line as usize, range.clone(), |pixels| {
                         let mut buffer = LineBuffer {
@@ -275,26 +274,28 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     });
                     continue;
                 }
-                let partial_opaque = commands.partial_opaque_offsets();
-                let partial_opaque = &partial_opaque
-                    [partial_opaque.partition_point(|command| *command <= self.active[first])..];
-                let overwrite = partial_opaque.iter().rev().find_map(|command| {
-                    let command_first = self.active.binary_search(command).ok()?;
-                    let Payload::Image(image) = commands.get(*command) else {
-                        unreachable!()
-                    };
-                    let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
-                    let texture = images.get(image_id)?;
-                    let span = image.opaque_span(
-                        line,
-                        commands.bounds(*command),
-                        &texture.data,
-                        &texture.alpha_rows,
-                    )?;
-                    let start = span.start.max(range.start as i32);
-                    let end = span.end.min(range.end as i32);
-                    (start < end).then_some((start as usize, end as usize, command_first))
-                });
+                let overwrite = self.active[first + 1..].iter().enumerate().rev().find_map(
+                    |(offset, command)| {
+                        if !commands.partial_opaque(*command) {
+                            return None;
+                        }
+                        let command_first = first + 1 + offset;
+                        let Payload::Image(image) = commands.get(*command) else {
+                            unreachable!()
+                        };
+                        let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
+                        let texture = images.get(image_id)?;
+                        let span = image.opaque_span(
+                            line,
+                            commands.bounds(*command),
+                            &texture.data,
+                            &texture.alpha_rows,
+                        )?;
+                        let start = span.start.max(range.start as i32);
+                        let end = span.end.min(range.end as i32);
+                        (start < end).then_some((start as usize, end as usize, command_first))
+                    },
+                );
                 let active = &self.active;
                 buffer.process_line(line as usize, range.clone(), |pixels| {
                     let mut draw = |first: usize, start: usize, end: usize| {

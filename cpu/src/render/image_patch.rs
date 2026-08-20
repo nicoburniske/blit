@@ -49,6 +49,7 @@ pub struct Prepared {
     source: PhysicalRect,
     colorize: Option<Color>,
     pub opacity: u8,
+    sampling: ImageSampling,
     flags: u8,
     step_x: u64,
     step_y: u64,
@@ -94,9 +95,8 @@ impl Prepared {
             source,
             colorize: request.colorize,
             opacity: (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
-            flags: u8::from(request.sampling == ImageSampling::Bilinear) * flag::BILINEAR
-                | u8::from(wrap_x) * flag::WRAP_X
-                | u8::from(wrap_y) * flag::WRAP_Y,
+            sampling: request.sampling,
+            flags: u8::from(wrap_x) * flag::WRAP_X | u8::from(wrap_y) * flag::WRAP_Y,
             step_x,
             step_y,
             scale_x,
@@ -118,7 +118,7 @@ impl Prepared {
         texture_has_opaque_spans
             && self.opacity == 255
             && self.colorize.is_none()
-            && self.flags & flag::BILINEAR == 0
+            && self.sampling == ImageSampling::Nearest
             && self.step_x == FIXED_ONE
             && self.flags & flag::WRAP_X == 0
             && self.flags & flag::WRAP_Y == 0
@@ -164,7 +164,7 @@ impl Prepared {
         };
         for y in clipped.y..clipped.y + clipped.height {
             let row = buffer.line_mut(y as usize);
-            if self.flags & flag::BILINEAR == 0 {
+            if self.sampling == ImageSampling::Nearest {
                 self.draw_nearest(row, pixels, texture, clipped, screen.x, y, alpha_rows)
             } else {
                 self.draw_bilinear(row, pixels, texture, clipped, screen.x, y)
@@ -710,7 +710,6 @@ fn axis(source: i32, target: i32, tiling: ImageTiling, scale_factor: f32) -> (u6
 }
 
 mod flag {
-    pub const BILINEAR: u8 = 1;
-    pub const WRAP_X: u8 = 2;
-    pub const WRAP_Y: u8 = 4;
+    pub const WRAP_X: u8 = 1;
+    pub const WRAP_Y: u8 = 2;
 }
