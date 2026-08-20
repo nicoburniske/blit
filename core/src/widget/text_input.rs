@@ -8,8 +8,7 @@ use crate::{
     input::{Input, Key},
     interact::{Sense, WidgetId},
     keyboard::{KeyboardKind, KeyboardRequest},
-    paint::{BorderRadius, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap},
-    resource::StringHandle,
+    paint::{BorderRadius, TextOptions, TextOverflow, TextRequest, TextRunId, TextStyle, TextWrap},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -56,7 +55,6 @@ pub struct TextInputState {
     pub anchor: usize,
     pub scroll_x: f32,
     pub password_mask: String,
-    display: Option<StringHandle>,
 }
 
 impl Default for TextInputState {
@@ -70,7 +68,6 @@ impl Default for TextInputState {
             anchor: 0,
             scroll_x: 0.0,
             password_mask: String::new(),
-            display: None,
         }
     }
 }
@@ -88,7 +85,7 @@ impl Widget for TextInput<'_> {
             self.state.anchor -= 1;
         }
         self.update_password_mask();
-        self.sync_display(ui);
+        let mut text_run = ui.text_run(self.display_text(), self.text_style);
 
         let id = self.state.id;
         let text_id = id.child("text");
@@ -128,7 +125,7 @@ impl Widget for TextInput<'_> {
         {
             let offset = input
                 .platform()
-                .text_offset_at_position(&self.request(area), position);
+                .text_offset_at_position(&self.request(text_run, area), position);
             self.state.cursor = if !self.password_masked() {
                 offset
             } else {
@@ -229,13 +226,14 @@ impl Widget for TextInput<'_> {
         }
         if response.edited {
             self.update_password_mask();
-            self.sync_display(&mut input);
+            text_run = input.text_run(self.display_text(), self.text_style);
         }
 
         if let Some(area) = previous_text_area {
-            let cursor = input
-                .platform()
-                .text_cursor_rect(&self.request(area), self.display_offset(self.state.cursor));
+            let cursor = input.platform().text_cursor_rect(
+                &self.request(text_run, area),
+                self.display_offset(self.state.cursor),
+            );
             if cursor.x < area.x {
                 self.state.scroll_x = (self.state.scroll_x - (area.x - cursor.x)).max(0.0);
             } else if cursor.x + self.cursor_width > area.x + area.width {
@@ -267,7 +265,7 @@ impl Widget for TextInput<'_> {
                     height: Sizing::fit(),
                 },
                 Content::Text(TextContent {
-                    text: self.state.display.as_ref().unwrap().into(),
+                    text: text_run,
                     color: self.text_color,
                     style: self.text_style,
                     options,
@@ -292,9 +290,9 @@ impl Widget for TextInput<'_> {
 }
 
 impl TextInput<'_> {
-    fn request(&self, area: LogicalRect) -> TextRequest {
+    fn request(&self, text: TextRunId, area: LogicalRect) -> TextRequest {
         TextRequest {
-            text: self.state.display.as_ref().unwrap().into(),
+            text,
             area,
             offset_x: self.state.scroll_x,
             color: self.text_color,
@@ -321,18 +319,6 @@ impl TextInput<'_> {
         self.state
             .password_mask
             .extend(std::iter::repeat_n('●', self.state.text.chars().count()));
-    }
-
-    fn sync_display(&mut self, ui: &mut Ui) {
-        if self
-            .state
-            .display
-            .as_deref()
-            .is_none_or(|display| display != self.display_text())
-        {
-            let display = self.display_text().to_owned();
-            self.state.display = Some(ui.platform().create_string(display));
-        }
     }
 
     fn display_text(&self) -> &str {

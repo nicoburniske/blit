@@ -1,7 +1,7 @@
 use std::{cmp::Reverse, mem::size_of};
 
 use blit::paint::FontId;
-use blit_cache::{Cache, Scale};
+use blit_cache::{DeferredCache, Scale};
 use blit_font::{GlyphRasterConfig, Metrics, Rasterizer};
 
 use crate::{Font, FontFace};
@@ -13,7 +13,8 @@ pub struct CachedGlyph {
 
 pub struct FontCache {
     faces: Vec<FontFace>,
-    glyphs: Cache<GlyphKey, CachedGlyph, GlyphScale>,
+    glyphs: DeferredCache<GlyphKey, CachedGlyph, GlyphScale>,
+    uncached: Vec<CachedGlyph>,
     rasterizer: Rasterizer,
 }
 
@@ -26,11 +27,14 @@ impl Scale<GlyphKey, CachedGlyph> for GlyphScale {
 }
 
 impl FontCache {
+    const UNCACHED: usize = 1 << (usize::BITS - 1);
+
     pub fn new(faces: Vec<FontFace>, capacity: usize) -> Self {
         assert!(!faces.is_empty());
         Self {
             faces,
-            glyphs: Cache::new(GlyphScale, capacity),
+            glyphs: DeferredCache::new(GlyphScale, capacity),
+            uncached: Vec::new(),
             rasterizer: Rasterizer::default(),
         }
     }
@@ -44,28 +48,46 @@ impl FontCache {
             .map(|(index, face)| (index, &face.font))
     }
 
-    pub fn glyph(
-        &mut self,
-        face: usize,
-        glyph: GlyphRasterConfig,
-    ) -> Result<&CachedGlyph, CachedGlyph> {
+    pub fn get_font(&self, face: usize) -> &Font {
+        &self.faces[face].font
+    }
+
+    pub fn glyph(&mut self, face: usize, glyph: GlyphRasterConfig) -> usize {
         let key = GlyphKey { face, glyph };
         let Self {
             faces,
             glyphs,
+            uncached,
             rasterizer,
         } = self;
-        glyphs
-            .get_or_insert(key, || {
-                let font = &faces[key.face].font;
-                let (metrics, alpha) =
-                    rasterizer.rasterize(font, key.glyph.glyph_id, key.glyph.size);
-                CachedGlyph {
-                    metrics,
-                    alpha: alpha.into_boxed_slice(),
-                }
-            })
-            .map(|(glyph, _)| glyph)
+        match glyphs.get_or_insert(key, || {
+            let font = &faces[key.face].font;
+            let (metrics, alpha) = rasterizer.rasterize(font, key.glyph.glyph_id, key.glyph.size);
+            CachedGlyph {
+                metrics,
+                alpha: alpha.into_boxed_slice(),
+            }
+        }) {
+            Ok((_, index)) => index,
+            Err(glyph) => {
+                let index = uncached.len();
+                uncached.push(glyph);
+                Self::UNCACHED | index
+            }
+        }
+    }
+
+    pub fn get(&self, index: usize) -> &CachedGlyph {
+        if index & Self::UNCACHED == 0 {
+            self.glyphs.get_index(index)
+        } else {
+            &self.uncached[index & !Self::UNCACHED]
+        }
+    }
+
+    pub fn finish_frame(&mut self) {
+        self.glyphs.trim_to_weight();
+        self.uncached.clear();
     }
 }
 

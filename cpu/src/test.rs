@@ -11,11 +11,11 @@ use blit::{
     keyboard::KeyboardRequest,
     paint::{
         BorderRadius, BoxShadow, GradientStop, ImageFit, ImageRequest, ImageSampling, ImageTiling,
-        LinearGradient, Rectangle, TextLayoutRequest, TextOptions, TextRequest, TextStyle,
-        TextWrap,
+        LinearGradient, Rectangle, TextLayoutRequest, TextOptions, TextRequest, TextRunId,
+        TextStyle, TextWrap,
     },
     platform::PlatformImpl,
-    resource::{ImageData, ImageFormat, ImageId, ImagePixels, StringData, StringId},
+    resource::{ImageData, ImageFormat, ImageId, ImagePixels},
     widget::{Image as ImageWidget, Rectangle as RectangleWidget, Text},
 };
 
@@ -78,16 +78,8 @@ impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
         self.renderer.drop_image(image)
     }
 
-    fn create_string(&mut self, string: StringData) -> StringId {
-        self.renderer.create_string(string)
-    }
-
-    fn drop_string(&mut self, string: StringId) {
-        self.renderer.drop_string(string)
-    }
-
-    fn string(&self, string: StringId) -> &str {
-        self.renderer.string(string)
+    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.renderer.text_run(text, style)
     }
 
     fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
@@ -430,9 +422,10 @@ fn resolved_nodes_match_direct_commands() {
         height: 8.0,
         ..LogicalRect::default()
     };
+    let text = direct.text_run("M", TextStyle::default());
     commands.push_text(
         TextRequest {
-            text: "M".into(),
+            text,
             area: text_area,
             offset_x: 0.0,
             color: Color::WHITE,
@@ -453,7 +446,7 @@ fn resolved_nodes_match_direct_commands() {
 #[test]
 fn renderer_supports_custom_pixel_layouts() {
     let mut renderer = Renderer::new(VecBuffer::<BgrPixel>::new(32, 24), renderer_config());
-    let m = renderer.create_string(StringData::Static("M"));
+    let m = renderer.text_run("M", TextStyle::default());
     let clip = PhysicalRect {
         x: 0,
         y: 0,
@@ -485,7 +478,7 @@ fn renderer_supports_custom_pixel_layouts() {
     paint.clear();
     paint.push_text(
         TextRequest {
-            text: m.into(),
+            text: m,
             area: LogicalRect {
                 x: 0.0,
                 y: 0.0,
@@ -510,7 +503,7 @@ fn renderer_supports_custom_pixel_layouts() {
     );
 
     let request = TextRequest {
-        text: "abc".into(),
+        text: renderer.text_run("abc", TextStyle::default()),
         area: LogicalRect {
             x: 0.0,
             y: 0.0,
@@ -535,7 +528,7 @@ fn renderer_supports_custom_pixel_layouts() {
 fn text_measurement_reports_wrapped_layout_size() {
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
     let request = TextLayoutRequest {
-        text: "hello world".into(),
+        text: renderer.text_run("hello world", TextStyle::default()),
         style: TextStyle::default(),
         wrap: TextWrap::None,
         max_width: None,
@@ -624,7 +617,7 @@ fn commands_outside_damage_are_not_prepared() {
     let mut paint = CommandList::default();
     paint.push_text(
         TextRequest {
-            text: StringId(u64::MAX).into(),
+            text: TextRunId(u64::MAX),
             area: outside,
             offset_x: 0.0,
             color: Color::WHITE,
@@ -1664,7 +1657,7 @@ fn rounded_clips_match_between_strategies() {
             1,
             1,
         ));
-        let string = renderer.create_string(StringData::Static("M"));
+        let string = renderer.text_run("M", TextStyle::default());
         let screen = renderer.screen();
         let area = LogicalRect {
             width: 16.0,
@@ -1684,7 +1677,7 @@ fn rounded_clips_match_between_strategies() {
             vertical_tiling: ImageTiling::None,
         };
         let text = TextRequest {
-            text: string.into(),
+            text: string,
             area,
             offset_x: 0.0,
             color: Color::WHITE,
@@ -1789,76 +1782,43 @@ fn dropped_image_remains_valid_until_frame_end() {
 }
 
 #[test]
-fn strings_drop_after_frame_end() {
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config())
-        .strategy(Scanline::default());
-    let damage = [PhysicalRect {
-        x: 0,
-        y: 0,
-        width: 32,
-        height: 24,
-    }];
-    let string = renderer.create_string(StringData::Owned(String::from("M").into_boxed_str()));
-    let mut paint = CommandList::default();
-    paint.push_text(
-        TextRequest {
-            text: string.into(),
-            area: LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 32.0,
-                height: 24.0,
-            },
-            offset_x: 0.0,
-            color: Color::WHITE,
-            style: TextStyle::default(),
-            options: TextOptions::default(),
-        },
-        damage[0],
-        ClipId::default(),
-    );
-    renderer.drop_string(string);
-    assert_eq!(renderer.string(string), "M");
-    renderer.render(&paint, &damage);
+fn text_runs_are_keyed_by_content_and_style() {
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
+    let style = TextStyle::default();
+    let first = renderer.text_run("same", style);
 
-    assert!(
-        renderer
-            .buffer()
-            .pixels()
-            .iter()
-            .any(|pixel| pixel.raw() != 0)
+    assert_eq!(renderer.text_run("same", style), first);
+    assert_ne!(renderer.text_run("changed", style), first);
+    assert_ne!(
+        renderer.text_run(
+            "same",
+            TextStyle {
+                weight: 500,
+                ..style
+            },
+        ),
+        first
     );
-    let string = RendererStringId::from(KeyData::from_ffi(string.0));
-    assert!(!renderer.context.strings.contains_key(string));
 }
 
 #[test]
-fn managed_strings_deref_render_and_drop() {
+fn borrowed_dynamic_text_renders_after_the_source_is_reused() {
     let mut runtime = Runtime::new(RuntimePlatform {
         renderer: Renderer::new(VecBuffer::<Xrgb8888>::new(96, 48), renderer_config())
             .strategy(Scanline::default()),
         repaint_buffer: RepaintBuffer::Reused,
     });
-    let owned = runtime
-        .erased_platform()
-        .create_string(String::from("managed"));
-    let mut static_string = runtime.erased_platform().create_string("static");
+    let mut text = String::from("managed");
 
-    assert_eq!(&*owned, "managed");
-    assert_eq!(&*static_string, "static");
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut column = ui.column(Container::new().grow());
-        {
-            let mut row = column.row(
-                Container::new()
-                    .width(Sizing::grow())
-                    .height(Sizing::fixed(24.0)),
-            );
-            row.add(Text::new(&owned).color(Color::WHITE));
-            row.add(Text::new("literal").color(Color::WHITE));
-        }
-        column.add(Text::new(&static_string).color(Color::WHITE));
+        ui.add(Text::new(&text).color(Color::WHITE));
     });
+    text.clear();
+    text.push_str("updated");
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        ui.add(Text::new(&text).color(Color::WHITE));
+    });
+
     assert!(
         runtime
             .platform()
@@ -1868,33 +1828,4 @@ fn managed_strings_deref_render_and_drop() {
             .iter()
             .any(|pixel| pixel.raw() != 0)
     );
-
-    assert!(
-        runtime
-            .platform()
-            .renderer
-            .context
-            .strings
-            .values()
-            .any(|string| matches!(&string.data, StringData::Static("static")))
-    );
-    assert_eq!(runtime.platform().renderer.context.strings.len(), 2);
-
-    let old = static_string.id();
-    assert_eq!(static_string.edit().as_str(), "static");
-    assert_eq!(static_string.id(), old);
-    static_string.edit().push_str(" updated");
-    assert_eq!(&*static_string, "static updated");
-    assert_ne!(static_string.id(), old);
-    assert_eq!(runtime.platform().renderer.context.strings.len(), 3);
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        ui.add(Text::new(&static_string).color(Color::WHITE));
-    });
-    assert_eq!(runtime.platform().renderer.context.strings.len(), 2);
-
-    drop(owned);
-    drop(static_string);
-    assert_eq!(runtime.platform().renderer.context.strings.len(), 2);
-    runtime.render(Duration::ZERO, Input::None, |_| {});
-    assert_eq!(runtime.platform().renderer.context.strings.len(), 0);
 }

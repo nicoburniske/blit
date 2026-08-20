@@ -543,14 +543,11 @@ fn trace_value(trace: &[isize], edits: usize, diagonal: isize) -> isize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        paint::{TextOptions, TextStyle},
-        resource::{StringId, TextSource},
-    };
+    use crate::paint::{TextOptions, TextRunId, TextStyle};
 
     fn text(id: u64) -> TextRequest {
         TextRequest {
-            text: TextSource::Resource(StringId(id)),
+            text: TextRunId(id),
             area: LogicalRect {
                 x: id as f32,
                 y: 0.0,

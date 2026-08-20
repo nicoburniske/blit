@@ -5,12 +5,11 @@ use crate::{
     geometry::LogicalInsets,
     interact::{Sense, WidgetId},
     paint::{BorderRadius, TextOptions, TextStyle},
-    resource::TextSource,
 };
 
 crate::widget! {
-    pub struct Button {
-        new(pub label: impl Into<TextSource>);
+    pub struct Button<'a> {
+        new(pub label: &'a str);
         #[skip]
         pub id: Option<WidgetId>,
         pub background: Color = Color::from_rgba8(45, 55, 70, 255),
@@ -34,7 +33,7 @@ pub struct Response {
     clicked: bool,
 }
 
-impl Button {
+impl Button<'_> {
     pub fn id(mut self, source: impl std::hash::Hash) -> Self {
         self.id = Some(WidgetId::new(source));
         self
@@ -47,7 +46,7 @@ impl Response {
     }
 }
 
-impl Widget for Button {
+impl Widget for Button<'_> {
     type Output = Response;
 
     fn build(self, ui: &mut Ui) -> Response {

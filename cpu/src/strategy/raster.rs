@@ -81,7 +81,8 @@ pub fn draw_line<B: PixelBuffer>(
             }
             let x = buffer.x_offset() as i32;
             text.draw_line(
-                command.paragraph,
+                command.glyph_start,
+                command.glyph_end,
                 command.area,
                 color,
                 line,

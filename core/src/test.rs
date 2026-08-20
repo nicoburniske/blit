@@ -16,8 +16,7 @@ use crate::{
 
 #[derive(Default)]
 struct TestPlatform {
-    strings: Vec<Option<resource::StringData>>,
-    dead_strings: Vec<usize>,
+    text_runs: Vec<(String, paint::TextStyle)>,
     damage: Vec<PhysicalRect>,
     paint_bounds: Vec<PhysicalRect>,
     paint_clips: Vec<ClipId>,
@@ -49,9 +48,6 @@ impl PlatformImpl for TestPlatform {
             }
         }
         self.clip_count = commands.clips().len();
-        for string in self.dead_strings.drain(..) {
-            self.strings[string] = None;
-        }
     }
 
     fn screen(&mut self) -> PhysicalRect {
@@ -73,36 +69,25 @@ impl PlatformImpl for TestPlatform {
 
     fn drop_image(&mut self, _: resource::ImageId) {}
 
-    fn create_string(&mut self, string: resource::StringData) -> resource::StringId {
-        self.strings.push(Some(string));
-        resource::StringId(self.strings.len() as u64)
-    }
-
-    fn drop_string(&mut self, string: resource::StringId) {
-        self.dead_strings.push(string.0 as usize - 1);
-    }
-
-    fn string(&self, string: resource::StringId) -> &str {
-        self.strings[string.0 as usize - 1]
-            .as_ref()
-            .unwrap()
-            .as_ref()
+    fn text_run(&mut self, text: &str, style: paint::TextStyle) -> paint::TextRunId {
+        if let Some(index) = self
+            .text_runs
+            .iter()
+            .position(|(stored, stored_style)| stored == text && *stored_style == style)
+        {
+            return paint::TextRunId(index as u64 + 1);
+        }
+        self.text_runs.push((text.to_owned(), style));
+        paint::TextRunId(self.text_runs.len() as u64)
     }
 
     fn text_offset_at_position(&mut self, request: &paint::TextRequest, _: LogicalPoint) -> usize {
-        match request.text {
-            resource::TextSource::Resource(string) => self.string(string),
-            resource::TextSource::Static(string) => string,
-        }
-        .len()
+        self.text_runs[request.text.0 as usize - 1].0.len()
     }
 
     fn measure_text(&mut self, request: &paint::TextLayoutRequest) -> LogicalSize {
         self.text_widths.push(request.max_width);
-        let text = match request.text {
-            resource::TextSource::Resource(string) => self.string(string),
-            resource::TextSource::Static(string) => string,
-        };
+        let text = &self.text_runs[request.text.0 as usize - 1].0;
         let natural = text.chars().count() as f32 * request.style.size;
         let width = natural.min(request.max_width.unwrap_or(f32::INFINITY));
         let lines = request
@@ -385,7 +370,7 @@ fn scroll_uses_natural_content_geometry_and_offsets_commands() {
 }
 
 #[test]
-fn static_text_uses_no_string_resources_and_stable_output_has_no_damage() {
+fn static_text_reuses_runs_and_stable_output_has_no_damage() {
     let mut runtime = Runtime::new(TestPlatform::default());
     let render = |ui: &mut Ui| {
         ui.add(widget::Text::new("label"));
@@ -393,7 +378,7 @@ fn static_text_uses_no_string_resources_and_stable_output_has_no_damage() {
     };
 
     runtime.render(Duration::ZERO, Input::None, render);
-    assert!(runtime.platform().strings.is_empty());
+    assert_eq!(runtime.platform().text_runs.len(), 2);
     runtime.render(Duration::ZERO, Input::None, render);
     assert!(runtime.platform().damage.is_empty());
 }

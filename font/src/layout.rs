@@ -1,7 +1,7 @@
 use std::{hash::Hash, mem::size_of};
 
 use blit::paint::{HorizontalAlign, TextWrap, VerticalAlign};
-use unicode_linebreak::{BreakOpportunity, linebreaks};
+use unicode_linebreak::{BreakOpportunity as UnicodeBreak, linebreaks};
 
 use crate::{Font, GlyphId, LineMetrics, Metrics, UnscaledMetrics};
 
@@ -13,6 +13,33 @@ pub struct Layout {
     metrics: Vec<Option<CachedMetrics>>,
     metric_cache_capacity: usize,
     height: f32,
+}
+
+pub struct TextRun {
+    glyphs: Box<[RunGlyph]>,
+    metrics: LineMetrics,
+    len: usize,
+}
+
+#[derive(Clone, Copy)]
+struct RunGlyph {
+    key: GlyphRasterConfig,
+    parent: char,
+    byte_offset: usize,
+    x: f32,
+    y: f32,
+    width: usize,
+    height: usize,
+    advance: f32,
+    break_after: Break,
+    char_data: CharacterData,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Break {
+    None,
+    Allowed,
+    Mandatory,
 }
 
 impl Default for Layout {
@@ -32,14 +59,7 @@ impl Layout {
         }
     }
 
-    pub fn layout(&mut self, font: &Font, text: &str, size: f32, settings: LayoutSettings) {
-        self.glyphs.clear();
-        self.lines.clear();
-        self.height = 0.0;
-        if text.is_empty() || !size.is_finite() || size <= 0.0 {
-            return;
-        }
-
+    pub fn text_run(&mut self, font: &Font, text: &str, size: f32) -> TextRun {
         let face = font.face();
         let metrics = Font::line_metrics_from_face(&face, size);
         let metrics = LineMetrics {
@@ -48,23 +68,29 @@ impl Layout {
             line_gap: metrics.line_gap.ceil(),
             new_line_size: metrics.new_line_size.ceil().max(0.0),
         };
-        let max_width = settings.max_width.unwrap_or(f32::MAX).max(0.0);
-        let mut breaks = linebreaks(text).peekable();
-        let mut pen = 0.0;
-        let mut line_start = 0;
-        let mut line_start_pen = 0.0;
-        let mut last_break = None;
+        if text.is_empty() || !size.is_finite() || size <= 0.0 {
+            return TextRun {
+                glyphs: Box::new([]),
+                metrics,
+                len: text.len(),
+            };
+        }
 
+        let mut glyphs = Vec::with_capacity(text.chars().count());
+        let mut breaks = linebreaks(text).peekable();
         for (byte_offset, character) in text.char_indices() {
             let byte_end = byte_offset + character.len_utf8();
-            let mut opportunity = None;
-            while let Some(&(offset, next)) = breaks.peek() {
+            let mut break_after = Break::None;
+            while let Some(&(offset, opportunity)) = breaks.peek() {
                 if offset > byte_end {
                     break;
                 }
                 breaks.next();
                 if offset == byte_end {
-                    opportunity = Some(next);
+                    break_after = match opportunity {
+                        UnicodeBreak::Allowed => Break::Allowed,
+                        UnicodeBreak::Mandatory => Break::Mandatory,
+                    };
                 }
             }
 
@@ -98,17 +124,52 @@ impl Layout {
                     }
                     cached
                 });
-            let glyph_id = cached.glyph;
             let glyph_metrics = if char_data.is_control() {
                 Metrics::default()
             } else {
                 Font::scale_metrics(cached.metrics, face.units_per_em(), size)
             };
-            let advance = glyph_metrics.advance_width.ceil();
+            glyphs.push(RunGlyph {
+                key: GlyphRasterConfig {
+                    glyph_id: cached.glyph,
+                    size,
+                },
+                parent: character,
+                byte_offset,
+                x: glyph_metrics.bounds.xmin.floor(),
+                y: (-glyph_metrics.bounds.height - glyph_metrics.bounds.ymin).floor(),
+                width: glyph_metrics.width,
+                height: glyph_metrics.height,
+                advance: glyph_metrics.advance_width.ceil(),
+                break_after,
+                char_data,
+            });
+        }
+        TextRun {
+            glyphs: glyphs.into_boxed_slice(),
+            metrics,
+            len: text.len(),
+        }
+    }
+
+    pub fn layout_run(&mut self, run: &TextRun, settings: LayoutSettings) {
+        self.glyphs.clear();
+        self.lines.clear();
+        self.height = 0.0;
+        if run.glyphs.is_empty() {
+            return;
+        }
+
+        let max_width = settings.max_width.unwrap_or(f32::MAX).max(0.0);
+        let mut pen = 0.0;
+        let mut line_start = 0;
+        let mut line_start_pen = 0.0;
+        let mut last_break = None;
+        for source in &run.glyphs {
             let glyph_index = self.glyphs.len();
             if settings.wrap != TextWrap::None
                 && glyph_index > line_start
-                && pen - line_start_pen + advance > max_width
+                && pen - line_start_pen + source.advance > max_width
             {
                 let wrap_at = if settings.wrap == TextWrap::Word {
                     last_break
@@ -122,44 +183,55 @@ impl Layout {
                 } else {
                     self.glyphs[wrap_at].pen_x
                 };
-                self.push_line(line_start, wrap_at, line_start_pen, wrap_pen, metrics);
+                self.push_line(line_start, wrap_at, line_start_pen, wrap_pen, run.metrics);
                 line_start = wrap_at;
                 line_start_pen = wrap_pen;
                 last_break = None;
             }
 
             self.glyphs.push(GlyphPosition {
-                key: GlyphRasterConfig { glyph_id, size },
-                parent: character,
-                byte_offset,
-                x: (pen + glyph_metrics.bounds.xmin).floor(),
-                y: (-glyph_metrics.bounds.height - glyph_metrics.bounds.ymin).floor(),
-                width: glyph_metrics.width,
-                height: glyph_metrics.height,
+                key: source.key,
+                parent: source.parent,
+                byte_offset: source.byte_offset,
+                x: pen + source.x,
+                y: source.y,
+                width: source.width,
+                height: source.height,
                 pen_x: pen,
-                advance,
-                char_data,
+                advance: source.advance,
+                char_data: source.char_data,
             });
-            pen += advance;
+            pen += source.advance;
 
-            let hard_break = opportunity == Some(BreakOpportunity::Mandatory);
-            if hard_break {
-                self.push_line(line_start, self.glyphs.len(), line_start_pen, pen, metrics);
+            if source.break_after == Break::Mandatory {
+                self.push_line(
+                    line_start,
+                    self.glyphs.len(),
+                    line_start_pen,
+                    pen,
+                    run.metrics,
+                );
                 line_start = self.glyphs.len();
                 line_start_pen = pen;
                 last_break = None;
             } else if settings.wrap == TextWrap::Character
-                || settings.wrap == TextWrap::Word && opportunity == Some(BreakOpportunity::Allowed)
+                || settings.wrap == TextWrap::Word && source.break_after == Break::Allowed
             {
                 last_break = Some(self.glyphs.len());
             }
         }
 
         if line_start < self.glyphs.len() {
-            self.push_line(line_start, self.glyphs.len(), line_start_pen, pen, metrics);
+            self.push_line(
+                line_start,
+                self.glyphs.len(),
+                line_start_pen,
+                pen,
+                run.metrics,
+            );
         }
 
-        self.height = self.lines.len() as f32 * metrics.new_line_size;
+        self.height = self.lines.len() as f32 * run.metrics.new_line_size;
         let vertical_align = match settings.vertical_align {
             VerticalAlign::Top => 0.0,
             VerticalAlign::Center => 0.5,
@@ -175,7 +247,8 @@ impl Layout {
         };
 
         for (index, line) in self.lines.iter_mut().enumerate() {
-            let baseline = vertical_offset + metrics.ascent + index as f32 * metrics.new_line_size;
+            let baseline =
+                vertical_offset + run.metrics.ascent + index as f32 * run.metrics.new_line_size;
             let horizontal_offset = settings.max_width.map_or(0.0, |width| {
                 ((width - line.width) * horizontal_align).floor()
             });
@@ -187,6 +260,11 @@ impl Layout {
                 glyph.y += baseline;
             }
         }
+    }
+
+    pub fn layout(&mut self, font: &Font, text: &str, size: f32, settings: LayoutSettings) {
+        let run = self.text_run(font, text, size);
+        self.layout_run(&run, settings);
     }
 
     pub fn glyphs(&self) -> &[GlyphPosition] {
@@ -228,6 +306,33 @@ impl Layout {
             start_x,
             width: end_x - start_x,
         });
+    }
+}
+
+impl TextRun {
+    pub fn matches(&self, text: &str) -> bool {
+        self.len == text.len()
+            && self
+                .glyphs
+                .iter()
+                .map(|glyph| (glyph.byte_offset, glyph.parent))
+                .eq(text.char_indices())
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.glyphs.is_empty()
+    }
+
+    pub fn allocated_bytes(&self) -> usize {
+        self.glyphs.len() * size_of::<RunGlyph>()
+    }
+
+    pub fn line_metrics(&self) -> LineMetrics {
+        self.metrics
     }
 }
 

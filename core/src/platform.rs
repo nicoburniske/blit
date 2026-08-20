@@ -5,8 +5,8 @@ use crate::{
     command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     keyboard::KeyboardRequest,
-    paint::{TextLayoutRequest, TextRequest},
-    resource::{ImageData, ImageHandle, ImageId, StringData, StringHandle, StringId},
+    paint::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    resource::{ImageData, ImageHandle, ImageId},
 };
 
 pub trait PlatformImpl {
@@ -23,11 +23,7 @@ pub trait PlatformImpl {
     fn create_image(&mut self, data: ImageData) -> ImageId;
     fn drop_image(&mut self, image: ImageId);
 
-    fn create_string(&mut self, string: StringData) -> StringId;
-    /// queues destruction after the current frame
-    fn drop_string(&mut self, string: StringId);
-    fn string(&self, string: StringId) -> &str;
-
+    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId;
     fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize;
     /// returns the typographic size without rasterizing
     fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize;
@@ -61,9 +57,9 @@ impl Platform {
         ImageHandle::new(id, size, self.inner)
     }
 
-    pub fn create_string(&mut self, string: impl Into<StringData>) -> StringHandle {
-        let id = self.inner().create_string(string.into());
-        StringHandle::new(id, *self)
+    #[inline]
+    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.inner().text_run(text, style)
     }
 
     #[inline]

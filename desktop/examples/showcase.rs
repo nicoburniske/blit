@@ -458,7 +458,7 @@ struct Showcase {
     height: f32,
 }
 
-fn choice(label: &'static str, selected: bool) -> Button {
+fn choice(label: &'static str, selected: bool) -> Button<'static> {
     Button::new(label)
         .background(if selected {
             colors::ACCENT_DARK

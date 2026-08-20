@@ -8,7 +8,7 @@ use blit::{
         BoxShadow, FontId, GradientStop, ImageFit, ImageRequest, ImageSampling, ImageTiling,
         LinearGradient, Rectangle, TextOptions, TextRequest, TextStyle, TextWrap,
     },
-    resource::{ImageData, ImageFormat, ImagePixels, TextSource},
+    resource::{ImageData, ImageFormat, ImagePixels},
 };
 use blit_cpu::{
     Direct, Font, FontFace, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
@@ -134,6 +134,16 @@ fn text_labels_direct(bencher: divan::Bencher) {
 #[divan::bench]
 fn text_labels_scanline(bencher: divan::Bencher) {
     benchmark_text_labels(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn text_heavy_direct(bencher: divan::Bencher) {
+    benchmark_text_heavy(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn text_heavy_scanline(bencher: divan::Bencher) {
+    benchmark_text_heavy(bencher, Scanline::default())
 }
 
 #[divan::bench]
@@ -372,6 +382,8 @@ where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
     const COMMANDS: usize = 48;
+    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
+    let text = renderer.text_run("secure approval", TextStyle::default());
     let mut commands = CommandList::default();
     for index in 0..COMMANDS {
         let area = LogicalRect {
@@ -382,7 +394,7 @@ where
         };
         commands.push_text(
             TextRequest {
-                text: TextSource::Static("secure approval"),
+                text,
                 area,
                 offset_x: 0.0,
                 color: Color::from_rgba8(224, 232, 240, 255),
@@ -399,11 +411,60 @@ where
         width: WIDTH as i32,
         height: HEIGHT as i32,
     }];
-    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
     renderer.render(&commands, &damage);
 
     bencher
         .counter(ItemsCount::new(COMMANDS))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+}
+
+fn benchmark_text_heavy<S>(bencher: divan::Bencher, strategy: S)
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    const LINES: usize = 40;
+    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
+    let strings = (0..LINES)
+        .map(|line| {
+            renderer.text_run(
+                &format!(
+                    "transaction {line:02}: verify recipient 0x7c91…{line:04x}, amount 12.345 ETH, and network fee 0.0042 ETH"
+                ),
+                TextStyle::default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut commands = CommandList::default();
+    for (line, text) in strings.into_iter().enumerate() {
+        let area = LogicalRect {
+            x: 8.0,
+            y: line as f32 * 20.0,
+            width: 464.0,
+            height: 20.0,
+        };
+        commands.push_text(
+            TextRequest {
+                text,
+                area,
+                offset_x: 0.0,
+                color: Color::from_rgba8(224, 232, 240, 255),
+                style: TextStyle::default(),
+                options: TextOptions::default(),
+            },
+            area.to_physical(1.0),
+            ClipId::default(),
+        );
+    }
+    let damage = [PhysicalRect {
+        x: 0,
+        y: 0,
+        width: WIDTH as i32,
+        height: HEIGHT as i32,
+    }];
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(LINES))
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
@@ -417,19 +478,23 @@ where
         width: 400.0,
         height: 320.0,
     };
+    let style = TextStyle {
+        size: 20.0,
+        ..TextStyle::default()
+    };
+    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
+    let text = renderer.text_run(
+        "Passport keeps your keys offline while making secure approvals clear and deliberate. Every transaction is reviewed on the trusted display before it is signed. Recovery information stays under your control, and the device never needs to expose private keys.",
+        style,
+    );
     let mut commands = CommandList::default();
     commands.push_text(
         TextRequest {
-            text: TextSource::Static(
-                "Passport keeps your keys offline while making secure approvals clear and deliberate. Every transaction is reviewed on the trusted display before it is signed. Recovery information stays under your control, and the device never needs to expose private keys.",
-            ),
+            text,
             area,
             offset_x: 0.0,
             color: Color::from_rgba8(224, 232, 240, 255),
-            style: TextStyle {
-                size: 20.0,
-                ..TextStyle::default()
-            },
+            style,
             options: TextOptions {
                 wrap: TextWrap::Word,
                 ..TextOptions::default()
@@ -439,7 +504,6 @@ where
         ClipId::default(),
     );
     let damage = [area.to_physical(1.0)];
-    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
     renderer.render(&commands, &damage);
 
     bencher

@@ -8,8 +8,11 @@ mod text;
 use blit::{
     command_list::{Command, CommandList as ResolvedCommandList},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
-    paint::{Border, BoxShadow, FontId, ImageRequest, Rectangle, TextLayoutRequest, TextRequest},
-    resource::{ImageData, ImageId, StringData, StringId, TextSource},
+    paint::{
+        Border, BoxShadow, FontId, ImageRequest, Rectangle, TextLayoutRequest, TextRequest,
+        TextRunId, TextStyle,
+    },
+    resource::{ImageData, ImageId},
 };
 pub use blit_font::Font;
 pub use pixel::{
@@ -49,8 +52,6 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
                 has_dead_images: false,
-                strings: SlotMap::with_key(),
-                has_dead_strings: false,
                 shadows: shadow::Cache::new(config.shadow_cache_capacity),
                 text: TextRenderer::new(config),
                 commands: CommandList::default(),
@@ -223,18 +224,15 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     ) -> Option<PhysicalRect> {
         let area = request.area.to_physical(self.context.scale_factor);
         let visible_area = area.intersection(bounds)?;
-        let RenderContext {
-            strings,
-            text,
-            scale_factor,
-            ..
-        } = &mut self.context;
-        let string = resolve_text(strings, request.text);
-        let (paragraph, paragraph_bounds) = text.prepare(request, string, *scale_factor);
+        let (glyph_start, glyph_end, paragraph_bounds) = self
+            .context
+            .text
+            .prepare(request, self.context.scale_factor);
         let bounds = paragraph_bounds.intersection(visible_area)?;
         self.context.commands.push_text(
             PreparedText {
-                paragraph,
+                glyph_start,
+                glyph_end,
                 area,
                 color: request.color,
             },
@@ -258,25 +256,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         }
     }
 
-    pub fn create_string(&mut self, string: StringData) -> StringId {
-        let string = self.context.strings.insert(StoredString {
-            data: string,
-            live: true,
-        });
-        StringId(string.data().as_ffi())
-    }
-
-    pub fn drop_string(&mut self, string: StringId) {
-        let string = RendererStringId::from(KeyData::from_ffi(string.0));
-        if let Some(string) = self.context.strings.get_mut(string) {
-            string.live = false;
-            self.context.has_dead_strings = true;
-        }
-    }
-
-    pub fn string(&self, string: StringId) -> &str {
-        let string = RendererStringId::from(KeyData::from_ffi(string.0));
-        self.context.strings[string].data.as_ref()
+    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.context
+            .text
+            .text_run(text, style, self.context.scale_factor)
     }
 
     pub fn text_offset_at_position(
@@ -284,36 +267,21 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         request: &TextRequest,
         position: LogicalPoint,
     ) -> usize {
-        let RenderContext {
-            strings,
-            text,
-            scale_factor,
-            ..
-        } = &mut self.context;
-        let string = resolve_text(strings, request.text);
-        text.offset_at_position(request, string, position, *scale_factor)
+        self.context
+            .text
+            .offset_at_position(request, position, self.context.scale_factor)
     }
 
     pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
-        let RenderContext {
-            strings,
-            text,
-            scale_factor,
-            ..
-        } = &mut self.context;
-        let string = resolve_text(strings, request.text);
-        text.measure(request, string, *scale_factor)
+        self.context
+            .text
+            .measure(request, self.context.scale_factor)
     }
 
     pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        let RenderContext {
-            strings,
-            text,
-            scale_factor,
-            ..
-        } = &mut self.context;
-        let string = resolve_text(strings, request.text);
-        text.cursor_rect(request, string, byte_offset, *scale_factor)
+        self.context
+            .text
+            .cursor_rect(request, byte_offset, self.context.scale_factor)
     }
 }
 
@@ -323,7 +291,6 @@ use text::TextRenderer;
 
 new_key_type! {
     pub struct RendererImageId;
-    pub struct RendererStringId;
 }
 
 #[doc(hidden)]
@@ -332,27 +299,10 @@ pub struct RenderContext<B: PixelBuffer> {
     scale_factor: f32,
     images: SlotMap<RendererImageId, StoredImage>,
     has_dead_images: bool,
-    strings: SlotMap<RendererStringId, StoredString>,
-    has_dead_strings: bool,
     shadows: shadow::Cache,
     text: TextRenderer,
     commands: CommandList,
     clips: ClipStack,
-}
-
-struct StoredString {
-    data: StringData,
-    live: bool,
-}
-
-fn resolve_text(strings: &SlotMap<RendererStringId, StoredString>, source: TextSource) -> &str {
-    match source {
-        TextSource::Resource(string) => {
-            let string = RendererStringId::from(KeyData::from_ffi(string.0));
-            strings[string].data.as_ref()
-        }
-        TextSource::Static(string) => string,
-    }
 }
 
 pub struct StoredImage {
@@ -473,14 +423,6 @@ impl<B: PixelBuffer> RenderContext<B> {
         if self.has_dead_images {
             self.images.retain(|_, image| image.live);
             self.has_dead_images = false;
-        }
-        if self.has_dead_strings {
-            let RenderContext { strings, text, .. } = self;
-            strings.retain(|_, string| string.live);
-            text.retain_strings(|string| {
-                strings.contains_key(RendererStringId::from(KeyData::from_ffi(string.0)))
-            });
-            self.has_dead_strings = false;
         }
     }
 }

@@ -6,9 +6,9 @@ use blit::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
     keyboard::KeyboardRequest,
-    paint::TextRequest,
+    paint::{TextRequest, TextRunId, TextStyle},
     platform::PlatformImpl,
-    resource::{ImageData, ImageId, StringData, StringId},
+    resource::{ImageData, ImageId},
 };
 use blit_cpu::{PixelBuffer, Renderer, Scanline};
 use blit_executor::{LocalExecutor, TaskId};
@@ -527,16 +527,8 @@ impl PlatformImpl for DesktopPlatform {
         self.renderer.drop_image(image)
     }
 
-    fn create_string(&mut self, string: StringData) -> StringId {
-        self.renderer.create_string(string)
-    }
-
-    fn drop_string(&mut self, string: StringId) {
-        self.renderer.drop_string(string)
-    }
-
-    fn string(&self, string: StringId) -> &str {
-        self.renderer.string(string)
+    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.renderer.text_run(text, style)
     }
 
     fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
