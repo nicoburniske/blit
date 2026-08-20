@@ -9,8 +9,6 @@ use crate::{
     },
 };
 
-const MAX_DIFF_EDITS: usize = 64;
-
 #[derive(Default)]
 pub struct CommandList {
     commands: Vec<StoredCommand>,
@@ -185,14 +183,50 @@ impl CommandList {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommandDiffConfig {
+    pub max_edits: usize,
+    pub max_rectangles: usize,
+}
+
+impl Default for CommandDiffConfig {
+    fn default() -> Self {
+        Self {
+            max_edits: 8,
+            max_rectangles: 32,
+        }
+    }
+}
+
 pub struct CommandListDiffer {
+    config: CommandDiffConfig,
     frontier: Vec<isize>,
     trace: Vec<isize>,
     damage: Vec<PhysicalRect>,
 }
 
+impl Default for CommandListDiffer {
+    fn default() -> Self {
+        Self::new(CommandDiffConfig::default())
+    }
+}
+
 impl CommandListDiffer {
+    pub fn new(config: CommandDiffConfig) -> Self {
+        assert!(config.max_rectangles > 0);
+        Self {
+            config,
+            frontier: Vec::new(),
+            trace: Vec::new(),
+            damage: Vec::new(),
+        }
+    }
+
+    pub fn set_config(&mut self, config: CommandDiffConfig) {
+        assert!(config.max_rectangles > 0);
+        self.config = config;
+    }
+
     pub fn diff(&mut self, old: &CommandList, new: &CommandList) -> &[PhysicalRect] {
         self.damage.clear();
         self.trace.clear();
@@ -213,21 +247,19 @@ impl CommandListDiffer {
         let old_len = old_end - start;
         let new_len = new_end - start;
         if old_len == 0 {
-            self.damage.reserve(new_len);
             for index in start..new_end {
-                self.damage.push(new.get(index).bounds);
+                self.push_damage(new.get(index).bounds);
             }
             return &self.damage;
         }
         if new_len == 0 {
-            self.damage.reserve(old_len);
             for index in start..old_end {
-                self.damage.push(old.get(index).bounds);
+                self.push_damage(old.get(index).bounds);
             }
             return &self.damage;
         }
 
-        let max_distance = old_len.saturating_add(new_len).min(MAX_DIFF_EDITS);
+        let max_distance = old_len.saturating_add(new_len).min(self.config.max_edits);
         let frontier_len = max_distance.saturating_mul(2).saturating_add(3);
         self.frontier.resize(frontier_len, 0);
         let frontier_offset = max_distance + 1;
@@ -267,17 +299,30 @@ impl CommandListDiffer {
         }
 
         let Some(distance) = distance else {
-            self.damage.reserve(old_len.saturating_add(new_len));
-            for index in start..old_end {
-                self.damage.push(old.get(index).bounds);
+            let paired = old_len.min(new_len);
+            for offset in 0..paired {
+                let old_index = start + offset;
+                let new_index = start + offset;
+                if !old.equivalent(old_index, new, new_index) {
+                    let old_bounds = old.get(old_index).bounds;
+                    let new_bounds = new.get(new_index).bounds;
+                    self.push_damage(old_bounds);
+                    if new_bounds != old_bounds {
+                        self.push_damage(new_bounds);
+                    }
+                }
             }
-            for index in start..new_end {
-                self.damage.push(new.get(index).bounds);
+            for index in start + paired..old_end {
+                self.push_damage(old.get(index).bounds);
+            }
+            for index in start + paired..new_end {
+                self.push_damage(new.get(index).bounds);
             }
             return &self.damage;
         };
 
-        self.damage.reserve(distance);
+        self.damage
+            .reserve(distance.min(self.config.max_rectangles));
         let mut x = old_len as isize;
         let mut y = new_len as isize;
         for edits in (1..=distance).rev() {
@@ -300,13 +345,36 @@ impl CommandListDiffer {
             }
             if x == previous_x {
                 y -= 1;
-                self.damage.push(new.get(start + y as usize).bounds);
+                self.push_damage(new.get(start + y as usize).bounds);
             } else {
                 x -= 1;
-                self.damage.push(old.get(start + x as usize).bounds);
+                self.push_damage(old.get(start + x as usize).bounds);
             }
         }
         &self.damage
+    }
+
+    fn push_damage(&mut self, bounds: PhysicalRect) {
+        if bounds.width <= 0 || bounds.height <= 0 {
+            return;
+        }
+        if self.damage.len() < self.config.max_rectangles {
+            self.damage.push(bounds);
+            return;
+        }
+        if self.damage.len() == 1 {
+            self.damage[0] = self.damage[0].union(bounds);
+            return;
+        }
+        let len = self.damage.len();
+        for index in 0..len / 2 {
+            self.damage[index] = self.damage[index * 2].union(self.damage[index * 2 + 1]);
+        }
+        if len % 2 == 1 {
+            self.damage[len / 2] = self.damage[len - 1];
+        }
+        self.damage.truncate(len.div_ceil(2));
+        self.damage.push(bounds);
     }
 }
 
@@ -529,5 +597,24 @@ mod tests {
         let mut differ = CommandListDiffer::default();
 
         assert!(differ.diff(&old, &new).is_empty());
+    }
+
+    #[test]
+    fn diff_bounds_output_and_search_storage() {
+        let mut old = CommandList::default();
+        let mut new = CommandList::default();
+        for id in 0..40 {
+            old.push_text(text(id), bounds(id as i32), ClipId::default());
+            new.push_text(text(id + 100), bounds(id as i32 + 100), ClipId::default());
+        }
+        let config = CommandDiffConfig {
+            max_edits: 1,
+            max_rectangles: 2,
+        };
+        let mut differ = CommandListDiffer::new(config);
+
+        assert_eq!(differ.diff(&old, &new).len(), config.max_rectangles);
+        assert!(differ.trace.len() <= 3);
+        assert!(differ.frontier.len() <= config.max_edits * 2 + 3);
     }
 }
