@@ -525,6 +525,8 @@ struct Node {
     area: LogicalRect,
     clip: ClipId,
     content_clip: ClipId,
+    clip_bounds: LogicalRect,
+    content_clip_bounds: LogicalRect,
 }
 
 struct StoredAppearance {
@@ -573,6 +575,8 @@ impl FrameGraph {
             area: screen,
             clip: ClipId::default(),
             content_clip: ClipId::default(),
+            clip_bounds: screen,
+            content_clip_bounds: screen,
         });
         self.open.push(NodeId(0));
     }
@@ -599,6 +603,8 @@ impl FrameGraph {
             area: LogicalRect::default(),
             clip: ClipId::default(),
             content_clip: ClipId::default(),
+            clip_bounds: LogicalRect::default(),
+            content_clip_bounds: LogicalRect::default(),
         });
         if let Some(last) = self.nodes[parent.0].last_child {
             self.nodes[last.0].next_sibling = Some(node);
@@ -660,7 +666,7 @@ impl FrameGraph {
         self.resolve_axis(Axis::Vertical);
         self.resolve_clips(commands);
         self.emit(platform, commands, scale_factor);
-        self.register_hits(commands, interaction, scale_factor);
+        self.register_hits(interaction, scale_factor);
         for node in &self.nodes {
             if let Some(id) = node.id {
                 geometry.register(
@@ -933,7 +939,6 @@ impl FrameGraph {
     fn resolve_clips(&mut self, commands: &mut CommandList) {
         self.nodes[0].clip = ClipId::default();
         for index in 0..self.nodes.len() {
-            let id = NodeId(index);
             let child_clip = match self.nodes[index].clip_children {
                 Clip::None => self.nodes[index].clip,
                 Clip::Bounds => commands.push_clip(
@@ -946,12 +951,19 @@ impl FrameGraph {
                 }
             };
             self.nodes[index].content_clip = child_clip;
+            self.nodes[index].content_clip_bounds = match self.nodes[index].clip_children {
+                Clip::None => self.nodes[index].clip_bounds,
+                Clip::Bounds | Clip::Rounded(_) => self.nodes[index]
+                    .clip_bounds
+                    .intersection(self.nodes[index].area)
+                    .unwrap_or_default(),
+            };
             let mut child = self.nodes[index].first_child;
             while let Some(child_id) = child {
                 self.nodes[child_id.0].clip = child_clip;
+                self.nodes[child_id.0].clip_bounds = self.nodes[index].content_clip_bounds;
                 child = self.nodes[child_id.0].next_sibling;
             }
-            let _ = id;
         }
     }
 
@@ -963,11 +975,9 @@ impl FrameGraph {
                     .offset(shadow.offset_x, shadow.offset_y)
                     .blur(shadow.blur)
                     .spread(shadow.spread);
-                commands.push_box_shadow(
-                    shadow,
-                    shadow.bounds().to_physical(scale_factor),
-                    node.clip,
-                );
+                if let Some(bounds) = node.visible_bounds(shadow.bounds(), false, scale_factor) {
+                    commands.push_box_shadow(shadow, bounds, node.clip);
+                }
             }
             if node.appearance.paints() {
                 let border = match node.appearance.border {
@@ -992,7 +1002,9 @@ impl FrameGraph {
                     opacity: node.appearance.opacity,
                     replace: node.appearance.replace,
                 };
-                commands.push_rectangle(rectangle, node.area.to_physical(scale_factor), node.clip);
+                if let Some(bounds) = node.visible_bounds(node.area, false, scale_factor) {
+                    commands.push_rectangle(rectangle, bounds, node.clip);
+                }
             }
             match node.content {
                 Content::None => {}
@@ -1019,18 +1031,18 @@ impl FrameGraph {
                                 width: right - left,
                                 height: bottom - top,
                             };
-                            commands.push_rectangle(
-                                Rectangle::new(area).background(selection.color),
-                                area.to_physical(scale_factor),
-                                node.content_clip,
-                            );
+                            if let Some(bounds) = node.visible_bounds(area, true, scale_factor) {
+                                commands.push_rectangle(
+                                    Rectangle::new(area).background(selection.color),
+                                    bounds,
+                                    node.content_clip,
+                                );
+                            }
                         }
                     }
-                    commands.push_text(
-                        request,
-                        node.area.to_physical(scale_factor),
-                        node.content_clip,
-                    );
+                    if let Some(bounds) = node.visible_bounds(node.area, true, scale_factor) {
+                        commands.push_text(request, bounds, node.content_clip);
+                    }
                     if let Some(caret) = text.caret {
                         let cursor = platform.text_cursor_rect(&request, caret.offset);
                         let x = cursor.x.clamp(
@@ -1046,55 +1058,68 @@ impl FrameGraph {
                                 width: caret.width.min(node.area.width),
                                 height: bottom - top,
                             };
-                            commands.push_rectangle(
-                                Rectangle::new(area).background(caret.color),
-                                area.to_physical(scale_factor),
-                                node.content_clip,
-                            );
+                            if let Some(bounds) = node.visible_bounds(area, true, scale_factor) {
+                                commands.push_rectangle(
+                                    Rectangle::new(area).background(caret.color),
+                                    bounds,
+                                    node.content_clip,
+                                );
+                            }
                         }
                     }
                 }
-                Content::Image(image) => commands.push_image(
-                    ImageRequest {
-                        image: image.image,
-                        area: node.area,
-                        fit: image.fit,
-                        sampling: image.sampling,
-                        opacity: image.opacity,
-                        colorize: image.colorize,
-                        nine_slice: image.nine_slice,
-                        horizontal_tiling: image.horizontal_tiling,
-                        vertical_tiling: image.vertical_tiling,
-                    },
-                    node.area.to_physical(scale_factor),
-                    node.content_clip,
-                ),
+                Content::Image(image) => {
+                    if let Some(bounds) = node.visible_bounds(node.area, true, scale_factor) {
+                        commands.push_image(
+                            ImageRequest {
+                                image: image.image,
+                                area: node.area,
+                                fit: image.fit,
+                                sampling: image.sampling,
+                                opacity: image.opacity,
+                                colorize: image.colorize,
+                                nine_slice: image.nine_slice,
+                                horizontal_tiling: image.horizontal_tiling,
+                                vertical_tiling: image.vertical_tiling,
+                            },
+                            bounds,
+                            node.content_clip,
+                        );
+                    }
+                }
             }
         }
     }
 
-    fn register_hits(
-        &self,
-        commands: &CommandList,
-        interaction: &mut InteractionState,
-        scale_factor: f32,
-    ) {
+    fn register_hits(&self, interaction: &mut InteractionState, scale_factor: f32) {
         for node in &self.nodes {
             let Some((id, sense)) = node.interaction else {
                 continue;
             };
-            let mut area = Some(node.area.to_physical(scale_factor));
-            let mut clip = node.clip;
-            while let Some(node) = commands.clip(clip) {
-                area = area.and_then(|area| area.intersection(node.area.to_physical(scale_factor)));
-                clip = node.parent;
-            }
+            let area = node
+                .area
+                .intersection(node.clip_bounds)
+                .map(|area| area.to_physical(scale_factor));
             interaction.register(id, area, sense);
         }
     }
 }
 
 impl Node {
+    fn visible_bounds(
+        &self,
+        area: LogicalRect,
+        content: bool,
+        scale_factor: f32,
+    ) -> Option<crate::geometry::PhysicalRect> {
+        area.intersection(if content {
+            self.content_clip_bounds
+        } else {
+            self.clip_bounds
+        })
+        .map(|area| area.to_physical(scale_factor))
+    }
+
     fn sizing(&self, axis: Axis) -> Sizing {
         match axis {
             Axis::Horizontal => self.layout.width,
