@@ -101,10 +101,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         &mut self.context.buffer
     }
 
-    pub fn render(&mut self, paint: &ResolvedCommandList, damage: &[PhysicalRect]) {
+    pub fn render(&mut self, commands: &ResolvedCommandList, damage: &[PhysicalRect]) {
         assert!(self.context.commands.is_empty());
         if !damage.is_empty() {
-            for clip in paint.clips() {
+            for clip in commands.clips() {
                 self.context.clips.push_node(
                     clip.parent.0,
                     clip.area,
@@ -112,7 +112,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                     self.context.scale_factor,
                 );
             }
-            for record in paint.iter() {
+            for record in commands.iter() {
                 if !damage
                     .iter()
                     .any(|damage| record.bounds.intersection(*damage).is_some())

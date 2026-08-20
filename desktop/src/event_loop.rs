@@ -498,13 +498,13 @@ struct DesktopPlatform {
 }
 
 impl PlatformImpl for DesktopPlatform {
-    fn render(&mut self, paint: &CommandList, damage: &[PhysicalRect]) {
+    fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
         if self.ime_allowed != self.ime_requested {
             self.window.set_ime_allowed(self.ime_requested);
             self.ime_allowed = self.ime_requested;
         }
         self.ime_requested = false;
-        self.renderer.render(paint, damage)
+        self.renderer.render(commands, damage)
     }
 
     fn screen(&mut self) -> PhysicalRect {

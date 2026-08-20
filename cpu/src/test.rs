@@ -59,8 +59,8 @@ struct RuntimePlatform<B: PixelBuffer = VecBuffer<Xrgb8888>, S: RenderStrategy<B
 impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
     for RuntimePlatform<B, S>
 {
-    fn render(&mut self, paint: &CommandList, damage: &[PhysicalRect]) {
-        self.renderer.render(paint, damage)
+    fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
+        self.renderer.render(commands, damage)
     }
 
     fn screen(&mut self) -> PhysicalRect {

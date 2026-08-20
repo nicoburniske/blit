@@ -155,13 +155,13 @@ fn command_frame(ui: &mut Ui) {
             .enumerate()
         {
             let id = WidgetId::new(row_index * CELLS_PER_ROW + cell_index);
-            black_box(drop(
+            drop(
                 row.element(
                     Element::new(Layout::vertical().width(width))
                         .background(Color::BLACK)
                         .interact(id, Sense::CLICK),
                 ),
-            ));
+            );
         }
     }
 }
