@@ -9,7 +9,7 @@ use crate::{
     keyboard::KeyboardRequest,
     layout::Constraints,
     paint,
-    paint_list::{ClipId, PaintList},
+    command_list::{ClipId, CommandList},
     platform::PlatformImpl,
     resource, widget,
 };
@@ -43,7 +43,7 @@ impl widget::SizedWidget for FixedSize {
 }
 
 impl PlatformImpl for TestPlatform {
-    fn render(&mut self, paint: &PaintList, damage: &[PhysicalRect]) {
+    fn render(&mut self, paint: &CommandList, damage: &[PhysicalRect]) {
         self.damage.clear();
         self.damage.extend_from_slice(damage);
         self.paint_bounds.clear();

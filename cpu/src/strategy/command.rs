@@ -307,7 +307,7 @@ struct Header {
     right: i32,
     record_words: u8,
     kind: u8,
-    clip: u16,
+    clip: u32,
 }
 
 #[repr(C, align(8))]

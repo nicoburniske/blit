@@ -8,7 +8,7 @@ mod text;
 use blit::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     paint::{Border, BoxShadow, FontId, ImageRequest, Rectangle, TextLayoutRequest, TextRequest},
-    paint_list::{Command, PaintList},
+    command_list::{Command, CommandList as ResolvedCommandList},
     resource::{ImageData, ImageId, StringData, StringId, TextSource},
 };
 pub use blit_font::Font;
@@ -101,7 +101,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         &mut self.context.buffer
     }
 
-    pub fn render(&mut self, paint: &PaintList, damage: &[PhysicalRect]) {
+    pub fn render(&mut self, paint: &ResolvedCommandList, damage: &[PhysicalRect]) {
         assert!(self.context.commands.is_empty());
         if !damage.is_empty() {
             for clip in paint.clips() {
@@ -141,7 +141,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         self.context.finish_frame();
     }
 
-    fn prepare_rectangle(&mut self, request: &Rectangle<'_>, bounds: PhysicalRect, clip: u16) {
+    fn prepare_rectangle(&mut self, request: &Rectangle<'_>, bounds: PhysicalRect, clip: u32) {
         if let Border::Gradient { width, gradient } = request.border
             && let Some(prepared) =
                 rectangle::Gradient::new(request, width, gradient, self.context.scale_factor)
@@ -164,7 +164,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         }
     }
 
-    fn prepare_box_shadow(&mut self, shadow: &BoxShadow, bounds: PhysicalRect, clip: u16) {
+    fn prepare_box_shadow(&mut self, shadow: &BoxShadow, bounds: PhysicalRect, clip: u32) {
         let Some(request) = self.context.shadows.prepare(
             &mut self.context.images,
             shadow,
@@ -193,7 +193,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         }
     }
 
-    fn prepare_image(&mut self, request: &ImageRequest, bounds: PhysicalRect, clip: u16) {
+    fn prepare_image(&mut self, request: &ImageRequest, bounds: PhysicalRect, clip: u32) {
         let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
         if let Some(texture) = self.context.images.get(image) {
             image::prepare(
@@ -218,7 +218,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         &mut self,
         request: &TextRequest,
         bounds: PhysicalRect,
-        clip: u16,
+        clip: u32,
     ) -> Option<PhysicalRect> {
         let area = request.area.to_physical(self.context.scale_factor);
         let visible_area = area.intersection(bounds)?;
