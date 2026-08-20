@@ -16,6 +16,9 @@ const WIDTH: usize = 480;
 const HEIGHT: usize = 800;
 const PIXELS: usize = WIDTH * HEIGHT;
 
+#[global_allocator]
+static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
+
 fn main() {
     divan::main()
 }
@@ -86,6 +89,7 @@ fn render_rectangles(bencher: divan::Bencher) {
         },
     )
     .strategy(Scanline::default());
+    renderer.render(&commands, &damage);
 
     bencher
         .counter(ItemsCount::new(PIXELS))
