@@ -2,9 +2,9 @@ use crate::{
     FrameGraphMemory,
     color::Color,
     command_list::{ClipId, CommandList},
-    element::{
-        Align, Appearance, Axis, Clip, Content, ElementGeometry, Flow, ImageContent, Item, Justify,
-        NodeSpec, Shadow, Sizing, TextContent,
+    frame::{
+        Align, Appearance, Axis, Clip, Container, Content, Flow, ImageContent, Item, Justify,
+        Shadow, Sizing, TextContent, WidgetGeometry,
     },
     geometry::{LogicalPoint, LogicalRect, LogicalSize},
     interact::{InteractionState, Sense, WidgetId},
@@ -101,11 +101,11 @@ impl NodeId {
     const ROOT: Self = Self(1);
 
     fn new(index: usize) -> Self {
-        Self(u32::try_from(index + 1).expect("too many elements in one frame"))
+        Self(u32::try_from(index + 1).expect("too many nodes in one frame"))
     }
 
     fn index(self) -> usize {
-        self.0.checked_sub(1).expect("missing element") as usize
+        self.0.checked_sub(1).expect("missing node") as usize
     }
 }
 
@@ -113,7 +113,7 @@ impl PayloadId {
     const NONE: Self = Self(0);
 
     fn new(index: usize) -> Self {
-        Self(u32::try_from(index + 1).expect("too many element payloads in one frame"))
+        Self(u32::try_from(index + 1).expect("too many node payloads in one frame"))
     }
 
     fn get(self) -> Option<usize> {
@@ -192,29 +192,60 @@ impl FrameGraph {
         self.open.push(NodeId::ROOT);
     }
 
-    pub fn push(&mut self, spec: NodeSpec<'_>) -> NodeId {
-        let node = self.append(spec);
+    pub fn add_container(&mut self, axis: Axis, mut container: Container<'_>) -> NodeId {
+        container.flow.axis = axis;
+        let node = self.append(
+            container.item,
+            Some(container.flow),
+            container.appearance,
+            None,
+            container.clip,
+            container.offset,
+            container.id,
+            container.interaction,
+        );
         self.open.push(node);
         node
     }
 
-    pub fn push_leaf(&mut self, spec: NodeSpec<'_>) {
-        self.append(spec);
+    pub fn add_leaf(&mut self, item: Item, content: Content) -> NodeId {
+        let appearance = match content {
+            Content::Rectangle(appearance) => appearance,
+            _ => Appearance::new(),
+        };
+        self.append(
+            item,
+            None,
+            appearance,
+            Some(content),
+            Clip::None,
+            LogicalPoint::default(),
+            None,
+            None,
+        )
     }
 
-    fn append(&mut self, spec: NodeSpec<'_>) -> NodeId {
-        self.open
-            .last()
-            .expect("element declaration requires a root");
+    fn append(
+        &mut self,
+        item: Item,
+        flow: Option<Flow>,
+        appearance: Appearance<'_>,
+        content: Option<Content>,
+        clip: Clip,
+        offset: LogicalPoint,
+        id: Option<WidgetId>,
+        interaction: Option<(WidgetId, Sense)>,
+    ) -> NodeId {
+        self.open.last().expect("node declaration requires a root");
         let node = NodeId::new(self.nodes.len());
-        let content = self.store_content(spec.content);
-        let (appearance, shadow) = self.store_appearance(spec.appearance);
-        let flow = spec.flow.map_or(PayloadId::NONE, |flow| {
+        let content = self.store_content(content);
+        let (appearance, shadow) = self.store_appearance(appearance);
+        let flow = flow.map_or(PayloadId::NONE, |flow| {
             let id = PayloadId::new(self.flows.len());
             self.flows.push(flow);
             id
         });
-        let clip_spec = match spec.clip {
+        let clip_spec = match clip {
             Clip::None => PayloadId::NONE,
             clip => {
                 let id = PayloadId::new(self.clip_specs.len());
@@ -223,15 +254,14 @@ impl FrameGraph {
             }
         };
         self.nodes.push(Node {
-            subtree_end: u32::try_from(self.nodes.len() + 1)
-                .expect("too many elements in one frame"),
-            item: spec.item,
+            subtree_end: u32::try_from(self.nodes.len() + 1).expect("too many nodes in one frame"),
+            item,
             flow,
             appearance,
             shadow,
             content,
             clip_spec,
-            offset: spec.offset,
+            offset,
             intrinsic: LogicalSize::default(),
             area: LogicalRect::default(),
             clip: ClipId::default(),
@@ -239,14 +269,34 @@ impl FrameGraph {
             clip_bounds: LogicalRect::default(),
             content_clip_bounds: LogicalRect::default(),
         });
-        if let Some(id) = spec.id {
+        if let Some(id) = id {
             self.geometry.push(GeometryRecord { node, id });
         }
-        if let Some((id, sense)) = spec.interaction {
+        if let Some((id, sense)) = interaction {
             self.interactions
                 .push(InteractionRecord { node, id, sense });
         }
         node
+    }
+
+    pub fn set_id(&mut self, node: NodeId, id: WidgetId) {
+        self.geometry.push(GeometryRecord { node, id });
+    }
+
+    pub fn set_interaction(&mut self, node: NodeId, id: WidgetId, sense: Sense) {
+        self.interactions
+            .push(InteractionRecord { node, id, sense });
+    }
+
+    pub fn set_clip(&mut self, node: NodeId, clip: Clip) {
+        self.nodes[node.index()].clip_spec = match clip {
+            Clip::None => PayloadId::NONE,
+            clip => {
+                let id = PayloadId::new(self.clip_specs.len());
+                self.clip_specs.push(clip);
+                id
+            }
+        };
     }
 
     pub fn set_appearance(&mut self, node: NodeId, appearance: Appearance<'_>) {
@@ -255,16 +305,16 @@ impl FrameGraph {
         self.nodes[node.index()].shadow = shadow;
     }
 
-    fn store_content(&mut self, content: Content) -> ContentId {
+    fn store_content(&mut self, content: Option<Content>) -> ContentId {
         match content {
-            Content::None => ContentId::NONE,
-            Content::Rectangle => ContentId::RECTANGLE,
-            Content::Text(text) => {
+            None => ContentId::NONE,
+            Some(Content::Rectangle(_)) => ContentId::RECTANGLE,
+            Some(Content::Text(text)) => {
                 let id = ContentId::text(self.texts.len());
                 self.texts.push(text);
                 id
             }
-            Content::Image(image) => {
+            Some(Content::Image(image)) => {
                 let id = ContentId::image(self.images.len());
                 self.images.push(image);
                 id
@@ -312,8 +362,8 @@ impl FrameGraph {
     }
 
     pub fn close(&mut self, node: NodeId) {
-        assert_eq!(self.open.pop(), Some(node), "elements must close in order");
-        let end = u32::try_from(self.nodes.len()).expect("too many elements in one frame");
+        assert_eq!(self.open.pop(), Some(node), "nodes must close in order");
+        let end = u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
         let stored = &mut self.nodes[node.index()];
         stored.subtree_end = end;
         if end as usize == node.index() + 1 && stored.flow.get() == self.flows.len().checked_sub(1)
@@ -334,10 +384,10 @@ impl FrameGraph {
         assert_eq!(
             self.open,
             [NodeId::ROOT],
-            "an element scope was not dropped"
+            "a container scope was not dropped"
         );
         self.nodes[0].subtree_end =
-            u32::try_from(self.nodes.len()).expect("too many elements in one frame");
+            u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
         self.measure_intrinsic(platform);
         self.resolve_axis(Axis::Horizontal);
         self.measure_wrapped_text(platform);
@@ -349,7 +399,7 @@ impl FrameGraph {
         for record in &self.geometry {
             geometry.register(
                 record.id,
-                ElementGeometry {
+                WidgetGeometry {
                     area: self.nodes[record.node.index()].area,
                 },
             );
@@ -932,18 +982,18 @@ impl Sizing {
 
 #[derive(Default)]
 pub struct GeometryState {
-    previous: Vec<(WidgetId, ElementGeometry)>,
-    current: Vec<(WidgetId, ElementGeometry)>,
+    previous: Vec<(WidgetId, WidgetGeometry)>,
+    current: Vec<(WidgetId, WidgetGeometry)>,
 }
 
 impl GeometryState {
-    pub fn get(&self, id: WidgetId) -> Option<ElementGeometry> {
+    pub fn get(&self, id: WidgetId) -> Option<WidgetGeometry> {
         self.previous
             .iter()
             .find_map(|(candidate, geometry)| (*candidate == id).then_some(*geometry))
     }
 
-    pub fn register(&mut self, id: WidgetId, geometry: ElementGeometry) {
+    pub fn register(&mut self, id: WidgetId, geometry: WidgetGeometry) {
         self.current.push((id, geometry));
     }
 

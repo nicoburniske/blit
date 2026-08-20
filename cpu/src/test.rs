@@ -1,8 +1,7 @@
 use std::{ops::Range, time::Duration};
 
 use blit::{
-    Appearance, Clip, Content, Element, ImageContent, Layout, RepaintBuffer, Runtime, Shadow,
-    Sizing, TextContent,
+    Appearance, Clip, Container, RepaintBuffer, Runtime, Shadow, Sizing,
     animation::Easing,
     color::Color,
     command_list::{ClipId, CommandList},
@@ -17,7 +16,7 @@ use blit::{
     },
     platform::PlatformImpl,
     resource::{ImageData, ImageFormat, ImageId, ImagePixels, StringData, StringId},
-    widget::Text,
+    widget::{Image as ImageWidget, Rectangle as RectangleWidget, Text},
 };
 
 use super::*;
@@ -242,43 +241,33 @@ impl CoherenceHarness {
 fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, duration: Duration) {
     let screen_width = ui.screen().width;
     let x = ui.animate(id, position, duration, Easing::Linear).value();
-    let mut scene = ui.element(
-        Element::new(
-            Layout::vertical()
-                .width(Sizing::grow())
-                .height(Sizing::grow()),
-        )
-        .background(Color::from_rgba8(24, 36, 48, 255)),
+    let mut scene = ui.column(
+        Container::new()
+            .grow()
+            .background(Color::from_rgba8(24, 36, 48, 255)),
     );
-    let mut row = scene.element(Element::new(
-        Layout::horizontal()
+    let mut row = scene.row(
+        Container::new()
             .width(Sizing::grow())
             .height(Sizing::fixed(20.0)),
-    ));
-    drop(row.element(Element::new(Layout::vertical().width(Sizing::fixed(x)))));
-    let mut movement = row.element(
-        Element::new(
-            Layout::vertical()
-                .width(Sizing::fixed(12.0))
-                .height(Sizing::fixed(20.0))
-                .padding(blit::geometry::LogicalInsets::uniform(4.0)),
-        )
-        .background(Color::from_rgba8(20, 20, 20, 160))
-        .uniform_radius(4.0),
     );
-    drop(
-        movement.element(
-            Element::new(
-                Layout::vertical()
-                    .width(Sizing::grow())
-                    .height(Sizing::grow()),
-            )
+    row.add(RectangleWidget::new().width(Sizing::fixed(x)));
+    let mut movement = row.column(
+        Container::new()
+            .fixed(12.0, 20.0)
+            .padding(blit::geometry::LogicalInsets::uniform(4.0))
+            .background(Color::from_rgba8(20, 20, 20, 160))
+            .uniform_radius(4.0),
+    );
+    movement.add(
+        RectangleWidget::new()
+            .width(Sizing::grow())
+            .height(Sizing::grow())
             .background(if position < screen_width / 2.0 {
                 Color::from_rgba8(230, 220, 180, 255)
             } else {
                 Color::from_rgba8(180, 210, 240, 255)
             }),
-        ),
     );
 }
 
@@ -326,7 +315,7 @@ fn renderer_config() -> RendererConfig {
 }
 
 #[test]
-fn resolved_elements_match_direct_commands() {
+fn resolved_nodes_match_direct_commands() {
     let platform = RuntimePlatform {
         renderer: Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config())
             .strategy(Scanline::default()),
@@ -361,61 +350,30 @@ fn resolved_elements_match_direct_commands() {
         .blur(1.0);
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut panel = ui.element(
-            Element::new(
-                Layout::vertical()
-                    .width(Sizing::grow())
-                    .height(Sizing::grow()),
-            )
-            .appearance(
-                Appearance::new()
-                    .background(Color::from_rgba8(40, 70, 100, 255))
-                    .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
-                    .radius(radius)
-                    .shadow(shadow),
-            )
-            .clip(Clip::Rounded(radius)),
-        );
-        drop(
-            panel.element(
-                Element::new(
-                    Layout::vertical()
-                        .width(Sizing::fixed(8.0))
-                        .height(Sizing::fixed(8.0)),
+        let mut panel = ui.column(
+            Container::new()
+                .grow()
+                .appearance(
+                    Appearance::new()
+                        .background(Color::from_rgba8(40, 70, 100, 255))
+                        .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
+                        .radius(radius)
+                        .shadow(shadow),
                 )
-                .content(Content::Image(ImageContent {
-                    image: image.id(),
-                    intrinsic: LogicalSize {
-                        width: 8.0,
-                        height: 8.0,
-                    },
-                    fit: ImageFit::Fill,
-                    sampling: ImageSampling::Nearest,
-                    opacity: 1.0,
-                    colorize: None,
-                    nine_slice: None,
-                    horizontal_tiling: ImageTiling::None,
-                    vertical_tiling: ImageTiling::None,
-                })),
-            ),
+                .clip(Clip::Rounded(radius)),
         );
-        drop(
-            panel.element(
-                Element::new(
-                    Layout::vertical()
-                        .width(Sizing::fixed(24.0))
-                        .height(Sizing::fixed(8.0)),
-                )
-                .content(Content::Text(TextContent {
-                    text: "M".into(),
-                    color: Color::WHITE,
-                    style: TextStyle::default(),
-                    options: TextOptions::default(),
-                    offset_x: 0.0,
-                    selection: None,
-                    caret: None,
-                })),
-            ),
+        panel.add(
+            ImageWidget::new(&image)
+                .width(Sizing::fixed(8.0))
+                .height(Sizing::fixed(8.0))
+                .fit(ImageFit::Fill)
+                .sampling(ImageSampling::Nearest),
+        );
+        panel.add(
+            Text::new("M")
+                .width(Sizing::fixed(24.0))
+                .height(Sizing::fixed(8.0))
+                .color(Color::WHITE),
         );
     });
 
@@ -1899,19 +1857,16 @@ fn managed_strings_deref_render_and_drop() {
     assert_eq!(&*owned, "managed");
     assert_eq!(&*static_string, "static");
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut column = ui.element(Element::new(
-            Layout::vertical()
-                .width(Sizing::grow())
-                .height(Sizing::grow()),
-        ));
-        let mut row = column.element(Element::new(
-            Layout::horizontal()
-                .width(Sizing::grow())
-                .height(Sizing::fixed(24.0)),
-        ));
-        row.add(Text::new(&owned).color(Color::WHITE));
-        row.add(Text::new("literal").color(Color::WHITE));
-        drop(row);
+        let mut column = ui.column(Container::new().grow());
+        {
+            let mut row = column.row(
+                Container::new()
+                    .width(Sizing::grow())
+                    .height(Sizing::fixed(24.0)),
+            );
+            row.add(Text::new(&owned).color(Color::WHITE));
+            row.add(Text::new("literal").color(Color::WHITE));
+        }
         column.add(Text::new(&static_string).color(Color::WHITE));
     });
     assert!(

@@ -4,7 +4,6 @@ use super::Widget;
 use crate::{
     Appearance, Clip, Container, Content, Item, Sizing, TextCaret, TextContent, TextSelection, Ui,
     color::Color,
-    element::NodeSpec,
     geometry::{LogicalInsets, LogicalRect},
     input::{Input, Key},
     interact::{Sense, WidgetId},
@@ -255,24 +254,29 @@ impl Widget for TextInput<'_> {
             width: self.cursor_width,
             color: self.cursor_color,
         });
-        let mut text = NodeSpec::leaf(
-            Item {
-                width: Sizing::grow(),
-                height: Sizing::fit(),
-            },
-            Content::Text(TextContent {
-                text: self.state.display.as_ref().unwrap().into(),
-                color: self.text_color,
-                style: self.text_style,
-                options,
-                offset_x: self.state.scroll_x,
-                selection,
-                caret,
-            }),
-        );
-        text.id = Some(text_id);
-        text.clip = Clip::Bounds;
-        input.leaf(text);
+        {
+            let mut text = input.row(
+                Container::new()
+                    .width(Sizing::grow())
+                    .id(text_id)
+                    .clip(Clip::Bounds),
+            );
+            text.frame_mut().add_leaf(
+                Item {
+                    width: Sizing::grow(),
+                    height: Sizing::fit(),
+                },
+                Content::Text(TextContent {
+                    text: self.state.display.as_ref().unwrap().into(),
+                    color: self.text_color,
+                    style: self.text_style,
+                    options,
+                    offset_x: self.state.scroll_x,
+                    selection,
+                    caret,
+                }),
+            );
+        }
 
         if focused {
             input.platform().show_keyboard(&KeyboardRequest {

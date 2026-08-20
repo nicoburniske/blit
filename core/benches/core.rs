@@ -22,12 +22,12 @@ fn main() {
 }
 
 #[divan::bench]
-fn element_layout(bencher: divan::Bencher) {
+fn layout(bencher: divan::Bencher) {
     benchmark_frame(bencher, layout_frame)
 }
 
 #[divan::bench]
-fn element_layout_and_commands(bencher: divan::Bencher) {
+fn layout_and_commands(bencher: divan::Bencher) {
     benchmark_frame(bencher, command_frame)
 }
 

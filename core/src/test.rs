@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::{
-    Align, Clip, Container, Element, Justify, Layout, RepaintBuffer, Runtime, Sizing, Ui,
+    Align, Clip, Container, Justify, RepaintBuffer, Runtime, Sizing, Ui,
     animation::{Easing, Transition},
     color::Color,
     command_list::{ClipId, Command, CommandList},
@@ -166,30 +166,39 @@ fn container_scopes_and_rectangle_leaves_resolve_layout() {
 }
 
 #[test]
-fn elements_resolve_nested_flex_and_justification() {
+fn containers_resolve_nested_flex_and_justification() {
     let mut runtime = Runtime::new(TestPlatform::default());
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut row = ui.element(Element::new(
-            Layout::horizontal()
+        let mut row = ui.row(
+            Container::new()
                 .width(Sizing::grow())
                 .height(Sizing::fixed(10.0))
                 .align(Align::Stretch)
                 .justify(Justify::SpaceBetween),
-        ));
-        drop(row.element(
-            Element::new(Layout::vertical().width(Sizing::fixed(2.0))).background(Color::BLACK),
-        ));
-        let mut middle = row.element(
-            Element::new(Layout::vertical().width(Sizing::grow())).background(Color::GRAY),
         );
-        drop(middle.element(
-            Element::new(Layout::vertical().height(Sizing::fixed(4.0))).background(Color::WHITE),
-        ));
-        drop(middle);
-        drop(row.element(
-            Element::new(Layout::vertical().width(Sizing::fixed(2.0))).background(Color::BLACK),
-        ));
+        row.add(
+            widget::Rectangle::new()
+                .width(Sizing::fixed(2.0))
+                .background(Color::BLACK),
+        );
+        {
+            let mut middle = row.column(
+                Container::new()
+                    .width(Sizing::grow())
+                    .background(Color::GRAY),
+            );
+            middle.add(
+                widget::Rectangle::new()
+                    .height(Sizing::fixed(4.0))
+                    .background(Color::WHITE),
+            );
+        }
+        row.add(
+            widget::Rectangle::new()
+                .width(Sizing::fixed(2.0))
+                .background(Color::BLACK),
+        );
     });
 
     assert_eq!(
@@ -229,26 +238,12 @@ fn wrapped_text_uses_its_resolved_width() {
     let id = WidgetId::new("wrapped text");
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        drop(
-            ui.element(
-                Element::new(Layout::horizontal().width(Sizing::grow()))
-                    .id(id)
-                    .content(crate::Content::Text(crate::TextContent {
-                        text: "1234".into(),
-                        color: Color::BLACK,
-                        style: paint::TextStyle {
-                            size: 4.0,
-                            ..paint::TextStyle::default()
-                        },
-                        options: paint::TextOptions {
-                            wrap: paint::TextWrap::Character,
-                            ..paint::TextOptions::default()
-                        },
-                        offset_x: 0.0,
-                        selection: None,
-                        caret: None,
-                    })),
-            ),
+        let mut text = ui.row(Container::new().width(Sizing::grow()).id(id));
+        text.add(
+            widget::Text::new("1234")
+                .width(Sizing::grow())
+                .text_size(4.0)
+                .wrap(paint::TextWrap::Character),
         );
     });
     assert_eq!(runtime.platform().text_widths, [None, Some(10.0)]);
@@ -264,29 +259,23 @@ fn wrapped_text_uses_its_resolved_width() {
 }
 
 #[test]
-fn element_clips_content_and_descendants() {
+fn container_clips_content_and_descendants() {
     let mut runtime = Runtime::new(TestPlatform::default());
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut clipped = ui.element(
-            Element::new(
-                Layout::vertical()
-                    .width(Sizing::grow())
-                    .height(Sizing::fixed(5.0))
-                    .overflow(true),
-            )
-            .clip(Clip::Bounds),
+        let mut clipped = ui.column(
+            Container::new()
+                .width(Sizing::grow())
+                .height(Sizing::fixed(5.0))
+                .overflow(true)
+                .clip(Clip::Bounds),
         );
         clipped.add(widget::Text::new("clipped"));
-        drop(
-            clipped.element(
-                Element::new(
-                    Layout::vertical()
-                        .width(Sizing::grow())
-                        .height(Sizing::fixed(10.0)),
-                )
+        clipped.add(
+            widget::Rectangle::new()
+                .width(Sizing::grow())
+                .height(Sizing::fixed(10.0))
                 .background(Color::BLACK),
-            ),
         );
     });
 
@@ -305,16 +294,7 @@ fn resolved_geometry_is_available_on_the_next_frame() {
     let mut runtime = Runtime::new(TestPlatform::default());
     let id = WidgetId::new("geometry");
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        drop(
-            ui.element(
-                Element::new(
-                    Layout::vertical()
-                        .width(Sizing::fixed(3.0))
-                        .height(Sizing::fixed(4.0)),
-                )
-                .id(id),
-            ),
-        );
+        ui.add(widget::Rectangle::new().fixed(3.0, 4.0).id(id));
     });
 
     let geometry = runtime.render(Duration::ZERO, Input::None, |ui| ui.geometry(id).unwrap());
@@ -326,15 +306,10 @@ fn resolved_geometry_is_available_on_the_next_frame() {
 fn fixed_sizing_can_overflow_parent_bounds() {
     let mut runtime = Runtime::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        drop(
-            ui.element(
-                Element::new(
-                    Layout::vertical()
-                        .width(Sizing::fixed(20.0))
-                        .height(Sizing::fixed(2.0)),
-                )
+        ui.add(
+            widget::Rectangle::new()
+                .fixed(20.0, 2.0)
                 .background(Color::BLACK),
-            ),
         );
     });
 
@@ -348,12 +323,16 @@ fn scroll_uses_natural_content_geometry_and_offsets_commands() {
     let mut state = widget::ScrollState::default();
     let render = |ui: &mut Ui, state: &mut widget::ScrollState| {
         let mut scroll = widget::ScrollArea::vertical(state).spacing(1.0).begin(ui);
-        drop(scroll.element(
-            Element::new(Layout::vertical().height(Sizing::fixed(8.0))).background(Color::BLACK),
-        ));
-        drop(scroll.element(
-            Element::new(Layout::vertical().height(Sizing::fixed(8.0))).background(Color::WHITE),
-        ));
+        scroll.add(
+            widget::Rectangle::new()
+                .height(Sizing::fixed(8.0))
+                .background(Color::BLACK),
+        );
+        scroll.add(
+            widget::Rectangle::new()
+                .height(Sizing::fixed(8.0))
+                .background(Color::WHITE),
+        );
     };
 
     runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
@@ -386,25 +365,18 @@ fn static_text_uses_no_string_resources_and_stable_output_has_no_damage() {
 fn moved_output_damages_old_and_new_bounds() {
     let mut runtime = Runtime::new(TestPlatform::default());
     let render = |ui: &mut Ui, offset| {
-        let mut row = ui.element(Element::new(
-            Layout::horizontal()
+        let mut row = ui.row(
+            Container::new()
                 .width(Sizing::grow())
                 .height(Sizing::fixed(2.0)),
-        ));
+        );
         if offset != 0.0 {
-            drop(row.element(Element::new(
-                Layout::vertical().width(Sizing::fixed(offset)),
-            )));
+            row.add(widget::Rectangle::new().width(Sizing::fixed(offset)));
         }
-        drop(
-            row.element(
-                Element::new(
-                    Layout::vertical()
-                        .width(Sizing::fixed(2.0))
-                        .height(Sizing::fixed(2.0)),
-                )
+        row.add(
+            widget::Rectangle::new()
+                .fixed(2.0, 2.0)
                 .background(Color::BLACK),
-            ),
         );
     };
 

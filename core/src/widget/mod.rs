@@ -1,4 +1,4 @@
-//! frame-local widgets declare elements through [`Widget::build`]
+//! frame-local widgets declare nodes through [`Widget::build`]
 
 mod button;
 mod image;

@@ -1,7 +1,7 @@
 pub mod animation;
 pub mod color;
 pub mod command_list;
-mod element;
+mod frame;
 pub mod geometry;
 pub(crate) mod graph;
 pub mod input;
@@ -15,10 +15,9 @@ mod test;
 mod timer;
 pub mod widget;
 
-pub use element::{
-    Align, Appearance, Axis, Clip, Container, Content, Element, ElementGeometry, ElementScope,
-    ImageContent, Item, Justify, Layout, Scope, Shadow, Sizing, TextCaret, TextContent,
-    TextSelection,
+pub use frame::{
+    Align, Appearance, Axis, Clip, Container, Content, ImageContent, Item, Justify, Scope, Shadow,
+    Sizing, TextCaret, TextContent, TextSelection, WidgetGeometry,
 };
 
 use std::{
@@ -48,27 +47,18 @@ impl Ui {
     }
 
     pub fn row(&mut self, container: Container<'_>) -> Scope<'_> {
-        element::open_container(self, Axis::Horizontal, container)
+        frame::open_container(self, Axis::Horizontal, container)
     }
 
     pub fn column(&mut self, container: Container<'_>) -> Scope<'_> {
-        element::open_container(self, Axis::Vertical, container)
+        frame::open_container(self, Axis::Vertical, container)
     }
 
     pub fn stack(&mut self, axis: Axis, container: Container<'_>) -> Scope<'_> {
-        element::open_container(self, axis, container)
+        frame::open_container(self, axis, container)
     }
 
-    /// declares a raw frame-local element and opens its child scope
-    pub fn element(&mut self, element: Element<'_>) -> ElementScope<'_> {
-        element::open(self, element)
-    }
-
-    pub(crate) fn leaf(&mut self, spec: element::NodeSpec<'_>) -> Interaction {
-        element::leaf(self, spec)
-    }
-
-    pub fn geometry(&self, id: WidgetId) -> Option<ElementGeometry> {
+    pub fn geometry(&self, id: WidgetId) -> Option<WidgetGeometry> {
         self.shared().geometry.get(id)
     }
 
@@ -340,11 +330,11 @@ impl Ui {
         &mut self.shared_mut().frame
     }
 
-    fn close_element(&mut self, node: graph::NodeId) {
+    fn close_node(&mut self, node: graph::NodeId) {
         self.frame_mut().close(node)
     }
 
-    fn element_interaction(&mut self, id: WidgetId, sense: Sense) -> Interaction {
+    fn widget_interaction(&mut self, id: WidgetId, sense: Sense) -> Interaction {
         self.shared_mut().interaction.response(id, sense)
     }
 }
