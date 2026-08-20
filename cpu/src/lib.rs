@@ -6,9 +6,9 @@ mod strategy;
 mod text;
 
 use blit::{
+    command_list::{Command, CommandList as ResolvedCommandList},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     paint::{Border, BoxShadow, FontId, ImageRequest, Rectangle, TextLayoutRequest, TextRequest},
-    command_list::{Command, CommandList as ResolvedCommandList},
     resource::{ImageData, ImageId, StringData, StringId, TextSource},
 };
 pub use blit_font::Font;

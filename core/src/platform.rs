@@ -2,10 +2,10 @@ use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 
 use crate::{
     RepaintBuffer,
+    command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     keyboard::KeyboardRequest,
     paint::{TextLayoutRequest, TextRequest},
-    command_list::CommandList,
     resource::{ImageData, ImageHandle, ImageId, StringData, StringHandle, StringId},
 };
 

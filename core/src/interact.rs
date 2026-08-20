@@ -237,14 +237,14 @@ impl InteractionState {
         area: Option<PhysicalRect>,
         sense: Sense,
     ) -> Interaction {
+        let interaction = self.response(id, sense);
+        self.register(id, area, sense);
+        interaction
+    }
+
+    pub fn response(&mut self, id: WidgetId, _sense: Sense) -> Interaction {
         #[cfg(debug_assertions)]
         assert!(self.seen.insert(id), "duplicate WidgetId {id:?}");
-
-        self.current_hits.push(HitItem {
-            id,
-            area: area.unwrap_or_default(),
-            sense,
-        });
 
         let active = self.active == Some(id);
         let hovered = self.hovered == Some(id);
@@ -279,6 +279,14 @@ impl InteractionState {
                 _ => None,
             },
         }
+    }
+
+    pub fn register(&mut self, id: WidgetId, area: Option<PhysicalRect>, sense: Sense) {
+        self.current_hits.push(HitItem {
+            id,
+            area: area.unwrap_or_default(),
+            sense,
+        });
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {
