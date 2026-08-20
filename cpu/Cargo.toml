@@ -17,3 +17,7 @@ divan = "0.1"
 [[bench]]
 name = "cpu"
 harness = false
+
+[[bench]]
+name = "memory"
+harness = false
