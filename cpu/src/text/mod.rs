@@ -16,7 +16,7 @@ use blit::{
 use blit_cache::{DeferredCache, Scale};
 use blit_font::{Layout, TextRun};
 use font::FontCache;
-use paragraph::ParagraphCache;
+use paragraph::{Caret, PaintGlyph, ParagraphCache};
 
 use crate::{Pixel, PixelSpan, RendererConfig};
 
@@ -26,6 +26,8 @@ pub struct TextRenderer {
     run_builder: Layout,
     next_run: u32,
     paragraphs: ParagraphCache,
+    paint_glyphs: Vec<PaintGlyph>,
+    carets: Vec<Caret>,
     prepared: Vec<PreparedGlyph>,
     coverage: Vec<u8>,
 }
@@ -78,6 +80,8 @@ impl TextRenderer {
             run_builder: Layout::with_metric_cache_capacity(config.font_metric_cache_capacity),
             next_run: 1,
             paragraphs: ParagraphCache::new(config.paragraph_cache_capacity),
+            paint_glyphs: Vec::new(),
+            carets: Vec::new(),
             prepared: Vec::new(),
             coverage: Vec::new(),
         }
@@ -154,21 +158,16 @@ impl TextRenderer {
         let face = cached.face;
         let run = &cached.run;
         let font = self.fonts.get_font(face);
-        let paragraph = self.paragraphs.prepare(
-            ParagraphCache::paint_key(request, scale_factor),
-            request,
-            run,
-            face,
-            font,
-            scale_factor,
-        );
-        let paragraph = self.paragraphs.get(paragraph);
-        if paragraph.width == 0 || paragraph.height == 0 {
+        let paint = self
+            .paragraphs
+            .prepare_paint(request, run, font, scale_factor);
+        let paint = self.paragraphs.get_paint(paint);
+        if paint.bounds.width == 0 || paint.bounds.height == 0 {
             return (0, 0, PhysicalRect::default());
         }
         let start = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
-        for glyph in &paragraph.glyphs {
-            let cached = self.fonts.glyph(paragraph.face, glyph.key);
+        for glyph in &paint.glyphs {
+            let cached = self.fonts.glyph(face, glyph.key);
             let cached = self.fonts.get(cached);
             self.prepared.push(PreparedGlyph {
                 alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),
@@ -183,10 +182,10 @@ impl TextRenderer {
             start,
             end,
             PhysicalRect {
-                x: area.x.saturating_add(paragraph.x),
-                y: area.y.saturating_add(paragraph.y),
-                width: paragraph.width as i32,
-                height: paragraph.height as i32,
+                x: area.x.saturating_add(paint.bounds.x),
+                y: area.y.saturating_add(paint.bounds.y),
+                width: paint.bounds.width as i32,
+                height: paint.bounds.height as i32,
             },
         )
     }
@@ -279,19 +278,21 @@ impl TextRenderer {
         };
         let cached = self.runs.get_index(index);
         let face = cached.face;
-        let paragraph = self.paragraphs.prepare(
-            ParagraphCache::paint_key(request, scale_factor),
+        let paragraph = self.paragraphs.prepare(request, &cached.run, scale_factor);
+        paragraph::resolve(
+            self.paragraphs.get(paragraph),
             request,
             &cached.run,
-            face,
             self.fonts.get_font(face),
             scale_factor,
+            &mut self.paint_glyphs,
+            &mut self.carets,
+            false,
+            true,
         );
-        let paragraph = self.paragraphs.get(paragraph);
         let x = (position.x - request.area.x) * scale_factor;
         let y = (position.y - request.area.y) * scale_factor;
-        paragraph
-            .carets
+        self.carets
             .iter()
             .min_by(|left, right| {
                 let left_distance = (left.x - x).powi(2) + (left.y + left.height / 2.0 - y).powi(2);
@@ -338,16 +339,19 @@ impl TextRenderer {
         };
         let cached = self.runs.get_index(index);
         let face = cached.face;
-        let paragraph = self.paragraphs.prepare(
-            ParagraphCache::paint_key(request, scale_factor),
+        let paragraph = self.paragraphs.prepare(request, &cached.run, scale_factor);
+        paragraph::resolve(
+            self.paragraphs.get(paragraph),
             request,
             &cached.run,
-            face,
             self.fonts.get_font(face),
             scale_factor,
+            &mut self.paint_glyphs,
+            &mut self.carets,
+            false,
+            true,
         );
-        let paragraph = self.paragraphs.get(paragraph);
-        let Some(caret) = paragraph
+        let Some(caret) = self
             .carets
             .iter()
             .min_by_key(|caret| caret.byte_offset.abs_diff(byte_offset))
