@@ -334,7 +334,7 @@ mod tests {
             text: "aé🙂".into(),
             ..TextInputState::default()
         };
-        let mut input = TextInput::new(&mut state).mask('●');
+        let mut input = TextInput::new(&mut state).mask(Some('●'));
 
         input.update_mask();
 

@@ -1,41 +1,18 @@
 use crate::{color::Color, geometry::LogicalRect};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Rectangle<'a> {
-    pub area: LogicalRect,
-    pub background: Color,
-    pub border: Border<'a>,
-    pub radius: BorderRadius,
-    pub opacity: f32,
+crate::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Rectangle<'a> {
+        new(area: LogicalRect),
+        background: Color = Color::TRANSPARENT,
+        border: Border<'a> = Border::None,
+        radius: BorderRadius = BorderRadius::default(),
+        opacity: f32 = 1.0,
+    }
 }
 
 impl<'a> Rectangle<'a> {
-    pub fn new(area: LogicalRect) -> Self {
-        Self {
-            area,
-            background: Color::TRANSPARENT,
-            border: Border::default(),
-            radius: BorderRadius::default(),
-            opacity: 1.0,
-        }
-    }
-
-    pub fn background(mut self, background: Color) -> Self {
-        self.background = background;
-        self
-    }
-
-    pub fn radius(mut self, radius: BorderRadius) -> Self {
-        self.radius = radius;
-        self
-    }
-
-    pub fn opacity(mut self, opacity: f32) -> Self {
-        self.opacity = opacity;
-        self
-    }
-
-    pub fn uniform_radius(mut self, radius: f32) -> Self {
+    pub const fn uniform_radius(mut self, radius: f32) -> Self {
         self.radius = BorderRadius {
             top_left: radius,
             top_right: radius,
@@ -45,12 +22,12 @@ impl<'a> Rectangle<'a> {
         self
     }
 
-    pub fn border(mut self, width: f32, color: Color) -> Self {
+    pub const fn solid_border(mut self, width: f32, color: Color) -> Self {
         self.border = Border::Solid { width, color };
         self
     }
 
-    pub fn gradient_border(mut self, width: f32, gradient: LinearGradient<'a>) -> Self {
+    pub const fn gradient_border(mut self, width: f32, gradient: LinearGradient<'a>) -> Self {
         self.border = Border::Gradient { width, gradient };
         self
     }
