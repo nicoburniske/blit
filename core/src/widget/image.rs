@@ -1,10 +1,11 @@
 use super::Widget;
 use crate::{
-    Content, ImageContent, Item, Sizing, Ui,
+    Ui,
     color::Color,
+    container::{Item, Sizing},
     geometry::LogicalSize,
-    paint::{ImageFit, ImageSampling, ImageTiling, NineSlice},
-    resource::ImageHandle,
+    image::{ImageContent, ImageFit, ImageHandle, ImageSampling, ImageTiling, NineSlice},
+    node::Content,
 };
 
 crate::builder! {
@@ -25,7 +26,7 @@ crate::builder! {
 impl Widget for Image<'_> {
     type Output = ();
 
-    fn build(self, ui: &mut Ui) {
+    fn render(self, ui: &mut Ui) {
         let size = self.resource.size();
         ui.add_leaf(
             Item {

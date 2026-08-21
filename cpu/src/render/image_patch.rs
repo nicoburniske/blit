@@ -3,8 +3,7 @@ use std::ops::Range;
 use blit::{
     color::Color,
     geometry::PhysicalRect,
-    paint::{ImageRequest, ImageSampling, ImageTiling},
-    resource::{ImageData, ImageFormat, ImageId},
+    image::{ImageData, ImageFormat, ImageId, ImageRequest, ImageSampling, ImageTiling},
 };
 
 use crate::{Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel};

@@ -1,9 +1,12 @@
 use super::Widget;
 use crate::{
-    Content, Item, Sizing, TextContent, Ui,
+    Ui,
     color::Color,
-    paint::{
-        FontId, HorizontalAlign, TextOptions, TextOverflow, TextStyle, TextWrap, VerticalAlign,
+    container::{Item, Sizing},
+    node::Content,
+    text::{
+        FontId, HorizontalAlign, TextContent, TextOptions, TextOverflow, TextStyle, TextWrap,
+        VerticalAlign,
     },
 };
 
@@ -69,7 +72,7 @@ impl Text<'_> {
 impl Widget for Text<'_> {
     type Output = ();
 
-    fn build(self, ui: &mut Ui) {
+    fn render(self, ui: &mut Ui) {
         let text = ui.text_run(self.text, self.text_style);
         ui.add_leaf(
             Item {

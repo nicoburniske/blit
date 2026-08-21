@@ -5,10 +5,10 @@ use std::{
 
 use blit::{
     color::Color,
-    command_list::{ClipId, CommandList},
+    command_list::{ClipId, CommandList, Rectangle},
     geometry::{LogicalRect, PhysicalRect},
-    paint::{FontId, Rectangle},
     renderer::Renderer as _,
+    text::FontId,
 };
 use blit_cpu::{Font, FontFace, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888};
 

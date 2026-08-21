@@ -1,21 +1,23 @@
 use std::time::Duration;
 
 use crate::{
-    Absolute, Align, Anchor, Clip, Justify, RepaintBuffer, Sizing, Ui, UiState,
+    RepaintBuffer, Ui, UiState,
     animation::Easing,
     color::Color,
     command_list::{ClipId, Command, CommandList},
+    container::{Absolute, Align, Anchor, Justify, Sizing},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
+    image,
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
     interact::{Sense, WidgetId},
-    paint,
     renderer::Renderer,
-    resource, widget,
+    style::Clip,
+    text, widget,
 };
 
 #[derive(Default)]
 struct TestRenderer {
-    text_runs: Vec<(String, paint::TextStyle)>,
+    text_runs: Vec<(String, text::TextStyle)>,
     damage: Vec<PhysicalRect>,
     paint_bounds: Vec<PhysicalRect>,
     paint_clips: Vec<ClipId>,
@@ -54,27 +56,27 @@ impl Renderer for TestRenderer {
         self.clip_count = commands.clips().len();
     }
 
-    fn create_image(&mut self, data: resource::ImageData) -> resource::ImageHandle {
-        resource::ImageHandle::new(resource::ImageId(0), data.size)
+    fn create_image(&mut self, data: image::ImageData) -> image::ImageHandle {
+        image::ImageHandle::new(image::ImageId(0), data.size)
     }
 
-    fn text_run(&mut self, text: &str, style: paint::TextStyle) -> paint::TextRunId {
+    fn text_run(&mut self, text: &str, style: text::TextStyle) -> text::TextRunId {
         if let Some(index) = self
             .text_runs
             .iter()
             .position(|(stored, stored_style)| stored == text && *stored_style == style)
         {
-            return paint::TextRunId(index as u64 + 1);
+            return text::TextRunId(index as u64 + 1);
         }
         self.text_runs.push((text.to_owned(), style));
-        paint::TextRunId(self.text_runs.len() as u64)
+        text::TextRunId(self.text_runs.len() as u64)
     }
 
-    fn text_offset_at_position(&mut self, request: &paint::TextRequest, _: LogicalPoint) -> usize {
+    fn text_offset_at_position(&mut self, request: &text::TextRequest, _: LogicalPoint) -> usize {
         self.text_runs[request.text.0 as usize - 1].0.len()
     }
 
-    fn measure_text(&mut self, request: &paint::TextLayoutRequest) -> LogicalSize {
+    fn measure_text(&mut self, request: &text::TextLayoutRequest) -> LogicalSize {
         self.text_widths.push(request.max_width);
         let text = &self.text_runs[request.text.0 as usize - 1].0;
         let natural = text.chars().count() as f32 * request.style.size;
@@ -89,11 +91,7 @@ impl Renderer for TestRenderer {
         }
     }
 
-    fn text_cursor_rect(
-        &mut self,
-        request: &paint::TextRequest,
-        byte_offset: usize,
-    ) -> LogicalRect {
+    fn text_cursor_rect(&mut self, request: &text::TextRequest, byte_offset: usize) -> LogicalRect {
         LogicalRect {
             x: request.area.x + byte_offset as f32 * request.style.size - request.offset_x,
             y: request.area.y,
@@ -123,8 +121,8 @@ impl Harness {
         Self { renderer, state }
     }
 
-    fn render<R>(&mut self, time: Duration, input: Input, build: impl FnMut(&mut Ui) -> R) -> R {
-        crate::render(&mut self.renderer, &mut self.state, time, [input], build)
+    fn render<R>(&mut self, time: Duration, input: Input, render: impl FnMut(&mut Ui) -> R) -> R {
+        crate::render(&mut self.renderer, &mut self.state, time, [input], render)
     }
 
     fn renderer(&mut self) -> &mut TestRenderer {
@@ -500,7 +498,7 @@ fn wrapped_text_uses_its_resolved_width() {
             widget::Text::new("1234")
                 .width(Sizing::grow())
                 .text_size(4.0)
-                .wrap(paint::TextWrap::Character),
+                .wrap(text::TextWrap::Character),
         );
     });
     assert_eq!(harness.renderer().text_widths, [None, Some(10.0)]);

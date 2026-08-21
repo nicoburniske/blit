@@ -1,20 +1,20 @@
 use std::{ops::Range, time::Duration};
 
 use blit::{
-    Clip, RepaintBuffer, Shadow, Sizing, Style, Ui, UiState,
+    RepaintBuffer, Ui, UiState,
     animation::Easing,
     color::Color,
-    command_list::{ClipId, CommandList},
+    command_list::{BoxShadow, ClipId, CommandList, Rectangle},
+    container::Sizing,
     geometry::{LogicalPoint, LogicalRect, PhysicalRect},
+    image::{
+        ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
+    },
     input::Input,
     interact::WidgetId,
-    paint::{
-        BorderRadius, BoxShadow, GradientStop, ImageFit, ImageRequest, ImageSampling, ImageTiling,
-        LinearGradient, Rectangle, TextLayoutRequest, TextOptions, TextRequest, TextRunId,
-        TextStyle, TextWrap,
-    },
     renderer::Renderer as _,
-    resource::{ImageData, ImageFormat, ImagePixels},
+    style::{BorderRadius, Clip, GradientStop, LinearGradient, Shadow, Style},
+    text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
     widget::{Image as ImageWidget, Rectangle as RectangleWidget, Text},
 };
 
@@ -316,7 +316,7 @@ fn resolved_nodes_match_direct_commands() {
             .container()
             .col()
             .grow()
-            .appearance(
+            .style(
                 Style::new()
                     .background(Color::from_rgba8(40, 70, 100, 255))
                     .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))

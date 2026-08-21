@@ -1,8 +1,10 @@
 use blit::{
-    Absolute, Align, Anchor, Axis, Clip, Justify, Sizing, Style, Ui,
+    Ui,
+    container::{Absolute, Align, Anchor, Axis, Justify, Sizing},
     geometry::LogicalInsets,
     interact::{Sense, WidgetId},
-    paint::{FontId, HorizontalAlign, TextWrap},
+    style::{Clip, Style},
+    text::{FontId, HorizontalAlign, TextWrap},
     widget::{Rectangle, Text, Widget},
 };
 use blit_cpu::{Font, FontFace, RendererConfig};
@@ -682,7 +684,7 @@ impl ButtonResponse {
 impl Widget for Button<'_> {
     type Output = ButtonResponse;
 
-    fn build(self, ui: &mut Ui) -> ButtonResponse {
+    fn render(self, ui: &mut Ui) -> ButtonResponse {
         let interaction = ui.interact(self.id, Sense::CLICK);
         let mut button = ui
             .container()
@@ -694,7 +696,7 @@ impl Widget for Button<'_> {
                 bottom: self.padding_y,
                 left: self.padding_x,
             })
-            .appearance(
+            .style(
                 Style::new()
                     .background(if interaction.pressed || interaction.clicked {
                         self.clicked_background

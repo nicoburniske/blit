@@ -4,17 +4,26 @@ use std::{
 };
 
 use crate::{
-    Axis, Clip, Sizing, Ui,
+    Ui,
+    container::{Axis, Sizing},
     geometry::{LogicalInsets, LogicalPoint},
-    graph::NodeId,
     input::ScrollPhase,
     interact::{Sense, WidgetId},
+    node::NodeId,
+    style::Clip,
 };
 
-const WHEEL_FRICTION: f32 = 64.0;
-const MIN_SCROLL_VELOCITY: f32 = 5.0;
-const MAX_SCROLL_VELOCITY: f32 = 12_000.0;
-const MAX_FRAME_TIME: f32 = 0.05;
+pub struct ScrollArea<'a> {
+    state: &'a mut ScrollState,
+    width: Sizing,
+    height: Sizing,
+    gap: f32,
+    padding: LogicalInsets,
+    scroll_speed: f32,
+    inertia_friction: f32,
+    drag_to_scroll: bool,
+    id: WidgetId,
+}
 
 #[derive(Debug)]
 pub struct ScrollState {
@@ -63,18 +72,6 @@ impl ScrollState {
     pub fn is_moving(&self) -> bool {
         self.velocity != 0.0
     }
-}
-
-pub struct ScrollArea<'a> {
-    state: &'a mut ScrollState,
-    width: Sizing,
-    height: Sizing,
-    gap: f32,
-    padding: LogicalInsets,
-    scroll_speed: f32,
-    inertia_friction: f32,
-    drag_to_scroll: bool,
-    id: WidgetId,
 }
 
 pub struct ScrollScope<'a> {
@@ -152,7 +149,7 @@ impl<'a> ScrollArea<'a> {
         } else {
             Sense::SCROLL
         };
-        let mut viewport_config = crate::ContainerConfig::new();
+        let mut viewport_config = crate::ContainerConfig::default();
         viewport_config.item.width = self.width;
         viewport_config.item.height = self.height;
         viewport_config.allow_overflow = true;
@@ -244,7 +241,7 @@ impl<'a> ScrollArea<'a> {
             self.state.offset = self.state.offset.clamp(0.0, maximum);
         }
 
-        let mut content_config = crate::ContainerConfig::new();
+        let mut content_config = crate::ContainerConfig::default();
         content_config.item.width = Sizing::grow();
         content_config.padding = self.padding;
         content_config.gap = self.gap;
@@ -282,3 +279,8 @@ impl Drop for ScrollScope<'_> {
         self.ui.close_container(self.viewport);
     }
 }
+
+const WHEEL_FRICTION: f32 = 64.0;
+const MIN_SCROLL_VELOCITY: f32 = 5.0;
+const MAX_SCROLL_VELOCITY: f32 = 12_000.0;
+const MAX_FRAME_TIME: f32 = 0.05;

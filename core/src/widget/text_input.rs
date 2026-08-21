@@ -2,19 +2,18 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::Widget;
 use crate::{
-    Clip, Content, Item, Sizing, TextCaret, TextContent, TextSelection, Ui,
+    Ui,
     color::Color,
+    container::{Item, Sizing},
     geometry::LogicalRect,
     input::{Input, Key},
     interact::{Sense, WidgetId},
-    paint::{FontId, TextOptions, TextOverflow, TextRequest, TextRunId, TextStyle, TextWrap},
+    node::Content,
+    text::{
+        FontId, TextCaret, TextContent, TextOptions, TextOverflow, TextRequest, TextRunId,
+        TextSelection, TextStyle, TextWrap,
+    },
 };
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TextInputResponse {
-    pub edited: bool,
-    pub accepted: bool,
-}
 
 crate::builder! {
     pub struct TextInput<'a> {
@@ -28,6 +27,22 @@ crate::builder! {
         read_only: bool = false,
         mask: Option<char> = None,
     }
+}
+
+pub struct TextInputState {
+    pub text: String,
+    pub id: WidgetId,
+    pub focused: bool,
+    pub cursor: usize,
+    pub anchor: usize,
+    pub scroll_x: f32,
+    mask_text: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TextInputResponse {
+    pub edited: bool,
+    pub accepted: bool,
 }
 
 impl TextInput<'_> {
@@ -52,16 +67,6 @@ impl TextInput<'_> {
     }
 }
 
-pub struct TextInputState {
-    pub text: String,
-    pub id: WidgetId,
-    pub focused: bool,
-    pub cursor: usize,
-    pub anchor: usize,
-    pub scroll_x: f32,
-    mask_text: String,
-}
-
 impl Default for TextInputState {
     fn default() -> Self {
         Self {
@@ -79,7 +84,7 @@ impl Default for TextInputState {
 impl Widget for TextInput<'_> {
     type Output = TextInputResponse;
 
-    fn build(mut self, ui: &mut Ui) -> TextInputResponse {
+    fn render(mut self, ui: &mut Ui) -> TextInputResponse {
         self.state.cursor = self.state.cursor.min(self.state.text.len());
         while !self.state.text.is_char_boundary(self.state.cursor) {
             self.state.cursor -= 1;
@@ -92,24 +97,16 @@ impl Widget for TextInput<'_> {
         let mut text_run = ui.text_run(self.display_text(), self.text_style);
 
         let id = self.state.id;
-        let text_id = id.child("text");
-        let previous_text_area = ui.geometry(text_id);
+        let previous_area = ui.geometry(id);
         let focused = ui.is_focused(id);
         self.state.focused = focused;
         let interaction = ui.interact(id, Sense::FOCUS);
-        let mut input = ui
-            .container()
-            .row()
-            .width(Sizing::grow())
-            .id(id)
-            .clip(Clip::Bounds)
-            .open();
         let mut response = TextInputResponse::default();
 
         if interaction.pressed
-            && let (Some(position), Some(area)) = (input.pointer_position(), previous_text_area)
+            && let (Some(position), Some(area)) = (ui.pointer_position(), previous_area)
         {
-            let offset = input.text_offset_at_position(&self.request(text_run, area), position);
+            let offset = ui.text_offset_at_position(&self.request(text_run, area), position);
             self.state.cursor = if let Some(mask) = self.mask {
                 self.state
                     .text
@@ -122,7 +119,7 @@ impl Widget for TextInput<'_> {
             self.state.anchor = self.state.cursor;
         }
 
-        match *input.input() {
+        match *ui.input() {
             Input::Text(character) if focused && !self.read_only && !character.is_control() => {
                 self.delete_selection();
                 self.state.text.insert(self.state.cursor, character);
@@ -210,11 +207,11 @@ impl Widget for TextInput<'_> {
         }
         if response.edited {
             self.update_mask();
-            text_run = input.text_run(self.display_text(), self.text_style);
+            text_run = ui.text_run(self.display_text(), self.text_style);
         }
 
-        if let Some(area) = previous_text_area {
-            let cursor = input.text_cursor_rect(
+        if let Some(area) = previous_area {
+            let cursor = ui.text_cursor_rect(
                 &self.request(text_run, area),
                 self.display_offset(self.state.cursor),
             );
@@ -236,30 +233,22 @@ impl Widget for TextInput<'_> {
             width: self.cursor_width,
             color: self.cursor_color,
         });
-        {
-            let mut text = input
-                .container()
-                .width(Sizing::grow())
-                .id(text_id)
-                .clip(Clip::Bounds)
-                .row()
-                .open();
-            text.add_leaf(
-                Item {
-                    width: Sizing::grow(),
-                    height: Sizing::fit(),
-                },
-                Content::Text(TextContent {
-                    text: text_run,
-                    color: self.text_color,
-                    style: self.text_style,
-                    options,
-                    offset_x: self.state.scroll_x,
-                    selection,
-                    caret,
-                }),
-            );
-        }
+        let node = ui.add_leaf(
+            Item {
+                width: Sizing::grow(),
+                height: Sizing::fit(),
+            },
+            Content::Text(TextContent {
+                text: text_run,
+                color: self.text_color,
+                style: self.text_style,
+                options,
+                offset_x: self.state.scroll_x,
+                selection,
+                caret,
+            }),
+        );
+        ui.set_node_id(node, id);
 
         response
     }

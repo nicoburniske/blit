@@ -1,4 +1,4 @@
-//! frame-local widgets declare nodes through [`Widget::build`]
+//! frame-local widgets declare nodes through [`Widget::render`]
 
 mod image;
 mod rectangle;
@@ -17,7 +17,7 @@ use crate::Ui;
 pub trait Widget {
     type Output;
 
-    fn build(self, ui: &mut Ui) -> Self::Output;
+    fn render(self, ui: &mut Ui) -> Self::Output;
 }
 
 impl<F, R> Widget for F
@@ -26,7 +26,7 @@ where
 {
     type Output = R;
 
-    fn build(self, ui: &mut Ui) -> Self::Output {
+    fn render(self, ui: &mut Ui) -> Self::Output {
         self(ui)
     }
 }

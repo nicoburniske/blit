@@ -3,20 +3,17 @@
 use crate::{
     FrameGraphMemory,
     color::Color,
-    command_list::{ClipId, CommandList},
+    command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     container::{
         Absolute, Align, Anchor, Axis, ContainerConfig, Item, Justify, PositionTarget, Sizing,
     },
     geometry::{LogicalInsets, LogicalPoint, LogicalRect, LogicalSize},
+    image::{ImageContent, ImageRequest},
     interact::{InteractionState, WidgetId},
-    paint::{
-        Border, BorderRadius, BoxShadow, ImageFit, ImageRequest, ImageSampling, ImageTiling,
-        LinearGradient, NineSlice, Rectangle, TextLayoutRequest, TextOptions, TextRequest,
-        TextRunId, TextStyle, TextWrap,
-    },
+    node::{Content, NodeId},
     renderer::Renderer,
-    resource::ImageId,
-    style::{Clip, Shadow, Style},
+    style::{Border, BorderRadius, Clip, LinearGradient, Shadow, Style},
+    text::{TextContent, TextLayoutRequest, TextRequest, TextWrap},
 };
 
 #[derive(Default)]
@@ -30,11 +27,11 @@ pub struct FrameGraph {
     positioned_flows: Vec<PositionedFlow>,
     // absolute subtree roots. finish inserts ROOT to form paint order
     layer_roots: Vec<NodeId>,
-    appearances: Vec<StoredAppearance>,
+    styles: Vec<StoredStyle>,
     shadows: Vec<Shadow>,
     clip_specs: Vec<Clip>,
     geometry: Vec<GeometryRecord>,
-    gradient_stops: Vec<crate::paint::GradientStop>,
+    gradient_stops: Vec<crate::style::GradientStop>,
 }
 
 impl FrameGraph {
@@ -47,7 +44,7 @@ impl FrameGraph {
         self.flows.clear();
         self.positioned_flows.clear();
         self.layer_roots.clear();
-        self.appearances.clear();
+        self.styles.clear();
         self.shadows.clear();
         self.clip_specs.clear();
         self.geometry.clear();
@@ -69,7 +66,7 @@ impl FrameGraph {
             },
             flow: FlowId::normal(0),
             content: ContentId::NONE,
-            appearance: AppearanceId::NONE,
+            style: StyleId::NONE,
             shadow: ShadowId::NONE,
             clip_spec: ClipSpecId::NONE,
             area: screen,
@@ -133,7 +130,7 @@ impl FrameGraph {
                 child_offset: container.child_offset,
             }),
             position,
-            container.appearance,
+            container.style,
             ContentId::NONE,
             container.clip,
             container.id,
@@ -142,22 +139,22 @@ impl FrameGraph {
         node
     }
 
-    pub fn add_leaf(&mut self, item: Item, content: Content) -> NodeId {
-        let appearance = match content {
-            Content::Rectangle(appearance) => appearance,
+    pub fn add_leaf(&mut self, item: Item, content: Content<'_>) -> NodeId {
+        let style = match content {
+            Content::Rectangle(style) => style,
             _ => Style::new(),
         };
         let content = self.store_content(content);
-        self.append(item, None, None, appearance, content, Clip::None, None)
+        self.append(item, None, None, style, content, Clip::None, None)
     }
 
     pub fn set_id(&mut self, node: NodeId, id: WidgetId) {
         self.geometry.push(GeometryRecord { node, id });
     }
 
-    pub fn set_appearance(&mut self, node: NodeId, appearance: Style<'_>) {
-        let (appearance, shadow) = self.store_appearance(appearance);
-        self.nodes[node.index()].appearance = appearance;
+    pub fn set_style(&mut self, node: NodeId, style: Style<'_>) {
+        let (style, shadow) = self.store_style(style);
+        self.nodes[node.index()].style = style;
         self.nodes[node.index()].shadow = shadow;
     }
 
@@ -190,11 +187,11 @@ impl FrameGraph {
                 + self.flows.capacity() * size_of::<Flow>()
                 + self.positioned_flows.capacity() * size_of::<PositionedFlow>()
                 + self.layer_roots.capacity() * size_of::<NodeId>()
-                + self.appearances.capacity() * size_of::<StoredAppearance>()
+                + self.styles.capacity() * size_of::<StoredStyle>()
                 + self.shadows.capacity() * size_of::<Shadow>()
                 + self.clip_specs.capacity() * size_of::<Clip>()
                 + self.geometry.capacity() * size_of::<GeometryRecord>()
-                + self.gradient_stops.capacity() * size_of::<crate::paint::GradientStop>(),
+                + self.gradient_stops.capacity() * size_of::<crate::style::GradientStop>(),
         }
     }
 
@@ -203,7 +200,7 @@ impl FrameGraph {
         item: Item,
         flow: Option<Flow>,
         position: Option<Absolute>,
-        appearance: Style<'_>,
+        style: Style<'_>,
         content: ContentId,
         clip: Clip,
         id: Option<WidgetId>,
@@ -212,7 +209,7 @@ impl FrameGraph {
             .last()
             .expect("node declaration requires a root");
         let node = NodeId::new(self.nodes.len());
-        let (appearance, shadow) = self.store_appearance(appearance);
+        let (style, shadow) = self.store_style(style);
         let flow = match (flow, position) {
             (Some(flow), Some(absolute)) => {
                 let id = FlowId::positioned(self.positioned_flows.len());
@@ -240,7 +237,7 @@ impl FrameGraph {
             subtree_end: u32::try_from(self.nodes.len() + 1).expect("too many nodes in one frame"),
             item,
             flow,
-            appearance,
+            style,
             shadow,
             content,
             clip_spec,
@@ -254,7 +251,7 @@ impl FrameGraph {
         node
     }
 
-    fn store_content(&mut self, content: Content) -> ContentId {
+    fn store_content(&mut self, content: Content<'_>) -> ContentId {
         match content {
             Content::Rectangle(_) => ContentId::NONE,
             Content::Text(text) => {
@@ -270,36 +267,35 @@ impl FrameGraph {
         }
     }
 
-    fn store_appearance(&mut self, appearance: Style<'_>) -> (AppearanceId, ShadowId) {
-        let stored = if appearance.background != Color::TRANSPARENT
-            || !matches!(appearance.border, Border::None)
-        {
-            let border = match appearance.border {
-                Border::None => StoredBorder::None,
-                Border::Solid { width, color } => StoredBorder::Solid { width, color },
-                Border::Gradient { width, gradient } => {
-                    let start = self.gradient_stops.len();
-                    self.gradient_stops.extend_from_slice(gradient.stops);
-                    StoredBorder::Gradient {
-                        width,
-                        angle_degrees: gradient.angle_degrees,
-                        start,
-                        len: gradient.stops.len(),
+    fn store_style(&mut self, style: Style<'_>) -> (StyleId, ShadowId) {
+        let stored =
+            if style.background != Color::TRANSPARENT || !matches!(style.border, Border::None) {
+                let border = match style.border {
+                    Border::None => StoredBorder::None,
+                    Border::Solid { width, color } => StoredBorder::Solid { width, color },
+                    Border::Gradient { width, gradient } => {
+                        let start = self.gradient_stops.len();
+                        self.gradient_stops.extend_from_slice(gradient.stops);
+                        StoredBorder::Gradient {
+                            width,
+                            angle_degrees: gradient.angle_degrees,
+                            start,
+                            len: gradient.stops.len(),
+                        }
                     }
-                }
+                };
+                let id = StyleId::new(self.styles.len());
+                self.styles.push(StoredStyle {
+                    background: style.background,
+                    border,
+                    radius: style.radius,
+                    opacity: style.opacity,
+                });
+                id
+            } else {
+                StyleId::NONE
             };
-            let id = AppearanceId::new(self.appearances.len());
-            self.appearances.push(StoredAppearance {
-                background: appearance.background,
-                border,
-                radius: appearance.radius,
-                opacity: appearance.opacity,
-            });
-            id
-        } else {
-            AppearanceId::NONE
-        };
-        let shadow = appearance.shadow.map_or(ShadowId::NONE, |shadow| {
+        let shadow = style.shadow.map_or(ShadowId::NONE, |shadow| {
             let id = ShadowId::new(self.shadows.len());
             self.shadows.push(shadow);
             id
@@ -717,12 +713,8 @@ impl FrameGraph {
                 commands.push_box_shadow(shadow, bounds, node.clip);
             }
         }
-        if let Some(appearance) = node
-            .appearance
-            .index()
-            .map(|index| &self.appearances[index])
-        {
-            let border = match appearance.border {
+        if let Some(style) = node.style.index().map(|index| &self.styles[index]) {
+            let border = match style.border {
                 StoredBorder::None => Border::None,
                 StoredBorder::Solid { width, color } => Border::Solid { width, color },
                 StoredBorder::Gradient {
@@ -738,10 +730,10 @@ impl FrameGraph {
             };
             let rectangle = Rectangle {
                 area: node.area,
-                background: appearance.background,
+                background: style.background,
                 border,
-                radius: appearance.radius,
-                opacity: appearance.opacity,
+                radius: style.radius,
+                opacity: style.opacity,
             };
             if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
                 commands.push_rectangle(rectangle, bounds, node.clip);
@@ -845,56 +837,6 @@ impl FrameGraph {
     }
 }
 
-/// intrinsic leaf content
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Content {
-    Rectangle(Style<'static>),
-    Text(TextContent),
-    Image(ImageContent),
-}
-
-/// text resolved after its node width is known
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextContent {
-    pub text: TextRunId,
-    pub color: Color,
-    pub style: TextStyle,
-    pub options: TextOptions,
-    pub offset_x: f32,
-    pub selection: Option<TextSelection>,
-    pub caret: Option<TextCaret>,
-}
-
-/// selection painted behind text
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextSelection {
-    pub start: usize,
-    pub end: usize,
-    pub color: Color,
-}
-
-/// caret painted over text
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextCaret {
-    pub offset: usize,
-    pub width: f32,
-    pub color: Color,
-}
-
-/// image content and its intrinsic size
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ImageContent {
-    pub image: ImageId,
-    pub intrinsic: LogicalSize,
-    pub fit: ImageFit,
-    pub sampling: ImageSampling,
-    pub opacity: f32,
-    pub colorize: Option<Color>,
-    pub nine_slice: Option<NineSlice>,
-    pub horizontal_tiling: ImageTiling,
-    pub vertical_tiling: ImageTiling,
-}
-
 #[derive(Default)]
 pub struct GeometryState {
     previous: Vec<(WidgetId, LogicalRect)>,
@@ -923,7 +865,7 @@ struct Node {
     item: Item,
     flow: FlowId,
     content: ContentId,
-    appearance: AppearanceId,
+    style: StyleId,
     shadow: ShadowId,
     clip_spec: ClipSpecId,
     // layout resolves area in place: dimensions start intrinsic,
@@ -1039,7 +981,7 @@ struct GeometryRecord {
     id: WidgetId,
 }
 
-struct StoredAppearance {
+struct StoredStyle {
     background: Color,
     border: StoredBorder,
     radius: BorderRadius,
@@ -1058,21 +1000,6 @@ enum StoredBorder {
         start: usize,
         len: usize,
     },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NodeId(u32);
-
-impl NodeId {
-    const ROOT: Self = Self(1);
-
-    fn new(index: usize) -> Self {
-        Self(u32::try_from(index + 1).expect("too many nodes in one frame"))
-    }
-
-    fn index(self) -> usize {
-        self.0.checked_sub(1).expect("missing node") as usize
-    }
 }
 
 /// index into `flows`, or into `positioned_flows` when the high bit is set
@@ -1165,4 +1092,4 @@ macro_rules! store_ids {
     };
 }
 
-store_ids!(AppearanceId, ShadowId, ClipSpecId);
+store_ids!(StyleId, ShadowId, ClipSpecId);

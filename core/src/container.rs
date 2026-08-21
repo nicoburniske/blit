@@ -5,44 +5,10 @@ use std::ops::{Deref, DerefMut};
 use crate::{
     Ui,
     geometry::{LogicalInsets, LogicalPoint},
-    graph::NodeId,
     interact::WidgetId,
-    paint::{Border, BorderRadius, LinearGradient},
-    style::{Clip, Shadow, Style},
+    node::NodeId,
+    style::{Border, BorderRadius, Clip, LinearGradient, Shadow, Style},
 };
-
-/// absolute placement of a container outside its parent's flow
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Absolute {
-    pub target: PositionTarget,
-    pub target_anchor: Anchor,
-    pub child_anchor: Anchor,
-    pub offset: LogicalPoint,
-    pub z_index: i16,
-}
-
-/// coordinate space used by absolute placement
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum PositionTarget {
-    #[default]
-    Parent,
-    Screen,
-}
-
-/// point on a rectangle used for absolute attachment
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Anchor {
-    #[default]
-    TopLeft,
-    Top,
-    TopRight,
-    Left,
-    Center,
-    Right,
-    BottomLeft,
-    Bottom,
-    BottomRight,
-}
 
 /// pending child-bearing layout declaration
 #[must_use = "container must be opened"]
@@ -69,7 +35,7 @@ pub struct ContainerConfig<'a> {
     pub justify: Justify,
     pub allow_overflow: bool,
     pub child_offset: LogicalPoint,
-    pub appearance: Style<'a>,
+    pub style: Style<'a>,
     pub clip: Clip,
 }
 
@@ -116,54 +82,6 @@ pub enum Justify {
     SpaceBetween,
     SpaceAround,
     SpaceEvenly,
-}
-
-impl Absolute {
-    pub const fn at(x: f32, y: f32) -> Self {
-        Self {
-            target: PositionTarget::Parent,
-            target_anchor: Anchor::TopLeft,
-            child_anchor: Anchor::TopLeft,
-            offset: LogicalPoint { x, y },
-            z_index: 0,
-        }
-    }
-
-    pub const fn screen(x: f32, y: f32) -> Self {
-        Self {
-            target: PositionTarget::Screen,
-            ..Self::at(x, y)
-        }
-    }
-
-    pub const fn attach(target: Anchor, child: Anchor) -> Self {
-        Self::at(0.0, 0.0).anchors(target, child)
-    }
-
-    pub const fn relative_to(mut self, target: PositionTarget) -> Self {
-        self.target = target;
-        self
-    }
-
-    pub const fn anchors(mut self, target: Anchor, child: Anchor) -> Self {
-        self.target_anchor = target;
-        self.child_anchor = child;
-        self
-    }
-
-    pub const fn offset(mut self, x: f32, y: f32) -> Self {
-        self.offset = LogicalPoint { x, y };
-        self
-    }
-
-    /// orders this absolute subtree relative to other layers
-    ///
-    /// negative layers paint below normal flow, while zero and positive layers
-    /// paint above it. equal values retain declaration order
-    pub const fn z_index(mut self, z_index: i16) -> Self {
-        self.z_index = z_index;
-        self
-    }
 }
 
 impl<'ui> Container<'ui, 'static> {
@@ -245,33 +163,33 @@ impl<'ui, 'style> Container<'ui, 'style> {
         self
     }
 
-    pub fn appearance(mut self, appearance: Style<'style>) -> Self {
-        self.config.appearance = appearance;
+    pub fn style(mut self, style: Style<'style>) -> Self {
+        self.config.style = style;
         self
     }
 
     pub fn background(mut self, color: crate::color::Color) -> Self {
-        self.config.appearance.background = color;
+        self.config.style.background = color;
         self
     }
 
     pub fn border(mut self, width: f32, color: crate::color::Color) -> Self {
-        self.config.appearance.border = Border::Solid { width, color };
+        self.config.style.border = Border::Solid { width, color };
         self
     }
 
     pub fn gradient_border(mut self, width: f32, gradient: LinearGradient<'style>) -> Self {
-        self.config.appearance.border = Border::Gradient { width, gradient };
+        self.config.style.border = Border::Gradient { width, gradient };
         self
     }
 
     pub fn radius(mut self, radius: BorderRadius) -> Self {
-        self.config.appearance.radius = radius;
+        self.config.style.radius = radius;
         self
     }
 
     pub fn uniform_radius(mut self, radius: f32) -> Self {
-        self.config.appearance.radius = BorderRadius {
+        self.config.style.radius = BorderRadius {
             top_left: radius,
             top_right: radius,
             bottom_right: radius,
@@ -281,12 +199,12 @@ impl<'ui, 'style> Container<'ui, 'style> {
     }
 
     pub fn opacity(mut self, opacity: f32) -> Self {
-        self.config.appearance.opacity = opacity;
+        self.config.style.opacity = opacity;
         self
     }
 
     pub fn shadow(mut self, shadow: Shadow) -> Self {
-        self.config.appearance.shadow = Some(shadow);
+        self.config.style.shadow = Some(shadow);
         self
     }
 
@@ -316,8 +234,8 @@ impl<'ui, 'style> Container<'ui, 'style> {
     }
 }
 
-impl<'a> ContainerConfig<'a> {
-    pub(crate) fn new() -> Self {
+impl Default for ContainerConfig<'_> {
+    fn default() -> Self {
         Self {
             id: None,
             item: Item::new(),
@@ -332,15 +250,9 @@ impl<'a> ContainerConfig<'a> {
             justify: Justify::Start,
             allow_overflow: false,
             child_offset: LogicalPoint { x: 0.0, y: 0.0 },
-            appearance: Style::new(),
+            style: Style::new(),
             clip: Clip::None,
         }
-    }
-}
-
-impl Default for ContainerConfig<'_> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -392,6 +304,87 @@ impl Sizing {
             Self::Grow { min, .. } => Self::Grow { min, max: value },
             Self::Fixed(_) => self,
         }
+    }
+}
+
+/// absolute placement of a container outside its parent's flow
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Absolute {
+    pub target: PositionTarget,
+    pub target_anchor: Anchor,
+    pub child_anchor: Anchor,
+    pub offset: LogicalPoint,
+    pub z_index: i16,
+}
+
+/// coordinate space used by absolute placement
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PositionTarget {
+    #[default]
+    Parent,
+    Screen,
+}
+
+/// point on a rectangle used for absolute attachment
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Anchor {
+    #[default]
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    Center,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+}
+
+impl Absolute {
+    pub const fn at(x: f32, y: f32) -> Self {
+        Self {
+            target: PositionTarget::Parent,
+            target_anchor: Anchor::TopLeft,
+            child_anchor: Anchor::TopLeft,
+            offset: LogicalPoint { x, y },
+            z_index: 0,
+        }
+    }
+
+    pub const fn screen(x: f32, y: f32) -> Self {
+        Self {
+            target: PositionTarget::Screen,
+            ..Self::at(x, y)
+        }
+    }
+
+    pub const fn attach(target: Anchor, child: Anchor) -> Self {
+        Self::at(0.0, 0.0).anchors(target, child)
+    }
+
+    pub const fn relative_to(mut self, target: PositionTarget) -> Self {
+        self.target = target;
+        self
+    }
+
+    pub const fn anchors(mut self, target: Anchor, child: Anchor) -> Self {
+        self.target_anchor = target;
+        self.child_anchor = child;
+        self
+    }
+
+    pub const fn offset(mut self, x: f32, y: f32) -> Self {
+        self.offset = LogicalPoint { x, y };
+        self
+    }
+
+    /// orders this absolute subtree relative to other layers
+    ///
+    /// negative layers paint below normal flow, while zero and positive layers
+    /// paint above it. equal values retain declaration order
+    pub const fn z_index(mut self, z_index: i16) -> Self {
+        self.z_index = z_index;
+        self
     }
 }
 
