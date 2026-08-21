@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use blit::{
     Ui,
+    animation::{Easing, Transition},
     container::{Absolute, Align, Anchor, Axis, Justify, Sizing},
     geometry::LogicalInsets,
     interact::{Sense, WidgetId},
@@ -42,6 +45,8 @@ impl Application for Showcase {
             zoom: 2,
             gap: 2,
             padding: 2,
+            transition_easing: 3,
+            transition_target: false,
             width: 640.0,
             height: 440.0,
         }
@@ -105,6 +110,8 @@ impl Application for Showcase {
                 self.zoom = 2;
                 self.gap = 2;
                 self.padding = 2;
+                self.transition_easing = 3;
+                self.transition_target = false;
                 self.width = 640.0;
                 self.height = 440.0;
             }
@@ -346,205 +353,347 @@ impl Application for Showcase {
                 ][self.justify];
                 let align = [Align::Start, Align::Center, Align::End, Align::Stretch][self.align];
 
-                let mut viewport = preview
-                    .container()
-                    .col()
-                    .grow()
-                    .padding(LogicalInsets::uniform(8.0))
-                    .background(colors::TRACK)
-                    .uniform_radius(8.0)
-                    .clip(Clip::Bounds)
-                    .open();
-                let mut shell = viewport
-                    .container()
-                    .col()
-                    .fixed(self.width + 12.0, self.height + 12.0)
-                    .open();
-
-                let width_delta = {
-                    let mut row = shell
+                {
+                    let mut viewport = preview
                         .container()
-                        .fixed(self.width + 12.0, self.height)
-                        .row()
+                        .col()
+                        .grow()
+                        .padding(LogicalInsets::uniform(8.0))
+                        .background(colors::TRACK)
+                        .uniform_radius(8.0)
+                        .clip(Clip::Bounds)
                         .open();
-                    {
-                        let mut layout = row
-                            .container()
-                            .fixed(self.width, self.height)
-                            .padding(LogicalInsets::uniform(padding))
-                            .gap(gap)
-                            .align(align)
-                            .justify(justify)
-                            .background(colors::CANVAS)
-                            .border(2.0, colors::CANVAS_BORDER)
-                            .uniform_radius(8.0)
-                            .clip(Clip::Bounds)
-                            .flow(axis)
-                            .open();
+                    let mut shell = viewport
+                        .container()
+                        .col()
+                        .fixed(self.width + 12.0, self.height + 12.0)
+                        .open();
 
-                        for (index, label) in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
-                            .into_iter()
-                            .enumerate()
+                    let width_delta = {
+                        let mut row = shell
+                            .container()
+                            .fixed(self.width + 12.0, self.height)
+                            .row()
+                            .open();
                         {
-                            let main = (26.0 + (index % 5) as f32 * 5.0) * zoom;
-                            let cross = (48.0 + (index % 4) as f32 * 13.0) * zoom;
-                            let main = match self.sizing {
-                                0 => Sizing::fixed(main),
-                                1 => Sizing::fit().min(20.0 * zoom).max(main),
-                                _ => Sizing::grow().min(20.0 * zoom),
-                            };
-                            let cross = if align == Align::Stretch {
-                                Sizing::fit()
-                            } else {
-                                Sizing::fixed(cross)
-                            };
-                            let item = layout.container().col();
-                            let item = match axis {
-                                Axis::Horizontal => item.width(main).height(cross),
-                                Axis::Vertical => item.width(cross).height(main),
-                            };
-                            let mut rectangle = item
-                                .align(Align::Stretch)
-                                .justify(Justify::Center)
-                                .background(colors::ITEMS[index])
-                                .uniform_radius(5.0)
+                            let mut layout = row
+                                .container()
+                                .fixed(self.width, self.height)
+                                .padding(LogicalInsets::uniform(padding))
+                                .gap(gap)
+                                .align(align)
+                                .justify(justify)
+                                .background(colors::CANVAS)
+                                .border(2.0, colors::CANVAS_BORDER)
+                                .uniform_radius(8.0)
+                                .clip(Clip::Bounds)
+                                .flow(axis)
                                 .open();
-                            rectangle.add(
-                                Text::new(label)
-                                    .color(colors::WHITE)
-                                    .text_size(11.0 * zoom)
-                                    .align(HorizontalAlign::Center),
+
+                            for (index, label) in
+                                ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+                                    .into_iter()
+                                    .enumerate()
+                            {
+                                let main = (26.0 + (index % 5) as f32 * 5.0) * zoom;
+                                let cross = (48.0 + (index % 4) as f32 * 13.0) * zoom;
+                                let main = match self.sizing {
+                                    0 => Sizing::fixed(main),
+                                    1 => Sizing::fit().min(20.0 * zoom).max(main),
+                                    _ => Sizing::grow().min(20.0 * zoom),
+                                };
+                                let cross = if align == Align::Stretch {
+                                    Sizing::fit()
+                                } else {
+                                    Sizing::fixed(cross)
+                                };
+                                let item = layout.container().col();
+                                let item = match axis {
+                                    Axis::Horizontal => item.width(main).height(cross),
+                                    Axis::Vertical => item.width(cross).height(main),
+                                };
+                                let mut rectangle = item
+                                    .align(Align::Stretch)
+                                    .justify(Justify::Center)
+                                    .background(colors::ITEMS[index])
+                                    .uniform_radius(5.0)
+                                    .open();
+                                rectangle.add(
+                                    Text::new(label)
+                                        .color(colors::WHITE)
+                                        .text_size(11.0 * zoom)
+                                        .align(HorizontalAlign::Center),
+                                );
+                                let anchor = match index {
+                                    0 => Some(Anchor::TopRight),
+                                    4 => Some(Anchor::BottomLeft),
+                                    9 => Some(Anchor::BottomRight),
+                                    _ => None,
+                                };
+                                if let Some(anchor) = anchor {
+                                    let mut badge = rectangle
+                                        .container()
+                                        .row()
+                                        .fixed((28.0 * zoom).max(20.0), (14.0 * zoom).max(10.0))
+                                        .align(Align::Center)
+                                        .justify(Justify::Center)
+                                        .background(colors::BACKGROUND)
+                                        .border(1.0, colors::WHITE)
+                                        .uniform_radius(5.0)
+                                        .absolute(
+                                            Absolute::attach(anchor, Anchor::Center).z_index(1),
+                                        )
+                                        .open();
+                                    badge.add(
+                                        Text::new("ABS")
+                                            .color(colors::WHITE)
+                                            .text_size((8.0 * zoom).max(7.0)),
+                                    );
+                                }
+                            }
+                        }
+                        {
+                            let id = WidgetId::new("layout width grip");
+                            let interaction = row.interact(id, Sense::DRAG);
+                            let mut grip = row
+                                .container()
+                                .col()
+                                .fixed(12.0, self.height)
+                                .align(Align::Center)
+                                .justify(Justify::Center)
+                                .id(id)
+                                .open();
+                            grip.add(
+                                Rectangle::new()
+                                    .fixed(3.0, 48.0)
+                                    .background(if interaction.hovered || interaction.dragged {
+                                        colors::ACCENT
+                                    } else {
+                                        colors::GRIP
+                                    })
+                                    .uniform_radius(1.5),
                             );
-                            let anchor = match index {
-                                0 => Some(Anchor::TopRight),
-                                4 => Some(Anchor::BottomLeft),
-                                9 => Some(Anchor::BottomRight),
-                                _ => None,
-                            };
-                            if let Some(anchor) = anchor {
-                                let mut badge = rectangle
+                            if interaction.hovered || interaction.dragged {
+                                let mut readout = grip
                                     .container()
                                     .row()
-                                    .fixed((28.0 * zoom).max(20.0), (14.0 * zoom).max(10.0))
-                                    .align(Align::Center)
-                                    .justify(Justify::Center)
+                                    .padding(LogicalInsets {
+                                        top: 4.0,
+                                        right: 7.0,
+                                        bottom: 4.0,
+                                        left: 7.0,
+                                    })
                                     .background(colors::BACKGROUND)
-                                    .border(1.0, colors::WHITE)
+                                    .border(1.0, colors::ACCENT)
                                     .uniform_radius(5.0)
-                                    .absolute(Absolute::attach(anchor, Anchor::Center).z_index(1))
+                                    .absolute(
+                                        Absolute::attach(Anchor::Left, Anchor::Right)
+                                            .offset(-8.0, 0.0)
+                                            .z_index(10),
+                                    )
                                     .open();
-                                badge.add(
-                                    Text::new("ABS")
-                                        .color(colors::WHITE)
-                                        .text_size((8.0 * zoom).max(7.0)),
-                                );
+                                readout.add(Text::new("DRAG X").color(colors::TEXT).text_size(9.0));
+                            }
+                            interaction.drag_delta.x
+                        }
+                    };
+
+                    let (height_delta, corner_delta) = {
+                        let mut row = shell
+                            .container()
+                            .fixed(self.width + 12.0, 12.0)
+                            .row()
+                            .open();
+                        let height_delta = {
+                            let id = WidgetId::new("layout height grip");
+                            let interaction = row.interact(id, Sense::DRAG);
+                            let mut grip = row
+                                .container()
+                                .row()
+                                .fixed(self.width, 12.0)
+                                .align(Align::Center)
+                                .justify(Justify::Center)
+                                .id(id)
+                                .open();
+                            grip.add(
+                                Rectangle::new()
+                                    .fixed(48.0, 3.0)
+                                    .background(if interaction.hovered || interaction.dragged {
+                                        colors::ACCENT
+                                    } else {
+                                        colors::GRIP
+                                    })
+                                    .uniform_radius(1.5),
+                            );
+                            interaction.drag_delta.y
+                        };
+                        let corner_delta = {
+                            let id = WidgetId::new("layout corner grip");
+                            let interaction = row.interact(id, Sense::DRAG);
+                            let mut grip = row
+                                .container()
+                                .row()
+                                .fixed(12.0, 12.0)
+                                .align(Align::Center)
+                                .justify(Justify::Center)
+                                .id(id)
+                                .open();
+                            grip.add(
+                                Rectangle::new()
+                                    .fixed(6.0, 6.0)
+                                    .background(if interaction.hovered || interaction.dragged {
+                                        colors::ACCENT
+                                    } else {
+                                        colors::GRIP_CORNER
+                                    })
+                                    .uniform_radius(3.0),
+                            );
+                            interaction.drag_delta
+                        };
+                        (height_delta, corner_delta)
+                    };
+
+                    self.width =
+                        (self.width + width_delta + corner_delta.x).clamp(240.0, max_width);
+                    self.height =
+                        (self.height + height_delta + corner_delta.y).clamp(180.0, max_height);
+                }
+
+                let mut transitions = preview
+                    .container()
+                    .col()
+                    .width(Sizing::grow())
+                    .height(Sizing::fixed(156.0))
+                    .padding(LogicalInsets::uniform(10.0))
+                    .gap(8.0)
+                    .background(colors::TRACK)
+                    .border(1.0, colors::BORDER)
+                    .uniform_radius(8.0)
+                    .open();
+                {
+                    let mut header = transitions
+                        .container()
+                        .row()
+                        .width(Sizing::grow())
+                        .align(Align::Center)
+                        .gap(6.0)
+                        .open();
+                    header.add(
+                        Text::new("TRANSITIONS")
+                            .color(colors::ACCENT)
+                            .text_size(10.0),
+                    );
+                    {
+                        let mut choices = header
+                            .container()
+                            .row()
+                            .grow()
+                            .justify(Justify::End)
+                            .gap(4.0)
+                            .open();
+                        for (index, label) in
+                            ["Linear", "In", "Out", "In-out"].into_iter().enumerate()
+                        {
+                            if choices
+                                .add(
+                                    choice(label, self.transition_easing == index)
+                                        .id(("transition easing", index))
+                                        .padding_x(7.0)
+                                        .padding_y(4.0),
+                                )
+                                .clicked()
+                            {
+                                self.transition_easing = index;
                             }
                         }
                     }
+                    if header
+                        .add(
+                            choice("Reverse", self.transition_target)
+                                .id("reverse transitions")
+                                .padding_x(12.0)
+                                .padding_y(4.0),
+                        )
+                        .clicked()
                     {
-                        let id = WidgetId::new("layout width grip");
-                        let interaction = row.interact(id, Sense::DRAG);
-                        let mut grip = row
-                            .container()
-                            .col()
-                            .fixed(12.0, self.height)
-                            .align(Align::Center)
-                            .justify(Justify::Center)
-                            .id(id)
-                            .open();
-                        grip.add(
-                            Rectangle::new()
-                                .fixed(3.0, 48.0)
-                                .background(if interaction.hovered || interaction.dragged {
-                                    colors::ACCENT
-                                } else {
-                                    colors::GRIP
-                                })
-                                .uniform_radius(1.5),
-                        );
-                        if interaction.hovered || interaction.dragged {
-                            let mut readout = grip
-                                .container()
-                                .row()
-                                .padding(LogicalInsets {
-                                    top: 4.0,
-                                    right: 7.0,
-                                    bottom: 4.0,
-                                    left: 7.0,
-                                })
-                                .background(colors::BACKGROUND)
-                                .border(1.0, colors::ACCENT)
-                                .uniform_radius(5.0)
-                                .absolute(
-                                    Absolute::attach(Anchor::Left, Anchor::Right)
-                                        .offset(-8.0, 0.0)
-                                        .z_index(10),
-                                )
-                                .open();
-                            readout.add(Text::new("DRAG X").color(colors::TEXT).text_size(9.0));
-                        }
-                        interaction.drag_delta.x
+                        self.transition_target = !self.transition_target;
                     }
-                };
+                }
 
-                let (height_delta, corner_delta) = {
-                    let mut row = shell
+                let easing = [
+                    Easing::Linear,
+                    Easing::EaseInQuad,
+                    Easing::EaseOutQuad,
+                    Easing::EaseInOutQuad,
+                ][self.transition_easing];
+                let mut tracks = transitions.container().row().grow().gap(8.0).open();
+                {
+                    let mut track = tracks
                         .container()
-                        .fixed(self.width + 12.0, 12.0)
                         .row()
+                        .width(Sizing::percent(0.5))
+                        .height(Sizing::grow())
+                        .padding(LogicalInsets::uniform(7.0))
+                        .background(colors::SURFACE)
+                        .uniform_radius(6.0)
+                        .clip(Clip::Bounds)
                         .open();
-                    let height_delta = {
-                        let id = WidgetId::new("layout height grip");
-                        let interaction = row.interact(id, Sense::DRAG);
-                        let mut grip = row
-                            .container()
-                            .row()
-                            .fixed(self.width, 12.0)
-                            .align(Align::Center)
-                            .justify(Justify::Center)
-                            .id(id)
-                            .open();
-                        grip.add(
-                            Rectangle::new()
-                                .fixed(48.0, 3.0)
-                                .background(if interaction.hovered || interaction.dragged {
-                                    colors::ACCENT
-                                } else {
-                                    colors::GRIP
-                                })
-                                .uniform_radius(1.5),
-                        );
-                        interaction.drag_delta.y
+                    let mut specimen = track
+                        .container()
+                        .row()
+                        .fixed(76.0, 30.0)
+                        .id(WidgetId::new("position transition specimen"))
+                        .absolute(if self.transition_target {
+                            Absolute::attach(Anchor::BottomRight, Anchor::BottomRight)
+                        } else {
+                            Absolute::attach(Anchor::TopLeft, Anchor::TopLeft)
+                        })
+                        .transition(
+                            Transition::new(Duration::from_millis(700))
+                                .easing(easing)
+                                .position(),
+                        )
+                        .align(Align::Center)
+                        .justify(Justify::Center)
+                        .background(colors::SURFACE_BLUE)
+                        .uniform_radius(5.0)
+                        .open();
+                    specimen.add(Text::new("X / Y").color(colors::WHITE).text_size(10.0));
+                }
+                {
+                    let mut track = tracks
+                        .container()
+                        .row()
+                        .width(Sizing::percent(0.5))
+                        .height(Sizing::grow())
+                        .padding(LogicalInsets::uniform(7.0))
+                        .background(colors::SURFACE)
+                        .uniform_radius(6.0)
+                        .clip(Clip::Bounds)
+                        .open();
+                    let (width, height) = if self.transition_target {
+                        (132.0, 50.0)
+                    } else {
+                        (72.0, 28.0)
                     };
-                    let corner_delta = {
-                        let id = WidgetId::new("layout corner grip");
-                        let interaction = row.interact(id, Sense::DRAG);
-                        let mut grip = row
-                            .container()
-                            .row()
-                            .fixed(12.0, 12.0)
-                            .align(Align::Center)
-                            .justify(Justify::Center)
-                            .id(id)
-                            .open();
-                        grip.add(
-                            Rectangle::new()
-                                .fixed(6.0, 6.0)
-                                .background(if interaction.hovered || interaction.dragged {
-                                    colors::ACCENT
-                                } else {
-                                    colors::GRIP_CORNER
-                                })
-                                .uniform_radius(3.0),
-                        );
-                        interaction.drag_delta
-                    };
-                    (height_delta, corner_delta)
-                };
-
-                self.width = (self.width + width_delta + corner_delta.x).clamp(240.0, max_width);
-                self.height =
-                    (self.height + height_delta + corner_delta.y).clamp(180.0, max_height);
+                    let mut specimen = track
+                        .container()
+                        .row()
+                        .fixed(width, height)
+                        .id(WidgetId::new("size transition specimen"))
+                        .absolute(Absolute::attach(Anchor::Center, Anchor::Center))
+                        .transition(
+                            Transition::new(Duration::from_millis(700))
+                                .easing(easing)
+                                .size(),
+                        )
+                        .align(Align::Center)
+                        .justify(Justify::Center)
+                        .background(colors::SURFACE_PURPLE)
+                        .uniform_radius(5.0)
+                        .open();
+                    specimen.add(Text::new("W / H").color(colors::WHITE).text_size(10.0));
+                }
             }
         }
 
@@ -591,6 +740,8 @@ struct Showcase {
     zoom: usize,
     gap: usize,
     padding: usize,
+    transition_easing: usize,
+    transition_target: bool,
     width: f32,
     height: f32,
 }
