@@ -702,7 +702,7 @@ impl Widget for Button<'_> {
                     } else {
                         self.background
                     })
-                    .border(self.border_width, self.border_color),
+                    .solid_border(self.border_width, self.border_color),
             )
             .uniform_radius(self.radius)
             .open();

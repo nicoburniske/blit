@@ -13,7 +13,7 @@ pub struct Rectangle {
 }
 
 impl Rectangle {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             id: None,
             item: Item::new(),

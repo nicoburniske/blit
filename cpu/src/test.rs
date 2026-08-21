@@ -351,7 +351,7 @@ fn resolved_nodes_match_direct_commands() {
                     .background(Color::from_rgba8(40, 70, 100, 255))
                     .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
                     .radius(radius)
-                    .shadow(shadow),
+                    .shadow(Some(shadow)),
             )
             .clip(Clip::Rounded(radius))
             .open();
@@ -563,7 +563,7 @@ fn clear_resets_stale_pixels_before_drawing() {
             ..LogicalRect::default()
         })
         .background(Color::from_rgba8(40, 120, 220, 144))
-        .border(2.0, Color::from_rgba8(240, 80, 30, 192))
+        .solid_border(2.0, Color::from_rgba8(240, 80, 30, 192))
         .uniform_radius(5.0);
         let mut paint = CommandList::default();
         if clear {

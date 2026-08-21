@@ -24,21 +24,21 @@ macro_rules! builder {
             }
 
             $(
-                $visibility fn $required(
+                $visibility const fn $required(
                     mut self,
-                    value: impl Into<$required_type>,
+                    value: $required_type,
                 ) -> Self {
-                    self.$required = value.into();
+                    self.$required = value;
                     self
                 }
             )*
 
             $(
-                $visibility fn $field(
+                $visibility const fn $field(
                     mut self,
-                    value: impl Into<$field_type>,
+                    value: $field_type,
                 ) -> Self {
-                    self.$field = value.into();
+                    self.$field = value;
                     self
                 }
             )*

@@ -1,46 +1,20 @@
 use super::BorderRadius;
 use crate::{color::Color, geometry::LogicalRect};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct BoxShadow {
-    pub area: LogicalRect,
-    pub color: Color,
-    pub radius: BorderRadius,
-    pub offset_x: f32,
-    pub offset_y: f32,
-    pub blur: f32,
-    pub spread: f32,
+crate::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct BoxShadow {
+        new(area: LogicalRect, color: Color),
+        radius: BorderRadius = BorderRadius::default(),
+        offset_x: f32 = 0.0,
+        offset_y: f32 = 0.0,
+        blur: f32 = 0.0,
+        spread: f32 = 0.0,
+    }
 }
 
 impl BoxShadow {
-    pub fn new(area: LogicalRect, color: Color) -> Self {
-        Self {
-            area,
-            color,
-            radius: BorderRadius::default(),
-            offset_x: 0.0,
-            offset_y: 0.0,
-            blur: 0.0,
-            spread: 0.0,
-        }
-    }
-
-    pub fn radius(mut self, radius: BorderRadius) -> Self {
-        self.radius = radius;
-        self
-    }
-
-    pub fn blur(mut self, blur: f32) -> Self {
-        self.blur = blur;
-        self
-    }
-
-    pub fn spread(mut self, spread: f32) -> Self {
-        self.spread = spread;
-        self
-    }
-
-    pub fn uniform_radius(mut self, radius: f32) -> Self {
+    pub const fn uniform_radius(mut self, radius: f32) -> Self {
         self.radius = BorderRadius {
             top_left: radius,
             top_right: radius,

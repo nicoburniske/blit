@@ -317,7 +317,7 @@ impl<'ui, 'style> Container<'ui, 'style> {
 }
 
 impl<'a> ContainerConfig<'a> {
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             id: None,
             item: Item::new(),
