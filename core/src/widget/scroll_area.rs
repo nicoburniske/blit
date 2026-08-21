@@ -4,11 +4,11 @@ use std::{
 };
 
 use crate::{
-    Axis, Clip, Container, Sizing, Ui,
+    Axis, Clip, Sizing, Ui,
     geometry::{LogicalInsets, LogicalPoint},
     graph::NodeId,
     input::ScrollPhase,
-    interact::{Interaction, Sense, WidgetId},
+    interact::{Sense, WidgetId},
 };
 
 const WHEEL_FRICTION: f32 = 64.0;
@@ -81,7 +81,6 @@ pub struct ScrollScope<'a> {
     ui: &'a mut Ui,
     viewport: NodeId,
     content: NodeId,
-    interaction: Interaction,
 }
 
 impl<'a> ScrollArea<'a> {
@@ -153,16 +152,14 @@ impl<'a> ScrollArea<'a> {
         } else {
             Sense::SCROLL
         };
-        let (viewport, interaction) = ui.open_container(
-            Axis::Vertical,
-            Container::new()
-                .width(self.width)
-                .height(self.height)
-                .overflow(true)
-                .id(id)
-                .clip(Clip::Bounds)
-                .interact(id, sense),
-        );
+        let mut viewport_config = crate::ContainerConfig::new();
+        viewport_config.item.width = self.width;
+        viewport_config.item.height = self.height;
+        viewport_config.allow_overflow = true;
+        viewport_config.id = Some(id);
+        viewport_config.clip = Clip::Bounds;
+        let interaction = ui.interact(id, sense);
+        let viewport = ui.open_container(Axis::Vertical, viewport_config);
         let now = ui.time();
         let elapsed = self.state.last_frame.replace(now).map_or(0.0, |previous| {
             now.saturating_sub(previous)
@@ -247,30 +244,21 @@ impl<'a> ScrollArea<'a> {
             self.state.offset = self.state.offset.clamp(0.0, maximum);
         }
 
-        let (content, _) = ui.open_container(
-            Axis::Vertical,
-            Container::new()
-                .width(Sizing::grow())
-                .padding(self.padding)
-                .gap(self.gap)
-                .id(content_id)
-                .offset(LogicalPoint {
-                    x: 0.0,
-                    y: -self.state.offset,
-                }),
-        );
+        let mut content_config = crate::ContainerConfig::new();
+        content_config.item.width = Sizing::grow();
+        content_config.padding = self.padding;
+        content_config.gap = self.gap;
+        content_config.id = Some(content_id);
+        content_config.child_offset = LogicalPoint {
+            x: 0.0,
+            y: -self.state.offset,
+        };
+        let content = ui.open_container(Axis::Vertical, content_config);
         ScrollScope {
             ui,
             viewport,
             content,
-            interaction,
         }
-    }
-}
-
-impl ScrollScope<'_> {
-    pub fn interaction(&self) -> Interaction {
-        self.interaction
     }
 }
 

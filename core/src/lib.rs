@@ -17,8 +17,8 @@ mod timer;
 pub mod widget;
 
 pub use container::{
-    Absolute, Align, Anchor, Axis, Container, Item, Justify, PositionTarget, Positioned, Scope,
-    Sizing,
+    Absolute, Align, Anchor, Axis, Container, ContainerConfig, Item, Justify, PositionTarget,
+    Scope, Sizing,
 };
 #[doc(hidden)]
 pub use graph::{Content, ImageContent, NodeId, TextCaret, TextContent, TextSelection};
@@ -51,20 +51,8 @@ impl Ui {
         self.frame_mut().clear()
     }
 
-    pub fn row(&mut self, container: Container<'_>) -> Scope<'_> {
-        container::open(self, Axis::Horizontal, container)
-    }
-
-    pub fn column(&mut self, container: Container<'_>) -> Scope<'_> {
-        container::open(self, Axis::Vertical, container)
-    }
-
-    pub fn flow(&mut self, axis: Axis, container: Container<'_>) -> Scope<'_> {
-        container::open(self, axis, container)
-    }
-
-    pub fn absolute(&mut self, absolute: Absolute) -> Positioned<'_> {
-        container::positioned(self, absolute)
+    pub fn container(&mut self) -> Container<'_, '_> {
+        Container::new(self)
     }
 
     pub fn geometry(&self, id: WidgetId) -> Option<LogicalRect> {
@@ -81,6 +69,10 @@ impl Ui {
 
     pub fn input(&self) -> &Input {
         &self.input
+    }
+
+    pub fn interact(&mut self, id: WidgetId, sense: Sense) -> Interaction {
+        self.shared_mut().interaction.response(id, sense)
     }
 
     pub fn time(&self) -> Duration {
@@ -177,31 +169,18 @@ impl Ui {
         self.frame_mut().add_leaf(item, content)
     }
 
-    pub fn open_container(
-        &mut self,
-        axis: Axis,
-        container: Container<'_>,
-    ) -> (NodeId, Interaction) {
-        let interaction = container
-            .interaction
-            .map_or_default(|(id, sense)| self.shared_mut().interaction.response(id, sense));
-        let node = self.frame_mut().add_container(axis, container, None);
-        (node, interaction)
+    pub fn open_container(&mut self, axis: Axis, container: ContainerConfig<'_>) -> NodeId {
+        self.frame_mut().add_container(axis, container, None)
     }
 
     pub fn open_absolute_container(
         &mut self,
         axis: Axis,
-        container: Container<'_>,
+        container: ContainerConfig<'_>,
         absolute: Absolute,
-    ) -> (NodeId, Interaction) {
-        let interaction = container
-            .interaction
-            .map_or_default(|(id, sense)| self.shared_mut().interaction.response(id, sense));
-        let node = self
-            .frame_mut()
-            .add_container(axis, container, Some(absolute));
-        (node, interaction)
+    ) -> NodeId {
+        self.frame_mut()
+            .add_container(axis, container, Some(absolute))
     }
 
     pub fn close_container(&mut self, node: NodeId) {
@@ -210,12 +189,6 @@ impl Ui {
 
     pub fn set_node_id(&mut self, node: NodeId, id: WidgetId) {
         self.frame_mut().set_id(node, id)
-    }
-
-    pub fn interact_node(&mut self, node: NodeId, id: WidgetId, sense: Sense) -> Interaction {
-        let interaction = self.shared_mut().interaction.response(id, sense);
-        self.frame_mut().set_interaction(node, id, sense);
-        interaction
     }
 
     pub fn set_node_appearance(&mut self, node: NodeId, appearance: Appearance<'_>) {

@@ -2,7 +2,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::Widget;
 use crate::{
-    Appearance, Clip, Container, Content, Item, Sizing, TextCaret, TextContent, TextSelection, Ui,
+    Appearance, Clip, Content, Item, Sizing, TextCaret, TextContent, TextSelection, Ui,
     color::Color,
     geometry::{LogicalInsets, LogicalRect},
     input::{Input, Key},
@@ -92,32 +92,33 @@ impl Widget for TextInput<'_> {
         let previous_text_area = ui.geometry(text_id);
         let focused = ui.is_focused(id);
         self.state.focused = focused;
-        let mut input = ui.row(
-            Container::new()
-                .width(Sizing::grow().max(self.preferred_width))
-                .height(Sizing::fit().min(self.border_width * 2.0))
-                .padding(self.padding)
-                .appearance(
-                    Appearance::new()
-                        .background(if focused {
-                            self.focused_background
+        let interaction = ui.interact(id, Sense::FOCUS);
+        let mut input = ui
+            .container()
+            .width(Sizing::grow().max(self.preferred_width))
+            .height(Sizing::fit().min(self.border_width * 2.0))
+            .padding(self.padding)
+            .appearance(
+                Appearance::new()
+                    .background(if focused {
+                        self.focused_background
+                    } else {
+                        self.background
+                    })
+                    .border(
+                        self.border_width,
+                        if focused {
+                            self.focused_border_color
                         } else {
-                            self.background
-                        })
-                        .border(
-                            self.border_width,
-                            if focused {
-                                self.focused_border_color
-                            } else {
-                                self.border_color
-                            },
-                        )
-                        .radius(self.radius)
-                        .opacity(self.opacity),
-                )
-                .interact(id, Sense::FOCUS),
-        );
-        let interaction = input.interaction();
+                            self.border_color
+                        },
+                    )
+                    .radius(self.radius)
+                    .opacity(self.opacity),
+            )
+            .id(id)
+            .row()
+            .open();
         let mut response = TextInputResponse::default();
 
         if interaction.pressed
@@ -253,12 +254,13 @@ impl Widget for TextInput<'_> {
             color: self.cursor_color,
         });
         {
-            let mut text = input.row(
-                Container::new()
-                    .width(Sizing::grow())
-                    .id(text_id)
-                    .clip(Clip::Bounds),
-            );
+            let mut text = input
+                .container()
+                .width(Sizing::grow())
+                .id(text_id)
+                .clip(Clip::Bounds)
+                .row()
+                .open();
             text.add_leaf(
                 Item {
                     width: Sizing::grow(),

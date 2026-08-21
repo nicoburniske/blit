@@ -5,12 +5,8 @@ use std::{
 };
 
 use blit::{
-    Clip, Container, FrameGraphMemory, Runtime, Sizing, Ui,
-    color::Color,
-    geometry::LogicalInsets,
-    input::Input,
-    interact::{Sense, WidgetId},
-    widget::Text,
+    Clip, FrameGraphMemory, Runtime, Sizing, Ui, color::Color, geometry::LogicalInsets,
+    input::Input, widget::Text,
 };
 
 use support::{NoopPlatform, command_frame};
@@ -81,60 +77,63 @@ fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
 }
 
 fn representative_frame(ui: &mut Ui) {
-    let mut root = ui.column(
-        Container::new()
-            .width(Sizing::grow())
-            .padding(LogicalInsets::uniform(8.0))
-            .gap(8.0),
-    );
+    let mut root = ui
+        .container()
+        .col()
+        .width(Sizing::grow())
+        .padding(LogicalInsets::uniform(8.0))
+        .gap(8.0)
+        .open();
     {
-        let mut header = root.row(
-            Container::new()
-                .width(Sizing::grow())
-                .height(Sizing::fixed(48.0))
-                .background(Color::from_rgba8(30, 35, 45, 255)),
-        );
+        let mut header = root
+            .container()
+            .row()
+            .width(Sizing::grow())
+            .height(Sizing::fixed(48.0))
+            .background(Color::from_rgba8(30, 35, 45, 255))
+            .open();
         header.add(Text::new("dashboard"));
     }
-
     {
-        let mut body = root.row(
-            Container::new()
-                .width(Sizing::grow())
-                .height(Sizing::grow())
-                .gap(12.0)
-                .clip(Clip::Bounds),
-        );
+        let mut body = root
+            .container()
+            .row()
+            .width(Sizing::grow())
+            .height(Sizing::grow())
+            .gap(12.0)
+            .clip(Clip::Bounds)
+            .open();
         {
-            let mut sidebar = body.column(
-                Container::new()
-                    .width(Sizing::fixed(180.0))
-                    .height(Sizing::grow())
-                    .gap(6.0),
-            );
+            let mut sidebar = body
+                .container()
+                .col()
+                .width(Sizing::fixed(180.0))
+                .height(Sizing::grow())
+                .gap(6.0)
+                .open();
             for _ in 0..8 {
                 sidebar.add(Text::new("navigation"));
             }
         }
-
         {
-            let mut main = body.column(
-                Container::new()
+            let mut main = body
+                .container()
+                .col()
+                .width(Sizing::grow())
+                .height(Sizing::grow())
+                .gap(8.0)
+                .open();
+            for _ in 0..8 {
+                let mut card = main
+                    .container()
+                    .col()
                     .width(Sizing::grow())
-                    .height(Sizing::grow())
-                    .gap(8.0),
-            );
-            for card_index in 0..8 {
-                let mut card = main.column(
-                    Container::new()
-                        .width(Sizing::grow())
-                        .gap(4.0)
-                        .background(Color::from_rgba8(240, 240, 244, 255))
-                        .interact(WidgetId::new(card_index), Sense::CLICK),
-                );
+                    .gap(4.0)
+                    .background(Color::from_rgba8(240, 240, 244, 255))
+                    .open();
                 card.add(Text::new("card title"));
                 for _ in 0..3 {
-                    let mut row = card.row(Container::new().width(Sizing::grow()).gap(8.0));
+                    let mut row = card.container().row().width(Sizing::grow()).gap(8.0).open();
                     row.add(Text::new("label"));
                     row.add(Text::new("value"));
                 }

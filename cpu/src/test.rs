@@ -1,7 +1,7 @@
 use std::{ops::Range, time::Duration};
 
 use blit::{
-    Appearance, Clip, Container, RepaintBuffer, Runtime, Shadow, Sizing,
+    Appearance, Clip, RepaintBuffer, Runtime, Shadow, Sizing,
     animation::Easing,
     color::Color,
     command_list::{ClipId, CommandList},
@@ -233,24 +233,27 @@ impl CoherenceHarness {
 fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, duration: Duration) {
     let screen_width = ui.screen().width;
     let x = ui.animate(id, position, duration, Easing::Linear);
-    let mut scene = ui.column(
-        Container::new()
-            .grow()
-            .background(Color::from_rgba8(24, 36, 48, 255)),
-    );
-    let mut row = scene.row(
-        Container::new()
-            .width(Sizing::grow())
-            .height(Sizing::fixed(20.0)),
-    );
+    let mut scene = ui
+        .container()
+        .col()
+        .grow()
+        .background(Color::from_rgba8(24, 36, 48, 255))
+        .open();
+    let mut row = scene
+        .container()
+        .row()
+        .width(Sizing::grow())
+        .height(Sizing::fixed(20.0))
+        .open();
     row.add(RectangleWidget::new().width(Sizing::fixed(x)));
-    let mut movement = row.column(
-        Container::new()
-            .fixed(12.0, 20.0)
-            .padding(blit::geometry::LogicalInsets::uniform(4.0))
-            .background(Color::from_rgba8(20, 20, 20, 160))
-            .uniform_radius(4.0),
-    );
+    let mut movement = row
+        .container()
+        .col()
+        .fixed(12.0, 20.0)
+        .padding(blit::geometry::LogicalInsets::uniform(4.0))
+        .background(Color::from_rgba8(20, 20, 20, 160))
+        .uniform_radius(4.0)
+        .open();
     movement.add(
         RectangleWidget::new()
             .width(Sizing::grow())
@@ -342,18 +345,19 @@ fn resolved_nodes_match_direct_commands() {
         .blur(1.0);
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut panel = ui.column(
-            Container::new()
-                .grow()
-                .appearance(
-                    Appearance::new()
-                        .background(Color::from_rgba8(40, 70, 100, 255))
-                        .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
-                        .radius(radius)
-                        .shadow(shadow),
-                )
-                .clip(Clip::Rounded(radius)),
-        );
+        let mut panel = ui
+            .container()
+            .col()
+            .grow()
+            .appearance(
+                Appearance::new()
+                    .background(Color::from_rgba8(40, 70, 100, 255))
+                    .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
+                    .radius(radius)
+                    .shadow(shadow),
+            )
+            .clip(Clip::Rounded(radius))
+            .open();
         panel.add(
             ImageWidget::new(&image)
                 .width(Sizing::fixed(8.0))

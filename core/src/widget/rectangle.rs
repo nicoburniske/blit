@@ -2,7 +2,7 @@ use super::Widget;
 use crate::{
     Appearance, Content, Item, Sizing, Ui,
     color::Color,
-    interact::{Interaction, Sense, WidgetId},
+    interact::WidgetId,
     paint::{Border, BorderRadius},
 };
 
@@ -10,7 +10,6 @@ pub struct Rectangle {
     id: Option<WidgetId>,
     item: Item,
     appearance: Appearance<'static>,
-    interaction: Option<(WidgetId, Sense)>,
 }
 
 impl Rectangle {
@@ -19,7 +18,6 @@ impl Rectangle {
             id: None,
             item: Item::new(),
             appearance: Appearance::new(),
-            interaction: None,
         }
     }
 
@@ -73,11 +71,6 @@ impl Rectangle {
         self.id = Some(id);
         self
     }
-
-    pub const fn interact(mut self, id: WidgetId, sense: Sense) -> Self {
-        self.interaction = Some((id, sense));
-        self
-    }
 }
 
 impl Default for Rectangle {
@@ -87,14 +80,12 @@ impl Default for Rectangle {
 }
 
 impl Widget for Rectangle {
-    type Output = Interaction;
+    type Output = ();
 
-    fn build(self, ui: &mut Ui) -> Interaction {
+    fn build(self, ui: &mut Ui) {
         let node = ui.add_leaf(self.item, Content::Rectangle(self.appearance));
         if let Some(id) = self.id {
             ui.set_node_id(node, id);
         }
-        self.interaction
-            .map_or_default(|(id, sense)| ui.interact_node(node, id, sense))
     }
 }

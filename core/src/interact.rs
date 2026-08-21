@@ -101,6 +101,7 @@ pub(crate) struct InteractionState {
     pointer: PointerState,
     previous_hits: Vec<HitItem>,
     current_hits: Vec<HitItem>,
+    requests: Vec<(WidgetId, Sense)>,
     #[cfg(debug_assertions)]
     seen: std::collections::HashSet<WidgetId>,
 }
@@ -141,6 +142,7 @@ impl InteractionState {
     pub fn begin_frame(&mut self, input: &Input, scale_factor: f32) {
         #[cfg(debug_assertions)]
         self.seen.clear();
+        self.requests.clear();
 
         self.pointer.event = PointerEvent::None;
 
@@ -231,9 +233,10 @@ impl InteractionState {
         }
     }
 
-    pub fn response(&mut self, id: WidgetId, _sense: Sense) -> Interaction {
+    pub fn response(&mut self, id: WidgetId, sense: Sense) -> Interaction {
         #[cfg(debug_assertions)]
         assert!(self.seen.insert(id), "duplicate WidgetId {id:?}");
+        self.requests.push((id, sense));
 
         let active = self.active == Some(id);
         let hovered = self.hovered == Some(id);
@@ -270,12 +273,14 @@ impl InteractionState {
         }
     }
 
-    pub fn register(&mut self, id: WidgetId, area: Option<PhysicalRect>, sense: Sense) {
-        self.current_hits.push(HitItem {
-            id,
-            area: area.unwrap_or_default(),
-            sense,
-        });
+    pub fn register(&mut self, id: WidgetId, area: Option<PhysicalRect>) {
+        if let Some((_, sense)) = self.requests.iter().find(|(requested, _)| *requested == id) {
+            self.current_hits.push(HitItem {
+                id,
+                area: area.unwrap_or_default(),
+                sense: *sense,
+            });
+        }
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {

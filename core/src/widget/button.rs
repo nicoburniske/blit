@@ -1,6 +1,6 @@
 use super::{Text, Widget};
 use crate::{
-    Appearance, Container, Ui,
+    Appearance, Ui,
     color::Color,
     geometry::LogicalInsets,
     interact::{Sense, WidgetId},
@@ -52,31 +52,32 @@ impl Widget for Button<'_> {
     fn build(self, ui: &mut Ui) -> Response {
         let local_id = self.id.unwrap_or_else(|| WidgetId::new(self.label));
         let id = WidgetId::new(("button", local_id));
-        let mut button = ui.row(
-            Container::new()
-                .padding(self.padding)
-                .interact(id, Sense::CLICK),
-        );
-        let interaction = button.interaction();
+        let interaction = ui.interact(id, Sense::CLICK);
         let active = interaction.pressed || interaction.clicked;
-        button.set_appearance(
-            Appearance::new()
-                .background(if active {
-                    self.clicked_background
-                } else {
-                    self.background
-                })
-                .border(
-                    self.border_width,
-                    if active {
-                        self.clicked_border_color
+        let mut button = ui
+            .container()
+            .row()
+            .padding(self.padding)
+            .id(id)
+            .appearance(
+                Appearance::new()
+                    .background(if active {
+                        self.clicked_background
                     } else {
-                        self.border_color
-                    },
-                )
-                .radius(self.radius)
-                .opacity(self.opacity),
-        );
+                        self.background
+                    })
+                    .border(
+                        self.border_width,
+                        if active {
+                            self.clicked_border_color
+                        } else {
+                            self.border_color
+                        },
+                    )
+                    .radius(self.radius)
+                    .opacity(self.opacity),
+            )
+            .open();
         button.add(
             Text::new(self.label)
                 .color(if active {

@@ -1,5 +1,5 @@
 use blit::{
-    Absolute, Align, Anchor, Axis, Clip, Container, Justify, Sizing, Ui,
+    Absolute, Align, Anchor, Axis, Clip, Justify, Sizing, Ui,
     geometry::LogicalInsets,
     interact::{Sense, WidgetId},
     paint::{FontId, HorizontalAlign, TextWrap},
@@ -56,24 +56,26 @@ impl Application for Showcase {
         self.width = self.width.clamp(240.0, max_width);
         self.height = self.height.clamp(180.0, max_height);
 
-        let mut root = ui.column(
-            Container::new()
-                .grow()
-                .padding(LogicalInsets::uniform(20.0))
-                .gap(16.0)
-                .background(colors::BACKGROUND),
-        );
+        let mut root = ui
+            .container()
+            .col()
+            .grow()
+            .padding(LogicalInsets::uniform(20.0))
+            .gap(16.0)
+            .background(colors::BACKGROUND)
+            .open();
 
         {
-            let mut header = root.row(
-                Container::new()
-                    .width(Sizing::grow())
-                    .align(Align::Center)
-                    .justify(Justify::SpaceBetween)
-                    .background(colors::BACKGROUND),
-            );
+            let mut header = root
+                .container()
+                .row()
+                .width(Sizing::grow())
+                .align(Align::Center)
+                .justify(Justify::SpaceBetween)
+                .background(colors::BACKGROUND)
+                .open();
             {
-                let mut title = header.column(Container::new().gap(3.0));
+                let mut title = header.container().col().gap(3.0).open();
                 title.add(
                     Text::new("BLIT / LAYOUT PLAYGROUND")
                         .color(colors::TEXT)
@@ -108,20 +110,27 @@ impl Application for Showcase {
         }
 
         {
-            let mut body = root.row(Container::new().grow().gap(16.0).clip(Clip::Bounds));
+            let mut body = root
+                .container()
+                .row()
+                .grow()
+                .gap(16.0)
+                .clip(Clip::Bounds)
+                .open();
 
             {
-                let mut controls = body.column(
-                    Container::new()
-                        .width(Sizing::fixed(310.0))
-                        .height(Sizing::grow())
-                        .padding(LogicalInsets::uniform(15.0))
-                        .gap(11.0)
-                        .background(colors::SURFACE)
-                        .border(1.0, colors::BORDER)
-                        .uniform_radius(11.0)
-                        .clip(Clip::Bounds),
-                );
+                let mut controls = body
+                    .container()
+                    .col()
+                    .width(Sizing::fixed(310.0))
+                    .height(Sizing::grow())
+                    .padding(LogicalInsets::uniform(15.0))
+                    .gap(11.0)
+                    .background(colors::SURFACE)
+                    .border(1.0, colors::BORDER)
+                    .uniform_radius(11.0)
+                    .clip(Clip::Bounds)
+                    .open();
                 controls.add(
                     Text::new("LAYOUT PARAMETERS")
                         .color(colors::ACCENT)
@@ -130,7 +139,12 @@ impl Application for Showcase {
 
                 controls.add(Text::new("axis").color(colors::TEXT_MUTED).text_size(11.0));
                 {
-                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(6.0));
+                    let mut row = controls
+                        .container()
+                        .width(Sizing::grow())
+                        .gap(6.0)
+                        .row()
+                        .open();
                     for (index, label) in ["Horizontal", "Vertical"].into_iter().enumerate() {
                         if row
                             .add(choice(label, self.axis == index).id(("axis", index)))
@@ -147,7 +161,12 @@ impl Application for Showcase {
                         .text_size(11.0),
                 );
                 for start in [0, 3] {
-                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(6.0));
+                    let mut row = controls
+                        .container()
+                        .width(Sizing::grow())
+                        .gap(6.0)
+                        .row()
+                        .open();
                     for (index, label) in ["Start", "Center", "End", "Between", "Around", "Evenly"]
                         .into_iter()
                         .enumerate()
@@ -169,7 +188,12 @@ impl Application for Showcase {
 
                 controls.add(Text::new("align").color(colors::TEXT_MUTED).text_size(11.0));
                 {
-                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(5.0));
+                    let mut row = controls
+                        .container()
+                        .width(Sizing::grow())
+                        .gap(5.0)
+                        .row()
+                        .open();
                     for (index, label) in ["Start", "Center", "End", "Stretch"]
                         .into_iter()
                         .enumerate()
@@ -193,7 +217,12 @@ impl Application for Showcase {
                         .text_size(11.0),
                 );
                 {
-                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(6.0));
+                    let mut row = controls
+                        .container()
+                        .width(Sizing::grow())
+                        .gap(6.0)
+                        .row()
+                        .open();
                     for (index, label) in ["Fixed", "Fit", "Grow"].into_iter().enumerate() {
                         if row
                             .add(choice(label, self.sizing == index).id(("sizing", index)))
@@ -206,7 +235,12 @@ impl Application for Showcase {
 
                 controls.add(Text::new("zoom").color(colors::TEXT_MUTED).text_size(11.0));
                 {
-                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(5.0));
+                    let mut row = controls
+                        .container()
+                        .width(Sizing::grow())
+                        .gap(5.0)
+                        .row()
+                        .open();
                     for (index, label) in ["50%", "75%", "100%", "125%", "150%"]
                         .into_iter()
                         .enumerate()
@@ -226,7 +260,12 @@ impl Application for Showcase {
 
                 controls.add(Text::new("gap").color(colors::TEXT_MUTED).text_size(11.0));
                 {
-                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(5.0));
+                    let mut row = controls
+                        .container()
+                        .width(Sizing::grow())
+                        .gap(5.0)
+                        .row()
+                        .open();
                     for (index, label) in ["0", "4", "8", "16", "24"].into_iter().enumerate() {
                         if row
                             .add(
@@ -247,7 +286,12 @@ impl Application for Showcase {
                         .text_size(11.0),
                 );
                 {
-                    let mut row = controls.row(Container::new().width(Sizing::grow()).gap(5.0));
+                    let mut row = controls
+                        .container()
+                        .width(Sizing::grow())
+                        .gap(5.0)
+                        .row()
+                        .open();
                     for (index, label) in ["0", "4", "8", "16", "24"].into_iter().enumerate() {
                         if row
                             .add(
@@ -271,15 +315,16 @@ impl Application for Showcase {
             }
 
             {
-                let mut preview = body.column(
-                    Container::new()
-                        .grow()
-                        .padding(LogicalInsets::uniform(12.0))
-                        .gap(9.0)
-                        .background(colors::SURFACE)
-                        .border(1.0, colors::BORDER)
-                        .uniform_radius(11.0),
-                );
+                let mut preview = body
+                    .container()
+                    .col()
+                    .grow()
+                    .padding(LogicalInsets::uniform(12.0))
+                    .gap(9.0)
+                    .background(colors::SURFACE)
+                    .border(1.0, colors::BORDER)
+                    .uniform_radius(11.0)
+                    .open();
                 preview.add(
                     Text::new("DRAG THE RIGHT EDGE, BOTTOM EDGE, OR CORNER • ZOOM SCALES CONTENT")
                         .color(colors::TEXT_DIM)
@@ -300,33 +345,41 @@ impl Application for Showcase {
                 ][self.justify];
                 let align = [Align::Start, Align::Center, Align::End, Align::Stretch][self.align];
 
-                let mut viewport = preview.column(
-                    Container::new()
-                        .grow()
-                        .padding(LogicalInsets::uniform(8.0))
-                        .background(colors::TRACK)
-                        .uniform_radius(8.0)
-                        .clip(Clip::Bounds),
-                );
-                let mut shell =
-                    viewport.column(Container::new().fixed(self.width + 12.0, self.height + 12.0));
+                let mut viewport = preview
+                    .container()
+                    .col()
+                    .grow()
+                    .padding(LogicalInsets::uniform(8.0))
+                    .background(colors::TRACK)
+                    .uniform_radius(8.0)
+                    .clip(Clip::Bounds)
+                    .open();
+                let mut shell = viewport
+                    .container()
+                    .col()
+                    .fixed(self.width + 12.0, self.height + 12.0)
+                    .open();
 
                 let width_delta = {
-                    let mut row = shell.row(Container::new().fixed(self.width + 12.0, self.height));
+                    let mut row = shell
+                        .container()
+                        .fixed(self.width + 12.0, self.height)
+                        .row()
+                        .open();
                     {
-                        let mut layout = row.flow(
-                            axis,
-                            Container::new()
-                                .fixed(self.width, self.height)
-                                .padding(LogicalInsets::uniform(padding))
-                                .gap(gap)
-                                .align(align)
-                                .justify(justify)
-                                .background(colors::CANVAS)
-                                .border(2.0, colors::CANVAS_BORDER)
-                                .uniform_radius(8.0)
-                                .clip(Clip::Bounds),
-                        );
+                        let mut layout = row
+                            .container()
+                            .fixed(self.width, self.height)
+                            .padding(LogicalInsets::uniform(padding))
+                            .gap(gap)
+                            .align(align)
+                            .justify(justify)
+                            .background(colors::CANVAS)
+                            .border(2.0, colors::CANVAS_BORDER)
+                            .uniform_radius(8.0)
+                            .clip(Clip::Bounds)
+                            .flow(axis)
+                            .open();
 
                         for (index, label) in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
                             .into_iter()
@@ -344,16 +397,17 @@ impl Application for Showcase {
                             } else {
                                 Sizing::fixed(cross)
                             };
+                            let item = layout.container().col();
                             let item = match axis {
-                                Axis::Horizontal => Container::new().width(main).height(cross),
-                                Axis::Vertical => Container::new().width(cross).height(main),
+                                Axis::Horizontal => item.width(main).height(cross),
+                                Axis::Vertical => item.width(cross).height(main),
                             };
-                            let mut rectangle = layout.column(
-                                item.align(Align::Stretch)
-                                    .justify(Justify::Center)
-                                    .background(colors::ITEMS[index])
-                                    .uniform_radius(5.0),
-                            );
+                            let mut rectangle = item
+                                .align(Align::Stretch)
+                                .justify(Justify::Center)
+                                .background(colors::ITEMS[index])
+                                .uniform_radius(5.0)
+                                .open();
                             rectangle.add(
                                 Text::new(label)
                                     .color(colors::WHITE)
@@ -368,16 +422,16 @@ impl Application for Showcase {
                             };
                             if let Some(anchor) = anchor {
                                 let mut badge = rectangle
+                                    .container()
+                                    .row()
+                                    .fixed((28.0 * zoom).max(20.0), (14.0 * zoom).max(10.0))
+                                    .align(Align::Center)
+                                    .justify(Justify::Center)
+                                    .background(colors::BACKGROUND)
+                                    .border(1.0, colors::WHITE)
+                                    .uniform_radius(5.0)
                                     .absolute(Absolute::attach(anchor, Anchor::Center).z_index(1))
-                                    .row(
-                                        Container::new()
-                                            .fixed((28.0 * zoom).max(20.0), (14.0 * zoom).max(10.0))
-                                            .align(Align::Center)
-                                            .justify(Justify::Center)
-                                            .background(colors::BACKGROUND)
-                                            .border(1.0, colors::WHITE)
-                                            .uniform_radius(5.0),
-                                    );
+                                    .open();
                                 badge.add(
                                     Text::new("ABS")
                                         .color(colors::WHITE)
@@ -388,15 +442,15 @@ impl Application for Showcase {
                     }
                     {
                         let id = WidgetId::new("layout width grip");
-                        let mut grip = row.column(
-                            Container::new()
-                                .fixed(12.0, self.height)
-                                .align(Align::Center)
-                                .justify(Justify::Center)
-                                .id(id)
-                                .interact(id, Sense::DRAG),
-                        );
-                        let interaction = grip.interaction();
+                        let interaction = row.interact(id, Sense::DRAG);
+                        let mut grip = row
+                            .container()
+                            .col()
+                            .fixed(12.0, self.height)
+                            .align(Align::Center)
+                            .justify(Justify::Center)
+                            .id(id)
+                            .open();
                         grip.add(
                             Rectangle::new()
                                 .fixed(3.0, 48.0)
@@ -409,23 +463,23 @@ impl Application for Showcase {
                         );
                         if interaction.hovered || interaction.dragged {
                             let mut readout = grip
+                                .container()
+                                .row()
+                                .padding(LogicalInsets {
+                                    top: 4.0,
+                                    right: 7.0,
+                                    bottom: 4.0,
+                                    left: 7.0,
+                                })
+                                .background(colors::BACKGROUND)
+                                .border(1.0, colors::ACCENT)
+                                .uniform_radius(5.0)
                                 .absolute(
                                     Absolute::attach(Anchor::Left, Anchor::Right)
                                         .offset(-8.0, 0.0)
                                         .z_index(10),
                                 )
-                                .row(
-                                    Container::new()
-                                        .padding(LogicalInsets {
-                                            top: 4.0,
-                                            right: 7.0,
-                                            bottom: 4.0,
-                                            left: 7.0,
-                                        })
-                                        .background(colors::BACKGROUND)
-                                        .border(1.0, colors::ACCENT)
-                                        .uniform_radius(5.0),
-                                );
+                                .open();
                             readout.add(Text::new("DRAG X").color(colors::TEXT).text_size(9.0));
                         }
                         interaction.drag_delta.x
@@ -433,18 +487,22 @@ impl Application for Showcase {
                 };
 
                 let (height_delta, corner_delta) = {
-                    let mut row = shell.row(Container::new().fixed(self.width + 12.0, 12.0));
+                    let mut row = shell
+                        .container()
+                        .fixed(self.width + 12.0, 12.0)
+                        .row()
+                        .open();
                     let height_delta = {
                         let id = WidgetId::new("layout height grip");
-                        let mut grip = row.row(
-                            Container::new()
-                                .fixed(self.width, 12.0)
-                                .align(Align::Center)
-                                .justify(Justify::Center)
-                                .id(id)
-                                .interact(id, Sense::DRAG),
-                        );
-                        let interaction = grip.interaction();
+                        let interaction = row.interact(id, Sense::DRAG);
+                        let mut grip = row
+                            .container()
+                            .row()
+                            .fixed(self.width, 12.0)
+                            .align(Align::Center)
+                            .justify(Justify::Center)
+                            .id(id)
+                            .open();
                         grip.add(
                             Rectangle::new()
                                 .fixed(48.0, 3.0)
@@ -459,15 +517,15 @@ impl Application for Showcase {
                     };
                     let corner_delta = {
                         let id = WidgetId::new("layout corner grip");
-                        let mut grip = row.row(
-                            Container::new()
-                                .fixed(12.0, 12.0)
-                                .align(Align::Center)
-                                .justify(Justify::Center)
-                                .id(id)
-                                .interact(id, Sense::DRAG),
-                        );
-                        let interaction = grip.interaction();
+                        let interaction = row.interact(id, Sense::DRAG);
+                        let mut grip = row
+                            .container()
+                            .row()
+                            .fixed(12.0, 12.0)
+                            .align(Align::Center)
+                            .justify(Justify::Center)
+                            .id(id)
+                            .open();
                         grip.add(
                             Rectangle::new()
                                 .fixed(6.0, 6.0)
@@ -490,26 +548,26 @@ impl Application for Showcase {
         }
 
         let mut screen_badge = root
+            .container()
+            .row()
+            .padding(LogicalInsets {
+                top: 6.0,
+                right: 10.0,
+                bottom: 6.0,
+                left: 10.0,
+            })
+            .gap(6.0)
+            .align(Align::Center)
+            .background(colors::SURFACE_HIGH)
+            .border(1.0, colors::ACCENT)
+            .uniform_radius(7.0)
             .absolute(
                 Absolute::screen(0.0, 0.0)
                     .anchors(Anchor::BottomRight, Anchor::BottomRight)
                     .offset(-16.0, -16.0)
                     .z_index(20),
             )
-            .row(
-                Container::new()
-                    .padding(LogicalInsets {
-                        top: 6.0,
-                        right: 10.0,
-                        bottom: 6.0,
-                        left: 10.0,
-                    })
-                    .gap(6.0)
-                    .align(Align::Center)
-                    .background(colors::SURFACE_HIGH)
-                    .border(1.0, colors::ACCENT)
-                    .uniform_radius(7.0),
-            );
+            .open();
         screen_badge.add(
             Rectangle::new()
                 .fixed(6.0, 6.0)
