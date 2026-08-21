@@ -307,9 +307,11 @@ fn resolved_nodes_match_direct_commands() {
         height: 24.0,
     };
     let shadow = Shadow::new(Color::from_rgba8(20, 30, 40, 128))
-        .radius(radius)
         .offset(1.0, 1.0)
         .blur(1.0);
+    let inset_shadow = Shadow::new(Color::from_rgba8(10, 20, 30, 96))
+        .offset(0.0, 1.0)
+        .blur(2.0);
 
     harness.render(Duration::ZERO, Input::None, |ui| {
         let mut panel = ui
@@ -321,7 +323,8 @@ fn resolved_nodes_match_direct_commands() {
                     .background(Color::from_rgba8(40, 70, 100, 255))
                     .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
                     .radius(radius)
-                    .shadow(Some(shadow)),
+                    .shadow(Some(shadow))
+                    .inset_shadow(Some(inset_shadow)),
             )
             .clip(Clip::Rounded(radius))
             .open();
@@ -364,6 +367,16 @@ fn resolved_nodes_match_direct_commands() {
             .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
             .radius(radius),
         screen.to_physical(1.0),
+        ClipId::default(),
+    );
+    let inset_shadow = BoxShadow::new(screen, inset_shadow.color)
+        .radius(radius)
+        .offset(inset_shadow.offset_x, inset_shadow.offset_y)
+        .blur(inset_shadow.blur)
+        .inset(true);
+    commands.push_box_shadow(
+        inset_shadow,
+        inset_shadow.bounds().to_physical(1.0),
         ClipId::default(),
     );
     let clip = commands.push_clip(ClipId::default(), screen, radius);
@@ -1541,21 +1554,35 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
             screen,
             ClipId::default(),
         );
+        paint.push_rectangle(
+            Rectangle::new(first.area)
+                .background(Color::WHITE)
+                .radius(first.radius),
+            screen,
+            ClipId::default(),
+        );
+        let inset = BoxShadow {
+            area: first.area,
+            color: Color::BLACK,
+            offset_x: 0.0,
+            offset_y: 0.0,
+            spread: 0.0,
+            inset: true,
+            ..first
+        };
+        paint.push_box_shadow(inset, screen, ClipId::default());
         renderer.render(&paint, &[screen]);
-        assert_eq!(renderer.context.images.len(), 2);
+        assert_eq!(renderer.context.images.len(), 3);
         renderer
     }
 
     let direct = render(Direct::default());
     let scanline = render(Scanline::default());
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
-    assert!(
-        direct
-            .buffer()
-            .pixels()
-            .iter()
-            .any(|pixel| pixel.raw() != 0)
-    );
+    let pixels = direct.buffer().pixels();
+    assert_eq!(pixels[44 * 128 + 60].raw(), 0x00ff_ffff);
+    assert_ne!(pixels[20 * 128 + 60].raw(), 0x00ff_ffff);
+    assert_eq!(pixels[0].raw(), 0);
 }
 
 #[test]

@@ -71,7 +71,15 @@ pub fn draw_line<B: PixelBuffer>(
                     };
                     &covered
                 };
-                request.draw(buffer, &image.data, &image.alpha_rows, clip);
+                let screen_x = buffer.x_offset() as i32;
+                request.draw_line(
+                    buffer.line_mut(line as usize),
+                    &image.data,
+                    &image.alpha_rows,
+                    clip,
+                    screen_x,
+                    line,
+                );
             }
         }
         Payload::Text(command) => {

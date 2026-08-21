@@ -208,6 +208,11 @@ impl<'ui, 'style> Container<'ui, 'style> {
         self
     }
 
+    pub fn inset_shadow(mut self, shadow: Shadow) -> Self {
+        self.config.style.inset_shadow = Some(shadow);
+        self
+    }
+
     pub fn clip(mut self, clip: Clip) -> Self {
         self.config.clip = clip;
         self

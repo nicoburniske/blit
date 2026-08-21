@@ -6,7 +6,7 @@ use blit::{
     image::{ImageData, ImageFormat, ImageId, ImageRequest, ImageSampling, ImageTiling},
 };
 
-use crate::{Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel};
+use crate::{Pixel, PremultipliedRgbaColor, Rgb8Pixel};
 
 const FIXED_SHIFT: u32 = 16;
 const FIXED_ONE: u64 = 1 << FIXED_SHIFT;
@@ -144,30 +144,20 @@ impl Prepared {
         (start < end).then_some(start..end)
     }
 
-    pub fn draw<B: PixelBuffer>(
+    pub fn draw_line<P: Pixel>(
         &self,
-        buffer: &mut B,
+        row: &mut [P],
         texture: &ImageData,
         alpha_rows: &AlphaRows,
         clip: PhysicalRect,
+        screen_x: i32,
+        y: i32,
     ) {
-        let screen = PhysicalRect {
-            x: buffer.x_offset() as i32,
-            y: 0,
-            width: buffer.width() as i32,
-            height: buffer.height() as i32,
-        };
         let pixels = texture.pixels.bytes();
-        let Some(clipped) = clip.intersection(screen) else {
-            return;
-        };
-        for y in clipped.y..clipped.y + clipped.height {
-            let row = buffer.line_mut(y as usize);
-            if self.sampling == ImageSampling::Nearest {
-                self.draw_nearest(row, pixels, texture, clipped, screen.x, y, alpha_rows)
-            } else {
-                self.draw_bilinear(row, pixels, texture, clipped, screen.x, y)
-            }
+        if self.sampling == ImageSampling::Nearest {
+            self.draw_nearest(row, pixels, texture, clip, screen_x, y, alpha_rows)
+        } else {
+            self.draw_bilinear(row, pixels, texture, clip, screen_x, y)
         }
     }
 

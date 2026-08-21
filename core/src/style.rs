@@ -12,6 +12,7 @@ crate::builder! {
         radius: BorderRadius = BorderRadius::default(),
         opacity: f32 = 1.0,
         shadow: Option<Shadow> = None,
+        inset_shadow: Option<Shadow> = None,
     }
 }
 
@@ -20,7 +21,6 @@ crate::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Shadow {
         new(color: Color),
-        radius: BorderRadius = BorderRadius::default(),
         offset_x: f32 = 0.0,
         offset_y: f32 = 0.0,
         blur: f32 = 0.0,
