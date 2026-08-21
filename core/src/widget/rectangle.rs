@@ -1,6 +1,6 @@
 use super::Widget;
 use crate::{
-    Appearance, Content, Item, Sizing, Ui,
+    Content, Item, Sizing, Style, Ui,
     color::Color,
     interact::WidgetId,
     paint::{Border, BorderRadius},
@@ -9,7 +9,7 @@ use crate::{
 pub struct Rectangle {
     id: Option<WidgetId>,
     item: Item,
-    appearance: Appearance<'static>,
+    appearance: Style<'static>,
 }
 
 impl Rectangle {
@@ -17,7 +17,7 @@ impl Rectangle {
         Self {
             id: None,
             item: Item::new(),
-            appearance: Appearance::new(),
+            appearance: Style::new(),
         }
     }
 

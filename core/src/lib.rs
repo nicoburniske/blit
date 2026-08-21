@@ -22,7 +22,7 @@ pub use container::{
 };
 #[doc(hidden)]
 pub use graph::{Content, ImageContent, NodeId, TextCaret, TextContent, TextSelection};
-pub use style::{Appearance, Clip, Shadow};
+pub use style::{Clip, Shadow, Style};
 
 use std::{ptr::NonNull, time::Duration};
 
@@ -191,7 +191,7 @@ impl Ui {
         self.frame_mut().set_id(node, id)
     }
 
-    pub fn set_node_appearance(&mut self, node: NodeId, appearance: Appearance<'_>) {
+    pub fn set_node_appearance(&mut self, node: NodeId, appearance: Style<'_>) {
         self.frame_mut().set_appearance(node, appearance)
     }
 
