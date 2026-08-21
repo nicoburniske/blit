@@ -1,12 +1,13 @@
 use std::{hint::black_box, time::Duration};
 
 use blit::{
-    Runtime, Ui,
+    Ui, UiState,
     color::Color,
     command_list::{ClipId, CommandList, CommandListDiffer},
     geometry::LogicalRect,
     input::Input,
     paint::Rectangle,
+    render,
 };
 use divan::counter::ItemsCount;
 
@@ -59,12 +60,31 @@ enum DiffCase {
 }
 
 fn benchmark_frame(bencher: divan::Bencher, frame: fn(&mut Ui)) {
-    let mut runtime = Runtime::new(NoopPlatform);
-    runtime.render(Duration::ZERO, Input::None, frame);
-    runtime.render(Duration::ZERO, Input::None, frame);
-    bencher
-        .counter(ItemsCount::new(ITEMS))
-        .bench_local(|| runtime.render(Duration::ZERO, Input::None, frame));
+    let mut platform = NoopPlatform;
+    let mut state = UiState::default();
+    render(
+        &mut platform,
+        &mut state,
+        Duration::ZERO,
+        [Input::None],
+        frame,
+    );
+    render(
+        &mut platform,
+        &mut state,
+        Duration::ZERO,
+        [Input::None],
+        frame,
+    );
+    bencher.counter(ItemsCount::new(ITEMS)).bench_local(|| {
+        render(
+            &mut platform,
+            &mut state,
+            Duration::ZERO,
+            [Input::None],
+            frame,
+        )
+    });
 }
 
 fn command_list(case: DiffCase, new: bool) -> CommandList {

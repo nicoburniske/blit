@@ -1,7 +1,7 @@
 use std::{ops::Range, time::Duration};
 
 use blit::{
-    Clip, RepaintBuffer, Runtime, Shadow, Sizing, Style,
+    Clip, RepaintBuffer, Shadow, Sizing, Style, Ui, UiState,
     animation::Easing,
     color::Color,
     command_list::{ClipId, CommandList},
@@ -14,7 +14,7 @@ use blit::{
         TextStyle, TextWrap,
     },
     platform::PlatformImpl,
-    resource::{ImageData, ImageFormat, ImageId, ImagePixels},
+    resource::{ImageData, ImageFormat, ImageHandle, ImagePixels},
     widget::{Image as ImageWidget, Rectangle as RectangleWidget, Text},
 };
 
@@ -69,12 +69,8 @@ impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
         self.repaint_buffer
     }
 
-    fn create_image(&mut self, data: ImageData) -> ImageId {
+    fn create_image(&mut self, data: ImageData) -> ImageHandle {
         self.renderer.create_image(data)
-    }
-
-    fn drop_image(&mut self, image: ImageId) {
-        self.renderer.drop_image(image)
     }
 
     fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
@@ -91,6 +87,36 @@ impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
 
     fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
         self.renderer.text_cursor_rect(request, byte_offset)
+    }
+}
+
+struct Harness<P: PlatformImpl + 'static> {
+    platform: P,
+    state: UiState,
+}
+
+impl<P: PlatformImpl + 'static> Harness<P> {
+    fn new(platform: P) -> Self {
+        Self {
+            platform,
+            state: UiState::default(),
+        }
+    }
+
+    fn render<R>(&mut self, time: Duration, input: Input, build: impl FnMut(&mut Ui) -> R) -> R {
+        blit::render(&mut self.platform, &mut self.state, time, [input], build)
+    }
+
+    fn platform(&mut self) -> &mut P {
+        &mut self.platform
+    }
+
+    fn invalidate_all(&mut self) {
+        self.state.invalidate_all();
+    }
+
+    fn has_pending_redraw(&self) -> bool {
+        self.state.has_pending_redraw()
     }
 }
 
@@ -159,8 +185,8 @@ impl PixelBuffer for SwappedBuffer {
 }
 
 struct CoherenceHarness {
-    partial: Runtime<RuntimePlatform<SwappedBuffer>>,
-    full: Runtime<RuntimePlatform<SwappedBuffer>>,
+    partial: Harness<RuntimePlatform<SwappedBuffer>>,
+    full: Harness<RuntimePlatform<SwappedBuffer>>,
     frame: usize,
     id: WidgetId,
 }
@@ -168,7 +194,7 @@ struct CoherenceHarness {
 impl CoherenceHarness {
     fn new(width: usize, height: usize) -> Self {
         let make_runtime = || {
-            Runtime::new(RuntimePlatform {
+            Harness::new(RuntimePlatform {
                 renderer: Renderer::new(SwappedBuffer::new(width, height), renderer_config())
                     .strategy(Scanline::default()),
                 repaint_buffer: RepaintBuffer::Swapped,
@@ -313,8 +339,8 @@ fn resolved_nodes_match_direct_commands() {
             .strategy(Scanline::default()),
         repaint_buffer: RepaintBuffer::Reused,
     };
-    let mut runtime = Runtime::new(platform);
-    let image = runtime.erased_platform().create_image(ImageData::new(
+    let mut runtime = Harness::new(platform);
+    let image = runtime.platform().create_image(ImageData::new(
         ImagePixels::Owned([220, 80, 40].repeat(8 * 8).into_boxed_slice()),
         ImageFormat::Rgb8,
         8,
@@ -404,7 +430,7 @@ fn resolved_nodes_match_direct_commands() {
     };
     commands.push_image(
         ImageRequest {
-            image: direct_image,
+            image: direct_image.id(),
             area: image_area,
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
@@ -733,10 +759,14 @@ fn dropped_image_slots_are_reused_after_end_frame() {
     let texture = ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1);
 
     let first = renderer.create_image(texture);
-    renderer.drop_image(first);
-    let first_key = RendererImageId::from(KeyData::from_ffi(first.0));
+    let retained = first.clone();
+    let first_id = first.id();
+    drop(first);
+    let first_key = RendererImageId::from(KeyData::from_ffi(first_id.0));
+    renderer.render(&CommandList::default(), &[]);
     assert!(renderer.context.images.contains_key(first_key));
 
+    drop(retained);
     renderer.render(&CommandList::default(), &[]);
     assert!(!renderer.context.images.contains_key(first_key));
 
@@ -746,7 +776,7 @@ fn dropped_image_slots_are_reused_after_end_frame() {
         1,
         1,
     ));
-    assert_ne!(second, first);
+    assert_ne!(second.id(), first_id);
 }
 
 #[test]
@@ -801,7 +831,7 @@ fn image_alpha_rows_are_cached_and_used() {
         6,
         4,
     ));
-    let key = RendererImageId::from(KeyData::from_ffi(image.0));
+    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
     let rows = &renderer.context.images[key].alpha_rows;
     let rows: [_; 4] =
         std::array::from_fn(|index| rows.get(ImageFormat::Rgba8Premultiplied, index).unwrap());
@@ -814,7 +844,7 @@ fn image_alpha_rows_are_cached_and_used() {
 
     let screen = renderer.screen();
     let request = ImageRequest {
-        image,
+        image: image.id(),
         area: screen.to_logical(1.0),
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
@@ -859,7 +889,7 @@ fn image_alpha_rows_are_cached_and_used() {
         6,
         4,
     ));
-    let key = RendererImageId::from(KeyData::from_ffi(image.0));
+    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
     let rows = &renderer.context.images[key].alpha_rows;
     let rows: [_; 4] =
         std::array::from_fn(|index| rows.get(ImageFormat::Alpha8(Color::WHITE), index).unwrap());
@@ -873,7 +903,7 @@ fn image_alpha_rows_are_cached_and_used() {
     paint.clear();
     paint.push_image(
         ImageRequest {
-            image,
+            image: image.id(),
             opacity: 1.0,
             ..request
         },
@@ -889,7 +919,7 @@ fn image_alpha_rows_are_cached_and_used() {
         6,
         4,
     ));
-    let key = RendererImageId::from(KeyData::from_ffi(image.0));
+    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
     let image = &renderer.context.images[key];
     assert!(image.opaque);
     assert!(
@@ -905,7 +935,7 @@ fn image_alpha_rows_are_cached_and_used() {
         6,
         4,
     ));
-    let key = RendererImageId::from(KeyData::from_ffi(image.0));
+    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
     let image = &renderer.context.images[key];
     assert!(image.opaque);
     assert!(
@@ -1300,7 +1330,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         ..LogicalRect::default()
     };
     let image = ImageRequest {
-        image,
+        image: image.id(),
         area,
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
@@ -1338,7 +1368,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         1,
     ));
     let transparent_image = ImageRequest {
-        image: transparent_image,
+        image: transparent_image.id(),
         ..image
     };
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -1381,7 +1411,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         1,
     ));
     let underlay = ImageRequest {
-        image: underlay,
+        image: underlay.id(),
         area: screen.to_logical(1.0),
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
@@ -1392,7 +1422,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         vertical_tiling: ImageTiling::None,
     };
     let partial_image = ImageRequest {
-        image: partial_image,
+        image: partial_image.id(),
         area: screen.to_logical(1.0),
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
@@ -1667,7 +1697,7 @@ fn rounded_clips_match_between_strategies() {
         };
         let red = Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 255));
         let image = ImageRequest {
-            image,
+            image: image.id(),
             area,
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
@@ -1756,7 +1786,7 @@ fn dropped_image_remains_valid_until_frame_end() {
     let mut paint = CommandList::default();
     paint.push_image(
         ImageRequest {
-            image,
+            image: image.id(),
             area: LogicalRect {
                 x: 0.0,
                 y: 0.0,
@@ -1774,11 +1804,12 @@ fn dropped_image_remains_valid_until_frame_end() {
         damage[0],
         ClipId::default(),
     );
-    renderer.drop_image(image);
+    let image_id = image.id();
+    drop(image);
     renderer.render(&paint, &damage);
 
     assert_eq!(renderer.buffer().pixels()[0].raw(), 0x00ff_0000);
-    let image = RendererImageId::from(KeyData::from_ffi(image.0));
+    let image = RendererImageId::from(KeyData::from_ffi(image_id.0));
     assert!(!renderer.context.images.contains_key(image));
 }
 
@@ -1804,7 +1835,7 @@ fn text_runs_are_keyed_by_content_and_style() {
 
 #[test]
 fn borrowed_dynamic_text_renders_after_the_source_is_reused() {
-    let mut runtime = Runtime::new(RuntimePlatform {
+    let mut runtime = Harness::new(RuntimePlatform {
         renderer: Renderer::new(VecBuffer::<Xrgb8888>::new(96, 48), renderer_config())
             .strategy(Scanline::default()),
         repaint_buffer: RepaintBuffer::Reused,

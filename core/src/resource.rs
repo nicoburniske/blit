@@ -1,11 +1,10 @@
 //! image resources managed by the rendering platform
 
-use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
+use std::rc::Rc;
 
 use crate::{
     color::Color,
     geometry::{PhysicalRect, PhysicalSize},
-    platform::PlatformImpl,
 };
 
 // image
@@ -107,62 +106,31 @@ impl ImageData {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ImageId(pub u64);
 
-pub struct ImageHandle {
+#[derive(Clone, Debug)]
+pub struct ImageHandle(Rc<ImageInner>);
+
+#[derive(Debug)]
+struct ImageInner {
     id: ImageId,
     size: PhysicalSize,
-    platform: Option<NonNull<dyn PlatformImpl>>,
-    not_send_or_sync: PhantomData<Rc<()>>,
 }
 
 impl ImageHandle {
-    pub fn empty() -> Self {
-        Self {
-            id: ImageId(0),
-            size: PhysicalSize {
-                width: 0,
-                height: 0,
-            },
-            platform: None,
-            not_send_or_sync: PhantomData,
-        }
-    }
-
-    pub(crate) fn new(
-        id: ImageId,
-        size: PhysicalSize,
-        platform: NonNull<dyn PlatformImpl>,
-    ) -> Self {
-        Self {
-            id,
-            size,
-            platform: Some(platform),
-            not_send_or_sync: PhantomData,
-        }
+    #[doc(hidden)]
+    pub fn new(id: ImageId, size: PhysicalSize) -> Self {
+        Self(Rc::new(ImageInner { id, size }))
     }
 
     pub fn id(&self) -> ImageId {
-        self.id
+        self.0.id
     }
 
     pub fn size(&self) -> PhysicalSize {
-        self.size
+        self.0.size
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.platform.is_none()
-    }
-}
-
-impl Default for ImageHandle {
-    fn default() -> Self {
-        Self::empty()
-    }
-}
-
-impl Drop for ImageHandle {
-    fn drop(&mut self) {
-        if let Some(mut platform) = self.platform {
-            unsafe { platform.as_mut().drop_image(self.id) }
-        }
+    #[doc(hidden)]
+    pub fn is_uniquely_owned(&self) -> bool {
+        Rc::strong_count(&self.0) == 1
     }
 }

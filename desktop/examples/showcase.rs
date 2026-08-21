@@ -3,7 +3,6 @@ use blit::{
     geometry::LogicalInsets,
     interact::{Sense, WidgetId},
     paint::{FontId, HorizontalAlign, TextWrap},
-    platform::Platform,
     widget::{Rectangle, Text, Widget},
 };
 use blit_cpu::{Font, FontFace, RendererConfig};
@@ -32,7 +31,7 @@ fn main() {
 impl Application for Showcase {
     type Input = ();
 
-    fn new(_: Platform, _: EventLoopProxy<Self::Input>, _: Root<Self>) -> Self {
+    fn new(_: EventLoopProxy<Self::Input>, _: Root<Self>) -> Self {
         Self {
             axis: 0,
             justify: 0,

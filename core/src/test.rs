@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::{
-    Absolute, Align, Anchor, Clip, Justify, RepaintBuffer, Runtime, Sizing, Ui,
+    Absolute, Align, Anchor, Clip, Justify, RepaintBuffer, Sizing, Ui, UiState,
     animation::Easing,
     color::Color,
     command_list::{ClipId, Command, CommandList},
@@ -62,11 +62,9 @@ impl PlatformImpl for TestPlatform {
         self.repaint_buffer
     }
 
-    fn create_image(&mut self, _: resource::ImageData) -> resource::ImageId {
-        resource::ImageId(0)
+    fn create_image(&mut self, data: resource::ImageData) -> resource::ImageHandle {
+        resource::ImageHandle::new(resource::ImageId(0), data.size)
     }
-
-    fn drop_image(&mut self, _: resource::ImageId) {}
 
     fn text_run(&mut self, text: &str, style: paint::TextStyle) -> paint::TextRunId {
         if let Some(index) = self
@@ -113,6 +111,36 @@ impl PlatformImpl for TestPlatform {
     }
 }
 
+struct Harness<P: PlatformImpl + 'static> {
+    platform: P,
+    state: UiState,
+}
+
+impl<P: PlatformImpl + 'static> Harness<P> {
+    fn new(platform: P) -> Self {
+        Self {
+            platform,
+            state: UiState::default(),
+        }
+    }
+
+    fn render<R>(&mut self, time: Duration, input: Input, build: impl FnMut(&mut Ui) -> R) -> R {
+        crate::render(&mut self.platform, &mut self.state, time, [input], build)
+    }
+
+    fn platform(&mut self) -> &mut P {
+        &mut self.platform
+    }
+
+    fn has_pending_redraw(&self) -> bool {
+        self.state.has_pending_redraw()
+    }
+
+    fn next_timer_deadline(&self) -> Option<Duration> {
+        self.state.next_timer_deadline()
+    }
+}
+
 fn button(ui: &mut Ui) -> bool {
     let id = WidgetId::new("test button");
     let interaction = ui.interact(id, Sense::CLICK);
@@ -123,7 +151,7 @@ fn button(ui: &mut Ui) -> bool {
 
 #[test]
 fn clear_is_the_stable_frame_background() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.clear();
         ui.add(
@@ -157,7 +185,7 @@ fn clear_is_the_stable_frame_background() {
 
 #[test]
 fn container_scopes_and_rectangle_leaves_resolve_layout() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut row = ui.container().row().fixed(10.0, 10.0).gap(2.0).open();
         row.add(
@@ -194,7 +222,7 @@ fn container_scopes_and_rectangle_leaves_resolve_layout() {
 
 #[test]
 fn absolute_containers_do_not_participate_in_flow() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut row = ui.container().row().fixed(10.0, 10.0).gap(2.0).open();
         row.add(
@@ -255,7 +283,7 @@ fn absolute_containers_do_not_participate_in_flow() {
 
 #[test]
 fn absolute_z_index_orders_complete_subtrees() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.container()
             .fixed(1.0, 1.0)
@@ -307,7 +335,7 @@ fn absolute_z_index_orders_complete_subtrees() {
 
 #[test]
 fn absolute_z_index_orders_hit_testing() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     let normal = WidgetId::new("normal hit");
     let raised = WidgetId::new("raised hit");
     let render = |ui: &mut Ui| {
@@ -339,7 +367,7 @@ fn absolute_z_index_orders_hit_testing() {
 
 #[test]
 fn absolute_container_fits_children_before_anchoring() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut parent = ui.container().col().fixed(10.0, 10.0).open();
         let mut absolute = parent
@@ -376,7 +404,7 @@ fn absolute_container_fits_children_before_anchoring() {
 
 #[test]
 fn containers_resolve_nested_flex_and_justification() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut row = ui
@@ -445,7 +473,7 @@ fn containers_resolve_nested_flex_and_justification() {
 
 #[test]
 fn wrapped_text_uses_its_resolved_width() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     let id = WidgetId::new("wrapped text");
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
@@ -471,7 +499,7 @@ fn wrapped_text_uses_its_resolved_width() {
 
 #[test]
 fn container_clips_content_and_descendants() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
         let mut clipped = ui
@@ -503,7 +531,7 @@ fn container_clips_content_and_descendants() {
 
 #[test]
 fn resolved_geometry_is_available_on_the_next_frame() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     let id = WidgetId::new("geometry");
     runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.add(widget::Rectangle::new().fixed(3.0, 4.0).id(id));
@@ -516,7 +544,7 @@ fn resolved_geometry_is_available_on_the_next_frame() {
 
 #[test]
 fn fixed_sizing_can_overflow_parent_bounds() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
         ui.add(
             widget::Rectangle::new()
@@ -531,7 +559,7 @@ fn fixed_sizing_can_overflow_parent_bounds() {
 
 #[test]
 fn scroll_uses_natural_content_geometry_and_offsets_commands() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     let mut state = widget::ScrollState::default();
     let render = |ui: &mut Ui, state: &mut widget::ScrollState| {
         let mut scroll = widget::ScrollArea::vertical(state).gap(1.0).begin(ui);
@@ -561,7 +589,7 @@ fn scroll_uses_natural_content_geometry_and_offsets_commands() {
 
 #[test]
 fn static_text_reuses_runs_and_stable_output_has_no_damage() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     let render = |ui: &mut Ui| {
         ui.add(widget::Text::new("label"));
         button(ui);
@@ -575,7 +603,7 @@ fn static_text_reuses_runs_and_stable_output_has_no_damage() {
 
 #[test]
 fn moved_output_damages_old_and_new_bounds() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     let render = |ui: &mut Ui, offset| {
         let mut row = ui
             .container()
@@ -616,7 +644,7 @@ fn swapped_buffer_replays_damage_once() {
         repaint_buffer: RepaintBuffer::Swapped,
         ..TestPlatform::default()
     };
-    let mut runtime = Runtime::new(platform);
+    let mut runtime = Harness::new(platform);
 
     runtime.render(Duration::ZERO, Input::None, |_| {});
     assert!(runtime.has_pending_redraw());
@@ -625,15 +653,17 @@ fn swapped_buffer_replays_damage_once() {
 }
 
 #[test]
-fn render_batch_processes_each_input_and_commits_the_final_scene() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+fn render_processes_each_input_and_commits_the_final_scene() {
+    let mut runtime = Harness::new(TestPlatform::default());
     let render = button;
     runtime.render(Duration::ZERO, Input::None, |ui| {
         render(ui);
     });
 
     let mut clicked = false;
-    runtime.render_batch(
+    crate::render(
+        &mut runtime.platform,
+        &mut runtime.state,
         Duration::ZERO,
         [
             Input::PointerDown {
@@ -656,7 +686,7 @@ fn render_batch_processes_each_input_and_commits_the_final_scene() {
 
 #[test]
 fn scroll_drag_cancels_button_click() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     let mut state = widget::ScrollState::default();
     let render = |ui: &mut Ui, state: &mut widget::ScrollState| {
         widget::ScrollArea::vertical(state).begin(ui).add(button)
@@ -695,7 +725,7 @@ fn scroll_drag_cancels_button_click() {
 
 #[test]
 fn text_input_edits_at_utf8_cursor_boundaries() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     let mut state = widget::TextInputState::default();
     state.text = "aé🙂".into();
     let render =
@@ -749,7 +779,7 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
 
 #[test]
 fn focus_moves_between_text_inputs_and_clears_when_absent() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     let mut first = widget::TextInputState::default();
     let mut second = widget::TextInputState::default();
     let render =
@@ -783,7 +813,7 @@ fn focus_moves_between_text_inputs_and_clears_when_absent() {
 
 #[test]
 fn animation_is_keyed_and_target_driven() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     let id = WidgetId::new("offset");
     let duration = Duration::from_millis(100);
 
@@ -813,7 +843,7 @@ fn animation_is_keyed_and_target_driven() {
 
 #[test]
 fn looping_animation_and_timers_schedule_frames() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut runtime = Harness::new(TestPlatform::default());
     let animation = WidgetId::new("loop");
     let timer = WidgetId::new("timer");
 

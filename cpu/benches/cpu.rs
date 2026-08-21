@@ -350,7 +350,7 @@ where
         };
         commands.push_image(
             ImageRequest {
-                image,
+                image: image.id(),
                 area,
                 fit: ImageFit::Fill,
                 sampling: ImageSampling::Nearest,

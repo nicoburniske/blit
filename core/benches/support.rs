@@ -8,7 +8,7 @@ use blit::{
     interact::{Sense, WidgetId},
     paint::{self, TextLayoutRequest, TextRunId, TextStyle},
     platform::PlatformImpl,
-    resource::{ImageData, ImageId},
+    resource::{ImageData, ImageHandle, ImageId},
     widget::Rectangle,
 };
 
@@ -36,11 +36,9 @@ impl PlatformImpl for NoopPlatform {
         RepaintBuffer::Reused
     }
 
-    fn create_image(&mut self, _: ImageData) -> ImageId {
-        ImageId(0)
+    fn create_image(&mut self, data: ImageData) -> ImageHandle {
+        ImageHandle::new(ImageId(0), data.size)
     }
-
-    fn drop_image(&mut self, _: ImageId) {}
 
     fn text_run(&mut self, _: &str, _: TextStyle) -> TextRunId {
         TextRunId(1)

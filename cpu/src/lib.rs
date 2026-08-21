@@ -12,7 +12,7 @@ use blit::{
         Border, BoxShadow, FontId, ImageRequest, Rectangle, TextLayoutRequest, TextRequest,
         TextRunId, TextStyle,
     },
-    resource::{ImageData, ImageId},
+    resource::{ImageData, ImageHandle, ImageId},
 };
 pub use blit_font::Font;
 pub use pixel::{
@@ -51,7 +51,6 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 buffer,
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
-                has_dead_images: false,
                 shadows: shadow::Cache::new(config.shadow_cache_capacity),
                 text: TextRenderer::new(config),
                 commands: CommandList::default(),
@@ -242,18 +241,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         Some(bounds)
     }
 
-    pub fn create_image(&mut self, data: ImageData) -> ImageId {
-        data.validate();
-        let image = self.context.images.insert(StoredImage::new(data));
-        ImageId(image.data().as_ffi())
-    }
-
-    pub fn drop_image(&mut self, image: ImageId) {
-        let image = RendererImageId::from(KeyData::from_ffi(image.0));
-        if let Some(image) = self.context.images.get_mut(image) {
-            image.live = false;
-            self.context.has_dead_images = true;
-        }
+    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
+        StoredImage::insert(&mut self.context.images, data)
     }
 
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
@@ -298,7 +287,6 @@ pub struct RenderContext<B: PixelBuffer> {
     buffer: B,
     scale_factor: f32,
     images: SlotMap<RendererImageId, StoredImage>,
-    has_dead_images: bool,
     shadows: shadow::Cache,
     text: TextRenderer,
     commands: CommandList,
@@ -306,15 +294,25 @@ pub struct RenderContext<B: PixelBuffer> {
 }
 
 pub struct StoredImage {
+    handle: ImageHandle,
     data: ImageData,
     alpha_rows: AlphaRows,
     has_opaque_spans: bool,
     opaque: bool,
-    live: bool,
 }
 
 impl StoredImage {
-    fn new(data: ImageData) -> Self {
+    fn insert(images: &mut SlotMap<RendererImageId, StoredImage>, data: ImageData) -> ImageHandle {
+        data.validate();
+        let size = data.size;
+        let image = images.insert_with_key(|id| {
+            let handle = ImageHandle::new(ImageId(id.data().as_ffi()), size);
+            Self::new(handle, data)
+        });
+        images[image].handle.clone()
+    }
+
+    fn new(handle: ImageHandle, data: ImageData) -> Self {
         let width = data.texture_rect.width as usize;
         let height = data.texture_rect.height as usize;
         let bytes = data.pixels.bytes();
@@ -407,23 +405,21 @@ impl StoredImage {
             }
         };
         Self {
+            handle,
             data,
             alpha_rows,
             has_opaque_spans,
             opaque,
-            live: true,
         }
     }
 }
 
 impl<B: PixelBuffer> RenderContext<B> {
     fn finish_frame(&mut self) {
-        self.shadows.finish_frame(&mut self.images);
+        self.shadows.finish_frame();
         self.text.finish_frame();
-        if self.has_dead_images {
-            self.images.retain(|_, image| image.live);
-            self.has_dead_images = false;
-        }
+        self.images
+            .retain(|_, image| !image.handle.is_uniquely_owned());
     }
 }
 

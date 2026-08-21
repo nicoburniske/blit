@@ -109,9 +109,7 @@ impl Widget for TextInput<'_> {
         if interaction.pressed
             && let (Some(position), Some(area)) = (input.pointer_position(), previous_text_area)
         {
-            let offset = input
-                .platform()
-                .text_offset_at_position(&self.request(text_run, area), position);
+            let offset = input.text_offset_at_position(&self.request(text_run, area), position);
             self.state.cursor = if let Some(mask) = self.mask {
                 self.state
                     .text
@@ -216,7 +214,7 @@ impl Widget for TextInput<'_> {
         }
 
         if let Some(area) = previous_text_area {
-            let cursor = input.platform().text_cursor_rect(
+            let cursor = input.text_cursor_rect(
                 &self.request(text_run, area),
                 self.display_offset(self.state.cursor),
             );
