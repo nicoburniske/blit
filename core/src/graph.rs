@@ -71,7 +71,6 @@ impl FrameGraph {
             content: ContentId::NONE,
             style: StyleId::NONE,
             clip_spec: ClipSpecId::NONE,
-            transition: TransitionId::NONE,
             area: screen,
             clip: ClipId::default(),
             clip_bounds: screen,
@@ -99,17 +98,17 @@ impl FrameGraph {
             u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
         let positioned = !self.positioned_flows.is_empty();
         if positioned {
-            self.layout::<true, false>(renderer, transition_states);
+            self.layout::<true, false>(renderer);
         } else {
-            self.layout::<false, false>(renderer, transition_states);
+            self.layout::<false, false>(renderer);
         }
         if transition_states.iter().any(|state| state.seen) {
             self.update_transitions(transition_states, time);
-            self.apply_transitioned_dimensions(transition_states);
+            self.prepare_transitions(transition_states);
             if positioned {
-                self.layout::<true, true>(renderer, transition_states);
+                self.layout::<true, true>(renderer);
             } else {
-                self.layout::<false, true>(renderer, transition_states);
+                self.layout::<false, true>(renderer);
             }
         }
         if positioned {
@@ -170,8 +169,7 @@ impl FrameGraph {
         self.geometry.push(GeometryRecord { node, id });
     }
 
-    pub fn set_transition(&mut self, node: NodeId, transition: usize) -> NodeId {
-        self.nodes[node.index()].transition = TransitionId::new(transition);
+    pub fn transition_parent(&self, node: NodeId) -> NodeId {
         if self.open_containers.last() == Some(&node) {
             self.open_containers[self.open_containers.len() - 2]
         } else {
@@ -269,7 +267,6 @@ impl FrameGraph {
             style,
             content,
             clip_spec,
-            transition: TransitionId::NONE,
             area: LogicalRect::default(),
             clip: ClipId::default(),
             clip_bounds: LogicalRect::default(),
@@ -373,15 +370,14 @@ impl FrameGraph {
     fn layout<const POSITIONED: bool, const TRANSITIONED: bool>(
         &mut self,
         renderer: &mut dyn Renderer,
-        transitions: &[TransitionState],
     ) {
         self.measure_intrinsic::<POSITIONED>(renderer);
-        self.resolve_axis::<POSITIONED, TRANSITIONED>(Axis::Horizontal, transitions);
+        self.resolve_axis::<POSITIONED, TRANSITIONED>(Axis::Horizontal);
         self.measure_wrapped_text(renderer);
         for index in (1..self.nodes.len()).rev() {
             self.measure_container::<POSITIONED>(NodeId::new(index), Axis::Vertical);
         }
-        self.resolve_axis::<POSITIONED, TRANSITIONED>(Axis::Vertical, transitions);
+        self.resolve_axis::<POSITIONED, TRANSITIONED>(Axis::Vertical);
     }
 
     fn flow<const POSITIONED: bool>(&self, node: NodeId) -> Flow {
@@ -477,18 +473,10 @@ impl FrameGraph {
         self.nodes[id.index()].set_size(axis, measured)
     }
 
-    fn resolve_axis<const POSITIONED: bool, const TRANSITIONED: bool>(
-        &mut self,
-        axis: Axis,
-        transitions: &[TransitionState],
-    ) {
+    fn resolve_axis<const POSITIONED: bool, const TRANSITIONED: bool>(&mut self, axis: Axis) {
         for index in 0..self.nodes.len() {
             if self.nodes[index].flow.index().is_some() {
-                self.resolve_children::<POSITIONED, TRANSITIONED>(
-                    NodeId::new(index),
-                    axis,
-                    transitions,
-                );
+                self.resolve_children::<POSITIONED, TRANSITIONED>(NodeId::new(index), axis);
             }
         }
     }
@@ -497,7 +485,6 @@ impl FrameGraph {
         &mut self,
         parent: NodeId,
         axis: Axis,
-        transitions: &[TransitionState],
     ) {
         let layout = self.flow::<POSITIONED>(parent);
         let parent = parent.index();
@@ -536,17 +523,12 @@ impl FrameGraph {
                         Align::Center => (available - size).max(0.0) / 2.0,
                         Align::End => (available - size).max(0.0),
                     };
-                    node.set_axis::<TRANSITIONED>(
-                        axis,
-                        origin + leading + offset,
-                        size,
-                        transitions,
-                    );
+                    node.set_axis::<TRANSITIONED>(axis, origin + leading + offset, size);
                 }
                 child = node.subtree_end as usize;
             }
             if POSITIONED {
-                self.resolve_absolute_children::<TRANSITIONED>(parent, axis, transitions);
+                self.resolve_absolute_children::<TRANSITIONED>(parent, axis);
             }
             return;
         }
@@ -642,22 +624,17 @@ impl FrameGraph {
             let node = &mut self.nodes[child];
             if !POSITIONED || !node.flow.is_positioned() {
                 let size = node.size(axis);
-                node.set_axis::<TRANSITIONED>(axis, cursor, size, transitions);
+                node.set_axis::<TRANSITIONED>(axis, cursor, size);
                 cursor += size + layout.gap.max(0.0) + extra_gap;
             }
             child = node.subtree_end as usize;
         }
         if POSITIONED {
-            self.resolve_absolute_children::<TRANSITIONED>(parent, axis, transitions);
+            self.resolve_absolute_children::<TRANSITIONED>(parent, axis);
         }
     }
 
-    fn resolve_absolute_children<const TRANSITIONED: bool>(
-        &mut self,
-        parent: usize,
-        axis: Axis,
-        transitions: &[TransitionState],
-    ) {
+    fn resolve_absolute_children<const TRANSITIONED: bool>(&mut self, parent: usize, axis: Axis) {
         let mut child = parent + 1;
         let end = self.nodes[parent].subtree_end as usize;
         while child < end {
@@ -681,7 +658,7 @@ impl FrameGraph {
             let position = origin + available * position.target_anchor.factor(axis)
                 - size * position.child_anchor.factor(axis)
                 + offset;
-            node.set_axis::<TRANSITIONED>(axis, position, size, transitions);
+            node.set_axis::<TRANSITIONED>(axis, position, size);
             child = next;
         }
     }
@@ -721,9 +698,19 @@ impl FrameGraph {
         }
     }
 
-    fn apply_transitioned_dimensions(&mut self, states: &[TransitionState]) {
+    fn prepare_transitions(&mut self, states: &[TransitionState]) {
+        for node in self.nodes.iter_mut().skip(1) {
+            node.area.x = 0.0;
+            node.area.y = 0.0;
+        }
         for state in states.iter().filter(|state| state.seen) {
             let node = &mut self.nodes[state.node.index()];
+            if state.active.contains(TransitionProperties::X) {
+                node.area.x = state.current.x - state.target.x;
+            }
+            if state.active.contains(TransitionProperties::Y) {
+                node.area.y = state.current.y - state.target.y;
+            }
             if state.active.contains(TransitionProperties::WIDTH) {
                 node.item.width = Sizing::fixed(state.current.width);
             }
@@ -992,7 +979,6 @@ struct Node {
     content: ContentId,
     style: StyleId,
     clip_spec: ClipSpecId,
-    transition: TransitionId,
     // layout resolves area in place: dimensions start intrinsic,
     // then each axis writes its final position and size
     area: LogicalRect,
@@ -1031,39 +1017,15 @@ impl Node {
         }
     }
 
-    fn set_axis<const TRANSITIONED: bool>(
-        &mut self,
-        axis: Axis,
-        position: f32,
-        size: f32,
-        transitions: &[TransitionState],
-    ) {
+    fn set_axis<const TRANSITIONED: bool>(&mut self, axis: Axis, position: f32, size: f32) {
         match axis {
             Axis::Horizontal => {
-                self.area.x = position;
+                self.area.x = position + if TRANSITIONED { self.area.x } else { 0.0 };
                 self.area.width = size;
-                if TRANSITIONED
-                    && let Some(transition) = self.transition.index()
-                    && transitions[transition]
-                        .active
-                        .contains(TransitionProperties::X)
-                {
-                    self.area.x +=
-                        transitions[transition].current.x - transitions[transition].target.x;
-                }
             }
             Axis::Vertical => {
-                self.area.y = position;
+                self.area.y = position + if TRANSITIONED { self.area.y } else { 0.0 };
                 self.area.height = size;
-                if TRANSITIONED
-                    && let Some(transition) = self.transition.index()
-                    && transitions[transition]
-                        .active
-                        .contains(TransitionProperties::Y)
-                {
-                    self.area.y +=
-                        transitions[transition].current.y - transitions[transition].target.y;
-                }
             }
         }
     }
@@ -1368,4 +1330,4 @@ macro_rules! store_ids {
     };
 }
 
-store_ids!(StyleId, ShadowId, ClipSpecId, TransitionId);
+store_ids!(StyleId, ShadowId, ClipSpecId);
