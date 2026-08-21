@@ -1,3 +1,5 @@
+//! frame-local graph construction, layout resolution, and command emission
+
 use crate::{
     FrameGraphMemory,
     color::Color,
@@ -14,106 +16,6 @@ use crate::{
     resource::ImageId,
     style::{Appearance, Clip, Shadow},
 };
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NodeId(u32);
-
-/// intrinsic leaf content
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Content {
-    Rectangle(Appearance<'static>),
-    Text(TextContent),
-    Image(ImageContent),
-}
-
-/// text resolved after its node width is known
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextContent {
-    pub text: TextRunId,
-    pub color: Color,
-    pub style: TextStyle,
-    pub options: TextOptions,
-    pub offset_x: f32,
-    pub selection: Option<TextSelection>,
-    pub caret: Option<TextCaret>,
-}
-
-/// selection painted behind text
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextSelection {
-    pub start: usize,
-    pub end: usize,
-    pub color: Color,
-}
-
-/// caret painted over text
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextCaret {
-    pub offset: usize,
-    pub width: f32,
-    pub color: Color,
-}
-
-/// image content and its intrinsic size
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ImageContent {
-    pub image: ImageId,
-    pub intrinsic: LogicalSize,
-    pub fit: ImageFit,
-    pub sampling: ImageSampling,
-    pub opacity: f32,
-    pub colorize: Option<Color>,
-    pub nine_slice: Option<NineSlice>,
-    pub horizontal_tiling: ImageTiling,
-    pub vertical_tiling: ImageTiling,
-}
-
-#[derive(Clone, Copy)]
-struct Flow {
-    axis: Axis,
-    padding: LogicalInsets,
-    gap: f32,
-    align: Align,
-    justify: Justify,
-    allow_overflow: bool,
-    child_offset: LogicalPoint,
-}
-
-struct PositionedFlow {
-    flow: Flow,
-    absolute: Absolute,
-}
-
-/// index into `flows`, or into `positioned_flows` when the high bit is set
-#[derive(Clone, Copy, Default)]
-struct FlowId(u32);
-
-macro_rules! store_ids {
-    ($($name:ident),+ $(,)?) => {
-        $(
-            #[derive(Clone, Copy, Default)]
-            struct $name(u32);
-
-            impl $name {
-                const NONE: Self = Self(0);
-
-                fn new(index: usize) -> Self {
-                    Self(u32::try_from(index + 1).expect("too many stored values in one frame"))
-                }
-
-                fn index(self) -> Option<usize> {
-                    self.0.checked_sub(1).map(|index| index as usize)
-                }
-            }
-        )+
-    };
-}
-
-store_ids!(AppearanceId, ShadowId, ClipSpecId);
-
-/// index into `texts`, or into `images` when the high bit is set
-#[derive(Clone, Copy, Default)]
-struct ContentId(u32);
 
 #[derive(Default)]
 pub struct FrameGraph {
@@ -132,126 +34,6 @@ pub struct FrameGraph {
     geometry: Vec<GeometryRecord>,
     interactions: Vec<InteractionRecord>,
     gradient_stops: Vec<crate::paint::GradientStop>,
-}
-
-struct Node {
-    subtree_end: u32,
-    item: Item,
-    flow: FlowId,
-    content: ContentId,
-    appearance: AppearanceId,
-    shadow: ShadowId,
-    clip_spec: ClipSpecId,
-    // layout resolves area in place: dimensions start intrinsic,
-    // then each axis writes its final position and size
-    area: LogicalRect,
-    clip: ClipId,
-    clip_bounds: LogicalRect,
-}
-
-struct GeometryRecord {
-    node: NodeId,
-    id: WidgetId,
-}
-
-struct InteractionRecord {
-    node: NodeId,
-    id: WidgetId,
-    sense: Sense,
-}
-
-struct StoredAppearance {
-    background: Color,
-    border: StoredBorder,
-    radius: BorderRadius,
-    opacity: f32,
-}
-
-enum StoredBorder {
-    None,
-    Solid {
-        width: f32,
-        color: Color,
-    },
-    Gradient {
-        width: f32,
-        angle_degrees: f32,
-        start: usize,
-        len: usize,
-    },
-}
-
-enum ContentRef {
-    None,
-    Text(usize),
-    Image(usize),
-}
-
-impl NodeId {
-    const ROOT: Self = Self(1);
-
-    fn new(index: usize) -> Self {
-        Self(u32::try_from(index + 1).expect("too many nodes in one frame"))
-    }
-
-    fn index(self) -> usize {
-        self.0.checked_sub(1).expect("missing node") as usize
-    }
-}
-
-impl FlowId {
-    const POSITIONED: u32 = 1 << 31;
-    const NONE: Self = Self(0);
-
-    fn normal(index: usize) -> Self {
-        let id = u32::try_from(index + 1).expect("too many flows in one frame");
-        assert!(id < Self::POSITIONED, "too many flows in one frame");
-        Self(id)
-    }
-
-    fn positioned(index: usize) -> Self {
-        let id = u32::try_from(index + 1).expect("too many positioned flows in one frame");
-        assert!(
-            id < Self::POSITIONED,
-            "too many positioned flows in one frame"
-        );
-        Self(Self::POSITIONED | id)
-    }
-
-    fn index(self) -> Option<usize> {
-        (self.0 & !Self::POSITIONED)
-            .checked_sub(1)
-            .map(|index| index as usize)
-    }
-
-    fn is_positioned(self) -> bool {
-        self.0 & Self::POSITIONED != 0
-    }
-}
-
-impl ContentId {
-    const IMAGE: u32 = 1 << 31;
-    const NONE: Self = Self(0);
-
-    fn text(index: usize) -> Self {
-        let id = u32::try_from(index + 1).expect("too much text in one frame");
-        assert!(id < Self::IMAGE, "too much text in one frame");
-        Self(id)
-    }
-
-    fn image(index: usize) -> Self {
-        let id = u32::try_from(index + 1).expect("too many images in one frame");
-        assert!(id < Self::IMAGE, "too many images in one frame");
-        Self(Self::IMAGE | id)
-    }
-
-    fn decode(self) -> ContentRef {
-        match self.0 {
-            0 => ContentRef::None,
-            id if id & Self::IMAGE == 0 => ContentRef::Text(id as usize - 1),
-            id => ContentRef::Image((id & !Self::IMAGE) as usize - 1),
-        }
-    }
 }
 
 impl FrameGraph {
@@ -295,6 +77,38 @@ impl FrameGraph {
             clip_bounds: screen,
         });
         self.open_containers.push(NodeId::ROOT);
+    }
+
+    pub fn finish(
+        &mut self,
+        platform: &mut Platform,
+        commands: &mut CommandList,
+        interaction: &mut InteractionState,
+        geometry: &mut GeometryState,
+        scale_factor: f32,
+    ) {
+        assert_eq!(
+            self.open_containers,
+            [NodeId::ROOT],
+            "a container scope was not dropped"
+        );
+        self.nodes[0].subtree_end =
+            u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
+        if self.positioned_flows.is_empty() {
+            self.layout::<false>(platform);
+        } else {
+            self.layout::<true>(platform);
+            self.order_layer_roots();
+        }
+        if self.clear {
+            commands.push_clear(self.nodes[0].area.to_physical(scale_factor));
+        }
+        self.resolve_clips(commands);
+        self.emit(platform, commands, scale_factor);
+        self.register_hits(interaction, scale_factor);
+        for record in &self.geometry {
+            geometry.register(record.id, self.nodes[record.node.index()].area);
+        }
     }
 
     pub fn clear(&mut self) {
@@ -345,6 +159,59 @@ impl FrameGraph {
             None,
             None,
         )
+    }
+
+    pub fn set_id(&mut self, node: NodeId, id: WidgetId) {
+        self.geometry.push(GeometryRecord { node, id });
+    }
+
+    pub fn set_interaction(&mut self, node: NodeId, id: WidgetId, sense: Sense) {
+        self.interactions
+            .push(InteractionRecord { node, id, sense });
+    }
+
+    pub fn set_appearance(&mut self, node: NodeId, appearance: Appearance<'_>) {
+        let (appearance, shadow) = self.store_appearance(appearance);
+        self.nodes[node.index()].appearance = appearance;
+        self.nodes[node.index()].shadow = shadow;
+    }
+
+    pub fn close(&mut self, node: NodeId) {
+        assert_eq!(
+            self.open_containers.pop(),
+            Some(node),
+            "nodes must close in order"
+        );
+        let end = u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
+        let stored = &mut self.nodes[node.index()];
+        stored.subtree_end = end;
+        if end as usize == node.index() + 1
+            && !stored.flow.is_positioned()
+            && stored.flow.index() == self.flows.len().checked_sub(1)
+        {
+            self.flows.pop();
+            stored.flow = FlowId::NONE;
+        }
+    }
+
+    pub fn memory(&self) -> FrameGraphMemory {
+        FrameGraphMemory {
+            node_size: size_of::<Node>(),
+            node_capacity: self.nodes.capacity(),
+            heap_bytes: self.nodes.capacity() * size_of::<Node>()
+                + self.open_containers.capacity() * size_of::<NodeId>()
+                + self.texts.capacity() * size_of::<TextContent>()
+                + self.images.capacity() * size_of::<ImageContent>()
+                + self.flows.capacity() * size_of::<Flow>()
+                + self.positioned_flows.capacity() * size_of::<PositionedFlow>()
+                + self.layer_roots.capacity() * size_of::<NodeId>()
+                + self.appearances.capacity() * size_of::<StoredAppearance>()
+                + self.shadows.capacity() * size_of::<Shadow>()
+                + self.clip_specs.capacity() * size_of::<Clip>()
+                + self.geometry.capacity() * size_of::<GeometryRecord>()
+                + self.interactions.capacity() * size_of::<InteractionRecord>()
+                + self.gradient_stops.capacity() * size_of::<crate::paint::GradientStop>(),
+        }
     }
 
     fn append(
@@ -408,21 +275,6 @@ impl FrameGraph {
         node
     }
 
-    pub fn set_id(&mut self, node: NodeId, id: WidgetId) {
-        self.geometry.push(GeometryRecord { node, id });
-    }
-
-    pub fn set_interaction(&mut self, node: NodeId, id: WidgetId, sense: Sense) {
-        self.interactions
-            .push(InteractionRecord { node, id, sense });
-    }
-
-    pub fn set_appearance(&mut self, node: NodeId, appearance: Appearance<'_>) {
-        let (appearance, shadow) = self.store_appearance(appearance);
-        self.nodes[node.index()].appearance = appearance;
-        self.nodes[node.index()].shadow = shadow;
-    }
-
     fn store_content(&mut self, content: Content) -> ContentId {
         match content {
             Content::Rectangle(_) => ContentId::NONE,
@@ -474,76 +326,6 @@ impl FrameGraph {
             id
         });
         (stored, shadow)
-    }
-
-    pub fn close(&mut self, node: NodeId) {
-        assert_eq!(
-            self.open_containers.pop(),
-            Some(node),
-            "nodes must close in order"
-        );
-        let end = u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
-        let stored = &mut self.nodes[node.index()];
-        stored.subtree_end = end;
-        if end as usize == node.index() + 1
-            && !stored.flow.is_positioned()
-            && stored.flow.index() == self.flows.len().checked_sub(1)
-        {
-            self.flows.pop();
-            stored.flow = FlowId::NONE;
-        }
-    }
-
-    pub fn finish(
-        &mut self,
-        platform: &mut Platform,
-        commands: &mut CommandList,
-        interaction: &mut InteractionState,
-        geometry: &mut GeometryState,
-        scale_factor: f32,
-    ) {
-        assert_eq!(
-            self.open_containers,
-            [NodeId::ROOT],
-            "a container scope was not dropped"
-        );
-        self.nodes[0].subtree_end =
-            u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
-        if self.positioned_flows.is_empty() {
-            self.layout::<false>(platform);
-        } else {
-            self.layout::<true>(platform);
-            self.order_layer_roots();
-        }
-        if self.clear {
-            commands.push_clear(self.nodes[0].area.to_physical(scale_factor));
-        }
-        self.resolve_clips(commands);
-        self.emit(platform, commands, scale_factor);
-        self.register_hits(interaction, scale_factor);
-        for record in &self.geometry {
-            geometry.register(record.id, self.nodes[record.node.index()].area);
-        }
-    }
-
-    pub fn memory(&self) -> FrameGraphMemory {
-        FrameGraphMemory {
-            node_size: size_of::<Node>(),
-            node_capacity: self.nodes.capacity(),
-            heap_bytes: self.nodes.capacity() * size_of::<Node>()
-                + self.open_containers.capacity() * size_of::<NodeId>()
-                + self.texts.capacity() * size_of::<TextContent>()
-                + self.images.capacity() * size_of::<ImageContent>()
-                + self.flows.capacity() * size_of::<Flow>()
-                + self.positioned_flows.capacity() * size_of::<PositionedFlow>()
-                + self.layer_roots.capacity() * size_of::<NodeId>()
-                + self.appearances.capacity() * size_of::<StoredAppearance>()
-                + self.shadows.capacity() * size_of::<Shadow>()
-                + self.clip_specs.capacity() * size_of::<Clip>()
-                + self.geometry.capacity() * size_of::<GeometryRecord>()
-                + self.interactions.capacity() * size_of::<InteractionRecord>()
-                + self.gradient_stops.capacity() * size_of::<crate::paint::GradientStop>(),
-        }
     }
 
     fn order_layer_roots(&mut self) {
@@ -1084,6 +866,94 @@ impl FrameGraph {
     }
 }
 
+/// intrinsic leaf content
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Content {
+    Rectangle(Appearance<'static>),
+    Text(TextContent),
+    Image(ImageContent),
+}
+
+/// text resolved after its node width is known
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextContent {
+    pub text: TextRunId,
+    pub color: Color,
+    pub style: TextStyle,
+    pub options: TextOptions,
+    pub offset_x: f32,
+    pub selection: Option<TextSelection>,
+    pub caret: Option<TextCaret>,
+}
+
+/// selection painted behind text
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextSelection {
+    pub start: usize,
+    pub end: usize,
+    pub color: Color,
+}
+
+/// caret painted over text
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextCaret {
+    pub offset: usize,
+    pub width: f32,
+    pub color: Color,
+}
+
+/// image content and its intrinsic size
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImageContent {
+    pub image: ImageId,
+    pub intrinsic: LogicalSize,
+    pub fit: ImageFit,
+    pub sampling: ImageSampling,
+    pub opacity: f32,
+    pub colorize: Option<Color>,
+    pub nine_slice: Option<NineSlice>,
+    pub horizontal_tiling: ImageTiling,
+    pub vertical_tiling: ImageTiling,
+}
+
+#[derive(Default)]
+pub struct GeometryState {
+    previous: Vec<(WidgetId, LogicalRect)>,
+    current: Vec<(WidgetId, LogicalRect)>,
+}
+
+impl GeometryState {
+    pub fn get(&self, id: WidgetId) -> Option<LogicalRect> {
+        self.previous
+            .iter()
+            .find_map(|(candidate, geometry)| (*candidate == id).then_some(*geometry))
+    }
+
+    pub fn register(&mut self, id: WidgetId, geometry: LogicalRect) {
+        self.current.push((id, geometry));
+    }
+
+    pub fn end_frame(&mut self) {
+        std::mem::swap(&mut self.previous, &mut self.current);
+        self.current.clear();
+    }
+}
+
+struct Node {
+    subtree_end: u32,
+    item: Item,
+    flow: FlowId,
+    content: ContentId,
+    appearance: AppearanceId,
+    shadow: ShadowId,
+    clip_spec: ClipSpecId,
+    // layout resolves area in place: dimensions start intrinsic,
+    // then each axis writes its final position and size
+    area: LogicalRect,
+    clip: ClipId,
+    clip_bounds: LogicalRect,
+}
+
 impl Node {
     fn visible_bounds(
         &self,
@@ -1129,6 +999,22 @@ impl Node {
     }
 }
 
+#[derive(Clone, Copy)]
+struct Flow {
+    axis: Axis,
+    padding: LogicalInsets,
+    gap: f32,
+    align: Align,
+    justify: Justify,
+    allow_overflow: bool,
+    child_offset: LogicalPoint,
+}
+
+struct PositionedFlow {
+    flow: Flow,
+    absolute: Absolute,
+}
+
 impl Anchor {
     fn factor(self, axis: Axis) -> f32 {
         match (axis, self) {
@@ -1169,25 +1055,141 @@ impl Sizing {
     }
 }
 
-#[derive(Default)]
-pub struct GeometryState {
-    previous: Vec<(WidgetId, LogicalRect)>,
-    current: Vec<(WidgetId, LogicalRect)>,
+struct GeometryRecord {
+    node: NodeId,
+    id: WidgetId,
 }
 
-impl GeometryState {
-    pub fn get(&self, id: WidgetId) -> Option<LogicalRect> {
-        self.previous
-            .iter()
-            .find_map(|(candidate, geometry)| (*candidate == id).then_some(*geometry))
+struct InteractionRecord {
+    node: NodeId,
+    id: WidgetId,
+    sense: Sense,
+}
+
+struct StoredAppearance {
+    background: Color,
+    border: StoredBorder,
+    radius: BorderRadius,
+    opacity: f32,
+}
+
+enum StoredBorder {
+    None,
+    Solid {
+        width: f32,
+        color: Color,
+    },
+    Gradient {
+        width: f32,
+        angle_degrees: f32,
+        start: usize,
+        len: usize,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NodeId(u32);
+
+impl NodeId {
+    const ROOT: Self = Self(1);
+
+    fn new(index: usize) -> Self {
+        Self(u32::try_from(index + 1).expect("too many nodes in one frame"))
     }
 
-    pub fn register(&mut self, id: WidgetId, geometry: LogicalRect) {
-        self.current.push((id, geometry));
-    }
-
-    pub fn end_frame(&mut self) {
-        std::mem::swap(&mut self.previous, &mut self.current);
-        self.current.clear();
+    fn index(self) -> usize {
+        self.0.checked_sub(1).expect("missing node") as usize
     }
 }
+
+/// index into `flows`, or into `positioned_flows` when the high bit is set
+#[derive(Clone, Copy, Default)]
+struct FlowId(u32);
+
+impl FlowId {
+    const POSITIONED: u32 = 1 << 31;
+    const NONE: Self = Self(0);
+
+    fn normal(index: usize) -> Self {
+        let id = u32::try_from(index + 1).expect("too many flows in one frame");
+        assert!(id < Self::POSITIONED, "too many flows in one frame");
+        Self(id)
+    }
+
+    fn positioned(index: usize) -> Self {
+        let id = u32::try_from(index + 1).expect("too many positioned flows in one frame");
+        assert!(
+            id < Self::POSITIONED,
+            "too many positioned flows in one frame"
+        );
+        Self(Self::POSITIONED | id)
+    }
+
+    fn index(self) -> Option<usize> {
+        (self.0 & !Self::POSITIONED)
+            .checked_sub(1)
+            .map(|index| index as usize)
+    }
+
+    fn is_positioned(self) -> bool {
+        self.0 & Self::POSITIONED != 0
+    }
+}
+
+/// index into `texts`, or into `images` when the high bit is set
+#[derive(Clone, Copy, Default)]
+struct ContentId(u32);
+
+enum ContentRef {
+    None,
+    Text(usize),
+    Image(usize),
+}
+
+impl ContentId {
+    const IMAGE: u32 = 1 << 31;
+    const NONE: Self = Self(0);
+
+    fn text(index: usize) -> Self {
+        let id = u32::try_from(index + 1).expect("too much text in one frame");
+        assert!(id < Self::IMAGE, "too much text in one frame");
+        Self(id)
+    }
+
+    fn image(index: usize) -> Self {
+        let id = u32::try_from(index + 1).expect("too many images in one frame");
+        assert!(id < Self::IMAGE, "too many images in one frame");
+        Self(Self::IMAGE | id)
+    }
+
+    fn decode(self) -> ContentRef {
+        match self.0 {
+            0 => ContentRef::None,
+            id if id & Self::IMAGE == 0 => ContentRef::Text(id as usize - 1),
+            id => ContentRef::Image((id & !Self::IMAGE) as usize - 1),
+        }
+    }
+}
+
+macro_rules! store_ids {
+    ($($name:ident),+ $(,)?) => {
+        $(
+            #[derive(Clone, Copy, Default)]
+            struct $name(u32);
+
+            impl $name {
+                const NONE: Self = Self(0);
+
+                fn new(index: usize) -> Self {
+                    Self(u32::try_from(index + 1).expect("too many stored values in one frame"))
+                }
+
+                fn index(self) -> Option<usize> {
+                    self.0.checked_sub(1).map(|index| index as usize)
+                }
+            }
+        )+
+    };
+}
+
+store_ids!(AppearanceId, ShadowId, ClipSpecId);
