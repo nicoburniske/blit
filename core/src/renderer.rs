@@ -1,21 +1,15 @@
 use crate::{
-    RepaintBuffer,
     command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     paint::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
     resource::{ImageData, ImageHandle},
 };
 
-pub trait PlatformImpl {
+pub trait Renderer {
+    fn set_scale_factor(&mut self, scale_factor: f32);
+
     /// damage may overlap and each covered pixel must be rendered once
     fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]);
-    fn screen(&mut self) -> PhysicalRect;
-    fn scale_factor(&mut self) -> f32 {
-        1.0
-    }
-    fn repaint_buffer(&self) -> RepaintBuffer {
-        RepaintBuffer::Reused
-    }
 
     fn create_image(&mut self, data: ImageData) -> ImageHandle;
 

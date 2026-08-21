@@ -5,11 +5,15 @@ use std::{
 };
 
 use blit::{
-    Clip, FrameGraphMemory, Sizing, Ui, UiState, color::Color, geometry::LogicalInsets,
-    input::Input, render, widget::Text,
+    Clip, FrameGraphMemory, Sizing, Ui, UiState,
+    color::Color,
+    geometry::{LogicalInsets, PhysicalRect},
+    input::Input,
+    render,
+    widget::Text,
 };
 
-use support::{NoopPlatform, command_frame};
+use support::{NoopRenderer, command_frame};
 
 #[allow(dead_code)]
 mod support;
@@ -55,18 +59,24 @@ struct Report {
 
 fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
     let baseline = CURRENT.load(Relaxed);
-    let mut platform = NoopPlatform;
-    let mut state = UiState::default();
+    let mut renderer = NoopRenderer;
+    let screen = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 1280,
+        height: 8192,
+    };
+    let mut state = UiState::new(screen, blit::RepaintBuffer::Reused, 1.0);
     GROSS.store(0, Relaxed);
     render(
-        &mut platform,
+        &mut renderer,
         &mut state,
         Duration::ZERO,
         [Input::None],
         frame,
     );
     render(
-        &mut platform,
+        &mut renderer,
         &mut state,
         Duration::ZERO,
         [Input::None],
@@ -76,7 +86,7 @@ fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
 
     GROSS.store(0, Relaxed);
     render(
-        &mut platform,
+        &mut renderer,
         &mut state,
         Duration::ZERO,
         [Input::None],
@@ -90,7 +100,7 @@ fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
         growth,
         steady: GROSS.load(Relaxed),
     };
-    drop((platform, state));
+    drop((renderer, state));
     assert_eq!(CURRENT.load(Relaxed), baseline);
     report
 }

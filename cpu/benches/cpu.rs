@@ -8,6 +8,7 @@ use blit::{
         BoxShadow, FontId, GradientStop, ImageFit, ImageRequest, ImageSampling, ImageTiling,
         LinearGradient, Rectangle, TextOptions, TextRequest, TextStyle, TextWrap,
     },
+    renderer::Renderer as _,
     resource::{ImageData, ImageFormat, ImagePixels},
 };
 use blit_cpu::{

@@ -8,7 +8,7 @@ pub(crate) mod graph;
 pub mod input;
 pub mod interact;
 pub mod paint;
-pub mod platform;
+pub mod renderer;
 pub mod resource;
 mod style;
 #[cfg(test)]
@@ -32,14 +32,15 @@ use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
 use input::Input;
 use interact::{Interaction, Sense, WidgetId};
 use paint::{TextRunId, TextStyle};
-use platform::PlatformImpl;
+use renderer::Renderer;
 use resource::{ImageData, ImageHandle};
 
 pub struct Ui {
     state: NonNull<UiState>,
-    platform: NonNull<dyn PlatformImpl>,
+    renderer: NonNull<dyn Renderer>,
     time: Duration,
     input: Input,
+    scale_factor: f32,
 }
 
 impl Ui {
@@ -61,7 +62,7 @@ impl Ui {
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        self.platform_mut().create_image(data)
+        self.renderer_mut().create_image(data)
     }
 
     pub fn screen(&self) -> LogicalRect {
@@ -78,6 +79,15 @@ impl Ui {
 
     pub fn time(&self) -> Duration {
         self.time
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+
+    /// changes the scale factor on the next frame
+    pub fn set_scale_factor(&mut self, scale_factor: f32) {
+        self.state_mut().set_scale_factor(scale_factor)
     }
 
     /// animates a value toward `target`, keyed by `id`
@@ -150,20 +160,18 @@ impl Ui {
     }
 
     pub fn request_frame(&mut self) {
-        self.state_mut().frame_requested = true
+        self.state_mut().request_frame()
     }
 
     pub fn invalidate_all(&mut self) {
-        let shared = self.state_mut();
-        shared.frame_requested = true;
-        shared.full_repaint = true;
+        self.state_mut().invalidate_all()
     }
 }
 
 #[doc(hidden)]
 impl Ui {
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.platform_mut().text_run(text, style)
+        self.renderer_mut().text_run(text, style)
     }
 
     pub fn text_offset_at_position(
@@ -171,7 +179,7 @@ impl Ui {
         request: &paint::TextRequest,
         position: LogicalPoint,
     ) -> usize {
-        self.platform_mut()
+        self.renderer_mut()
             .text_offset_at_position(request, position)
     }
 
@@ -180,7 +188,7 @@ impl Ui {
         request: &paint::TextRequest,
         byte_offset: usize,
     ) -> LogicalRect {
-        self.platform_mut().text_cursor_rect(request, byte_offset)
+        self.renderer_mut().text_cursor_rect(request, byte_offset)
     }
 
     pub fn add_leaf(&mut self, item: Item, content: Content) -> NodeId {
@@ -223,9 +231,9 @@ impl Ui {
         unsafe { self.state.as_mut() }
     }
 
-    fn platform_mut(&mut self) -> &mut dyn PlatformImpl {
+    fn renderer_mut(&mut self) -> &mut dyn Renderer {
         // only used in context of render
-        unsafe { self.platform.as_mut() }
+        unsafe { self.renderer.as_mut() }
     }
 
     fn frame_mut(&mut self) -> &mut graph::FrameGraph {
@@ -296,15 +304,22 @@ pub struct UiState {
     full_repaint: bool,
     screen: LogicalRect,
     physical_screen: PhysicalRect,
+    repaint_buffer: RepaintBuffer,
     scale_factor: f32,
+    scale_factor_changed: bool,
     previous_commands: CommandList,
     differ: CommandListDiffer,
     previous_damage: Vec<PhysicalRect>,
     render_damage: Vec<PhysicalRect>,
 }
 
-impl Default for UiState {
-    fn default() -> Self {
+impl UiState {
+    pub fn new(
+        physical_screen: PhysicalRect,
+        repaint_buffer: RepaintBuffer,
+        scale_factor: f32,
+    ) -> Self {
+        assert!(scale_factor.is_finite() && scale_factor > 0.0);
         Self {
             frame: graph::FrameGraph::default(),
             commands: CommandList::default(),
@@ -314,18 +329,18 @@ impl Default for UiState {
             timers: Vec::new(),
             frame_requested: true,
             full_repaint: true,
-            screen: LogicalRect::default(),
-            physical_screen: PhysicalRect::default(),
-            scale_factor: 1.0,
+            screen: physical_screen.to_logical(scale_factor),
+            physical_screen,
+            repaint_buffer,
+            scale_factor,
+            scale_factor_changed: true,
             previous_commands: CommandList::default(),
             differ: CommandListDiffer::default(),
             previous_damage: Vec::new(),
             render_damage: Vec::new(),
         }
     }
-}
 
-impl UiState {
     pub fn has_pending_redraw(&self) -> bool {
         self.frame_requested
             || !self.previous_damage.is_empty()
@@ -346,6 +361,28 @@ impl UiState {
         self.frame_requested = true;
     }
 
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+
+    pub fn set_screen(&mut self, physical_screen: PhysicalRect) {
+        if self.physical_screen != physical_screen {
+            self.physical_screen = physical_screen;
+            self.screen = physical_screen.to_logical(self.scale_factor);
+            self.previous_damage.clear();
+            self.invalidate_all();
+        }
+    }
+
+    pub fn set_scale_factor(&mut self, scale_factor: f32) {
+        assert!(scale_factor.is_finite() && scale_factor > 0.0);
+        if self.scale_factor != scale_factor {
+            self.scale_factor = scale_factor;
+            self.scale_factor_changed = true;
+            self.frame_requested = true;
+        }
+    }
+
     pub fn invalidate_all(&mut self) {
         self.frame_requested = true;
         self.full_repaint = true;
@@ -353,10 +390,6 @@ impl UiState {
 
     pub fn set_command_diff_config(&mut self, config: CommandDiffConfig) {
         self.differ.set_config(config);
-    }
-
-    pub fn screen(&self) -> LogicalRect {
-        self.screen
     }
 
     pub fn frame_graph_memory(&self) -> FrameGraphMemory {
@@ -368,42 +401,40 @@ impl UiState {
 ///
 /// `build` runs once per input so each event observes state changes from
 /// earlier events. layout and interaction state are updated after every call,
-/// while command diffing and platform rendering occur once after the last input
+/// while command diffing and renderer rendering occur once after the last input
 ///
 /// an empty input sequence builds once with [`Input::None`]. the return value is
 /// from the final call to `build`
-pub fn render<P: PlatformImpl + 'static, R>(
-    platform: &mut P,
+///
+/// the same renderer must be used for the entire lifetime of the [`UiState`]
+pub fn render<P: Renderer + 'static, R>(
+    renderer: &mut P,
     state: &mut UiState,
     time: Duration,
     inputs: impl IntoIterator<Item = Input>,
     mut build: impl FnMut(&mut Ui) -> R,
 ) -> R {
-    // refresh platform-dependent frame state
-    let repaint_buffer = platform.repaint_buffer();
-    let physical_screen = platform.screen();
-    let scale_factor = platform.scale_factor();
-    assert!(scale_factor.is_finite() && scale_factor > 0.0);
-    if state.physical_screen != physical_screen || state.scale_factor != scale_factor {
-        state.physical_screen = physical_screen;
-        state.screen = physical_screen.to_logical(scale_factor);
-        state.scale_factor = scale_factor;
+    let scale_factor = state.scale_factor;
+    if std::mem::take(&mut state.scale_factor_changed) {
+        renderer.set_scale_factor(scale_factor);
+        state.screen = state.physical_screen.to_logical(scale_factor);
         state.previous_damage.clear();
-        state.invalidate_all();
+        state.full_repaint = true;
     }
 
     // record every input against the state produced by the previous one
     let mut inputs = inputs.into_iter();
     state.frame_requested = false;
     let mut output = record(
-        platform,
+        renderer,
         state,
+        scale_factor,
         time,
         inputs.next().unwrap_or_default(),
         &mut build,
     );
     for input in inputs {
-        output = record(platform, state, time, input, &mut build);
+        output = record(renderer, state, scale_factor, time, input, &mut build);
     }
 
     // diff and render only the final recorded frame
@@ -416,14 +447,14 @@ pub fn render<P: PlatformImpl + 'static, R>(
             .extend_from_slice(state.differ.diff(&state.previous_commands, &state.commands));
     }
     let current_damage_len = state.render_damage.len();
-    if repaint_buffer == RepaintBuffer::Swapped {
+    if state.repaint_buffer == RepaintBuffer::Swapped {
         state
             .render_damage
             .extend_from_slice(&state.previous_damage);
     }
-    platform.render(&state.commands, &state.render_damage);
+    renderer.render(&state.commands, &state.render_damage);
     state.previous_damage.clear();
-    if repaint_buffer == RepaintBuffer::Swapped {
+    if state.repaint_buffer == RepaintBuffer::Swapped {
         state
             .previous_damage
             .extend_from_slice(&state.render_damage[..current_damage_len]);
@@ -432,9 +463,10 @@ pub fn render<P: PlatformImpl + 'static, R>(
     output
 }
 
-fn record<P: PlatformImpl + 'static, R>(
-    platform: &mut P,
+fn record<P: Renderer + 'static, R>(
+    renderer: &mut P,
     state: &mut UiState,
+    scale_factor: f32,
     time: Duration,
     input: Input,
     build: impl FnOnce(&mut Ui) -> R,
@@ -448,16 +480,17 @@ fn record<P: PlatformImpl + 'static, R>(
     for timer in &mut state.timers {
         timer.seen = false;
     }
-    state.interaction.begin_frame(&input, state.scale_factor);
+    state.interaction.begin_frame(&input, scale_factor);
 
     let output = {
-        // expose state and platform only for the build callback
-        let platform_ptr = NonNull::from(&mut *platform as &mut dyn PlatformImpl);
+        // expose state and renderer only for the build callback
+        let renderer_ptr = NonNull::from(&mut *renderer as &mut dyn Renderer);
         let mut ui = Ui {
             state: NonNull::from(&mut *state),
-            platform: platform_ptr,
+            renderer: renderer_ptr,
             time,
             input,
+            scale_factor,
         };
         build(&mut ui)
     };
@@ -465,14 +498,14 @@ fn record<P: PlatformImpl + 'static, R>(
     // resolve the frame and retain state needed by the next input
     let mut frame = std::mem::take(&mut state.frame);
     frame.finish(
-        platform,
+        renderer,
         &mut state.commands,
         &mut state.interaction,
         &mut state.geometry,
-        state.scale_factor,
+        scale_factor,
     );
     state.frame = frame;
-    if state.interaction.end_frame(state.scale_factor) {
+    if state.interaction.end_frame(scale_factor) {
         state.frame_requested = true;
     }
     state.geometry.end_frame();

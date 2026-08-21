@@ -4,14 +4,14 @@ use blit::{
     Ui, UiState,
     color::Color,
     command_list::{ClipId, CommandList, CommandListDiffer},
-    geometry::LogicalRect,
+    geometry::{LogicalRect, PhysicalRect},
     input::Input,
     paint::Rectangle,
     render,
 };
 use divan::counter::ItemsCount;
 
-use support::{CELLS_PER_ROW, ITEMS, NoopPlatform, command_frame, layout_frame};
+use support::{CELLS_PER_ROW, ITEMS, NoopRenderer, command_frame, layout_frame};
 
 mod support;
 
@@ -60,17 +60,23 @@ enum DiffCase {
 }
 
 fn benchmark_frame(bencher: divan::Bencher, frame: fn(&mut Ui)) {
-    let mut platform = NoopPlatform;
-    let mut state = UiState::default();
+    let mut renderer = NoopRenderer;
+    let screen = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 1280,
+        height: 8192,
+    };
+    let mut state = UiState::new(screen, blit::RepaintBuffer::Reused, 1.0);
     render(
-        &mut platform,
+        &mut renderer,
         &mut state,
         Duration::ZERO,
         [Input::None],
         frame,
     );
     render(
-        &mut platform,
+        &mut renderer,
         &mut state,
         Duration::ZERO,
         [Input::None],
@@ -78,7 +84,7 @@ fn benchmark_frame(bencher: divan::Bencher, frame: fn(&mut Ui)) {
     );
     bencher.counter(ItemsCount::new(ITEMS)).bench_local(|| {
         render(
-            &mut platform,
+            &mut renderer,
             &mut state,
             Duration::ZERO,
             [Input::None],

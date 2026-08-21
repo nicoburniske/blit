@@ -1,13 +1,13 @@
 use std::hint::black_box;
 
 use blit::{
-    RepaintBuffer, Sizing, Ui,
+    Sizing, Ui,
     color::Color,
     command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     interact::{Sense, WidgetId},
     paint::{self, TextLayoutRequest, TextRunId, TextStyle},
-    platform::PlatformImpl,
+    renderer::Renderer,
     resource::{ImageData, ImageHandle, ImageId},
     widget::Rectangle,
 };
@@ -16,24 +16,13 @@ pub const ROWS: usize = 256;
 pub const CELLS_PER_ROW: usize = 3;
 pub const ITEMS: usize = ROWS * CELLS_PER_ROW;
 
-pub struct NoopPlatform;
+pub struct NoopRenderer;
 
-impl PlatformImpl for NoopPlatform {
+impl Renderer for NoopRenderer {
+    fn set_scale_factor(&mut self, _: f32) {}
+
     fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
         black_box((commands.len(), damage.len()));
-    }
-
-    fn screen(&mut self) -> PhysicalRect {
-        PhysicalRect {
-            x: 0,
-            y: 0,
-            width: 1280,
-            height: 8192,
-        }
-    }
-
-    fn repaint_buffer(&self) -> RepaintBuffer {
-        RepaintBuffer::Reused
     }
 
     fn create_image(&mut self, data: ImageData) -> ImageHandle {
