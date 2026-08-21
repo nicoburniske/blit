@@ -84,12 +84,34 @@ struct PositionedFlow {
     absolute: Absolute,
 }
 
+/// index into `flows`, or into `positioned_flows` when the high bit is set
 #[derive(Clone, Copy, Default)]
 struct FlowId(u32);
 
-#[derive(Clone, Copy, Default)]
-struct PayloadId(u32);
+macro_rules! store_ids {
+    ($($name:ident),+ $(,)?) => {
+        $(
+            #[derive(Clone, Copy, Default)]
+            struct $name(u32);
 
+            impl $name {
+                const NONE: Self = Self(0);
+
+                fn new(index: usize) -> Self {
+                    Self(u32::try_from(index + 1).expect("too many stored values in one frame"))
+                }
+
+                fn index(self) -> Option<usize> {
+                    self.0.checked_sub(1).map(|index| index as usize)
+                }
+            }
+        )+
+    };
+}
+
+store_ids!(AppearanceId, ShadowId, ClipSpecId);
+
+/// index into `texts`, or into `images` when the high bit is set
 #[derive(Clone, Copy, Default)]
 struct ContentId(u32);
 
@@ -97,12 +119,13 @@ struct ContentId(u32);
 pub struct FrameGraph {
     clear: bool,
     nodes: Vec<Node>,
-    open: Vec<NodeId>,
+    open_containers: Vec<NodeId>,
     texts: Vec<TextContent>,
     images: Vec<ImageContent>,
     flows: Vec<Flow>,
     positioned_flows: Vec<PositionedFlow>,
-    layers: Vec<NodeId>,
+    // absolute subtree roots. finish inserts ROOT to form paint order
+    layer_roots: Vec<NodeId>,
     appearances: Vec<StoredAppearance>,
     shadows: Vec<Shadow>,
     clip_specs: Vec<Clip>,
@@ -116,9 +139,9 @@ struct Node {
     item: Item,
     flow: FlowId,
     content: ContentId,
-    appearance: PayloadId,
-    shadow: PayloadId,
-    clip_spec: PayloadId,
+    appearance: AppearanceId,
+    shadow: ShadowId,
+    clip_spec: ClipSpecId,
     // layout resolves area in place: dimensions start intrinsic,
     // then each axis writes its final position and size
     area: LogicalRect,
@@ -180,7 +203,7 @@ impl FlowId {
     const POSITIONED: u32 = 1 << 31;
     const NONE: Self = Self(0);
 
-    fn new(index: usize) -> Self {
+    fn normal(index: usize) -> Self {
         let id = u32::try_from(index + 1).expect("too many flows in one frame");
         assert!(id < Self::POSITIONED, "too many flows in one frame");
         Self(id)
@@ -195,7 +218,7 @@ impl FlowId {
         Self(Self::POSITIONED | id)
     }
 
-    fn get(self) -> Option<usize> {
+    fn index(self) -> Option<usize> {
         (self.0 & !Self::POSITIONED)
             .checked_sub(1)
             .map(|index| index as usize)
@@ -203,18 +226,6 @@ impl FlowId {
 
     fn is_positioned(self) -> bool {
         self.0 & Self::POSITIONED != 0
-    }
-}
-
-impl PayloadId {
-    const NONE: Self = Self(0);
-
-    fn new(index: usize) -> Self {
-        Self(u32::try_from(index + 1).expect("too many node payloads in one frame"))
-    }
-
-    fn get(self) -> Option<usize> {
-        self.0.checked_sub(1).map(|index| index as usize)
     }
 }
 
@@ -234,7 +245,7 @@ impl ContentId {
         Self(Self::IMAGE | id)
     }
 
-    fn get(self) -> ContentRef {
+    fn decode(self) -> ContentRef {
         match self.0 {
             0 => ContentRef::None,
             id if id & Self::IMAGE == 0 => ContentRef::Text(id as usize - 1),
@@ -247,12 +258,12 @@ impl FrameGraph {
     pub fn begin(&mut self, screen: LogicalRect) {
         self.clear = false;
         self.nodes.clear();
-        self.open.clear();
+        self.open_containers.clear();
         self.texts.clear();
         self.images.clear();
         self.flows.clear();
         self.positioned_flows.clear();
-        self.layers.clear();
+        self.layer_roots.clear();
         self.appearances.clear();
         self.shadows.clear();
         self.clip_specs.clear();
@@ -274,16 +285,16 @@ impl FrameGraph {
                 width: Sizing::fixed(screen.width),
                 height: Sizing::fixed(screen.height),
             },
-            flow: FlowId::new(0),
+            flow: FlowId::normal(0),
             content: ContentId::NONE,
-            appearance: PayloadId::NONE,
-            shadow: PayloadId::NONE,
-            clip_spec: PayloadId::NONE,
+            appearance: AppearanceId::NONE,
+            shadow: ShadowId::NONE,
+            clip_spec: ClipSpecId::NONE,
             area: screen,
             clip: ClipId::default(),
             clip_bounds: screen,
         });
-        self.open.push(NodeId::ROOT);
+        self.open_containers.push(NodeId::ROOT);
     }
 
     pub fn clear(&mut self) {
@@ -314,7 +325,7 @@ impl FrameGraph {
             container.id,
             container.interaction,
         );
-        self.open.push(node);
+        self.open_containers.push(node);
         node
     }
 
@@ -347,7 +358,9 @@ impl FrameGraph {
         id: Option<WidgetId>,
         interaction: Option<(WidgetId, Sense)>,
     ) -> NodeId {
-        self.open.last().expect("node declaration requires a root");
+        self.open_containers
+            .last()
+            .expect("node declaration requires a root");
         let node = NodeId::new(self.nodes.len());
         let (appearance, shadow) = self.store_appearance(appearance);
         let flow = match (flow, position) {
@@ -355,11 +368,11 @@ impl FrameGraph {
                 let id = FlowId::positioned(self.positioned_flows.len());
                 self.positioned_flows
                     .push(PositionedFlow { flow, absolute });
-                self.layers.push(node);
+                self.layer_roots.push(node);
                 id
             }
             (Some(flow), None) => {
-                let id = FlowId::new(self.flows.len());
+                let id = FlowId::normal(self.flows.len());
                 self.flows.push(flow);
                 id
             }
@@ -367,9 +380,9 @@ impl FrameGraph {
             (None, Some(_)) => unreachable!("only containers can be positioned"),
         };
         let clip_spec = if clip == Clip::None {
-            PayloadId::NONE
+            ClipSpecId::NONE
         } else {
-            let id = PayloadId::new(self.clip_specs.len());
+            let id = ClipSpecId::new(self.clip_specs.len());
             self.clip_specs.push(clip);
             id
         };
@@ -426,7 +439,7 @@ impl FrameGraph {
         }
     }
 
-    fn store_appearance(&mut self, appearance: Appearance<'_>) -> (PayloadId, PayloadId) {
+    fn store_appearance(&mut self, appearance: Appearance<'_>) -> (AppearanceId, ShadowId) {
         let stored = if appearance.background != Color::TRANSPARENT
             || !matches!(appearance.border, Border::None)
         {
@@ -444,7 +457,7 @@ impl FrameGraph {
                     }
                 }
             };
-            let id = PayloadId::new(self.appearances.len());
+            let id = AppearanceId::new(self.appearances.len());
             self.appearances.push(StoredAppearance {
                 background: appearance.background,
                 border,
@@ -453,10 +466,10 @@ impl FrameGraph {
             });
             id
         } else {
-            PayloadId::NONE
+            AppearanceId::NONE
         };
-        let shadow = appearance.shadow.map_or(PayloadId::NONE, |shadow| {
-            let id = PayloadId::new(self.shadows.len());
+        let shadow = appearance.shadow.map_or(ShadowId::NONE, |shadow| {
+            let id = ShadowId::new(self.shadows.len());
             self.shadows.push(shadow);
             id
         });
@@ -464,13 +477,17 @@ impl FrameGraph {
     }
 
     pub fn close(&mut self, node: NodeId) {
-        assert_eq!(self.open.pop(), Some(node), "nodes must close in order");
+        assert_eq!(
+            self.open_containers.pop(),
+            Some(node),
+            "nodes must close in order"
+        );
         let end = u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
         let stored = &mut self.nodes[node.index()];
         stored.subtree_end = end;
         if end as usize == node.index() + 1
             && !stored.flow.is_positioned()
-            && stored.flow.get() == self.flows.len().checked_sub(1)
+            && stored.flow.index() == self.flows.len().checked_sub(1)
         {
             self.flows.pop();
             stored.flow = FlowId::NONE;
@@ -486,7 +503,7 @@ impl FrameGraph {
         scale_factor: f32,
     ) {
         assert_eq!(
-            self.open,
+            self.open_containers,
             [NodeId::ROOT],
             "a container scope was not dropped"
         );
@@ -496,7 +513,7 @@ impl FrameGraph {
             self.layout::<false>(platform);
         } else {
             self.layout::<true>(platform);
-            self.prepare_layers();
+            self.order_layer_roots();
         }
         if self.clear {
             commands.push_clear(self.nodes[0].area.to_physical(scale_factor));
@@ -514,12 +531,12 @@ impl FrameGraph {
             node_size: size_of::<Node>(),
             node_capacity: self.nodes.capacity(),
             heap_bytes: self.nodes.capacity() * size_of::<Node>()
-                + self.open.capacity() * size_of::<NodeId>()
+                + self.open_containers.capacity() * size_of::<NodeId>()
                 + self.texts.capacity() * size_of::<TextContent>()
                 + self.images.capacity() * size_of::<ImageContent>()
                 + self.flows.capacity() * size_of::<Flow>()
                 + self.positioned_flows.capacity() * size_of::<PositionedFlow>()
-                + self.layers.capacity() * size_of::<NodeId>()
+                + self.layer_roots.capacity() * size_of::<NodeId>()
                 + self.appearances.capacity() * size_of::<StoredAppearance>()
                 + self.shadows.capacity() * size_of::<Shadow>()
                 + self.clip_specs.capacity() * size_of::<Clip>()
@@ -529,30 +546,30 @@ impl FrameGraph {
         }
     }
 
-    fn prepare_layers(&mut self) {
+    fn order_layer_roots(&mut self) {
         let nodes = &self.nodes;
         let positioned = &self.positioned_flows;
         let z_index = |root: &NodeId| {
-            positioned[nodes[root.index()].flow.get().unwrap()]
+            positioned[nodes[root.index()].flow.index().unwrap()]
                 .absolute
                 .z_index
         };
-        self.layers
+        self.layer_roots
             .sort_unstable_by_key(|root| (z_index(root), root.index()));
-        let normal = self.layers.partition_point(|root| z_index(root) < 0);
-        self.layers.insert(normal, NodeId::ROOT);
+        let normal = self.layer_roots.partition_point(|root| z_index(root) < 0);
+        self.layer_roots.insert(normal, NodeId::ROOT);
 
-        let layers = &self.layers;
+        let layer_roots = &self.layer_roots;
         self.interactions.sort_unstable_by_key(|record| {
             let node = record.node.index();
-            let layer = layers
+            let layer = layer_roots
                 .iter()
                 .enumerate()
-                .filter(|(_, layer)| {
-                    let root = layer.index();
+                .filter(|(_, layer_root)| {
+                    let root = layer_root.index();
                     root <= node && node < nodes[root].subtree_end as usize
                 })
-                .max_by_key(|(_, layer)| layer.index())
+                .max_by_key(|(_, layer_root)| layer_root.index())
                 .unwrap()
                 .0;
             (layer, node)
@@ -571,7 +588,7 @@ impl FrameGraph {
 
     fn flow<const POSITIONED: bool>(&self, node: NodeId) -> Flow {
         let flow = self.nodes[node.index()].flow;
-        let index = flow.get().expect("layout parent has no flow");
+        let index = flow.index().expect("layout parent has no flow");
         if POSITIONED && flow.is_positioned() {
             self.positioned_flows[index].flow
         } else {
@@ -581,7 +598,7 @@ impl FrameGraph {
 
     fn measure_intrinsic<const POSITIONED: bool>(&mut self, platform: &mut Platform) {
         for node in self.nodes.iter_mut().skip(1) {
-            let size = match node.content.get() {
+            let size = match node.content.decode() {
                 ContentRef::None => LogicalSize::default(),
                 ContentRef::Text(index) => {
                     let text = self.texts[index];
@@ -605,7 +622,7 @@ impl FrameGraph {
 
     fn measure_wrapped_text(&mut self, platform: &mut Platform) {
         for node in &mut self.nodes {
-            let ContentRef::Text(index) = node.content.get() else {
+            let ContentRef::Text(index) = node.content.decode() else {
                 continue;
             };
             let text = self.texts[index];
@@ -664,7 +681,7 @@ impl FrameGraph {
 
     fn resolve_axis<const POSITIONED: bool>(&mut self, axis: Axis) {
         for index in 0..self.nodes.len() {
-            if self.nodes[index].flow.get().is_some() {
+            if self.nodes[index].flow.index().is_some() {
                 self.resolve_children::<POSITIONED>(NodeId::new(index), axis);
             }
         }
@@ -829,7 +846,7 @@ impl FrameGraph {
                 child = next;
                 continue;
             }
-            let position = self.positioned_flows[node.flow.get().unwrap()].absolute;
+            let position = self.positioned_flows[node.flow.index().unwrap()].absolute;
             let target = match position.target {
                 PositionTarget::Parent => self.nodes[parent].area,
                 PositionTarget::Screen => self.nodes[0].area,
@@ -853,7 +870,7 @@ impl FrameGraph {
         for index in 0..self.nodes.len() {
             let clip = self.nodes[index]
                 .clip_spec
-                .get()
+                .index()
                 .map_or(Clip::None, |clip| self.clip_specs[clip]);
             let child_clip = match clip {
                 Clip::None => self.nodes[index].clip,
@@ -884,15 +901,15 @@ impl FrameGraph {
     }
 
     fn emit(&self, platform: &mut Platform, commands: &mut CommandList, scale_factor: f32) {
-        if self.layers.is_empty() {
+        if self.layer_roots.is_empty() {
             for index in 1..self.nodes.len() {
                 self.emit_node(index, platform, commands, scale_factor);
             }
             return;
         }
 
-        for layer in &self.layers {
-            self.emit_layer(layer.index(), platform, commands, scale_factor);
+        for root in &self.layer_roots {
+            self.emit_layer(root.index(), platform, commands, scale_factor);
         }
     }
 
@@ -929,7 +946,7 @@ impl FrameGraph {
         scale_factor: f32,
     ) {
         let node = &self.nodes[index];
-        if let Some(shadow) = node.shadow.get().map(|index| self.shadows[index]) {
+        if let Some(shadow) = node.shadow.index().map(|index| self.shadows[index]) {
             let shadow = BoxShadow::new(node.area, shadow.color)
                 .radius(shadow.radius)
                 .offset(shadow.offset_x, shadow.offset_y)
@@ -939,7 +956,11 @@ impl FrameGraph {
                 commands.push_box_shadow(shadow, bounds, node.clip);
             }
         }
-        if let Some(appearance) = node.appearance.get().map(|index| &self.appearances[index]) {
+        if let Some(appearance) = node
+            .appearance
+            .index()
+            .map(|index| &self.appearances[index])
+        {
             let border = match appearance.border {
                 StoredBorder::None => Border::None,
                 StoredBorder::Solid { width, color } => Border::Solid { width, color },
@@ -965,7 +986,7 @@ impl FrameGraph {
                 commands.push_rectangle(rectangle, bounds, node.clip);
             }
         }
-        match node.content.get() {
+        match node.content.decode() {
             ContentRef::None => {}
             ContentRef::Text(index) => {
                 let text = self.texts[index];
