@@ -1,6 +1,7 @@
 use super::Widget;
 use crate::{
     Ui,
+    animation::Transition,
     color::Color,
     container::{Item, Sizing},
     interact::WidgetId,
@@ -12,6 +13,7 @@ pub struct Rectangle {
     id: Option<WidgetId>,
     item: Item,
     style: Style<'static>,
+    transition: Option<Transition>,
 }
 
 impl Rectangle {
@@ -20,6 +22,7 @@ impl Rectangle {
             id: None,
             item: Item::new(),
             style: Style::new(),
+            transition: None,
         }
     }
 
@@ -73,6 +76,11 @@ impl Rectangle {
         self.id = Some(id);
         self
     }
+
+    pub const fn transition(mut self, transition: Transition) -> Self {
+        self.transition = Some(transition);
+        self
+    }
 }
 
 impl Default for Rectangle {
@@ -88,6 +96,9 @@ impl Widget for Rectangle {
         let node = ui.add_leaf(self.item, Content::Rectangle(self.style));
         if let Some(id) = self.id {
             ui.set_node_id(node, id);
+            if let Some(transition) = self.transition {
+                ui.set_node_transition(node, id, transition);
+            }
         }
     }
 }

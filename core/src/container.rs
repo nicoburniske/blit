@@ -4,6 +4,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::{
     Ui,
+    animation::Transition,
     geometry::{LogicalInsets, LogicalPoint},
     interact::WidgetId,
     node::NodeId,
@@ -37,6 +38,7 @@ pub struct ContainerConfig<'a> {
     pub child_offset: LogicalPoint,
     pub style: Style<'a>,
     pub clip: Clip,
+    pub transition: Option<Transition>,
 }
 
 /// sizing applied to one item by its parent
@@ -163,6 +165,11 @@ impl<'ui, 'style> Container<'ui, 'style> {
         self
     }
 
+    pub fn transition(mut self, transition: Transition) -> Self {
+        self.config.transition = Some(transition);
+        self
+    }
+
     pub fn style(mut self, style: Style<'style>) -> Self {
         self.config.style = style;
         self
@@ -257,6 +264,7 @@ impl Default for ContainerConfig<'_> {
             child_offset: LogicalPoint { x: 0.0, y: 0.0 },
             style: Style::new(),
             clip: Clip::None,
+            transition: None,
         }
     }
 }

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::{
     RepaintBuffer, Ui, UiState,
-    animation::Easing,
+    animation::{Easing, Transition},
     color::Color,
     command_list::{ClipId, Command, CommandList},
     container::{Absolute, Align, Anchor, Justify, Sizing},
@@ -854,6 +854,136 @@ fn animation_is_keyed_and_target_driven() {
         }),
         10.0
     );
+    assert!(!harness.has_pending_redraw());
+}
+
+#[test]
+fn transition_animates_resolved_positions() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let first = WidgetId::new("first transitioned item");
+    let second = WidgetId::new("second transitioned item");
+    let transition = Transition::new(Duration::from_millis(100))
+        .easing(Easing::Linear)
+        .position();
+    let render = |ui: &mut Ui, reversed: bool| {
+        let mut row = ui.container().row().fixed(4.0, 2.0).open();
+        let ids = if reversed {
+            [second, first]
+        } else {
+            [first, second]
+        };
+        for id in ids {
+            let _item = row
+                .container()
+                .fixed(2.0, 2.0)
+                .background(Color::WHITE)
+                .id(id)
+                .transition(transition)
+                .open();
+        }
+    };
+
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, false));
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 0.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 2.0);
+
+    harness.render(Duration::from_millis(10), Input::None, |ui| {
+        render(ui, true)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 2.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 0.0);
+    assert!(harness.has_pending_redraw());
+
+    harness.render(Duration::from_millis(60), Input::None, |ui| {
+        render(ui, true)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 1.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 1.0);
+
+    harness.render(Duration::from_millis(110), Input::None, |ui| {
+        render(ui, true)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 0.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 2.0);
+    assert!(!harness.has_pending_redraw());
+}
+
+#[test]
+fn transition_without_id_is_ignored() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let transition = Transition::new(Duration::from_millis(100)).layout();
+
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let _container = ui.container().transition(transition).open();
+    });
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        ui.add(widget::Rectangle::new().transition(transition));
+    });
+
+    assert!(!harness.has_pending_redraw());
+}
+
+#[test]
+fn transition_does_not_animate_unchanged_parent_relative_position() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("child of moving parent");
+    let transition = Transition::new(Duration::from_millis(100)).position();
+    let render = |ui: &mut Ui, top: f32| {
+        let mut column = ui.container().fixed(2.0, 10.0).open();
+        column.add(widget::Rectangle::new().fixed(2.0, top));
+        let mut parent = column.container().fixed(2.0, 2.0).open();
+        parent.add(
+            widget::Rectangle::new()
+                .fixed(2.0, 2.0)
+                .background(Color::WHITE)
+                .id(id)
+                .transition(transition),
+        );
+    };
+
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
+    harness.render(Duration::from_millis(10), Input::None, |ui| render(ui, 2.0));
+    assert_eq!(harness.renderer().rectangle_areas[0].y, 2.0);
+    assert!(!harness.has_pending_redraw());
+}
+
+#[test]
+fn transitioned_dimensions_participate_in_second_layout() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("resizing item");
+    let transition = Transition::new(Duration::from_millis(100))
+        .easing(Easing::Linear)
+        .width();
+    let render = |ui: &mut Ui, width: f32| {
+        let mut row = ui.container().row().fixed(10.0, 2.0).open();
+        row.add(
+            widget::Rectangle::new()
+                .fixed(width, 2.0)
+                .background(Color::WHITE)
+                .id(id)
+                .transition(transition),
+        );
+        row.add(
+            widget::Rectangle::new()
+                .fixed(2.0, 2.0)
+                .background(Color::BLACK),
+        );
+    };
+
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, 2.0));
+    harness.render(Duration::from_millis(10), Input::None, |ui| render(ui, 6.0));
+    assert_eq!(harness.renderer().rectangle_areas[0].width, 2.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 2.0);
+
+    harness.render(Duration::from_millis(60), Input::None, |ui| render(ui, 6.0));
+    assert_eq!(harness.renderer().rectangle_areas[0].width, 4.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 4.0);
+
+    harness.render(Duration::from_millis(110), Input::None, |ui| {
+        render(ui, 6.0)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].width, 6.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 6.0);
     assert!(!harness.has_pending_redraw());
 }
 
