@@ -18,6 +18,7 @@ pub struct Absolute {
     pub target_anchor: Anchor,
     pub child_anchor: Anchor,
     pub offset: LogicalPoint,
+    pub z_index: i16,
 }
 
 /// coordinate space used by absolute placement
@@ -124,6 +125,7 @@ impl Absolute {
             target_anchor: Anchor::TopLeft,
             child_anchor: Anchor::TopLeft,
             offset: LogicalPoint { x, y },
+            z_index: 0,
         }
     }
 
@@ -151,6 +153,15 @@ impl Absolute {
 
     pub const fn offset(mut self, x: f32, y: f32) -> Self {
         self.offset = LogicalPoint { x, y };
+        self
+    }
+
+    /// orders this absolute subtree relative to other layers
+    ///
+    /// negative layers paint below normal flow, while zero and positive layers
+    /// paint above it. equal values retain declaration order
+    pub const fn z_index(mut self, z_index: i16) -> Self {
+        self.z_index = z_index;
         self
     }
 }

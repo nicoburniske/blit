@@ -368,7 +368,7 @@ impl Application for Showcase {
                             };
                             if let Some(anchor) = anchor {
                                 let mut badge = rectangle
-                                    .absolute(Absolute::attach(anchor, Anchor::Center))
+                                    .absolute(Absolute::attach(anchor, Anchor::Center).z_index(1))
                                     .row(
                                         Container::new()
                                             .fixed((28.0 * zoom).max(20.0), (14.0 * zoom).max(10.0))
@@ -410,7 +410,9 @@ impl Application for Showcase {
                         if interaction.hovered || interaction.dragged {
                             let mut readout = grip
                                 .absolute(
-                                    Absolute::attach(Anchor::Left, Anchor::Right).offset(-8.0, 0.0),
+                                    Absolute::attach(Anchor::Left, Anchor::Right)
+                                        .offset(-8.0, 0.0)
+                                        .z_index(10),
                                 )
                                 .row(
                                     Container::new()
@@ -491,7 +493,8 @@ impl Application for Showcase {
             .absolute(
                 Absolute::screen(0.0, 0.0)
                     .anchors(Anchor::BottomRight, Anchor::BottomRight)
-                    .offset(-16.0, -16.0),
+                    .offset(-16.0, -16.0)
+                    .z_index(20),
             )
             .row(
                 Container::new()
