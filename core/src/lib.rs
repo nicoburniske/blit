@@ -248,7 +248,7 @@ impl Ui {
             states.push(graph::TransitionState::new(id));
             states.len() - 1
         };
-        let parent = self.frame_mut().set_transition(node, index);
+        let parent = self.frame_mut().transition_parent(node);
         self.state_mut().transitions[index].begin(node, parent, transition);
     }
 
