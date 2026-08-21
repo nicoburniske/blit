@@ -6,13 +6,11 @@ mod strategy;
 mod text;
 
 use blit::{
-    command_list::{Command, CommandList as ResolvedCommandList},
+    command_list::{BoxShadow, Command, CommandList as ResolvedCommandList, Rectangle},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
-    paint::{
-        Border, BoxShadow, FontId, ImageRequest, Rectangle, TextLayoutRequest, TextRequest,
-        TextRunId, TextStyle,
-    },
-    resource::{ImageData, ImageHandle, ImageId},
+    image::{ImageData, ImageHandle, ImageId, ImageRequest},
+    style::Border,
+    text::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 pub use blit_font::Font;
 pub use pixel::{
@@ -237,17 +235,17 @@ impl StoredImage {
             })
         };
         let (alpha_rows, opaque) = match data.format {
-            blit::resource::ImageFormat::Rgb8 | blit::resource::ImageFormat::Luma8 => {
+            blit::image::ImageFormat::Rgb8 | blit::image::ImageFormat::Luma8 => {
                 (AlphaRows::default(), true)
             }
-            blit::resource::ImageFormat::Rgba8 => (AlphaRows::default(), rgba_opaque()),
-            blit::resource::ImageFormat::Rgba8Premultiplied if rgba_opaque() => {
+            blit::image::ImageFormat::Rgba8 => (AlphaRows::default(), rgba_opaque()),
+            blit::image::ImageFormat::Rgba8Premultiplied if rgba_opaque() => {
                 (AlphaRows::default(), true)
             }
-            blit::resource::ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => {
+            blit::image::ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => {
                 (AlphaRows::default(), false)
             }
-            blit::resource::ImageFormat::Rgba8Premultiplied => {
+            blit::image::ImageFormat::Rgba8Premultiplied => {
                 let mut rows = Vec::with_capacity(height * 4);
                 for y in 0..height {
                     let row = &bytes[y * data.stride_bytes..][..width * 4];
@@ -286,7 +284,7 @@ impl StoredImage {
                 }
                 (AlphaRows(rows.into_boxed_slice()), false)
             }
-            blit::resource::ImageFormat::Alpha8(_)
+            blit::image::ImageFormat::Alpha8(_)
                 if (0..height).all(|line| {
                     bytes[line * data.stride_bytes..][..width]
                         .iter()
@@ -295,10 +293,10 @@ impl StoredImage {
             {
                 (AlphaRows::default(), true)
             }
-            blit::resource::ImageFormat::Alpha8(_) if width > u16::MAX as usize => {
+            blit::image::ImageFormat::Alpha8(_) if width > u16::MAX as usize => {
                 (AlphaRows::default(), false)
             }
-            blit::resource::ImageFormat::Alpha8(_) => {
+            blit::image::ImageFormat::Alpha8(_) => {
                 let mut rows = Vec::with_capacity(height * 2);
                 for y in 0..height {
                     let row = &bytes[y * data.stride_bytes..][..width];

@@ -1,8 +1,9 @@
 use std::ops::Range;
 
 use blit::{
+    command_list::Rectangle,
     geometry::PhysicalRect,
-    paint::{Border, GradientStop, LinearGradient, Rectangle},
+    style::{Border, GradientStop, LinearGradient},
 };
 
 use super::rounded::{

@@ -1,15 +1,17 @@
 use super::Widget;
 use crate::{
-    Content, Item, Sizing, Style, Ui,
+    Ui,
     color::Color,
+    container::{Item, Sizing},
     interact::WidgetId,
-    paint::{Border, BorderRadius},
+    node::Content,
+    style::{Border, BorderRadius, Style},
 };
 
 pub struct Rectangle {
     id: Option<WidgetId>,
     item: Item,
-    appearance: Style<'static>,
+    style: Style<'static>,
 }
 
 impl Rectangle {
@@ -17,7 +19,7 @@ impl Rectangle {
         Self {
             id: None,
             item: Item::new(),
-            appearance: Style::new(),
+            style: Style::new(),
         }
     }
 
@@ -38,22 +40,22 @@ impl Rectangle {
     }
 
     pub const fn background(mut self, color: Color) -> Self {
-        self.appearance.background = color;
+        self.style.background = color;
         self
     }
 
     pub const fn border(mut self, width: f32, color: Color) -> Self {
-        self.appearance.border = Border::Solid { width, color };
+        self.style.border = Border::Solid { width, color };
         self
     }
 
     pub const fn radius(mut self, radius: BorderRadius) -> Self {
-        self.appearance.radius = radius;
+        self.style.radius = radius;
         self
     }
 
     pub const fn uniform_radius(mut self, radius: f32) -> Self {
-        self.appearance.radius = BorderRadius {
+        self.style.radius = BorderRadius {
             top_left: radius,
             top_right: radius,
             bottom_right: radius,
@@ -63,7 +65,7 @@ impl Rectangle {
     }
 
     pub const fn opacity(mut self, opacity: f32) -> Self {
-        self.appearance.opacity = opacity;
+        self.style.opacity = opacity;
         self
     }
 
@@ -82,8 +84,8 @@ impl Default for Rectangle {
 impl Widget for Rectangle {
     type Output = ();
 
-    fn build(self, ui: &mut Ui) {
-        let node = ui.add_leaf(self.item, Content::Rectangle(self.appearance));
+    fn render(self, ui: &mut Ui) {
+        let node = ui.add_leaf(self.item, Content::Rectangle(self.style));
         if let Some(id) = self.id {
             ui.set_node_id(node, id);
         }

@@ -1,6 +1,6 @@
 use std::mem::size_of;
 
-use blit::paint::{
+use blit::text::{
     HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextRunId, TextWrap,
     VerticalAlign,
 };

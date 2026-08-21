@@ -1,14 +1,15 @@
 use std::hint::black_box;
 
 use blit::{
-    Sizing, Ui,
+    Ui,
     color::Color,
     command_list::CommandList,
+    container::Sizing,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
+    image::{ImageData, ImageHandle, ImageId},
     interact::{Sense, WidgetId},
-    paint::{self, TextLayoutRequest, TextRunId, TextStyle},
     renderer::Renderer,
-    resource::{ImageData, ImageHandle, ImageId},
+    text::{self, TextLayoutRequest, TextRunId, TextStyle},
     widget::Rectangle,
 };
 
@@ -33,7 +34,7 @@ impl Renderer for NoopRenderer {
         TextRunId(1)
     }
 
-    fn text_offset_at_position(&mut self, _: &paint::TextRequest, _: LogicalPoint) -> usize {
+    fn text_offset_at_position(&mut self, _: &text::TextRequest, _: LogicalPoint) -> usize {
         unreachable!()
     }
 
@@ -44,7 +45,7 @@ impl Renderer for NoopRenderer {
         }
     }
 
-    fn text_cursor_rect(&mut self, _: &paint::TextRequest, _: usize) -> LogicalRect {
+    fn text_cursor_rect(&mut self, _: &text::TextRequest, _: usize) -> LogicalRect {
         unreachable!()
     }
 }

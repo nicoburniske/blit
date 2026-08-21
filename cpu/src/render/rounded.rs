@@ -1,6 +1,6 @@
 use std::ops::{Add, Mul, Sub};
 
-use blit::{geometry::PhysicalRect, paint::BorderRadius};
+use blit::{geometry::PhysicalRect, style::BorderRadius};
 
 use crate::{Pixel, PremultipliedRgbaColor};
 

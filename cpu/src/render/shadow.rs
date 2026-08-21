@@ -1,9 +1,11 @@
 use blit::{
+    command_list::{BoxShadow, Rectangle},
     geometry::{LogicalRect, PhysicalRect},
-    paint::{
-        BorderRadius, BoxShadow, ImageFit, ImageRequest, ImageSampling, ImageTiling, Rectangle,
+    image::{
+        ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageRequest, ImageSampling,
+        ImageTiling,
     },
-    resource::{ImageData, ImageFormat, ImageHandle, ImagePixels},
+    style::BorderRadius,
 };
 use slotmap::SlotMap;
 

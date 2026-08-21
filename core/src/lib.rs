@@ -2,38 +2,34 @@ pub mod animation;
 mod builder;
 pub mod color;
 pub mod command_list;
-mod container;
+pub mod container;
 pub mod geometry;
-pub(crate) mod graph;
+mod graph;
+pub mod image;
 pub mod input;
 pub mod interact;
-pub mod paint;
+pub mod node;
 pub mod renderer;
-pub mod resource;
-mod style;
+pub mod style;
 #[cfg(test)]
 mod test;
+pub mod text;
 mod timer;
 pub mod widget;
-
-pub use container::{
-    Absolute, Align, Anchor, Axis, Container, ContainerConfig, Item, Justify, PositionTarget,
-    Scope, Sizing,
-};
-#[doc(hidden)]
-pub use graph::{Content, ImageContent, NodeId, TextCaret, TextContent, TextSelection};
-pub use style::{Clip, Shadow, Style};
 
 use std::{ptr::NonNull, time::Duration};
 
 use animation::Easing;
 use command_list::{CommandDiffConfig, CommandList, CommandListDiffer};
+use container::{Absolute, Axis, Container, ContainerConfig, Item};
 use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
+use image::{ImageData, ImageHandle};
 use input::Input;
 use interact::{Interaction, Sense, WidgetId};
-use paint::{TextRunId, TextStyle};
+use node::{Content, NodeId};
 use renderer::Renderer;
-use resource::{ImageData, ImageHandle};
+use style::Style;
+use text::{TextRunId, TextStyle};
 
 pub struct Ui {
     state: NonNull<UiState>,
@@ -45,7 +41,7 @@ pub struct Ui {
 
 impl Ui {
     pub fn add<W: widget::Widget>(&mut self, widget: W) -> W::Output {
-        widget.build(self)
+        widget.render(self)
     }
 
     /// restores damaged screen pixels to the render target's default value before painting
@@ -176,7 +172,7 @@ impl Ui {
 
     pub fn text_offset_at_position(
         &mut self,
-        request: &paint::TextRequest,
+        request: &text::TextRequest,
         position: LogicalPoint,
     ) -> usize {
         self.renderer_mut()
@@ -185,13 +181,13 @@ impl Ui {
 
     pub fn text_cursor_rect(
         &mut self,
-        request: &paint::TextRequest,
+        request: &text::TextRequest,
         byte_offset: usize,
     ) -> LogicalRect {
         self.renderer_mut().text_cursor_rect(request, byte_offset)
     }
 
-    pub fn add_leaf(&mut self, item: Item, content: Content) -> NodeId {
+    pub fn add_leaf(&mut self, item: Item, content: Content<'_>) -> NodeId {
         self.frame_mut().add_leaf(item, content)
     }
 
@@ -217,8 +213,8 @@ impl Ui {
         self.frame_mut().set_id(node, id)
     }
 
-    pub fn set_node_appearance(&mut self, node: NodeId, appearance: Style<'_>) {
-        self.frame_mut().set_appearance(node, appearance)
+    pub fn set_node_style(&mut self, node: NodeId, style: Style<'_>) {
+        self.frame_mut().set_style(node, style)
     }
 
     fn state(&self) -> &UiState {
@@ -399,20 +395,20 @@ impl UiState {
 
 /// processes inputs and renders the final UI frame
 ///
-/// `build` runs once per input so each event observes state changes from
+/// `render` runs once per input so each event observes state changes from
 /// earlier events. layout and interaction state are updated after every call,
 /// while command diffing and renderer rendering occur once after the last input
 ///
-/// an empty input sequence builds once with [`Input::None`]. the return value is
-/// from the final call to `build`
+/// an empty input sequence renders once with [`Input::None`]. the return value is
+/// from the final call to `render`
 ///
 /// the same renderer must be used for the entire lifetime of the [`UiState`]
-pub fn render<P: Renderer + 'static, R>(
+pub fn render<P: Renderer, R>(
     renderer: &mut P,
     state: &mut UiState,
     time: Duration,
     inputs: impl IntoIterator<Item = Input>,
-    mut build: impl FnMut(&mut Ui) -> R,
+    mut render: impl FnMut(&mut Ui) -> R,
 ) -> R {
     let scale_factor = state.scale_factor;
     if std::mem::take(&mut state.scale_factor_changed) {
@@ -431,10 +427,10 @@ pub fn render<P: Renderer + 'static, R>(
         scale_factor,
         time,
         inputs.next().unwrap_or_default(),
-        &mut build,
+        &mut render,
     );
     for input in inputs {
-        output = record(renderer, state, scale_factor, time, input, &mut build);
+        output = record(renderer, state, scale_factor, time, input, &mut render);
     }
 
     // diff and render only the final recorded frame
@@ -463,13 +459,13 @@ pub fn render<P: Renderer + 'static, R>(
     output
 }
 
-fn record<P: Renderer + 'static, R>(
+fn record<P: Renderer, R>(
     renderer: &mut P,
     state: &mut UiState,
     scale_factor: f32,
     time: Duration,
     input: Input,
-    build: impl FnOnce(&mut Ui) -> R,
+    render: impl FnOnce(&mut Ui) -> R,
 ) -> R {
     // reset transient data and begin input processing
     state.commands.clear();
@@ -483,16 +479,17 @@ fn record<P: Renderer + 'static, R>(
     state.interaction.begin_frame(&input, scale_factor);
 
     let output = {
-        // expose state and renderer only for the build callback
-        let renderer_ptr = NonNull::from(&mut *renderer as &mut dyn Renderer);
+        let renderer = NonNull::from(&mut *renderer as &mut (dyn Renderer + '_));
+        // safety: `Ui` only borrows this pointer for the render callback
+        let renderer: NonNull<dyn Renderer> = unsafe { std::mem::transmute(renderer) };
         let mut ui = Ui {
             state: NonNull::from(&mut *state),
-            renderer: renderer_ptr,
+            renderer,
             time,
             input,
             scale_factor,
         };
-        build(&mut ui)
+        render(&mut ui)
     };
 
     // resolve the frame and retain state needed by the next input

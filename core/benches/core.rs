@@ -3,10 +3,9 @@ use std::{hint::black_box, time::Duration};
 use blit::{
     Ui, UiState,
     color::Color,
-    command_list::{ClipId, CommandList, CommandListDiffer},
+    command_list::{ClipId, CommandList, CommandListDiffer, Rectangle},
     geometry::{LogicalRect, PhysicalRect},
     input::Input,
-    paint::Rectangle,
     render,
 };
 use divan::counter::ItemsCount;

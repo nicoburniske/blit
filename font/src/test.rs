@@ -1,4 +1,4 @@
-use blit::paint::TextWrap;
+use blit::text::TextWrap;
 
 use crate::{Font, Layout, LayoutSettings, Rasterizer};
 

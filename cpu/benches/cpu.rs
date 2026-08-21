@@ -2,14 +2,14 @@ use std::hint::black_box;
 
 use blit::{
     color::Color,
-    command_list::{ClipId, CommandList},
+    command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     geometry::{LogicalRect, PhysicalRect},
-    paint::{
-        BoxShadow, FontId, GradientStop, ImageFit, ImageRequest, ImageSampling, ImageTiling,
-        LinearGradient, Rectangle, TextOptions, TextRequest, TextStyle, TextWrap,
+    image::{
+        ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
     renderer::Renderer as _,
-    resource::{ImageData, ImageFormat, ImagePixels},
+    style::{GradientStop, LinearGradient},
+    text::{FontId, TextOptions, TextRequest, TextStyle, TextWrap},
 };
 use blit_cpu::{
     Direct, Font, FontFace, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
@@ -527,7 +527,7 @@ where
     let clip = commands.push_clip(
         ClipId::default(),
         area,
-        blit::paint::BorderRadius {
+        blit::style::BorderRadius {
             top_left: 48.0,
             top_right: 48.0,
             bottom_right: 48.0,

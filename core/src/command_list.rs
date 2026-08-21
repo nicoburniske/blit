@@ -3,10 +3,9 @@
 use crate::{
     color::Color,
     geometry::{LogicalRect, PhysicalRect},
-    paint::{
-        Border, BorderRadius, BoxShadow, GradientStop, ImageRequest, LinearGradient, Rectangle,
-        TextRequest,
-    },
+    image::ImageRequest,
+    style::{Border, BorderRadius, GradientStop, LinearGradient},
+    text::TextRequest,
 };
 
 #[derive(Default)]
@@ -14,6 +13,108 @@ pub struct CommandList {
     commands: Vec<StoredCommand>,
     clips: Vec<ClipNode>,
     gradient_stops: Vec<GradientStop>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Record<'a> {
+    pub bounds: PhysicalRect,
+    pub clip: ClipId,
+    pub command: Command<'a>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Command<'a> {
+    /// restores target pixels to the renderer's default value
+    Clear,
+    Rectangle(Rectangle<'a>),
+    Image(ImageRequest),
+    Text(TextRequest),
+    BoxShadow(BoxShadow),
+}
+
+crate::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Rectangle<'a> {
+        new(area: LogicalRect),
+        background: Color = Color::TRANSPARENT,
+        border: Border<'a> = Border::None,
+        radius: BorderRadius = BorderRadius::default(),
+        opacity: f32 = 1.0,
+    }
+}
+
+impl<'a> Rectangle<'a> {
+    pub const fn uniform_radius(mut self, radius: f32) -> Self {
+        self.radius = BorderRadius {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        };
+        self
+    }
+
+    pub const fn solid_border(mut self, width: f32, color: Color) -> Self {
+        self.border = Border::Solid { width, color };
+        self
+    }
+
+    pub const fn gradient_border(mut self, width: f32, gradient: LinearGradient<'a>) -> Self {
+        self.border = Border::Gradient { width, gradient };
+        self
+    }
+}
+
+crate::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct BoxShadow {
+        new(area: LogicalRect, color: Color),
+        radius: BorderRadius = BorderRadius::default(),
+        offset_x: f32 = 0.0,
+        offset_y: f32 = 0.0,
+        blur: f32 = 0.0,
+        spread: f32 = 0.0,
+    }
+}
+
+impl BoxShadow {
+    pub const fn uniform_radius(mut self, radius: f32) -> Self {
+        self.radius = BorderRadius {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        };
+        self
+    }
+
+    pub const fn offset(mut self, x: f32, y: f32) -> Self {
+        self.offset_x = x;
+        self.offset_y = y;
+        self
+    }
+
+    pub fn bounds(self) -> LogicalRect {
+        let blur = self.blur.max(0.0);
+        let outset = self.spread + blur;
+        LogicalRect {
+            x: self.area.x + self.offset_x - outset,
+            y: self.area.y + self.offset_y - outset,
+            width: self.area.width + outset * 2.0,
+            height: self.area.height + outset * 2.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct ClipId(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClipNode {
+    pub parent: ClipId,
+    pub area: LogicalRect,
+    pub radius: BorderRadius,
 }
 
 impl CommandList {
@@ -235,6 +336,13 @@ impl CommandList {
     }
 }
 
+pub struct CommandListDiffer {
+    config: CommandDiffConfig,
+    frontier: Vec<isize>,
+    trace: Vec<isize>,
+    damage: Vec<PhysicalRect>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CommandDiffConfig {
     pub max_edits: usize,
@@ -248,13 +356,6 @@ impl Default for CommandDiffConfig {
             max_rectangles: 32,
         }
     }
-}
-
-pub struct CommandListDiffer {
-    config: CommandDiffConfig,
-    frontier: Vec<isize>,
-    trace: Vec<isize>,
-    damage: Vec<PhysicalRect>,
 }
 
 impl Default for CommandListDiffer {
@@ -430,34 +531,6 @@ impl CommandListDiffer {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Record<'a> {
-    pub bounds: PhysicalRect,
-    pub clip: ClipId,
-    pub command: Command<'a>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Command<'a> {
-    /// restores target pixels to the renderer's default value
-    Clear,
-    Rectangle(Rectangle<'a>),
-    Image(ImageRequest),
-    Text(TextRequest),
-    BoxShadow(BoxShadow),
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[repr(transparent)]
-pub struct ClipId(pub u32);
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ClipNode {
-    pub parent: ClipId,
-    pub area: LogicalRect,
-    pub radius: BorderRadius,
-}
-
 struct StoredCommand {
     bounds: PhysicalRect,
     clip: ClipId,
@@ -543,7 +616,7 @@ fn trace_value(trace: &[isize], edits: usize, diagonal: isize) -> isize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paint::{TextOptions, TextRunId, TextStyle};
+    use crate::text::{TextOptions, TextRunId, TextStyle};
 
     fn text(id: u64) -> TextRequest {
         TextRequest {

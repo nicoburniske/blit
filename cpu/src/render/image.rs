@@ -1,7 +1,6 @@
 use blit::{
     geometry::PhysicalRect,
-    paint::{ImageFit, ImageRequest, ImageTiling},
-    resource::ImageData,
+    image::{ImageData, ImageFit, ImageRequest, ImageTiling},
 };
 
 use super::image_patch::{Patch, Prepared};
@@ -172,8 +171,9 @@ mod tests {
     use blit::{
         color::Color,
         geometry::LogicalRect,
-        paint::{ImageFit, ImageSampling, ImageTiling, NineSlice},
-        resource::{ImageFormat, ImageId, ImagePixels},
+        image::{
+            ImageFit, ImageFormat, ImageId, ImagePixels, ImageSampling, ImageTiling, NineSlice,
+        },
     };
 
     use super::*;

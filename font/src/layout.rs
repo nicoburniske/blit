@@ -1,6 +1,6 @@
 use std::{hash::Hash, mem::size_of};
 
-use blit::paint::{HorizontalAlign, TextWrap, VerticalAlign};
+use blit::text::{HorizontalAlign, TextWrap, VerticalAlign};
 use unicode_linebreak::{BreakOpportunity as UnicodeBreak, linebreaks};
 
 use crate::{Font, GlyphId, LineMetrics, Metrics, UnscaledMetrics};

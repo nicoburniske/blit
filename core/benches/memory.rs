@@ -5,11 +5,13 @@ use std::{
 };
 
 use blit::{
-    Clip, FrameGraphMemory, Sizing, Ui, UiState,
+    FrameGraphMemory, Ui, UiState,
     color::Color,
+    container::Sizing,
     geometry::{LogicalInsets, PhysicalRect},
     input::Input,
     render,
+    style::Clip,
     widget::Text,
 };
 
