@@ -1,10 +1,10 @@
 use blit::{
-    Absolute, Align, Anchor, Axis, Clip, Justify, Sizing, Ui,
+    Absolute, Align, Anchor, Appearance, Axis, Clip, Justify, Sizing, Ui,
     geometry::LogicalInsets,
     interact::{Sense, WidgetId},
     paint::{FontId, HorizontalAlign, TextWrap},
     platform::Platform,
-    widget::{Button, Rectangle, Text},
+    widget::{Rectangle, Text, Widget},
 };
 use blit_cpu::{Font, FontFace, RendererConfig};
 use blit_desktop::{Application, Config, EventLoopProxy, Root};
@@ -592,6 +592,127 @@ struct Showcase {
     padding: usize,
     width: f32,
     height: f32,
+}
+
+struct Button<'a> {
+    label: &'a str,
+    id: WidgetId,
+    background: blit::color::Color,
+    clicked_background: blit::color::Color,
+    text_color: blit::color::Color,
+    border_width: f32,
+    border_color: blit::color::Color,
+    radius: f32,
+    padding_x: f32,
+    padding_y: f32,
+    text_size: f32,
+}
+
+struct ButtonResponse(bool);
+
+impl Button<'static> {
+    fn new(label: &'static str) -> Self {
+        Self {
+            label,
+            id: WidgetId::new(label),
+            background: colors::SURFACE_HIGH,
+            clicked_background: colors::ACCENT,
+            text_color: colors::TEXT,
+            border_width: 0.0,
+            border_color: colors::BORDER,
+            radius: 0.0,
+            padding_x: 8.0,
+            padding_y: 8.0,
+            text_size: 12.0,
+        }
+    }
+
+    fn id(mut self, source: impl std::hash::Hash) -> Self {
+        self.id = WidgetId::new(source);
+        self
+    }
+
+    fn background(mut self, color: blit::color::Color) -> Self {
+        self.background = color;
+        self
+    }
+
+    fn clicked_background(mut self, color: blit::color::Color) -> Self {
+        self.clicked_background = color;
+        self
+    }
+
+    fn text_color(mut self, color: blit::color::Color) -> Self {
+        self.text_color = color;
+        self
+    }
+
+    fn border(mut self, width: f32, color: blit::color::Color) -> Self {
+        self.border_width = width;
+        self.border_color = color;
+        self
+    }
+
+    fn uniform_radius(mut self, radius: f32) -> Self {
+        self.radius = radius;
+        self
+    }
+
+    fn padding_x(mut self, padding: f32) -> Self {
+        self.padding_x = padding;
+        self
+    }
+
+    fn padding_y(mut self, padding: f32) -> Self {
+        self.padding_y = padding;
+        self
+    }
+
+    fn text_size(mut self, size: f32) -> Self {
+        self.text_size = size;
+        self
+    }
+}
+
+impl ButtonResponse {
+    fn clicked(self) -> bool {
+        self.0
+    }
+}
+
+impl Widget for Button<'_> {
+    type Output = ButtonResponse;
+
+    fn build(self, ui: &mut Ui) -> ButtonResponse {
+        let interaction = ui.interact(self.id, Sense::CLICK);
+        let mut button = ui
+            .container()
+            .row()
+            .id(self.id)
+            .padding(LogicalInsets {
+                top: self.padding_y,
+                right: self.padding_x,
+                bottom: self.padding_y,
+                left: self.padding_x,
+            })
+            .appearance(
+                Appearance::new()
+                    .background(if interaction.pressed || interaction.clicked {
+                        self.clicked_background
+                    } else {
+                        self.background
+                    })
+                    .border(self.border_width, self.border_color),
+            )
+            .uniform_radius(self.radius)
+            .open();
+        button.add(
+            Text::new(self.label)
+                .color(self.text_color)
+                .text_size(self.text_size),
+        );
+        ButtonResponse(interaction.clicked)
+    }
 }
 
 fn choice(label: &'static str, selected: bool) -> Button<'static> {

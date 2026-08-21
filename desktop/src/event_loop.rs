@@ -5,7 +5,6 @@ use blit::{
     command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
-    keyboard::KeyboardRequest,
     paint::{TextRequest, TextRunId, TextStyle},
     platform::PlatformImpl,
     resource::{ImageData, ImageId},
@@ -224,9 +223,6 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             )
             .with_scale_factor(window.scale_factor() as f32)
             .strategy(Scanline::default()),
-            window: window.clone(),
-            ime_allowed: false,
-            ime_requested: false,
         };
         let mut runtime = blit::Runtime::new(platform);
         let wake = input.inner.clone();
@@ -492,18 +488,10 @@ fn logical_position(position: PhysicalPosition<f64>, scale_factor: f64) -> Logic
 
 struct DesktopPlatform {
     renderer: Renderer<DesktopBuffer, Scanline>,
-    window: Rc<Window>,
-    ime_allowed: bool,
-    ime_requested: bool,
 }
 
 impl PlatformImpl for DesktopPlatform {
     fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
-        if self.ime_allowed != self.ime_requested {
-            self.window.set_ime_allowed(self.ime_requested);
-            self.ime_allowed = self.ime_requested;
-        }
-        self.ime_requested = false;
         self.renderer.render(commands, damage)
     }
 
@@ -541,9 +529,5 @@ impl PlatformImpl for DesktopPlatform {
 
     fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
         self.renderer.text_cursor_rect(request, byte_offset)
-    }
-
-    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {
-        self.ime_requested = true
     }
 }

@@ -2,23 +2,44 @@ use super::Widget;
 use crate::{
     Content, Item, Sizing, TextContent, Ui,
     color::Color,
-    paint::{HorizontalAlign, TextOptions, TextOverflow, TextStyle, TextWrap, VerticalAlign},
+    paint::{
+        FontId, HorizontalAlign, TextOptions, TextOverflow, TextStyle, TextWrap, VerticalAlign,
+    },
 };
 
-crate::widget! {
+crate::builder! {
     pub struct Text<'a> {
-        new(pub text: &'a str);
-        pub color: Color = Color::BLACK,
-        pub text_style: TextStyle,
-        pub options: TextOptions,
-        pub offset_x: f32,
-        pub width: Sizing = Sizing::fit(),
-        pub height: Sizing = Sizing::fit(),
+        new(text: &'a str),
+        color: Color = Color::BLACK,
+        text_style: TextStyle = TextStyle::default(),
+        options: TextOptions = TextOptions::default(),
+        offset_x: f32 = 0.0,
+        width: Sizing = Sizing::fit(),
+        height: Sizing = Sizing::fit(),
     }
-    features: [text_style]
 }
 
 impl Text<'_> {
+    pub fn style(mut self, style: impl Into<TextStyle>) -> Self {
+        self.text_style = style.into();
+        self
+    }
+
+    pub fn font(mut self, font: FontId) -> Self {
+        self.text_style.font = font;
+        self
+    }
+
+    pub fn text_size(mut self, size: f32) -> Self {
+        self.text_style.size = size;
+        self
+    }
+
+    pub fn text_weight(mut self, weight: u16) -> Self {
+        self.text_style.weight = weight;
+        self
+    }
+
     pub fn wrap(mut self, wrap: TextWrap) -> Self {
         self.options.wrap = wrap;
         self

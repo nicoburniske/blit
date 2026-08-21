@@ -2,13 +2,12 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::Widget;
 use crate::{
-    Appearance, Clip, Content, Item, Sizing, TextCaret, TextContent, TextSelection, Ui,
+    Clip, Content, Item, Sizing, TextCaret, TextContent, TextSelection, Ui,
     color::Color,
-    geometry::{LogicalInsets, LogicalRect},
+    geometry::LogicalRect,
     input::{Input, Key},
     interact::{Sense, WidgetId},
-    keyboard::{KeyboardKind, KeyboardRequest},
-    paint::{BorderRadius, TextOptions, TextOverflow, TextRequest, TextRunId, TextStyle, TextWrap},
+    paint::{FontId, TextOptions, TextOverflow, TextRequest, TextRunId, TextStyle, TextWrap},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -17,57 +16,62 @@ pub struct TextInputResponse {
     pub accepted: bool,
 }
 
-crate::widget! {
+crate::builder! {
     pub struct TextInput<'a> {
-        new(state: &'a mut TextInputState);
-        pub background: Color = Color::WHITE,
-        pub focused_background: Color = Color::WHITE,
-        pub border_color: Color = Color::GRAY,
-        pub focused_border_color: Color = Color::BLACK,
-        pub border_width: f32 = 1.0,
-        pub radius: BorderRadius,
-        pub opacity: f32 = 1.0,
-        pub text_color: Color = Color::BLACK,
-        pub selection_background: Color = Color::GRAY,
-        pub cursor_color: Color = Color::BLACK,
-        pub cursor_width: f32 = 1.0,
-        pub text_style: TextStyle,
-        pub text_options: TextOptions,
-        pub padding: LogicalInsets = LogicalInsets::uniform(4.0),
-        pub preferred_width: f32 = 160.0,
-        pub read_only: bool,
-        pub keyboard_kind: KeyboardKind,
-        pub request_caps: bool,
-        // todo: don't love this being in here...
-        pub accept_button_text: &'a str = "",
-        pub accept_button_enabled: bool = true,
-        pub delete_button_enabled: bool = true,
+        new(state: &'a mut TextInputState),
+        text_color: Color = Color::BLACK,
+        selection_background: Color = Color::GRAY,
+        cursor_color: Color = Color::BLACK,
+        cursor_width: f32 = 1.0,
+        text_style: TextStyle = TextStyle::default(),
+        text_options: TextOptions = TextOptions::default(),
+        read_only: bool = false,
+        mask: Option<char> = None,
     }
-    features: [padding, border, radius, text_style]
+}
+
+impl TextInput<'_> {
+    pub fn style(mut self, style: impl Into<TextStyle>) -> Self {
+        self.text_style = style.into();
+        self
+    }
+
+    pub fn font(mut self, font: FontId) -> Self {
+        self.text_style.font = font;
+        self
+    }
+
+    pub fn text_size(mut self, size: f32) -> Self {
+        self.text_style.size = size;
+        self
+    }
+
+    pub fn text_weight(mut self, weight: u16) -> Self {
+        self.text_style.weight = weight;
+        self
+    }
 }
 
 pub struct TextInputState {
     pub text: String,
-    pub password_visible: bool,
     pub id: WidgetId,
     pub focused: bool,
     pub cursor: usize,
     pub anchor: usize,
     pub scroll_x: f32,
-    pub password_mask: String,
+    mask_text: String,
 }
 
 impl Default for TextInputState {
     fn default() -> Self {
         Self {
             text: String::new(),
-            password_visible: false,
             id: WidgetId::unique(),
             focused: false,
             cursor: 0,
             anchor: 0,
             scroll_x: 0.0,
-            password_mask: String::new(),
+            mask_text: String::new(),
         }
     }
 }
@@ -84,7 +88,7 @@ impl Widget for TextInput<'_> {
         while !self.state.text.is_char_boundary(self.state.anchor) {
             self.state.anchor -= 1;
         }
-        self.update_password_mask();
+        self.update_mask();
         let mut text_run = ui.text_run(self.display_text(), self.text_style);
 
         let id = self.state.id;
@@ -95,29 +99,10 @@ impl Widget for TextInput<'_> {
         let interaction = ui.interact(id, Sense::FOCUS);
         let mut input = ui
             .container()
-            .width(Sizing::grow().max(self.preferred_width))
-            .height(Sizing::fit().min(self.border_width * 2.0))
-            .padding(self.padding)
-            .appearance(
-                Appearance::new()
-                    .background(if focused {
-                        self.focused_background
-                    } else {
-                        self.background
-                    })
-                    .border(
-                        self.border_width,
-                        if focused {
-                            self.focused_border_color
-                        } else {
-                            self.border_color
-                        },
-                    )
-                    .radius(self.radius)
-                    .opacity(self.opacity),
-            )
-            .id(id)
             .row()
+            .width(Sizing::grow())
+            .id(id)
+            .clip(Clip::Bounds)
             .open();
         let mut response = TextInputResponse::default();
 
@@ -127,14 +112,14 @@ impl Widget for TextInput<'_> {
             let offset = input
                 .platform()
                 .text_offset_at_position(&self.request(text_run, area), position);
-            self.state.cursor = if !self.password_masked() {
-                offset
-            } else {
+            self.state.cursor = if let Some(mask) = self.mask {
                 self.state
                     .text
                     .char_indices()
-                    .nth(offset / '●'.len_utf8())
+                    .nth(offset / mask.len_utf8())
                     .map_or(self.state.text.len(), |(offset, _)| offset)
+            } else {
+                offset
             };
             self.state.anchor = self.state.cursor;
         }
@@ -226,7 +211,7 @@ impl Widget for TextInput<'_> {
             _ => {}
         }
         if response.edited {
-            self.update_password_mask();
+            self.update_mask();
             text_run = input.text_run(self.display_text(), self.text_style);
         }
 
@@ -278,15 +263,6 @@ impl Widget for TextInput<'_> {
             );
         }
 
-        if focused {
-            input.platform().show_keyboard(&KeyboardRequest {
-                kind: self.keyboard_kind,
-                request_caps: self.request_caps,
-                accept_button_text: self.accept_button_text,
-                accept_button_enabled: self.accept_button_enabled,
-                delete_button_enabled: self.delete_button_enabled && !self.state.text.is_empty(),
-            });
-        }
         response
     }
 }
@@ -312,35 +288,27 @@ impl TextInput<'_> {
         }
     }
 
-    fn update_password_mask(&mut self) {
-        if !self.password_masked() {
-            self.state.password_mask.clear();
-            return;
+    fn update_mask(&mut self) {
+        self.state.mask_text.clear();
+        if let Some(mask) = self.mask {
+            self.state
+                .mask_text
+                .extend(std::iter::repeat_n(mask, self.state.text.chars().count()));
         }
-        self.state.password_mask.clear();
-        self.state
-            .password_mask
-            .extend(std::iter::repeat_n('●', self.state.text.chars().count()));
     }
 
     fn display_text(&self) -> &str {
-        if self.password_masked() {
-            &self.state.password_mask
+        if self.mask.is_some() {
+            &self.state.mask_text
         } else {
             &self.state.text
         }
     }
 
     fn display_offset(&self, source_offset: usize) -> usize {
-        if self.password_masked() {
-            self.state.text[..source_offset].chars().count() * '●'.len_utf8()
-        } else {
-            source_offset
-        }
-    }
-
-    fn password_masked(&self) -> bool {
-        self.keyboard_kind == KeyboardKind::Password && !self.state.password_visible
+        self.mask.map_or(source_offset, |mask| {
+            self.state.text[..source_offset].chars().count() * mask.len_utf8()
+        })
     }
 
     fn delete_selection(&mut self) -> bool {
@@ -361,20 +329,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn password_mask_uses_dots_and_maps_utf8_offsets() {
+    fn mask_maps_utf8_offsets() {
         let mut state = TextInputState {
             text: "aé🙂".into(),
             ..TextInputState::default()
         };
-        let mut input = TextInput::new(&mut state).keyboard_kind(KeyboardKind::Password);
+        let mut input = TextInput::new(&mut state).mask('●');
 
-        input.update_password_mask();
+        input.update_mask();
 
         assert_eq!(input.display_text(), "●●●");
         assert_eq!(input.display_offset("aé".len()), "●●".len());
-
-        input.state.password_visible = true;
-        input.update_password_mask();
-        assert_eq!(input.display_text(), "aé🙂");
     }
 }
