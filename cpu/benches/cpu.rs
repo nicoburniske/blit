@@ -198,8 +198,8 @@ fn gradient_border(bencher: divan::Bencher) {
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-#[divan::bench]
-fn cached_shadow(bencher: divan::Bencher) {
+#[divan::bench(args = [true, false])]
+fn shadow(bencher: divan::Bencher, cached: bool) {
     let area = LogicalRect {
         x: 64.0,
         y: 176.0,
@@ -212,7 +212,12 @@ fn cached_shadow(bencher: divan::Bencher) {
     let mut commands = CommandList::default();
     commands.push_box_shadow(shadow, shadow.bounds().to_physical(1.0), ClipId::default());
     let damage = [shadow.bounds().to_physical(1.0)];
-    let mut renderer = renderer(WIDTH, HEIGHT, Scanline::default());
+    let mut renderer = renderer_with_shadow_cache(
+        WIDTH,
+        HEIGHT,
+        Scanline::default(),
+        if cached { 512 * 1024 } else { 0 },
+    );
     renderer.render(&commands, &damage);
 
     bencher
@@ -559,6 +564,18 @@ fn renderer<S>(width: usize, height: usize, strategy: S) -> Renderer<VecBuffer<X
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
+    renderer_with_shadow_cache(width, height, strategy, 512 * 1024)
+}
+
+fn renderer_with_shadow_cache<S>(
+    width: usize,
+    height: usize,
+    strategy: S,
+    shadow_cache_capacity: usize,
+) -> Renderer<VecBuffer<Xrgb8888>, S>
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
     Renderer::new(
         VecBuffer::new(width, height),
         RendererConfig {
@@ -570,7 +587,7 @@ where
             font_metric_cache_capacity: 512,
             glyph_cache_capacity: 512 * 1024,
             paragraph_cache_capacity: 512 * 1024,
-            shadow_cache_capacity: 512 * 1024,
+            shadow_cache_capacity,
         },
     )
     .strategy(strategy)

@@ -67,7 +67,6 @@ impl FrameGraph {
             flow: FlowId::normal(0),
             content: ContentId::NONE,
             style: StyleId::NONE,
-            shadow: ShadowId::NONE,
             clip_spec: ClipSpecId::NONE,
             area: screen,
             clip: ClipId::default(),
@@ -153,9 +152,7 @@ impl FrameGraph {
     }
 
     pub fn set_style(&mut self, node: NodeId, style: Style<'_>) {
-        let (style, shadow) = self.store_style(style);
-        self.nodes[node.index()].style = style;
-        self.nodes[node.index()].shadow = shadow;
+        self.nodes[node.index()].style = self.store_style(style);
     }
 
     pub fn close(&mut self, node: NodeId) {
@@ -209,7 +206,7 @@ impl FrameGraph {
             .last()
             .expect("node declaration requires a root");
         let node = NodeId::new(self.nodes.len());
-        let (style, shadow) = self.store_style(style);
+        let style = self.store_style(style);
         let flow = match (flow, position) {
             (Some(flow), Some(absolute)) => {
                 let id = FlowId::positioned(self.positioned_flows.len());
@@ -238,7 +235,6 @@ impl FrameGraph {
             item,
             flow,
             style,
-            shadow,
             content,
             clip_spec,
             area: LogicalRect::default(),
@@ -267,40 +263,48 @@ impl FrameGraph {
         }
     }
 
-    fn store_style(&mut self, style: Style<'_>) -> (StyleId, ShadowId) {
-        let stored =
-            if style.background != Color::TRANSPARENT || !matches!(style.border, Border::None) {
-                let border = match style.border {
-                    Border::None => StoredBorder::None,
-                    Border::Solid { width, color } => StoredBorder::Solid { width, color },
-                    Border::Gradient { width, gradient } => {
-                        let start = self.gradient_stops.len();
-                        self.gradient_stops.extend_from_slice(gradient.stops);
-                        StoredBorder::Gradient {
-                            width,
-                            angle_degrees: gradient.angle_degrees,
-                            start,
-                            len: gradient.stops.len(),
-                        }
-                    }
-                };
-                let id = StyleId::new(self.styles.len());
-                self.styles.push(StoredStyle {
-                    background: style.background,
-                    border,
-                    radius: style.radius,
-                    opacity: style.opacity,
-                });
-                id
-            } else {
-                StyleId::NONE
-            };
+    fn store_style(&mut self, style: Style<'_>) -> StyleId {
         let shadow = style.shadow.map_or(ShadowId::NONE, |shadow| {
             let id = ShadowId::new(self.shadows.len());
             self.shadows.push(shadow);
             id
         });
-        (stored, shadow)
+        let inset_shadow = style.inset_shadow.map_or(ShadowId::NONE, |shadow| {
+            let id = ShadowId::new(self.shadows.len());
+            self.shadows.push(shadow);
+            id
+        });
+        if style.background == Color::TRANSPARENT
+            && matches!(style.border, Border::None)
+            && shadow.index().is_none()
+            && inset_shadow.index().is_none()
+        {
+            return StyleId::NONE;
+        }
+        let border = match style.border {
+            Border::None => StoredBorder::None,
+            Border::Solid { width, color } => StoredBorder::Solid { width, color },
+            Border::Gradient { width, gradient } => {
+                let start = self.gradient_stops.len();
+                self.gradient_stops.extend_from_slice(gradient.stops);
+                StoredBorder::Gradient {
+                    width,
+                    angle_degrees: gradient.angle_degrees,
+                    start,
+                    len: gradient.stops.len(),
+                }
+            }
+        };
+        let id = StyleId::new(self.styles.len());
+        self.styles.push(StoredStyle {
+            background: style.background,
+            border,
+            radius: style.radius,
+            opacity: style.opacity,
+            shadow,
+            inset_shadow,
+        });
+        id
     }
 
     fn order_layer_roots(&mut self) {
@@ -703,40 +707,54 @@ impl FrameGraph {
         scale_factor: f32,
     ) {
         let node = &self.nodes[index];
-        if let Some(shadow) = node.shadow.index().map(|index| self.shadows[index]) {
-            let shadow = BoxShadow::new(node.area, shadow.color)
-                .radius(shadow.radius)
-                .offset(shadow.offset_x, shadow.offset_y)
-                .blur(shadow.blur)
-                .spread(shadow.spread);
-            if let Some(bounds) = node.visible_bounds(shadow.bounds(), scale_factor) {
-                commands.push_box_shadow(shadow, bounds, node.clip);
-            }
-        }
         if let Some(style) = node.style.index().map(|index| &self.styles[index]) {
-            let border = match style.border {
-                StoredBorder::None => Border::None,
-                StoredBorder::Solid { width, color } => Border::Solid { width, color },
-                StoredBorder::Gradient {
-                    width,
-                    angle_degrees,
-                    start,
-                    len,
-                } => Border::Gradient {
-                    width,
-                    gradient: LinearGradient::new(&self.gradient_stops[start..start + len])
-                        .angle(angle_degrees),
-                },
-            };
-            let rectangle = Rectangle {
-                area: node.area,
-                background: style.background,
-                border,
-                radius: style.radius,
-                opacity: style.opacity,
-            };
-            if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
-                commands.push_rectangle(rectangle, bounds, node.clip);
+            if let Some(shadow) = style.shadow.index().map(|index| self.shadows[index]) {
+                let shadow = BoxShadow::new(node.area, shadow.color)
+                    .radius(style.radius)
+                    .offset(shadow.offset_x, shadow.offset_y)
+                    .blur(shadow.blur)
+                    .spread(shadow.spread);
+                if let Some(bounds) = node.visible_bounds(shadow.bounds(), scale_factor) {
+                    commands.push_box_shadow(shadow, bounds, node.clip);
+                }
+            }
+            if style.background != Color::TRANSPARENT || !matches!(style.border, StoredBorder::None)
+            {
+                let border = match style.border {
+                    StoredBorder::None => Border::None,
+                    StoredBorder::Solid { width, color } => Border::Solid { width, color },
+                    StoredBorder::Gradient {
+                        width,
+                        angle_degrees,
+                        start,
+                        len,
+                    } => Border::Gradient {
+                        width,
+                        gradient: LinearGradient::new(&self.gradient_stops[start..start + len])
+                            .angle(angle_degrees),
+                    },
+                };
+                let rectangle = Rectangle {
+                    area: node.area,
+                    background: style.background,
+                    border,
+                    radius: style.radius,
+                    opacity: style.opacity,
+                };
+                if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
+                    commands.push_rectangle(rectangle, bounds, node.clip);
+                }
+            }
+            if let Some(shadow) = style.inset_shadow.index().map(|index| self.shadows[index]) {
+                let shadow = BoxShadow::new(node.area, shadow.color)
+                    .radius(style.radius)
+                    .offset(shadow.offset_x, shadow.offset_y)
+                    .blur(shadow.blur)
+                    .spread(shadow.spread)
+                    .inset(true);
+                if let Some(bounds) = node.visible_bounds(shadow.bounds(), scale_factor) {
+                    commands.push_box_shadow(shadow, bounds, node.clip);
+                }
             }
         }
         match node.content.decode() {
@@ -866,7 +884,6 @@ struct Node {
     flow: FlowId,
     content: ContentId,
     style: StyleId,
-    shadow: ShadowId,
     clip_spec: ClipSpecId,
     // layout resolves area in place: dimensions start intrinsic,
     // then each axis writes its final position and size
@@ -986,6 +1003,8 @@ struct StoredStyle {
     border: StoredBorder,
     radius: BorderRadius,
     opacity: f32,
+    shadow: ShadowId,
+    inset_shadow: ShadowId,
 }
 
 enum StoredBorder {

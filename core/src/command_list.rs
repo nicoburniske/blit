@@ -74,6 +74,7 @@ crate::builder! {
         offset_y: f32 = 0.0,
         blur: f32 = 0.0,
         spread: f32 = 0.0,
+        inset: bool = false,
     }
 }
 
@@ -95,6 +96,9 @@ impl BoxShadow {
     }
 
     pub fn bounds(self) -> LogicalRect {
+        if self.inset {
+            return self.area;
+        }
         let blur = self.blur.max(0.0);
         let outset = self.spread + blur;
         LogicalRect {

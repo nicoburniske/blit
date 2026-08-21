@@ -188,7 +188,24 @@ mod tests {
     ) {
         let alpha_rows = AlphaRows::default();
         prepare(request, texture, clip, scale_factor, |image, clip| {
-            image.draw(buffer, texture, &alpha_rows, clip)
+            let screen = PhysicalRect {
+                x: buffer.x_offset() as i32,
+                y: 0,
+                width: buffer.width() as i32,
+                height: buffer.height() as i32,
+            };
+            if let Some(clip) = clip.intersection(screen) {
+                for y in clip.y..clip.y + clip.height {
+                    image.draw_line(
+                        buffer.line_mut(y as usize),
+                        texture,
+                        &alpha_rows,
+                        clip,
+                        screen.x,
+                        y,
+                    );
+                }
+            }
         });
     }
 
