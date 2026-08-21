@@ -192,7 +192,13 @@ impl Ui {
     }
 
     pub fn open_container(&mut self, axis: Axis, container: ContainerConfig<'_>) -> NodeId {
-        self.frame_mut().add_container(axis, container, None)
+        let id = container.id;
+        let transition = container.transition;
+        let node = self.frame_mut().add_container(axis, container, None);
+        if let (Some(id), Some(transition)) = (id, transition) {
+            self.set_node_transition(node, id, transition);
+        }
+        node
     }
 
     pub fn open_absolute_container(
@@ -201,8 +207,15 @@ impl Ui {
         container: ContainerConfig<'_>,
         absolute: Absolute,
     ) -> NodeId {
-        self.frame_mut()
-            .add_container(axis, container, Some(absolute))
+        let id = container.id;
+        let transition = container.transition;
+        let node = self
+            .frame_mut()
+            .add_container(axis, container, Some(absolute));
+        if let (Some(id), Some(transition)) = (id, transition) {
+            self.set_node_transition(node, id, transition);
+        }
+        node
     }
 
     pub fn close_container(&mut self, node: NodeId) {
@@ -215,6 +228,28 @@ impl Ui {
 
     pub fn set_node_style(&mut self, node: NodeId, style: Style<'_>) {
         self.frame_mut().set_style(node, style)
+    }
+
+    pub fn set_node_transition(
+        &mut self,
+        node: NodeId,
+        id: WidgetId,
+        transition: animation::Transition,
+    ) {
+        let index = if let Some(index) = self
+            .state()
+            .transitions
+            .iter()
+            .position(|state| state.id == id)
+        {
+            index
+        } else {
+            let states = &mut self.state_mut().transitions;
+            states.push(graph::TransitionState::new(id));
+            states.len() - 1
+        };
+        let parent = self.frame_mut().set_transition(node, index);
+        self.state_mut().transitions[index].begin(node, parent, transition);
     }
 
     fn state(&self) -> &UiState {
@@ -295,6 +330,7 @@ pub struct UiState {
     interaction: interact::InteractionState,
     geometry: graph::GeometryState,
     animations: Vec<animation::AnimationState>,
+    transitions: Vec<graph::TransitionState>,
     timers: Vec<timer::TimerState>,
     frame_requested: bool,
     full_repaint: bool,
@@ -322,6 +358,7 @@ impl UiState {
             interaction: interact::InteractionState::default(),
             geometry: graph::GeometryState::default(),
             animations: Vec::new(),
+            transitions: Vec::new(),
             timers: Vec::new(),
             frame_requested: true,
             full_repaint: true,
@@ -344,6 +381,10 @@ impl UiState {
                 .animations
                 .iter()
                 .any(animation::AnimationState::is_active)
+            || self
+                .transitions
+                .iter()
+                .any(graph::TransitionState::is_active)
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
@@ -473,6 +514,9 @@ fn record<P: Renderer, R>(
     for animation in &mut state.animations {
         animation.seen = false;
     }
+    for transition in &mut state.transitions {
+        transition.seen = false;
+    }
     for timer in &mut state.timers {
         timer.seen = false;
     }
@@ -499,6 +543,8 @@ fn record<P: Renderer, R>(
         &mut state.commands,
         &mut state.interaction,
         &mut state.geometry,
+        &mut state.transitions,
+        time,
         scale_factor,
     );
     state.frame = frame;
@@ -507,6 +553,7 @@ fn record<P: Renderer, R>(
     }
     state.geometry.end_frame();
     state.animations.retain(|animation| animation.seen);
+    state.transitions.retain(|transition| transition.seen);
     state.timers.retain(|timer| timer.seen);
     output
 }

@@ -1,7 +1,10 @@
 //! frame-local graph construction, layout resolution, and command emission
 
+use std::time::Duration;
+
 use crate::{
     FrameGraphMemory,
+    animation::{Easing, Transition, TransitionProperties},
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     container::{
@@ -68,6 +71,7 @@ impl FrameGraph {
             content: ContentId::NONE,
             style: StyleId::NONE,
             clip_spec: ClipSpecId::NONE,
+            transition: TransitionId::NONE,
             area: screen,
             clip: ClipId::default(),
             clip_bounds: screen,
@@ -75,12 +79,15 @@ impl FrameGraph {
         self.open_containers.push(NodeId::ROOT);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn finish(
         &mut self,
         renderer: &mut dyn Renderer,
         commands: &mut CommandList,
         interaction: &mut InteractionState,
         geometry: &mut GeometryState,
+        transition_states: &mut [TransitionState],
+        time: Duration,
         scale_factor: f32,
     ) {
         assert_eq!(
@@ -90,10 +97,22 @@ impl FrameGraph {
         );
         self.nodes[0].subtree_end =
             u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
-        if self.positioned_flows.is_empty() {
-            self.layout::<false>(renderer);
+        let positioned = !self.positioned_flows.is_empty();
+        if positioned {
+            self.layout::<true, false>(renderer, transition_states);
         } else {
-            self.layout::<true>(renderer);
+            self.layout::<false, false>(renderer, transition_states);
+        }
+        if transition_states.iter().any(|state| state.seen) {
+            self.update_transitions(transition_states, time);
+            self.apply_transitioned_dimensions(transition_states);
+            if positioned {
+                self.layout::<true, true>(renderer, transition_states);
+            } else {
+                self.layout::<false, true>(renderer, transition_states);
+            }
+        }
+        if positioned {
             self.order_layer_roots();
         }
         if self.clear {
@@ -151,6 +170,18 @@ impl FrameGraph {
         self.geometry.push(GeometryRecord { node, id });
     }
 
+    pub fn set_transition(&mut self, node: NodeId, transition: usize) -> NodeId {
+        self.nodes[node.index()].transition = TransitionId::new(transition);
+        if self.open_containers.last() == Some(&node) {
+            self.open_containers[self.open_containers.len() - 2]
+        } else {
+            *self
+                .open_containers
+                .last()
+                .expect("transition requires a layout parent")
+        }
+    }
+
     pub fn set_style(&mut self, node: NodeId, style: Style<'_>) {
         self.nodes[node.index()].style = self.store_style(style);
     }
@@ -192,6 +223,7 @@ impl FrameGraph {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn append(
         &mut self,
         item: Item,
@@ -237,6 +269,7 @@ impl FrameGraph {
             style,
             content,
             clip_spec,
+            transition: TransitionId::NONE,
             area: LogicalRect::default(),
             clip: ClipId::default(),
             clip_bounds: LogicalRect::default(),
@@ -337,14 +370,18 @@ impl FrameGraph {
         });
     }
 
-    fn layout<const POSITIONED: bool>(&mut self, renderer: &mut dyn Renderer) {
+    fn layout<const POSITIONED: bool, const TRANSITIONED: bool>(
+        &mut self,
+        renderer: &mut dyn Renderer,
+        transitions: &[TransitionState],
+    ) {
         self.measure_intrinsic::<POSITIONED>(renderer);
-        self.resolve_axis::<POSITIONED>(Axis::Horizontal);
+        self.resolve_axis::<POSITIONED, TRANSITIONED>(Axis::Horizontal, transitions);
         self.measure_wrapped_text(renderer);
         for index in (1..self.nodes.len()).rev() {
             self.measure_container::<POSITIONED>(NodeId::new(index), Axis::Vertical);
         }
-        self.resolve_axis::<POSITIONED>(Axis::Vertical);
+        self.resolve_axis::<POSITIONED, TRANSITIONED>(Axis::Vertical, transitions);
     }
 
     fn flow<const POSITIONED: bool>(&self, node: NodeId) -> Flow {
@@ -440,15 +477,28 @@ impl FrameGraph {
         self.nodes[id.index()].set_size(axis, measured)
     }
 
-    fn resolve_axis<const POSITIONED: bool>(&mut self, axis: Axis) {
+    fn resolve_axis<const POSITIONED: bool, const TRANSITIONED: bool>(
+        &mut self,
+        axis: Axis,
+        transitions: &[TransitionState],
+    ) {
         for index in 0..self.nodes.len() {
             if self.nodes[index].flow.index().is_some() {
-                self.resolve_children::<POSITIONED>(NodeId::new(index), axis);
+                self.resolve_children::<POSITIONED, TRANSITIONED>(
+                    NodeId::new(index),
+                    axis,
+                    transitions,
+                );
             }
         }
     }
 
-    fn resolve_children<const POSITIONED: bool>(&mut self, parent: NodeId, axis: Axis) {
+    fn resolve_children<const POSITIONED: bool, const TRANSITIONED: bool>(
+        &mut self,
+        parent: NodeId,
+        axis: Axis,
+        transitions: &[TransitionState],
+    ) {
         let layout = self.flow::<POSITIONED>(parent);
         let parent = parent.index();
         let mut child = parent + 1;
@@ -486,12 +536,17 @@ impl FrameGraph {
                         Align::Center => (available - size).max(0.0) / 2.0,
                         Align::End => (available - size).max(0.0),
                     };
-                    node.set_axis(axis, origin + leading + offset, size);
+                    node.set_axis::<TRANSITIONED>(
+                        axis,
+                        origin + leading + offset,
+                        size,
+                        transitions,
+                    );
                 }
                 child = node.subtree_end as usize;
             }
             if POSITIONED {
-                self.resolve_absolute_children(parent, axis);
+                self.resolve_absolute_children::<TRANSITIONED>(parent, axis, transitions);
             }
             return;
         }
@@ -587,17 +642,22 @@ impl FrameGraph {
             let node = &mut self.nodes[child];
             if !POSITIONED || !node.flow.is_positioned() {
                 let size = node.size(axis);
-                node.set_axis(axis, cursor, size);
+                node.set_axis::<TRANSITIONED>(axis, cursor, size, transitions);
                 cursor += size + layout.gap.max(0.0) + extra_gap;
             }
             child = node.subtree_end as usize;
         }
         if POSITIONED {
-            self.resolve_absolute_children(parent, axis);
+            self.resolve_absolute_children::<TRANSITIONED>(parent, axis, transitions);
         }
     }
 
-    fn resolve_absolute_children(&mut self, parent: usize, axis: Axis) {
+    fn resolve_absolute_children<const TRANSITIONED: bool>(
+        &mut self,
+        parent: usize,
+        axis: Axis,
+        transitions: &[TransitionState],
+    ) {
         let mut child = parent + 1;
         let end = self.nodes[parent].subtree_end as usize;
         while child < end {
@@ -621,8 +681,59 @@ impl FrameGraph {
             let position = origin + available * position.target_anchor.factor(axis)
                 - size * position.child_anchor.factor(axis)
                 + offset;
-            node.set_axis(axis, position, size);
+            node.set_axis::<TRANSITIONED>(axis, position, size, transitions);
             child = next;
+        }
+    }
+
+    fn update_transitions(&self, states: &mut [TransitionState], time: Duration) {
+        for state in states.iter_mut().filter(|state| state.seen) {
+            let node = state.node.index();
+            let mut parent = state.parent;
+            if self.nodes[node].flow.is_positioned()
+                && self.positioned_flows[self.nodes[node].flow.index().unwrap()]
+                    .absolute
+                    .target
+                    == PositionTarget::Screen
+            {
+                parent = NodeId::ROOT;
+            }
+            let target = self.nodes[node].area;
+            let parent_node = &self.nodes[parent.index()];
+            let parent_offset = parent_node
+                .flow
+                .index()
+                .map_or(LogicalPoint::default(), |flow| {
+                    if parent_node.flow.is_positioned() {
+                        self.positioned_flows[flow].flow.child_offset
+                    } else {
+                        self.flows[flow].child_offset
+                    }
+                });
+            let parent_id = self
+                .geometry
+                .iter()
+                .find_map(|record| (record.node == parent).then_some(record.id))
+                .unwrap_or_else(|| WidgetId::new(("transition parent", parent.index())));
+            state.advance(
+                target,
+                target.x - parent_node.area.x - parent_offset.x,
+                target.y - parent_node.area.y - parent_offset.y,
+                parent_id,
+                time,
+            );
+        }
+    }
+
+    fn apply_transitioned_dimensions(&mut self, states: &[TransitionState]) {
+        for state in states.iter().filter(|state| state.seen) {
+            let node = &mut self.nodes[state.node.index()];
+            if state.active.contains(TransitionProperties::WIDTH) {
+                node.item.width = Sizing::fixed(state.current.width);
+            }
+            if state.active.contains(TransitionProperties::HEIGHT) {
+                node.item.height = Sizing::fixed(state.current.height);
+            }
         }
     }
 
@@ -885,6 +996,7 @@ struct Node {
     content: ContentId,
     style: StyleId,
     clip_spec: ClipSpecId,
+    transition: TransitionId,
     // layout resolves area in place: dimensions start intrinsic,
     // then each axis writes its final position and size
     area: LogicalRect,
@@ -923,15 +1035,37 @@ impl Node {
         }
     }
 
-    fn set_axis(&mut self, axis: Axis, position: f32, size: f32) {
+    fn set_axis<const TRANSITIONED: bool>(
+        &mut self,
+        axis: Axis,
+        position: f32,
+        size: f32,
+        transitions: &[TransitionState],
+    ) {
         match axis {
             Axis::Horizontal => {
                 self.area.x = position;
                 self.area.width = size;
+                if TRANSITIONED
+                    && let Some(transition) = self.transition.index()
+                    && transitions[transition]
+                        .active
+                        .contains(TransitionProperties::X)
+                {
+                    self.area.x = transitions[transition].current.x;
+                }
             }
             Axis::Vertical => {
                 self.area.y = position;
                 self.area.height = size;
+                if TRANSITIONED
+                    && let Some(transition) = self.transition.index()
+                    && transitions[transition]
+                        .active
+                        .contains(TransitionProperties::Y)
+                {
+                    self.area.y = transitions[transition].current.y;
+                }
             }
         }
     }
@@ -989,6 +1123,158 @@ impl Sizing {
         match self {
             Self::Fit { min, .. } | Self::Grow { min, .. } => min.max(0.0),
             Self::Fixed(size) => size.max(0.0),
+        }
+    }
+}
+
+pub struct TransitionState {
+    pub id: WidgetId,
+    pub current: LogicalRect,
+    pub initial: LogicalRect,
+    pub target: LogicalRect,
+    pub previous_relative_x: f32,
+    pub previous_relative_y: f32,
+    pub previous_parent: WidgetId,
+    pub started_at: Option<Duration>,
+    pub duration: Duration,
+    pub easing: Easing,
+    pub active: TransitionProperties,
+    pub node: NodeId,
+    pub parent: NodeId,
+    pub config: Transition,
+    pub initialized: bool,
+    pub seen: bool,
+}
+
+impl TransitionState {
+    pub fn new(id: WidgetId) -> Self {
+        Self {
+            id,
+            current: LogicalRect::default(),
+            initial: LogicalRect::default(),
+            target: LogicalRect::default(),
+            previous_relative_x: 0.0,
+            previous_relative_y: 0.0,
+            previous_parent: WidgetId::new("transition root"),
+            started_at: None,
+            duration: Duration::ZERO,
+            easing: Easing::Linear,
+            active: TransitionProperties::NONE,
+            node: NodeId::ROOT,
+            parent: NodeId::ROOT,
+            config: Transition::new(Duration::ZERO),
+            initialized: false,
+            seen: false,
+        }
+    }
+
+    pub fn begin(&mut self, node: NodeId, parent: NodeId, config: Transition) {
+        assert!(!self.seen, "duplicate transition WidgetId {:?}", self.id);
+        self.node = node;
+        self.parent = parent;
+        self.config = config;
+        self.seen = true;
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.started_at.is_some()
+    }
+
+    pub fn advance(
+        &mut self,
+        target: LogicalRect,
+        relative_x: f32,
+        relative_y: f32,
+        parent: WidgetId,
+        now: Duration,
+    ) {
+        if !self.initialized {
+            self.current = target;
+            self.initial = target;
+            self.target = target;
+            self.previous_relative_x = relative_x;
+            self.previous_relative_y = relative_y;
+            self.previous_parent = parent;
+            self.initialized = true;
+            return;
+        }
+        self.active = self.active.intersection(self.config.properties);
+        if self.active.is_empty() {
+            self.started_at = None;
+        }
+        if let Some(started_at) = self.started_at {
+            let progress = (now.saturating_sub(started_at).as_secs_f32()
+                / self.duration.as_secs_f32())
+            .min(1.0);
+            let amount = self.easing.apply(progress);
+            if self.active.contains(TransitionProperties::X) {
+                self.current.x = self.initial.x + (self.target.x - self.initial.x) * amount;
+            }
+            if self.active.contains(TransitionProperties::Y) {
+                self.current.y = self.initial.y + (self.target.y - self.initial.y) * amount;
+            }
+            if self.active.contains(TransitionProperties::WIDTH) {
+                self.current.width =
+                    self.initial.width + (self.target.width - self.initial.width) * amount;
+            }
+            if self.active.contains(TransitionProperties::HEIGHT) {
+                self.current.height =
+                    self.initial.height + (self.target.height - self.initial.height) * amount;
+            }
+            if progress == 1.0 {
+                self.current = self.target;
+                self.started_at = None;
+                self.active = TransitionProperties::NONE;
+            }
+        }
+
+        let reparented = self.previous_parent != parent;
+        let mut changed = TransitionProperties::NONE;
+        if self.config.properties.contains(TransitionProperties::X)
+            && self.target.x != target.x
+            && (self.previous_relative_x != relative_x || reparented)
+        {
+            changed = changed.union(TransitionProperties::X);
+        }
+        if self.config.properties.contains(TransitionProperties::Y)
+            && self.target.y != target.y
+            && (self.previous_relative_y != relative_y || reparented)
+        {
+            changed = changed.union(TransitionProperties::Y);
+        }
+        if self.config.properties.contains(TransitionProperties::WIDTH)
+            && self.target.width != target.width
+        {
+            changed = changed.union(TransitionProperties::WIDTH);
+        }
+        if self
+            .config
+            .properties
+            .contains(TransitionProperties::HEIGHT)
+            && self.target.height != target.height
+        {
+            changed = changed.union(TransitionProperties::HEIGHT);
+        }
+
+        self.target = target;
+        self.previous_relative_x = relative_x;
+        self.previous_relative_y = relative_y;
+        self.previous_parent = parent;
+        if !changed.is_empty() {
+            self.initial = self.current;
+            self.active = self.active.union(changed);
+            self.duration = self.config.duration;
+            self.easing = self.config.easing;
+            if self.config.duration.is_zero() {
+                self.current = target;
+                self.started_at = None;
+                self.active = TransitionProperties::NONE;
+            } else {
+                self.started_at = Some(now);
+            }
+        } else if self.started_at.is_none() {
+            self.initial = target;
+            self.current = target;
         }
     }
 }
@@ -1111,4 +1397,4 @@ macro_rules! store_ids {
     };
 }
 
-store_ids!(StyleId, ShadowId, ClipSpecId);
+store_ids!(StyleId, ShadowId, ClipSpecId, TransitionId);
