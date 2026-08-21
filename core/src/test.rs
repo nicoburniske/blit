@@ -7,7 +7,7 @@ use crate::{
     command_list::{ClipId, Command, CommandList},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
-    interact::WidgetId,
+    interact::{Sense, WidgetId},
     keyboard::KeyboardRequest,
     paint,
     platform::PlatformImpl,
@@ -219,15 +219,15 @@ fn absolute_containers_do_not_participate_in_flow() {
                 height: 2.0,
             },
             LogicalRect {
-                x: 3.0,
-                y: -1.0,
-                width: 3.0,
-                height: 2.0,
-            },
-            LogicalRect {
                 x: 4.0,
                 y: 0.0,
                 width: 6.0,
+                height: 2.0,
+            },
+            LogicalRect {
+                x: 3.0,
+                y: -1.0,
+                width: 3.0,
                 height: 2.0,
             },
             LogicalRect {
@@ -238,6 +238,81 @@ fn absolute_containers_do_not_participate_in_flow() {
             },
         ]
     );
+}
+
+#[test]
+fn absolute_z_index_orders_complete_subtrees() {
+    let mut runtime = Runtime::new(TestPlatform::default());
+    runtime.render(Duration::ZERO, Input::None, |ui| {
+        ui.absolute(Absolute::at(1.0, 0.0).z_index(-1))
+            .column(Container::new().fixed(1.0, 1.0).background(Color::BLACK));
+        ui.add(
+            widget::Rectangle::new()
+                .fixed(1.0, 1.0)
+                .background(Color::GRAY),
+        );
+        ui.absolute(Absolute::at(4.0, 0.0).z_index(2))
+            .column(Container::new().fixed(1.0, 1.0).background(Color::WHITE));
+        let mut layer = ui
+            .absolute(Absolute::at(3.0, 0.0).z_index(1))
+            .column(Container::new().fixed(1.0, 1.0).background(Color::WHITE));
+        layer.add(
+            widget::Rectangle::new()
+                .fixed(1.0, 1.0)
+                .background(Color::BLACK),
+        );
+        drop(layer);
+        ui.add(
+            widget::Rectangle::new()
+                .fixed(1.0, 1.0)
+                .background(Color::GRAY),
+        );
+    });
+
+    assert_eq!(
+        runtime
+            .platform()
+            .rectangle_areas
+            .iter()
+            .map(|area| area.x)
+            .collect::<Vec<_>>(),
+        [1.0, 0.0, 0.0, 3.0, 3.0, 4.0]
+    );
+}
+
+#[test]
+fn absolute_z_index_orders_hit_testing() {
+    let mut runtime = Runtime::new(TestPlatform::default());
+    let normal = WidgetId::new("normal hit");
+    let raised = WidgetId::new("raised hit");
+    let render = |ui: &mut Ui| {
+        let normal_scope = ui.column(
+            Container::new()
+                .fixed(10.0, 10.0)
+                .interact(normal, Sense::CLICK),
+        );
+        let normal_hovered = normal_scope.interaction().hovered;
+        drop(normal_scope);
+        let raised_scope = ui.absolute(Absolute::at(0.0, 0.0).z_index(1)).column(
+            Container::new()
+                .fixed(10.0, 10.0)
+                .interact(raised, Sense::CLICK),
+        );
+        let raised_hovered = raised_scope.interaction().hovered;
+        (normal_hovered, raised_hovered)
+    };
+
+    runtime.render(Duration::ZERO, Input::None, &render);
+    let hovered = runtime.render(
+        Duration::ZERO,
+        Input::PointerMove {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            modifiers: Modifiers::NONE,
+        },
+        render,
+    );
+
+    assert_eq!(hovered, (false, true));
 }
 
 #[test]

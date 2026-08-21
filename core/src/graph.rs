@@ -102,6 +102,7 @@ pub struct FrameGraph {
     images: Vec<ImageContent>,
     flows: Vec<Flow>,
     positioned_flows: Vec<PositionedFlow>,
+    layers: Vec<NodeId>,
     appearances: Vec<StoredAppearance>,
     shadows: Vec<Shadow>,
     clip_specs: Vec<Clip>,
@@ -251,6 +252,7 @@ impl FrameGraph {
         self.images.clear();
         self.flows.clear();
         self.positioned_flows.clear();
+        self.layers.clear();
         self.appearances.clear();
         self.shadows.clear();
         self.clip_specs.clear();
@@ -353,6 +355,7 @@ impl FrameGraph {
                 let id = FlowId::positioned(self.positioned_flows.len());
                 self.positioned_flows
                     .push(PositionedFlow { flow, absolute });
+                self.layers.push(node);
                 id
             }
             (Some(flow), None) => {
@@ -493,6 +496,7 @@ impl FrameGraph {
             self.layout::<false>(platform);
         } else {
             self.layout::<true>(platform);
+            self.prepare_layers();
         }
         if self.clear {
             commands.push_clear(self.nodes[0].area.to_physical(scale_factor));
@@ -515,6 +519,7 @@ impl FrameGraph {
                 + self.images.capacity() * size_of::<ImageContent>()
                 + self.flows.capacity() * size_of::<Flow>()
                 + self.positioned_flows.capacity() * size_of::<PositionedFlow>()
+                + self.layers.capacity() * size_of::<NodeId>()
                 + self.appearances.capacity() * size_of::<StoredAppearance>()
                 + self.shadows.capacity() * size_of::<Shadow>()
                 + self.clip_specs.capacity() * size_of::<Clip>()
@@ -522,6 +527,36 @@ impl FrameGraph {
                 + self.interactions.capacity() * size_of::<InteractionRecord>()
                 + self.gradient_stops.capacity() * size_of::<crate::paint::GradientStop>(),
         }
+    }
+
+    fn prepare_layers(&mut self) {
+        let nodes = &self.nodes;
+        let positioned = &self.positioned_flows;
+        let z_index = |root: &NodeId| {
+            positioned[nodes[root.index()].flow.get().unwrap()]
+                .absolute
+                .z_index
+        };
+        self.layers
+            .sort_unstable_by_key(|root| (z_index(root), root.index()));
+        let normal = self.layers.partition_point(|root| z_index(root) < 0);
+        self.layers.insert(normal, NodeId::ROOT);
+
+        let layers = &self.layers;
+        self.interactions.sort_unstable_by_key(|record| {
+            let node = record.node.index();
+            let layer = layers
+                .iter()
+                .enumerate()
+                .filter(|(_, layer)| {
+                    let root = layer.index();
+                    root <= node && node < nodes[root].subtree_end as usize
+                })
+                .max_by_key(|(_, layer)| layer.index())
+                .unwrap()
+                .0;
+            (layer, node)
+        });
     }
 
     fn layout<const POSITIONED: bool>(&mut self, platform: &mut Platform) {
@@ -849,125 +884,168 @@ impl FrameGraph {
     }
 
     fn emit(&self, platform: &mut Platform, commands: &mut CommandList, scale_factor: f32) {
-        for node in self.nodes.iter().skip(1) {
-            if let Some(shadow) = node.shadow.get().map(|index| self.shadows[index]) {
-                let shadow = BoxShadow::new(node.area, shadow.color)
-                    .radius(shadow.radius)
-                    .offset(shadow.offset_x, shadow.offset_y)
-                    .blur(shadow.blur)
-                    .spread(shadow.spread);
-                if let Some(bounds) = node.visible_bounds(shadow.bounds(), scale_factor) {
-                    commands.push_box_shadow(shadow, bounds, node.clip);
-                }
+        if self.layers.is_empty() {
+            for index in 1..self.nodes.len() {
+                self.emit_node(index, platform, commands, scale_factor);
             }
-            if let Some(appearance) = node.appearance.get().map(|index| &self.appearances[index]) {
-                let border = match appearance.border {
-                    StoredBorder::None => Border::None,
-                    StoredBorder::Solid { width, color } => Border::Solid { width, color },
-                    StoredBorder::Gradient {
-                        width,
-                        angle_degrees,
-                        start,
-                        len,
-                    } => Border::Gradient {
-                        width,
-                        gradient: LinearGradient::new(&self.gradient_stops[start..start + len])
-                            .angle(angle_degrees),
-                    },
-                };
-                let rectangle = Rectangle {
+            return;
+        }
+
+        for layer in &self.layers {
+            self.emit_layer(layer.index(), platform, commands, scale_factor);
+        }
+    }
+
+    fn emit_layer(
+        &self,
+        root: usize,
+        platform: &mut Platform,
+        commands: &mut CommandList,
+        scale_factor: f32,
+    ) {
+        let mut index = root.max(1);
+        let end = if root == 0 {
+            self.nodes.len()
+        } else {
+            self.nodes[root].subtree_end as usize
+        };
+        while index < end {
+            let node = &self.nodes[index];
+            if index != root && node.flow.is_positioned() {
+                index = node.subtree_end as usize;
+                continue;
+            }
+            self.emit_node(index, platform, commands, scale_factor);
+            index += 1;
+        }
+    }
+
+    #[inline(always)]
+    fn emit_node(
+        &self,
+        index: usize,
+        platform: &mut Platform,
+        commands: &mut CommandList,
+        scale_factor: f32,
+    ) {
+        let node = &self.nodes[index];
+        if let Some(shadow) = node.shadow.get().map(|index| self.shadows[index]) {
+            let shadow = BoxShadow::new(node.area, shadow.color)
+                .radius(shadow.radius)
+                .offset(shadow.offset_x, shadow.offset_y)
+                .blur(shadow.blur)
+                .spread(shadow.spread);
+            if let Some(bounds) = node.visible_bounds(shadow.bounds(), scale_factor) {
+                commands.push_box_shadow(shadow, bounds, node.clip);
+            }
+        }
+        if let Some(appearance) = node.appearance.get().map(|index| &self.appearances[index]) {
+            let border = match appearance.border {
+                StoredBorder::None => Border::None,
+                StoredBorder::Solid { width, color } => Border::Solid { width, color },
+                StoredBorder::Gradient {
+                    width,
+                    angle_degrees,
+                    start,
+                    len,
+                } => Border::Gradient {
+                    width,
+                    gradient: LinearGradient::new(&self.gradient_stops[start..start + len])
+                        .angle(angle_degrees),
+                },
+            };
+            let rectangle = Rectangle {
+                area: node.area,
+                background: appearance.background,
+                border,
+                radius: appearance.radius,
+                opacity: appearance.opacity,
+            };
+            if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
+                commands.push_rectangle(rectangle, bounds, node.clip);
+            }
+        }
+        match node.content.get() {
+            ContentRef::None => {}
+            ContentRef::Text(index) => {
+                let text = self.texts[index];
+                let request = TextRequest {
+                    text: text.text,
                     area: node.area,
-                    background: appearance.background,
-                    border,
-                    radius: appearance.radius,
-                    opacity: appearance.opacity,
+                    offset_x: text.offset_x,
+                    color: text.color,
+                    style: text.style,
+                    options: text.options,
                 };
+                if let Some(selection) = text.selection {
+                    let start = platform.text_cursor_rect(&request, selection.start);
+                    let end = platform.text_cursor_rect(&request, selection.end);
+                    let left = start.x.max(node.area.x);
+                    let right = end.x.min(node.area.x + node.area.width);
+                    let top = start.y.max(node.area.y);
+                    let bottom = (start.y + start.height).min(node.area.y + node.area.height);
+                    if right > left && bottom > top {
+                        let area = LogicalRect {
+                            x: left,
+                            y: top,
+                            width: right - left,
+                            height: bottom - top,
+                        };
+                        if let Some(bounds) = node.visible_bounds(area, scale_factor) {
+                            commands.push_rectangle(
+                                Rectangle::new(area).background(selection.color),
+                                bounds,
+                                node.clip,
+                            );
+                        }
+                    }
+                }
                 if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
-                    commands.push_rectangle(rectangle, bounds, node.clip);
+                    commands.push_text(request, bounds, node.clip);
+                }
+                if let Some(caret) = text.caret {
+                    let cursor = platform.text_cursor_rect(&request, caret.offset);
+                    let x = cursor.x.clamp(
+                        node.area.x,
+                        (node.area.x + node.area.width - caret.width).max(node.area.x),
+                    );
+                    let top = cursor.y.max(node.area.y);
+                    let bottom = (cursor.y + cursor.height).min(node.area.y + node.area.height);
+                    if bottom > top {
+                        let area = LogicalRect {
+                            x,
+                            y: top,
+                            width: caret.width.min(node.area.width),
+                            height: bottom - top,
+                        };
+                        if let Some(bounds) = node.visible_bounds(area, scale_factor) {
+                            commands.push_rectangle(
+                                Rectangle::new(area).background(caret.color),
+                                bounds,
+                                node.clip,
+                            );
+                        }
+                    }
                 }
             }
-            match node.content.get() {
-                ContentRef::None => {}
-                ContentRef::Text(index) => {
-                    let text = self.texts[index];
-                    let request = TextRequest {
-                        text: text.text,
-                        area: node.area,
-                        offset_x: text.offset_x,
-                        color: text.color,
-                        style: text.style,
-                        options: text.options,
-                    };
-                    if let Some(selection) = text.selection {
-                        let start = platform.text_cursor_rect(&request, selection.start);
-                        let end = platform.text_cursor_rect(&request, selection.end);
-                        let left = start.x.max(node.area.x);
-                        let right = end.x.min(node.area.x + node.area.width);
-                        let top = start.y.max(node.area.y);
-                        let bottom = (start.y + start.height).min(node.area.y + node.area.height);
-                        if right > left && bottom > top {
-                            let area = LogicalRect {
-                                x: left,
-                                y: top,
-                                width: right - left,
-                                height: bottom - top,
-                            };
-                            if let Some(bounds) = node.visible_bounds(area, scale_factor) {
-                                commands.push_rectangle(
-                                    Rectangle::new(area).background(selection.color),
-                                    bounds,
-                                    node.clip,
-                                );
-                            }
-                        }
-                    }
-                    if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
-                        commands.push_text(request, bounds, node.clip);
-                    }
-                    if let Some(caret) = text.caret {
-                        let cursor = platform.text_cursor_rect(&request, caret.offset);
-                        let x = cursor.x.clamp(
-                            node.area.x,
-                            (node.area.x + node.area.width - caret.width).max(node.area.x),
-                        );
-                        let top = cursor.y.max(node.area.y);
-                        let bottom = (cursor.y + cursor.height).min(node.area.y + node.area.height);
-                        if bottom > top {
-                            let area = LogicalRect {
-                                x,
-                                y: top,
-                                width: caret.width.min(node.area.width),
-                                height: bottom - top,
-                            };
-                            if let Some(bounds) = node.visible_bounds(area, scale_factor) {
-                                commands.push_rectangle(
-                                    Rectangle::new(area).background(caret.color),
-                                    bounds,
-                                    node.clip,
-                                );
-                            }
-                        }
-                    }
-                }
-                ContentRef::Image(index) => {
-                    let image = self.images[index];
-                    if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
-                        commands.push_image(
-                            ImageRequest {
-                                image: image.image,
-                                area: node.area,
-                                fit: image.fit,
-                                sampling: image.sampling,
-                                opacity: image.opacity,
-                                colorize: image.colorize,
-                                nine_slice: image.nine_slice,
-                                horizontal_tiling: image.horizontal_tiling,
-                                vertical_tiling: image.vertical_tiling,
-                            },
-                            bounds,
-                            node.clip,
-                        );
-                    }
+            ContentRef::Image(index) => {
+                let image = self.images[index];
+                if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
+                    commands.push_image(
+                        ImageRequest {
+                            image: image.image,
+                            area: node.area,
+                            fit: image.fit,
+                            sampling: image.sampling,
+                            opacity: image.opacity,
+                            colorize: image.colorize,
+                            nine_slice: image.nine_slice,
+                            horizontal_tiling: image.horizontal_tiling,
+                            vertical_tiling: image.vertical_tiling,
+                        },
+                        bounds,
+                        node.clip,
+                    );
                 }
             }
         }
