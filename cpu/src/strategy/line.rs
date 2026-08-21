@@ -243,7 +243,9 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     })
                     .map(|(index, _)| index)
                     .unwrap_or(0);
-                if !commands.has_partial_opaque() {
+                // splitting short spans costs more than redrawing their covered pixels
+                // TODO: what heuristic to use?
+                if range.len() < 128 && !commands.has_partial_opaque() {
                     let active = &self.active[first..];
                     buffer.process_line(line as usize, range.clone(), |pixels| {
                         let mut buffer = LineBuffer {
@@ -276,21 +278,25 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 }
                 let overwrite = self.active[first + 1..].iter().enumerate().rev().find_map(
                     |(offset, command)| {
-                        if !commands.partial_opaque(*command) {
-                            return None;
-                        }
                         let command_first = first + 1 + offset;
-                        let Payload::Image(image) = commands.get(*command) else {
-                            unreachable!()
-                        };
-                        let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
-                        let texture = images.get(image_id)?;
-                        let span = image.opaque_span(
-                            line,
-                            commands.bounds(*command),
-                            &texture.data,
-                            &texture.alpha_rows,
-                        )?;
+                        // rounded commands and partially opaque images can hide a scanline center
+                        let span = if commands.overwrites(*command) {
+                            commands.overwrite_span(*command, line)
+                        } else if commands.partial_opaque(*command) {
+                            let Payload::Image(image) = commands.get(*command) else {
+                                unreachable!()
+                            };
+                            let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
+                            let texture = images.get(image_id)?;
+                            image.opaque_span(
+                                line,
+                                commands.bounds(*command),
+                                &texture.data,
+                                &texture.alpha_rows,
+                            )
+                        } else {
+                            None
+                        }?;
                         let start = span.start.max(range.start as i32);
                         let end = span.end.min(range.end as i32);
                         (start < end).then_some((start as usize, end as usize, command_first))
@@ -330,6 +336,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         }
                     };
                     if let Some((start, end, overwrite)) = overwrite {
+                        // only the uncovered edges need commands behind the opaque span
                         draw(first, range.start, start);
                         draw(overwrite, start, end);
                         draw(first, end, range.end);
