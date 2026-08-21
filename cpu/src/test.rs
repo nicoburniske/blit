@@ -1,7 +1,7 @@
 use std::{ops::Range, time::Duration};
 
 use blit::{
-    Appearance, Clip, RepaintBuffer, Runtime, Shadow, Sizing,
+    Clip, RepaintBuffer, Runtime, Shadow, Sizing, Style,
     animation::Easing,
     color::Color,
     command_list::{ClipId, CommandList},
@@ -347,7 +347,7 @@ fn resolved_nodes_match_direct_commands() {
             .col()
             .grow()
             .appearance(
-                Appearance::new()
+                Style::new()
                     .background(Color::from_rgba8(40, 70, 100, 255))
                     .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
                     .radius(radius)

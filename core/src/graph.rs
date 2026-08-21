@@ -16,7 +16,7 @@ use crate::{
     },
     platform::Platform,
     resource::ImageId,
-    style::{Appearance, Clip, Shadow},
+    style::{Clip, Shadow, Style},
 };
 
 #[derive(Default)]
@@ -145,7 +145,7 @@ impl FrameGraph {
     pub fn add_leaf(&mut self, item: Item, content: Content) -> NodeId {
         let appearance = match content {
             Content::Rectangle(appearance) => appearance,
-            _ => Appearance::new(),
+            _ => Style::new(),
         };
         let content = self.store_content(content);
         self.append(item, None, None, appearance, content, Clip::None, None)
@@ -155,7 +155,7 @@ impl FrameGraph {
         self.geometry.push(GeometryRecord { node, id });
     }
 
-    pub fn set_appearance(&mut self, node: NodeId, appearance: Appearance<'_>) {
+    pub fn set_appearance(&mut self, node: NodeId, appearance: Style<'_>) {
         let (appearance, shadow) = self.store_appearance(appearance);
         self.nodes[node.index()].appearance = appearance;
         self.nodes[node.index()].shadow = shadow;
@@ -203,7 +203,7 @@ impl FrameGraph {
         item: Item,
         flow: Option<Flow>,
         position: Option<Absolute>,
-        appearance: Appearance<'_>,
+        appearance: Style<'_>,
         content: ContentId,
         clip: Clip,
         id: Option<WidgetId>,
@@ -270,7 +270,7 @@ impl FrameGraph {
         }
     }
 
-    fn store_appearance(&mut self, appearance: Appearance<'_>) -> (AppearanceId, ShadowId) {
+    fn store_appearance(&mut self, appearance: Style<'_>) -> (AppearanceId, ShadowId) {
         let stored = if appearance.background != Color::TRANSPARENT
             || !matches!(appearance.border, Border::None)
         {
@@ -848,7 +848,7 @@ impl FrameGraph {
 /// intrinsic leaf content
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Content {
-    Rectangle(Appearance<'static>),
+    Rectangle(Style<'static>),
     Text(TextContent),
     Image(ImageContent),
 }

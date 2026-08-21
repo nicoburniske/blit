@@ -1,5 +1,5 @@
 use blit::{
-    Absolute, Align, Anchor, Appearance, Axis, Clip, Justify, Sizing, Ui,
+    Absolute, Align, Anchor, Axis, Clip, Justify, Sizing, Style, Ui,
     geometry::LogicalInsets,
     interact::{Sense, WidgetId},
     paint::{FontId, HorizontalAlign, TextWrap},
@@ -696,7 +696,7 @@ impl Widget for Button<'_> {
                 left: self.padding_x,
             })
             .appearance(
-                Appearance::new()
+                Style::new()
                     .background(if interaction.pressed || interaction.clicked {
                         self.clicked_background
                     } else {

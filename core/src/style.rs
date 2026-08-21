@@ -7,7 +7,7 @@ use crate::{
 
 /// paint emitted for a node's resolved bounds
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Appearance<'a> {
+pub struct Style<'a> {
     pub background: Color,
     pub border: Border<'a>,
     pub radius: BorderRadius,
@@ -35,7 +35,7 @@ pub enum Clip {
     Rounded(BorderRadius),
 }
 
-impl<'a> Appearance<'a> {
+impl<'a> Style<'a> {
     pub const fn new() -> Self {
         Self {
             background: Color::TRANSPARENT,
@@ -82,7 +82,7 @@ impl<'a> Appearance<'a> {
     }
 }
 
-impl Default for Appearance<'_> {
+impl Default for Style<'_> {
     fn default() -> Self {
         Self::new()
     }

@@ -8,7 +8,7 @@ use crate::{
     graph::NodeId,
     interact::WidgetId,
     paint::{Border, BorderRadius, LinearGradient},
-    style::{Appearance, Clip, Shadow},
+    style::{Clip, Shadow, Style},
 };
 
 /// absolute placement of a container outside its parent's flow
@@ -69,7 +69,7 @@ pub struct ContainerConfig<'a> {
     pub justify: Justify,
     pub allow_overflow: bool,
     pub child_offset: LogicalPoint,
-    pub appearance: Appearance<'a>,
+    pub appearance: Style<'a>,
     pub clip: Clip,
 }
 
@@ -245,7 +245,7 @@ impl<'ui, 'style> Container<'ui, 'style> {
         self
     }
 
-    pub fn appearance(mut self, appearance: Appearance<'style>) -> Self {
+    pub fn appearance(mut self, appearance: Style<'style>) -> Self {
         self.config.appearance = appearance;
         self
     }
@@ -332,7 +332,7 @@ impl<'a> ContainerConfig<'a> {
             justify: Justify::Start,
             allow_overflow: false,
             child_offset: LogicalPoint { x: 0.0, y: 0.0 },
-            appearance: Appearance::new(),
+            appearance: Style::new(),
             clip: Clip::None,
         }
     }
