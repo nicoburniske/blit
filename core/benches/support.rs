@@ -6,7 +6,6 @@ use blit::{
     command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     interact::{Sense, WidgetId},
-    keyboard::KeyboardRequest,
     paint::{self, TextLayoutRequest, TextRunId, TextStyle},
     platform::PlatformImpl,
     resource::{ImageData, ImageId},
@@ -61,8 +60,6 @@ impl PlatformImpl for NoopPlatform {
     fn text_cursor_rect(&mut self, _: &paint::TextRequest, _: usize) -> LogicalRect {
         unreachable!()
     }
-
-    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
 }
 
 pub fn layout_frame(ui: &mut Ui) {

@@ -1,4 +1,5 @@
 pub mod animation;
+mod builder;
 pub mod color;
 pub mod command_list;
 mod container;
@@ -6,7 +7,6 @@ pub mod geometry;
 pub(crate) mod graph;
 pub mod input;
 pub mod interact;
-pub mod keyboard;
 pub mod paint;
 pub mod platform;
 pub mod resource;

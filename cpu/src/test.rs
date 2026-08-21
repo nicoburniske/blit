@@ -8,7 +8,6 @@ use blit::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     input::Input,
     interact::WidgetId,
-    keyboard::KeyboardRequest,
     paint::{
         BorderRadius, BoxShadow, GradientStop, ImageFit, ImageRequest, ImageSampling, ImageTiling,
         LinearGradient, Rectangle, TextLayoutRequest, TextOptions, TextRequest, TextRunId,
@@ -93,8 +92,6 @@ impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
     fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
         self.renderer.text_cursor_rect(request, byte_offset)
     }
-
-    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
 }
 
 struct SwappedBuffer {

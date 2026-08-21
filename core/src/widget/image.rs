@@ -7,32 +7,18 @@ use crate::{
     resource::ImageHandle,
 };
 
-crate::widget! {
+crate::builder! {
     pub struct Image<'a> {
-        new(pub resource: &'a ImageHandle);
-        pub fit: ImageFit,
-        pub sampling: ImageSampling,
-        pub width: Sizing = Sizing::fit(),
-        pub height: Sizing = Sizing::fit(),
-        pub opacity: f32 = 1.0,
-        #[skip]
-        pub colorize: Option<Color>,
-        #[skip]
-        pub nine_slice: Option<NineSlice>,
-        pub horizontal_tiling: ImageTiling,
-        pub vertical_tiling: ImageTiling,
-    }
-}
-
-impl<'a> Image<'a> {
-    pub fn colorize(mut self, color: Color) -> Self {
-        self.colorize = Some(color);
-        self
-    }
-
-    pub fn nine_slice(mut self, nine_slice: NineSlice) -> Self {
-        self.nine_slice = Some(nine_slice);
-        self
+        new(resource: &'a ImageHandle),
+        fit: ImageFit = ImageFit::default(),
+        sampling: ImageSampling = ImageSampling::default(),
+        width: Sizing = Sizing::fit(),
+        height: Sizing = Sizing::fit(),
+        opacity: f32 = 1.0,
+        colorize: Option<Color> = None,
+        nine_slice: Option<NineSlice> = None,
+        horizontal_tiling: ImageTiling = ImageTiling::default(),
+        vertical_tiling: ImageTiling = ImageTiling::default(),
     }
 }
 

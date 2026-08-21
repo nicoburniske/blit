@@ -4,7 +4,6 @@ use crate::{
     RepaintBuffer,
     command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
-    keyboard::KeyboardRequest,
     paint::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
     resource::{ImageData, ImageHandle, ImageId},
 };
@@ -29,8 +28,6 @@ pub trait PlatformImpl {
     fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize;
     /// returns the cursor position and line height for the nearest valid byte offset
     fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect;
-
-    fn show_keyboard(&mut self, request: &KeyboardRequest<'_>);
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -79,11 +76,6 @@ impl Platform {
     #[inline]
     pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
         self.inner().text_cursor_rect(request, byte_offset)
-    }
-
-    #[inline]
-    pub fn show_keyboard(&mut self, request: &KeyboardRequest<'_>) {
-        self.inner().show_keyboard(request)
     }
 }
 

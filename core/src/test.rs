@@ -8,7 +8,6 @@ use crate::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
     interact::{Sense, WidgetId},
-    keyboard::KeyboardRequest,
     paint,
     platform::PlatformImpl,
     resource, widget,
@@ -112,8 +111,14 @@ impl PlatformImpl for TestPlatform {
             height: request.style.size,
         }
     }
+}
 
-    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
+fn button(ui: &mut Ui) -> bool {
+    let id = WidgetId::new("test button");
+    let interaction = ui.interact(id, Sense::CLICK);
+    let mut button = ui.container().row().fixed(10.0, 10.0).id(id).open();
+    button.add(widget::Text::new("button"));
+    interaction.clicked
 }
 
 #[test]
@@ -559,7 +564,7 @@ fn static_text_reuses_runs_and_stable_output_has_no_damage() {
     let mut runtime = Runtime::new(TestPlatform::default());
     let render = |ui: &mut Ui| {
         ui.add(widget::Text::new("label"));
-        ui.add(widget::Button::new("button"));
+        button(ui);
     };
 
     runtime.render(Duration::ZERO, Input::None, render);
@@ -622,7 +627,7 @@ fn swapped_buffer_replays_damage_once() {
 #[test]
 fn render_batch_processes_each_input_and_commits_the_final_scene() {
     let mut runtime = Runtime::new(TestPlatform::default());
-    let render = |ui: &mut Ui| ui.add(widget::Button::new("button"));
+    let render = button;
     runtime.render(Duration::ZERO, Input::None, |ui| {
         render(ui);
     });
@@ -643,7 +648,7 @@ fn render_batch_processes_each_input_and_commits_the_final_scene() {
                 leave: false,
             },
         ],
-        |ui| clicked |= render(ui).clicked(),
+        |ui| clicked |= render(ui),
     );
 
     assert!(clicked);
@@ -654,9 +659,7 @@ fn scroll_drag_cancels_button_click() {
     let mut runtime = Runtime::new(TestPlatform::default());
     let mut state = widget::ScrollState::default();
     let render = |ui: &mut Ui, state: &mut widget::ScrollState| {
-        widget::ScrollArea::vertical(state)
-            .begin(ui)
-            .add(widget::Button::new("button"))
+        widget::ScrollArea::vertical(state).begin(ui).add(button)
     };
     runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
     runtime.render(
@@ -687,7 +690,7 @@ fn scroll_drag_cancels_button_click() {
         |ui| render(ui, &mut state),
     );
 
-    assert!(!response.clicked());
+    assert!(!response);
 }
 
 #[test]
