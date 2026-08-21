@@ -69,12 +69,6 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
-    pub fn with_scale_factor(mut self, scale_factor: f32) -> Self {
-        assert!(scale_factor.is_finite() && scale_factor > 0.0);
-        self.context.scale_factor = scale_factor;
-        self
-    }
-
     pub fn screen(&self) -> PhysicalRect {
         PhysicalRect {
             x: 0,
@@ -84,62 +78,12 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         }
     }
 
-    pub fn scale_factor(&self) -> f32 {
-        self.context.scale_factor
-    }
-
-    pub fn set_scale_factor(&mut self, scale_factor: f32) {
-        assert!(scale_factor.is_finite() && scale_factor > 0.0);
-        self.context.scale_factor = scale_factor;
-    }
-
     pub fn buffer(&self) -> &B {
         &self.context.buffer
     }
 
     pub fn buffer_mut(&mut self) -> &mut B {
         &mut self.context.buffer
-    }
-
-    pub fn render(&mut self, commands: &ResolvedCommandList, damage: &[PhysicalRect]) {
-        assert!(self.context.commands.is_empty());
-        if !damage.is_empty() {
-            for clip in commands.clips() {
-                self.context.clips.push_node(
-                    clip.parent.0,
-                    clip.area,
-                    clip.radius,
-                    self.context.scale_factor,
-                );
-            }
-            for record in commands.iter() {
-                if !damage
-                    .iter()
-                    .any(|damage| record.bounds.intersection(*damage).is_some())
-                {
-                    continue;
-                }
-                match record.command {
-                    Command::Clear => self.context.commands.push_clear(record.bounds),
-                    Command::Rectangle(rectangle) => {
-                        self.prepare_rectangle(&rectangle, record.bounds, record.clip.0)
-                    }
-                    Command::Image(image) => {
-                        self.prepare_image(&image, record.bounds, record.clip.0)
-                    }
-                    Command::Text(text) => {
-                        self.prepare_text(&text, record.bounds, record.clip.0);
-                    }
-                    Command::BoxShadow(shadow) => {
-                        self.prepare_box_shadow(&shadow, record.bounds, record.clip.0)
-                    }
-                }
-            }
-            self.strategy.render(&mut self.context, damage);
-        }
-        self.context.commands.clear();
-        self.context.clips.clear();
-        self.context.finish_frame();
     }
 
     fn prepare_rectangle(&mut self, request: &Rectangle<'_>, bounds: PhysicalRect, clip: u32) {
@@ -239,38 +183,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             clip,
         );
         Some(bounds)
-    }
-
-    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        StoredImage::insert(&mut self.context.images, data)
-    }
-
-    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.context
-            .text
-            .text_run(text, style, self.context.scale_factor)
-    }
-
-    pub fn text_offset_at_position(
-        &mut self,
-        request: &TextRequest,
-        position: LogicalPoint,
-    ) -> usize {
-        self.context
-            .text
-            .offset_at_position(request, position, self.context.scale_factor)
-    }
-
-    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
-        self.context
-            .text
-            .measure(request, self.context.scale_factor)
-    }
-
-    pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        self.context
-            .text
-            .cursor_rect(request, byte_offset, self.context.scale_factor)
     }
 }
 
@@ -420,6 +332,82 @@ impl<B: PixelBuffer> RenderContext<B> {
         self.text.finish_frame();
         self.images
             .retain(|_, image| !image.handle.is_uniquely_owned());
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>> blit::renderer::Renderer for Renderer<B, S> {
+    fn set_scale_factor(&mut self, scale_factor: f32) {
+        assert!(scale_factor.is_finite() && scale_factor > 0.0);
+        self.context.scale_factor = scale_factor;
+    }
+
+    fn render(&mut self, commands: &ResolvedCommandList, damage: &[PhysicalRect]) {
+        assert!(self.context.commands.is_empty());
+        if !damage.is_empty() {
+            for clip in commands.clips() {
+                self.context.clips.push_node(
+                    clip.parent.0,
+                    clip.area,
+                    clip.radius,
+                    self.context.scale_factor,
+                );
+            }
+            for record in commands.iter() {
+                if !damage
+                    .iter()
+                    .any(|damage| record.bounds.intersection(*damage).is_some())
+                {
+                    continue;
+                }
+                match record.command {
+                    Command::Clear => self.context.commands.push_clear(record.bounds),
+                    Command::Rectangle(rectangle) => {
+                        self.prepare_rectangle(&rectangle, record.bounds, record.clip.0)
+                    }
+                    Command::Image(image) => {
+                        self.prepare_image(&image, record.bounds, record.clip.0)
+                    }
+                    Command::Text(text) => {
+                        self.prepare_text(&text, record.bounds, record.clip.0);
+                    }
+                    Command::BoxShadow(shadow) => {
+                        self.prepare_box_shadow(&shadow, record.bounds, record.clip.0)
+                    }
+                }
+            }
+            self.strategy.render(&mut self.context, damage);
+        }
+        self.context.commands.clear();
+        self.context.clips.clear();
+        self.context.finish_frame();
+    }
+
+    fn create_image(&mut self, data: ImageData) -> ImageHandle {
+        StoredImage::insert(&mut self.context.images, data)
+    }
+
+    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.context
+            .text
+            .text_run(text, style, self.context.scale_factor)
+    }
+
+    fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
+        self.context
+            .text
+            .offset_at_position(request, position, self.context.scale_factor)
+    }
+
+    fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
+        self.context
+            .text
+            .measure(request, self.context.scale_factor)
+    }
+
+    fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
+        self.context
+            .text
+            .cursor_rect(request, byte_offset, self.context.scale_factor)
     }
 }
 

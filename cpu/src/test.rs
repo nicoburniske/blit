@@ -5,7 +5,7 @@ use blit::{
     animation::Easing,
     color::Color,
     command_list::{ClipId, CommandList},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
+    geometry::{LogicalPoint, LogicalRect, PhysicalRect},
     input::Input,
     interact::WidgetId,
     paint::{
@@ -13,8 +13,8 @@ use blit::{
         LinearGradient, Rectangle, TextLayoutRequest, TextOptions, TextRequest, TextRunId,
         TextStyle, TextWrap,
     },
-    platform::PlatformImpl,
-    resource::{ImageData, ImageFormat, ImageHandle, ImagePixels},
+    renderer::Renderer as _,
+    resource::{ImageData, ImageFormat, ImagePixels},
     widget::{Image as ImageWidget, Rectangle as RectangleWidget, Text},
 };
 
@@ -49,66 +49,23 @@ struct TrackingBuffer {
     height: usize,
 }
 
-struct RuntimePlatform<B: PixelBuffer = VecBuffer<Xrgb8888>, S: RenderStrategy<B> = Scanline> {
+struct Harness<B: PixelBuffer, S: RenderStrategy<B>> {
     renderer: Renderer<B, S>,
-    repaint_buffer: RepaintBuffer,
-}
-
-impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
-    for RuntimePlatform<B, S>
-{
-    fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
-        self.renderer.render(commands, damage)
-    }
-
-    fn screen(&mut self) -> PhysicalRect {
-        self.renderer.screen()
-    }
-
-    fn repaint_buffer(&self) -> RepaintBuffer {
-        self.repaint_buffer
-    }
-
-    fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        self.renderer.create_image(data)
-    }
-
-    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.renderer.text_run(text, style)
-    }
-
-    fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
-        self.renderer.text_offset_at_position(request, position)
-    }
-
-    fn measure_text(&mut self, request: &blit::paint::TextLayoutRequest) -> LogicalSize {
-        self.renderer.measure_text(request)
-    }
-
-    fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        self.renderer.text_cursor_rect(request, byte_offset)
-    }
-}
-
-struct Harness<P: PlatformImpl + 'static> {
-    platform: P,
     state: UiState,
 }
 
-impl<P: PlatformImpl + 'static> Harness<P> {
-    fn new(platform: P) -> Self {
-        Self {
-            platform,
-            state: UiState::default(),
-        }
+impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> Harness<B, S> {
+    fn new(renderer: Renderer<B, S>, repaint_buffer: RepaintBuffer) -> Self {
+        let state = UiState::new(renderer.screen(), repaint_buffer, 1.0);
+        Self { renderer, state }
     }
 
     fn render<R>(&mut self, time: Duration, input: Input, build: impl FnMut(&mut Ui) -> R) -> R {
-        blit::render(&mut self.platform, &mut self.state, time, [input], build)
+        blit::render(&mut self.renderer, &mut self.state, time, [input], build)
     }
 
-    fn platform(&mut self) -> &mut P {
-        &mut self.platform
+    fn renderer(&mut self) -> &mut Renderer<B, S> {
+        &mut self.renderer
     }
 
     fn invalidate_all(&mut self) {
@@ -185,24 +142,24 @@ impl PixelBuffer for SwappedBuffer {
 }
 
 struct CoherenceHarness {
-    partial: Harness<RuntimePlatform<SwappedBuffer>>,
-    full: Harness<RuntimePlatform<SwappedBuffer>>,
+    partial: Harness<SwappedBuffer, Scanline>,
+    full: Harness<SwappedBuffer, Scanline>,
     frame: usize,
     id: WidgetId,
 }
 
 impl CoherenceHarness {
     fn new(width: usize, height: usize) -> Self {
-        let make_runtime = || {
-            Harness::new(RuntimePlatform {
-                renderer: Renderer::new(SwappedBuffer::new(width, height), renderer_config())
+        let make_harness = || {
+            Harness::new(
+                Renderer::new(SwappedBuffer::new(width, height), renderer_config())
                     .strategy(Scanline::default()),
-                repaint_buffer: RepaintBuffer::Swapped,
-            })
+                RepaintBuffer::Swapped,
+            )
         };
         Self {
-            partial: make_runtime(),
-            full: make_runtime(),
+            partial: make_harness(),
+            full: make_harness(),
             frame: 0,
             id: WidgetId::new("coherence harness movement"),
         }
@@ -218,8 +175,8 @@ impl CoherenceHarness {
 
     fn render_at(&mut self, time: Duration, position: f32, duration: Duration) -> (usize, usize) {
         if self.frame != 0 {
-            self.partial.platform().renderer.buffer_mut().swap();
-            self.full.platform().renderer.buffer_mut().swap();
+            self.partial.renderer().buffer_mut().swap();
+            self.full.renderer().buffer_mut().swap();
         }
         let id = self.id;
         self.partial.render(time, Input::None, |ui| {
@@ -231,23 +188,13 @@ impl CoherenceHarness {
         });
 
         assert_eq!(
-            self.partial.platform().renderer.buffer().pixels(),
-            self.full.platform().renderer.buffer().pixels(),
+            self.partial.renderer().buffer().pixels(),
+            self.full.renderer().buffer().pixels(),
             "frame {} at position {position}",
             self.frame
         );
-        let partial = self
-            .partial
-            .platform()
-            .renderer
-            .buffer_mut()
-            .take_rendered_pixels();
-        let full = self
-            .full
-            .platform()
-            .renderer
-            .buffer_mut()
-            .take_rendered_pixels();
+        let partial = self.partial.renderer().buffer_mut().take_rendered_pixels();
+        let full = self.full.renderer().buffer_mut().take_rendered_pixels();
         self.frame += 1;
         (partial, full)
     }
@@ -334,13 +281,10 @@ fn renderer_config() -> RendererConfig {
 
 #[test]
 fn resolved_nodes_match_direct_commands() {
-    let platform = RuntimePlatform {
-        renderer: Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config())
-            .strategy(Scanline::default()),
-        repaint_buffer: RepaintBuffer::Reused,
-    };
-    let mut runtime = Harness::new(platform);
-    let image = runtime.platform().create_image(ImageData::new(
+    let renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config())
+        .strategy(Scanline::default());
+    let mut harness = Harness::new(renderer, RepaintBuffer::Reused);
+    let image = harness.renderer().create_image(ImageData::new(
         ImagePixels::Owned([220, 80, 40].repeat(8 * 8).into_boxed_slice()),
         ImageFormat::Rgb8,
         8,
@@ -367,7 +311,7 @@ fn resolved_nodes_match_direct_commands() {
         .offset(1.0, 1.0)
         .blur(1.0);
 
-    runtime.render(Duration::ZERO, Input::None, |ui| {
+    harness.render(Duration::ZERO, Input::None, |ui| {
         let mut panel = ui
             .container()
             .col()
@@ -465,7 +409,7 @@ fn resolved_nodes_match_direct_commands() {
     direct.render(&commands, &[screen.to_physical(1.0)]);
 
     assert_eq!(
-        runtime.platform().renderer.buffer().pixels(),
+        harness.renderer().buffer().pixels(),
         direct.buffer().pixels()
     );
 }
@@ -695,16 +639,10 @@ fn partial_frames_match_full_redraw() {
     let stale = Xrgb8888::from_raw(0x00ff_00ff);
     harness
         .partial
-        .platform()
-        .renderer
+        .renderer()
         .buffer_mut()
         .replace_inactive(stale);
-    harness
-        .full
-        .platform()
-        .renderer
-        .buffer_mut()
-        .replace_inactive(stale);
+    harness.full.renderer().buffer_mut().replace_inactive(stale);
     harness.partial.invalidate_all();
     harness.render(4.0);
     harness.render(4.0);
@@ -1555,8 +1493,8 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
         strategy: S,
     ) -> Renderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(128, 96), renderer_config())
-            .with_scale_factor(2.0)
             .strategy(strategy);
+        renderer.set_scale_factor(2.0);
         let screen = renderer.screen();
         let first = BoxShadow::new(
             LogicalRect {
@@ -1835,26 +1773,25 @@ fn text_runs_are_keyed_by_content_and_style() {
 
 #[test]
 fn borrowed_dynamic_text_renders_after_the_source_is_reused() {
-    let mut runtime = Harness::new(RuntimePlatform {
-        renderer: Renderer::new(VecBuffer::<Xrgb8888>::new(96, 48), renderer_config())
+    let mut harness = Harness::new(
+        Renderer::new(VecBuffer::<Xrgb8888>::new(96, 48), renderer_config())
             .strategy(Scanline::default()),
-        repaint_buffer: RepaintBuffer::Reused,
-    });
+        RepaintBuffer::Reused,
+    );
     let mut text = String::from("managed");
 
-    runtime.render(Duration::ZERO, Input::None, |ui| {
+    harness.render(Duration::ZERO, Input::None, |ui| {
         ui.add(Text::new(&text).color(Color::WHITE));
     });
     text.clear();
     text.push_str("updated");
-    runtime.render(Duration::ZERO, Input::None, |ui| {
+    harness.render(Duration::ZERO, Input::None, |ui| {
         ui.add(Text::new(&text).color(Color::WHITE));
     });
 
     assert!(
-        runtime
-            .platform()
-            .renderer
+        harness
+            .renderer()
             .buffer()
             .pixels()
             .iter()

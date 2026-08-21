@@ -14,7 +14,7 @@ use crate::{
         LinearGradient, NineSlice, Rectangle, TextLayoutRequest, TextOptions, TextRequest,
         TextRunId, TextStyle, TextWrap,
     },
-    platform::PlatformImpl,
+    renderer::Renderer,
     resource::ImageId,
     style::{Clip, Shadow, Style},
 };
@@ -81,7 +81,7 @@ impl FrameGraph {
 
     pub fn finish(
         &mut self,
-        platform: &mut dyn PlatformImpl,
+        renderer: &mut dyn Renderer,
         commands: &mut CommandList,
         interaction: &mut InteractionState,
         geometry: &mut GeometryState,
@@ -95,16 +95,16 @@ impl FrameGraph {
         self.nodes[0].subtree_end =
             u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
         if self.positioned_flows.is_empty() {
-            self.layout::<false>(platform);
+            self.layout::<false>(renderer);
         } else {
-            self.layout::<true>(platform);
+            self.layout::<true>(renderer);
             self.order_layer_roots();
         }
         if self.clear {
             commands.push_clear(self.nodes[0].area.to_physical(scale_factor));
         }
         self.resolve_clips(commands);
-        self.emit(platform, commands, scale_factor);
+        self.emit(renderer, commands, scale_factor);
         self.register_hits(interaction, scale_factor);
         for record in &self.geometry {
             geometry.register(record.id, self.nodes[record.node.index()].area);
@@ -337,10 +337,10 @@ impl FrameGraph {
         });
     }
 
-    fn layout<const POSITIONED: bool>(&mut self, platform: &mut dyn PlatformImpl) {
-        self.measure_intrinsic::<POSITIONED>(platform);
+    fn layout<const POSITIONED: bool>(&mut self, renderer: &mut dyn Renderer) {
+        self.measure_intrinsic::<POSITIONED>(renderer);
         self.resolve_axis::<POSITIONED>(Axis::Horizontal);
-        self.measure_wrapped_text(platform);
+        self.measure_wrapped_text(renderer);
         for index in (1..self.nodes.len()).rev() {
             self.measure_container::<POSITIONED>(NodeId::new(index), Axis::Vertical);
         }
@@ -357,13 +357,13 @@ impl FrameGraph {
         }
     }
 
-    fn measure_intrinsic<const POSITIONED: bool>(&mut self, platform: &mut dyn PlatformImpl) {
+    fn measure_intrinsic<const POSITIONED: bool>(&mut self, renderer: &mut dyn Renderer) {
         for node in self.nodes.iter_mut().skip(1) {
             let size = match node.content.decode() {
                 ContentRef::None => LogicalSize::default(),
                 ContentRef::Text(index) => {
                     let text = self.texts[index];
-                    platform.measure_text(&TextLayoutRequest {
+                    renderer.measure_text(&TextLayoutRequest {
                         text: text.text,
                         style: text.style,
                         wrap: TextWrap::None,
@@ -381,7 +381,7 @@ impl FrameGraph {
         }
     }
 
-    fn measure_wrapped_text(&mut self, platform: &mut dyn PlatformImpl) {
+    fn measure_wrapped_text(&mut self, renderer: &mut dyn Renderer) {
         for node in &mut self.nodes {
             let ContentRef::Text(index) = node.content.decode() else {
                 continue;
@@ -390,7 +390,7 @@ impl FrameGraph {
             if text.options.wrap == TextWrap::None {
                 continue;
             }
-            node.area.height = platform
+            node.area.height = renderer
                 .measure_text(&TextLayoutRequest {
                     text: text.text,
                     style: text.style,
@@ -661,23 +661,23 @@ impl FrameGraph {
         }
     }
 
-    fn emit(&self, platform: &mut dyn PlatformImpl, commands: &mut CommandList, scale_factor: f32) {
+    fn emit(&self, renderer: &mut dyn Renderer, commands: &mut CommandList, scale_factor: f32) {
         if self.layer_roots.is_empty() {
             for index in 1..self.nodes.len() {
-                self.emit_node(index, platform, commands, scale_factor);
+                self.emit_node(index, renderer, commands, scale_factor);
             }
             return;
         }
 
         for root in &self.layer_roots {
-            self.emit_layer(root.index(), platform, commands, scale_factor);
+            self.emit_layer(root.index(), renderer, commands, scale_factor);
         }
     }
 
     fn emit_layer(
         &self,
         root: usize,
-        platform: &mut dyn PlatformImpl,
+        renderer: &mut dyn Renderer,
         commands: &mut CommandList,
         scale_factor: f32,
     ) {
@@ -693,7 +693,7 @@ impl FrameGraph {
                 index = node.subtree_end as usize;
                 continue;
             }
-            self.emit_node(index, platform, commands, scale_factor);
+            self.emit_node(index, renderer, commands, scale_factor);
             index += 1;
         }
     }
@@ -702,7 +702,7 @@ impl FrameGraph {
     fn emit_node(
         &self,
         index: usize,
-        platform: &mut dyn PlatformImpl,
+        renderer: &mut dyn Renderer,
         commands: &mut CommandList,
         scale_factor: f32,
     ) {
@@ -760,8 +760,8 @@ impl FrameGraph {
                     options: text.options,
                 };
                 if let Some(selection) = text.selection {
-                    let start = platform.text_cursor_rect(&request, selection.start);
-                    let end = platform.text_cursor_rect(&request, selection.end);
+                    let start = renderer.text_cursor_rect(&request, selection.start);
+                    let end = renderer.text_cursor_rect(&request, selection.end);
                     let left = start.x.max(node.area.x);
                     let right = end.x.min(node.area.x + node.area.width);
                     let top = start.y.max(node.area.y);
@@ -786,7 +786,7 @@ impl FrameGraph {
                     commands.push_text(request, bounds, node.clip);
                 }
                 if let Some(caret) = text.caret {
-                    let cursor = platform.text_cursor_rect(&request, caret.offset);
+                    let cursor = renderer.text_cursor_rect(&request, caret.offset);
                     let x = cursor.x.clamp(
                         node.area.x,
                         (node.area.x + node.area.width - caret.width).max(node.area.x),

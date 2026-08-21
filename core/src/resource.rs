@@ -1,4 +1,4 @@
-//! image resources managed by the rendering platform
+//! image resources managed by the renderer
 
 use std::rc::Rc;
 

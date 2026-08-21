@@ -8,6 +8,7 @@ use blit::{
     command_list::{ClipId, CommandList},
     geometry::{LogicalRect, PhysicalRect},
     paint::{FontId, Rectangle},
+    renderer::Renderer as _,
 };
 use blit_cpu::{Font, FontFace, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888};
 
