@@ -44,6 +44,9 @@ impl Transition {
         self
     }
 
+    /// animates placement relative to the current parent
+    ///
+    /// changing parents may snap rather than preserve the global position
     pub const fn position(mut self) -> Self {
         self.properties = self.properties.union(TransitionProperties::POSITION);
         self

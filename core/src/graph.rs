@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::{
     FrameGraphMemory,
-    animation::{Easing, Transition, TransitionProperties},
+    animation::{Transition, TransitionProperties},
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     container::{
@@ -698,30 +698,26 @@ impl FrameGraph {
             {
                 parent = NodeId::ROOT;
             }
-            let target = self.nodes[node].area;
+            let mut target = self.nodes[node].area;
             let parent_node = &self.nodes[parent.index()];
-            let parent_offset = parent_node
-                .flow
-                .index()
-                .map_or(LogicalPoint::default(), |flow| {
-                    if parent_node.flow.is_positioned() {
-                        self.positioned_flows[flow].flow.child_offset
-                    } else {
-                        self.flows[flow].child_offset
-                    }
-                });
-            let parent_id = self
-                .geometry
-                .iter()
-                .find_map(|record| (record.node == parent).then_some(record.id))
-                .unwrap_or_else(|| WidgetId::new(("transition parent", parent.index())));
-            state.advance(
-                target,
-                target.x - parent_node.area.x - parent_offset.x,
-                target.y - parent_node.area.y - parent_offset.y,
-                parent_id,
-                time,
-            );
+            let parent_offset = if self.nodes[node].flow.is_positioned() {
+                LogicalPoint::default()
+            } else {
+                parent_node
+                    .flow
+                    .index()
+                    .map_or(LogicalPoint::default(), |flow| {
+                        if parent_node.flow.is_positioned() {
+                            self.positioned_flows[flow].flow.child_offset
+                        } else {
+                            self.flows[flow].child_offset
+                        }
+                    })
+            };
+            // positions transition within the parent and ignore scrolling
+            target.x -= parent_node.area.x + parent_offset.x;
+            target.y -= parent_node.area.y + parent_offset.y;
+            state.advance(target, time);
         }
     }
 
@@ -1052,7 +1048,8 @@ impl Node {
                         .active
                         .contains(TransitionProperties::X)
                 {
-                    self.area.x = transitions[transition].current.x;
+                    self.area.x +=
+                        transitions[transition].current.x - transitions[transition].target.x;
                 }
             }
             Axis::Vertical => {
@@ -1064,7 +1061,8 @@ impl Node {
                         .active
                         .contains(TransitionProperties::Y)
                 {
-                    self.area.y = transitions[transition].current.y;
+                    self.area.y +=
+                        transitions[transition].current.y - transitions[transition].target.y;
                 }
             }
         }
@@ -1132,12 +1130,7 @@ pub struct TransitionState {
     pub current: LogicalRect,
     pub initial: LogicalRect,
     pub target: LogicalRect,
-    pub previous_relative_x: f32,
-    pub previous_relative_y: f32,
-    pub previous_parent: WidgetId,
     pub started_at: Option<Duration>,
-    pub duration: Duration,
-    pub easing: Easing,
     pub active: TransitionProperties,
     pub node: NodeId,
     pub parent: NodeId,
@@ -1153,12 +1146,7 @@ impl TransitionState {
             current: LogicalRect::default(),
             initial: LogicalRect::default(),
             target: LogicalRect::default(),
-            previous_relative_x: 0.0,
-            previous_relative_y: 0.0,
-            previous_parent: WidgetId::new("transition root"),
             started_at: None,
-            duration: Duration::ZERO,
-            easing: Easing::Linear,
             active: TransitionProperties::NONE,
             node: NodeId::ROOT,
             parent: NodeId::ROOT,
@@ -1180,21 +1168,11 @@ impl TransitionState {
         self.started_at.is_some()
     }
 
-    pub fn advance(
-        &mut self,
-        target: LogicalRect,
-        relative_x: f32,
-        relative_y: f32,
-        parent: WidgetId,
-        now: Duration,
-    ) {
+    pub fn advance(&mut self, target: LogicalRect, now: Duration) {
         if !self.initialized {
             self.current = target;
             self.initial = target;
             self.target = target;
-            self.previous_relative_x = relative_x;
-            self.previous_relative_y = relative_y;
-            self.previous_parent = parent;
             self.initialized = true;
             return;
         }
@@ -1202,11 +1180,16 @@ impl TransitionState {
         if self.active.is_empty() {
             self.started_at = None;
         }
+        if self.started_at.is_some() && self.config.duration.is_zero() {
+            self.current = self.target;
+            self.started_at = None;
+            self.active = TransitionProperties::NONE;
+        }
         if let Some(started_at) = self.started_at {
             let progress = (now.saturating_sub(started_at).as_secs_f32()
-                / self.duration.as_secs_f32())
+                / self.config.duration.as_secs_f32())
             .min(1.0);
-            let amount = self.easing.apply(progress);
+            let amount = self.config.easing.apply(progress);
             if self.active.contains(TransitionProperties::X) {
                 self.current.x = self.initial.x + (self.target.x - self.initial.x) * amount;
             }
@@ -1228,18 +1211,11 @@ impl TransitionState {
             }
         }
 
-        let reparented = self.previous_parent != parent;
         let mut changed = TransitionProperties::NONE;
-        if self.config.properties.contains(TransitionProperties::X)
-            && self.target.x != target.x
-            && (self.previous_relative_x != relative_x || reparented)
-        {
+        if self.config.properties.contains(TransitionProperties::X) && self.target.x != target.x {
             changed = changed.union(TransitionProperties::X);
         }
-        if self.config.properties.contains(TransitionProperties::Y)
-            && self.target.y != target.y
-            && (self.previous_relative_y != relative_y || reparented)
-        {
+        if self.config.properties.contains(TransitionProperties::Y) && self.target.y != target.y {
             changed = changed.union(TransitionProperties::Y);
         }
         if self.config.properties.contains(TransitionProperties::WIDTH)
@@ -1257,14 +1233,9 @@ impl TransitionState {
         }
 
         self.target = target;
-        self.previous_relative_x = relative_x;
-        self.previous_relative_y = relative_y;
-        self.previous_parent = parent;
         if !changed.is_empty() {
             self.initial = self.current;
             self.active = self.active.union(changed);
-            self.duration = self.config.duration;
-            self.easing = self.config.easing;
             if self.config.duration.is_zero() {
                 self.current = target;
                 self.started_at = None;
