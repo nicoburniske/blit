@@ -4,9 +4,11 @@ use crate::{
     FrameGraphMemory,
     color::Color,
     command_list::{ClipId, CommandList},
-    container::{Absolute, Align, Anchor, Axis, Container, Item, Justify, PositionTarget, Sizing},
+    container::{
+        Absolute, Align, Anchor, Axis, ContainerConfig, Item, Justify, PositionTarget, Sizing,
+    },
     geometry::{LogicalInsets, LogicalPoint, LogicalRect, LogicalSize},
-    interact::{InteractionState, Sense, WidgetId},
+    interact::{InteractionState, WidgetId},
     paint::{
         Border, BorderRadius, BoxShadow, ImageFit, ImageRequest, ImageSampling, ImageTiling,
         LinearGradient, NineSlice, Rectangle, TextLayoutRequest, TextOptions, TextRequest,
@@ -32,7 +34,6 @@ pub struct FrameGraph {
     shadows: Vec<Shadow>,
     clip_specs: Vec<Clip>,
     geometry: Vec<GeometryRecord>,
-    interactions: Vec<InteractionRecord>,
     gradient_stops: Vec<crate::paint::GradientStop>,
 }
 
@@ -50,7 +51,6 @@ impl FrameGraph {
         self.shadows.clear();
         self.clip_specs.clear();
         self.geometry.clear();
-        self.interactions.clear();
         self.gradient_stops.clear();
         self.flows.push(Flow {
             axis: Axis::Vertical,
@@ -118,7 +118,7 @@ impl FrameGraph {
     pub fn add_container(
         &mut self,
         axis: Axis,
-        container: Container<'_>,
+        container: ContainerConfig<'_>,
         position: Option<Absolute>,
     ) -> NodeId {
         let node = self.append(
@@ -137,7 +137,6 @@ impl FrameGraph {
             ContentId::NONE,
             container.clip,
             container.id,
-            container.interaction,
         );
         self.open_containers.push(node);
         node
@@ -149,25 +148,11 @@ impl FrameGraph {
             _ => Appearance::new(),
         };
         let content = self.store_content(content);
-        self.append(
-            item,
-            None,
-            None,
-            appearance,
-            content,
-            Clip::None,
-            None,
-            None,
-        )
+        self.append(item, None, None, appearance, content, Clip::None, None)
     }
 
     pub fn set_id(&mut self, node: NodeId, id: WidgetId) {
         self.geometry.push(GeometryRecord { node, id });
-    }
-
-    pub fn set_interaction(&mut self, node: NodeId, id: WidgetId, sense: Sense) {
-        self.interactions
-            .push(InteractionRecord { node, id, sense });
     }
 
     pub fn set_appearance(&mut self, node: NodeId, appearance: Appearance<'_>) {
@@ -209,7 +194,6 @@ impl FrameGraph {
                 + self.shadows.capacity() * size_of::<Shadow>()
                 + self.clip_specs.capacity() * size_of::<Clip>()
                 + self.geometry.capacity() * size_of::<GeometryRecord>()
-                + self.interactions.capacity() * size_of::<InteractionRecord>()
                 + self.gradient_stops.capacity() * size_of::<crate::paint::GradientStop>(),
         }
     }
@@ -223,7 +207,6 @@ impl FrameGraph {
         content: ContentId,
         clip: Clip,
         id: Option<WidgetId>,
-        interaction: Option<(WidgetId, Sense)>,
     ) -> NodeId {
         self.open_containers
             .last()
@@ -267,10 +250,6 @@ impl FrameGraph {
         });
         if let Some(id) = id {
             self.geometry.push(GeometryRecord { node, id });
-        }
-        if let Some((id, sense)) = interaction {
-            self.interactions
-                .push(InteractionRecord { node, id, sense });
         }
         node
     }
@@ -342,7 +321,7 @@ impl FrameGraph {
         self.layer_roots.insert(normal, NodeId::ROOT);
 
         let layer_roots = &self.layer_roots;
-        self.interactions.sort_unstable_by_key(|record| {
+        self.geometry.sort_unstable_by_key(|record| {
             let node = record.node.index();
             let layer = layer_roots
                 .iter()
@@ -855,13 +834,13 @@ impl FrameGraph {
     }
 
     fn register_hits(&self, interaction: &mut InteractionState, scale_factor: f32) {
-        for record in &self.interactions {
+        for record in &self.geometry {
             let node = &self.nodes[record.node.index()];
             let area = node
                 .area
                 .intersection(node.clip_bounds)
                 .map(|area| area.to_physical(scale_factor));
-            interaction.register(record.id, area, record.sense);
+            interaction.register(record.id, area);
         }
     }
 }
@@ -1058,12 +1037,6 @@ impl Sizing {
 struct GeometryRecord {
     node: NodeId,
     id: WidgetId,
-}
-
-struct InteractionRecord {
-    node: NodeId,
-    id: WidgetId,
-    sense: Sense,
 }
 
 struct StoredAppearance {

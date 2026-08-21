@@ -6,7 +6,7 @@ use crate::{
     Ui,
     geometry::{LogicalInsets, LogicalPoint},
     graph::NodeId,
-    interact::{Interaction, Sense, WidgetId},
+    interact::WidgetId,
     paint::{Border, BorderRadius, LinearGradient},
     style::{Appearance, Clip, Shadow},
 };
@@ -44,15 +44,23 @@ pub enum Anchor {
     BottomRight,
 }
 
-/// pending absolute placement consumed by a container declaration
-#[must_use = "absolute placement must open a row, column, or flow"]
-pub struct Positioned<'a> {
-    ui: &'a mut Ui,
-    absolute: Absolute,
+/// pending child-bearing layout declaration
+#[must_use = "container must be opened"]
+pub struct Container<'ui, 'style> {
+    ui: &'ui mut Ui,
+    config: ContainerConfig<'style>,
+    axis: Axis,
+    absolute: Option<Absolute>,
+}
+
+/// opened child-bearing layout scope
+pub struct Scope<'ui> {
+    ui: &'ui mut Ui,
+    node: NodeId,
 }
 
 /// configuration for a child-bearing layout scope
-pub struct Container<'a> {
+pub struct ContainerConfig<'a> {
     pub id: Option<WidgetId>,
     pub item: Item,
     pub padding: LogicalInsets,
@@ -63,14 +71,6 @@ pub struct Container<'a> {
     pub child_offset: LogicalPoint,
     pub appearance: Appearance<'a>,
     pub clip: Clip,
-    pub interaction: Option<(WidgetId, Sense)>,
-}
-
-/// scoped child declaration
-pub struct Scope<'a> {
-    ui: &'a mut Ui,
-    node: NodeId,
-    interaction: Interaction,
 }
 
 /// sizing applied to one item by its parent
@@ -166,22 +166,158 @@ impl Absolute {
     }
 }
 
-impl<'a> Positioned<'a> {
-    pub fn row(self, container: Container<'_>) -> Scope<'a> {
-        open_positioned(self.ui, Axis::Horizontal, container, self.absolute)
-    }
-
-    pub fn column(self, container: Container<'_>) -> Scope<'a> {
-        open_positioned(self.ui, Axis::Vertical, container, self.absolute)
-    }
-
-    pub fn flow(self, axis: Axis, container: Container<'_>) -> Scope<'a> {
-        open_positioned(self.ui, axis, container, self.absolute)
+impl<'ui> Container<'ui, 'static> {
+    pub fn new(ui: &'ui mut Ui) -> Self {
+        Self {
+            ui,
+            config: ContainerConfig::default(),
+            axis: Axis::Vertical,
+            absolute: None,
+        }
     }
 }
 
-impl<'a> Container<'a> {
-    pub const fn new() -> Self {
+impl<'ui, 'style> Container<'ui, 'style> {
+    pub fn row(mut self) -> Self {
+        self.axis = Axis::Horizontal;
+        self
+    }
+
+    pub fn col(mut self) -> Self {
+        self.axis = Axis::Vertical;
+        self
+    }
+
+    pub fn flow(mut self, axis: Axis) -> Self {
+        self.axis = axis;
+        self
+    }
+
+    pub fn width(mut self, width: Sizing) -> Self {
+        self.config.item.width = width;
+        self
+    }
+
+    pub fn height(mut self, height: Sizing) -> Self {
+        self.config.item.height = height;
+        self
+    }
+
+    pub fn fixed(mut self, width: f32, height: f32) -> Self {
+        self.config.item.width = Sizing::fixed(width);
+        self.config.item.height = Sizing::fixed(height);
+        self
+    }
+
+    pub fn grow(mut self) -> Self {
+        self.config.item.width = Sizing::grow();
+        self.config.item.height = Sizing::grow();
+        self
+    }
+
+    pub fn padding(mut self, padding: LogicalInsets) -> Self {
+        self.config.padding = padding;
+        self
+    }
+
+    pub fn gap(mut self, gap: f32) -> Self {
+        self.config.gap = gap;
+        self
+    }
+
+    pub fn align(mut self, align: Align) -> Self {
+        self.config.align = align;
+        self
+    }
+
+    pub fn justify(mut self, justify: Justify) -> Self {
+        self.config.justify = justify;
+        self
+    }
+
+    pub fn overflow(mut self, overflow: bool) -> Self {
+        self.config.allow_overflow = overflow;
+        self
+    }
+
+    pub fn id(mut self, id: WidgetId) -> Self {
+        self.config.id = Some(id);
+        self
+    }
+
+    pub fn appearance(mut self, appearance: Appearance<'style>) -> Self {
+        self.config.appearance = appearance;
+        self
+    }
+
+    pub fn background(mut self, color: crate::color::Color) -> Self {
+        self.config.appearance.background = color;
+        self
+    }
+
+    pub fn border(mut self, width: f32, color: crate::color::Color) -> Self {
+        self.config.appearance.border = Border::Solid { width, color };
+        self
+    }
+
+    pub fn gradient_border(mut self, width: f32, gradient: LinearGradient<'style>) -> Self {
+        self.config.appearance.border = Border::Gradient { width, gradient };
+        self
+    }
+
+    pub fn radius(mut self, radius: BorderRadius) -> Self {
+        self.config.appearance.radius = radius;
+        self
+    }
+
+    pub fn uniform_radius(mut self, radius: f32) -> Self {
+        self.config.appearance.radius = BorderRadius {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        };
+        self
+    }
+
+    pub fn opacity(mut self, opacity: f32) -> Self {
+        self.config.appearance.opacity = opacity;
+        self
+    }
+
+    pub fn shadow(mut self, shadow: Shadow) -> Self {
+        self.config.appearance.shadow = Some(shadow);
+        self
+    }
+
+    pub fn clip(mut self, clip: Clip) -> Self {
+        self.config.clip = clip;
+        self
+    }
+
+    pub fn offset(mut self, offset: LogicalPoint) -> Self {
+        self.config.child_offset = offset;
+        self
+    }
+
+    pub fn absolute(mut self, absolute: Absolute) -> Self {
+        self.absolute = Some(absolute);
+        self
+    }
+
+    pub fn open(self) -> Scope<'ui> {
+        let node = match self.absolute {
+            Some(absolute) => self
+                .ui
+                .open_absolute_container(self.axis, self.config, absolute),
+            None => self.ui.open_container(self.axis, self.config),
+        };
+        Scope { ui: self.ui, node }
+    }
+}
+
+impl<'a> ContainerConfig<'a> {
+    pub(crate) const fn new() -> Self {
         Self {
             id: None,
             item: Item::new(),
@@ -198,124 +334,11 @@ impl<'a> Container<'a> {
             child_offset: LogicalPoint { x: 0.0, y: 0.0 },
             appearance: Appearance::new(),
             clip: Clip::None,
-            interaction: None,
         }
-    }
-
-    pub const fn width(mut self, width: Sizing) -> Self {
-        self.item.width = width;
-        self
-    }
-
-    pub const fn height(mut self, height: Sizing) -> Self {
-        self.item.height = height;
-        self
-    }
-
-    pub const fn fixed(mut self, width: f32, height: f32) -> Self {
-        self.item.width = Sizing::fixed(width);
-        self.item.height = Sizing::fixed(height);
-        self
-    }
-
-    pub const fn grow(mut self) -> Self {
-        self.item.width = Sizing::grow();
-        self.item.height = Sizing::grow();
-        self
-    }
-
-    pub const fn padding(mut self, padding: LogicalInsets) -> Self {
-        self.padding = padding;
-        self
-    }
-
-    pub const fn gap(mut self, gap: f32) -> Self {
-        self.gap = gap;
-        self
-    }
-
-    pub const fn align(mut self, align: Align) -> Self {
-        self.align = align;
-        self
-    }
-
-    pub const fn justify(mut self, justify: Justify) -> Self {
-        self.justify = justify;
-        self
-    }
-
-    pub const fn overflow(mut self, overflow: bool) -> Self {
-        self.allow_overflow = overflow;
-        self
-    }
-
-    pub const fn id(mut self, id: WidgetId) -> Self {
-        self.id = Some(id);
-        self
-    }
-
-    pub const fn appearance(mut self, appearance: Appearance<'a>) -> Self {
-        self.appearance = appearance;
-        self
-    }
-
-    pub const fn background(mut self, color: crate::color::Color) -> Self {
-        self.appearance.background = color;
-        self
-    }
-
-    pub const fn border(mut self, width: f32, color: crate::color::Color) -> Self {
-        self.appearance.border = Border::Solid { width, color };
-        self
-    }
-
-    pub const fn gradient_border(mut self, width: f32, gradient: LinearGradient<'a>) -> Self {
-        self.appearance.border = Border::Gradient { width, gradient };
-        self
-    }
-
-    pub const fn radius(mut self, radius: BorderRadius) -> Self {
-        self.appearance.radius = radius;
-        self
-    }
-
-    pub const fn uniform_radius(mut self, radius: f32) -> Self {
-        self.appearance.radius = BorderRadius {
-            top_left: radius,
-            top_right: radius,
-            bottom_right: radius,
-            bottom_left: radius,
-        };
-        self
-    }
-
-    pub const fn opacity(mut self, opacity: f32) -> Self {
-        self.appearance.opacity = opacity;
-        self
-    }
-
-    pub const fn shadow(mut self, shadow: Shadow) -> Self {
-        self.appearance.shadow = Some(shadow);
-        self
-    }
-
-    pub const fn clip(mut self, clip: Clip) -> Self {
-        self.clip = clip;
-        self
-    }
-
-    pub const fn offset(mut self, offset: LogicalPoint) -> Self {
-        self.child_offset = offset;
-        self
-    }
-
-    pub const fn interact(mut self, id: WidgetId, sense: Sense) -> Self {
-        self.interaction = Some((id, sense));
-        self
     }
 }
 
-impl Default for Container<'_> {
+impl Default for ContainerConfig<'_> {
     fn default() -> Self {
         Self::new()
     }
@@ -372,16 +395,6 @@ impl Sizing {
     }
 }
 
-impl Scope<'_> {
-    pub fn interaction(&self) -> Interaction {
-        self.interaction
-    }
-
-    pub fn set_appearance(&mut self, appearance: Appearance<'_>) {
-        self.ui.set_node_appearance(self.node, appearance)
-    }
-}
-
 impl Deref for Scope<'_> {
     type Target = Ui;
 
@@ -399,32 +412,5 @@ impl DerefMut for Scope<'_> {
 impl Drop for Scope<'_> {
     fn drop(&mut self) {
         self.ui.close_container(self.node)
-    }
-}
-
-pub(crate) fn positioned(ui: &mut Ui, absolute: Absolute) -> Positioned<'_> {
-    Positioned { ui, absolute }
-}
-
-pub(crate) fn open<'a>(ui: &'a mut Ui, axis: Axis, container: Container<'_>) -> Scope<'a> {
-    let (node, interaction) = ui.open_container(axis, container);
-    Scope {
-        ui,
-        node,
-        interaction,
-    }
-}
-
-fn open_positioned<'a>(
-    ui: &'a mut Ui,
-    axis: Axis,
-    container: Container<'_>,
-    absolute: Absolute,
-) -> Scope<'a> {
-    let (node, interaction) = ui.open_absolute_container(axis, container, absolute);
-    Scope {
-        ui,
-        node,
-        interaction,
     }
 }

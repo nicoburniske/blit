@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use blit::{
-    Container, RepaintBuffer, Sizing, Ui,
+    RepaintBuffer, Sizing, Ui,
     color::Color,
     command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
@@ -66,14 +66,15 @@ impl PlatformImpl for NoopPlatform {
 }
 
 pub fn layout_frame(ui: &mut Ui) {
-    let mut column = ui.column(Container::new().width(Sizing::grow()).gap(2.0));
+    let mut column = ui.container().col().width(Sizing::grow()).gap(2.0).open();
     for _ in 0..ROWS {
-        let mut row = column.row(
-            Container::new()
-                .width(Sizing::grow())
-                .height(Sizing::fixed(20.0))
-                .gap(4.0),
-        );
+        let mut row = column
+            .container()
+            .row()
+            .width(Sizing::grow())
+            .height(Sizing::fixed(20.0))
+            .gap(4.0)
+            .open();
         row.add(Rectangle::new().width(Sizing::fixed(120.0)));
         row.add(Rectangle::new().width(Sizing::grow()));
         row.add(Rectangle::new().width(Sizing::fixed(80.0)));
@@ -81,24 +82,26 @@ pub fn layout_frame(ui: &mut Ui) {
 }
 
 pub fn command_frame(ui: &mut Ui) {
-    let mut column = ui.column(Container::new().width(Sizing::grow()).gap(2.0));
+    let mut column = ui.container().col().width(Sizing::grow()).gap(2.0).open();
     for row_index in 0..ROWS {
-        let mut row = column.row(
-            Container::new()
-                .width(Sizing::grow())
-                .height(Sizing::fixed(20.0))
-                .gap(4.0),
-        );
+        let mut row = column
+            .container()
+            .row()
+            .width(Sizing::grow())
+            .height(Sizing::fixed(20.0))
+            .gap(4.0)
+            .open();
         for (cell_index, width) in [Sizing::fixed(120.0), Sizing::grow(), Sizing::fixed(80.0)]
             .into_iter()
             .enumerate()
         {
             let id = WidgetId::new(row_index * CELLS_PER_ROW + cell_index);
+            row.interact(id, Sense::CLICK);
             row.add(
                 Rectangle::new()
                     .width(width)
                     .background(Color::BLACK)
-                    .interact(id, Sense::CLICK),
+                    .id(id),
             );
         }
     }

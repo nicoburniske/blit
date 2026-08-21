@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::{
-    Absolute, Align, Anchor, Clip, Container, Justify, RepaintBuffer, Runtime, Sizing, Ui,
+    Absolute, Align, Anchor, Clip, Justify, RepaintBuffer, Runtime, Sizing, Ui,
     animation::Easing,
     color::Color,
     command_list::{ClipId, Command, CommandList},
@@ -154,7 +154,7 @@ fn clear_is_the_stable_frame_background() {
 fn container_scopes_and_rectangle_leaves_resolve_layout() {
     let mut runtime = Runtime::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut row = ui.row(Container::new().fixed(10.0, 10.0).gap(2.0));
+        let mut row = ui.container().row().fixed(10.0, 10.0).gap(2.0).open();
         row.add(
             widget::Rectangle::new()
                 .fixed(2.0, 4.0)
@@ -191,22 +191,30 @@ fn container_scopes_and_rectangle_leaves_resolve_layout() {
 fn absolute_containers_do_not_participate_in_flow() {
     let mut runtime = Runtime::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut row = ui.row(Container::new().fixed(10.0, 10.0).gap(2.0));
+        let mut row = ui.container().row().fixed(10.0, 10.0).gap(2.0).open();
         row.add(
             widget::Rectangle::new()
                 .fixed(2.0, 2.0)
                 .background(Color::BLACK),
         );
-        row.absolute(Absolute::at(3.0, -1.0))
-            .column(Container::new().fixed(3.0, 2.0).background(Color::GRAY));
+        row.container()
+            .fixed(3.0, 2.0)
+            .background(Color::GRAY)
+            .absolute(Absolute::at(3.0, -1.0))
+            .col()
+            .open();
         row.add(
             widget::Rectangle::new()
                 .width(Sizing::grow())
                 .height(Sizing::fixed(2.0))
                 .background(Color::WHITE),
         );
-        row.absolute(Absolute::screen(0.0, 0.0).anchors(Anchor::BottomRight, Anchor::BottomRight))
-            .column(Container::new().fixed(2.0, 2.0).background(Color::GRAY));
+        row.container()
+            .fixed(2.0, 2.0)
+            .background(Color::GRAY)
+            .absolute(Absolute::screen(0.0, 0.0).anchors(Anchor::BottomRight, Anchor::BottomRight))
+            .col()
+            .open();
     });
 
     assert_eq!(
@@ -244,18 +252,30 @@ fn absolute_containers_do_not_participate_in_flow() {
 fn absolute_z_index_orders_complete_subtrees() {
     let mut runtime = Runtime::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        ui.absolute(Absolute::at(1.0, 0.0).z_index(-1))
-            .column(Container::new().fixed(1.0, 1.0).background(Color::BLACK));
+        ui.container()
+            .fixed(1.0, 1.0)
+            .background(Color::BLACK)
+            .absolute(Absolute::at(1.0, 0.0).z_index(-1))
+            .col()
+            .open();
         ui.add(
             widget::Rectangle::new()
                 .fixed(1.0, 1.0)
                 .background(Color::GRAY),
         );
-        ui.absolute(Absolute::at(4.0, 0.0).z_index(2))
-            .column(Container::new().fixed(1.0, 1.0).background(Color::WHITE));
+        ui.container()
+            .fixed(1.0, 1.0)
+            .background(Color::WHITE)
+            .absolute(Absolute::at(4.0, 0.0).z_index(2))
+            .col()
+            .open();
         let mut layer = ui
+            .container()
+            .fixed(1.0, 1.0)
+            .background(Color::WHITE)
             .absolute(Absolute::at(3.0, 0.0).z_index(1))
-            .column(Container::new().fixed(1.0, 1.0).background(Color::WHITE));
+            .col()
+            .open();
         layer.add(
             widget::Rectangle::new()
                 .fixed(1.0, 1.0)
@@ -286,19 +306,16 @@ fn absolute_z_index_orders_hit_testing() {
     let normal = WidgetId::new("normal hit");
     let raised = WidgetId::new("raised hit");
     let render = |ui: &mut Ui| {
-        let normal_scope = ui.column(
-            Container::new()
-                .fixed(10.0, 10.0)
-                .interact(normal, Sense::CLICK),
-        );
-        let normal_hovered = normal_scope.interaction().hovered;
+        let normal_hovered = ui.interact(normal, Sense::CLICK).hovered;
+        let normal_scope = ui.container().col().fixed(10.0, 10.0).id(normal).open();
         drop(normal_scope);
-        let raised_scope = ui.absolute(Absolute::at(0.0, 0.0).z_index(1)).column(
-            Container::new()
-                .fixed(10.0, 10.0)
-                .interact(raised, Sense::CLICK),
-        );
-        let raised_hovered = raised_scope.interaction().hovered;
+        let raised_hovered = ui.interact(raised, Sense::CLICK).hovered;
+        ui.container()
+            .col()
+            .fixed(10.0, 10.0)
+            .id(raised)
+            .absolute(Absolute::at(0.0, 0.0).z_index(1))
+            .open();
         (normal_hovered, raised_hovered)
     };
 
@@ -319,10 +336,13 @@ fn absolute_z_index_orders_hit_testing() {
 fn absolute_container_fits_children_before_anchoring() {
     let mut runtime = Runtime::new(TestPlatform::default());
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut parent = ui.column(Container::new().fixed(10.0, 10.0));
+        let mut parent = ui.container().col().fixed(10.0, 10.0).open();
         let mut absolute = parent
+            .container()
+            .background(Color::GRAY)
             .absolute(Absolute::attach(Anchor::BottomRight, Anchor::BottomRight).offset(-1.0, -2.0))
-            .column(Container::new().background(Color::GRAY));
+            .col()
+            .open();
         absolute.add(
             widget::Rectangle::new()
                 .fixed(3.0, 4.0)
@@ -354,24 +374,26 @@ fn containers_resolve_nested_flex_and_justification() {
     let mut runtime = Runtime::new(TestPlatform::default());
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut row = ui.row(
-            Container::new()
-                .width(Sizing::grow())
-                .height(Sizing::fixed(10.0))
-                .align(Align::Stretch)
-                .justify(Justify::SpaceBetween),
-        );
+        let mut row = ui
+            .container()
+            .row()
+            .width(Sizing::grow())
+            .height(Sizing::fixed(10.0))
+            .align(Align::Stretch)
+            .justify(Justify::SpaceBetween)
+            .open();
         row.add(
             widget::Rectangle::new()
                 .width(Sizing::fixed(2.0))
                 .background(Color::BLACK),
         );
         {
-            let mut middle = row.column(
-                Container::new()
-                    .width(Sizing::grow())
-                    .background(Color::GRAY),
-            );
+            let mut middle = row
+                .container()
+                .col()
+                .width(Sizing::grow())
+                .background(Color::GRAY)
+                .open();
             middle.add(
                 widget::Rectangle::new()
                     .height(Sizing::fixed(4.0))
@@ -422,7 +444,7 @@ fn wrapped_text_uses_its_resolved_width() {
     let id = WidgetId::new("wrapped text");
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut text = ui.row(Container::new().width(Sizing::grow()).id(id));
+        let mut text = ui.container().row().width(Sizing::grow()).id(id).open();
         text.add(
             widget::Text::new("1234")
                 .width(Sizing::grow())
@@ -447,13 +469,14 @@ fn container_clips_content_and_descendants() {
     let mut runtime = Runtime::new(TestPlatform::default());
 
     runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut clipped = ui.column(
-            Container::new()
-                .width(Sizing::grow())
-                .height(Sizing::fixed(5.0))
-                .overflow(true)
-                .clip(Clip::Bounds),
-        );
+        let mut clipped = ui
+            .container()
+            .col()
+            .width(Sizing::grow())
+            .height(Sizing::fixed(5.0))
+            .overflow(true)
+            .clip(Clip::Bounds)
+            .open();
         clipped.add(widget::Text::new("clipped"));
         clipped.add(
             widget::Rectangle::new()
@@ -549,11 +572,12 @@ fn static_text_reuses_runs_and_stable_output_has_no_damage() {
 fn moved_output_damages_old_and_new_bounds() {
     let mut runtime = Runtime::new(TestPlatform::default());
     let render = |ui: &mut Ui, offset| {
-        let mut row = ui.row(
-            Container::new()
-                .width(Sizing::grow())
-                .height(Sizing::fixed(2.0)),
-        );
+        let mut row = ui
+            .container()
+            .row()
+            .width(Sizing::grow())
+            .height(Sizing::fixed(2.0))
+            .open();
         if offset != 0.0 {
             row.add(widget::Rectangle::new().width(Sizing::fixed(offset)));
         }
