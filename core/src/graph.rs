@@ -834,14 +834,14 @@ impl FrameGraph {
     }
 
     fn register_hits(&self, interaction: &mut InteractionState, scale_factor: f32) {
-        for record in &self.geometry {
+        interaction.register_hits(self.geometry.iter().map(|record| {
             let node = &self.nodes[record.node.index()];
             let area = node
                 .area
                 .intersection(node.clip_bounds)
                 .map(|area| area.to_physical(scale_factor));
-            interaction.register(record.id, area);
-        }
+            (record.id, area)
+        }));
     }
 }
 

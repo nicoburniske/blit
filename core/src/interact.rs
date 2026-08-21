@@ -273,13 +273,19 @@ impl InteractionState {
         }
     }
 
-    pub fn register(&mut self, id: WidgetId, area: Option<PhysicalRect>) {
-        if let Some((_, sense)) = self.requests.iter().find(|(requested, _)| *requested == id) {
-            self.current_hits.push(HitItem {
-                id,
-                area: area.unwrap_or_default(),
-                sense: *sense,
-            });
+    pub fn register_hits(
+        &mut self,
+        hits: impl IntoIterator<Item = (WidgetId, Option<PhysicalRect>)>,
+    ) {
+        self.requests.sort_unstable_by_key(|request| request.0);
+        for (id, area) in hits {
+            if let Ok(index) = self.requests.binary_search_by_key(&id, |request| request.0) {
+                self.current_hits.push(HitItem {
+                    id,
+                    area: area.unwrap_or_default(),
+                    sense: self.requests[index].1,
+                });
+            }
         }
     }
 
