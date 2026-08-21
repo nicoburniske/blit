@@ -14,7 +14,7 @@ use crate::{
         LinearGradient, NineSlice, Rectangle, TextLayoutRequest, TextOptions, TextRequest,
         TextRunId, TextStyle, TextWrap,
     },
-    platform::Platform,
+    platform::PlatformImpl,
     resource::ImageId,
     style::{Clip, Shadow, Style},
 };
@@ -81,7 +81,7 @@ impl FrameGraph {
 
     pub fn finish(
         &mut self,
-        platform: &mut Platform,
+        platform: &mut dyn PlatformImpl,
         commands: &mut CommandList,
         interaction: &mut InteractionState,
         geometry: &mut GeometryState,
@@ -337,7 +337,7 @@ impl FrameGraph {
         });
     }
 
-    fn layout<const POSITIONED: bool>(&mut self, platform: &mut Platform) {
+    fn layout<const POSITIONED: bool>(&mut self, platform: &mut dyn PlatformImpl) {
         self.measure_intrinsic::<POSITIONED>(platform);
         self.resolve_axis::<POSITIONED>(Axis::Horizontal);
         self.measure_wrapped_text(platform);
@@ -357,7 +357,7 @@ impl FrameGraph {
         }
     }
 
-    fn measure_intrinsic<const POSITIONED: bool>(&mut self, platform: &mut Platform) {
+    fn measure_intrinsic<const POSITIONED: bool>(&mut self, platform: &mut dyn PlatformImpl) {
         for node in self.nodes.iter_mut().skip(1) {
             let size = match node.content.decode() {
                 ContentRef::None => LogicalSize::default(),
@@ -381,7 +381,7 @@ impl FrameGraph {
         }
     }
 
-    fn measure_wrapped_text(&mut self, platform: &mut Platform) {
+    fn measure_wrapped_text(&mut self, platform: &mut dyn PlatformImpl) {
         for node in &mut self.nodes {
             let ContentRef::Text(index) = node.content.decode() else {
                 continue;
@@ -661,7 +661,7 @@ impl FrameGraph {
         }
     }
 
-    fn emit(&self, platform: &mut Platform, commands: &mut CommandList, scale_factor: f32) {
+    fn emit(&self, platform: &mut dyn PlatformImpl, commands: &mut CommandList, scale_factor: f32) {
         if self.layer_roots.is_empty() {
             for index in 1..self.nodes.len() {
                 self.emit_node(index, platform, commands, scale_factor);
@@ -677,7 +677,7 @@ impl FrameGraph {
     fn emit_layer(
         &self,
         root: usize,
-        platform: &mut Platform,
+        platform: &mut dyn PlatformImpl,
         commands: &mut CommandList,
         scale_factor: f32,
     ) {
@@ -702,7 +702,7 @@ impl FrameGraph {
     fn emit_node(
         &self,
         index: usize,
-        platform: &mut Platform,
+        platform: &mut dyn PlatformImpl,
         commands: &mut CommandList,
         scale_factor: f32,
     ) {

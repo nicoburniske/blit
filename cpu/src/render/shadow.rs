@@ -3,9 +3,9 @@ use blit::{
     paint::{
         BorderRadius, BoxShadow, ImageFit, ImageRequest, ImageSampling, ImageTiling, Rectangle,
     },
-    resource::{ImageData, ImageFormat, ImageId, ImagePixels},
+    resource::{ImageData, ImageFormat, ImageHandle, ImagePixels},
 };
-use slotmap::{Key, SlotMap};
+use slotmap::SlotMap;
 
 use super::rounded::{Radii, RoundedLine};
 use crate::{RendererImageId, StoredImage};
@@ -20,7 +20,7 @@ struct KeyData {
 
 struct Entry {
     key: KeyData,
-    image: RendererImageId,
+    image: ImageHandle,
     bytes: usize,
     last_used: u64,
 }
@@ -96,7 +96,7 @@ impl Cache {
         self.clock = self.clock.wrapping_add(1);
         let image = if let Some(entry) = self.entries.iter_mut().find(|entry| entry.key == key) {
             entry.last_used = self.clock;
-            entry.image
+            entry.image.id()
         } else {
             let width = bounds.width as usize;
             let height = bounds.height as usize;
@@ -135,7 +135,8 @@ impl Cache {
                 width,
                 height,
             );
-            let image = images.insert(StoredImage::new(data));
+            let image = StoredImage::insert(images, data);
+            let id = image.id();
             self.entries.push(Entry {
                 key,
                 image,
@@ -143,10 +144,10 @@ impl Cache {
                 last_used: self.clock,
             });
             self.bytes += bytes;
-            image
+            id
         };
         Some(Prepared::Image(ImageRequest {
-            image: ImageId(image.data().as_ffi()),
+            image,
             area: bounds.to_logical(1.0),
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
@@ -158,7 +159,7 @@ impl Cache {
         }))
     }
 
-    pub fn finish_frame(&mut self, images: &mut SlotMap<RendererImageId, StoredImage>) {
+    pub fn finish_frame(&mut self) {
         while self.bytes > self.capacity {
             let Some(index) = self
                 .entries
@@ -171,7 +172,6 @@ impl Cache {
             };
             let entry = self.entries.swap_remove(index);
             self.bytes -= entry.bytes;
-            images.remove(entry.image);
         }
     }
 }

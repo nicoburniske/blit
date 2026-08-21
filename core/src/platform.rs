@@ -1,11 +1,9 @@
-use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
-
 use crate::{
     RepaintBuffer,
     command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     paint::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
-    resource::{ImageData, ImageHandle, ImageId},
+    resource::{ImageData, ImageHandle},
 };
 
 pub trait PlatformImpl {
@@ -19,8 +17,7 @@ pub trait PlatformImpl {
         RepaintBuffer::Reused
     }
 
-    fn create_image(&mut self, data: ImageData) -> ImageId;
-    fn drop_image(&mut self, image: ImageId);
+    fn create_image(&mut self, data: ImageData) -> ImageHandle;
 
     fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId;
     fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize;
@@ -28,68 +25,4 @@ pub trait PlatformImpl {
     fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize;
     /// returns the cursor position and line height for the nearest valid byte offset
     fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect;
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Platform {
-    inner: NonNull<dyn PlatformImpl>,
-    not_send_or_sync: PhantomData<Rc<()>>,
-}
-
-impl Platform {
-    #[inline]
-    pub fn screen(&mut self) -> PhysicalRect {
-        self.inner().screen()
-    }
-
-    #[inline]
-    pub fn scale_factor(&mut self) -> f32 {
-        self.inner().scale_factor()
-    }
-
-    #[inline]
-    pub fn create_image(&mut self, image: ImageData) -> ImageHandle {
-        let size = image.size;
-        let id = self.inner().create_image(image);
-        ImageHandle::new(id, size, self.inner)
-    }
-
-    #[inline]
-    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.inner().text_run(text, style)
-    }
-
-    #[inline]
-    pub fn text_offset_at_position(
-        &mut self,
-        request: &TextRequest,
-        position: LogicalPoint,
-    ) -> usize {
-        self.inner().text_offset_at_position(request, position)
-    }
-
-    #[inline]
-    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
-        self.inner().measure_text(request)
-    }
-
-    #[inline]
-    pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        self.inner().text_cursor_rect(request, byte_offset)
-    }
-}
-
-impl Platform {
-    pub(crate) fn new<T: PlatformImpl + 'static>(implementation: &mut T) -> Self {
-        Self {
-            inner: NonNull::from(implementation as &mut dyn PlatformImpl),
-            not_send_or_sync: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub(crate) fn inner(&self) -> &mut dyn PlatformImpl {
-        // safety: Runtime keeps the boxed implementation alive and stable
-        unsafe { &mut *self.inner.as_ptr() }
-    }
 }

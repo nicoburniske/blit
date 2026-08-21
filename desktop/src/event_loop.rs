@@ -7,7 +7,7 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
     paint::{TextRequest, TextRunId, TextStyle},
     platform::PlatformImpl,
-    resource::{ImageData, ImageId},
+    resource::{ImageData, ImageHandle},
 };
 use blit_cpu::{PixelBuffer, Renderer, Scanline};
 use blit_executor::{LocalExecutor, TaskId};
@@ -70,7 +70,8 @@ enum State<A: Application> {
 struct Active<A: Application> {
     app: A,
     executor: Pin<Box<LocalExecutor<A>>>,
-    runtime: blit::Runtime<DesktopPlatform>,
+    platform: DesktopPlatform,
+    ui: blit::UiState,
     surface: Surface<OwnedDisplayHandle, Rc<Window>>,
     window: Rc<Window>,
 }
@@ -83,16 +84,12 @@ impl<A: Application> Active<A> {
             return Ok(());
         };
         self.surface.resize(width, height)?;
-        self.runtime
-            .platform()
+        self.platform
             .renderer
             .buffer_mut()
             .resize(size.width as usize, size.height as usize);
-        self.runtime
-            .platform()
-            .renderer
-            .set_scale_factor(scale_factor as f32);
-        self.runtime.refresh_screen();
+        self.platform.renderer.set_scale_factor(scale_factor as f32);
+        self.ui.invalidate_all();
         Ok(())
     }
 }
@@ -153,10 +150,10 @@ impl<A: Application> Runner<A> {
         };
         let time = self.started_at.elapsed();
         let timer_due = active
-            .runtime
+            .ui
             .next_timer_deadline()
             .is_some_and(|deadline| time >= deadline);
-        if self.inputs.is_empty() && !active.runtime.has_pending_redraw() && !timer_due {
+        if self.inputs.is_empty() && !active.ui.has_pending_redraw() && !timer_due {
             return;
         }
         let mut buffer = match active.surface.buffer_mut() {
@@ -164,29 +161,22 @@ impl<A: Application> Runner<A> {
             Err(error) => return self.fail(event_loop, error),
         };
         if buffer.len()
-            != active.runtime.platform().renderer.buffer().width()
-                * active.runtime.platform().renderer.buffer().height()
+            != active.platform.renderer.buffer().width()
+                * active.platform.renderer.buffer().height()
         {
             return;
         }
         if buffer.age() == 0 {
-            active.runtime.invalidate_all();
+            active.ui.invalidate_all();
         }
-        active
-            .runtime
-            .platform()
-            .renderer
-            .buffer_mut()
-            .set(&mut buffer);
-        if !self.inputs.is_empty() {
-            active
-                .runtime
-                .render_batch(time, self.inputs.drain(..), |ui| active.app.render(ui));
-        } else if active.runtime.has_pending_redraw() || timer_due {
-            active
-                .runtime
-                .render(time, Input::None, |ui| active.app.render(ui));
-        }
+        active.platform.renderer.buffer_mut().set(&mut buffer);
+        blit::render(
+            &mut active.platform,
+            &mut active.ui,
+            time,
+            self.inputs.drain(..),
+            |ui| active.app.render(ui),
+        );
         active.window.pre_present_notify();
         if let Err(error) = buffer.present() {
             self.fail(event_loop, error);
@@ -224,19 +214,20 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             .with_scale_factor(window.scale_factor() as f32)
             .strategy(Scanline::default()),
         };
-        let mut runtime = blit::Runtime::new(platform);
+        let ui = blit::UiState::default();
         let wake = input.inner.clone();
         let executor = Box::pin(LocalExecutor::new(move |task| {
             let _ = wake.send_event(Event::TaskReady(task));
         }));
         // safety: executor remains pinned and is dropped after app
         let root = unsafe { executor.as_ref().root() };
-        let app = A::new(*runtime.erased_platform(), input, root);
+        let app = A::new(input, root);
         let scale_factor = window.scale_factor();
         let mut active = Box::new(Active {
             app,
             executor,
-            runtime,
+            platform,
+            ui,
             surface,
             window,
         });
@@ -259,7 +250,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Event::TaskReady(task) => active.executor.as_ref().run(&mut active.app, task),
         };
         if request_frame {
-            active.runtime.request_frame();
+            active.ui.request_frame();
             active.window.request_redraw();
         }
     }
@@ -462,16 +453,16 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             return;
         };
         let now = self.started_at.elapsed();
-        if active.runtime.has_pending_redraw()
+        if active.ui.has_pending_redraw()
             || active
-                .runtime
+                .ui
                 .next_timer_deadline()
                 .is_some_and(|deadline| deadline <= now)
             || !self.inputs.is_empty()
         {
             active.window.request_redraw();
             event_loop.set_control_flow(ControlFlow::Wait);
-        } else if let Some(deadline) = active.runtime.next_timer_deadline() {
+        } else if let Some(deadline) = active.ui.next_timer_deadline() {
             event_loop.set_control_flow(ControlFlow::WaitUntil(self.started_at + deadline));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
@@ -507,12 +498,8 @@ impl PlatformImpl for DesktopPlatform {
         RepaintBuffer::Swapped
     }
 
-    fn create_image(&mut self, data: ImageData) -> ImageId {
+    fn create_image(&mut self, data: ImageData) -> ImageHandle {
         self.renderer.create_image(data)
-    }
-
-    fn drop_image(&mut self, image: ImageId) {
-        self.renderer.drop_image(image)
     }
 
     fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {

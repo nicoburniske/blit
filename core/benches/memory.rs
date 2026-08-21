@@ -5,8 +5,8 @@ use std::{
 };
 
 use blit::{
-    Clip, FrameGraphMemory, Runtime, Sizing, Ui, color::Color, geometry::LogicalInsets,
-    input::Input, widget::Text,
+    Clip, FrameGraphMemory, Sizing, Ui, UiState, color::Color, geometry::LogicalInsets,
+    input::Input, render, widget::Text,
 };
 
 use support::{NoopPlatform, command_frame};
@@ -55,23 +55,42 @@ struct Report {
 
 fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
     let baseline = CURRENT.load(Relaxed);
-    let mut runtime = Runtime::new(NoopPlatform);
+    let mut platform = NoopPlatform;
+    let mut state = UiState::default();
     GROSS.store(0, Relaxed);
-    runtime.render(Duration::ZERO, Input::None, frame);
-    runtime.render(Duration::ZERO, Input::None, frame);
+    render(
+        &mut platform,
+        &mut state,
+        Duration::ZERO,
+        [Input::None],
+        frame,
+    );
+    render(
+        &mut platform,
+        &mut state,
+        Duration::ZERO,
+        [Input::None],
+        frame,
+    );
     let growth = GROSS.load(Relaxed);
 
     GROSS.store(0, Relaxed);
-    runtime.render(Duration::ZERO, Input::None, frame);
+    render(
+        &mut platform,
+        &mut state,
+        Duration::ZERO,
+        [Input::None],
+        frame,
+    );
     let report = Report {
         name,
         nodes,
-        graph: runtime.frame_graph_memory(),
+        graph: state.frame_graph_memory(),
         core_heap: CURRENT.load(Relaxed) - baseline,
         growth,
         steady: GROSS.load(Relaxed),
     };
-    drop(runtime);
+    drop((platform, state));
     assert_eq!(CURRENT.load(Relaxed), baseline);
     report
 }

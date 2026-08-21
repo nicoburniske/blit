@@ -26,9 +26,6 @@ impl Widget for Image<'_> {
     type Output = ();
 
     fn build(self, ui: &mut Ui) {
-        if self.resource.is_empty() {
-            return;
-        }
         let size = self.resource.size();
         ui.add_leaf(
             Item {
