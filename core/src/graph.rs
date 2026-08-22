@@ -543,14 +543,17 @@ impl FrameGraph {
 
         let mut count = 0usize;
         let mut grow = 0usize;
+        let mut has_percentage = false;
         let mut used = 0.0;
         while child < end {
             let node = &mut self.nodes[child];
             if !POSITIONED || !node.flow.is_positioned() {
                 let sizing = node.sizing(axis);
+                let percentage = matches!(sizing, Sizing::Percent(_));
+                has_percentage |= percentage;
                 let size = sizing.resolve(
                     node.size(axis),
-                    if layout.allow_overflow {
+                    if layout.allow_overflow || percentage {
                         f32::INFINITY
                     } else {
                         available
@@ -565,6 +568,21 @@ impl FrameGraph {
             child = node.subtree_end as usize;
         }
         let gaps = layout.gap.max(0.0) * count.saturating_sub(1) as f32;
+        if has_percentage {
+            let percentage_available = (available - gaps).max(0.0);
+            child = parent + 1;
+            while child < end {
+                let node = &mut self.nodes[child];
+                if (!POSITIONED || !node.flow.is_positioned())
+                    && let Sizing::Percent(fraction) = node.sizing(axis)
+                {
+                    let size = Sizing::percentage(fraction, percentage_available);
+                    node.set_size(axis, size);
+                    used += size;
+                }
+                child = node.subtree_end as usize;
+            }
+        }
         let free = available - used - gaps;
         if free < 0.0 && !layout.allow_overflow {
             let mut capacity = 0.0;
@@ -572,7 +590,7 @@ impl FrameGraph {
             while child < end {
                 let node = &self.nodes[child];
                 if !POSITIONED || !node.flow.is_positioned() {
-                    capacity += node.size(axis) - node.sizing(axis).minimum();
+                    capacity += node.size(axis) - node.sizing(axis).minimum(node.size(axis));
                 }
                 child = node.subtree_end as usize;
             }
@@ -583,7 +601,7 @@ impl FrameGraph {
                     let node = &mut self.nodes[child];
                     if !POSITIONED || !node.flow.is_positioned() {
                         let size = node.size(axis);
-                        let available_shrink = size - node.sizing(axis).minimum();
+                        let available_shrink = size - node.sizing(axis).minimum(size);
                         let shrunk = size - deficit * available_shrink / capacity;
                         node.set_size(axis, shrunk);
                         used += shrunk - size;
@@ -1096,6 +1114,10 @@ impl Sizing {
             Self::Grow { .. } if cross => self.clamp(available),
             Self::Grow { .. } => self.clamp(intrinsic.min(available)),
             Self::Fixed(size) => size.max(0.0),
+            Self::Percent(fraction) if available.is_finite() => {
+                Self::percentage(fraction, available)
+            }
+            Self::Percent(_) => 0.0,
         }
     }
 
@@ -1105,14 +1127,21 @@ impl Sizing {
                 size.clamp(min.max(0.0), max.max(min).max(0.0))
             }
             Self::Fixed(fixed) => fixed.max(0.0),
+            Self::Percent(_) => size.max(0.0),
         }
     }
 
-    fn minimum(self) -> f32 {
+    fn minimum(self, resolved: f32) -> f32 {
         match self {
             Self::Fit { min, .. } | Self::Grow { min, .. } => min.max(0.0),
             Self::Fixed(size) => size.max(0.0),
+            Self::Percent(_) => resolved,
         }
+    }
+
+    fn percentage(fraction: f32, available: f32) -> f32 {
+        assert!((0.0..=1.0).contains(&fraction));
+        available * fraction
     }
 }
 

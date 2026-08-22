@@ -54,6 +54,7 @@ pub enum Sizing {
     Fit { min: f32, max: f32 },
     Grow { min: f32, max: f32 },
     Fixed(f32),
+    Percent(f32),
 }
 
 /// child flow direction
@@ -303,11 +304,18 @@ impl Sizing {
         Self::Fixed(size)
     }
 
+    /// sizes to a fraction of the parent's available size after padding and gaps
+    ///
+    /// percentage sizing does not contribute to a fitted parent's intrinsic size
+    pub const fn percent(fraction: f32) -> Self {
+        Self::Percent(fraction)
+    }
+
     pub const fn min(self, value: f32) -> Self {
         match self {
             Self::Fit { max, .. } => Self::Fit { min: value, max },
             Self::Grow { max, .. } => Self::Grow { min: value, max },
-            Self::Fixed(_) => self,
+            Self::Fixed(_) | Self::Percent(_) => self,
         }
     }
 
@@ -315,7 +323,7 @@ impl Sizing {
         match self {
             Self::Fit { min, .. } => Self::Fit { min, max: value },
             Self::Grow { min, .. } => Self::Grow { min, max: value },
-            Self::Fixed(_) => self,
+            Self::Fixed(_) | Self::Percent(_) => self,
         }
     }
 }
