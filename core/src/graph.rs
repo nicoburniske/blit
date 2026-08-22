@@ -104,19 +104,29 @@ impl FrameGraph {
         }
         if transition_states.iter().any(|state| state.seen) {
             self.update_transitions(transition_states, time);
-            self.prepare_transitioned_dimensions(transition_states);
-            if positioned {
-                self.layout::<true, false>(renderer);
-            } else {
-                self.layout::<false, false>(renderer);
+            if transition_states
+                .iter()
+                .any(|state| state.seen && state.active.contains(TransitionProperties::SIZE))
+            {
+                self.prepare_transitioned_dimensions(transition_states);
+                if positioned {
+                    self.layout::<true, false>(renderer);
+                } else {
+                    self.layout::<false, false>(renderer);
+                }
             }
-            self.prepare_transitioned_positions(transition_states);
-            if positioned {
-                self.resolve_axis::<true, true>(Axis::Horizontal);
-                self.resolve_axis::<true, true>(Axis::Vertical);
-            } else {
-                self.resolve_axis::<false, true>(Axis::Horizontal);
-                self.resolve_axis::<false, true>(Axis::Vertical);
+            if transition_states
+                .iter()
+                .any(|state| state.seen && state.active.contains(TransitionProperties::POSITION))
+            {
+                self.prepare_transitioned_positions(transition_states);
+                if positioned {
+                    self.resolve_axis::<true, true>(Axis::Horizontal);
+                    self.resolve_axis::<true, true>(Axis::Vertical);
+                } else {
+                    self.resolve_axis::<false, true>(Axis::Horizontal);
+                    self.resolve_axis::<false, true>(Axis::Vertical);
+                }
             }
         }
         if positioned {

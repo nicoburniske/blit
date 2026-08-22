@@ -1,10 +1,11 @@
-use std::hint::black_box;
+use std::{hint::black_box, time::Duration};
 
 use blit::{
     Ui,
+    animation::Transition,
     color::Color,
     command_list::CommandList,
-    container::Sizing,
+    container::{Absolute, Anchor, Scope, Sizing},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     image::{ImageData, ImageHandle, ImageId},
     interact::{Sense, WidgetId},
@@ -52,6 +53,28 @@ impl Renderer for NoopRenderer {
 
 pub fn layout_frame(ui: &mut Ui) {
     let mut column = ui.container().col().width(Sizing::grow()).gap(2.0).open();
+    layout_rows(&mut column)
+}
+
+pub fn transition_frame(ui: &mut Ui, right: bool) {
+    let anchor = if right {
+        Anchor::TopRight
+    } else {
+        Anchor::TopLeft
+    };
+    let mut column = ui
+        .container()
+        .col()
+        .width(Sizing::fixed(640.0))
+        .gap(2.0)
+        .id(WidgetId::new("benchmark transition"))
+        .absolute(Absolute::attach(anchor, anchor))
+        .transition(Transition::new(Duration::from_millis(100)).position())
+        .open();
+    layout_rows(&mut column)
+}
+
+fn layout_rows(column: &mut Scope<'_>) {
     for _ in 0..ROWS {
         let mut row = column
             .container()

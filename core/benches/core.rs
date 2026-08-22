@@ -10,7 +10,7 @@ use blit::{
 };
 use divan::counter::ItemsCount;
 
-use support::{CELLS_PER_ROW, ITEMS, NoopRenderer, command_frame, layout_frame};
+use support::{CELLS_PER_ROW, ITEMS, NoopRenderer, command_frame, layout_frame, transition_frame};
 
 mod support;
 
@@ -24,6 +24,24 @@ fn main() {
 #[divan::bench]
 fn layout(bencher: divan::Bencher) {
     benchmark_frame(bencher, layout_frame)
+}
+
+#[divan::bench]
+fn layout_with_position_transition(bencher: divan::Bencher) {
+    let mut renderer = NoopRenderer;
+    let mut state = benchmark_state();
+    let mut time = Duration::ZERO;
+    let mut right = false;
+    render(&mut renderer, &mut state, time, [Input::None], |ui| {
+        transition_frame(ui, right)
+    });
+    bencher.counter(ItemsCount::new(ITEMS)).bench_local(|| {
+        time += Duration::from_millis(16);
+        right = !right;
+        render(&mut renderer, &mut state, time, [Input::None], |ui| {
+            transition_frame(ui, right)
+        })
+    });
 }
 
 #[divan::bench]
@@ -60,13 +78,7 @@ enum DiffCase {
 
 fn benchmark_frame(bencher: divan::Bencher, frame: fn(&mut Ui)) {
     let mut renderer = NoopRenderer;
-    let screen = PhysicalRect {
-        x: 0,
-        y: 0,
-        width: 1280,
-        height: 8192,
-    };
-    let mut state = UiState::new(screen, blit::RepaintBuffer::Reused, 1.0);
+    let mut state = benchmark_state();
     render(
         &mut renderer,
         &mut state,
@@ -90,6 +102,19 @@ fn benchmark_frame(bencher: divan::Bencher, frame: fn(&mut Ui)) {
             frame,
         )
     });
+}
+
+fn benchmark_state() -> UiState {
+    UiState::new(
+        PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 8192,
+        },
+        blit::RepaintBuffer::Reused,
+        1.0,
+    )
 }
 
 fn command_list(case: DiffCase, new: bool) -> CommandList {
