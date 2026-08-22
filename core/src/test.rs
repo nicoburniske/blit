@@ -948,14 +948,19 @@ fn transition_does_not_animate_unchanged_parent_relative_position() {
 }
 
 #[test]
-fn transitioned_dimensions_participate_in_second_layout() {
+fn transitioned_layout_uses_transitioned_dimensions() {
     let mut harness = Harness::new(TestRenderer::default());
     let id = WidgetId::new("resizing item");
     let transition = Transition::new(Duration::from_millis(100))
         .easing(Easing::Linear)
-        .width();
+        .layout();
     let render = |ui: &mut Ui, width: f32| {
-        let mut row = ui.container().row().fixed(10.0, 2.0).open();
+        let mut row = ui
+            .container()
+            .row()
+            .fixed(10.0, 2.0)
+            .justify(Justify::Center)
+            .open();
         row.add(
             widget::Rectangle::new()
                 .fixed(width, 2.0)
@@ -972,18 +977,21 @@ fn transitioned_dimensions_participate_in_second_layout() {
 
     harness.render(Duration::ZERO, Input::None, |ui| render(ui, 2.0));
     harness.render(Duration::from_millis(10), Input::None, |ui| render(ui, 6.0));
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 3.0);
     assert_eq!(harness.renderer().rectangle_areas[0].width, 2.0);
-    assert_eq!(harness.renderer().rectangle_areas[1].x, 2.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 5.0);
 
     harness.render(Duration::from_millis(60), Input::None, |ui| render(ui, 6.0));
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 2.0);
     assert_eq!(harness.renderer().rectangle_areas[0].width, 4.0);
-    assert_eq!(harness.renderer().rectangle_areas[1].x, 4.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 6.0);
 
     harness.render(Duration::from_millis(110), Input::None, |ui| {
         render(ui, 6.0)
     });
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 1.0);
     assert_eq!(harness.renderer().rectangle_areas[0].width, 6.0);
-    assert_eq!(harness.renderer().rectangle_areas[1].x, 6.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 7.0);
     assert!(!harness.has_pending_redraw());
 }
 
