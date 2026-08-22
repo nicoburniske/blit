@@ -5,6 +5,7 @@ use blit::{
     animation::{Easing, Transition},
     container::{Absolute, Align, Anchor, Axis, Justify, Sizing},
     geometry::LogicalInsets,
+    input::{Input, Key},
     interact::{Sense, WidgetId},
     style::{Clip, Style},
     text::{FontId, HorizontalAlign, TextWrap},
@@ -55,6 +56,18 @@ impl Application for Showcase {
     fn input(&mut self, _: Self::Input) {}
 
     fn render(&mut self, ui: &mut Ui) {
+        let scale_factor = match ui.input() {
+            Input::Key(key) if key.pressed && key.modifiers.control() => match key.key {
+                Key::Character('+') | Key::Character('=') => Some(ui.scale_factor() + 0.25),
+                Key::Character('-') => Some(ui.scale_factor() - 0.25),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(scale_factor) = scale_factor {
+            ui.set_scale_factor(scale_factor.clamp(0.5, 4.0));
+        }
+
         ui.clear();
         let screen = ui.screen();
         let max_width = (screen.width - 420.0).max(240.0);
