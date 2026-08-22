@@ -206,7 +206,8 @@ fn container_scopes_and_rectangle_leaves_resolve_layout() {
         let mut row = ui.container().row().fixed(10.0, 10.0).gap(2.0).open();
         row.add(
             widget::Rectangle::new()
-                .fixed(2.0, 4.0)
+                .width(Sizing::percent(0.25))
+                .height(Sizing::fixed(4.0))
                 .background(Color::BLACK),
         );
         row.add(
@@ -233,6 +234,38 @@ fn container_scopes_and_rectangle_leaves_resolve_layout() {
                 height: 4.0,
             },
         ]
+    );
+}
+
+#[test]
+fn percentage_sizing_does_not_expand_fit_parent() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut outer = ui
+            .container()
+            .row()
+            .fixed(10.0, 10.0)
+            .align(Align::Start)
+            .open();
+        let mut fit = outer.container().row().height(Sizing::fixed(10.0)).open();
+        fit.add(
+            widget::Rectangle::new()
+                .width(Sizing::percent(0.5))
+                .height(Sizing::fixed(10.0))
+                .background(Color::BLACK),
+        );
+        fit.add(
+            widget::Rectangle::new()
+                .fixed(4.0, 10.0)
+                .background(Color::GRAY),
+        );
+    });
+
+    let areas = &harness.renderer().rectangle_areas;
+    assert_eq!(areas.len(), 2);
+    assert_eq!(
+        (areas[0].width, areas[1].x, areas[1].width),
+        (2.0, 2.0, 4.0)
     );
 }
 
