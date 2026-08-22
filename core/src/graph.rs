@@ -104,11 +104,19 @@ impl FrameGraph {
         }
         if transition_states.iter().any(|state| state.seen) {
             self.update_transitions(transition_states, time);
-            self.prepare_transitions(transition_states);
+            self.prepare_transitioned_dimensions(transition_states);
             if positioned {
-                self.layout::<true, true>(renderer);
+                self.layout::<true, false>(renderer);
             } else {
-                self.layout::<false, true>(renderer);
+                self.layout::<false, false>(renderer);
+            }
+            self.prepare_transitioned_positions(transition_states);
+            if positioned {
+                self.resolve_axis::<true, true>(Axis::Horizontal);
+                self.resolve_axis::<true, true>(Axis::Vertical);
+            } else {
+                self.resolve_axis::<false, true>(Axis::Horizontal);
+                self.resolve_axis::<false, true>(Axis::Vertical);
             }
         }
         if positioned {
@@ -665,57 +673,78 @@ impl FrameGraph {
 
     fn update_transitions(&self, states: &mut [TransitionState], time: Duration) {
         for state in states.iter_mut().filter(|state| state.seen) {
-            let node = state.node.index();
-            let mut parent = state.parent;
-            if self.nodes[node].flow.is_positioned()
-                && self.positioned_flows[self.nodes[node].flow.index().unwrap()]
-                    .absolute
-                    .target
-                    == PositionTarget::Screen
-            {
-                parent = NodeId::ROOT;
-            }
-            let mut target = self.nodes[node].area;
-            let parent_node = &self.nodes[parent.index()];
-            let parent_offset = if self.nodes[node].flow.is_positioned() {
-                LogicalPoint::default()
-            } else {
-                parent_node
-                    .flow
-                    .index()
-                    .map_or(LogicalPoint::default(), |flow| {
-                        if parent_node.flow.is_positioned() {
-                            self.positioned_flows[flow].flow.child_offset
-                        } else {
-                            self.flows[flow].child_offset
-                        }
-                    })
-            };
-            // positions transition within the parent and ignore scrolling
-            target.x -= parent_node.area.x + parent_offset.x;
-            target.y -= parent_node.area.y + parent_offset.y;
-            state.advance(target, time);
+            state.advance(self.transition_area(state.node, state.parent), time);
         }
     }
 
-    fn prepare_transitions(&mut self, states: &[TransitionState]) {
-        for node in self.nodes.iter_mut().skip(1) {
-            node.area.x = 0.0;
-            node.area.y = 0.0;
+    fn transition_area(&self, node: NodeId, mut parent: NodeId) -> LogicalRect {
+        let node = node.index();
+        if self.nodes[node].flow.is_positioned()
+            && self.positioned_flows[self.nodes[node].flow.index().unwrap()]
+                .absolute
+                .target
+                == PositionTarget::Screen
+        {
+            parent = NodeId::ROOT;
         }
+        let mut area = self.nodes[node].area;
+        let parent_node = &self.nodes[parent.index()];
+        let parent_offset = if self.nodes[node].flow.is_positioned() {
+            LogicalPoint::default()
+        } else {
+            parent_node
+                .flow
+                .index()
+                .map_or(LogicalPoint::default(), |flow| {
+                    if parent_node.flow.is_positioned() {
+                        self.positioned_flows[flow].flow.child_offset
+                    } else {
+                        self.flows[flow].child_offset
+                    }
+                })
+        };
+        // positions transition within the parent and ignore scrolling
+        area.x -= parent_node.area.x + parent_offset.x;
+        area.y -= parent_node.area.y + parent_offset.y;
+        area
+    }
+
+    fn prepare_transitioned_dimensions(&mut self, states: &[TransitionState]) {
         for state in states.iter().filter(|state| state.seen) {
             let node = &mut self.nodes[state.node.index()];
-            if state.active.contains(TransitionProperties::X) {
-                node.area.x = state.current.x - state.target.x;
-            }
-            if state.active.contains(TransitionProperties::Y) {
-                node.area.y = state.current.y - state.target.y;
-            }
             if state.active.contains(TransitionProperties::WIDTH) {
                 node.item.width = Sizing::fixed(state.current.width);
             }
             if state.active.contains(TransitionProperties::HEIGHT) {
                 node.item.height = Sizing::fixed(state.current.height);
+            }
+        }
+    }
+
+    fn prepare_transitioned_positions(&mut self, states: &mut [TransitionState]) {
+        states.sort_unstable_by_key(|state| std::cmp::Reverse(state.node.index()));
+        for state in states.iter().filter(|state| state.seen) {
+            let area = self.transition_area(state.node, state.parent);
+            let node = &mut self.nodes[state.node.index()];
+            node.area.x = if state.active.contains(TransitionProperties::X) {
+                state.current.x - area.x
+            } else {
+                0.0
+            };
+            node.area.y = if state.active.contains(TransitionProperties::Y) {
+                state.current.y - area.y
+            } else {
+                0.0
+            };
+        }
+        let mut states = states.iter().filter(|state| state.seen).peekable();
+        for index in (1..self.nodes.len()).rev() {
+            if states
+                .next_if(|state| state.node.index() == index)
+                .is_none()
+            {
+                self.nodes[index].area.x = 0.0;
+                self.nodes[index].area.y = 0.0;
             }
         }
     }
