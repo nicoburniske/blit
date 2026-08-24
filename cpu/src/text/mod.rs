@@ -101,7 +101,7 @@ impl TextRenderer {
             weight: style.weight,
         };
         let next_run = self.next_run;
-        let Ok((_, index)) = self.runs.get_or_insert_by(
+        let (_, index) = self.runs.get_or_insert_by(
             &query,
             |key, cached| {
                 key.digest == query.digest
@@ -129,9 +129,7 @@ impl TextRenderer {
                     },
                 )
             },
-        ) else {
-            unreachable!("deferred text run cache accepts an oversized frame entry")
-        };
+        );
         if self.runs.get_index(index).id.0 as u32 == 0 {
             let slot = u32::try_from(index + 1).expect("too many cached text runs");
             self.runs

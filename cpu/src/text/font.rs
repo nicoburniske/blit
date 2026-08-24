@@ -14,7 +14,6 @@ pub struct CachedGlyph {
 pub struct FontCache {
     faces: Vec<FontFace>,
     glyphs: DeferredCache<GlyphKey, CachedGlyph, GlyphScale>,
-    uncached: Vec<CachedGlyph>,
     rasterizer: Rasterizer,
 }
 
@@ -27,14 +26,11 @@ impl Scale<GlyphKey, CachedGlyph> for GlyphScale {
 }
 
 impl FontCache {
-    const UNCACHED: usize = 1 << (usize::BITS - 1);
-
     pub fn new(faces: Vec<FontFace>, capacity: usize) -> Self {
         assert!(!faces.is_empty());
         Self {
             faces,
             glyphs: DeferredCache::new(GlyphScale, capacity),
-            uncached: Vec::new(),
             rasterizer: Rasterizer::default(),
         }
     }
@@ -57,37 +53,25 @@ impl FontCache {
         let Self {
             faces,
             glyphs,
-            uncached,
             rasterizer,
         } = self;
-        match glyphs.get_or_insert(key, || {
+        let (_, index) = glyphs.get_or_insert(key, || {
             let font = &faces[key.face].font;
             let (metrics, alpha) = rasterizer.rasterize(font, key.glyph.glyph_id, key.glyph.size);
             CachedGlyph {
                 metrics,
                 alpha: alpha.into_boxed_slice(),
             }
-        }) {
-            Ok((_, index)) => index,
-            Err(glyph) => {
-                let index = uncached.len();
-                uncached.push(glyph);
-                Self::UNCACHED | index
-            }
-        }
+        });
+        index
     }
 
     pub fn get(&self, index: usize) -> &CachedGlyph {
-        if index & Self::UNCACHED == 0 {
-            self.glyphs.get_index(index)
-        } else {
-            &self.uncached[index & !Self::UNCACHED]
-        }
+        self.glyphs.get_index(index)
     }
 
     pub fn finish_frame(&mut self) {
         self.glyphs.trim_to_weight();
-        self.uncached.clear();
     }
 }
 

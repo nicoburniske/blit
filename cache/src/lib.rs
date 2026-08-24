@@ -45,53 +45,8 @@ where
 
     pub fn get(&mut self, key: &K) -> Option<&V> {
         let hash = self.hash_builder.hash_one(key);
-        let index = self
-            .table
-            .find(hash, |index| &self.entries.get(*index).key == key)
-            .copied()?;
-        self.entries.promote(index);
+        let index = self.find(hash, |candidate, _| candidate == key)?;
         Some(&self.entries.get(index).value)
-    }
-
-    pub fn get_or_insert_by<Q>(
-        &mut self,
-        query: &Q,
-        equivalent: impl Fn(&K, &V) -> bool,
-        insert: impl FnOnce() -> (K, V),
-    ) -> Result<(&V, usize), V>
-    where
-        Q: std::hash::Hash + ?Sized,
-    {
-        let hash = self.hash_builder.hash_one(query);
-        if let Some(index) = self
-            .table
-            .find(hash, |index| {
-                let entry = self.entries.get(*index);
-                equivalent(&entry.key, &entry.value)
-            })
-            .copied()
-        {
-            self.entries.promote(index);
-            return Ok((&self.entries.get(index).value, index));
-        }
-
-        let (key, value) = insert();
-        debug_assert_eq!(hash, self.hash_builder.hash_one(&key));
-        let weight = self.scale.weight(&key, &value);
-        if TRIM_ON_INSERT && weight > self.max_weight {
-            return Err(value);
-        }
-        let (_, index) = self.entries.insert(Entry { key, value });
-        let entries = &self.entries;
-        let hash_builder = &self.hash_builder;
-        self.table.insert_unique(hash, index, |index| {
-            hash_builder.hash_one(&entries.get(*index).key)
-        });
-        self.weight += weight;
-        if TRIM_ON_INSERT {
-            self.trim_to_weight();
-        }
-        Ok((&self.entries.get(index).value, index))
     }
 
     pub fn get_index(&self, index: usize) -> &V {
@@ -123,19 +78,90 @@ where
         })
     }
 
-    // if it cannot fit, returns value as error
-    pub fn get_or_insert(&mut self, key: K, f: impl FnOnce() -> V) -> Result<(&V, usize), V> {
-        let hash = self.hash_builder.hash_one(&key);
-        if let Some(index) = self
-            .table
-            .find(hash, |index| self.entries.get(*index).key == key)
-            .copied()
+    pub fn trim_to_weight(&mut self) {
+        while self.weight > self.max_weight {
+            let (entry, index) = self.entries.pop_with_index().unwrap();
+            let hash = self.hash_builder.hash_one(&entry.key);
+            self.table
+                .find_entry(hash, |candidate| *candidate == index)
+                .expect("cache table missing live entry")
+                .remove();
+            self.weight -= self.scale.weight(&entry.key, &entry.value);
+        }
+    }
+}
+
+impl<K, V, S> LruCache<K, V, S, false>
+where
+    K: std::hash::Hash + PartialEq,
+    S: Scale<K, V>,
+{
+    pub fn get_or_insert_by<Q>(
+        &mut self,
+        query: &Q,
+        equivalent: impl Fn(&K, &V) -> bool,
+        insert: impl FnOnce() -> (K, V),
+    ) -> (&V, usize)
+    where
+        Q: std::hash::Hash + ?Sized,
+    {
+        match self.get_or_insert_inner(query, |_, key, value| equivalent(key, value), |_| insert())
         {
-            self.entries.promote(index);
+            Ok(entry) => entry,
+            Err(_) => unreachable!("deferred cache rejected an entry"),
+        }
+    }
+
+    pub fn get_or_insert(&mut self, key: K, insert: impl FnOnce() -> V) -> (&V, usize) {
+        match self.get_or_insert_inner(key, |query, key, _| query == key, |key| (key, insert())) {
+            Ok(entry) => entry,
+            Err(_) => unreachable!("deferred cache rejected an entry"),
+        }
+    }
+}
+
+impl<K, V, S> LruCache<K, V, S, true>
+where
+    K: std::hash::Hash + PartialEq,
+    S: Scale<K, V>,
+{
+    pub fn get_or_insert_by<Q>(
+        &mut self,
+        query: &Q,
+        equivalent: impl Fn(&K, &V) -> bool,
+        insert: impl FnOnce() -> (K, V),
+    ) -> Result<(&V, usize), V>
+    where
+        Q: std::hash::Hash + ?Sized,
+    {
+        self.get_or_insert_inner(query, |_, key, value| equivalent(key, value), |_| insert())
+    }
+
+    pub fn get_or_insert(&mut self, key: K, insert: impl FnOnce() -> V) -> Result<(&V, usize), V> {
+        self.get_or_insert_inner(key, |query, key, _| query == key, |key| (key, insert()))
+    }
+}
+
+impl<K, V, S, const TRIM_ON_INSERT: bool> LruCache<K, V, S, TRIM_ON_INSERT>
+where
+    K: std::hash::Hash + PartialEq,
+    S: Scale<K, V>,
+{
+    fn get_or_insert_inner<Q>(
+        &mut self,
+        query: Q,
+        equivalent: impl Fn(&Q, &K, &V) -> bool,
+        insert: impl FnOnce(Q) -> (K, V),
+    ) -> Result<(&V, usize), V>
+    where
+        Q: std::hash::Hash,
+    {
+        let hash = self.hash_builder.hash_one(&query);
+        if let Some(index) = self.find(hash, |key, value| equivalent(&query, key, value)) {
             return Ok((&self.entries.get(index).value, index));
         }
-
-        let value = f();
+        let (key, value) = insert(query);
+        debug_assert_eq!(hash, self.hash_builder.hash_one(&key));
         let weight = self.scale.weight(&key, &value);
         if TRIM_ON_INSERT && weight > self.max_weight {
             return Err(value);
@@ -153,16 +179,16 @@ where
         Ok((&self.entries.get(index).value, index))
     }
 
-    pub fn trim_to_weight(&mut self) {
-        while self.weight > self.max_weight {
-            let (entry, index) = self.entries.pop_with_index().unwrap();
-            let hash = self.hash_builder.hash_one(&entry.key);
-            self.table
-                .find_entry(hash, |candidate| *candidate == index)
-                .expect("cache table missing live entry")
-                .remove();
-            self.weight -= self.scale.weight(&entry.key, &entry.value);
-        }
+    fn find(&mut self, hash: u64, equivalent: impl Fn(&K, &V) -> bool) -> Option<usize> {
+        let index = self
+            .table
+            .find(hash, |index| {
+                let entry = self.entries.get(*index);
+                equivalent(&entry.key, &entry.value)
+            })
+            .copied()?;
+        self.entries.promote(index);
+        Some(index)
     }
 }
 
@@ -190,14 +216,10 @@ mod test {
     fn deferred_eviction() {
         let mut cache = DeferredCache::new(UnitWeight, 2);
 
-        assert_eq!(
-            cache
-                .get_or_insert(1, || 10)
-                .map(|(value, index)| (*value, index)),
-            Ok((10, 0))
-        );
-        cache.get_or_insert(2, || 20).unwrap();
-        cache.get_or_insert(3, || 30).unwrap();
+        let (value, index) = cache.get_or_insert(1, || 10);
+        assert_eq!((*value, index), (10, 0));
+        cache.get_or_insert(2, || 20);
+        cache.get_or_insert(3, || 30);
 
         assert_eq!(cache.table.len(), 3);
         assert_eq!(cache.weight, 3);
@@ -229,8 +251,8 @@ mod test {
     fn index_access_updates_weight() {
         let mut cache = DeferredCache::new(ValueWeight, 2);
 
-        let (_, first) = cache.get_or_insert(1, || 1).unwrap();
-        cache.get_or_insert(2, || 1).unwrap();
+        let (_, first) = cache.get_or_insert(1, || 1);
+        cache.get_or_insert(2, || 1);
         cache.update_index(first, |value| *value = 2);
 
         assert_eq!(cache.get_index(first), &2);
