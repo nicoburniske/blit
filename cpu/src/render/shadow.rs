@@ -7,6 +7,7 @@ use blit::{
     },
     style::BorderRadius,
 };
+use blit_cache::{DeferredCache, Scale};
 use slotmap::SlotMap;
 
 use super::{
@@ -15,7 +16,7 @@ use super::{
 };
 use crate::{RendererImageId, StoredImage};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct KeyData {
     width: i32,
     height: i32,
@@ -27,20 +28,22 @@ struct KeyData {
     inset: bool,
 }
 
-struct Entry {
-    key: KeyData,
+struct CachedShadow {
     image: ImageHandle,
     bytes: usize,
     nine_slice: NineSlice,
-    last_used: u64,
 }
 
-#[derive(Default)]
+struct ShadowScale;
+
+impl Scale<KeyData, CachedShadow> for ShadowScale {
+    fn weight(&self, _key: &KeyData, shadow: &CachedShadow) -> usize {
+        shadow.bytes
+    }
+}
+
 pub struct Cache {
-    pub capacity: usize,
-    entries: Vec<Entry>,
-    bytes: usize,
-    clock: u64,
+    entries: DeferredCache<KeyData, CachedShadow, ShadowScale>,
 }
 
 pub enum Prepared {
@@ -51,8 +54,7 @@ pub enum Prepared {
 impl Cache {
     pub fn new(capacity: usize) -> Self {
         Self {
-            capacity,
-            ..Default::default()
+            entries: DeferredCache::new(ShadowScale, capacity),
         }
     }
 
@@ -129,12 +131,8 @@ impl Cache {
                 },
             )
         };
-        self.clock = self.clock.wrapping_add(1);
-        let (image, nine_slice) = if let Some(entry) =
-            self.entries.iter_mut().find(|entry| entry.key == key)
-        {
-            entry.last_used = self.clock;
-            (entry.image.id(), entry.nine_slice)
+        let (image, nine_slice) = if let Some(cached) = self.entries.get(&key) {
+            (cached.image.id(), cached.nine_slice)
         } else {
             let width = bounds.width as usize;
             let height = bounds.height as usize;
@@ -258,17 +256,13 @@ impl Cache {
                 image_width,
                 image_height,
             );
-            let image = StoredImage::insert(images, data);
-            let id = image.id();
-            self.entries.push(Entry {
-                key,
-                image,
+            let cached = CachedShadow {
+                image: StoredImage::insert(images, data),
                 bytes,
                 nine_slice,
-                last_used: self.clock,
-            });
-            self.bytes += bytes;
-            (id, nine_slice)
+            };
+            let (cached, _) = self.entries.get_or_insert(key, || cached);
+            (cached.image.id(), cached.nine_slice)
         };
         Some(Prepared::Image(ImageRequest {
             image,
@@ -284,19 +278,7 @@ impl Cache {
     }
 
     pub fn finish_frame(&mut self) {
-        while self.bytes > self.capacity {
-            let Some(index) = self
-                .entries
-                .iter()
-                .enumerate()
-                .min_by_key(|(_, entry)| entry.last_used)
-                .map(|(index, _)| index)
-            else {
-                break;
-            };
-            let entry = self.entries.swap_remove(index);
-            self.bytes -= entry.bytes;
-        }
+        self.entries.trim_to_weight();
     }
 }
 

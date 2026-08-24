@@ -4,7 +4,7 @@ use blit::{geometry::PhysicalRect, style::BorderRadius};
 
 use crate::{Pixel, PremultipliedRgbaColor};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Radii {
     pub top_left: i32,
     pub top_right: i32,

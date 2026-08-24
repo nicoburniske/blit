@@ -92,7 +92,7 @@ impl ParagraphCache {
             carets,
             ..
         } = self;
-        let Ok((_, index)) = paints.get_or_insert(PaintKey::new(request, scale_factor), || {
+        let (_, index) = paints.get_or_insert(PaintKey::new(request, scale_factor), || {
             let resolved = resolve(
                 layouts.get_index(layout),
                 request,
@@ -108,9 +108,7 @@ impl ParagraphCache {
                 bounds: resolved,
                 glyphs: glyphs.as_slice().into(),
             }
-        }) else {
-            unreachable!("deferred paint cache accepts an oversized frame entry")
-        };
+        });
         index
     }
 
@@ -144,7 +142,7 @@ impl ParagraphCache {
         scale_factor: f32,
     ) -> usize {
         let layout = &mut self.layout;
-        let Ok((_, index)) = self.layouts.get_or_insert(key, || {
+        let (_, index) = self.layouts.get_or_insert(key, || {
             layout.layout_lines(
                 run,
                 LayoutSettings {
@@ -160,9 +158,7 @@ impl ParagraphCache {
                     .lines()
                     .map_or_else(Box::<[LinePosition]>::default, Into::into),
             }
-        }) else {
-            unreachable!("deferred paragraph cache accepts an oversized frame entry")
-        };
+        });
         index
     }
 }
