@@ -918,6 +918,50 @@ fn swapped_buffer_replays_damage_once() {
 }
 
 #[test]
+fn interaction_reports_active_lifecycle() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("interaction lifecycle");
+    let render = |ui: &mut Ui| {
+        let interaction = ui.interact(id, Sense::CLICK);
+        ui.layout(Flex::column()).fixed(10.0, 10.0).id(id).open();
+        interaction
+    };
+
+    harness.render(Duration::ZERO, Input::None, render);
+    let activated = harness.render(
+        Duration::ZERO,
+        Input::PointerDown {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+        },
+        render,
+    );
+    assert!(activated.active);
+    assert!(activated.activated);
+    assert!(!activated.deactivated);
+
+    let active = harness.render(Duration::ZERO, Input::None, render);
+    assert!(active.active);
+    assert!(!active.activated);
+    assert!(!active.deactivated);
+
+    let deactivated = harness.render(
+        Duration::ZERO,
+        Input::PointerUp {
+            position: LogicalPoint { x: 15.0, y: 5.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+            leave: false,
+        },
+        render,
+    );
+    assert!(!deactivated.active);
+    assert!(deactivated.deactivated);
+    assert!(!deactivated.clicked);
+}
+
+#[test]
 fn render_processes_each_input_and_commits_the_final_scene() {
     let mut harness = Harness::new(TestRenderer::default());
     let render = button;

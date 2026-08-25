@@ -79,17 +79,35 @@ impl Sense {
     };
 }
 
+/// primary-pointer ownership begins with `activated`, remains `active`, and ends with `deactivated`
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Interaction {
+    /// owns primary pointer
+    pub active: bool,
+    /// ownership began on current input
+    pub activated: bool,
+    /// ownership ended on current input
+    pub deactivated: bool,
+    /// pointer inside hit area
     pub hovered: bool,
-    pub pressed: bool,
+    /// primary pointer released inside hit area without dragging
     pub clicked: bool,
-    pub dragged: bool,
+    /// owns drag beyond movement threshold while pointer is down
+    pub dragging: bool,
+    /// pointer movement since previous input during a drag, otherwise zero
     pub drag_delta: LogicalPoint,
-    pub drag_released: bool,
-    pub scroll_delta: LogicalPoint,
-    pub scroll_continuous: bool,
-    pub scroll_phase: Option<ScrollPhase>,
+    /// scroll input routed to this hit area
+    pub scroll: Option<ScrollInteraction>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollInteraction {
+    /// distance in logical pixels
+    pub delta: LogicalPoint,
+    /// pixel-based gesture rather than a discrete wheel step
+    pub continuous: bool,
+    /// gesture phase
+    pub phase: ScrollPhase,
 }
 
 #[derive(Default)]
@@ -99,6 +117,8 @@ pub(crate) struct InteractionState {
     hovered: Option<WidgetId>,
     drag_owner: Option<WidgetId>,
     scroll_owner: Option<WidgetId>,
+    activated: Option<WidgetId>,
+    deactivated: Option<WidgetId>,
     pointer: PointerState,
     previous_hits: Vec<HitItem>,
     current_hits: Vec<HitItem>,
@@ -146,6 +166,8 @@ impl InteractionState {
         self.requests.clear();
 
         self.pointer.event = PointerEvent::None;
+        self.activated = None;
+        self.deactivated = None;
 
         match *input {
             Input::PointerDown {
@@ -173,7 +195,12 @@ impl InteractionState {
                     let y = position.y - self.pointer.origin.y;
                     if x * x + y * y >= DRAG_THRESHOLD * DRAG_THRESHOLD {
                         self.pointer.dragging = true;
+                        let previous = self.active;
                         self.active = self.drag_owner;
+                        if self.active != previous {
+                            self.deactivated = previous;
+                            self.activated = self.active;
+                        }
                     }
                 }
             }
@@ -186,6 +213,7 @@ impl InteractionState {
                 self.pointer.position = Some(position);
                 self.pointer.down = false;
                 self.pointer.event = PointerEvent::Up { leave };
+                self.deactivated = self.active;
             }
             Input::PointerUp { position, .. } => self.pointer.position = Some(position),
             Input::PointerLeave => self.pointer.position = None,
@@ -222,7 +250,12 @@ impl InteractionState {
         });
 
         if matches!(self.pointer.event, PointerEvent::Down) {
+            let previous = self.active;
             self.active = hovered.filter(|item| item.sense.click).map(|item| item.id);
+            if self.active != previous {
+                self.deactivated = previous;
+                self.activated = self.active;
+            }
             self.focused = hovered.filter(|item| item.sense.focus).map(|item| item.id);
             self.drag_owner = position.and_then(|position| {
                 self.previous_hits
@@ -243,32 +276,28 @@ impl InteractionState {
         let hovered = self.hovered == Some(id);
         Interaction {
             hovered,
-            pressed: active && self.pointer.down && !self.pointer.dragging,
+            active: active && self.pointer.down,
+            activated: self.activated == Some(id),
+            deactivated: self.deactivated == Some(id),
             clicked: active
                 && hovered
                 && matches!(self.pointer.event, PointerEvent::Up { .. })
                 && !self.pointer.dragging,
-            dragged: active && self.pointer.dragging,
+            dragging: active && self.pointer.down && self.pointer.dragging,
             drag_delta: match self.pointer.event {
                 PointerEvent::Move(delta) if active && self.pointer.dragging => delta,
                 _ => LogicalPoint::default(),
             },
-            drag_released: active
-                && self.pointer.dragging
-                && matches!(self.pointer.event, PointerEvent::Up { .. }),
-            scroll_delta: match self.pointer.event {
-                PointerEvent::Scroll { delta, .. } if self.scroll_owner == Some(id) => delta,
-                _ => LogicalPoint::default(),
-            },
-            scroll_continuous: matches!(
-                self.pointer.event,
+            scroll: match self.pointer.event {
                 PointerEvent::Scroll {
-                    continuous: true,
-                    ..
-                }
-            ),
-            scroll_phase: match self.pointer.event {
-                PointerEvent::Scroll { phase, .. } if self.scroll_owner == Some(id) => Some(phase),
+                    delta,
+                    continuous,
+                    phase,
+                } if self.scroll_owner == Some(id) => Some(ScrollInteraction {
+                    delta,
+                    continuous,
+                    phase,
+                }),
                 _ => None,
             },
         }

@@ -104,7 +104,7 @@ impl Widget for TextInput<'_> {
         let interaction = ui.interact(id, Sense::FOCUS);
         let mut response = TextInputResponse::default();
 
-        if interaction.pressed
+        if interaction.activated
             && let (Some(position), Some(area)) = (ui.pointer_position(), previous_area)
         {
             let offset = ui.text_offset_at_position(&self.request(text_run, area), position);
