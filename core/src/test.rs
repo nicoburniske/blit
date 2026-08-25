@@ -241,7 +241,6 @@ fn container_scopes_and_rectangle_leaves_resolve_layout() {
 #[test]
 fn custom_layout_is_stored_and_invoked_after_declaration() {
     #[derive(Clone, Copy)]
-    #[repr(align(64))]
     struct ReverseRow {
         gap: f32,
     }
