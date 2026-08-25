@@ -3,7 +3,7 @@
 use std::{
     alloc::{Layout as AllocationLayout, alloc, dealloc, handle_alloc_error},
     any::TypeId,
-    mem::{align_of, needs_drop, size_of},
+    mem::{align_of, size_of},
     ptr::NonNull,
     time::Duration,
 };
@@ -486,7 +486,7 @@ impl FrameGraph {
         }
     }
 
-    fn store_data<T>(&mut self, value: T) -> u32 {
+    fn store_data<T: Copy>(&mut self, value: T) -> u32 {
         self.layout_data.store(value)
     }
 
@@ -1066,11 +1066,12 @@ unsafe fn run_layout_batch<L: Layout, const PLACE: bool>(
         debug_assert!(stored.data_offset as usize + size_of::<L>() <= frame.layout_data.len());
         // safety: store_layout wrote an aligned L at this address
         let layout = unsafe {
-            &*frame
+            frame
                 .layout_data
                 .as_ptr()
                 .add(stored.data_offset as usize)
                 .cast::<L>()
+                .read()
         };
         let graph_nodes = frame.nodes.as_ptr();
         let mut cx = LayoutCx {
@@ -1181,11 +1182,10 @@ struct DataArena {
     len: usize,
     capacity: usize,
     align: usize,
-    drops: Vec<DropRecord>,
 }
 
 impl DataArena {
-    fn store<T>(&mut self, value: T) -> u32 {
+    fn store<T: Copy>(&mut self, value: T) -> u32 {
         let align = align_of::<T>();
         let offset = self
             .len
@@ -1221,19 +1221,10 @@ impl DataArena {
         }
         unsafe { self.data.as_ptr().add(offset).cast::<T>().write(value) };
         self.len = end;
-        if needs_drop::<T>() {
-            self.drops.push(DropRecord {
-                offset,
-                drop: drop_data::<T>,
-            });
-        }
         u32::try_from(offset).expect("too much layout data in one frame")
     }
 
     fn clear(&mut self) {
-        while let Some(record) = self.drops.pop() {
-            unsafe { (record.drop)(self.data.as_ptr().add(record.offset)) };
-        }
         self.len = 0;
     }
 
@@ -1246,7 +1237,7 @@ impl DataArena {
     }
 
     fn heap_bytes(&self) -> usize {
-        self.capacity + self.drops.capacity() * size_of::<DropRecord>()
+        self.capacity
     }
 }
 
@@ -1257,28 +1248,17 @@ impl Default for DataArena {
             len: 0,
             capacity: 0,
             align: 1,
-            drops: Vec::new(),
         }
     }
 }
 
 impl Drop for DataArena {
     fn drop(&mut self) {
-        self.clear();
         if self.capacity != 0 {
             let allocation = AllocationLayout::from_size_align(self.capacity, self.align).unwrap();
             unsafe { dealloc(self.data.as_ptr(), allocation) };
         }
     }
-}
-
-struct DropRecord {
-    offset: usize,
-    drop: unsafe fn(*mut u8),
-}
-
-unsafe fn drop_data<T>(data: *mut u8) {
-    unsafe { data.cast::<T>().drop_in_place() }
 }
 
 #[derive(Clone, Copy)]

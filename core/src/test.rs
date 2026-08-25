@@ -240,9 +240,10 @@ fn container_scopes_and_rectangle_leaves_resolve_layout() {
 
 #[test]
 fn custom_layout_is_stored_and_invoked_after_declaration() {
+    #[derive(Clone, Copy)]
     #[repr(align(64))]
     struct ReverseRow {
-        gaps: Vec<f32>,
+        gap: f32,
     }
 
     #[derive(Clone, Copy)]
@@ -285,7 +286,7 @@ fn custom_layout_is_stored_and_invoked_after_declaration() {
                     cursor -= cx.item(node).0 + size;
                     cx.set_z_index(node, -(index as i16));
                     cx.set_axis(node, axis, cursor, size);
-                    cursor -= self.gaps[0];
+                    cursor -= self.gap;
                 } else {
                     cx.set_axis(node, axis, origin, size);
                 }
@@ -295,10 +296,7 @@ fn custom_layout_is_stored_and_invoked_after_declaration() {
 
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
-        let mut row = ui
-            .layout(ReverseRow { gaps: vec![1.0] })
-            .fixed(10.0, 4.0)
-            .open();
+        let mut row = ui.layout(ReverseRow { gap: 1.0 }).fixed(10.0, 4.0).open();
         row.add(
             0.0,
             widget::Rectangle::new()
@@ -335,6 +333,7 @@ fn custom_layout_is_stored_and_invoked_after_declaration() {
 #[test]
 #[should_panic(expected = "layout item is missing")]
 fn unit_scope_does_not_store_layout_items() {
+    #[derive(Clone, Copy)]
     struct UnitItems;
 
     impl Layout for UnitItems {
