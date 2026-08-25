@@ -220,6 +220,43 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
             pixel.blend(PremultipliedRgbaColor::new(color, *alpha));
         }
     }
+
+    fn blend_texture_slice_rgba(
+        pixels: &mut [Self],
+        source: &[PremultipliedRgbaColor],
+        opacity: u8,
+    ) {
+        if opacity == 0 {
+            return;
+        }
+        let len = pixels.len().min(source.len());
+        let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
+        let (source_chunks, source_tail) = source[..len].as_chunks::<8>();
+        let opacity_vector = U16x8::splat(opacity as u16);
+        for (pixels, source) in pixel_chunks.iter_mut().zip(source_chunks) {
+            let mut alpha = U16x8::from_array(source.map(|pixel| pixel.alpha as u16));
+            let mut red = U16x8::from_array(source.map(|pixel| pixel.red as u16));
+            let mut green = U16x8::from_array(source.map(|pixel| pixel.green as u16));
+            let mut blue = U16x8::from_array(source.map(|pixel| pixel.blue as u16));
+            if opacity != 255 {
+                alpha = divide_by_255(alpha * opacity_vector);
+                red = divide_by_255(red * opacity_vector);
+                green = divide_by_255(green * opacity_vector);
+                blue = divide_by_255(blue * opacity_vector);
+            }
+            let destination = U32x8::from_array((*pixels).map(|pixel| pixel.0));
+            *pixels = blend::<RED, GREEN, BLUE, ALPHA>(destination, alpha, red, green, blue)
+                .to_array()
+                .map(Self);
+        }
+        for (pixel, source) in pixel_tail.iter_mut().zip(source_tail) {
+            pixel.blend(if opacity == 255 {
+                *source
+            } else {
+                source.coverage(opacity as u32)
+            });
+        }
+    }
 }
 
 fn divide_by_255(value: U16x8) -> U16x8 {
@@ -405,6 +442,23 @@ mod test {
             P::blend_slice(&mut actual, color);
             for pixel in &mut expected {
                 pixel.blend(color);
+            }
+            assert_eq!(actual, expected);
+
+            let source: [PremultipliedRgbaColor; 11] = std::array::from_fn(|index| {
+                PremultipliedRgbaColor::new(
+                    Color::from_rgba8(
+                        230 - index as u8 * 13,
+                        index as u8 * 19,
+                        40 + index as u8 * 7,
+                        220,
+                    ),
+                    20 + index as u8 * 21,
+                )
+            });
+            P::blend_texture_slice_rgba(&mut actual, &source, 173);
+            for (pixel, source) in expected.iter_mut().zip(source) {
+                pixel.blend(source.coverage(173));
             }
             assert_eq!(actual, expected);
         }
