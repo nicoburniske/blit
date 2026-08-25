@@ -24,7 +24,7 @@ use crate::{Ui, node::NodeId, widget::Widget};
 /// layout policy for a container's direct children
 ///
 /// moving a container must only translate its descendants
-pub trait Layout: Sized + 'static {
+pub trait Layout: Copy + 'static {
     /// per-child layout metadata
     ///
     /// `()` can use [`UnitScope`] to avoid per-child metadata bookkeeping
