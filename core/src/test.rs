@@ -5,14 +5,16 @@ use crate::{
     animation::{Easing, Transition},
     color::Color,
     command_list::{ClipId, Command, CommandList},
-    container::{Absolute, Align, Anchor, Justify, Sizing},
+    container::{Absolute, Anchor, Sizing},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     image,
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
     interact::{Sense, WidgetId},
+    layout::{Align, Axis, Flex, Justify, Layout, LayoutCx, RawScope, UnitScope},
     renderer::Renderer,
     style::Clip,
-    text, widget,
+    text,
+    widget::{self, Widget},
 };
 
 #[derive(Default)]
@@ -160,7 +162,7 @@ fn renderer_scale_changes_before_the_next_frame() {
 fn button(ui: &mut Ui) -> bool {
     let id = WidgetId::new("test button");
     let interaction = ui.interact(id, Sense::CLICK);
-    let mut button = ui.container().row().fixed(10.0, 10.0).id(id).open();
+    let mut button = ui.layout(Flex::row()).fixed(10.0, 10.0).id(id).open();
     button.add(widget::Text::new("button"));
     interaction.clicked
 }
@@ -170,11 +172,10 @@ fn clear_is_the_stable_frame_background() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
         ui.clear();
-        ui.add(
-            widget::Rectangle::new()
-                .fixed(2.0, 2.0)
-                .background(Color::WHITE),
-        );
+        widget::Rectangle::new()
+            .fixed(2.0, 2.0)
+            .background(Color::WHITE)
+            .render(ui);
     });
     harness.render(Duration::ZERO, Input::None, |ui| ui.clear());
 
@@ -203,7 +204,7 @@ fn clear_is_the_stable_frame_background() {
 fn container_scopes_and_rectangle_leaves_resolve_layout() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
-        let mut row = ui.container().row().fixed(10.0, 10.0).gap(2.0).open();
+        let mut row = ui.layout(Flex::row().gap(2.0)).fixed(10.0, 10.0).open();
         row.add(
             widget::Rectangle::new()
                 .width(Sizing::percent(0.25))
@@ -238,27 +239,147 @@ fn container_scopes_and_rectangle_leaves_resolve_layout() {
 }
 
 #[test]
+fn custom_layout_is_stored_and_invoked_after_declaration() {
+    #[repr(align(64))]
+    struct ReverseRow {
+        gaps: Vec<f32>,
+    }
+
+    #[derive(Clone, Copy)]
+    struct Gap(f32);
+
+    struct ReverseScope<'a>(RawScope<'a, ReverseRow>);
+
+    impl<'a> From<RawScope<'a, ReverseRow>> for ReverseScope<'a> {
+        fn from(scope: RawScope<'a, ReverseRow>) -> Self {
+            Self(scope)
+        }
+    }
+
+    impl ReverseScope<'_> {
+        fn add<W: Widget>(&mut self, gap: f32, widget: W) -> W::Output {
+            self.0.add(Gap(gap), widget)
+        }
+    }
+
+    impl Layout for ReverseRow {
+        type Item = Gap;
+        type Scope<'a> = ReverseScope<'a>;
+
+        fn measure(&self, _: &LayoutCx<'_, Self::Item>, _: Axis) -> Option<f32> {
+            None
+        }
+
+        fn place(&self, cx: &mut LayoutCx<'_, Self::Item>, axis: Axis) {
+            let rect = cx.rect();
+            let (origin, available) = match axis {
+                Axis::Horizontal => (rect.x, rect.width),
+                Axis::Vertical => (rect.y, rect.height),
+            };
+            let mut cursor = origin + available;
+            for node in cx.children() {
+                let sizing = cx.sizing(node, axis);
+                let size =
+                    sizing.resolve(cx.axis_size(node, axis), available, axis == Axis::Vertical);
+                if axis == Axis::Horizontal {
+                    cursor -= cx.item(node).0 + size;
+                    cx.set_axis(node, axis, cursor, size);
+                    cursor -= self.gaps[0];
+                } else {
+                    cx.set_axis(node, axis, origin, size);
+                }
+            }
+        }
+    }
+
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut row = ui
+            .layout(ReverseRow { gaps: vec![1.0] })
+            .fixed(10.0, 4.0)
+            .open();
+        row.add(
+            0.0,
+            widget::Rectangle::new()
+                .fixed(2.0, 4.0)
+                .background(Color::BLACK),
+        );
+        row.add(
+            2.0,
+            widget::Rectangle::new()
+                .fixed(3.0, 4.0)
+                .background(Color::WHITE),
+        );
+    });
+
+    assert_eq!(
+        harness.renderer().rectangle_areas,
+        [
+            LogicalRect {
+                x: 8.0,
+                y: 0.0,
+                width: 2.0,
+                height: 4.0,
+            },
+            LogicalRect {
+                x: 2.0,
+                y: 0.0,
+                width: 3.0,
+                height: 4.0,
+            },
+        ]
+    );
+}
+
+#[test]
+#[should_panic(expected = "layout item is missing")]
+fn unit_scope_does_not_store_layout_items() {
+    struct UnitItems;
+
+    impl Layout for UnitItems {
+        type Item = ();
+        type Scope<'a> = UnitScope<'a, Self>;
+
+        fn measure(&self, _: &LayoutCx<'_, Self::Item>, _: Axis) -> Option<f32> {
+            None
+        }
+
+        fn place(&self, cx: &mut LayoutCx<'_, Self::Item>, _: Axis) {
+            for node in cx.children() {
+                cx.item(node);
+            }
+        }
+    }
+
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut layout = ui.layout(UnitItems).fixed(2.0, 2.0).open();
+        layout.add(widget::Rectangle::new().fixed(2.0, 2.0));
+    });
+}
+
+#[test]
 fn percentage_sizing_does_not_expand_fit_parent() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
         let mut outer = ui
-            .container()
-            .row()
+            .layout(Flex::row().align(Align::Start))
             .fixed(10.0, 10.0)
-            .align(Align::Start)
             .open();
-        let mut fit = outer.container().row().height(Sizing::fixed(10.0)).open();
-        fit.add(
-            widget::Rectangle::new()
-                .width(Sizing::percent(0.5))
-                .height(Sizing::fixed(10.0))
-                .background(Color::BLACK),
-        );
-        fit.add(
-            widget::Rectangle::new()
-                .fixed(4.0, 10.0)
-                .background(Color::GRAY),
-        );
+        outer.add(|ui: &mut Ui| {
+            let mut fit = ui.layout(Flex::row()).height(Sizing::fixed(10.0)).open();
+            fit.add(
+                widget::Rectangle::new()
+                    .width(Sizing::percent(0.5))
+                    .height(Sizing::fixed(10.0))
+                    .background(Color::BLACK),
+            );
+            fit.add(
+                widget::Rectangle::new()
+                    .fixed(4.0, 10.0)
+                    .background(Color::GRAY),
+            );
+        });
     });
 
     let areas = &harness.renderer().rectangle_areas;
@@ -273,30 +394,34 @@ fn percentage_sizing_does_not_expand_fit_parent() {
 fn absolute_containers_do_not_participate_in_flow() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
-        let mut row = ui.container().row().fixed(10.0, 10.0).gap(2.0).open();
+        let mut row = ui.layout(Flex::row().gap(2.0)).fixed(10.0, 10.0).open();
         row.add(
             widget::Rectangle::new()
                 .fixed(2.0, 2.0)
                 .background(Color::BLACK),
         );
-        row.container()
-            .fixed(3.0, 2.0)
-            .background(Color::GRAY)
-            .absolute(Absolute::at(3.0, -1.0))
-            .col()
-            .open();
+        row.add(|ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(3.0, 2.0)
+                .background(Color::GRAY)
+                .absolute(Absolute::at(3.0, -1.0))
+                .open();
+        });
         row.add(
             widget::Rectangle::new()
                 .width(Sizing::grow())
                 .height(Sizing::fixed(2.0))
                 .background(Color::WHITE),
         );
-        row.container()
-            .fixed(2.0, 2.0)
-            .background(Color::GRAY)
-            .absolute(Absolute::screen(0.0, 0.0).anchors(Anchor::BottomRight, Anchor::BottomRight))
-            .col()
-            .open();
+        row.add(|ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(2.0, 2.0)
+                .background(Color::GRAY)
+                .absolute(
+                    Absolute::screen(0.0, 0.0).anchors(Anchor::BottomRight, Anchor::BottomRight),
+                )
+                .open();
+        });
     });
 
     assert_eq!(
@@ -334,29 +459,25 @@ fn absolute_containers_do_not_participate_in_flow() {
 fn absolute_z_index_orders_complete_subtrees() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
-        ui.container()
+        ui.layout(Flex::column())
             .fixed(1.0, 1.0)
             .background(Color::BLACK)
             .absolute(Absolute::at(1.0, 0.0).z_index(-1))
-            .col()
             .open();
-        ui.add(
-            widget::Rectangle::new()
-                .fixed(1.0, 1.0)
-                .background(Color::GRAY),
-        );
-        ui.container()
+        widget::Rectangle::new()
+            .fixed(1.0, 1.0)
+            .background(Color::GRAY)
+            .render(ui);
+        ui.layout(Flex::column())
             .fixed(1.0, 1.0)
             .background(Color::WHITE)
             .absolute(Absolute::at(4.0, 0.0).z_index(2))
-            .col()
             .open();
         let mut layer = ui
-            .container()
+            .layout(Flex::column())
             .fixed(1.0, 1.0)
             .background(Color::WHITE)
             .absolute(Absolute::at(3.0, 0.0).z_index(1))
-            .col()
             .open();
         layer.add(
             widget::Rectangle::new()
@@ -364,11 +485,10 @@ fn absolute_z_index_orders_complete_subtrees() {
                 .background(Color::BLACK),
         );
         drop(layer);
-        ui.add(
-            widget::Rectangle::new()
-                .fixed(1.0, 1.0)
-                .background(Color::GRAY),
-        );
+        widget::Rectangle::new()
+            .fixed(1.0, 1.0)
+            .background(Color::GRAY)
+            .render(ui);
     });
 
     assert_eq!(
@@ -389,11 +509,14 @@ fn absolute_z_index_orders_hit_testing() {
     let raised = WidgetId::new("raised hit");
     let render = |ui: &mut Ui| {
         let normal_hovered = ui.interact(normal, Sense::CLICK).hovered;
-        let normal_scope = ui.container().col().fixed(10.0, 10.0).id(normal).open();
+        let normal_scope = ui
+            .layout(Flex::column())
+            .fixed(10.0, 10.0)
+            .id(normal)
+            .open();
         drop(normal_scope);
         let raised_hovered = ui.interact(raised, Sense::CLICK).hovered;
-        ui.container()
-            .col()
+        ui.layout(Flex::column())
             .fixed(10.0, 10.0)
             .id(raised)
             .absolute(Absolute::at(0.0, 0.0).z_index(1))
@@ -418,18 +541,21 @@ fn absolute_z_index_orders_hit_testing() {
 fn absolute_container_fits_children_before_anchoring() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
-        let mut parent = ui.container().col().fixed(10.0, 10.0).open();
-        let mut absolute = parent
-            .container()
-            .background(Color::GRAY)
-            .absolute(Absolute::attach(Anchor::BottomRight, Anchor::BottomRight).offset(-1.0, -2.0))
-            .col()
-            .open();
-        absolute.add(
-            widget::Rectangle::new()
-                .fixed(3.0, 4.0)
-                .background(Color::WHITE),
-        );
+        let mut parent = ui.layout(Flex::column()).fixed(10.0, 10.0).open();
+        parent.add(|ui: &mut Ui| {
+            let mut absolute = ui
+                .layout(Flex::column())
+                .background(Color::GRAY)
+                .absolute(
+                    Absolute::attach(Anchor::BottomRight, Anchor::BottomRight).offset(-1.0, -2.0),
+                )
+                .open();
+            absolute.add(
+                widget::Rectangle::new()
+                    .fixed(3.0, 4.0)
+                    .background(Color::WHITE),
+            );
+        });
     });
 
     assert_eq!(
@@ -457,22 +583,22 @@ fn containers_resolve_nested_flex_and_justification() {
 
     harness.render(Duration::ZERO, Input::None, |ui| {
         let mut row = ui
-            .container()
-            .row()
+            .layout(
+                Flex::row()
+                    .align(Align::Stretch)
+                    .justify(Justify::SpaceBetween),
+            )
             .width(Sizing::grow())
             .height(Sizing::fixed(10.0))
-            .align(Align::Stretch)
-            .justify(Justify::SpaceBetween)
             .open();
         row.add(
             widget::Rectangle::new()
                 .width(Sizing::fixed(2.0))
                 .background(Color::BLACK),
         );
-        {
-            let mut middle = row
-                .container()
-                .col()
+        row.add(|ui: &mut Ui| {
+            let mut middle = ui
+                .layout(Flex::column())
                 .width(Sizing::grow())
                 .background(Color::GRAY)
                 .open();
@@ -481,7 +607,7 @@ fn containers_resolve_nested_flex_and_justification() {
                     .height(Sizing::fixed(4.0))
                     .background(Color::WHITE),
             );
-        }
+        });
         row.add(
             widget::Rectangle::new()
                 .width(Sizing::fixed(2.0))
@@ -526,7 +652,7 @@ fn wrapped_text_uses_its_resolved_width() {
     let id = WidgetId::new("wrapped text");
 
     harness.render(Duration::ZERO, Input::None, |ui| {
-        let mut text = ui.container().row().width(Sizing::grow()).id(id).open();
+        let mut text = ui.layout(Flex::row()).width(Sizing::grow()).id(id).open();
         text.add(
             widget::Text::new("1234")
                 .width(Sizing::grow())
@@ -541,7 +667,7 @@ fn wrapped_text_uses_its_resolved_width() {
     assert_eq!(geometry.width, 10.0);
     assert_eq!(geometry.height, 8.0);
     harness.render(Duration::ZERO, Input::None, |ui| {
-        ui.add(widget::Text::new("no wrap"));
+        widget::Text::new("no wrap").render(ui);
     });
     assert_eq!(harness.renderer().text_widths.len(), 3);
 }
@@ -552,11 +678,9 @@ fn container_clips_content_and_descendants() {
 
     harness.render(Duration::ZERO, Input::None, |ui| {
         let mut clipped = ui
-            .container()
-            .col()
+            .layout(Flex::column().overflow(true))
             .width(Sizing::grow())
             .height(Sizing::fixed(5.0))
-            .overflow(true)
             .clip(Clip::Bounds)
             .open();
         clipped.add(widget::Text::new("clipped"));
@@ -583,7 +707,7 @@ fn resolved_geometry_is_available_on_the_next_frame() {
     let mut harness = Harness::new(TestRenderer::default());
     let id = WidgetId::new("geometry");
     harness.render(Duration::ZERO, Input::None, |ui| {
-        ui.add(widget::Rectangle::new().fixed(3.0, 4.0).id(id));
+        widget::Rectangle::new().fixed(3.0, 4.0).id(id).render(ui);
     });
 
     let geometry = harness.render(Duration::ZERO, Input::None, |ui| ui.geometry(id).unwrap());
@@ -595,11 +719,10 @@ fn resolved_geometry_is_available_on_the_next_frame() {
 fn fixed_sizing_can_overflow_parent_bounds() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
-        ui.add(
-            widget::Rectangle::new()
-                .fixed(20.0, 2.0)
-                .background(Color::BLACK),
-        );
+        widget::Rectangle::new()
+            .fixed(20.0, 2.0)
+            .background(Color::BLACK)
+            .render(ui);
     });
 
     assert_eq!(harness.renderer().rectangle_areas[0].width, 20.0);
@@ -640,7 +763,7 @@ fn scroll_uses_natural_content_geometry_and_offsets_commands() {
 fn static_text_reuses_runs_and_stable_output_has_no_damage() {
     let mut harness = Harness::new(TestRenderer::default());
     let render = |ui: &mut Ui| {
-        ui.add(widget::Text::new("label"));
+        widget::Text::new("label").render(ui);
         button(ui);
     };
 
@@ -655,8 +778,7 @@ fn moved_output_damages_old_and_new_bounds() {
     let mut harness = Harness::new(TestRenderer::default());
     let render = |ui: &mut Ui, offset| {
         let mut row = ui
-            .container()
-            .row()
+            .layout(Flex::row())
             .width(Sizing::grow())
             .height(Sizing::fixed(2.0))
             .open();
@@ -778,7 +900,7 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
     let mut state = widget::TextInputState::default();
     state.text = "aé🙂".into();
     let render =
-        |ui: &mut Ui, state: &mut widget::TextInputState| ui.add(widget::TextInput::new(state));
+        |ui: &mut Ui, state: &mut widget::TextInputState| widget::TextInput::new(state).render(ui);
 
     harness.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
     harness.render(
@@ -833,8 +955,8 @@ fn focus_moves_between_text_inputs_and_clears_when_absent() {
     let mut second = widget::TextInputState::default();
     let render =
         |ui: &mut Ui, first: &mut widget::TextInputState, second: &mut widget::TextInputState| {
-            ui.add(widget::TextInput::new(first));
-            ui.add(widget::TextInput::new(second));
+            widget::TextInput::new(first).render(ui);
+            widget::TextInput::new(second).render(ui);
         };
 
     harness.render(Duration::ZERO, Input::None, |ui| {
@@ -899,20 +1021,21 @@ fn transition_animates_resolved_positions() {
         .easing(Easing::Linear)
         .position();
     let render = |ui: &mut Ui, reversed: bool| {
-        let mut row = ui.container().row().fixed(4.0, 2.0).open();
+        let mut row = ui.layout(Flex::row()).fixed(4.0, 2.0).open();
         let ids = if reversed {
             [second, first]
         } else {
             [first, second]
         };
         for id in ids {
-            let _item = row
-                .container()
-                .fixed(2.0, 2.0)
-                .background(Color::WHITE)
-                .id(id)
-                .transition(transition)
-                .open();
+            row.add(|ui: &mut Ui| {
+                ui.layout(Flex::column())
+                    .fixed(2.0, 2.0)
+                    .background(Color::WHITE)
+                    .id(id)
+                    .transition(transition)
+                    .open();
+            });
         }
     };
 
@@ -942,15 +1065,73 @@ fn transition_animates_resolved_positions() {
 }
 
 #[test]
+fn nested_position_transitions_compose() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let parent = WidgetId::new("transitioned parent");
+    let child = WidgetId::new("transitioned child");
+    let transition = Transition::new(Duration::from_millis(100))
+        .easing(Easing::Linear)
+        .position();
+    let render = |ui: &mut Ui, parent_offset: f32, child_offset: f32| {
+        let mut column = ui.layout(Flex::column()).fixed(2.0, 10.0).open();
+        column.add(widget::Rectangle::new().fixed(2.0, parent_offset));
+        column.add(|ui: &mut Ui| {
+            let mut parent = ui
+                .layout(Flex::column())
+                .fixed(2.0, 2.0)
+                .background(Color::WHITE)
+                .id(parent)
+                .transition(transition)
+                .open();
+            parent.add(widget::Rectangle::new().fixed(2.0, child_offset));
+            parent.add(
+                widget::Rectangle::new()
+                    .fixed(2.0, 1.0)
+                    .background(Color::BLACK)
+                    .id(child)
+                    .transition(transition),
+            );
+            parent.add(|ui: &mut Ui| {
+                ui.layout(Flex::column())
+                    .fixed(1.0, 1.0)
+                    .background(Color::BLACK)
+                    .absolute(Absolute::screen(0.0, 4.0))
+                    .open();
+            });
+        });
+    };
+
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0, 0.0));
+    harness.render(Duration::from_millis(10), Input::None, |ui| {
+        render(ui, 2.0, 1.0)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].y, 0.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].y, 0.0);
+
+    harness.render(Duration::from_millis(60), Input::None, |ui| {
+        render(ui, 2.0, 1.0)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].y, 1.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].y, 1.5);
+    assert_eq!(harness.renderer().rectangle_areas[2].y, 4.0);
+
+    harness.render(Duration::from_millis(110), Input::None, |ui| {
+        render(ui, 2.0, 1.0)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].y, 2.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].y, 3.0);
+}
+
+#[test]
 fn transition_without_id_is_ignored() {
     let mut harness = Harness::new(TestRenderer::default());
     let transition = Transition::new(Duration::from_millis(100)).layout();
 
     harness.render(Duration::ZERO, Input::None, |ui| {
-        let _container = ui.container().transition(transition).open();
+        let _container = ui.layout(Flex::column()).transition(transition).open();
     });
     harness.render(Duration::ZERO, Input::None, |ui| {
-        ui.add(widget::Rectangle::new().transition(transition));
+        widget::Rectangle::new().transition(transition).render(ui);
     });
 
     assert!(!harness.has_pending_redraw());
@@ -962,16 +1143,18 @@ fn transition_does_not_animate_unchanged_parent_relative_position() {
     let id = WidgetId::new("child of moving parent");
     let transition = Transition::new(Duration::from_millis(100)).position();
     let render = |ui: &mut Ui, top: f32| {
-        let mut column = ui.container().fixed(2.0, 10.0).open();
+        let mut column = ui.layout(Flex::column()).fixed(2.0, 10.0).open();
         column.add(widget::Rectangle::new().fixed(2.0, top));
-        let mut parent = column.container().fixed(2.0, 2.0).open();
-        parent.add(
-            widget::Rectangle::new()
-                .fixed(2.0, 2.0)
-                .background(Color::WHITE)
-                .id(id)
-                .transition(transition),
-        );
+        column.add(|ui: &mut Ui| {
+            let mut parent = ui.layout(Flex::column()).fixed(2.0, 2.0).open();
+            parent.add(
+                widget::Rectangle::new()
+                    .fixed(2.0, 2.0)
+                    .background(Color::WHITE)
+                    .id(id)
+                    .transition(transition),
+            );
+        });
     };
 
     harness.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
@@ -989,10 +1172,8 @@ fn transitioned_layout_uses_transitioned_dimensions() {
         .layout();
     let render = |ui: &mut Ui, width: f32| {
         let mut row = ui
-            .container()
-            .row()
+            .layout(Flex::row().justify(Justify::Center))
             .fixed(10.0, 2.0)
-            .justify(Justify::Center)
             .open();
         row.add(
             widget::Rectangle::new()

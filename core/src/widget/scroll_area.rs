@@ -1,14 +1,12 @@
-use std::{
-    ops::{Deref, DerefMut},
-    time::Duration,
-};
+use std::time::Duration;
 
 use crate::{
     Ui,
-    container::{Axis, Sizing},
+    container::Sizing,
     geometry::{LogicalInsets, LogicalPoint},
     input::ScrollPhase,
     interact::{Sense, WidgetId},
+    layout::Flex,
     node::NodeId,
     style::Clip,
 };
@@ -152,11 +150,10 @@ impl<'a> ScrollArea<'a> {
         let mut viewport_config = crate::ContainerConfig::default();
         viewport_config.item.width = self.width;
         viewport_config.item.height = self.height;
-        viewport_config.allow_overflow = true;
         viewport_config.id = Some(id);
         viewport_config.clip = Clip::Bounds;
         let interaction = ui.interact(id, sense);
-        let viewport = ui.open_container(Axis::Vertical, viewport_config);
+        let viewport = ui.open_layout(Flex::column().overflow(true), viewport_config);
         let now = ui.time();
         let elapsed = self.state.last_frame.replace(now).map_or(0.0, |previous| {
             now.saturating_sub(previous)
@@ -243,14 +240,15 @@ impl<'a> ScrollArea<'a> {
 
         let mut content_config = crate::ContainerConfig::default();
         content_config.item.width = Sizing::grow();
-        content_config.padding = self.padding;
-        content_config.gap = self.gap;
-        content_config.id = Some(content_id);
-        content_config.child_offset = LogicalPoint {
+        content_config.offset = LogicalPoint {
             x: 0.0,
             y: -self.state.offset,
         };
-        let content = ui.open_container(Axis::Vertical, content_config);
+        content_config.id = Some(content_id);
+        let content = ui.open_layout(
+            Flex::column().padding(self.padding).gap(self.gap),
+            content_config,
+        );
         ScrollScope {
             ui,
             viewport,
@@ -259,17 +257,9 @@ impl<'a> ScrollArea<'a> {
     }
 }
 
-impl Deref for ScrollScope<'_> {
-    type Target = Ui;
-
-    fn deref(&self) -> &Self::Target {
-        self.ui
-    }
-}
-
-impl DerefMut for ScrollScope<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ui
+impl ScrollScope<'_> {
+    pub fn add<W: super::Widget>(&mut self, widget: W) -> W::Output {
+        widget.render(self.ui)
     }
 }
 

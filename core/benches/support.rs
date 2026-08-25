@@ -5,10 +5,11 @@ use blit::{
     animation::Transition,
     color::Color,
     command_list::CommandList,
-    container::{Absolute, Anchor, Scope, Sizing},
+    container::{Absolute, Anchor, Sizing},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     image::{ImageData, ImageHandle, ImageId},
     interact::{Sense, WidgetId},
+    layout::{Flex, UnitScope},
     renderer::Renderer,
     text::{self, TextLayoutRequest, TextRunId, TextStyle},
     widget::Rectangle,
@@ -52,7 +53,10 @@ impl Renderer for NoopRenderer {
 }
 
 pub fn layout_frame(ui: &mut Ui) {
-    let mut column = ui.container().col().width(Sizing::grow()).gap(2.0).open();
+    let mut column = ui
+        .layout(Flex::column().gap(2.0))
+        .width(Sizing::grow())
+        .open();
     layout_rows(&mut column)
 }
 
@@ -63,10 +67,8 @@ pub fn transition_frame(ui: &mut Ui, right: bool) {
         Anchor::TopLeft
     };
     let mut column = ui
-        .container()
-        .col()
+        .layout(Flex::column().gap(2.0))
         .width(Sizing::fixed(640.0))
-        .gap(2.0)
         .id(WidgetId::new("benchmark transition"))
         .absolute(Absolute::attach(anchor, anchor))
         .transition(Transition::new(Duration::from_millis(100)).position())
@@ -74,43 +76,50 @@ pub fn transition_frame(ui: &mut Ui, right: bool) {
     layout_rows(&mut column)
 }
 
-fn layout_rows(column: &mut Scope<'_>) {
+fn layout_rows(column: &mut UnitScope<'_>) {
     for _ in 0..ROWS {
-        let mut row = column
-            .container()
-            .row()
-            .width(Sizing::grow())
-            .height(Sizing::fixed(20.0))
-            .gap(4.0)
-            .open();
-        row.add(Rectangle::new().width(Sizing::fixed(120.0)));
-        row.add(Rectangle::new().width(Sizing::grow()));
-        row.add(Rectangle::new().width(Sizing::fixed(80.0)));
+        column.add(|ui: &mut Ui| {
+            let mut row = ui
+                .layout(Flex::row().gap(4.0))
+                .width(Sizing::grow())
+                .height(Sizing::fixed(20.0))
+                .open();
+            row.add(Rectangle::new().width(Sizing::fixed(120.0)));
+            row.add(Rectangle::new().width(Sizing::grow()));
+            row.add(Rectangle::new().width(Sizing::fixed(80.0)));
+        });
     }
 }
 
 pub fn command_frame(ui: &mut Ui) {
-    let mut column = ui.container().col().width(Sizing::grow()).gap(2.0).open();
+    let mut column = ui
+        .layout(Flex::column().gap(2.0))
+        .width(Sizing::grow())
+        .open();
     for row_index in 0..ROWS {
-        let mut row = column
-            .container()
-            .row()
-            .width(Sizing::grow())
-            .height(Sizing::fixed(20.0))
-            .gap(4.0)
-            .open();
-        for (cell_index, width) in [Sizing::fixed(120.0), Sizing::grow(), Sizing::fixed(80.0)]
-            .into_iter()
-            .enumerate()
-        {
-            let id = WidgetId::new(row_index * CELLS_PER_ROW + cell_index);
-            row.interact(id, Sense::CLICK);
-            row.add(
-                Rectangle::new()
-                    .width(width)
-                    .background(Color::BLACK)
-                    .id(id),
-            );
-        }
+        column.add(|ui: &mut Ui| {
+            for cell_index in 0..CELLS_PER_ROW {
+                ui.interact(
+                    WidgetId::new(row_index * CELLS_PER_ROW + cell_index),
+                    Sense::CLICK,
+                );
+            }
+            let mut row = ui
+                .layout(Flex::row().gap(4.0))
+                .width(Sizing::grow())
+                .height(Sizing::fixed(20.0))
+                .open();
+            for (cell_index, width) in [Sizing::fixed(120.0), Sizing::grow(), Sizing::fixed(80.0)]
+                .into_iter()
+                .enumerate()
+            {
+                row.add(
+                    Rectangle::new()
+                        .width(width)
+                        .background(Color::BLACK)
+                        .id(WidgetId::new(row_index * CELLS_PER_ROW + cell_index)),
+                );
+            }
+        });
     }
 }

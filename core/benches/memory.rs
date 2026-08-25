@@ -10,6 +10,7 @@ use blit::{
     container::Sizing,
     geometry::{LogicalInsets, PhysicalRect},
     input::Input,
+    layout::Flex,
     render,
     style::Clip,
     widget::Text,
@@ -109,68 +110,61 @@ fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
 
 fn representative_frame(ui: &mut Ui) {
     let mut root = ui
-        .container()
-        .col()
+        .layout(Flex::column().padding(LogicalInsets::uniform(8.0)).gap(8.0))
         .width(Sizing::grow())
-        .padding(LogicalInsets::uniform(8.0))
-        .gap(8.0)
         .open();
-    {
-        let mut header = root
-            .container()
-            .row()
+    root.add(|ui: &mut Ui| {
+        let mut header = ui
+            .layout(Flex::row())
             .width(Sizing::grow())
             .height(Sizing::fixed(48.0))
             .background(Color::from_rgba8(30, 35, 45, 255))
             .open();
         header.add(Text::new("dashboard"));
-    }
-    {
-        let mut body = root
-            .container()
-            .row()
+    });
+    root.add(|ui: &mut Ui| {
+        let mut body = ui
+            .layout(Flex::row().gap(12.0))
             .width(Sizing::grow())
             .height(Sizing::grow())
-            .gap(12.0)
             .clip(Clip::Bounds)
             .open();
-        {
-            let mut sidebar = body
-                .container()
-                .col()
+        body.add(|ui: &mut Ui| {
+            let mut sidebar = ui
+                .layout(Flex::column().gap(6.0))
                 .width(Sizing::fixed(180.0))
                 .height(Sizing::grow())
-                .gap(6.0)
                 .open();
             for _ in 0..8 {
                 sidebar.add(Text::new("navigation"));
             }
-        }
-        {
-            let mut main = body
-                .container()
-                .col()
+        });
+        body.add(|ui: &mut Ui| {
+            let mut main = ui
+                .layout(Flex::column().gap(8.0))
                 .width(Sizing::grow())
                 .height(Sizing::grow())
-                .gap(8.0)
                 .open();
             for _ in 0..8 {
-                let mut card = main
-                    .container()
-                    .col()
-                    .width(Sizing::grow())
-                    .gap(4.0)
-                    .background(Color::from_rgba8(240, 240, 244, 255))
-                    .open();
-                card.add(Text::new("card title"));
-                for _ in 0..3 {
-                    let mut row = card.container().row().width(Sizing::grow()).gap(8.0).open();
-                    row.add(Text::new("label"));
-                    row.add(Text::new("value"));
-                }
+                main.add(|ui: &mut Ui| {
+                    let mut card = ui
+                        .layout(Flex::column().gap(4.0))
+                        .width(Sizing::grow())
+                        .background(Color::from_rgba8(240, 240, 244, 255))
+                        .open();
+                    card.add(Text::new("card title"));
+                    for _ in 0..3 {
+                        card.add(|ui: &mut Ui| {
+                            let mut row =
+                                ui.layout(Flex::row().gap(8.0)).width(Sizing::grow()).open();
+                            row.add(Text::new("label"));
+                            row.add(Text::new("value"));
+                        });
+                    }
+                });
             }
-        }
-    }
+        });
+    });
     root.add(Text::new("status"));
 }
 

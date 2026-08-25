@@ -1,18 +1,23 @@
 //! frame-local graph construction, layout resolution, and command emission
 
-use std::time::Duration;
+use std::{
+    alloc::{Layout as AllocationLayout, alloc, dealloc, handle_alloc_error},
+    any::TypeId,
+    mem::{align_of, needs_drop, size_of},
+    ptr::NonNull,
+    time::Duration,
+};
 
 use crate::{
     FrameGraphMemory,
     animation::{Transition, TransitionProperties},
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
-    container::{
-        Absolute, Align, Anchor, Axis, ContainerConfig, Item, Justify, PositionTarget, Sizing,
-    },
-    geometry::{LogicalInsets, LogicalPoint, LogicalRect, LogicalSize},
+    container::{Absolute, Anchor, ContainerConfig, Item, PositionTarget, Sizing},
+    geometry::{LogicalPoint, LogicalRect, LogicalSize},
     image::{ImageContent, ImageRequest},
     interact::{InteractionState, WidgetId},
+    layout::{Axis, Flex, Layout},
     node::{Content, NodeId},
     renderer::Renderer,
     style::{Border, BorderRadius, Clip, LinearGradient, Shadow, Style},
@@ -26,8 +31,11 @@ pub struct FrameGraph {
     open_containers: Vec<NodeId>,
     texts: Vec<TextContent>,
     images: Vec<ImageContent>,
-    flows: Vec<Flow>,
-    positioned_flows: Vec<PositionedFlow>,
+    layouts: Vec<StoredLayout>,
+    positioned_layouts: Vec<PositionedLayout>,
+    layout_nodes: Vec<NodeId>,
+    layout_data: DataArena,
+    position_offsets: Vec<LogicalPoint>,
     // absolute subtree roots. finish inserts ROOT to form paint order
     layer_roots: Vec<NodeId>,
     styles: Vec<StoredStyle>,
@@ -37,6 +45,135 @@ pub struct FrameGraph {
     gradient_stops: Vec<crate::style::GradientStop>,
 }
 
+/// access to one container and its direct children during layout
+pub struct LayoutCx<'a, I> {
+    frame: &'a mut FrameGraph,
+    nodes: *const Node,
+    node: NodeId,
+    positioned: bool,
+    item: std::marker::PhantomData<fn() -> I>,
+    offset: LogicalPoint,
+}
+
+/// iterator over a layout container's direct children
+pub struct Children<'a> {
+    nodes: *const Node,
+    next: usize,
+    end: usize,
+    marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl Iterator for Children<'_> {
+    type Item = NodeId;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next >= self.end {
+            return None;
+        }
+        let node = NodeId::new(self.next);
+        // safety: layout freezes node storage and subtree boundaries
+        self.next = unsafe { (*self.nodes.add(self.next)).subtree_end as usize };
+        Some(node)
+    }
+}
+
+impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
+    /// the container being laid out
+    #[inline]
+    pub fn node(&self) -> NodeId {
+        self.node
+    }
+
+    /// the container's current rectangle
+    #[inline]
+    pub fn rect(&self) -> LogicalRect {
+        self.frame.nodes[self.node.index()].area
+    }
+
+    /// the current size of a node
+    #[inline]
+    pub fn size(&self, node: NodeId) -> LogicalSize {
+        let area = self.frame.nodes[node.index()].area;
+        LogicalSize {
+            width: area.width,
+            height: area.height,
+        }
+    }
+
+    /// iterates over this container's direct children
+    #[inline]
+    pub fn children(&self) -> Children<'a> {
+        Children {
+            nodes: self.nodes,
+            next: self.node.index() + 1,
+            end: self.frame.nodes[self.node.index()].subtree_end as usize,
+            marker: std::marker::PhantomData,
+        }
+    }
+
+    /// whether a child participates in this container's layout
+    #[inline]
+    pub fn is_in_flow(&self, node: NodeId) -> bool {
+        !self.positioned || !self.frame.nodes[node.index()].layout.is_positioned()
+    }
+
+    /// metadata supplied by a direct child for this layout
+    ///
+    /// panics when the child was declared without metadata
+    #[inline]
+    pub fn item(&self, node: NodeId) -> I {
+        assert_eq!(
+            self.frame.nodes[node.index()].parent,
+            self.node,
+            "layout metadata is only available for direct children"
+        );
+        let offset = self.frame.nodes[node.index()]
+            .layout_item
+            .offset()
+            .expect("layout item is missing. unit scope does not store metadata");
+        debug_assert!(offset + size_of::<I>() <= self.frame.layout_data.len());
+        // safety: the parent scope stored an aligned I for this direct child
+        unsafe {
+            self.frame
+                .layout_data
+                .as_ptr()
+                .add(offset)
+                .cast::<I>()
+                .read()
+        }
+    }
+
+    /// the sizing requested by a child on an axis
+    #[inline]
+    pub fn sizing(&self, node: NodeId, axis: Axis) -> crate::container::Sizing {
+        self.frame.nodes[node.index()].sizing(axis)
+    }
+
+    /// the current size of a child on an axis
+    #[inline]
+    pub fn axis_size(&self, node: NodeId, axis: Axis) -> f32 {
+        self.frame.nodes[node.index()].size(axis)
+    }
+
+    /// sets a child's size on an axis without changing its position
+    #[inline]
+    pub fn set_size(&mut self, node: NodeId, axis: Axis, size: f32) {
+        self.frame.nodes[node.index()].set_size(axis, size)
+    }
+
+    /// sets a child's position and size on an axis
+    #[inline]
+    pub fn set_axis(&mut self, node: NodeId, axis: Axis, position: f32, size: f32) {
+        let position = position
+            + match axis {
+                Axis::Horizontal => self.offset.x,
+                Axis::Vertical => self.offset.y,
+            };
+        self.frame.nodes[node.index()].set_axis(axis, position, size)
+    }
+}
+
 impl FrameGraph {
     pub fn begin(&mut self, screen: LogicalRect) {
         self.clear = false;
@@ -44,30 +181,29 @@ impl FrameGraph {
         self.open_containers.clear();
         self.texts.clear();
         self.images.clear();
-        self.flows.clear();
-        self.positioned_flows.clear();
+        self.layouts.clear();
+        self.positioned_layouts.clear();
+        self.layout_nodes.clear();
+        self.layout_data.clear();
         self.layer_roots.clear();
         self.styles.clear();
         self.shadows.clear();
         self.clip_specs.clear();
         self.geometry.clear();
         self.gradient_stops.clear();
-        self.flows.push(Flow {
-            axis: Axis::Vertical,
-            padding: LogicalInsets::uniform(0.0),
-            gap: 0.0,
-            align: Align::Stretch,
-            justify: Justify::Start,
-            allow_overflow: false,
-            child_offset: LogicalPoint::default(),
-        });
+        let root = self.store_layout(Flex::column(), LogicalPoint::default());
+        self.layouts.push(root);
+        self.layout_nodes.push(NodeId::ROOT);
+        let root_layout = LayoutId::normal(0);
         self.nodes.push(Node {
+            parent: NodeId::ROOT,
             subtree_end: 1,
             item: Item {
                 width: Sizing::fixed(screen.width),
                 height: Sizing::fixed(screen.height),
             },
-            flow: FlowId::normal(0),
+            layout: root_layout,
+            layout_item: LayoutItemId::NONE,
             content: ContentId::NONE,
             style: StyleId::NONE,
             clip_spec: ClipSpecId::NONE,
@@ -96,38 +232,36 @@ impl FrameGraph {
         );
         self.nodes[0].subtree_end =
             u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
-        let positioned = !self.positioned_flows.is_empty();
+        let positioned = !self.positioned_layouts.is_empty();
         if positioned {
-            self.layout::<true, false>(renderer);
+            self.layout::<true>(renderer);
         } else {
-            self.layout::<false, false>(renderer);
+            self.layout::<false>(renderer);
         }
-        if transition_states.iter().any(|state| state.seen) {
-            self.update_transitions(transition_states, time);
-            if transition_states
-                .iter()
-                .any(|state| state.seen && state.active.contains(TransitionProperties::SIZE))
-            {
-                self.prepare_transitioned_dimensions(transition_states);
-                if positioned {
-                    self.layout::<true, false>(renderer);
-                } else {
-                    self.layout::<false, false>(renderer);
-                }
+        let mut active_transitions = TransitionProperties::NONE;
+        let mut has_position_transition = false;
+        for state in transition_states.iter_mut().filter(|state| state.seen) {
+            has_position_transition |= state
+                .config
+                .properties
+                .contains(TransitionProperties::POSITION);
+            state.advance(self.transition_area(state.node, state.parent), time);
+            active_transitions = active_transitions.union(state.active);
+        }
+        if has_position_transition {
+            self.position_offsets
+                .resize(self.nodes.len(), LogicalPoint::default());
+        }
+        if active_transitions.contains(TransitionProperties::SIZE) {
+            self.prepare_transitioned_dimensions(transition_states);
+            if positioned {
+                self.layout::<true>(renderer);
+            } else {
+                self.layout::<false>(renderer);
             }
-            if transition_states
-                .iter()
-                .any(|state| state.seen && state.active.contains(TransitionProperties::POSITION))
-            {
-                self.prepare_transitioned_positions(transition_states);
-                if positioned {
-                    self.resolve_axis::<true, true>(Axis::Horizontal);
-                    self.resolve_axis::<true, true>(Axis::Vertical);
-                } else {
-                    self.resolve_axis::<false, true>(Axis::Horizontal);
-                    self.resolve_axis::<false, true>(Axis::Vertical);
-                }
-            }
+        }
+        if active_transitions.contains(TransitionProperties::POSITION) {
+            self.apply_transitioned_positions(transition_states);
         }
         if positioned {
             self.order_layer_roots();
@@ -141,36 +275,30 @@ impl FrameGraph {
         for record in &self.geometry {
             geometry.register(record.id, self.nodes[record.node.index()].area);
         }
+        self.layout_data.clear();
     }
 
     pub fn clear(&mut self) {
         self.clear = true;
     }
 
-    pub fn add_container(
+    pub fn add_container<L: Layout>(
         &mut self,
-        axis: Axis,
+        layout: L,
         container: ContainerConfig<'_>,
-        position: Option<Absolute>,
     ) -> NodeId {
+        let layout = self.store_layout(layout, container.offset);
         let node = self.append(
             container.item,
-            Some(Flow {
-                axis,
-                padding: container.padding,
-                gap: container.gap,
-                align: container.align,
-                justify: container.justify,
-                allow_overflow: container.allow_overflow,
-                child_offset: container.child_offset,
-            }),
-            position,
+            Some(layout),
+            container.absolute,
             container.style,
             ContentId::NONE,
             container.clip,
             container.id,
         );
         self.open_containers.push(node);
+        self.layout_nodes.push(node);
         node
     }
 
@@ -212,12 +340,42 @@ impl FrameGraph {
         let stored = &mut self.nodes[node.index()];
         stored.subtree_end = end;
         if end as usize == node.index() + 1
-            && !stored.flow.is_positioned()
-            && stored.flow.index() == self.flows.len().checked_sub(1)
+            && !stored.layout.is_positioned()
+            && stored.layout.index() == self.layouts.len().checked_sub(1)
         {
-            self.flows.pop();
-            stored.flow = FlowId::NONE;
+            self.layouts.pop();
+            let _last = self.layout_nodes.pop();
+            debug_assert_eq!(_last, Some(node));
+            stored.layout = LayoutId::NONE;
         }
+    }
+
+    pub fn begin_layout_item(&self) -> NodeId {
+        NodeId::new(self.nodes.len())
+    }
+
+    pub fn finish_layout_item<L: Layout>(&mut self, parent: NodeId, child: NodeId, item: L::Item) {
+        assert_eq!(
+            self.open_containers.last(),
+            Some(&parent),
+            "layout item child scopes must be closed before returning"
+        );
+        assert!(
+            child.index() < self.nodes.len()
+                && self.nodes[child.index()].parent == parent
+                && self.nodes[child.index()].subtree_end as usize == self.nodes.len(),
+            "a layout item must declare exactly one child subtree"
+        );
+        let layout = self
+            .stored_layout(parent)
+            .expect("layout item parent must have a layout");
+        assert_eq!(
+            (layout.vtable.layout_type)(),
+            TypeId::of::<L>(),
+            "layout item type does not match its parent layout"
+        );
+        let offset = self.store_data(item);
+        self.nodes[child.index()].layout_item = LayoutItemId::new(offset);
     }
 
     pub fn memory(&self) -> FrameGraphMemory {
@@ -228,8 +386,11 @@ impl FrameGraph {
                 + self.open_containers.capacity() * size_of::<NodeId>()
                 + self.texts.capacity() * size_of::<TextContent>()
                 + self.images.capacity() * size_of::<ImageContent>()
-                + self.flows.capacity() * size_of::<Flow>()
-                + self.positioned_flows.capacity() * size_of::<PositionedFlow>()
+                + self.layouts.capacity() * size_of::<StoredLayout>()
+                + self.positioned_layouts.capacity() * size_of::<PositionedLayout>()
+                + self.layout_nodes.capacity() * size_of::<NodeId>()
+                + self.layout_data.heap_bytes()
+                + self.position_offsets.capacity() * size_of::<LogicalPoint>()
                 + self.layer_roots.capacity() * size_of::<NodeId>()
                 + self.styles.capacity() * size_of::<StoredStyle>()
                 + self.shadows.capacity() * size_of::<Shadow>()
@@ -243,32 +404,33 @@ impl FrameGraph {
     fn append(
         &mut self,
         item: Item,
-        flow: Option<Flow>,
+        layout: Option<StoredLayout>,
         position: Option<Absolute>,
         style: Style<'_>,
         content: ContentId,
         clip: Clip,
         id: Option<WidgetId>,
     ) -> NodeId {
-        self.open_containers
+        let parent = *self
+            .open_containers
             .last()
             .expect("node declaration requires a root");
         let node = NodeId::new(self.nodes.len());
         let style = self.store_style(style);
-        let flow = match (flow, position) {
-            (Some(flow), Some(absolute)) => {
-                let id = FlowId::positioned(self.positioned_flows.len());
-                self.positioned_flows
-                    .push(PositionedFlow { flow, absolute });
+        let layout = match (layout, position) {
+            (Some(layout), Some(absolute)) => {
+                let id = LayoutId::positioned(self.positioned_layouts.len());
+                self.positioned_layouts
+                    .push(PositionedLayout { layout, absolute });
                 self.layer_roots.push(node);
                 id
             }
-            (Some(flow), None) => {
-                let id = FlowId::normal(self.flows.len());
-                self.flows.push(flow);
+            (Some(layout), None) => {
+                let id = LayoutId::normal(self.layouts.len());
+                self.layouts.push(layout);
                 id
             }
-            (None, None) => FlowId::NONE,
+            (None, None) => LayoutId::NONE,
             (None, Some(_)) => unreachable!("only containers can be positioned"),
         };
         let clip_spec = if clip == Clip::None {
@@ -279,9 +441,11 @@ impl FrameGraph {
             id
         };
         self.nodes.push(Node {
+            parent,
             subtree_end: u32::try_from(self.nodes.len() + 1).expect("too many nodes in one frame"),
             item,
-            flow,
+            layout,
+            layout_item: LayoutItemId::NONE,
             style,
             content,
             clip_spec,
@@ -293,6 +457,19 @@ impl FrameGraph {
             self.geometry.push(GeometryRecord { node, id });
         }
         node
+    }
+
+    fn store_layout<L: Layout>(&mut self, layout: L, offset: LogicalPoint) -> StoredLayout {
+        let data_offset = self.store_data(layout);
+        StoredLayout {
+            data_offset,
+            vtable: &LayoutVtableFor::<L>::VALUE,
+            offset,
+        }
+    }
+
+    fn store_data<T>(&mut self, value: T) -> u32 {
+        self.layout_data.store(value)
     }
 
     fn store_content(&mut self, content: Content<'_>) -> ContentId {
@@ -357,9 +534,9 @@ impl FrameGraph {
 
     fn order_layer_roots(&mut self) {
         let nodes = &self.nodes;
-        let positioned = &self.positioned_flows;
+        let positioned = &self.positioned_layouts;
         let z_index = |root: &NodeId| {
-            positioned[nodes[root.index()].flow.index().unwrap()]
+            positioned[nodes[root.index()].layout.index().unwrap()]
                 .absolute
                 .z_index
         };
@@ -385,27 +562,12 @@ impl FrameGraph {
         });
     }
 
-    fn layout<const POSITIONED: bool, const TRANSITIONED: bool>(
-        &mut self,
-        renderer: &mut dyn Renderer,
-    ) {
+    fn layout<const POSITIONED: bool>(&mut self, renderer: &mut dyn Renderer) {
         self.measure_intrinsic::<POSITIONED>(renderer);
-        self.resolve_axis::<POSITIONED, TRANSITIONED>(Axis::Horizontal);
+        self.run_layouts::<true, POSITIONED>(Axis::Horizontal);
         self.measure_wrapped_text(renderer);
-        for index in (1..self.nodes.len()).rev() {
-            self.measure_container::<POSITIONED>(NodeId::new(index), Axis::Vertical);
-        }
-        self.resolve_axis::<POSITIONED, TRANSITIONED>(Axis::Vertical);
-    }
-
-    fn flow<const POSITIONED: bool>(&self, node: NodeId) -> Flow {
-        let flow = self.nodes[node.index()].flow;
-        let index = flow.index().expect("layout parent has no flow");
-        if POSITIONED && flow.is_positioned() {
-            self.positioned_flows[index].flow
-        } else {
-            self.flows[index]
-        }
+        self.run_layouts::<false, POSITIONED>(Axis::Vertical);
+        self.run_layouts::<true, POSITIONED>(Axis::Vertical);
     }
 
     fn measure_intrinsic<const POSITIONED: bool>(&mut self, renderer: &mut dyn Renderer) {
@@ -427,9 +589,7 @@ impl FrameGraph {
             node.area.width = size.width;
             node.area.height = size.height;
         }
-        for index in (1..self.nodes.len()).rev() {
-            self.measure_container::<POSITIONED>(NodeId::new(index), Axis::Horizontal);
-        }
+        self.run_layouts::<false, POSITIONED>(Axis::Horizontal);
     }
 
     fn measure_wrapped_text(&mut self, renderer: &mut dyn Renderer) {
@@ -453,234 +613,78 @@ impl FrameGraph {
         }
     }
 
-    fn measure_container<const POSITIONED: bool>(&mut self, id: NodeId, axis: Axis) {
-        let mut child = id.index() + 1;
-        let end = self.nodes[id.index()].subtree_end as usize;
-        if child == end {
-            return;
-        }
-        let layout = self.flow::<POSITIONED>(id);
-        let along_flow = layout.axis == axis;
-        let mut measured: f32 = 0.0;
-        let mut count = 0usize;
-        while child < end {
-            let node = &self.nodes[child];
-            if !POSITIONED || !node.flow.is_positioned() {
-                let size = node
-                    .sizing(axis)
-                    .resolve(node.size(axis), f32::INFINITY, !along_flow);
-                measured = if along_flow {
-                    measured + size
-                } else {
-                    measured.max(size)
-                };
-                count += 1;
-            }
-            child = node.subtree_end as usize;
-        }
-        if count == 0 {
-            return;
-        }
-        if along_flow {
-            measured += layout.gap.max(0.0) * count.saturating_sub(1) as f32;
-        }
-        measured += match axis {
-            Axis::Horizontal => layout.padding.left + layout.padding.right,
-            Axis::Vertical => layout.padding.top + layout.padding.bottom,
-        };
-        self.nodes[id.index()].set_size(axis, measured)
+    fn stored_layout(&self, node: NodeId) -> Option<StoredLayout> {
+        let layout = self.nodes[node.index()].layout;
+        let index = layout.index()?;
+        Some(if layout.is_positioned() {
+            self.positioned_layouts[index].layout
+        } else {
+            self.layouts[index]
+        })
     }
 
-    fn resolve_axis<const POSITIONED: bool, const TRANSITIONED: bool>(&mut self, axis: Axis) {
-        for index in 0..self.nodes.len() {
-            if self.nodes[index].flow.index().is_some() {
-                self.resolve_children::<POSITIONED, TRANSITIONED>(NodeId::new(index), axis);
-            }
-        }
-    }
-
-    fn resolve_children<const POSITIONED: bool, const TRANSITIONED: bool>(
-        &mut self,
-        parent: NodeId,
-        axis: Axis,
-    ) {
-        let layout = self.flow::<POSITIONED>(parent);
-        let parent = parent.index();
-        let mut child = parent + 1;
-        let end = self.nodes[parent].subtree_end as usize;
-        let parent_area = self.nodes[parent].area;
-        let (origin, available, flow, leading, trailing) = match axis {
-            Axis::Horizontal => (
-                parent_area.x + layout.child_offset.x,
-                parent_area.width,
-                layout.axis == Axis::Horizontal,
-                layout.padding.left,
-                layout.padding.right,
-            ),
-            Axis::Vertical => (
-                parent_area.y + layout.child_offset.y,
-                parent_area.height,
-                layout.axis == Axis::Vertical,
-                layout.padding.top,
-                layout.padding.bottom,
-            ),
-        };
-        let available = (available - leading - trailing).max(0.0);
-
-        if !flow {
-            while child < end {
-                let node = &mut self.nodes[child];
-                if !POSITIONED || !node.flow.is_positioned() {
-                    let sizing = node.sizing(axis);
-                    let mut size = sizing.resolve(node.size(axis), available, true);
-                    if layout.align == Align::Stretch && matches!(sizing, Sizing::Fit { .. }) {
-                        size = sizing.clamp(available);
-                    }
-                    let offset = match layout.align {
-                        Align::Start | Align::Stretch => 0.0,
-                        Align::Center => (available - size).max(0.0) / 2.0,
-                        Align::End => (available - size).max(0.0),
-                    };
-                    node.set_axis::<TRANSITIONED>(axis, origin + leading + offset, size);
-                }
-                child = node.subtree_end as usize;
-            }
-            if POSITIONED {
-                self.resolve_absolute_children::<TRANSITIONED>(parent, axis);
-            }
-            return;
-        }
-
-        let mut count = 0usize;
-        let mut grow = 0usize;
-        let mut has_percentage = false;
-        let mut used = 0.0;
-        while child < end {
-            let node = &mut self.nodes[child];
-            if !POSITIONED || !node.flow.is_positioned() {
-                let sizing = node.sizing(axis);
-                let percentage = matches!(sizing, Sizing::Percent(_));
-                has_percentage |= percentage;
-                let size = sizing.resolve(
-                    node.size(axis),
-                    if layout.allow_overflow || percentage {
-                        f32::INFINITY
-                    } else {
-                        available
-                    },
-                    false,
-                );
-                node.set_size(axis, size);
-                used += size;
-                count += 1;
-                grow += usize::from(matches!(sizing, Sizing::Grow { .. }));
-            }
-            child = node.subtree_end as usize;
-        }
-        let gaps = layout.gap.max(0.0) * count.saturating_sub(1) as f32;
-        if has_percentage {
-            let percentage_available = (available - gaps).max(0.0);
-            child = parent + 1;
-            while child < end {
-                let node = &mut self.nodes[child];
-                if (!POSITIONED || !node.flow.is_positioned())
-                    && let Sizing::Percent(fraction) = node.sizing(axis)
+    fn run_layouts<const PLACE: bool, const POSITIONED: bool>(&mut self, axis: Axis) {
+        if PLACE {
+            let mut start = 0;
+            while start < self.layout_nodes.len() {
+                let vtable = self.stored_layout(self.layout_nodes[start]).unwrap().vtable;
+                let mut end = start + 1;
+                while end < self.layout_nodes.len()
+                    && std::ptr::eq(
+                        self.stored_layout(self.layout_nodes[end]).unwrap().vtable,
+                        vtable,
+                    )
                 {
-                    let size = Sizing::percentage(fraction, percentage_available);
-                    node.set_size(axis, size);
-                    used += size;
+                    end += 1;
                 }
-                child = node.subtree_end as usize;
+                let nodes = unsafe { self.layout_nodes.as_ptr().add(start) };
+                // safety: layout storage and node order are frozen during layout
+                unsafe { (vtable.place)(nodes, end - start, self, axis, POSITIONED) };
+                start = end;
             }
-        }
-        let free = available - used - gaps;
-        if free < 0.0 && !layout.allow_overflow {
-            let mut capacity = 0.0;
-            child = parent + 1;
-            while child < end {
-                let node = &self.nodes[child];
-                if !POSITIONED || !node.flow.is_positioned() {
-                    capacity += node.size(axis) - node.sizing(axis).minimum(node.size(axis));
-                }
-                child = node.subtree_end as usize;
-            }
-            if capacity > 0.0 {
-                let deficit = (-free).min(capacity);
-                child = parent + 1;
-                while child < end {
-                    let node = &mut self.nodes[child];
-                    if !POSITIONED || !node.flow.is_positioned() {
-                        let size = node.size(axis);
-                        let available_shrink = size - node.sizing(axis).minimum(size);
-                        let shrunk = size - deficit * available_shrink / capacity;
-                        node.set_size(axis, shrunk);
-                        used += shrunk - size;
-                    }
-                    child = node.subtree_end as usize;
-                }
-            }
-        }
-        let free = free.max(0.0);
-        if grow != 0 {
-            let share = free / grow as f32;
-            child = parent + 1;
-            while child < end {
-                let node = &mut self.nodes[child];
-                if (!POSITIONED || !node.flow.is_positioned())
-                    && let Sizing::Grow { .. } = node.sizing(axis)
-                {
-                    let size = node.size(axis);
-                    let grown = node.sizing(axis).clamp(size + share);
-                    node.set_size(axis, grown);
-                    used += grown - size;
-                }
-                child = node.subtree_end as usize;
-            }
+            return;
         }
 
-        let remaining = (available - used - gaps).max(0.0);
-        let (offset, extra_gap) = match layout.justify {
-            Justify::Start => (0.0, 0.0),
-            Justify::Center => (remaining / 2.0, 0.0),
-            Justify::End => (remaining, 0.0),
-            Justify::SpaceBetween if count > 1 => (0.0, remaining / (count - 1) as f32),
-            Justify::SpaceAround if count != 0 => {
-                let space = remaining / count as f32;
-                (space / 2.0, space)
+        let mut end = self.layout_nodes.len();
+        while end > 1 {
+            let vtable = self
+                .stored_layout(self.layout_nodes[end - 1])
+                .unwrap()
+                .vtable;
+            let mut start = end - 1;
+            while start > 1
+                && std::ptr::eq(
+                    self.stored_layout(self.layout_nodes[start - 1])
+                        .unwrap()
+                        .vtable,
+                    vtable,
+                )
+            {
+                start -= 1;
             }
-            Justify::SpaceEvenly if count != 0 => {
-                let space = remaining / (count + 1) as f32;
-                (space, space)
-            }
-            _ => (0.0, 0.0),
-        };
-        let mut cursor = origin + leading + offset;
-        child = parent + 1;
-        while child < end {
-            let node = &mut self.nodes[child];
-            if !POSITIONED || !node.flow.is_positioned() {
-                let size = node.size(axis);
-                node.set_axis::<TRANSITIONED>(axis, cursor, size);
-                cursor += size + layout.gap.max(0.0) + extra_gap;
-            }
-            child = node.subtree_end as usize;
-        }
-        if POSITIONED {
-            self.resolve_absolute_children::<TRANSITIONED>(parent, axis);
+            let nodes = unsafe { self.layout_nodes.as_ptr().add(start) };
+            // safety: layout storage and node order are frozen during layout
+            unsafe { (vtable.measure)(nodes, end - start, self, axis, POSITIONED) };
+            end = start;
         }
     }
 
-    fn resolve_absolute_children<const TRANSITIONED: bool>(&mut self, parent: usize, axis: Axis) {
+    fn layout_offset(&self, node: NodeId) -> LogicalPoint {
+        self.stored_layout(node)
+            .map_or(LogicalPoint::default(), |layout| layout.offset)
+    }
+
+    fn resolve_absolute_children(&mut self, parent: usize, axis: Axis) {
         let mut child = parent + 1;
         let end = self.nodes[parent].subtree_end as usize;
         while child < end {
             let node = &self.nodes[child];
             let next = node.subtree_end as usize;
-            if !node.flow.is_positioned() {
+            if !node.layout.is_positioned() {
                 child = next;
                 continue;
             }
-            let position = self.positioned_flows[node.flow.index().unwrap()].absolute;
+            let position = self.positioned_layouts[node.layout.index().unwrap()].absolute;
             let target = match position.target {
                 PositionTarget::Parent => self.nodes[parent].area,
                 PositionTarget::Screen => self.nodes[0].area,
@@ -694,21 +698,15 @@ impl FrameGraph {
             let position = origin + available * position.target_anchor.factor(axis)
                 - size * position.child_anchor.factor(axis)
                 + offset;
-            node.set_axis::<TRANSITIONED>(axis, position, size);
+            node.set_axis(axis, position, size);
             child = next;
-        }
-    }
-
-    fn update_transitions(&self, states: &mut [TransitionState], time: Duration) {
-        for state in states.iter_mut().filter(|state| state.seen) {
-            state.advance(self.transition_area(state.node, state.parent), time);
         }
     }
 
     fn transition_area(&self, node: NodeId, mut parent: NodeId) -> LogicalRect {
         let node = node.index();
-        if self.nodes[node].flow.is_positioned()
-            && self.positioned_flows[self.nodes[node].flow.index().unwrap()]
+        if self.nodes[node].layout.is_positioned()
+            && self.positioned_layouts[self.nodes[node].layout.index().unwrap()]
                 .absolute
                 .target
                 == PositionTarget::Screen
@@ -717,19 +715,10 @@ impl FrameGraph {
         }
         let mut area = self.nodes[node].area;
         let parent_node = &self.nodes[parent.index()];
-        let parent_offset = if self.nodes[node].flow.is_positioned() {
+        let parent_offset = if self.nodes[node].layout.is_positioned() {
             LogicalPoint::default()
         } else {
-            parent_node
-                .flow
-                .index()
-                .map_or(LogicalPoint::default(), |flow| {
-                    if parent_node.flow.is_positioned() {
-                        self.positioned_flows[flow].flow.child_offset
-                    } else {
-                        self.flows[flow].child_offset
-                    }
-                })
+            self.layout_offset(parent)
         };
         // positions transition within the parent and ignore scrolling
         area.x -= parent_node.area.x + parent_offset.x;
@@ -749,31 +738,54 @@ impl FrameGraph {
         }
     }
 
-    fn prepare_transitioned_positions(&mut self, states: &mut [TransitionState]) {
-        states.sort_unstable_by_key(|state| std::cmp::Reverse(state.node.index()));
-        for state in states.iter().filter(|state| state.seen) {
-            let area = self.transition_area(state.node, state.parent);
-            let node = &mut self.nodes[state.node.index()];
-            node.area.x = if state.active.contains(TransitionProperties::X) {
-                state.current.x - area.x
-            } else {
-                0.0
-            };
-            node.area.y = if state.active.contains(TransitionProperties::Y) {
-                state.current.y - area.y
-            } else {
-                0.0
-            };
-        }
+    fn apply_transitioned_positions(&mut self, states: &mut [TransitionState]) {
+        states.sort_unstable_by_key(|state| state.node.index());
+        self.position_offsets[0] = LogicalPoint::default();
         let mut states = states.iter().filter(|state| state.seen).peekable();
-        for index in (1..self.nodes.len()).rev() {
-            if states
-                .next_if(|state| state.node.index() == index)
-                .is_none()
-            {
-                self.nodes[index].area.x = 0.0;
-                self.nodes[index].area.y = 0.0;
+        for index in 1..self.nodes.len() {
+            let layout = self.nodes[index].layout;
+            let screen_targeted = layout.is_positioned()
+                && self.positioned_layouts[layout.index().unwrap()]
+                    .absolute
+                    .target
+                    == PositionTarget::Screen;
+            let inherited = if screen_targeted {
+                LogicalPoint::default()
+            } else {
+                self.position_offsets[self.nodes[index].parent.index()]
+            };
+            let mut local = LogicalPoint::default();
+            if let Some(state) = states.next_if(|state| state.node.index() == index) {
+                let parent = if screen_targeted {
+                    NodeId::ROOT
+                } else {
+                    state.parent
+                };
+                let parent_offset = if layout.is_positioned() {
+                    LogicalPoint::default()
+                } else {
+                    self.layout_offset(parent)
+                };
+                let parent_area = self.nodes[parent.index()].area;
+                let parent_delta = self.position_offsets[parent.index()];
+                if state.active.contains(TransitionProperties::X) {
+                    let target = self.nodes[index].area.x
+                        - (parent_area.x - parent_delta.x + parent_offset.x);
+                    local.x = state.current.x - target;
+                }
+                if state.active.contains(TransitionProperties::Y) {
+                    let target = self.nodes[index].area.y
+                        - (parent_area.y - parent_delta.y + parent_offset.y);
+                    local.y = state.current.y - target;
+                }
             }
+            let offset = LogicalPoint {
+                x: inherited.x + local.x,
+                y: inherited.y + local.y,
+            };
+            self.position_offsets[index] = offset;
+            self.nodes[index].area.x += offset.x;
+            self.nodes[index].area.y += offset.y;
         }
     }
 
@@ -840,7 +852,7 @@ impl FrameGraph {
         };
         while index < end {
             let node = &self.nodes[index];
-            if index != root && node.flow.is_positioned() {
+            if index != root && node.layout.is_positioned() {
                 index = node.subtree_end as usize;
                 continue;
             }
@@ -1006,6 +1018,48 @@ impl FrameGraph {
     }
 }
 
+unsafe fn run_layout_batch<L: Layout, const PLACE: bool>(
+    nodes: *const NodeId,
+    len: usize,
+    frame: &mut FrameGraph,
+    axis: Axis,
+    positioned: bool,
+) {
+    for index in 0..len {
+        let index = if PLACE { index } else { len - index - 1 };
+        // safety: the scheduler passes a frozen slice of layout node IDs
+        let node = unsafe { nodes.add(index).read() };
+        let stored = frame.stored_layout(node).unwrap();
+        debug_assert!(std::ptr::eq(stored.vtable, &LayoutVtableFor::<L>::VALUE));
+        debug_assert!(stored.data_offset as usize + size_of::<L>() <= frame.layout_data.len());
+        // safety: store_layout wrote an aligned L at this address
+        let layout = unsafe {
+            &*frame
+                .layout_data
+                .as_ptr()
+                .add(stored.data_offset as usize)
+                .cast::<L>()
+        };
+        let graph_nodes = frame.nodes.as_ptr();
+        let mut cx = LayoutCx {
+            frame,
+            nodes: graph_nodes,
+            node,
+            positioned,
+            item: std::marker::PhantomData,
+            offset: stored.offset,
+        };
+        if PLACE {
+            layout.place(&mut cx, axis);
+            if positioned {
+                cx.frame.resolve_absolute_children(node.index(), axis);
+            }
+        } else if let Some(size) = layout.measure(&cx, axis) {
+            cx.frame.nodes[node.index()].set_size(axis, size);
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct GeometryState {
     previous: Vec<(WidgetId, LogicalRect)>,
@@ -1030,9 +1084,11 @@ impl GeometryState {
 }
 
 struct Node {
+    parent: NodeId,
     subtree_end: u32,
     item: Item,
-    flow: FlowId,
+    layout: LayoutId,
+    layout_item: LayoutItemId,
     content: ContentId,
     style: StyleId,
     clip_spec: ClipSpecId,
@@ -1074,33 +1130,153 @@ impl Node {
         }
     }
 
-    fn set_axis<const TRANSITIONED: bool>(&mut self, axis: Axis, position: f32, size: f32) {
+    fn set_axis(&mut self, axis: Axis, position: f32, size: f32) {
         match axis {
             Axis::Horizontal => {
-                self.area.x = position + if TRANSITIONED { self.area.x } else { 0.0 };
+                self.area.x = position;
                 self.area.width = size;
             }
             Axis::Vertical => {
-                self.area.y = position + if TRANSITIONED { self.area.y } else { 0.0 };
+                self.area.y = position;
                 self.area.height = size;
             }
         }
     }
 }
 
-#[derive(Clone, Copy)]
-struct Flow {
-    axis: Axis,
-    padding: LogicalInsets,
-    gap: f32,
-    align: Align,
-    justify: Justify,
-    allow_overflow: bool,
-    child_offset: LogicalPoint,
+struct DataArena {
+    data: NonNull<u8>,
+    len: usize,
+    capacity: usize,
+    align: usize,
+    drops: Vec<DropRecord>,
 }
 
-struct PositionedFlow {
-    flow: Flow,
+impl DataArena {
+    fn store<T>(&mut self, value: T) -> u32 {
+        let align = align_of::<T>();
+        let offset = self
+            .len
+            .checked_add(align - 1)
+            .expect("too much layout data in one frame")
+            & !(align - 1);
+        let end = offset
+            .checked_add(size_of::<T>())
+            .expect("too much layout data in one frame");
+        if end > self.capacity || align > self.align {
+            let capacity = end
+                .max(self.capacity.saturating_mul(2))
+                .max(64)
+                .checked_next_power_of_two()
+                .expect("too much layout data in one frame");
+            let allocation_align = self.align.max(align);
+            let allocation = AllocationLayout::from_size_align(capacity, allocation_align).unwrap();
+            let data = NonNull::new(unsafe { alloc(allocation) })
+                .unwrap_or_else(|| handle_alloc_error(allocation));
+            if self.len != 0 {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(self.data.as_ptr(), data.as_ptr(), self.len)
+                };
+            }
+            if self.capacity != 0 {
+                let previous =
+                    AllocationLayout::from_size_align(self.capacity, self.align).unwrap();
+                unsafe { dealloc(self.data.as_ptr(), previous) };
+            }
+            self.data = data;
+            self.capacity = capacity;
+            self.align = allocation_align;
+        }
+        unsafe { self.data.as_ptr().add(offset).cast::<T>().write(value) };
+        self.len = end;
+        if needs_drop::<T>() {
+            self.drops.push(DropRecord {
+                offset,
+                drop: drop_data::<T>,
+            });
+        }
+        u32::try_from(offset).expect("too much layout data in one frame")
+    }
+
+    fn clear(&mut self) {
+        while let Some(record) = self.drops.pop() {
+            unsafe { (record.drop)(self.data.as_ptr().add(record.offset)) };
+        }
+        self.len = 0;
+    }
+
+    fn as_ptr(&self) -> *const u8 {
+        self.data.as_ptr()
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn heap_bytes(&self) -> usize {
+        self.capacity + self.drops.capacity() * size_of::<DropRecord>()
+    }
+}
+
+impl Default for DataArena {
+    fn default() -> Self {
+        Self {
+            data: NonNull::dangling(),
+            len: 0,
+            capacity: 0,
+            align: 1,
+            drops: Vec::new(),
+        }
+    }
+}
+
+impl Drop for DataArena {
+    fn drop(&mut self) {
+        self.clear();
+        if self.capacity != 0 {
+            let allocation = AllocationLayout::from_size_align(self.capacity, self.align).unwrap();
+            unsafe { dealloc(self.data.as_ptr(), allocation) };
+        }
+    }
+}
+
+struct DropRecord {
+    offset: usize,
+    drop: unsafe fn(*mut u8),
+}
+
+unsafe fn drop_data<T>(data: *mut u8) {
+    unsafe { data.cast::<T>().drop_in_place() }
+}
+
+#[derive(Clone, Copy)]
+struct StoredLayout {
+    data_offset: u32,
+    vtable: &'static LayoutVtable,
+    offset: LogicalPoint,
+}
+
+type RunLayouts = unsafe fn(*const NodeId, usize, &mut FrameGraph, Axis, positioned: bool);
+
+struct LayoutVtable {
+    measure: RunLayouts,
+    place: RunLayouts,
+    layout_type: fn() -> TypeId,
+}
+
+struct LayoutVtableFor<L>(std::marker::PhantomData<L>);
+
+impl<L: Layout> LayoutVtableFor<L> {
+    const VALUE: LayoutVtable = LayoutVtable {
+        measure: run_layout_batch::<L, false>,
+        place: run_layout_batch::<L, true>,
+        layout_type: || TypeId::of::<L>(),
+    };
+}
+
+#[derive(Clone, Copy)]
+struct PositionedLayout {
+    layout: StoredLayout,
     absolute: Absolute,
 }
 
@@ -1114,44 +1290,6 @@ impl Anchor {
             (Axis::Horizontal, Self::TopRight | Self::Right | Self::BottomRight)
             | (Axis::Vertical, Self::BottomLeft | Self::Bottom | Self::BottomRight) => 1.0,
         }
-    }
-}
-
-impl Sizing {
-    fn resolve(self, intrinsic: f32, available: f32, cross: bool) -> f32 {
-        match self {
-            Self::Fit { .. } => self.clamp(intrinsic.min(available)),
-            Self::Grow { .. } if cross => self.clamp(available),
-            Self::Grow { .. } => self.clamp(intrinsic.min(available)),
-            Self::Fixed(size) => size.max(0.0),
-            Self::Percent(fraction) if available.is_finite() => {
-                Self::percentage(fraction, available)
-            }
-            Self::Percent(_) => 0.0,
-        }
-    }
-
-    fn clamp(self, size: f32) -> f32 {
-        match self {
-            Self::Fit { min, max } | Self::Grow { min, max } => {
-                size.clamp(min.max(0.0), max.max(min).max(0.0))
-            }
-            Self::Fixed(fixed) => fixed.max(0.0),
-            Self::Percent(_) => size.max(0.0),
-        }
-    }
-
-    fn minimum(self, resolved: f32) -> f32 {
-        match self {
-            Self::Fit { min, .. } | Self::Grow { min, .. } => min.max(0.0),
-            Self::Fixed(size) => size.max(0.0),
-            Self::Percent(_) => resolved,
-        }
-    }
-
-    fn percentage(fraction: f32, available: f32) -> f32 {
-        assert!((0.0..=1.0).contains(&fraction));
-        available * fraction
     }
 }
 
@@ -1308,25 +1446,44 @@ enum StoredBorder {
     },
 }
 
-/// index into `flows`, or into `positioned_flows` when the high bit is set
-#[derive(Clone, Copy, Default)]
-struct FlowId(u32);
+#[derive(Clone, Copy)]
+struct LayoutItemId(u32);
 
-impl FlowId {
+impl LayoutItemId {
+    const NONE: Self = Self(0);
+
+    fn new(offset: u32) -> Self {
+        Self(
+            offset
+                .checked_add(1)
+                .expect("too much layout data in one frame"),
+        )
+    }
+
+    fn offset(self) -> Option<usize> {
+        self.0.checked_sub(1).map(|offset| offset as usize)
+    }
+}
+
+/// index into `layouts`, or into `positioned_layouts` when the high bit is set
+#[derive(Clone, Copy, Default)]
+struct LayoutId(u32);
+
+impl LayoutId {
     const POSITIONED: u32 = 1 << 31;
     const NONE: Self = Self(0);
 
     fn normal(index: usize) -> Self {
-        let id = u32::try_from(index + 1).expect("too many flows in one frame");
-        assert!(id < Self::POSITIONED, "too many flows in one frame");
+        let id = u32::try_from(index + 1).expect("too many layouts in one frame");
+        assert!(id < Self::POSITIONED, "too many layouts in one frame");
         Self(id)
     }
 
     fn positioned(index: usize) -> Self {
-        let id = u32::try_from(index + 1).expect("too many positioned flows in one frame");
+        let id = u32::try_from(index + 1).expect("too many positioned layouts in one frame");
         assert!(
             id < Self::POSITIONED,
-            "too many positioned flows in one frame"
+            "too many positioned layouts in one frame"
         );
         Self(Self::POSITIONED | id)
     }

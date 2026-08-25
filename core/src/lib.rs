@@ -8,6 +8,7 @@ mod graph;
 pub mod image;
 pub mod input;
 pub mod interact;
+pub mod layout;
 pub mod node;
 pub mod renderer;
 pub mod style;
@@ -21,7 +22,7 @@ use std::{ptr::NonNull, time::Duration};
 
 use animation::Easing;
 use command_list::{CommandDiffConfig, CommandList, CommandListDiffer};
-use container::{Absolute, Axis, Container, ContainerConfig, Item};
+use container::{Container, ContainerConfig, Item};
 use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
 use image::{ImageData, ImageHandle};
 use input::Input;
@@ -40,17 +41,13 @@ pub struct Ui {
 }
 
 impl Ui {
-    pub fn add<W: widget::Widget>(&mut self, widget: W) -> W::Output {
-        widget.render(self)
-    }
-
     /// restores damaged screen pixels to the render target's default value before painting
     pub fn clear(&mut self) {
         self.frame_mut().clear()
     }
 
-    pub fn container(&mut self) -> Container<'_, '_> {
-        Container::new(self)
+    pub fn layout<L: layout::Layout>(&mut self, layout: L) -> Container<'_, '_, L> {
+        Container::new(self, layout)
     }
 
     pub fn geometry(&self, id: WidgetId) -> Option<LogicalRect> {
@@ -164,7 +161,6 @@ impl Ui {
     }
 }
 
-#[doc(hidden)]
 impl Ui {
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
         self.renderer_mut().text_run(text, style)
@@ -191,27 +187,28 @@ impl Ui {
         self.frame_mut().add_leaf(item, content)
     }
 
-    pub fn open_container(&mut self, axis: Axis, container: ContainerConfig<'_>) -> NodeId {
-        let id = container.id;
-        let transition = container.transition;
-        let node = self.frame_mut().add_container(axis, container, None);
-        if let (Some(id), Some(transition)) = (id, transition) {
-            self.set_node_transition(node, id, transition);
-        }
-        node
+    pub fn begin_layout_item(&self) -> NodeId {
+        self.state().frame.begin_layout_item()
     }
 
-    pub fn open_absolute_container(
+    pub fn finish_layout_item<L: layout::Layout>(
         &mut self,
-        axis: Axis,
+        parent: NodeId,
+        child: NodeId,
+        item: L::Item,
+    ) {
+        self.frame_mut()
+            .finish_layout_item::<L>(parent, child, item)
+    }
+
+    pub fn open_layout<L: layout::Layout>(
+        &mut self,
+        layout: L,
         container: ContainerConfig<'_>,
-        absolute: Absolute,
     ) -> NodeId {
         let id = container.id;
         let transition = container.transition;
-        let node = self
-            .frame_mut()
-            .add_container(axis, container, Some(absolute));
+        let node = self.frame_mut().add_container(layout, container);
         if let (Some(id), Some(transition)) = (id, transition) {
             self.set_node_transition(node, id, transition);
         }
