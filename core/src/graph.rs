@@ -1,10 +1,8 @@
 //! frame-local graph construction, layout resolution, and command emission
 
 use std::{
-    alloc::{Layout as AllocationLayout, alloc, dealloc, handle_alloc_error},
     any::TypeId,
-    mem::{align_of, size_of},
-    ptr::NonNull,
+    mem::{MaybeUninit, align_of, size_of},
     time::Duration,
 };
 
@@ -133,16 +131,7 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
             .layout_item
             .offset()
             .expect("layout item is missing. unit scope does not store metadata");
-        debug_assert!(offset + size_of::<I>() <= self.frame.layout_data.len());
-        // safety: the parent scope stored an aligned I for this direct child
-        unsafe {
-            self.frame
-                .layout_data
-                .as_ptr()
-                .add(offset)
-                .cast::<I>()
-                .read()
-        }
+        self.frame.layout_data.load(offset)
     }
 
     /// the sizing requested by a child on an axis
@@ -1063,16 +1052,7 @@ unsafe fn run_layout_batch<L: Layout, const PLACE: bool>(
         let node = unsafe { nodes.add(index).read() };
         let stored = frame.stored_layout(node).unwrap();
         debug_assert!(std::ptr::eq(stored.vtable, &LayoutVtableFor::<L>::VALUE));
-        debug_assert!(stored.data_offset as usize + size_of::<L>() <= frame.layout_data.len());
-        // safety: store_layout wrote an aligned L at this address
-        let layout = unsafe {
-            frame
-                .layout_data
-                .as_ptr()
-                .add(stored.data_offset as usize)
-                .cast::<L>()
-                .read()
-        };
+        let layout: L = frame.layout_data.load(stored.data_offset as usize);
         let graph_nodes = frame.nodes.as_ptr();
         let mut cx = LayoutCx {
             frame,
@@ -1177,49 +1157,33 @@ impl Node {
     }
 }
 
+#[derive(Default)]
 struct DataArena {
-    data: NonNull<u8>,
+    words: Vec<Word>,
     len: usize,
-    capacity: usize,
-    align: usize,
 }
 
 impl DataArena {
     fn store<T: Copy>(&mut self, value: T) -> u32 {
-        let align = align_of::<T>();
+        assert!(align_of::<T>() <= align_of::<Word>());
         let offset = self
             .len
-            .checked_add(align - 1)
-            .expect("too much layout data in one frame")
-            & !(align - 1);
+            .checked_next_multiple_of(align_of::<T>())
+            .expect("too much layout data in one frame");
         let end = offset
             .checked_add(size_of::<T>())
             .expect("too much layout data in one frame");
-        if end > self.capacity || align > self.align {
-            let capacity = end
-                .max(self.capacity.saturating_mul(2))
-                .max(64)
-                .checked_next_power_of_two()
-                .expect("too much layout data in one frame");
-            let allocation_align = self.align.max(align);
-            let allocation = AllocationLayout::from_size_align(capacity, allocation_align).unwrap();
-            let data = NonNull::new(unsafe { alloc(allocation) })
-                .unwrap_or_else(|| handle_alloc_error(allocation));
-            if self.len != 0 {
-                unsafe {
-                    std::ptr::copy_nonoverlapping(self.data.as_ptr(), data.as_ptr(), self.len)
-                };
-            }
-            if self.capacity != 0 {
-                let previous =
-                    AllocationLayout::from_size_align(self.capacity, self.align).unwrap();
-                unsafe { dealloc(self.data.as_ptr(), previous) };
-            }
-            self.data = data;
-            self.capacity = capacity;
-            self.align = allocation_align;
-        }
-        unsafe { self.data.as_ptr().add(offset).cast::<T>().write(value) };
+        self.words.resize_with(end.div_ceil(size_of::<Word>()), || {
+            Word(MaybeUninit::uninit())
+        });
+        unsafe {
+            self.words
+                .as_mut_ptr()
+                .cast::<u8>()
+                .add(offset)
+                .cast::<T>()
+                .write(value)
+        };
         self.len = end;
         u32::try_from(offset).expect("too much layout data in one frame")
     }
@@ -1228,38 +1192,32 @@ impl DataArena {
         self.len = 0;
     }
 
-    fn as_ptr(&self) -> *const u8 {
-        self.data.as_ptr()
-    }
-
-    fn len(&self) -> usize {
-        self.len
+    fn load<T: Copy>(&self, offset: usize) -> T {
+        debug_assert!(align_of::<T>() <= align_of::<Word>());
+        debug_assert_eq!(offset % align_of::<T>(), 0);
+        debug_assert!(
+            offset
+                .checked_add(size_of::<T>())
+                .is_some_and(|end| end <= self.len)
+        );
+        // safety: store wrote an aligned T at this offset
+        unsafe {
+            self.words
+                .as_ptr()
+                .cast::<u8>()
+                .add(offset)
+                .cast::<T>()
+                .read()
+        }
     }
 
     fn heap_bytes(&self) -> usize {
-        self.capacity
+        self.words.capacity() * size_of::<Word>()
     }
 }
 
-impl Default for DataArena {
-    fn default() -> Self {
-        Self {
-            data: NonNull::dangling(),
-            len: 0,
-            capacity: 0,
-            align: 1,
-        }
-    }
-}
-
-impl Drop for DataArena {
-    fn drop(&mut self) {
-        if self.capacity != 0 {
-            let allocation = AllocationLayout::from_size_align(self.capacity, self.align).unwrap();
-            unsafe { dealloc(self.data.as_ptr(), allocation) };
-        }
-    }
-}
+#[repr(C, align(8))]
+struct Word(MaybeUninit<[u8; 8]>);
 
 #[derive(Clone, Copy)]
 struct StoredLayout {
