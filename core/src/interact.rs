@@ -16,6 +16,7 @@ const DRAG_THRESHOLD: f32 = 6.0;
 pub struct WidgetId(u64);
 
 impl WidgetId {
+    #[inline]
     pub fn new(source: impl Hash) -> Self {
         let mut hasher = DefaultHasher::new();
         source.hash(&mut hasher);

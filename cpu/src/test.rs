@@ -12,10 +12,11 @@ use blit::{
     },
     input::Input,
     interact::WidgetId,
+    layout::Flex,
     renderer::Renderer as _,
     style::{BorderRadius, Clip, GradientStop, LinearGradient, Shadow, Style},
     text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
-    widget::{Image as ImageWidget, Rectangle as RectangleWidget, Text},
+    widget::{Image as ImageWidget, Rectangle as RectangleWidget, Text, Widget},
 };
 
 use super::*;
@@ -204,36 +205,36 @@ fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, durati
     let screen_width = ui.screen().width;
     let x = ui.animate(id, position, duration, Easing::Linear);
     let mut scene = ui
-        .container()
-        .col()
+        .layout(Flex::column())
         .grow()
         .background(Color::from_rgba8(24, 36, 48, 255))
         .open();
-    let mut row = scene
-        .container()
-        .row()
-        .width(Sizing::grow())
-        .height(Sizing::fixed(20.0))
-        .open();
-    row.add(RectangleWidget::new().width(Sizing::fixed(x)));
-    let mut movement = row
-        .container()
-        .col()
-        .fixed(12.0, 20.0)
-        .padding(blit::geometry::LogicalInsets::uniform(4.0))
-        .background(Color::from_rgba8(20, 20, 20, 160))
-        .uniform_radius(4.0)
-        .open();
-    movement.add(
-        RectangleWidget::new()
+    scene.add(|ui: &mut Ui| {
+        let mut row = ui
+            .layout(Flex::row())
             .width(Sizing::grow())
-            .height(Sizing::grow())
-            .background(if position < screen_width / 2.0 {
-                Color::from_rgba8(230, 220, 180, 255)
-            } else {
-                Color::from_rgba8(180, 210, 240, 255)
-            }),
-    );
+            .height(Sizing::fixed(20.0))
+            .open();
+        row.add(RectangleWidget::new().width(Sizing::fixed(x)));
+        row.add(|ui: &mut Ui| {
+            let mut movement = ui
+                .layout(Flex::column().padding(blit::geometry::LogicalInsets::uniform(4.0)))
+                .fixed(12.0, 20.0)
+                .background(Color::from_rgba8(20, 20, 20, 160))
+                .uniform_radius(4.0)
+                .open();
+            movement.add(
+                RectangleWidget::new()
+                    .width(Sizing::grow())
+                    .height(Sizing::grow())
+                    .background(if position < screen_width / 2.0 {
+                        Color::from_rgba8(230, 220, 180, 255)
+                    } else {
+                        Color::from_rgba8(180, 210, 240, 255)
+                    }),
+            );
+        });
+    });
 }
 
 impl PixelBuffer for TrackingBuffer {
@@ -315,8 +316,7 @@ fn resolved_nodes_match_direct_commands() {
 
     harness.render(Duration::ZERO, Input::None, |ui| {
         let mut panel = ui
-            .container()
-            .col()
+            .layout(Flex::column())
             .grow()
             .style(
                 Style::new()
@@ -1808,12 +1808,12 @@ fn borrowed_dynamic_text_renders_after_the_source_is_reused() {
     let mut text = String::from("managed");
 
     harness.render(Duration::ZERO, Input::None, |ui| {
-        ui.add(Text::new(&text).color(Color::WHITE));
+        Text::new(&text).color(Color::WHITE).render(ui);
     });
     text.clear();
     text.push_str("updated");
     harness.render(Duration::ZERO, Input::None, |ui| {
-        ui.add(Text::new(&text).color(Color::WHITE));
+        Text::new(&text).color(Color::WHITE).render(ui);
     });
 
     assert!(

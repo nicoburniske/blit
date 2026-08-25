@@ -1,51 +1,44 @@
-//! frame-local containers and flex layout
-
-use std::ops::{Deref, DerefMut};
+//! frame-local child-bearing container configuration
 
 use crate::{
     Ui,
     animation::Transition,
-    geometry::{LogicalInsets, LogicalPoint},
+    geometry::LogicalPoint,
     interact::WidgetId,
-    node::NodeId,
+    layout::{Flex, Layout, raw_scope},
     style::{Border, BorderRadius, Clip, LinearGradient, Shadow, Style},
 };
 
 /// pending child-bearing layout declaration
 #[must_use = "container must be opened"]
-pub struct Container<'ui, 'style> {
+pub struct Container<'ui, 'style, L = Flex> {
     ui: &'ui mut Ui,
+    layout: L,
     config: ContainerConfig<'style>,
-    axis: Axis,
-    absolute: Option<Absolute>,
 }
 
-/// opened child-bearing layout scope
-pub struct Scope<'ui> {
-    ui: &'ui mut Ui,
-    node: NodeId,
+crate::builder! {
+    /// configuration for a child-bearing layout scope
+    pub struct ContainerConfig<'a> {
+        new(),
+        id: Option<WidgetId> = None,
+        item: Item = Item::new(),
+        offset: LogicalPoint = LogicalPoint { x: 0.0, y: 0.0 },
+        style: Style<'a> = Style::new(),
+        clip: Clip = Clip::None,
+        absolute: Option<Absolute> = None,
+        transition: Option<Transition> = None,
+    }
 }
 
-/// configuration for a child-bearing layout scope
-pub struct ContainerConfig<'a> {
-    pub id: Option<WidgetId>,
-    pub item: Item,
-    pub padding: LogicalInsets,
-    pub gap: f32,
-    pub align: Align,
-    pub justify: Justify,
-    pub allow_overflow: bool,
-    pub child_offset: LogicalPoint,
-    pub style: Style<'a>,
-    pub clip: Clip,
-    pub transition: Option<Transition>,
-}
-
-/// sizing applied to one item by its parent
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Item {
-    pub width: Sizing,
-    pub height: Sizing,
+crate::builder! {
+    /// sizing applied to one item by its parent
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Item {
+        new(),
+        width: Sizing = Sizing::fit(),
+        height: Sizing = Sizing::fit(),
+    }
 }
 
 /// sizing behavior on one axis
@@ -57,63 +50,17 @@ pub enum Sizing {
     Percent(f32),
 }
 
-/// child flow direction
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Axis {
-    Horizontal,
-    #[default]
-    Vertical,
-}
-
-/// child alignment across the flow axis
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Align {
-    Start,
-    Center,
-    End,
-    #[default]
-    Stretch,
-}
-
-/// child distribution along the flow axis
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Justify {
-    #[default]
-    Start,
-    Center,
-    End,
-    SpaceBetween,
-    SpaceAround,
-    SpaceEvenly,
-}
-
-impl<'ui> Container<'ui, 'static> {
-    pub fn new(ui: &'ui mut Ui) -> Self {
+impl<'ui, L> Container<'ui, 'static, L> {
+    pub fn new(ui: &'ui mut Ui, layout: L) -> Self {
         Self {
             ui,
             config: ContainerConfig::default(),
-            axis: Axis::Vertical,
-            absolute: None,
+            layout,
         }
     }
 }
 
-impl<'ui, 'style> Container<'ui, 'style> {
-    pub fn row(mut self) -> Self {
-        self.axis = Axis::Horizontal;
-        self
-    }
-
-    pub fn col(mut self) -> Self {
-        self.axis = Axis::Vertical;
-        self
-    }
-
-    pub fn flow(mut self, axis: Axis) -> Self {
-        self.axis = axis;
-        self
-    }
-
+impl<'ui, 'style, L: Layout> Container<'ui, 'style, L> {
     pub fn width(mut self, width: Sizing) -> Self {
         self.config.item.width = width;
         self
@@ -136,28 +83,8 @@ impl<'ui, 'style> Container<'ui, 'style> {
         self
     }
 
-    pub fn padding(mut self, padding: LogicalInsets) -> Self {
-        self.config.padding = padding;
-        self
-    }
-
-    pub fn gap(mut self, gap: f32) -> Self {
-        self.config.gap = gap;
-        self
-    }
-
-    pub fn align(mut self, align: Align) -> Self {
-        self.config.align = align;
-        self
-    }
-
-    pub fn justify(mut self, justify: Justify) -> Self {
-        self.config.justify = justify;
-        self
-    }
-
-    pub fn overflow(mut self, overflow: bool) -> Self {
-        self.config.allow_overflow = overflow;
+    pub fn offset(mut self, offset: LogicalPoint) -> Self {
+        self.config.offset = offset;
         self
     }
 
@@ -226,56 +153,20 @@ impl<'ui, 'style> Container<'ui, 'style> {
         self
     }
 
-    pub fn offset(mut self, offset: LogicalPoint) -> Self {
-        self.config.child_offset = offset;
-        self
-    }
-
     pub fn absolute(mut self, absolute: Absolute) -> Self {
-        self.absolute = Some(absolute);
+        self.config.absolute = Some(absolute);
         self
     }
 
-    pub fn open(self) -> Scope<'ui> {
-        let node = match self.absolute {
-            Some(absolute) => self
-                .ui
-                .open_absolute_container(self.axis, self.config, absolute),
-            None => self.ui.open_container(self.axis, self.config),
-        };
-        Scope { ui: self.ui, node }
+    pub fn open(self) -> L::Scope<'ui> {
+        let node = self.ui.open_layout(self.layout, self.config);
+        L::Scope::from(raw_scope(self.ui, node))
     }
 }
 
 impl Default for ContainerConfig<'_> {
     fn default() -> Self {
-        Self {
-            id: None,
-            item: Item::new(),
-            padding: LogicalInsets {
-                top: 0.0,
-                right: 0.0,
-                bottom: 0.0,
-                left: 0.0,
-            },
-            gap: 0.0,
-            align: Align::Stretch,
-            justify: Justify::Start,
-            allow_overflow: false,
-            child_offset: LogicalPoint { x: 0.0, y: 0.0 },
-            style: Style::new(),
-            clip: Clip::None,
-            transition: None,
-        }
-    }
-}
-
-impl Item {
-    pub const fn new() -> Self {
-        Self {
-            width: Sizing::fit(),
-            height: Sizing::fit(),
-        }
+        Self::new()
     }
 }
 
@@ -324,6 +215,38 @@ impl Sizing {
             Self::Fit { min, .. } => Self::Fit { min, max: value },
             Self::Grow { min, .. } => Self::Grow { min, max: value },
             Self::Fixed(_) | Self::Percent(_) => self,
+        }
+    }
+
+    pub fn resolve(self, intrinsic: f32, available: f32, cross: bool) -> f32 {
+        match self {
+            Self::Fit { .. } => self.clamp(intrinsic.min(available)),
+            Self::Grow { .. } if cross => self.clamp(available),
+            Self::Grow { .. } => self.clamp(intrinsic.min(available)),
+            Self::Fixed(size) => size.max(0.0),
+            Self::Percent(fraction) if available.is_finite() => {
+                assert!((0.0..=1.0).contains(&fraction));
+                available * fraction
+            }
+            Self::Percent(_) => 0.0,
+        }
+    }
+
+    pub fn clamp(self, size: f32) -> f32 {
+        match self {
+            Self::Fit { min, max } | Self::Grow { min, max } => {
+                size.clamp(min.max(0.0), max.max(min).max(0.0))
+            }
+            Self::Fixed(fixed) => fixed.max(0.0),
+            Self::Percent(_) => size.max(0.0),
+        }
+    }
+
+    pub fn minimum(self, resolved: f32) -> f32 {
+        match self {
+            Self::Fit { min, .. } | Self::Grow { min, .. } => min.max(0.0),
+            Self::Fixed(size) => size.max(0.0),
+            Self::Percent(_) => resolved,
         }
     }
 }
@@ -406,25 +329,5 @@ impl Absolute {
     pub const fn z_index(mut self, z_index: i16) -> Self {
         self.z_index = z_index;
         self
-    }
-}
-
-impl Deref for Scope<'_> {
-    type Target = Ui;
-
-    fn deref(&self) -> &Self::Target {
-        self.ui
-    }
-}
-
-impl DerefMut for Scope<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ui
-    }
-}
-
-impl Drop for Scope<'_> {
-    fn drop(&mut self) {
-        self.ui.close_container(self.node)
     }
 }

@@ -3,10 +3,11 @@ use std::time::Duration;
 use blit::{
     Ui,
     animation::{Easing, Transition},
-    container::{Absolute, Align, Anchor, Axis, Justify, Sizing},
+    container::{Absolute, Anchor, Sizing},
     geometry::LogicalInsets,
     input::{Input, Key},
     interact::{Sense, WidgetId},
+    layout::{Align, Axis, Flex, Justify},
     style::{Clip, Style},
     text::{FontId, HorizontalAlign, TextWrap},
     widget::{Rectangle, Text, Widget},
@@ -76,25 +77,27 @@ impl Application for Showcase {
         self.height = self.height.clamp(180.0, max_height);
 
         let mut root = ui
-            .container()
-            .col()
+            .layout(
+                Flex::column()
+                    .padding(LogicalInsets::uniform(20.0))
+                    .gap(16.0),
+            )
             .grow()
-            .padding(LogicalInsets::uniform(20.0))
-            .gap(16.0)
             .background(colors::BACKGROUND)
             .open();
 
-        {
-            let mut header = root
-                .container()
-                .row()
+        root.add(|ui: &mut Ui| {
+            let mut header = ui
+                .layout(
+                    Flex::row()
+                        .align(Align::Center)
+                        .justify(Justify::SpaceBetween),
+                )
                 .width(Sizing::grow())
-                .align(Align::Center)
-                .justify(Justify::SpaceBetween)
                 .background(colors::BACKGROUND)
                 .open();
-            {
-                let mut title = header.container().col().gap(3.0).open();
+            header.add(|ui: &mut Ui| {
+                let mut title = ui.layout(Flex::column().gap(3.0)).open();
                 title.add(
                     Text::new("BLIT / LAYOUT PLAYGROUND")
                         .color(colors::TEXT)
@@ -107,7 +110,7 @@ impl Application for Showcase {
                     .color(colors::TEXT_MUTED)
                     .text_size(12.0),
                 );
-            }
+            });
             if header
                 .add(
                     choice("Reset", false)
@@ -128,25 +131,24 @@ impl Application for Showcase {
                 self.width = 640.0;
                 self.height = 440.0;
             }
-        }
+        });
 
-        {
-            let mut body = root
-                .container()
-                .row()
+        root.add(|ui: &mut Ui| {
+            let mut body = ui
+                .layout(Flex::row().gap(16.0))
                 .grow()
-                .gap(16.0)
                 .clip(Clip::Bounds)
                 .open();
 
-            {
-                let mut controls = body
-                    .container()
-                    .col()
+            body.add(|ui: &mut Ui| {
+                let mut controls = ui
+                    .layout(
+                        Flex::column()
+                            .padding(LogicalInsets::uniform(15.0))
+                            .gap(11.0),
+                    )
                     .width(Sizing::fixed(310.0))
                     .height(Sizing::grow())
-                    .padding(LogicalInsets::uniform(15.0))
-                    .gap(11.0)
                     .background(colors::SURFACE)
                     .border(1.0, colors::BORDER)
                     .uniform_radius(11.0)
@@ -159,12 +161,10 @@ impl Application for Showcase {
                 );
 
                 controls.add(Text::new("axis").color(colors::TEXT_MUTED).text_size(11.0));
-                {
-                    let mut row = controls
-                        .container()
+                controls.add(|ui: &mut Ui| {
+                    let mut row = ui
+                        .layout(Flex::row().gap(6.0))
                         .width(Sizing::grow())
-                        .gap(6.0)
-                        .row()
                         .open();
                     for (index, label) in ["Horizontal", "Vertical"].into_iter().enumerate() {
                         if row
@@ -174,7 +174,7 @@ impl Application for Showcase {
                             self.axis = index;
                         }
                     }
-                }
+                });
 
                 controls.add(
                     Text::new("justify")
@@ -182,38 +182,37 @@ impl Application for Showcase {
                         .text_size(11.0),
                 );
                 for start in [0, 3] {
-                    let mut row = controls
-                        .container()
-                        .width(Sizing::grow())
-                        .gap(6.0)
-                        .row()
-                        .open();
-                    for (index, label) in ["Start", "Center", "End", "Between", "Around", "Evenly"]
-                        .into_iter()
-                        .enumerate()
-                        .skip(start)
-                        .take(3)
-                    {
-                        if row
-                            .add(
-                                choice(label, self.justify == index)
-                                    .id(("justify", index))
-                                    .padding_x(7.0),
-                            )
-                            .clicked()
+                    controls.add(|ui: &mut Ui| {
+                        let mut row = ui
+                            .layout(Flex::row().gap(6.0))
+                            .width(Sizing::grow())
+                            .open();
+                        for (index, label) in
+                            ["Start", "Center", "End", "Between", "Around", "Evenly"]
+                                .into_iter()
+                                .enumerate()
+                                .skip(start)
+                                .take(3)
                         {
-                            self.justify = index;
+                            if row
+                                .add(
+                                    choice(label, self.justify == index)
+                                        .id(("justify", index))
+                                        .padding_x(7.0),
+                                )
+                                .clicked()
+                            {
+                                self.justify = index;
+                            }
                         }
-                    }
+                    });
                 }
 
                 controls.add(Text::new("align").color(colors::TEXT_MUTED).text_size(11.0));
-                {
-                    let mut row = controls
-                        .container()
+                controls.add(|ui: &mut Ui| {
+                    let mut row = ui
+                        .layout(Flex::row().gap(5.0))
                         .width(Sizing::grow())
-                        .gap(5.0)
-                        .row()
                         .open();
                     for (index, label) in ["Start", "Center", "End", "Stretch"]
                         .into_iter()
@@ -230,19 +229,17 @@ impl Application for Showcase {
                             self.align = index;
                         }
                     }
-                }
+                });
 
                 controls.add(
                     Text::new("item sizing")
                         .color(colors::TEXT_MUTED)
                         .text_size(11.0),
                 );
-                {
-                    let mut row = controls
-                        .container()
+                controls.add(|ui: &mut Ui| {
+                    let mut row = ui
+                        .layout(Flex::row().gap(6.0))
                         .width(Sizing::grow())
-                        .gap(6.0)
-                        .row()
                         .open();
                     for (index, label) in ["Fixed", "Fit", "Grow"].into_iter().enumerate() {
                         if row
@@ -252,15 +249,13 @@ impl Application for Showcase {
                             self.sizing = index;
                         }
                     }
-                }
+                });
 
                 controls.add(Text::new("zoom").color(colors::TEXT_MUTED).text_size(11.0));
-                {
-                    let mut row = controls
-                        .container()
+                controls.add(|ui: &mut Ui| {
+                    let mut row = ui
+                        .layout(Flex::row().gap(5.0))
                         .width(Sizing::grow())
-                        .gap(5.0)
-                        .row()
                         .open();
                     for (index, label) in ["50%", "75%", "100%", "125%", "150%"]
                         .into_iter()
@@ -277,15 +272,13 @@ impl Application for Showcase {
                             self.zoom = index;
                         }
                     }
-                }
+                });
 
                 controls.add(Text::new("gap").color(colors::TEXT_MUTED).text_size(11.0));
-                {
-                    let mut row = controls
-                        .container()
+                controls.add(|ui: &mut Ui| {
+                    let mut row = ui
+                        .layout(Flex::row().gap(5.0))
                         .width(Sizing::grow())
-                        .gap(5.0)
-                        .row()
                         .open();
                     for (index, label) in ["0", "4", "8", "16", "24"].into_iter().enumerate() {
                         if row
@@ -299,19 +292,17 @@ impl Application for Showcase {
                             self.gap = index;
                         }
                     }
-                }
+                });
 
                 controls.add(
                     Text::new("padding")
                         .color(colors::TEXT_MUTED)
                         .text_size(11.0),
                 );
-                {
-                    let mut row = controls
-                        .container()
+                controls.add(|ui: &mut Ui| {
+                    let mut row = ui
+                        .layout(Flex::row().gap(5.0))
                         .width(Sizing::grow())
-                        .gap(5.0)
-                        .row()
                         .open();
                     for (index, label) in ["0", "4", "8", "16", "24"].into_iter().enumerate() {
                         if row
@@ -325,7 +316,7 @@ impl Application for Showcase {
                             self.padding = index;
                         }
                     }
-                }
+                });
 
                 controls.add(
                     Text::new("The ten numbered rectangles share these parameters. Grow consumes free space; Fit uses the label's intrinsic size.")
@@ -333,15 +324,16 @@ impl Application for Showcase {
                         .text_size(11.0)
                         .wrap(TextWrap::Word),
                 );
-            }
+            });
 
-            {
-                let mut preview = body
-                    .container()
-                    .col()
+            body.add(|ui: &mut Ui| {
+                let mut preview = ui
+                    .layout(
+                        Flex::column()
+                            .padding(LogicalInsets::uniform(12.0))
+                            .gap(9.0),
+                    )
                     .grow()
-                    .padding(LogicalInsets::uniform(12.0))
-                    .gap(9.0)
                     .background(colors::SURFACE)
                     .border(1.0, colors::BORDER)
                     .uniform_radius(11.0)
@@ -366,41 +358,40 @@ impl Application for Showcase {
                 ][self.justify];
                 let align = [Align::Start, Align::Center, Align::End, Align::Stretch][self.align];
 
-                {
-                    let mut viewport = preview
-                        .container()
-                        .col()
+                preview.add(|ui: &mut Ui| {
+                    let mut viewport = ui
+                        .layout(Flex::column().padding(LogicalInsets::uniform(8.0)))
                         .grow()
-                        .padding(LogicalInsets::uniform(8.0))
                         .background(colors::TRACK)
                         .uniform_radius(8.0)
                         .clip(Clip::Bounds)
                         .open();
-                    let mut shell = viewport
-                        .container()
-                        .col()
-                        .fixed(self.width + 12.0, self.height + 12.0)
-                        .open();
+                    let (width_delta, height_delta, corner_delta) =
+                        viewport.add(|ui: &mut Ui| {
+                            let mut shell = ui
+                                .layout(Flex::column())
+                                .fixed(self.width + 12.0, self.height + 12.0)
+                                .open();
 
-                    let width_delta = {
-                        let mut row = shell
-                            .container()
-                            .fixed(self.width + 12.0, self.height)
-                            .row()
-                            .open();
-                        {
-                            let mut layout = row
-                                .container()
+                            let width_delta = shell.add(|ui: &mut Ui| {
+                                let mut row = ui
+                                    .layout(Flex::row())
+                                    .fixed(self.width + 12.0, self.height)
+                                    .open();
+                                row.add(|ui: &mut Ui| {
+                                    let mut layout = ui
+                                        .layout(
+                                    Flex::new(axis)
+                                        .padding(LogicalInsets::uniform(padding))
+                                        .gap(gap)
+                                        .align(align)
+                                        .justify(justify),
+                                )
                                 .fixed(self.width, self.height)
-                                .padding(LogicalInsets::uniform(padding))
-                                .gap(gap)
-                                .align(align)
-                                .justify(justify)
                                 .background(colors::CANVAS)
                                 .border(2.0, colors::CANVAS_BORDER)
                                 .uniform_radius(8.0)
                                 .clip(Clip::Bounds)
-                                .flow(axis)
                                 .open();
 
                             for (index, label) in
@@ -420,60 +411,70 @@ impl Application for Showcase {
                                 } else {
                                     Sizing::fixed(cross)
                                 };
-                                let item = layout.container().col();
-                                let item = match axis {
-                                    Axis::Horizontal => item.width(main).height(cross),
-                                    Axis::Vertical => item.width(cross).height(main),
-                                };
-                                let mut rectangle = item
-                                    .align(Align::Stretch)
-                                    .justify(Justify::Center)
-                                    .background(colors::ITEMS[index])
-                                    .uniform_radius(5.0)
-                                    .open();
-                                rectangle.add(
-                                    Text::new(label)
-                                        .color(colors::WHITE)
-                                        .text_size(11.0 * zoom)
-                                        .align(HorizontalAlign::Center),
-                                );
-                                let anchor = match index {
-                                    0 => Some(Anchor::TopRight),
-                                    4 => Some(Anchor::BottomLeft),
-                                    9 => Some(Anchor::BottomRight),
-                                    _ => None,
-                                };
-                                if let Some(anchor) = anchor {
-                                    let mut badge = rectangle
-                                        .container()
-                                        .row()
-                                        .fixed((28.0 * zoom).max(20.0), (14.0 * zoom).max(10.0))
-                                        .align(Align::Center)
-                                        .justify(Justify::Center)
-                                        .background(colors::BACKGROUND)
-                                        .border(1.0, colors::WHITE)
-                                        .uniform_radius(5.0)
-                                        .absolute(
-                                            Absolute::attach(anchor, Anchor::Center).z_index(1),
-                                        )
-                                        .open();
-                                    badge.add(
-                                        Text::new("ABS")
-                                            .color(colors::WHITE)
-                                            .text_size((8.0 * zoom).max(7.0)),
+                                layout.add(|ui: &mut Ui| {
+                                    let item = ui.layout(
+                                        Flex::column()
+                                            .align(Align::Stretch)
+                                            .justify(Justify::Center),
                                     );
-                                }
+                                    let item = match axis {
+                                        Axis::Horizontal => item.width(main).height(cross),
+                                        Axis::Vertical => item.width(cross).height(main),
+                                    };
+                                    let mut rectangle = item
+                                        .background(colors::ITEMS[index])
+                                        .uniform_radius(5.0)
+                                        .open();
+                                    rectangle.add(
+                                        Text::new(label)
+                                            .color(colors::WHITE)
+                                            .text_size(11.0 * zoom)
+                                            .align(HorizontalAlign::Center),
+                                    );
+                                    let anchor = match index {
+                                        0 => Some(Anchor::TopRight),
+                                        4 => Some(Anchor::BottomLeft),
+                                        9 => Some(Anchor::BottomRight),
+                                        _ => None,
+                                    };
+                                    if let Some(anchor) = anchor {
+                                        rectangle.add(|ui: &mut Ui| {
+                                            let mut badge = ui
+                                                .layout(
+                                                    Flex::row()
+                                                        .align(Align::Center)
+                                                        .justify(Justify::Center),
+                                                )
+                                                .fixed(
+                                                    (28.0 * zoom).max(20.0),
+                                                    (14.0 * zoom).max(10.0),
+                                                )
+                                                .background(colors::BACKGROUND)
+                                                .border(1.0, colors::WHITE)
+                                                .uniform_radius(5.0)
+                                                .absolute(
+                                                    Absolute::attach(anchor, Anchor::Center)
+                                                        .z_index(1),
+                                                )
+                                                .open();
+                                            badge.add(
+                                                Text::new("ABS")
+                                                    .color(colors::WHITE)
+                                                    .text_size((8.0 * zoom).max(7.0)),
+                                            );
+                                        });
+                                    }
+                                });
                             }
-                        }
-                        {
+                                });
+                                row.add(|ui: &mut Ui| {
                             let id = WidgetId::new("layout width grip");
-                            let interaction = row.interact(id, Sense::DRAG);
-                            let mut grip = row
-                                .container()
-                                .col()
+                            let interaction = ui.interact(id, Sense::DRAG);
+                            let mut grip = ui
+                                .layout(
+                                    Flex::column().align(Align::Center).justify(Justify::Center),
+                                )
                                 .fixed(12.0, self.height)
-                                .align(Align::Center)
-                                .justify(Justify::Center)
                                 .id(id)
                                 .open();
                             grip.add(
@@ -487,45 +488,43 @@ impl Application for Showcase {
                                     .uniform_radius(1.5),
                             );
                             if interaction.hovered || interaction.dragged {
-                                let mut readout = grip
-                                    .container()
-                                    .row()
-                                    .padding(LogicalInsets {
-                                        top: 4.0,
-                                        right: 7.0,
-                                        bottom: 4.0,
-                                        left: 7.0,
-                                    })
-                                    .background(colors::BACKGROUND)
-                                    .border(1.0, colors::ACCENT)
-                                    .uniform_radius(5.0)
-                                    .absolute(
-                                        Absolute::attach(Anchor::Left, Anchor::Right)
-                                            .offset(-8.0, 0.0)
-                                            .z_index(10),
-                                    )
-                                    .open();
-                                readout.add(Text::new("DRAG X").color(colors::TEXT).text_size(9.0));
+                                grip.add(|ui: &mut Ui| {
+                                    let mut readout = ui
+                                        .layout(Flex::row().padding(LogicalInsets {
+                                            top: 4.0,
+                                            right: 7.0,
+                                            bottom: 4.0,
+                                            left: 7.0,
+                                        }))
+                                        .background(colors::BACKGROUND)
+                                        .border(1.0, colors::ACCENT)
+                                        .uniform_radius(5.0)
+                                        .absolute(
+                                            Absolute::attach(Anchor::Left, Anchor::Right)
+                                                .offset(-8.0, 0.0)
+                                                .z_index(10),
+                                        )
+                                        .open();
+                                    readout.add(
+                                        Text::new("DRAG X").color(colors::TEXT).text_size(9.0),
+                                    );
+                                });
                             }
                             interaction.drag_delta.x
-                        }
-                    };
+                                })
+                            });
 
-                    let (height_delta, corner_delta) = {
-                        let mut row = shell
-                            .container()
+                    let (height_delta, corner_delta) = shell.add(|ui: &mut Ui| {
+                        let mut row = ui
+                            .layout(Flex::row())
                             .fixed(self.width + 12.0, 12.0)
-                            .row()
                             .open();
-                        let height_delta = {
+                        let height_delta = row.add(|ui: &mut Ui| {
                             let id = WidgetId::new("layout height grip");
-                            let interaction = row.interact(id, Sense::DRAG);
-                            let mut grip = row
-                                .container()
-                                .row()
+                            let interaction = ui.interact(id, Sense::DRAG);
+                            let mut grip = ui
+                                .layout(Flex::row().align(Align::Center).justify(Justify::Center))
                                 .fixed(self.width, 12.0)
-                                .align(Align::Center)
-                                .justify(Justify::Center)
                                 .id(id)
                                 .open();
                             grip.add(
@@ -539,16 +538,13 @@ impl Application for Showcase {
                                     .uniform_radius(1.5),
                             );
                             interaction.drag_delta.y
-                        };
-                        let corner_delta = {
+                        });
+                        let corner_delta = row.add(|ui: &mut Ui| {
                             let id = WidgetId::new("layout corner grip");
-                            let interaction = row.interact(id, Sense::DRAG);
-                            let mut grip = row
-                                .container()
-                                .row()
+                            let interaction = ui.interact(id, Sense::DRAG);
+                            let mut grip = ui
+                                .layout(Flex::row().align(Align::Center).justify(Justify::Center))
                                 .fixed(12.0, 12.0)
-                                .align(Align::Center)
-                                .justify(Justify::Center)
                                 .id(id)
                                 .open();
                             grip.add(
@@ -562,47 +558,45 @@ impl Application for Showcase {
                                     .uniform_radius(3.0),
                             );
                             interaction.drag_delta
-                        };
+                        });
                         (height_delta, corner_delta)
-                    };
+                    });
+                            (width_delta, height_delta, corner_delta)
+                        });
 
                     self.width =
                         (self.width + width_delta + corner_delta.x).clamp(240.0, max_width);
                     self.height =
                         (self.height + height_delta + corner_delta.y).clamp(180.0, max_height);
-                }
+                });
 
-                let mut transitions = preview
-                    .container()
-                    .col()
+                preview.add(|ui: &mut Ui| {
+                    let mut transitions = ui
+                        .layout(
+                        Flex::column()
+                            .padding(LogicalInsets::uniform(10.0))
+                            .gap(8.0),
+                    )
                     .width(Sizing::grow())
                     .height(Sizing::fixed(156.0))
-                    .padding(LogicalInsets::uniform(10.0))
-                    .gap(8.0)
                     .background(colors::TRACK)
                     .border(1.0, colors::BORDER)
                     .uniform_radius(8.0)
                     .open();
-                {
-                    let mut header = transitions
-                        .container()
-                        .row()
+                transitions.add(|ui: &mut Ui| {
+                    let mut header = ui
+                        .layout(Flex::row().align(Align::Center).gap(6.0))
                         .width(Sizing::grow())
-                        .align(Align::Center)
-                        .gap(6.0)
                         .open();
                     header.add(
                         Text::new("TRANSITIONS")
                             .color(colors::ACCENT)
                             .text_size(10.0),
                     );
-                    {
-                        let mut choices = header
-                            .container()
-                            .row()
+                    header.add(|ui: &mut Ui| {
+                        let mut choices = ui
+                            .layout(Flex::row().justify(Justify::End).gap(4.0))
                             .grow()
-                            .justify(Justify::End)
-                            .gap(4.0)
                             .open();
                         for (index, label) in
                             ["Linear", "In", "Out", "In-out"].into_iter().enumerate()
@@ -619,7 +613,7 @@ impl Application for Showcase {
                                 self.transition_easing = index;
                             }
                         }
-                    }
+                    });
                     if header
                         .add(
                             choice("Reverse", self.transition_target)
@@ -631,7 +625,7 @@ impl Application for Showcase {
                     {
                         self.transition_target = !self.transition_target;
                     }
-                }
+                });
 
                 let easing = [
                     Easing::Linear,
@@ -639,47 +633,43 @@ impl Application for Showcase {
                     Easing::EaseOutQuad,
                     Easing::EaseInOutQuad,
                 ][self.transition_easing];
-                let mut tracks = transitions.container().row().grow().gap(8.0).open();
-                {
-                    let mut track = tracks
-                        .container()
-                        .row()
+                transitions.add(|ui: &mut Ui| {
+                    let mut tracks = ui.layout(Flex::row().gap(8.0)).grow().open();
+                    tracks.add(|ui: &mut Ui| {
+                    let mut track = ui
+                        .layout(Flex::row().padding(LogicalInsets::uniform(7.0)))
                         .width(Sizing::percent(0.5))
                         .height(Sizing::grow())
-                        .padding(LogicalInsets::uniform(7.0))
                         .background(colors::SURFACE)
                         .uniform_radius(6.0)
                         .clip(Clip::Bounds)
                         .open();
-                    let mut specimen = track
-                        .container()
-                        .row()
-                        .fixed(76.0, 30.0)
-                        .id(WidgetId::new("position transition specimen"))
-                        .absolute(if self.transition_target {
-                            Absolute::attach(Anchor::BottomRight, Anchor::BottomRight)
-                        } else {
-                            Absolute::attach(Anchor::TopLeft, Anchor::TopLeft)
-                        })
-                        .transition(
-                            Transition::new(Duration::from_millis(700))
-                                .easing(easing)
-                                .position(),
-                        )
-                        .align(Align::Center)
-                        .justify(Justify::Center)
-                        .background(colors::SURFACE_BLUE)
-                        .uniform_radius(5.0)
-                        .open();
-                    specimen.add(Text::new("X / Y").color(colors::WHITE).text_size(10.0));
-                }
-                {
-                    let mut track = tracks
-                        .container()
-                        .row()
+                    track.add(|ui: &mut Ui| {
+                        let mut specimen = ui
+                            .layout(Flex::row().align(Align::Center).justify(Justify::Center))
+                            .fixed(76.0, 30.0)
+                            .id(WidgetId::new("position transition specimen"))
+                            .absolute(if self.transition_target {
+                                Absolute::attach(Anchor::BottomRight, Anchor::BottomRight)
+                            } else {
+                                Absolute::attach(Anchor::TopLeft, Anchor::TopLeft)
+                            })
+                            .transition(
+                                Transition::new(Duration::from_millis(700))
+                                    .easing(easing)
+                                    .position(),
+                            )
+                            .background(colors::SURFACE_BLUE)
+                            .uniform_radius(5.0)
+                            .open();
+                        specimen.add(Text::new("X / Y").color(colors::WHITE).text_size(10.0));
+                    });
+                });
+                tracks.add(|ui: &mut Ui| {
+                    let mut track = ui
+                        .layout(Flex::row().padding(LogicalInsets::uniform(7.0)))
                         .width(Sizing::percent(0.5))
                         .height(Sizing::grow())
-                        .padding(LogicalInsets::uniform(7.0))
                         .background(colors::SURFACE)
                         .uniform_radius(6.0)
                         .clip(Clip::Bounds)
@@ -689,59 +679,63 @@ impl Application for Showcase {
                     } else {
                         (72.0, 28.0)
                     };
-                    let mut specimen = track
-                        .container()
-                        .row()
-                        .fixed(width, height)
-                        .id(WidgetId::new("size transition specimen"))
-                        .absolute(Absolute::attach(Anchor::Center, Anchor::Center))
-                        .transition(
-                            Transition::new(Duration::from_millis(700))
-                                .easing(easing)
-                                .size(),
-                        )
-                        .align(Align::Center)
-                        .justify(Justify::Center)
-                        .background(colors::SURFACE_PURPLE)
-                        .uniform_radius(5.0)
-                        .open();
-                    specimen.add(Text::new("W / H").color(colors::WHITE).text_size(10.0));
-                }
-            }
-        }
+                    track.add(|ui: &mut Ui| {
+                        let mut specimen = ui
+                            .layout(Flex::row().align(Align::Center).justify(Justify::Center))
+                            .fixed(width, height)
+                            .id(WidgetId::new("size transition specimen"))
+                            .absolute(Absolute::attach(Anchor::Center, Anchor::Center))
+                            .transition(
+                                Transition::new(Duration::from_millis(700))
+                                    .easing(easing)
+                                    .size(),
+                            )
+                            .background(colors::SURFACE_PURPLE)
+                            .uniform_radius(5.0)
+                            .open();
+                        specimen.add(Text::new("W / H").color(colors::WHITE).text_size(10.0));
+                    });
+                });
+                });
+                });
+            });
+        });
 
-        let mut screen_badge = root
-            .container()
-            .row()
-            .padding(LogicalInsets {
-                top: 6.0,
-                right: 10.0,
-                bottom: 6.0,
-                left: 10.0,
-            })
-            .gap(6.0)
-            .align(Align::Center)
-            .background(colors::SURFACE_HIGH)
-            .border(1.0, colors::ACCENT)
-            .uniform_radius(7.0)
-            .absolute(
-                Absolute::screen(0.0, 0.0)
-                    .anchors(Anchor::BottomRight, Anchor::BottomRight)
-                    .offset(-16.0, -16.0)
-                    .z_index(20),
-            )
-            .open();
-        screen_badge.add(
-            Rectangle::new()
-                .fixed(6.0, 6.0)
-                .background(colors::ACCENT)
-                .uniform_radius(3.0),
-        );
-        screen_badge.add(
-            Text::new("SCREEN ABSOLUTE")
-                .color(colors::TEXT)
-                .text_size(10.0),
-        );
+        root.add(|ui: &mut Ui| {
+            let mut screen_badge = ui
+                .layout(
+                    Flex::row()
+                        .padding(LogicalInsets {
+                            top: 6.0,
+                            right: 10.0,
+                            bottom: 6.0,
+                            left: 10.0,
+                        })
+                        .gap(6.0)
+                        .align(Align::Center),
+                )
+                .background(colors::SURFACE_HIGH)
+                .border(1.0, colors::ACCENT)
+                .uniform_radius(7.0)
+                .absolute(
+                    Absolute::screen(0.0, 0.0)
+                        .anchors(Anchor::BottomRight, Anchor::BottomRight)
+                        .offset(-16.0, -16.0)
+                        .z_index(20),
+                )
+                .open();
+            screen_badge.add(
+                Rectangle::new()
+                    .fixed(6.0, 6.0)
+                    .background(colors::ACCENT)
+                    .uniform_radius(3.0),
+            );
+            screen_badge.add(
+                Text::new("SCREEN ABSOLUTE")
+                    .color(colors::TEXT)
+                    .text_size(10.0),
+            );
+        });
     }
 }
 
@@ -851,15 +845,13 @@ impl Widget for Button<'_> {
     fn render(self, ui: &mut Ui) -> ButtonResponse {
         let interaction = ui.interact(self.id, Sense::CLICK);
         let mut button = ui
-            .container()
-            .row()
-            .id(self.id)
-            .padding(LogicalInsets {
+            .layout(Flex::row().padding(LogicalInsets {
                 top: self.padding_y,
                 right: self.padding_x,
                 bottom: self.padding_y,
                 left: self.padding_x,
-            })
+            }))
+            .id(self.id)
             .style(
                 Style::new()
                     .background(if interaction.pressed || interaction.clicked {
