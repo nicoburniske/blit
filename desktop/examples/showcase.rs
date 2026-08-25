@@ -7,7 +7,7 @@ use blit::{
     geometry::{LogicalInsets, LogicalPoint, LogicalSize},
     input::{Input, Key},
     interact::{Interaction, Sense, WidgetId},
-    layout::{Align, Axis, Flex, Justify},
+    layout::{Align, Axis, Flex, ItemScope, Justify, Layout, LayoutCx},
     style::{Clip, Style},
     text::{FontId, HorizontalAlign, TextWrap},
     widget::{Rectangle, Text, Widget},
@@ -39,6 +39,7 @@ struct State {
     canvas: CanvasConfig,
     transition_easing: Easing,
     transition_target: bool,
+    carousel: usize,
     resize: ResizeState,
 }
 
@@ -51,6 +52,7 @@ struct CanvasConfig {
     zoom: f32,
     gap: f32,
     padding: f32,
+    transitions: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -70,6 +72,7 @@ impl Default for CanvasConfig {
             zoom: 1.0,
             gap: 8.0,
             padding: 8.0,
+            transitions: true,
         }
     }
 }
@@ -82,6 +85,7 @@ impl Application for State {
             canvas: CanvasConfig::default(),
             transition_easing: Easing::EaseInOutQuad,
             transition_target: false,
+            carousel: 0,
             resize: ResizeState::default(),
         }
     }
@@ -146,16 +150,13 @@ impl State {
             );
         });
         if header
-            .add(
-                choice("Reset", false)
-                    .id("reset playground")
-                    .padding_x(14.0),
-            )
+            .add(choice("reset playground", "Reset", false).padding_x(14.0))
             .clicked()
         {
             self.canvas = CanvasConfig::default();
             self.transition_easing = Easing::EaseInOutQuad;
             self.transition_target = false;
+            self.carousel = 0;
             self.resize.reset();
         }
     }
@@ -190,6 +191,19 @@ impl State {
                 .color(colors::ACCENT)
                 .text_size(12.0),
         );
+
+        controls.add(
+            Text::new("item transitions")
+                .color(colors::TEXT_MUTED)
+                .text_size(11.0),
+        );
+        controls.add(options(
+            "item transitions",
+            &mut self.canvas.transitions,
+            [("On", true), ("Off", false)],
+            6.0,
+            10.0,
+        ));
 
         controls.add(Text::new("axis").color(colors::TEXT_MUTED).text_size(11.0));
         controls.add(options(
@@ -338,6 +352,7 @@ impl State {
         );
 
         preview.add(|ui: &mut Ui| self.playground(ui, max_width, max_height));
+        self.carousel = preview.add(carousel(self.carousel));
         preview.add(|ui: &mut Ui| self.transitions(ui));
     }
 
@@ -402,10 +417,13 @@ impl State {
             {
                 if choices
                     .add(
-                        choice(label, self.transition_easing == easing)
-                            .id(("transition easing", index))
-                            .padding_x(7.0)
-                            .padding_y(4.0),
+                        choice(
+                            ("transition easing", index),
+                            label,
+                            self.transition_easing == easing,
+                        )
+                        .padding_x(7.0)
+                        .padding_y(4.0),
                     )
                     .clicked()
                 {
@@ -415,8 +433,7 @@ impl State {
         });
         if header
             .add(
-                choice("Reverse", self.transition_target)
-                    .id("reverse transitions")
+                choice("reverse transitions", "Reverse", self.transition_target)
                     .padding_x(12.0)
                     .padding_y(4.0),
             )
@@ -524,6 +541,164 @@ impl State {
                 .color(colors::TEXT)
                 .text_size(10.0),
         );
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CarouselLayout {
+    spacing: f32,
+    active: usize,
+}
+
+impl Layout for CarouselLayout {
+    type Item = usize;
+    type Scope<'a> = ItemScope<'a, Self>;
+
+    fn measure(&self, cx: &LayoutCx<'_, Self::Item>, axis: Axis) -> Option<f32> {
+        let mut measured: Option<f32> = None;
+        for node in cx.children() {
+            if cx.is_in_flow(node) {
+                let size =
+                    cx.sizing(node, axis)
+                        .resolve(cx.axis_size(node, axis), f32::INFINITY, true);
+                measured = Some(measured.map_or(size, |measured| measured.max(size)));
+            }
+        }
+        measured.map(|size| {
+            if axis == Axis::Horizontal {
+                size + self.spacing * 2.0
+            } else {
+                size
+            }
+        })
+    }
+
+    fn place(&self, cx: &mut LayoutCx<'_, Self::Item>, axis: Axis) {
+        let count = cx.children().filter(|node| cx.is_in_flow(*node)).count();
+        if count == 0 {
+            return;
+        }
+        let active = self.active % count;
+
+        let rect = cx.rect();
+        let (origin, available) = match axis {
+            Axis::Horizontal => (rect.x, rect.width),
+            Axis::Vertical => (rect.y, rect.height),
+        };
+        for node in cx.children() {
+            if cx.is_in_flow(node) {
+                let index = cx.item(node) % count;
+                let forward = if index >= active {
+                    index - active
+                } else {
+                    count - (active - index)
+                };
+                let backward = count - forward;
+                let size = cx
+                    .sizing(node, axis)
+                    .resolve(cx.axis_size(node, axis), available, true);
+                let offset = if axis == Axis::Horizontal {
+                    let distance = forward.min(backward);
+                    cx.set_z_index(node, -i16::try_from(distance).unwrap_or(i16::MAX));
+                    let position = if forward <= backward {
+                        forward as f32
+                    } else {
+                        -(backward as f32)
+                    };
+                    position * self.spacing
+                } else {
+                    0.0
+                };
+                cx.set_axis(node, axis, origin + (available - size) / 2.0 + offset, size);
+            }
+        }
+    }
+}
+
+fn carousel(mut active: usize) -> impl Widget<Output = usize> {
+    move |ui: &mut Ui| {
+        const CARDS: [(&str, &str); 5] = [
+            ("01", "LAYOUT"),
+            ("02", "OVERLAP"),
+            ("03", "CLIPPING"),
+            ("04", "PAINT ORDER"),
+            ("05", "CAROUSEL"),
+        ];
+
+        active %= CARDS.len();
+        let mut section = ui
+            .layout(Flex::column().gap(7.0))
+            .width(Sizing::grow())
+            .height(Sizing::fixed(174.0))
+            .open();
+        section.add(|ui: &mut Ui| {
+            let mut controls = ui
+                .layout(Flex::row().align(Align::Center).gap(5.0))
+                .width(Sizing::grow())
+                .open();
+            controls.add(
+                Text::new("CAROUSEL / CUSTOM OVERLAP LAYOUT")
+                    .color(colors::ACCENT)
+                    .text_size(10.0),
+            );
+            controls.add(Rectangle::new().width(Sizing::grow()));
+            if controls
+                .add(choice("carousel previous", "PREV", false).padding_y(4.0))
+                .clicked()
+            {
+                active = (active + CARDS.len() - 1) % CARDS.len();
+            }
+            if controls
+                .add(choice("carousel next", "NEXT", false).padding_y(4.0))
+                .clicked()
+            {
+                active = (active + 1) % CARDS.len();
+            }
+        });
+        section.add(|ui: &mut Ui| {
+            let mut cards = ui
+                .layout(CarouselLayout {
+                    spacing: 112.0,
+                    active,
+                })
+                .grow()
+                .background(colors::TRACK)
+                .border(1.0, colors::BORDER)
+                .uniform_radius(8.0)
+                .clip(Clip::Bounds)
+                .open();
+            for (index, &(number, label)) in CARDS.iter().enumerate() {
+                cards.add(index, |ui: &mut Ui| {
+                    let mut card = ui
+                        .layout(
+                            Flex::column()
+                                .padding(LogicalInsets::uniform(12.0))
+                                .justify(Justify::SpaceBetween),
+                        )
+                        .fixed(170.0, 104.0)
+                        .id(WidgetId::new(("carousel card", index)))
+                        .transition(
+                            Transition::new(Duration::from_millis(350))
+                                .easing(Easing::EaseOutQuad)
+                                .position(),
+                        )
+                        .background(colors::ITEMS[index])
+                        .border(
+                            if index == active { 2.0 } else { 1.0 },
+                            if index == active {
+                                colors::WHITE
+                            } else {
+                                colors::BORDER
+                            },
+                        )
+                        .uniform_radius(9.0)
+                        .open();
+                    card.add(Text::new(number).color(colors::WHITE).text_size(22.0));
+                    card.add(Text::new(label).color(colors::WHITE).text_size(10.0));
+                });
+            }
+        });
+        active
     }
 }
 
@@ -777,6 +952,15 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
                     Axis::Horizontal => item.width(main).height(cross),
                     Axis::Vertical => item.width(cross).height(main),
                 };
+                let item = if config.transitions {
+                    item.id(WidgetId::new(("canvas item", index))).transition(
+                        Transition::new(Duration::from_millis(300))
+                            .easing(Easing::EaseOutQuad)
+                            .layout(),
+                    )
+                } else {
+                    item
+                };
                 let mut rectangle = item
                     .background(colors::ITEMS[index])
                     .uniform_radius(5.0)
@@ -819,85 +1003,23 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
     }
 }
 
-struct Button<'a> {
-    label: &'a str,
-    id: WidgetId,
-    background: blit::color::Color,
-    clicked_background: blit::color::Color,
-    text_color: blit::color::Color,
-    border_width: f32,
-    border_color: blit::color::Color,
-    radius: f32,
-    padding_x: f32,
-    padding_y: f32,
-    text_size: f32,
+blit::builder! {
+    struct Button<'a> {
+        new(widget_id: WidgetId),
+        label: &'a str = "",
+        background: blit::color::Color = colors::SURFACE_HIGH,
+        clicked_background: blit::color::Color = colors::ACCENT,
+        text_color: blit::color::Color = colors::TEXT,
+        border_width: f32 = 0.0,
+        border_color: blit::color::Color = colors::BORDER,
+        radius: f32 = 0.0,
+        padding_x: f32 = 8.0,
+        padding_y: f32 = 8.0,
+        text_size: f32 = 12.0,
+    }
 }
 
 struct ButtonResponse(bool);
-
-impl<'a> Button<'a> {
-    fn new(label: &'a str) -> Self {
-        Self {
-            label,
-            id: WidgetId::new(label),
-            background: colors::SURFACE_HIGH,
-            clicked_background: colors::ACCENT,
-            text_color: colors::TEXT,
-            border_width: 0.0,
-            border_color: colors::BORDER,
-            radius: 0.0,
-            padding_x: 8.0,
-            padding_y: 8.0,
-            text_size: 12.0,
-        }
-    }
-
-    fn id(mut self, source: impl std::hash::Hash) -> Self {
-        self.id = WidgetId::new(source);
-        self
-    }
-
-    fn background(mut self, color: blit::color::Color) -> Self {
-        self.background = color;
-        self
-    }
-
-    fn clicked_background(mut self, color: blit::color::Color) -> Self {
-        self.clicked_background = color;
-        self
-    }
-
-    fn text_color(mut self, color: blit::color::Color) -> Self {
-        self.text_color = color;
-        self
-    }
-
-    fn border(mut self, width: f32, color: blit::color::Color) -> Self {
-        self.border_width = width;
-        self.border_color = color;
-        self
-    }
-
-    fn uniform_radius(mut self, radius: f32) -> Self {
-        self.radius = radius;
-        self
-    }
-
-    fn padding_x(mut self, padding: f32) -> Self {
-        self.padding_x = padding;
-        self
-    }
-
-    fn padding_y(mut self, padding: f32) -> Self {
-        self.padding_y = padding;
-        self
-    }
-
-    fn text_size(mut self, size: f32) -> Self {
-        self.text_size = size;
-        self
-    }
-}
 
 impl ButtonResponse {
     fn clicked(self) -> bool {
@@ -909,7 +1031,7 @@ impl Widget for Button<'_> {
     type Output = ButtonResponse;
 
     fn render(self, ui: &mut Ui) -> ButtonResponse {
-        let interaction = ui.interact(self.id, Sense::CLICK);
+        let interaction = ui.interact(self.widget_id, Sense::CLICK);
         let mut button = ui
             .layout(Flex::row().padding(LogicalInsets {
                 top: self.padding_y,
@@ -917,7 +1039,7 @@ impl Widget for Button<'_> {
                 bottom: self.padding_y,
                 left: self.padding_x,
             }))
-            .id(self.id)
+            .id(self.widget_id)
             .style(
                 Style::new()
                     .background(if interaction.pressed || interaction.clicked {
@@ -953,11 +1075,7 @@ where
         let mut row = ui.layout(Flex::row().gap(gap)).width(Sizing::grow()).open();
         for (index, (label, value)) in options.into_iter().enumerate() {
             if row
-                .add(
-                    choice(label, *selected == value)
-                        .id((id, index))
-                        .padding_x(padding_x),
-                )
+                .add(choice((id, index), label, *selected == value).padding_x(padding_x))
                 .clicked()
             {
                 *selected = value;
@@ -966,8 +1084,9 @@ where
     }
 }
 
-fn choice(label: &str, selected: bool) -> Button<'_> {
-    Button::new(label)
+fn choice<'a>(id: impl std::hash::Hash, label: &'a str, selected: bool) -> Button<'a> {
+    Button::new(WidgetId::new(id))
+        .label(label)
         .background(if selected {
             colors::ACCENT_DARK
         } else {
@@ -975,15 +1094,13 @@ fn choice(label: &str, selected: bool) -> Button<'_> {
         })
         .clicked_background(colors::ACCENT)
         .text_color(colors::TEXT)
-        .border(
-            1.0,
-            if selected {
-                colors::ACCENT
-            } else {
-                colors::BORDER
-            },
-        )
-        .uniform_radius(6.0)
+        .border_width(1.0)
+        .border_color(if selected {
+            colors::ACCENT
+        } else {
+            colors::BORDER
+        })
+        .radius(6.0)
         .padding_x(10.0)
         .padding_y(6.0)
         .text_size(10.0)
