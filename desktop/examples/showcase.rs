@@ -879,7 +879,7 @@ impl Widget for ResizeGrip {
         grip.add(
             Rectangle::new()
                 .fixed(marker_width, marker_height)
-                .background(if self.interaction.hovered || self.interaction.dragged {
+                .background(if self.interaction.hovered || self.interaction.dragging {
                     colors::ACCENT
                 } else {
                     color
@@ -887,7 +887,7 @@ impl Widget for ResizeGrip {
                 .uniform_radius(marker_width.min(marker_height) / 2.0),
         );
         if matches!(self.edge, ResizeEdge::Right)
-            && (self.interaction.hovered || self.interaction.dragged)
+            && (self.interaction.hovered || self.interaction.dragging)
         {
             grip.add(|ui: &mut Ui| {
                 let mut readout = ui
@@ -1042,7 +1042,7 @@ impl Widget for Button<'_> {
             .id(self.widget_id)
             .style(
                 Style::new()
-                    .background(if interaction.pressed || interaction.clicked {
+                    .background(if interaction.active || interaction.clicked {
                         self.clicked_background
                     } else {
                         self.background

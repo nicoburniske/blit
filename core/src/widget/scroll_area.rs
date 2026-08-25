@@ -180,12 +180,12 @@ impl<'a> ScrollArea<'a> {
             }
             self.state.tracking = true;
             self.state.continuous_inertia = true;
-        } else if interaction.drag_released {
+        } else if interaction.deactivated {
             self.state.tracking = false;
             released = true;
-        } else if let Some(phase) = interaction.scroll_phase {
-            if interaction.scroll_continuous {
-                match phase {
+        } else if let Some(scroll) = interaction.scroll {
+            if scroll.continuous {
+                match scroll.phase {
                     ScrollPhase::Started => {
                         self.state.velocity = 0.0;
                         self.state.tracking = true;
@@ -199,13 +199,12 @@ impl<'a> ScrollArea<'a> {
                         released = true;
                     }
                 }
-                direct_delta = interaction.scroll_delta.y * self.scroll_speed;
+                direct_delta = scroll.delta.y * self.scroll_speed;
                 self.state.continuous_inertia = true;
-            } else if interaction.scroll_delta.y != 0.0 {
+            } else if scroll.delta.y != 0.0 {
                 self.state.tracking = false;
                 self.state.continuous_inertia = false;
-                self.state.velocity +=
-                    interaction.scroll_delta.y * WHEEL_FRICTION * self.scroll_speed;
+                self.state.velocity += scroll.delta.y * WHEEL_FRICTION * self.scroll_speed;
             }
         }
 
