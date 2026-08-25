@@ -15,6 +15,7 @@ crate::builder! {
         sampling: ImageSampling = ImageSampling::default(),
         width: Sizing = Sizing::fit(),
         height: Sizing = Sizing::fit(),
+        z_index: i16 = 0,
         opacity: f32 = 1.0,
         colorize: Option<Color> = None,
         nine_slice: Option<NineSlice> = None,
@@ -32,6 +33,7 @@ impl Widget for Image<'_> {
             Item {
                 width: self.width,
                 height: self.height,
+                z_index: self.z_index,
             },
             Content::Image(ImageContent {
                 image: self.resource.id(),

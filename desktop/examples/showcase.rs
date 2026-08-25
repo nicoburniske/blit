@@ -506,11 +506,11 @@ impl State {
             .background(colors::SURFACE_HIGH)
             .border(1.0, colors::ACCENT)
             .uniform_radius(7.0)
+            .z_index(20)
             .absolute(
                 Absolute::screen(0.0, 0.0)
                     .anchors(Anchor::BottomRight, Anchor::BottomRight)
-                    .offset(-16.0, -16.0)
-                    .z_index(20),
+                    .offset(-16.0, -16.0),
             )
             .open();
         screen_badge.add(
@@ -660,41 +660,45 @@ impl Widget for ResizeGrip {
     type Output = ();
 
     fn render(self, ui: &mut Ui) {
-        let (layout, width, height, absolute, marker_width, marker_height, color) = match self.edge
-        {
-            ResizeEdge::Right => (
-                Flex::column().align(Align::Center).justify(Justify::Center),
-                Sizing::fixed(12.0),
-                Sizing::percent(1.0),
-                Absolute::attach(Anchor::Right, Anchor::Left).z_index(1),
-                3.0,
-                48.0,
-                colors::GRIP,
-            ),
-            ResizeEdge::Bottom => (
-                Flex::row().align(Align::Center).justify(Justify::Center),
-                Sizing::percent(1.0),
-                Sizing::fixed(12.0),
-                Absolute::attach(Anchor::Bottom, Anchor::Top).z_index(1),
-                48.0,
-                3.0,
-                colors::GRIP,
-            ),
-            ResizeEdge::Corner => (
-                Flex::row().align(Align::Center).justify(Justify::Center),
-                Sizing::fixed(12.0),
-                Sizing::fixed(12.0),
-                Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).z_index(2),
-                6.0,
-                6.0,
-                colors::GRIP_CORNER,
-            ),
-        };
+        let (layout, width, height, absolute, z_index, marker_width, marker_height, color) =
+            match self.edge {
+                ResizeEdge::Right => (
+                    Flex::column().align(Align::Center).justify(Justify::Center),
+                    Sizing::fixed(12.0),
+                    Sizing::percent(1.0),
+                    Absolute::attach(Anchor::Right, Anchor::Left),
+                    1,
+                    3.0,
+                    48.0,
+                    colors::GRIP,
+                ),
+                ResizeEdge::Bottom => (
+                    Flex::row().align(Align::Center).justify(Justify::Center),
+                    Sizing::percent(1.0),
+                    Sizing::fixed(12.0),
+                    Absolute::attach(Anchor::Bottom, Anchor::Top),
+                    1,
+                    48.0,
+                    3.0,
+                    colors::GRIP,
+                ),
+                ResizeEdge::Corner => (
+                    Flex::row().align(Align::Center).justify(Justify::Center),
+                    Sizing::fixed(12.0),
+                    Sizing::fixed(12.0),
+                    Absolute::attach(Anchor::BottomRight, Anchor::TopLeft),
+                    2,
+                    6.0,
+                    6.0,
+                    colors::GRIP_CORNER,
+                ),
+            };
         let mut grip = ui
             .layout(layout)
             .width(width)
             .height(height)
             .id(self.id)
+            .z_index(z_index)
             .absolute(absolute)
             .open();
         grip.add(
@@ -721,11 +725,8 @@ impl Widget for ResizeGrip {
                     .background(colors::BACKGROUND)
                     .border(1.0, colors::ACCENT)
                     .uniform_radius(5.0)
-                    .absolute(
-                        Absolute::attach(Anchor::Left, Anchor::Right)
-                            .offset(-8.0, 0.0)
-                            .z_index(10),
-                    )
+                    .z_index(10)
+                    .absolute(Absolute::attach(Anchor::Left, Anchor::Right).offset(-8.0, 0.0))
                     .open();
                 readout.add(Text::new("DRAG X").color(colors::TEXT).text_size(9.0));
             });
@@ -803,7 +804,8 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
                             .background(colors::BACKGROUND)
                             .border(1.0, colors::WHITE)
                             .uniform_radius(5.0)
-                            .absolute(Absolute::attach(anchor, Anchor::Center).z_index(1))
+                            .z_index(1)
+                            .absolute(Absolute::attach(anchor, Anchor::Center))
                             .open();
                         badge.add(
                             Text::new("ABS")

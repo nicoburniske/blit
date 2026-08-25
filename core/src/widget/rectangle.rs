@@ -42,6 +42,11 @@ impl Rectangle {
         self
     }
 
+    pub const fn z_index(mut self, z_index: i16) -> Self {
+        self.item.z_index = z_index;
+        self
+    }
+
     pub const fn background(mut self, color: Color) -> Self {
         self.style.background = color;
         self

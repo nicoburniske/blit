@@ -10,8 +10,9 @@
 //! [`Layout`] operates on one [`Axis`] at a time. this staged model is not
 //! recursive constraint propagation. layouts can place any widget subtree with
 //! arbitrary axis-aligned geometry, including overlap and radial arrangements.
-//! paint order and transforms are outside layout. positions must remain relative
-//! to [`LayoutCx::rect`] so moving a container only translates its descendants.
+//! layouts may set sibling paint order with [`LayoutCx::set_z_index`]. positions
+//! must remain relative to [`LayoutCx::rect`] so moving a container only
+//! translates its descendants.
 
 mod flex;
 
