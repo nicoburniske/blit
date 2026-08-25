@@ -26,6 +26,7 @@ crate::builder! {
         text_options: TextOptions = TextOptions::default(),
         read_only: bool = false,
         mask: Option<char> = None,
+        z_index: i16 = 0,
     }
 }
 
@@ -237,6 +238,7 @@ impl Widget for TextInput<'_> {
             Item {
                 width: Sizing::grow(),
                 height: Sizing::fit(),
+                z_index: self.z_index,
             },
             Content::Text(TextContent {
                 text: text_run,

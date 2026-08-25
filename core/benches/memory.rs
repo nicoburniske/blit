@@ -16,7 +16,7 @@ use blit::{
     widget::Text,
 };
 
-use support::{NoopRenderer, command_frame};
+use support::{NoopRenderer, command_frame, z_index_frame};
 
 #[allow(dead_code)]
 mod support;
@@ -30,12 +30,13 @@ static ALLOCATOR: TrackingAllocator = TrackingAllocator;
 fn main() {
     let representative = measure("representative", 104, representative_frame);
     let benchmark = measure("core benchmark", 1026, command_frame);
+    let z_index = measure("z-index", 1025, z_index_frame);
 
     println!(
         "{:<16} {:>6} {:>6} {:>8} {:>12} {:>12} {:>12} {:>10}",
         "scene", "nodes", "node B", "capacity", "graph heap", "core heap", "warm alloc", "steady",
     );
-    for report in [representative, benchmark] {
+    for report in [representative, benchmark, z_index] {
         println!(
             "{:<16} {:>6} {:>6} {:>8} {:>9.1} KiB {:>9.1} KiB {:>9.1} KiB {:>7} B",
             report.name,

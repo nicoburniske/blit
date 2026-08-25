@@ -15,6 +15,7 @@ pub struct ScrollArea<'a> {
     state: &'a mut ScrollState,
     width: Sizing,
     height: Sizing,
+    z_index: i16,
     gap: f32,
     padding: LogicalInsets,
     scroll_speed: f32,
@@ -85,6 +86,7 @@ impl<'a> ScrollArea<'a> {
             state,
             width: Sizing::grow(),
             height: Sizing::grow(),
+            z_index: 0,
             gap: 0.0,
             padding: LogicalInsets::default(),
             scroll_speed: 1.0,
@@ -101,6 +103,11 @@ impl<'a> ScrollArea<'a> {
 
     pub fn height(mut self, height: Sizing) -> Self {
         self.height = height;
+        self
+    }
+
+    pub fn z_index(mut self, z_index: i16) -> Self {
+        self.z_index = z_index;
         self
     }
 
@@ -150,6 +157,7 @@ impl<'a> ScrollArea<'a> {
         let mut viewport_config = crate::ContainerConfig::default();
         viewport_config.item.width = self.width;
         viewport_config.item.height = self.height;
+        viewport_config.item.z_index = self.z_index;
         viewport_config.id = Some(id);
         viewport_config.clip = Clip::Bounds;
         let interaction = ui.interact(id, sense);

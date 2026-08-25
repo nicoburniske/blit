@@ -277,12 +277,13 @@ fn custom_layout_is_stored_and_invoked_after_declaration() {
                 Axis::Vertical => (rect.y, rect.height),
             };
             let mut cursor = origin + available;
-            for node in cx.children() {
+            for (index, node) in cx.children().enumerate() {
                 let sizing = cx.sizing(node, axis);
                 let size =
                     sizing.resolve(cx.axis_size(node, axis), available, axis == Axis::Vertical);
                 if axis == Axis::Horizontal {
                     cursor -= cx.item(node).0 + size;
+                    cx.set_z_index(node, -(index as i16));
                     cx.set_axis(node, axis, cursor, size);
                     cursor -= self.gaps[0];
                 } else {
@@ -316,15 +317,15 @@ fn custom_layout_is_stored_and_invoked_after_declaration() {
         harness.renderer().rectangle_areas,
         [
             LogicalRect {
-                x: 8.0,
-                y: 0.0,
-                width: 2.0,
-                height: 4.0,
-            },
-            LogicalRect {
                 x: 2.0,
                 y: 0.0,
                 width: 3.0,
+                height: 4.0,
+            },
+            LogicalRect {
+                x: 8.0,
+                y: 0.0,
+                width: 2.0,
                 height: 4.0,
             },
         ]
@@ -434,15 +435,15 @@ fn absolute_containers_do_not_participate_in_flow() {
                 height: 2.0,
             },
             LogicalRect {
-                x: 4.0,
-                y: 0.0,
-                width: 6.0,
-                height: 2.0,
-            },
-            LogicalRect {
                 x: 3.0,
                 y: -1.0,
                 width: 3.0,
+                height: 2.0,
+            },
+            LogicalRect {
+                x: 4.0,
+                y: 0.0,
+                width: 6.0,
                 height: 2.0,
             },
             LogicalRect {
@@ -456,13 +457,82 @@ fn absolute_containers_do_not_participate_in_flow() {
 }
 
 #[test]
-fn absolute_z_index_orders_complete_subtrees() {
+fn z_index_orders_normal_siblings() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        widget::Rectangle::new()
+            .fixed(1.0, 1.0)
+            .z_index(2)
+            .background(Color::BLACK)
+            .render(ui);
+        widget::Rectangle::new()
+            .fixed(2.0, 1.0)
+            .z_index(-1)
+            .background(Color::BLACK)
+            .render(ui);
+        widget::Rectangle::new()
+            .fixed(3.0, 1.0)
+            .background(Color::BLACK)
+            .render(ui);
+    });
+
+    assert_eq!(
+        harness
+            .renderer()
+            .rectangle_areas
+            .iter()
+            .map(|area| area.width)
+            .collect::<Vec<_>>(),
+        [2.0, 3.0, 1.0]
+    );
+}
+
+#[test]
+fn screen_absolute_is_a_root_sibling_and_uses_root_clip() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        widget::Rectangle::new()
+            .fixed(1.0, 1.0)
+            .z_index(2)
+            .background(Color::BLACK)
+            .render(ui);
+        let mut parent = ui
+            .layout(Flex::column())
+            .fixed(2.0, 2.0)
+            .z_index(-1)
+            .background(Color::GRAY)
+            .clip(Clip::Bounds)
+            .open();
+        parent.add(|ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(1.0, 1.0)
+                .z_index(1)
+                .background(Color::WHITE)
+                .absolute(Absolute::screen(8.0, 8.0))
+                .open();
+        });
+    });
+
+    assert_eq!(
+        harness
+            .renderer()
+            .rectangle_areas
+            .iter()
+            .map(|area| (area.x, area.y))
+            .collect::<Vec<_>>(),
+        [(0.0, 1.0), (8.0, 8.0), (0.0, 0.0)]
+    );
+}
+
+#[test]
+fn z_index_orders_complete_subtrees() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
         ui.layout(Flex::column())
             .fixed(1.0, 1.0)
             .background(Color::BLACK)
-            .absolute(Absolute::at(1.0, 0.0).z_index(-1))
+            .z_index(-1)
+            .absolute(Absolute::at(1.0, 0.0))
             .open();
         widget::Rectangle::new()
             .fixed(1.0, 1.0)
@@ -471,17 +541,20 @@ fn absolute_z_index_orders_complete_subtrees() {
         ui.layout(Flex::column())
             .fixed(1.0, 1.0)
             .background(Color::WHITE)
-            .absolute(Absolute::at(4.0, 0.0).z_index(2))
+            .z_index(2)
+            .absolute(Absolute::at(4.0, 0.0))
             .open();
         let mut layer = ui
             .layout(Flex::column())
             .fixed(1.0, 1.0)
             .background(Color::WHITE)
-            .absolute(Absolute::at(3.0, 0.0).z_index(1))
+            .z_index(1)
+            .absolute(Absolute::at(3.0, 0.0))
             .open();
         layer.add(
             widget::Rectangle::new()
                 .fixed(1.0, 1.0)
+                .z_index(100)
                 .background(Color::BLACK),
         );
         drop(layer);
@@ -503,7 +576,7 @@ fn absolute_z_index_orders_complete_subtrees() {
 }
 
 #[test]
-fn absolute_z_index_orders_hit_testing() {
+fn z_index_orders_hit_testing() {
     let mut harness = Harness::new(TestRenderer::default());
     let normal = WidgetId::new("normal hit");
     let raised = WidgetId::new("raised hit");
@@ -519,7 +592,8 @@ fn absolute_z_index_orders_hit_testing() {
         ui.layout(Flex::column())
             .fixed(10.0, 10.0)
             .id(raised)
-            .absolute(Absolute::at(0.0, 0.0).z_index(1))
+            .z_index(1)
+            .absolute(Absolute::at(0.0, 0.0))
             .open();
         (normal_hovered, raised_hovered)
     };
@@ -535,6 +609,28 @@ fn absolute_z_index_orders_hit_testing() {
     );
 
     assert_eq!(hovered, (false, true));
+}
+
+#[test]
+fn z_index_changes_damage_overlapping_content() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let render = |raised: bool| {
+        move |ui: &mut Ui| {
+            for (index, color) in [Color::BLACK, Color::WHITE].into_iter().enumerate() {
+                ui.layout(Flex::column())
+                    .fixed(10.0, 10.0)
+                    .z_index(if (index == 0) == raised { 1 } else { 0 })
+                    .background(color)
+                    .absolute(Absolute::at(0.0, 0.0))
+                    .open();
+            }
+        }
+    };
+
+    harness.render(Duration::ZERO, Input::None, render(false));
+    harness.render(Duration::ZERO, Input::None, render(true));
+
+    assert!(!harness.renderer().damage.is_empty());
 }
 
 #[test]

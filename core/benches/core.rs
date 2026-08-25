@@ -10,7 +10,10 @@ use blit::{
 };
 use divan::counter::ItemsCount;
 
-use support::{CELLS_PER_ROW, ITEMS, NoopRenderer, command_frame, layout_frame, transition_frame};
+use support::{
+    CELLS_PER_ROW, ITEMS, NoopRenderer, command_frame, layout_frame, transition_frame,
+    z_index_frame,
+};
 
 mod support;
 
@@ -47,6 +50,11 @@ fn layout_with_position_transition(bencher: divan::Bencher) {
 #[divan::bench]
 fn layout_and_commands(bencher: divan::Bencher) {
     benchmark_frame(bencher, command_frame)
+}
+
+#[divan::bench]
+fn z_index(bencher: divan::Bencher) {
+    benchmark_frame(bencher, z_index_frame)
 }
 
 #[divan::bench(args = [

@@ -91,6 +91,20 @@ fn layout_rows(column: &mut UnitScope<'_>) {
     }
 }
 
+pub fn z_index_frame(ui: &mut Ui) {
+    for index in 0..ROWS {
+        let mut item = ui
+            .layout(Flex::column())
+            .fixed(20.0, 20.0)
+            .z_index((index % 7) as i16 - 3)
+            .absolute(Absolute::at(index as f32, 0.0))
+            .open();
+        for _ in 0..CELLS_PER_ROW {
+            item.add(Rectangle::new().fixed(4.0, 4.0));
+        }
+    }
+}
+
 pub fn command_frame(ui: &mut Ui) {
     let mut column = ui
         .layout(Flex::column().gap(2.0))

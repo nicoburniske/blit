@@ -19,6 +19,7 @@ crate::builder! {
         offset_x: f32 = 0.0,
         width: Sizing = Sizing::fit(),
         height: Sizing = Sizing::fit(),
+        z_index: i16 = 0,
     }
 }
 
@@ -78,6 +79,7 @@ impl Widget for Text<'_> {
             Item {
                 width: self.width,
                 height: self.height,
+                z_index: self.z_index,
             },
             Content::Text(TextContent {
                 text,
