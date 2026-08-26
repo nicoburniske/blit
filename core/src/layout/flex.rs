@@ -178,18 +178,32 @@ impl Layout for Flex {
                 }
             }
         }
-        let free = free.max(0.0);
-        if grow != 0 {
-            let share = free / grow as f32;
+        let mut free = free.max(0.0);
+        let mut remaining_grow = grow;
+        while remaining_grow != 0 && free > 0.0 {
+            let share = free / remaining_grow as f32;
+            let mut distributed = 0.0;
+            let mut uncapped = 0;
             for node in cx.children() {
                 if cx.is_in_flow(node) && matches!(cx.sizing(node, axis), Sizing::Grow { .. }) {
                     let sizing = cx.sizing(node, axis);
                     let size = cx.axis_size(node, axis);
+                    let maximum = sizing.clamp(f32::INFINITY);
+                    if maximum <= size {
+                        continue;
+                    }
                     let grown = sizing.clamp(size + share);
                     cx.set_size(node, axis, grown);
-                    used += grown - size;
+                    distributed += grown - size;
+                    uncapped += usize::from(maximum > grown);
                 }
             }
+            used += distributed;
+            free = (free - distributed).max(0.0);
+            if distributed == 0.0 || uncapped == remaining_grow {
+                break;
+            }
+            remaining_grow = uncapped;
         }
 
         let remaining = (available - used - gaps).max(0.0);

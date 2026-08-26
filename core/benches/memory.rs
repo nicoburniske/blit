@@ -13,7 +13,7 @@ use blit::{
     layout::Flex,
     render,
     repaint::{IncrementalRepaint, MyersTracker},
-    style::Clip,
+    style::{Clip, Style},
     widget::Text,
 };
 
@@ -124,7 +124,7 @@ fn representative_frame(ui: &mut Ui) {
             .layout(Flex::row())
             .width(Sizing::grow())
             .height(Sizing::fixed(48.0))
-            .background(Color::from_rgba8(30, 35, 45, 255))
+            .style(Style::new().background(Color::from_rgba8(30, 35, 45, 255)))
             .open();
         header.add(Text::new("dashboard"));
     });
@@ -156,7 +156,7 @@ fn representative_frame(ui: &mut Ui) {
                     let mut card = ui
                         .layout(Flex::column().gap(4.0))
                         .width(Sizing::grow())
-                        .background(Color::from_rgba8(240, 240, 244, 255))
+                        .style(Style::new().background(Color::from_rgba8(240, 240, 244, 255)))
                         .open();
                     card.add(Text::new("card title"));
                     for _ in 0..3 {

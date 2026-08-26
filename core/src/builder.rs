@@ -5,6 +5,13 @@ macro_rules! builder {
         $visibility:vis struct $name:ident $(<$lifetime:lifetime>)? {
             new($($required:ident: $required_type:ty),* $(,)?),
             $(
+                @optional {
+                    $(
+                        $optional_field:ident: $optional_type:ty
+                    ),* $(,)?
+                },
+            )?
+            $(
                 $field:ident: $field_type:ty = $default:expr
             ),* $(,)?
         }
@@ -12,6 +19,9 @@ macro_rules! builder {
         $(#[$attribute])*
         $visibility struct $name $(<$lifetime>)? {
             $(pub $required: $required_type,)*
+            $($(
+                pub $optional_field: Option<$optional_type>,
+            )*)?
             $(pub $field: $field_type,)*
         }
 
@@ -19,6 +29,9 @@ macro_rules! builder {
             $visibility fn new($($required: $required_type),*) -> Self {
                 Self {
                     $($required,)*
+                    $($(
+                        $optional_field: None,
+                    )*)?
                     $($field: $default,)*
                 }
             }
@@ -32,6 +45,16 @@ macro_rules! builder {
                     self
                 }
             )*
+
+            $($(
+                $visibility const fn $optional_field(
+                    mut self,
+                    value: $optional_type,
+                ) -> Self {
+                    self.$optional_field = Some(value);
+                    self
+                }
+            )*)?
 
             $(
                 $visibility const fn $field(

@@ -7,12 +7,14 @@ crate::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Style<'a> {
         new(),
+        @optional {
+            shadow: Shadow,
+            inset_shadow: Shadow,
+        },
         background: Color = Color::TRANSPARENT,
         border: Border<'a> = Border::None,
         radius: BorderRadius = BorderRadius::default(),
         opacity: f32 = 1.0,
-        shadow: Option<Shadow> = None,
-        inset_shadow: Option<Shadow> = None,
     }
 }
 
@@ -92,6 +94,16 @@ impl GradientStop {
 }
 
 impl<'a> Style<'a> {
+    pub const fn uniform_radius(mut self, radius: f32) -> Self {
+        self.radius = BorderRadius {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        };
+        self
+    }
+
     pub const fn solid_border(mut self, width: f32, color: Color) -> Self {
         self.border = Border::Solid { width, color };
         self
