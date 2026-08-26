@@ -11,6 +11,7 @@ pub mod interact;
 pub mod layout;
 pub mod node;
 pub mod renderer;
+pub mod repaint;
 pub mod style;
 #[cfg(test)]
 mod test;
@@ -21,7 +22,7 @@ pub mod widget;
 use std::{ptr::NonNull, time::Duration};
 
 use animation::Easing;
-use command_list::{CommandDiffConfig, CommandList, CommandListDiffer};
+use command_list::CommandList;
 use container::{Container, ContainerConfig, Item};
 use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
 use image::{ImageData, ImageHandle};
@@ -29,6 +30,7 @@ use input::Input;
 use interact::{Interaction, Sense, WidgetId};
 use node::{Content, NodeId};
 use renderer::Renderer;
+use repaint::Repaint;
 use style::Style;
 use text::{TextRunId, TextStyle};
 
@@ -304,15 +306,6 @@ fn begin_timer(ui: &mut Ui, id: WidgetId, duration: Duration, interval: Option<D
     timer.advance(duration, interval, time)
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum RepaintBuffer {
-    /// the same buffer retains the previously rendered frame
-    #[default]
-    Reused,
-    /// two buffers alternate, so each frame also repairs the previous frame's damage
-    Swapped,
-}
-
 /// retained frame graph memory after its buffers have grown
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FrameGraphMemory {
@@ -333,21 +326,12 @@ pub struct UiState {
     full_repaint: bool,
     screen: LogicalRect,
     physical_screen: PhysicalRect,
-    repaint_buffer: RepaintBuffer,
     scale_factor: f32,
     scale_factor_changed: bool,
-    previous_commands: CommandList,
-    differ: CommandListDiffer,
-    previous_damage: Vec<PhysicalRect>,
-    render_damage: Vec<PhysicalRect>,
 }
 
 impl UiState {
-    pub fn new(
-        physical_screen: PhysicalRect,
-        repaint_buffer: RepaintBuffer,
-        scale_factor: f32,
-    ) -> Self {
+    pub fn new(physical_screen: PhysicalRect, scale_factor: f32) -> Self {
         assert!(scale_factor.is_finite() && scale_factor > 0.0);
         Self {
             frame: graph::FrameGraph::default(),
@@ -361,19 +345,13 @@ impl UiState {
             full_repaint: true,
             screen: physical_screen.to_logical(scale_factor),
             physical_screen,
-            repaint_buffer,
             scale_factor,
             scale_factor_changed: true,
-            previous_commands: CommandList::default(),
-            differ: CommandListDiffer::default(),
-            previous_damage: Vec::new(),
-            render_damage: Vec::new(),
         }
     }
 
     pub fn has_pending_redraw(&self) -> bool {
         self.frame_requested
-            || !self.previous_damage.is_empty()
             || self
                 .animations
                 .iter()
@@ -403,7 +381,6 @@ impl UiState {
         if self.physical_screen != physical_screen {
             self.physical_screen = physical_screen;
             self.screen = physical_screen.to_logical(self.scale_factor);
-            self.previous_damage.clear();
             self.invalidate_all();
         }
     }
@@ -422,10 +399,6 @@ impl UiState {
         self.full_repaint = true;
     }
 
-    pub fn set_command_diff_config(&mut self, config: CommandDiffConfig) {
-        self.differ.set_config(config);
-    }
-
     pub fn frame_graph_memory(&self) -> FrameGraphMemory {
         self.frame.memory()
     }
@@ -435,24 +408,25 @@ impl UiState {
 ///
 /// `render` runs once per input so each event observes state changes from
 /// earlier events. layout and interaction state are updated after every call,
-/// while command diffing and renderer rendering occur once after the last input
+/// while only the final command list is repainted after the last input
 ///
 /// an empty input sequence renders once with [`Input::None`]. the return value is
 /// from the final call to `render`
 ///
-/// the same renderer must be used for the entire lifetime of the [`UiState`]
-pub fn render<P: Renderer, R>(
+/// the same renderer and repaint policy must be used for the lifetime of the
+/// [`UiState`]
+pub fn render<P: Renderer, R: Repaint, O>(
     renderer: &mut P,
     state: &mut UiState,
+    repaint: &mut R,
     time: Duration,
     inputs: impl IntoIterator<Item = Input>,
-    mut render: impl FnMut(&mut Ui) -> R,
-) -> R {
+    mut render: impl FnMut(&mut Ui) -> O,
+) -> O {
     let scale_factor = state.scale_factor;
     if std::mem::take(&mut state.scale_factor_changed) {
         renderer.set_scale_factor(scale_factor);
         state.screen = state.physical_screen.to_logical(scale_factor);
-        state.previous_damage.clear();
         state.full_repaint = true;
     }
 
@@ -471,29 +445,11 @@ pub fn render<P: Renderer, R>(
         output = record(renderer, state, scale_factor, time, input, &mut render);
     }
 
-    // diff and render only the final recorded frame
-    state.render_damage.clear();
+    // repaint only the final recorded frame
     if std::mem::take(&mut state.full_repaint) {
-        state.render_damage.push(state.physical_screen);
-    } else {
-        state
-            .render_damage
-            .extend_from_slice(state.differ.diff(&state.previous_commands, &state.commands));
+        repaint.invalidate();
     }
-    let current_damage_len = state.render_damage.len();
-    if state.repaint_buffer == RepaintBuffer::Swapped {
-        state
-            .render_damage
-            .extend_from_slice(&state.previous_damage);
-    }
-    renderer.render(&state.commands, &state.render_damage);
-    state.previous_damage.clear();
-    if state.repaint_buffer == RepaintBuffer::Swapped {
-        state
-            .previous_damage
-            .extend_from_slice(&state.render_damage[..current_damage_len]);
-    }
-    std::mem::swap(&mut state.previous_commands, &mut state.commands);
+    repaint.render(renderer, &mut state.commands, state.physical_screen);
     output
 }
 
