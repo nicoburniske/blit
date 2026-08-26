@@ -127,15 +127,22 @@ impl Harness {
         }
     }
 
-    fn render<R>(&mut self, time: Duration, input: Input, render: impl FnMut(&mut Ui) -> R) -> R {
+    fn render<R>(
+        &mut self,
+        time: Duration,
+        input: Input,
+        mut render: impl FnMut(&mut Ui) -> R,
+    ) -> R {
+        let mut output = None;
         crate::render(
             &mut self.renderer,
             &mut self.state,
             &mut self.repaint,
             time,
             [input],
-            render,
-        )
+            |ui| output = Some(render(ui)),
+        );
+        output.unwrap()
     }
 
     fn renderer(&mut self) -> &mut TestRenderer {

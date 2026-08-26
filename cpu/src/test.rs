@@ -67,7 +67,7 @@ impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> Harness<B, S> {
         }
     }
 
-    fn render<R>(&mut self, time: Duration, input: Input, build: impl FnMut(&mut Ui) -> R) -> R {
+    fn render(&mut self, time: Duration, input: Input, build: impl FnMut(&mut Ui)) {
         blit::render(
             &mut self.renderer,
             &mut self.state,
@@ -75,7 +75,7 @@ impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> Harness<B, S> {
             time,
             [input],
             build,
-        )
+        );
     }
 
     fn renderer(&mut self) -> &mut Renderer<B, S> {

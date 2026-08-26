@@ -410,19 +410,18 @@ impl UiState {
 /// earlier events. layout and interaction state are updated after every call,
 /// while only the final command list is repainted after the last input
 ///
-/// an empty input sequence renders once with [`Input::None`]. the return value is
-/// from the final call to `render`
+/// an empty input sequence renders once with [`Input::None`]
 ///
 /// the same renderer and repaint policy must be used for the lifetime of the
 /// [`UiState`]
-pub fn render<P: Renderer, R: Repaint, O>(
+pub fn render<P: Renderer, R: Repaint>(
     renderer: &mut P,
     state: &mut UiState,
     repaint: &mut R,
     time: Duration,
     inputs: impl IntoIterator<Item = Input>,
-    mut render: impl FnMut(&mut Ui) -> O,
-) -> O {
+    mut render: impl FnMut(&mut Ui),
+) {
     let scale_factor = state.scale_factor;
     if std::mem::take(&mut state.scale_factor_changed) {
         renderer.set_scale_factor(scale_factor);
@@ -433,7 +432,7 @@ pub fn render<P: Renderer, R: Repaint, O>(
     // record every input against the state produced by the previous one
     let mut inputs = inputs.into_iter();
     state.frame_requested = false;
-    let mut output = record(
+    record(
         renderer,
         state,
         scale_factor,
@@ -442,7 +441,7 @@ pub fn render<P: Renderer, R: Repaint, O>(
         &mut render,
     );
     for input in inputs {
-        output = record(renderer, state, scale_factor, time, input, &mut render);
+        record(renderer, state, scale_factor, time, input, &mut render);
     }
 
     // repaint only the final recorded frame
@@ -450,17 +449,16 @@ pub fn render<P: Renderer, R: Repaint, O>(
         repaint.invalidate();
     }
     repaint.render(renderer, &mut state.commands, state.physical_screen);
-    output
 }
 
-fn record<P: Renderer, R>(
+fn record<P: Renderer>(
     renderer: &mut P,
     state: &mut UiState,
     scale_factor: f32,
     time: Duration,
     input: Input,
-    render: impl FnOnce(&mut Ui) -> R,
-) -> R {
+    render: impl FnOnce(&mut Ui),
+) {
     // reset transient data and begin input processing
     state.commands.clear();
     state.frame.begin(state.screen);
@@ -475,7 +473,7 @@ fn record<P: Renderer, R>(
     }
     state.interaction.begin_frame(&input, scale_factor);
 
-    let output = {
+    {
         let renderer = NonNull::from(&mut *renderer as &mut (dyn Renderer + '_));
         // safety: `Ui` only borrows this pointer for the render callback
         let renderer: NonNull<dyn Renderer> = unsafe { std::mem::transmute(renderer) };
@@ -486,8 +484,8 @@ fn record<P: Renderer, R>(
             input,
             scale_factor,
         };
-        render(&mut ui)
-    };
+        render(&mut ui);
+    }
 
     // resolve the frame and retain state needed by the next input
     let mut frame = std::mem::take(&mut state.frame);
@@ -508,5 +506,4 @@ fn record<P: Renderer, R>(
     state.animations.retain(|animation| animation.seen);
     state.transitions.retain(|transition| transition.seen);
     state.timers.retain(|timer| timer.seen);
-    output
 }
