@@ -102,6 +102,7 @@ pub fn draw_line<B: PixelBuffer>(
             text.draw_line(
                 command.glyph_start,
                 command.glyph_end,
+                command.lines,
                 command.area,
                 color,
                 line,

@@ -165,7 +165,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     ) -> Option<PhysicalRect> {
         let area = request.area.to_physical(self.context.scale_factor);
         let visible_area = area.intersection(bounds)?;
-        let (glyph_start, glyph_end, paragraph_bounds) = self
+        let (glyph_start, glyph_end, lines, paragraph_bounds) = self
             .context
             .text
             .prepare(request, self.context.scale_factor);
@@ -174,6 +174,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             PreparedText {
                 glyph_start,
                 glyph_end,
+                lines,
                 area,
                 color: request.color,
             },

@@ -72,6 +72,14 @@ pub struct PreparedGlyph {
     height: u32,
 }
 
+#[derive(Clone, Copy)]
+pub struct PreparedLines(u32);
+
+impl PreparedLines {
+    // rasterize the full glyph range without cached multiline filtering
+    const NONE: Self = Self(u32::MAX);
+}
+
 impl TextRenderer {
     pub fn new(config: RendererConfig) -> Self {
         Self {
@@ -143,25 +151,25 @@ impl TextRenderer {
         &mut self,
         request: &TextRequest,
         scale_factor: f32,
-    ) -> (u32, u32, PhysicalRect) {
+    ) -> (u32, u32, PreparedLines, PhysicalRect) {
         let area = request.area.to_physical(scale_factor);
         let Some(index) = (request.text.0 as u32)
             .checked_sub(1)
             .map(|index| index as usize)
         else {
-            return (0, 0, PhysicalRect::default());
+            return (0, 0, PreparedLines::NONE, PhysicalRect::default());
         };
         let cached = self.runs.get_index(index);
         assert_eq!(cached.id, request.text, "expired text run");
         let face = cached.face;
         let run = &cached.run;
         let font = self.fonts.get_font(face);
-        let paint = self
+        let paint_index = self
             .paragraphs
             .prepare_paint(request, run, font, scale_factor);
-        let paint = self.paragraphs.get_paint(paint);
+        let paint = self.paragraphs.get_paint(paint_index);
         if paint.bounds.width == 0 || paint.bounds.height == 0 {
-            return (0, 0, PhysicalRect::default());
+            return (0, 0, PreparedLines::NONE, PhysicalRect::default());
         }
         let start = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
         for glyph in &paint.glyphs {
@@ -176,9 +184,15 @@ impl TextRenderer {
             });
         }
         let end = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
+        let lines = if paint.lines.len() > 1 {
+            PreparedLines(u32::try_from(paint_index).expect("too many cached paragraphs"))
+        } else {
+            PreparedLines::NONE
+        };
         (
             start,
             end,
+            lines,
             PhysicalRect {
                 x: area.x.saturating_add(paint.bounds.x),
                 y: area.y.saturating_add(paint.bounds.y),
@@ -192,6 +206,7 @@ impl TextRenderer {
         &mut self,
         glyph_start: u32,
         glyph_end: u32,
+        lines: PreparedLines,
         area: PhysicalRect,
         color: Color,
         line: i32,
@@ -201,6 +216,32 @@ impl TextRenderer {
         if line < clip.y || line >= clip.y.saturating_add(clip.height) {
             return;
         }
+        let (glyph_start, glyph_end) = if lines.0 == PreparedLines::NONE.0 {
+            (glyph_start, glyph_end)
+        } else {
+            let mut start = glyph_end;
+            let mut end = glyph_start;
+            for prepared_line in &self.paragraphs.get_paint(lines.0 as usize).lines {
+                if line >= area.y.saturating_add(prepared_line.top)
+                    && line < area.y.saturating_add(prepared_line.bottom)
+                {
+                    start = start.min(
+                        glyph_start
+                            .checked_add(prepared_line.glyph_start)
+                            .expect("too many prepared glyphs"),
+                    );
+                    end = end.max(
+                        glyph_start
+                            .checked_add(prepared_line.glyph_end)
+                            .expect("too many prepared glyphs"),
+                    );
+                }
+            }
+            if start >= end {
+                return;
+            }
+            (start, end)
+        };
         let row_end = row.x.saturating_add(row.pixels.len() as i32);
         if self.coverage.len() < row.pixels.len() {
             self.coverage.resize(row.pixels.len(), 0);
@@ -284,6 +325,7 @@ impl TextRenderer {
             self.fonts.get_font(face),
             scale_factor,
             &mut self.paint_glyphs,
+            None,
             &mut self.carets,
             false,
             true,
@@ -345,6 +387,7 @@ impl TextRenderer {
             self.fonts.get_font(face),
             scale_factor,
             &mut self.paint_glyphs,
+            None,
             &mut self.carets,
             false,
             true,
