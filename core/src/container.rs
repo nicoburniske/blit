@@ -6,7 +6,7 @@ use crate::{
     geometry::LogicalPoint,
     interact::WidgetId,
     layout::{Flex, Layout, raw_scope},
-    style::{Border, BorderRadius, Clip, LinearGradient, Shadow, Style},
+    style::{Clip, Style},
 };
 
 /// pending child-bearing layout declaration
@@ -21,13 +21,15 @@ crate::builder! {
     /// configuration for a child-bearing layout scope
     pub struct ContainerConfig<'a> {
         new(),
-        id: Option<WidgetId> = None,
+        @optional {
+            id: WidgetId,
+            absolute: Absolute,
+            transition: Transition,
+        },
         item: Item = Item::new(),
         offset: LogicalPoint = LogicalPoint { x: 0.0, y: 0.0 },
         style: Style<'a> = Style::new(),
         clip: Clip = Clip::None,
-        absolute: Option<Absolute> = None,
-        transition: Option<Transition> = None,
     }
 }
 
@@ -100,6 +102,7 @@ impl<'ui, 'style, L: Layout> Container<'ui, 'style, L> {
         self
     }
 
+    /// requires an [`id`](Self::id) to animate
     pub fn transition(mut self, transition: Transition) -> Self {
         self.config.transition = Some(transition);
         self
@@ -107,51 +110,6 @@ impl<'ui, 'style, L: Layout> Container<'ui, 'style, L> {
 
     pub fn style(mut self, style: Style<'style>) -> Self {
         self.config.style = style;
-        self
-    }
-
-    pub fn background(mut self, color: crate::color::Color) -> Self {
-        self.config.style.background = color;
-        self
-    }
-
-    pub fn border(mut self, width: f32, color: crate::color::Color) -> Self {
-        self.config.style.border = Border::Solid { width, color };
-        self
-    }
-
-    pub fn gradient_border(mut self, width: f32, gradient: LinearGradient<'style>) -> Self {
-        self.config.style.border = Border::Gradient { width, gradient };
-        self
-    }
-
-    pub fn radius(mut self, radius: BorderRadius) -> Self {
-        self.config.style.radius = radius;
-        self
-    }
-
-    pub fn uniform_radius(mut self, radius: f32) -> Self {
-        self.config.style.radius = BorderRadius {
-            top_left: radius,
-            top_right: radius,
-            bottom_right: radius,
-            bottom_left: radius,
-        };
-        self
-    }
-
-    pub fn opacity(mut self, opacity: f32) -> Self {
-        self.config.style.opacity = opacity;
-        self
-    }
-
-    pub fn shadow(mut self, shadow: Shadow) -> Self {
-        self.config.style.shadow = Some(shadow);
-        self
-    }
-
-    pub fn inset_shadow(mut self, shadow: Shadow) -> Self {
-        self.config.style.inset_shadow = Some(shadow);
         self
     }
 

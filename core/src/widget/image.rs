@@ -11,14 +11,16 @@ use crate::{
 crate::builder! {
     pub struct Image<'a> {
         new(resource: &'a ImageHandle),
+        @optional {
+            colorize: Color,
+            nine_slice: NineSlice,
+        },
         fit: ImageFit = ImageFit::default(),
         sampling: ImageSampling = ImageSampling::default(),
         width: Sizing = Sizing::fit(),
         height: Sizing = Sizing::fit(),
         z_index: i16 = 0,
         opacity: f32 = 1.0,
-        colorize: Option<Color> = None,
-        nine_slice: Option<NineSlice> = None,
         horizontal_tiling: ImageTiling = ImageTiling::default(),
         vertical_tiling: ImageTiling = ImageTiling::default(),
     }

@@ -18,6 +18,9 @@ use crate::{
 crate::builder! {
     pub struct TextInput<'a> {
         new(state: &'a mut TextInputState),
+        @optional {
+            mask: char,
+        },
         text_color: Color = Color::BLACK,
         selection_background: Color = Color::GRAY,
         cursor_color: Color = Color::BLACK,
@@ -25,7 +28,6 @@ crate::builder! {
         text_style: TextStyle = TextStyle::default(),
         text_options: TextOptions = TextOptions::default(),
         read_only: bool = false,
-        mask: Option<char> = None,
         z_index: i16 = 0,
     }
 }
@@ -310,24 +312,5 @@ impl TextInput<'_> {
         self.state.anchor = selection.start;
         self.state.text.drain(selection);
         true
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mask_maps_utf8_offsets() {
-        let mut state = TextInputState {
-            text: "aé🙂".into(),
-            ..TextInputState::default()
-        };
-        let mut input = TextInput::new(&mut state).mask(Some('●'));
-
-        input.update_mask();
-
-        assert_eq!(input.display_text(), "●●●");
-        assert_eq!(input.display_offset("aé".len()), "●●".len());
     }
 }

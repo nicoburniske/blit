@@ -220,7 +220,7 @@ fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, durati
     let mut scene = ui
         .layout(Flex::column())
         .grow()
-        .background(Color::from_rgba8(24, 36, 48, 255))
+        .style(Style::new().background(Color::from_rgba8(24, 36, 48, 255)))
         .open();
     scene.add(|ui: &mut Ui| {
         let mut row = ui
@@ -233,18 +233,21 @@ fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, durati
             let mut movement = ui
                 .layout(Flex::column().padding(blit::geometry::LogicalInsets::uniform(4.0)))
                 .fixed(12.0, 20.0)
-                .background(Color::from_rgba8(20, 20, 20, 160))
-                .uniform_radius(4.0)
+                .style(
+                    Style::new()
+                        .background(Color::from_rgba8(20, 20, 20, 160))
+                        .uniform_radius(4.0),
+                )
                 .open();
             movement.add(
                 RectangleWidget::new()
                     .width(Sizing::grow())
                     .height(Sizing::grow())
-                    .background(if position < screen_width / 2.0 {
+                    .style(Style::new().background(if position < screen_width / 2.0 {
                         Color::from_rgba8(230, 220, 180, 255)
                     } else {
                         Color::from_rgba8(180, 210, 240, 255)
-                    }),
+                    })),
             );
         });
     });
@@ -336,8 +339,8 @@ fn resolved_nodes_match_direct_commands() {
                     .background(Color::from_rgba8(40, 70, 100, 255))
                     .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
                     .radius(radius)
-                    .shadow(Some(shadow))
-                    .inset_shadow(Some(inset_shadow)),
+                    .shadow(shadow)
+                    .inset_shadow(inset_shadow),
             )
             .clip(Clip::Rounded(radius))
             .open();

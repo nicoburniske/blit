@@ -11,6 +11,7 @@ use blit::{
     interact::{Sense, WidgetId},
     layout::{Flex, UnitScope},
     renderer::Renderer,
+    style::Style,
     text::{self, TextLayoutRequest, TextRunId, TextStyle},
     widget::Rectangle,
 };
@@ -100,7 +101,11 @@ pub fn z_index_frame(ui: &mut Ui) {
             .absolute(Absolute::at(index as f32, 0.0))
             .open();
         for _ in 0..CELLS_PER_ROW {
-            item.add(Rectangle::new().fixed(4.0, 4.0));
+            item.add(
+                Rectangle::new()
+                    .width(Sizing::fixed(4.0))
+                    .height(Sizing::fixed(4.0)),
+            );
         }
     }
 }
@@ -130,7 +135,7 @@ pub fn command_frame(ui: &mut Ui) {
                 row.add(
                     Rectangle::new()
                         .width(width)
-                        .background(Color::BLACK)
+                        .style(Style::new().background(Color::BLACK))
                         .id(WidgetId::new(row_index * CELLS_PER_ROW + cell_index)),
                 );
             }

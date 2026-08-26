@@ -15,15 +15,18 @@
 //! translates its descendants.
 
 mod flex;
+mod rect;
 
 pub use crate::graph::{Children, LayoutCx};
 pub use flex::*;
+pub use rect::*;
 
 use crate::{Ui, node::NodeId, widget::Widget};
 
 /// layout policy for a container's direct children
 ///
-/// moving a container must only translate its descendants
+/// layout and item values must not require alignment greater than 8 bytes.
+/// moving a container must only translate its descendants.
 pub trait Layout: Copy + 'static {
     /// per-child layout metadata
     ///

@@ -114,6 +114,7 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     /// whether a child participates in this container's layout
     #[inline]
     pub fn is_in_flow(&self, node: NodeId) -> bool {
+        debug_assert_eq!(self.frame.nodes[node.index()].parent, self.node);
         !self.positioned || !self.frame.nodes[node.index()].layout.is_positioned()
     }
 
@@ -137,18 +138,21 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     /// the sizing requested by a child on an axis
     #[inline]
     pub fn sizing(&self, node: NodeId, axis: Axis) -> crate::container::Sizing {
+        debug_assert_eq!(self.frame.nodes[node.index()].parent, self.node);
         self.frame.nodes[node.index()].sizing(axis)
     }
 
     /// the current size of a child on an axis
     #[inline]
     pub fn axis_size(&self, node: NodeId, axis: Axis) -> f32 {
+        debug_assert_eq!(self.frame.nodes[node.index()].parent, self.node);
         self.frame.nodes[node.index()].size(axis)
     }
 
     /// sets a child's size on an axis without changing its position
     #[inline]
     pub fn set_size(&mut self, node: NodeId, axis: Axis, size: f32) {
+        debug_assert_eq!(self.frame.nodes[node.index()].parent, self.node);
         self.frame.nodes[node.index()].set_size(axis, size)
     }
 
@@ -167,6 +171,7 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     /// sets a child's position and size on an axis
     #[inline]
     pub fn set_axis(&mut self, node: NodeId, axis: Axis, position: f32, size: f32) {
+        debug_assert_eq!(self.frame.nodes[node.index()].parent, self.node);
         let position = position
             + match axis {
                 Axis::Horizontal => self.offset.x,
@@ -248,7 +253,7 @@ impl FrameGraph {
             has_position_transition |= state
                 .config
                 .properties
-                .contains(TransitionProperties::POSITION);
+                .intersects(TransitionProperties::POSITION);
             state.advance(self.transition_area(state.node, state.parent), time);
             active_transitions = active_transitions.union(state.active);
         }
@@ -256,7 +261,7 @@ impl FrameGraph {
             self.position_offsets
                 .resize(self.nodes.len(), LogicalPoint::default());
         }
-        if active_transitions.contains(TransitionProperties::SIZE) {
+        if active_transitions.intersects(TransitionProperties::SIZE) {
             self.prepare_transitioned_dimensions(transition_states);
             if positioned {
                 self.layout::<true>(renderer);
@@ -264,7 +269,7 @@ impl FrameGraph {
                 self.layout::<false>(renderer);
             }
         }
-        if active_transitions.contains(TransitionProperties::POSITION) {
+        if active_transitions.intersects(TransitionProperties::POSITION) {
             self.apply_transitioned_positions(transition_states);
         }
         self.resolve_paint_order();
@@ -339,17 +344,7 @@ impl FrameGraph {
             "nodes must close in order"
         );
         let end = u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
-        let stored = &mut self.nodes[node.index()];
-        stored.subtree_end = end;
-        if end as usize == node.index() + 1
-            && !stored.layout.is_positioned()
-            && stored.layout.index() == self.layouts.len().checked_sub(1)
-        {
-            self.layouts.pop();
-            let _last = self.layout_nodes.pop();
-            debug_assert_eq!(_last, Some(node));
-            stored.layout = LayoutId::NONE;
-        }
+        self.nodes[node.index()].subtree_end = end;
     }
 
     pub fn begin_layout_item(&self) -> NodeId {
@@ -726,13 +721,16 @@ impl FrameGraph {
                 continue;
             }
             let position = self.positioned_layouts[node.layout.index().unwrap()].absolute;
-            let target = match position.target {
-                PositionTarget::Parent => self.nodes[parent].area,
-                PositionTarget::Screen => self.nodes[0].area,
+            let (target, target_offset) = match position.target {
+                PositionTarget::Parent => (
+                    self.nodes[parent].area,
+                    self.layout_offset(NodeId::new(parent)),
+                ),
+                PositionTarget::Screen => (self.nodes[0].area, LogicalPoint::default()),
             };
             let (origin, available, offset) = match axis {
-                Axis::Horizontal => (target.x, target.width, position.offset.x),
-                Axis::Vertical => (target.y, target.height, position.offset.y),
+                Axis::Horizontal => (target.x + target_offset.x, target.width, position.offset.x),
+                Axis::Vertical => (target.y + target_offset.y, target.height, position.offset.y),
             };
             let node = &mut self.nodes[child];
             let size = node.sizing(axis).resolve(node.size(axis), available, true);
@@ -746,17 +744,18 @@ impl FrameGraph {
 
     fn transition_area(&self, node: NodeId, mut parent: NodeId) -> LogicalRect {
         let node = node.index();
-        if self.nodes[node].layout.is_positioned()
-            && self.positioned_layouts[self.nodes[node].layout.index().unwrap()]
+        let layout = self.nodes[node].layout;
+        let screen_targeted = layout.is_positioned()
+            && self.positioned_layouts[layout.index().unwrap()]
                 .absolute
                 .target
-                == PositionTarget::Screen
-        {
+                == PositionTarget::Screen;
+        if screen_targeted {
             parent = NodeId::ROOT;
         }
         let mut area = self.nodes[node].area;
         let parent_node = &self.nodes[parent.index()];
-        let parent_offset = if self.nodes[node].layout.is_positioned() {
+        let parent_offset = if screen_targeted {
             LogicalPoint::default()
         } else {
             self.layout_offset(parent)
@@ -770,10 +769,10 @@ impl FrameGraph {
     fn prepare_transitioned_dimensions(&mut self, states: &[TransitionState]) {
         for state in states.iter().filter(|state| state.seen) {
             let node = &mut self.nodes[state.node.index()];
-            if state.active.contains(TransitionProperties::WIDTH) {
+            if state.active.intersects(TransitionProperties::WIDTH) {
                 node.item.width = Sizing::fixed(state.current.width);
             }
-            if state.active.contains(TransitionProperties::HEIGHT) {
+            if state.active.intersects(TransitionProperties::HEIGHT) {
                 node.item.height = Sizing::fixed(state.current.height);
             }
         }
@@ -802,19 +801,19 @@ impl FrameGraph {
                 } else {
                     state.parent
                 };
-                let parent_offset = if layout.is_positioned() {
+                let parent_offset = if screen_targeted {
                     LogicalPoint::default()
                 } else {
                     self.layout_offset(parent)
                 };
                 let parent_area = self.nodes[parent.index()].area;
                 let parent_delta = self.position_offsets[parent.index()];
-                if state.active.contains(TransitionProperties::X) {
+                if state.active.intersects(TransitionProperties::X) {
                     let target = self.nodes[index].area.x
                         - (parent_area.x - parent_delta.x + parent_offset.x);
                     local.x = state.current.x - target;
                 }
-                if state.active.contains(TransitionProperties::Y) {
+                if state.active.intersects(TransitionProperties::Y) {
                     let target = self.nodes[index].area.y
                         - (parent_area.y - parent_delta.y + parent_offset.y);
                     local.y = state.current.y - target;
@@ -1165,7 +1164,12 @@ struct DataArena {
 
 impl DataArena {
     fn store<T: Copy>(&mut self, value: T) -> u32 {
-        assert!(align_of::<T>() <= align_of::<Word>());
+        const {
+            assert!(
+                align_of::<T>() <= align_of::<Word>(),
+                "layout data alignment exceeds 8 bytes"
+            );
+        }
         let offset = self
             .len
             .checked_next_multiple_of(align_of::<T>())
@@ -1328,17 +1332,17 @@ impl TransitionState {
                 / self.config.duration.as_secs_f32())
             .min(1.0);
             let amount = self.config.easing.apply(progress);
-            if self.active.contains(TransitionProperties::X) {
+            if self.active.intersects(TransitionProperties::X) {
                 self.current.x = self.initial.x + (self.target.x - self.initial.x) * amount;
             }
-            if self.active.contains(TransitionProperties::Y) {
+            if self.active.intersects(TransitionProperties::Y) {
                 self.current.y = self.initial.y + (self.target.y - self.initial.y) * amount;
             }
-            if self.active.contains(TransitionProperties::WIDTH) {
+            if self.active.intersects(TransitionProperties::WIDTH) {
                 self.current.width =
                     self.initial.width + (self.target.width - self.initial.width) * amount;
             }
-            if self.active.contains(TransitionProperties::HEIGHT) {
+            if self.active.intersects(TransitionProperties::HEIGHT) {
                 self.current.height =
                     self.initial.height + (self.target.height - self.initial.height) * amount;
             }
@@ -1350,13 +1354,16 @@ impl TransitionState {
         }
 
         let mut changed = TransitionProperties::NONE;
-        if self.config.properties.contains(TransitionProperties::X) && self.target.x != target.x {
+        if self.config.properties.intersects(TransitionProperties::X) && self.target.x != target.x {
             changed = changed.union(TransitionProperties::X);
         }
-        if self.config.properties.contains(TransitionProperties::Y) && self.target.y != target.y {
+        if self.config.properties.intersects(TransitionProperties::Y) && self.target.y != target.y {
             changed = changed.union(TransitionProperties::Y);
         }
-        if self.config.properties.contains(TransitionProperties::WIDTH)
+        if self
+            .config
+            .properties
+            .intersects(TransitionProperties::WIDTH)
             && self.target.width != target.width
         {
             changed = changed.union(TransitionProperties::WIDTH);
@@ -1364,7 +1371,7 @@ impl TransitionState {
         if self
             .config
             .properties
-            .contains(TransitionProperties::HEIGHT)
+            .intersects(TransitionProperties::HEIGHT)
             && self.target.height != target.height
         {
             changed = changed.union(TransitionProperties::HEIGHT);

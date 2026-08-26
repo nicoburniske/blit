@@ -52,6 +52,9 @@ impl Ui {
         Container::new(self, layout)
     }
 
+    /// returns geometry resolved before the current render callback
+    ///
+    /// nodes declared in this callback become available to subsequent callbacks
     pub fn geometry(&self, id: WidgetId) -> Option<LogicalRect> {
         self.state().geometry.get(id)
     }
@@ -68,6 +71,7 @@ impl Ui {
         &self.input
     }
 
+    /// evaluates the current input against geometry resolved before this callback
     pub fn interact(&mut self, id: WidgetId, sense: Sense) -> Interaction {
         self.state_mut().interaction.response(id, sense)
     }
@@ -97,7 +101,7 @@ impl Ui {
         easing: Easing,
     ) -> f32 {
         let time = self.time;
-        begin_animation(self, id, target, |animation| {
+        animation::AnimationState::update(self, id, target, |animation| {
             animation.advance(target, duration, easing, time)
         })
     }
@@ -107,7 +111,7 @@ impl Ui {
     /// zero duration stops the loop and resets the value
     pub fn animate_loop(&mut self, id: WidgetId, duration: Duration, easing: Easing) -> f32 {
         let time = self.time;
-        begin_animation(self, id, 0.0, |animation| {
+        animation::AnimationState::update(self, id, 0.0, |animation| {
             animation.advance_loop(duration, easing, time)
         })
     }
@@ -118,7 +122,7 @@ impl Ui {
     /// during a frame. [`UiState::next_timer_deadline`] reports when the next
     /// timer needs a frame
     pub fn timer(&mut self, id: WidgetId, duration: Duration) -> bool {
-        begin_timer(self, id, duration, None)
+        timer::TimerState::update(self, id, duration, None)
     }
 
     /// returns `true` whenever another `duration` has elapsed for `id`
@@ -131,7 +135,7 @@ impl Ui {
             !duration.is_zero(),
             "looping timer duration must not be zero"
         );
-        begin_timer(self, id, duration, Some(duration))
+        timer::TimerState::update(self, id, duration, Some(duration))
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {
@@ -269,41 +273,6 @@ impl Ui {
     fn frame_mut(&mut self) -> &mut graph::FrameGraph {
         &mut self.state_mut().frame
     }
-}
-
-fn begin_animation(
-    ui: &mut Ui,
-    id: WidgetId,
-    initial: f32,
-    advance: impl FnOnce(&mut animation::AnimationState),
-) -> f32 {
-    let animations = &mut ui.state_mut().animations;
-    let index = match animations.binary_search_by_key(&id, |animation| animation.id) {
-        Ok(index) => index,
-        Err(index) => {
-            animations.insert(index, animation::AnimationState::new(id, initial));
-            index
-        }
-    };
-    assert!(
-        !animations[index].seen,
-        "duplicate animation WidgetId {id:?}"
-    );
-    advance(&mut animations[index]);
-    animations[index].value
-}
-
-fn begin_timer(ui: &mut Ui, id: WidgetId, duration: Duration, interval: Option<Duration>) -> bool {
-    let time = ui.time;
-    let timers = &mut ui.state_mut().timers;
-    let timer = if let Some(timer) = timers.iter_mut().find(|timer| timer.id == id) {
-        timer
-    } else {
-        timers.push(timer::TimerState::new(id, duration, interval, time));
-        timers.last_mut().unwrap()
-    };
-    assert!(!timer.seen, "duplicate timer WidgetId {id:?}");
-    timer.advance(duration, interval, time)
 }
 
 /// retained frame graph memory after its buffers have grown

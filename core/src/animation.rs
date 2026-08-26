@@ -1,8 +1,9 @@
 use std::time::Duration;
 
-use crate::interact::WidgetId;
+use crate::{Ui, interact::WidgetId};
 
 /// transition between layout rectangles resolved for an identified node
+// todo: make node transition builders require a WidgetId
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Transition {
     pub duration: Duration,
@@ -76,7 +77,7 @@ impl TransitionProperties {
     pub const SIZE: Self = Self(Self::WIDTH.0 | Self::HEIGHT.0);
     pub const LAYOUT: Self = Self(Self::POSITION.0 | Self::SIZE.0);
 
-    pub const fn contains(self, other: Self) -> bool {
+    pub const fn intersects(self, other: Self) -> bool {
         self.0 & other.0 != 0
     }
 
@@ -127,6 +128,23 @@ pub(crate) struct AnimationState {
 }
 
 impl AnimationState {
+    pub fn update(ui: &mut Ui, id: WidgetId, initial: f32, advance: impl FnOnce(&mut Self)) -> f32 {
+        let animations = &mut ui.state_mut().animations;
+        let index = match animations.binary_search_by_key(&id, |animation| animation.id) {
+            Ok(index) => index,
+            Err(index) => {
+                animations.insert(index, Self::new(id, initial));
+                index
+            }
+        };
+        assert!(
+            !animations[index].seen,
+            "duplicate animation WidgetId {id:?}"
+        );
+        advance(&mut animations[index]);
+        animations[index].value
+    }
+
     pub fn new(id: WidgetId, target: f32) -> Self {
         Self {
             id,

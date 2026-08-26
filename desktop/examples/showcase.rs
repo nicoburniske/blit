@@ -116,7 +116,7 @@ impl Application for State {
                     .gap(16.0),
             )
             .grow()
-            .background(colors::BACKGROUND)
+            .style(Style::new().background(colors::BACKGROUND))
             .open();
 
         root.add(|ui: &mut Ui| self.header(ui));
@@ -134,7 +134,7 @@ impl State {
                     .justify(Justify::SpaceBetween),
             )
             .width(Sizing::grow())
-            .background(colors::BACKGROUND)
+            .style(Style::new().background(colors::BACKGROUND))
             .open();
         header.add(|ui: &mut Ui| {
             let mut title = ui.layout(Flex::column().gap(3.0)).open();
@@ -181,9 +181,12 @@ impl State {
             )
             .width(Sizing::fixed(310.0))
             .height(Sizing::grow())
-            .background(colors::SURFACE)
-            .border(1.0, colors::BORDER)
-            .uniform_radius(11.0)
+            .style(
+                Style::new()
+                    .background(colors::SURFACE)
+                    .solid_border(1.0, colors::BORDER)
+                    .uniform_radius(11.0),
+            )
             .clip(Clip::Bounds)
             .open();
         controls.add(
@@ -341,9 +344,12 @@ impl State {
                     .gap(9.0),
             )
             .grow()
-            .background(colors::SURFACE)
-            .border(1.0, colors::BORDER)
-            .uniform_radius(11.0)
+            .style(
+                Style::new()
+                    .background(colors::SURFACE)
+                    .solid_border(1.0, colors::BORDER)
+                    .uniform_radius(11.0),
+            )
             .open();
         preview.add(
             Text::new("DRAG THE RIGHT EDGE, BOTTOM EDGE, OR CORNER • ZOOM SCALES CONTENT")
@@ -360,8 +366,7 @@ impl State {
         let mut viewport = ui
             .layout(Flex::column().padding(LogicalInsets::uniform(8.0)))
             .grow()
-            .background(colors::TRACK)
-            .uniform_radius(8.0)
+            .style(Style::new().background(colors::TRACK).uniform_radius(8.0))
             .clip(Clip::Bounds)
             .open();
         viewport.add(
@@ -383,9 +388,12 @@ impl State {
             )
             .width(Sizing::grow())
             .height(Sizing::fixed(156.0))
-            .background(colors::TRACK)
-            .border(1.0, colors::BORDER)
-            .uniform_radius(8.0)
+            .style(
+                Style::new()
+                    .background(colors::TRACK)
+                    .solid_border(1.0, colors::BORDER)
+                    .uniform_radius(8.0),
+            )
             .open();
         transitions.add(|ui: &mut Ui| self.transition_controls(ui));
         transitions.add(|ui: &mut Ui| self.transition_tracks(ui, self.transition_easing));
@@ -450,8 +458,7 @@ impl State {
                 .layout(Flex::row().padding(LogicalInsets::uniform(7.0)))
                 .width(Sizing::percent(0.5))
                 .height(Sizing::grow())
-                .background(colors::SURFACE)
-                .uniform_radius(6.0)
+                .style(Style::new().background(colors::SURFACE).uniform_radius(6.0))
                 .clip(Clip::Bounds)
                 .open();
             track.add(|ui: &mut Ui| {
@@ -469,8 +476,11 @@ impl State {
                             .easing(easing)
                             .position(),
                     )
-                    .background(colors::SURFACE_BLUE)
-                    .uniform_radius(5.0)
+                    .style(
+                        Style::new()
+                            .background(colors::SURFACE_BLUE)
+                            .uniform_radius(5.0),
+                    )
                     .open();
                 specimen.add(Text::new("X / Y").color(colors::WHITE).text_size(10.0));
             });
@@ -480,8 +490,7 @@ impl State {
                 .layout(Flex::row().padding(LogicalInsets::uniform(7.0)))
                 .width(Sizing::percent(0.5))
                 .height(Sizing::grow())
-                .background(colors::SURFACE)
-                .uniform_radius(6.0)
+                .style(Style::new().background(colors::SURFACE).uniform_radius(6.0))
                 .clip(Clip::Bounds)
                 .open();
             let (width, height) = if self.transition_target {
@@ -500,8 +509,11 @@ impl State {
                             .easing(easing)
                             .size(),
                     )
-                    .background(colors::SURFACE_PURPLE)
-                    .uniform_radius(5.0)
+                    .style(
+                        Style::new()
+                            .background(colors::SURFACE_PURPLE)
+                            .uniform_radius(5.0),
+                    )
                     .open();
                 specimen.add(Text::new("W / H").color(colors::WHITE).text_size(10.0));
             });
@@ -520,9 +532,12 @@ impl State {
                     .gap(6.0)
                     .align(Align::Center),
             )
-            .background(colors::SURFACE_HIGH)
-            .border(1.0, colors::ACCENT)
-            .uniform_radius(7.0)
+            .style(
+                Style::new()
+                    .background(colors::SURFACE_HIGH)
+                    .solid_border(1.0, colors::ACCENT)
+                    .uniform_radius(7.0),
+            )
             .z_index(20)
             .absolute(
                 Absolute::screen(0.0, 0.0)
@@ -532,9 +547,9 @@ impl State {
             .open();
         screen_badge.add(
             Rectangle::new()
-                .fixed(6.0, 6.0)
-                .background(colors::ACCENT)
-                .uniform_radius(3.0),
+                .width(Sizing::fixed(6.0))
+                .height(Sizing::fixed(6.0))
+                .style(Style::new().background(colors::ACCENT).uniform_radius(3.0)),
         );
         screen_badge.add(
             Text::new("SCREEN ABSOLUTE")
@@ -662,9 +677,12 @@ fn carousel(mut active: usize) -> impl Widget<Output = usize> {
                     active,
                 })
                 .grow()
-                .background(colors::TRACK)
-                .border(1.0, colors::BORDER)
-                .uniform_radius(8.0)
+                .style(
+                    Style::new()
+                        .background(colors::TRACK)
+                        .solid_border(1.0, colors::BORDER)
+                        .uniform_radius(8.0),
+                )
                 .clip(Clip::Bounds)
                 .open();
             for (index, &(number, label)) in CARDS.iter().enumerate() {
@@ -682,16 +700,19 @@ fn carousel(mut active: usize) -> impl Widget<Output = usize> {
                                 .easing(Easing::EaseOutQuad)
                                 .position(),
                         )
-                        .background(colors::ITEMS[index])
-                        .border(
-                            if index == active { 2.0 } else { 1.0 },
-                            if index == active {
-                                colors::WHITE
-                            } else {
-                                colors::BORDER
-                            },
+                        .style(
+                            Style::new()
+                                .background(colors::ITEMS[index])
+                                .solid_border(
+                                    if index == active { 2.0 } else { 1.0 },
+                                    if index == active {
+                                        colors::WHITE
+                                    } else {
+                                        colors::BORDER
+                                    },
+                                )
+                                .uniform_radius(9.0),
                         )
-                        .uniform_radius(9.0)
                         .open();
                     card.add(Text::new(number).color(colors::WHITE).text_size(22.0));
                     card.add(Text::new(label).color(colors::WHITE).text_size(10.0));
@@ -878,13 +899,17 @@ impl Widget for ResizeGrip {
             .open();
         grip.add(
             Rectangle::new()
-                .fixed(marker_width, marker_height)
-                .background(if self.interaction.hovered || self.interaction.dragging {
-                    colors::ACCENT
-                } else {
-                    color
-                })
-                .uniform_radius(marker_width.min(marker_height) / 2.0),
+                .width(Sizing::fixed(marker_width))
+                .height(Sizing::fixed(marker_height))
+                .style(
+                    Style::new()
+                        .background(if self.interaction.hovered || self.interaction.dragging {
+                            colors::ACCENT
+                        } else {
+                            color
+                        })
+                        .uniform_radius(marker_width.min(marker_height) / 2.0),
+                ),
         );
         if matches!(self.edge, ResizeEdge::Right)
             && (self.interaction.hovered || self.interaction.dragging)
@@ -897,9 +922,12 @@ impl Widget for ResizeGrip {
                         bottom: 4.0,
                         left: 7.0,
                     }))
-                    .background(colors::BACKGROUND)
-                    .border(1.0, colors::ACCENT)
-                    .uniform_radius(5.0)
+                    .style(
+                        Style::new()
+                            .background(colors::BACKGROUND)
+                            .solid_border(1.0, colors::ACCENT)
+                            .uniform_radius(5.0),
+                    )
                     .z_index(10)
                     .absolute(Absolute::attach(Anchor::Left, Anchor::Right).offset(-8.0, 0.0))
                     .open();
@@ -920,9 +948,12 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
                     .justify(config.justify),
             )
             .grow()
-            .background(colors::CANVAS)
-            .border(2.0, colors::CANVAS_BORDER)
-            .uniform_radius(8.0)
+            .style(
+                Style::new()
+                    .background(colors::CANVAS)
+                    .solid_border(2.0, colors::CANVAS_BORDER)
+                    .uniform_radius(8.0),
+            )
             .clip(Clip::Bounds)
             .open();
 
@@ -962,8 +993,11 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
                     item
                 };
                 let mut rectangle = item
-                    .background(colors::ITEMS[index])
-                    .uniform_radius(5.0)
+                    .style(
+                        Style::new()
+                            .background(colors::ITEMS[index])
+                            .uniform_radius(5.0),
+                    )
                     .open();
                 rectangle.add(
                     Text::new(label)
@@ -985,9 +1019,12 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
                                 (28.0 * config.zoom).max(20.0),
                                 (14.0 * config.zoom).max(10.0),
                             )
-                            .background(colors::BACKGROUND)
-                            .border(1.0, colors::WHITE)
-                            .uniform_radius(5.0)
+                            .style(
+                                Style::new()
+                                    .background(colors::BACKGROUND)
+                                    .solid_border(1.0, colors::WHITE)
+                                    .uniform_radius(5.0),
+                            )
                             .z_index(1)
                             .absolute(Absolute::attach(anchor, Anchor::Center))
                             .open();
@@ -1047,9 +1084,9 @@ impl Widget for Button<'_> {
                     } else {
                         self.background
                     })
-                    .solid_border(self.border_width, self.border_color),
+                    .solid_border(self.border_width, self.border_color)
+                    .uniform_radius(self.radius),
             )
-            .uniform_radius(self.radius)
             .open();
         button.add(
             Text::new(self.label)
