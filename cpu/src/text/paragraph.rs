@@ -11,7 +11,9 @@ pub struct ParagraphCache {
     layouts: DeferredCache<LayoutKey, ParagraphLayout, LayoutScale>,
     paints: DeferredCache<PaintKey, ParagraphPaint, PaintScale>,
     layout: Layout,
+    // reusable paragraph resolution scratch buffers
     glyphs: Vec<PaintGlyph>,
+    lines: Vec<PaintLine>,
     carets: Vec<Caret>,
 }
 
@@ -26,7 +28,9 @@ impl Scale<LayoutKey, ParagraphLayout> for LayoutScale {
 
 impl Scale<PaintKey, ParagraphPaint> for PaintScale {
     fn weight(&self, _key: &PaintKey, paragraph: &ParagraphPaint) -> usize {
-        size_of::<ParagraphPaint>() + paragraph.glyphs.len() * size_of::<PaintGlyph>()
+        size_of::<ParagraphPaint>()
+            + paragraph.glyphs.len() * size_of::<PaintGlyph>()
+            + paragraph.lines.len() * size_of::<PaintLine>()
     }
 }
 
@@ -37,6 +41,7 @@ impl ParagraphCache {
             paints: DeferredCache::new(PaintScale, capacity),
             layout: Layout::with_metric_cache_capacity(0),
             glyphs: Vec::new(),
+            lines: Vec::new(),
             carets: Vec::new(),
         }
     }
@@ -89,6 +94,7 @@ impl ParagraphCache {
             layouts,
             paints,
             glyphs,
+            lines,
             carets,
             ..
         } = self;
@@ -100,6 +106,7 @@ impl ParagraphCache {
                 font,
                 scale_factor,
                 glyphs,
+                Some(lines),
                 carets,
                 true,
                 false,
@@ -107,6 +114,7 @@ impl ParagraphCache {
             ParagraphPaint {
                 bounds: resolved,
                 glyphs: glyphs.as_slice().into(),
+                lines: lines.as_slice().into(),
             }
         });
         index
@@ -170,6 +178,15 @@ pub struct ParagraphLayout {
 pub struct ParagraphPaint {
     pub bounds: ResolvedParagraph,
     pub glyphs: Box<[PaintGlyph]>,
+    pub lines: Box<[PaintLine]>,
+}
+
+#[derive(Clone, Copy)]
+pub struct PaintLine {
+    pub glyph_start: u32,
+    pub glyph_end: u32,
+    pub top: i32,
+    pub bottom: i32,
 }
 
 #[derive(Clone, Copy)]
@@ -248,11 +265,15 @@ pub fn resolve(
     font: &blit_font::Font,
     scale_factor: f32,
     glyphs: &mut Vec<PaintGlyph>,
+    mut lines: Option<&mut Vec<PaintLine>>,
     carets: &mut Vec<Caret>,
     resolve_glyphs: bool,
     resolve_carets: bool,
 ) -> ResolvedParagraph {
     glyphs.clear();
+    if let Some(lines) = &mut lines {
+        lines.clear();
+    }
     carets.clear();
     let area = request.area.to_physical(scale_factor);
     let mut visible_lines = paragraph
@@ -313,6 +334,9 @@ pub fn resolve(
     let mut bottom = 0;
 
     for (line_index, line) in paragraph.lines[..visible_lines].iter().enumerate() {
+        let glyph_start = glyphs.len();
+        let mut line_top = i32::MAX;
+        let mut line_bottom = i32::MIN;
         let source = &source_glyphs[line.glyph_start..=line.glyph_end];
         let final_ellipsis_line = ellipsize && line_index + 1 == visible_lines;
         let mut source_end = source.len();
@@ -370,6 +394,8 @@ pub fn resolve(
                     top = top.min(y.max(0));
                     right = right.max(glyph_right.min(area.width));
                     bottom = bottom.max(glyph_bottom.min(area.height));
+                    line_top = line_top.min(y);
+                    line_bottom = line_bottom.max(glyph_bottom);
                     glyphs.push(PaintGlyph {
                         key: glyph.key,
                         x,
@@ -392,6 +418,8 @@ pub fn resolve(
                 top = top.min(y.max(0));
                 right = right.max(glyph_right.min(area.width));
                 bottom = bottom.max(glyph_bottom.min(area.height));
+                line_top = line_top.min(y);
+                line_bottom = line_bottom.max(glyph_bottom);
                 glyphs.push(PaintGlyph {
                     key: GlyphRasterConfig {
                         glyph_id: ellipsis_id,
@@ -401,6 +429,16 @@ pub fn resolve(
                     y,
                 });
             }
+        }
+        if glyph_start != glyphs.len()
+            && let Some(lines) = &mut lines
+        {
+            lines.push(PaintLine {
+                glyph_start: u32::try_from(glyph_start).expect("too many paragraph glyphs"),
+                glyph_end: u32::try_from(glyphs.len()).expect("too many paragraph glyphs"),
+                top: line_top,
+                bottom: line_bottom,
+            });
         }
         if resolve_carets && let Some((byte_offset, x)) = last {
             carets.push(Caret {

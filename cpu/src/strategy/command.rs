@@ -3,11 +3,15 @@ use std::ops::Range;
 use blit::{color::Color, geometry::PhysicalRect, style::GradientStop};
 
 use super::clip::ClipId;
-use crate::render::{
-    image_patch::Prepared as PreparedImage,
-    rectangle::{
-        Gradient as PreparedGradient, Prepared as PreparedRectangle, SolidPair as PreparedSolidPair,
+use crate::{
+    render::{
+        image_patch::Prepared as PreparedImage,
+        rectangle::{
+            Gradient as PreparedGradient, Prepared as PreparedRectangle,
+            SolidPair as PreparedSolidPair,
+        },
     },
+    text::PreparedLines,
 };
 
 pub type CommandId = u32;
@@ -35,6 +39,7 @@ pub enum Payload<'a> {
 pub struct PreparedText {
     pub glyph_start: u32,
     pub glyph_end: u32,
+    pub lines: PreparedLines,
     pub area: PhysicalRect,
     pub color: Color,
 }
