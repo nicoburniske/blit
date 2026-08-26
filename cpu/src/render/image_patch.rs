@@ -180,8 +180,8 @@ impl Prepared {
         let source_row = (source_y - texture_y) * texture.stride_bytes;
         let texture_right = texture_x + texture.texture_rect.width as usize;
         if self.colorize.is_some() && !matches!(texture.format, ImageFormat::Alpha8(_)) {
-            self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
-                row[destination].blend(self.source_pixel(texture, pixels, source_x, source_y));
+            self.for_each_nearest_x(row, clipped, screen_x, |destination, source_x| {
+                destination.blend(self.source_pixel(texture, pixels, source_x, source_y));
             });
             return;
         }
@@ -214,45 +214,44 @@ impl Prepared {
         {
             return;
         }
+        // safety: source_y is inside the validated texture rect, and each branch checks source_x
         match texture.format {
             ImageFormat::Rgb8 if self.opacity == 255 => {
-                self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
+                self.for_each_nearest_x(row, clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + (source_x - texture_x) * 3;
-                        row[destination] =
-                            P::from_rgb(pixels[source], pixels[source + 1], pixels[source + 2]);
+                        let source = unsafe { pixels.get_unchecked(source..source + 3) };
+                        *destination = P::from_rgb(source[0], source[1], source[2]);
                     }
                 });
             }
             ImageFormat::Rgb8 => {
-                self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
+                self.for_each_nearest_x(row, clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + (source_x - texture_x) * 3;
-                        row[destination].blend(PremultipliedRgbaColor::new(
-                            Color::from_rgba8(
-                                pixels[source],
-                                pixels[source + 1],
-                                pixels[source + 2],
-                                255,
-                            ),
+                        let source = unsafe { pixels.get_unchecked(source..source + 3) };
+                        destination.blend(PremultipliedRgbaColor::new(
+                            Color::from_rgba8(source[0], source[1], source[2], 255),
                             self.opacity,
                         ));
                     }
                 });
             }
             ImageFormat::Luma8 if self.opacity == 255 => {
-                self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
+                self.for_each_nearest_x(row, clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
-                        let luma = pixels[source_row + source_x - texture_x];
-                        row[destination] = P::from_rgb(luma, luma, luma);
+                        let source = source_row + source_x - texture_x;
+                        let luma = unsafe { *pixels.get_unchecked(source) };
+                        *destination = P::from_rgb(luma, luma, luma);
                     }
                 });
             }
             ImageFormat::Luma8 => {
-                self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
+                self.for_each_nearest_x(row, clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
-                        let luma = pixels[source_row + source_x - texture_x];
-                        row[destination].blend(PremultipliedRgbaColor::new(
+                        let source = source_row + source_x - texture_x;
+                        let luma = unsafe { *pixels.get_unchecked(source) };
+                        destination.blend(PremultipliedRgbaColor::new(
                             Color::from_rgba8(luma, luma, luma, 255),
                             self.opacity,
                         ));
@@ -260,51 +259,54 @@ impl Prepared {
                 });
             }
             ImageFormat::Rgba8 => {
-                self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
+                self.for_each_nearest_x(row, clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + (source_x - texture_x) * 4;
-                        let alpha = (pixels[source + 3] as u16 * self.opacity as u16 / 255) as u8;
-                        row[destination].blend(PremultipliedRgbaColor {
-                            red: (pixels[source] as u16 * alpha as u16 / 255) as u8,
-                            green: (pixels[source + 1] as u16 * alpha as u16 / 255) as u8,
-                            blue: (pixels[source + 2] as u16 * alpha as u16 / 255) as u8,
+                        let source = unsafe { pixels.get_unchecked(source..source + 4) };
+                        let alpha = (source[3] as u16 * self.opacity as u16 / 255) as u8;
+                        destination.blend(PremultipliedRgbaColor {
+                            red: (source[0] as u16 * alpha as u16 / 255) as u8,
+                            green: (source[1] as u16 * alpha as u16 / 255) as u8,
+                            blue: (source[2] as u16 * alpha as u16 / 255) as u8,
                             alpha,
                         });
                     }
                 });
             }
             ImageFormat::Rgba8Premultiplied if self.opacity == 255 => {
-                self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
+                self.for_each_nearest_x(row, clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + (source_x - texture_x) * 4;
-                        row[destination].blend(PremultipliedRgbaColor {
-                            red: pixels[source],
-                            green: pixels[source + 1],
-                            blue: pixels[source + 2],
-                            alpha: pixels[source + 3],
+                        let source = unsafe { pixels.get_unchecked(source..source + 4) };
+                        destination.blend(PremultipliedRgbaColor {
+                            red: source[0],
+                            green: source[1],
+                            blue: source[2],
+                            alpha: source[3],
                         });
                     }
                 });
             }
             ImageFormat::Rgba8Premultiplied => {
-                self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
+                self.for_each_nearest_x(row, clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + (source_x - texture_x) * 4;
-                        row[destination].blend(PremultipliedRgbaColor {
-                            red: (pixels[source] as u16 * self.opacity as u16 / 255) as u8,
-                            green: (pixels[source + 1] as u16 * self.opacity as u16 / 255) as u8,
-                            blue: (pixels[source + 2] as u16 * self.opacity as u16 / 255) as u8,
-                            alpha: (pixels[source + 3] as u16 * self.opacity as u16 / 255) as u8,
+                        let source = unsafe { pixels.get_unchecked(source..source + 4) };
+                        destination.blend(PremultipliedRgbaColor {
+                            red: (source[0] as u16 * self.opacity as u16 / 255) as u8,
+                            green: (source[1] as u16 * self.opacity as u16 / 255) as u8,
+                            blue: (source[2] as u16 * self.opacity as u16 / 255) as u8,
+                            alpha: (source[3] as u16 * self.opacity as u16 / 255) as u8,
                         });
                     }
                 });
             }
             ImageFormat::Alpha8(color) => {
                 let color = self.colorize.unwrap_or(color);
-                self.for_each_nearest_x(clipped, screen_x, |destination, source_x| {
+                self.for_each_nearest_x(row, clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + source_x - texture_x;
-                        row[destination].blend(PremultipliedRgbaColor::new(
+                        destination.blend(PremultipliedRgbaColor::new(
                             color,
                             (pixels[source] as u16 * self.opacity as u16 / 255) as u8,
                         ));
@@ -462,18 +464,21 @@ impl Prepared {
     }
 
     #[inline(always)]
-    fn for_each_nearest_x(
+    fn for_each_nearest_x<P: Pixel>(
         &self,
+        row: &mut [P],
         clipped: PhysicalRect,
         screen_x: i32,
-        mut process: impl FnMut(usize, usize),
+        mut process: impl FnMut(&mut P, usize),
     ) {
+        let start = (clipped.x - screen_x) as usize;
+        let pixels = &mut row[start..start + clipped.width as usize];
         let mut source = self.source_fixed_x(clipped.x);
         let source_span = (self.source.width as u64) << FIXED_SHIFT;
-        for x in clipped.x..clipped.x + clipped.width {
+        for pixel in pixels {
             let source_x = self.source.x as usize
                 + (source >> FIXED_SHIFT).min(self.source.width as u64 - 1) as usize;
-            process((x - screen_x) as usize, source_x);
+            process(pixel, source_x);
             source += self.step_x;
             if self.flags & flag::WRAP_X != 0 && source >= source_span {
                 source %= source_span;

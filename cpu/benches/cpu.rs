@@ -119,12 +119,36 @@ fn overlapping_rectangles_scanline(bencher: divan::Bencher) {
 
 #[divan::bench]
 fn small_images_direct(bencher: divan::Bencher) {
-    benchmark_small_images(bencher, Direct::default())
+    benchmark_small_images(bencher, Direct::default(), ImageFormat::Rgb8)
+}
+
+#[divan::bench]
+fn small_images_luma_direct(bencher: divan::Bencher) {
+    benchmark_small_images(bencher, Direct::default(), ImageFormat::Luma8)
+}
+
+#[divan::bench]
+fn small_images_rgba_direct(bencher: divan::Bencher) {
+    benchmark_small_images(bencher, Direct::default(), ImageFormat::Rgba8)
+}
+
+#[divan::bench]
+fn small_images_premultiplied_rgba_direct(bencher: divan::Bencher) {
+    benchmark_small_images(bencher, Direct::default(), ImageFormat::Rgba8Premultiplied)
+}
+
+#[divan::bench]
+fn small_images_alpha_direct(bencher: divan::Bencher) {
+    benchmark_small_images(
+        bencher,
+        Direct::default(),
+        ImageFormat::Alpha8(Color::from_rgba8(38, 96, 176, 255)),
+    )
 }
 
 #[divan::bench]
 fn small_images_scanline(bencher: divan::Bencher) {
-    benchmark_small_images(bencher, Scanline::default())
+    benchmark_small_images(bencher, Scanline::default(), ImageFormat::Rgb8)
 }
 
 #[divan::bench]
@@ -329,20 +353,23 @@ where
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-fn benchmark_small_images<S>(bencher: divan::Bencher, strategy: S)
+fn benchmark_small_images<S>(bencher: divan::Bencher, strategy: S, format: ImageFormat)
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
     const COMMANDS: usize = 240;
     const IMAGE_SIZE: usize = 8;
+    let pixels = match format {
+        ImageFormat::Rgb8 => [38, 96, 176].repeat(IMAGE_SIZE * IMAGE_SIZE),
+        ImageFormat::Luma8 => [96].repeat(IMAGE_SIZE * IMAGE_SIZE),
+        ImageFormat::Rgba8 => [38, 96, 176, 192].repeat(IMAGE_SIZE * IMAGE_SIZE),
+        ImageFormat::Rgba8Premultiplied => [29, 72, 132, 192].repeat(IMAGE_SIZE * IMAGE_SIZE),
+        ImageFormat::Alpha8(_) => [192].repeat(IMAGE_SIZE * IMAGE_SIZE),
+    };
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
     let image = renderer.create_image(ImageData::new(
-        ImagePixels::Owned(
-            [38, 96, 176]
-                .repeat(IMAGE_SIZE * IMAGE_SIZE)
-                .into_boxed_slice(),
-        ),
-        ImageFormat::Rgb8,
+        ImagePixels::Owned(pixels.into_boxed_slice()),
+        format,
         IMAGE_SIZE,
         IMAGE_SIZE,
     ));
