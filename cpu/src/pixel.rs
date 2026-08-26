@@ -78,6 +78,15 @@ pub trait Pixel: Copy {
         }
     }
 
+    fn blend_solid_pair(
+        pixels: &mut [Self],
+        first: PremultipliedRgbaColor,
+        second: PremultipliedRgbaColor,
+    ) {
+        Self::blend_slice(pixels, first);
+        Self::blend_slice(pixels, second);
+    }
+
     fn blend_alpha_slice(pixels: &mut [Self], color: Color, alpha: &[u8]) {
         if color.alpha == 0 {
             return;

@@ -82,6 +82,21 @@ impl Prepared {
         (start < end).then_some(start..end)
     }
 
+    pub fn fuse(&self, second: &Self) -> Option<SolidPair> {
+        (self.geometry == second.geometry
+            && self.overwrites()
+            && self.radii.is_zero()
+            && second.radii.is_zero()
+            && self.border_width == 0
+            && second.border_width == 0
+            && second.inner_color.alpha < 255)
+            .then_some(SolidPair {
+                geometry: self.geometry,
+                first: self.inner_color,
+                second: second.inner_color,
+            })
+    }
+
     pub fn draw_line<P: Pixel>(&self, line: i32, clip: PhysicalRect, row: PixelSpan<'_, P>) {
         let Some(clipped) = self.geometry.intersection(clip).and_then(|area| {
             area.intersection(PhysicalRect {
@@ -129,6 +144,33 @@ impl Prepared {
                 right_clip: self.geometry.x + self.geometry.width - clipped.x - clipped.width,
             },
             pixels,
+        );
+    }
+}
+
+pub struct SolidPair {
+    geometry: PhysicalRect,
+    first: PremultipliedRgbaColor,
+    second: PremultipliedRgbaColor,
+}
+
+impl SolidPair {
+    pub fn draw_line<P: Pixel>(&self, line: i32, clip: PhysicalRect, row: PixelSpan<'_, P>) {
+        let Some(clipped) = self.geometry.intersection(clip).and_then(|area| {
+            area.intersection(PhysicalRect {
+                x: row.x,
+                y: line,
+                width: row.pixels.len() as i32,
+                height: 1,
+            })
+        }) else {
+            return;
+        };
+        let start = (clipped.x - row.x) as usize;
+        P::blend_solid_pair(
+            &mut row.pixels[start..start + clipped.width as usize],
+            self.first,
+            self.second,
         );
     }
 }

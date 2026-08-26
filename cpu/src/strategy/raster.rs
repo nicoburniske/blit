@@ -44,6 +44,17 @@ pub fn draw_line<B: PixelBuffer>(
                 },
             );
         }
+        Payload::SolidPair(pair) => {
+            let x = buffer.x_offset() as i32;
+            pair.draw_line(
+                line,
+                clip,
+                PixelSpan {
+                    x,
+                    pixels: buffer.line_mut(line as usize),
+                },
+            );
+        }
         Payload::GradientRectangle(rectangle, stops) => {
             let x = buffer.x_offset() as i32;
             rectangle.draw_line(
