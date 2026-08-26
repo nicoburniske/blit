@@ -12,6 +12,7 @@ use blit::{
     input::Input,
     layout::Flex,
     render,
+    repaint::{IncrementalRepaint, MyersTracker},
     style::Clip,
     widget::Text,
 };
@@ -70,11 +71,13 @@ fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
         width: 1280,
         height: 8192,
     };
-    let mut state = UiState::new(screen, blit::RepaintBuffer::Reused, 1.0);
+    let mut state = UiState::new(screen, 1.0);
+    let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
     GROSS.store(0, Relaxed);
     render(
         &mut renderer,
         &mut state,
+        &mut repaint,
         Duration::ZERO,
         [Input::None],
         frame,
@@ -82,6 +85,7 @@ fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
     render(
         &mut renderer,
         &mut state,
+        &mut repaint,
         Duration::ZERO,
         [Input::None],
         frame,
@@ -92,6 +96,7 @@ fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
     render(
         &mut renderer,
         &mut state,
+        &mut repaint,
         Duration::ZERO,
         [Input::None],
         frame,
@@ -104,7 +109,7 @@ fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
         growth,
         steady: GROSS.load(Relaxed),
     };
-    drop((renderer, state));
+    drop((renderer, state, repaint));
     assert_eq!(CURRENT.load(Relaxed), baseline);
     report
 }

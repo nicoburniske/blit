@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::{
-    RepaintBuffer, Ui, UiState,
+    Ui, UiState,
     animation::{Easing, Transition},
     color::Color,
     command_list::{ClipId, Command, CommandList},
@@ -12,6 +12,7 @@ use crate::{
     interact::{Sense, WidgetId},
     layout::{Align, Axis, Flex, Justify, Layout, LayoutCx, RawScope, UnitScope},
     renderer::Renderer,
+    repaint::{IncrementalRepaint, MyersTracker},
     style::Clip,
     text,
     widget::{self, Widget},
@@ -28,7 +29,6 @@ struct TestRenderer {
     clear_count: usize,
     text_widths: Vec<Option<f32>>,
     clip_count: usize,
-    repaint_buffer: RepaintBuffer,
     scale_factors: Vec<f32>,
 }
 
@@ -106,6 +106,7 @@ impl Renderer for TestRenderer {
 struct Harness {
     renderer: TestRenderer,
     state: UiState,
+    repaint: IncrementalRepaint<MyersTracker>,
 }
 
 impl Harness {
@@ -117,14 +118,24 @@ impl Harness {
                 width: 10,
                 height: 10,
             },
-            renderer.repaint_buffer,
             1.0,
         );
-        Self { renderer, state }
+        Self {
+            renderer,
+            state,
+            repaint: IncrementalRepaint::new(MyersTracker::default(), false),
+        }
     }
 
     fn render<R>(&mut self, time: Duration, input: Input, render: impl FnMut(&mut Ui) -> R) -> R {
-        crate::render(&mut self.renderer, &mut self.state, time, [input], render)
+        crate::render(
+            &mut self.renderer,
+            &mut self.state,
+            &mut self.repaint,
+            time,
+            [input],
+            render,
+        )
     }
 
     fn renderer(&mut self) -> &mut TestRenderer {
@@ -904,17 +915,24 @@ fn moved_output_damages_old_and_new_bounds() {
 }
 
 #[test]
-fn swapped_buffer_replays_damage_once() {
-    let renderer = TestRenderer {
-        repaint_buffer: RepaintBuffer::Swapped,
-        ..TestRenderer::default()
-    };
-    let mut harness = Harness::new(renderer);
+fn swapped_buffer_replays_damage_on_next_frame() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.repaint = IncrementalRepaint::new(MyersTracker::default(), true);
 
     harness.render(Duration::ZERO, Input::None, |_| {});
-    assert!(harness.has_pending_redraw());
-    harness.render(Duration::ZERO, Input::None, |_| {});
     assert!(!harness.has_pending_redraw());
+    harness.render(Duration::ZERO, Input::None, |_| {});
+    assert_eq!(
+        harness.renderer().damage,
+        [PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10
+        }]
+    );
+    harness.render(Duration::ZERO, Input::None, |_| {});
+    assert!(harness.renderer().damage.is_empty());
 }
 
 #[test]
@@ -973,6 +991,7 @@ fn render_processes_each_input_and_commits_the_final_scene() {
     crate::render(
         &mut harness.renderer,
         &mut harness.state,
+        &mut harness.repaint,
         Duration::ZERO,
         [
             Input::PointerDown {

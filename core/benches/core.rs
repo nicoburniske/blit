@@ -3,10 +3,11 @@ use std::{hint::black_box, time::Duration};
 use blit::{
     Ui, UiState,
     color::Color,
-    command_list::{ClipId, CommandList, CommandListDiffer, Rectangle},
+    command_list::{ClipId, CommandList, Rectangle},
     geometry::{LogicalRect, PhysicalRect},
     input::Input,
     render,
+    repaint::{DamageTracker, IncrementalRepaint, MyersTracker},
 };
 use divan::counter::ItemsCount;
 
@@ -33,17 +34,28 @@ fn layout(bencher: divan::Bencher) {
 fn layout_with_position_transition(bencher: divan::Bencher) {
     let mut renderer = NoopRenderer;
     let mut state = benchmark_state();
+    let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
     let mut time = Duration::ZERO;
     let mut right = false;
-    render(&mut renderer, &mut state, time, [Input::None], |ui| {
-        transition_frame(ui, right)
-    });
+    render(
+        &mut renderer,
+        &mut state,
+        &mut repaint,
+        time,
+        [Input::None],
+        |ui| transition_frame(ui, right),
+    );
     bencher.counter(ItemsCount::new(ITEMS)).bench_local(|| {
         time += Duration::from_millis(16);
         right = !right;
-        render(&mut renderer, &mut state, time, [Input::None], |ui| {
-            transition_frame(ui, right)
-        })
+        render(
+            &mut renderer,
+            &mut state,
+            &mut repaint,
+            time,
+            [Input::None],
+            |ui| transition_frame(ui, right),
+        )
     });
 }
 
@@ -67,11 +79,12 @@ fn z_index(bencher: divan::Bencher) {
 fn command_diff(bencher: divan::Bencher, case: DiffCase) {
     let old = command_list(case, false);
     let new = command_list(case, true);
-    let mut differ = CommandListDiffer::default();
-    black_box(differ.diff(&old, &new));
+    let mut tracker = MyersTracker::default();
+    let screen = PhysicalRect::default();
+    black_box(tracker.damage(&old, &new, screen));
 
     bencher.counter(ItemsCount::new(ITEMS)).bench_local(|| {
-        black_box(differ.diff(&old, &new));
+        black_box(tracker.damage(&old, &new, screen));
     });
 }
 
@@ -87,9 +100,11 @@ enum DiffCase {
 fn benchmark_frame(bencher: divan::Bencher, frame: fn(&mut Ui)) {
     let mut renderer = NoopRenderer;
     let mut state = benchmark_state();
+    let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
     render(
         &mut renderer,
         &mut state,
+        &mut repaint,
         Duration::ZERO,
         [Input::None],
         frame,
@@ -97,6 +112,7 @@ fn benchmark_frame(bencher: divan::Bencher, frame: fn(&mut Ui)) {
     render(
         &mut renderer,
         &mut state,
+        &mut repaint,
         Duration::ZERO,
         [Input::None],
         frame,
@@ -105,6 +121,7 @@ fn benchmark_frame(bencher: divan::Bencher, frame: fn(&mut Ui)) {
         render(
             &mut renderer,
             &mut state,
+            &mut repaint,
             Duration::ZERO,
             [Input::None],
             frame,
@@ -120,7 +137,6 @@ fn benchmark_state() -> UiState {
             width: 1280,
             height: 8192,
         },
-        blit::RepaintBuffer::Reused,
         1.0,
     )
 }

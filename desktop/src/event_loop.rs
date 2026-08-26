@@ -1,9 +1,9 @@
 use std::{num::NonZeroU32, pin::Pin, rc::Rc, time::Instant};
 
 use blit::{
-    RepaintBuffer,
     geometry::LogicalPoint,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
+    repaint::{IncrementalRepaint, MyersTracker},
 };
 use blit_cpu::{Renderer, Scanline};
 use blit_executor::{LocalExecutor, TaskId};
@@ -68,6 +68,7 @@ struct Active<A: Application> {
     executor: Pin<Box<LocalExecutor<A>>>,
     renderer: Renderer<DesktopBuffer, Scanline>,
     ui: blit::UiState,
+    repaint: IncrementalRepaint<MyersTracker>,
     surface: Surface<OwnedDisplayHandle, Rc<Window>>,
     window: Rc<Window>,
 }
@@ -161,6 +162,7 @@ impl<A: Application> Runner<A> {
         blit::render(
             &mut active.renderer,
             &mut active.ui,
+            &mut active.repaint,
             time,
             self.inputs.drain(..),
             |ui| active.app.render(ui),
@@ -199,11 +201,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             config.renderer,
         )
         .strategy(Scanline::default());
-        let ui = blit::UiState::new(
-            renderer.screen(),
-            RepaintBuffer::Swapped,
-            window.scale_factor() as f32,
-        );
+        let ui = blit::UiState::new(renderer.screen(), window.scale_factor() as f32);
         let wake = input.inner.clone();
         let executor = Box::pin(LocalExecutor::new(move |task| {
             let _ = wake.send_event(Event::TaskReady(task));
@@ -216,6 +214,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             executor,
             renderer,
             ui,
+            repaint: IncrementalRepaint::new(MyersTracker::default(), true),
             surface,
             window,
         });

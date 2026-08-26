@@ -1,7 +1,7 @@
 use std::{ops::Range, time::Duration};
 
 use blit::{
-    RepaintBuffer, Ui, UiState,
+    Ui, UiState,
     animation::Easing,
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
@@ -14,6 +14,7 @@ use blit::{
     interact::WidgetId,
     layout::Flex,
     renderer::Renderer as _,
+    repaint::{IncrementalRepaint, MyersTracker},
     style::{BorderRadius, Clip, GradientStop, LinearGradient, Shadow, Style},
     text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
     widget::{Image as ImageWidget, Rectangle as RectangleWidget, Text, Widget},
@@ -53,16 +54,28 @@ struct TrackingBuffer {
 struct Harness<B: PixelBuffer, S: RenderStrategy<B>> {
     renderer: Renderer<B, S>,
     state: UiState,
+    repaint: IncrementalRepaint<MyersTracker>,
 }
 
 impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> Harness<B, S> {
-    fn new(renderer: Renderer<B, S>, repaint_buffer: RepaintBuffer) -> Self {
-        let state = UiState::new(renderer.screen(), repaint_buffer, 1.0);
-        Self { renderer, state }
+    fn new(renderer: Renderer<B, S>, swapped: bool) -> Self {
+        let state = UiState::new(renderer.screen(), 1.0);
+        Self {
+            renderer,
+            state,
+            repaint: IncrementalRepaint::new(MyersTracker::default(), swapped),
+        }
     }
 
     fn render<R>(&mut self, time: Duration, input: Input, build: impl FnMut(&mut Ui) -> R) -> R {
-        blit::render(&mut self.renderer, &mut self.state, time, [input], build)
+        blit::render(
+            &mut self.renderer,
+            &mut self.state,
+            &mut self.repaint,
+            time,
+            [input],
+            build,
+        )
     }
 
     fn renderer(&mut self) -> &mut Renderer<B, S> {
@@ -155,7 +168,7 @@ impl CoherenceHarness {
             Harness::new(
                 Renderer::new(SwappedBuffer::new(width, height), renderer_config())
                     .strategy(Scanline::default()),
-                RepaintBuffer::Swapped,
+                true,
             )
         };
         Self {
@@ -284,7 +297,7 @@ fn renderer_config() -> RendererConfig {
 fn resolved_nodes_match_direct_commands() {
     let renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config())
         .strategy(Scanline::default());
-    let mut harness = Harness::new(renderer, RepaintBuffer::Reused);
+    let mut harness = Harness::new(renderer, false);
     let image = harness.renderer().create_image(ImageData::new(
         ImagePixels::Owned([220, 80, 40].repeat(8 * 8).into_boxed_slice()),
         ImageFormat::Rgb8,
@@ -635,7 +648,7 @@ fn partial_frames_match_full_redraw() {
     for position in [4.0, 4.0, 9.0, 17.0, 29.0, 41.0, 33.0, 18.0, 7.0, 4.0] {
         harness.render(position);
     }
-    assert!(harness.partial.has_pending_redraw());
+    assert!(!harness.partial.has_pending_redraw());
     harness.render(4.0);
     assert!(!harness.partial.has_pending_redraw());
 
@@ -645,7 +658,7 @@ fn partial_frames_match_full_redraw() {
     for time in [35, 60, 85, 110] {
         harness.render_at(Duration::from_millis(time), 4.0, Duration::from_millis(100));
     }
-    assert!(harness.partial.has_pending_redraw());
+    assert!(!harness.partial.has_pending_redraw());
     harness.render_at(Duration::from_millis(111), 4.0, Duration::from_millis(100));
     assert!(!harness.partial.has_pending_redraw());
 
@@ -1815,7 +1828,7 @@ fn borrowed_dynamic_text_renders_after_the_source_is_reused() {
     let mut harness = Harness::new(
         Renderer::new(VecBuffer::<Xrgb8888>::new(96, 48), renderer_config())
             .strategy(Scanline::default()),
-        RepaintBuffer::Reused,
+        false,
     );
     let mut text = String::from("managed");
 
