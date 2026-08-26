@@ -1157,6 +1157,7 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
 fn scanline_skips_commands_behind_opaque_content() {
     static RECTANGLE_PIXELS: std::sync::atomic::AtomicUsize =
         std::sync::atomic::AtomicUsize::new(0);
+    static SOLID_PAIRS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
     #[derive(Clone, Copy, Default)]
     struct CountingPixel {
@@ -1190,6 +1191,16 @@ fn scanline_skips_commands_behind_opaque_content() {
                 _ => pixels.iter_mut().for_each(|pixel| pixel.blend(color)),
             }
         }
+
+        fn blend_solid_pair(
+            pixels: &mut [Self],
+            first: PremultipliedRgbaColor,
+            second: PremultipliedRgbaColor,
+        ) {
+            SOLID_PAIRS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Self::blend_slice(pixels, first);
+            Self::blend_slice(pixels, second);
+        }
     }
 
     let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(4, 2), renderer_config())
@@ -1218,6 +1229,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     );
     renderer.render(&paint, &[screen]);
 
+    assert_eq!(SOLID_PAIRS.load(std::sync::atomic::Ordering::Relaxed), 2);
     assert!(
         renderer
             .buffer()

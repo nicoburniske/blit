@@ -5,7 +5,9 @@ use blit::{color::Color, geometry::PhysicalRect, style::GradientStop};
 use super::clip::ClipId;
 use crate::render::{
     image_patch::Prepared as PreparedImage,
-    rectangle::{Gradient as PreparedGradient, Prepared as PreparedRectangle},
+    rectangle::{
+        Gradient as PreparedGradient, Prepared as PreparedRectangle, SolidPair as PreparedSolidPair,
+    },
 };
 
 pub type CommandId = u32;
@@ -22,6 +24,7 @@ pub struct CommandList {
 pub enum Payload<'a> {
     Clear,
     Rectangle(&'a PreparedRectangle),
+    SolidPair(&'a PreparedSolidPair),
     GradientRectangle(&'a PreparedGradient, &'a [GradientStop]),
     Image(&'a PreparedImage),
     Text(&'a PreparedText),
@@ -52,6 +55,16 @@ impl CommandList {
         clip: ClipId,
     ) {
         let overwrites = clip == 0 && rectangle.overwrites();
+        if clip == 0
+            && let Some(previous) = self.commands.last_mut()
+            && previous.clip == 0
+            && previous.bounds == bounds
+            && let StoredPayload::Rectangle(first) = &previous.payload
+            && let Some(pair) = first.fuse(&rectangle)
+        {
+            previous.payload = StoredPayload::SolidPair(pair);
+            return;
+        }
         self.push(
             StoredPayload::Rectangle(rectangle),
             bounds,
@@ -121,6 +134,7 @@ impl CommandList {
         match &self.commands[id as usize].payload {
             StoredPayload::Clear => Payload::Clear,
             StoredPayload::Rectangle(rectangle) => Payload::Rectangle(rectangle),
+            StoredPayload::SolidPair(pair) => Payload::SolidPair(pair),
             StoredPayload::GradientRectangle { rectangle, stops } => Payload::GradientRectangle(
                 rectangle,
                 &self.gradient_stops[stops.start as usize..stops.end as usize],
@@ -165,6 +179,7 @@ impl CommandList {
         let span = match self.get(id) {
             Payload::Clear => bounds.clone(),
             Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
+            Payload::SolidPair(_) => bounds.clone(),
             Payload::Image(_) => bounds.clone(),
             Payload::GradientRectangle(rectangle, _) => rectangle.overwrite_span(line)?,
             Payload::Text(_) => return None,
@@ -216,6 +231,7 @@ struct StoredCommand {
 enum StoredPayload {
     Clear,
     Rectangle(PreparedRectangle),
+    SolidPair(PreparedSolidPair),
     GradientRectangle {
         rectangle: PreparedGradient,
         stops: Range<u32>,
