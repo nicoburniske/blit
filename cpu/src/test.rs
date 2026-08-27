@@ -231,7 +231,7 @@ fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, durati
         row.add(RectangleWidget::new().width(Sizing::fixed(x)));
         row.add(|ui: &mut Ui| {
             let mut movement = ui
-                .layout(Flex::column().padding(blit::geometry::LogicalInsets::uniform(4.0)))
+                .layout(Flex::column().padding(blit::geometry::Sides::all(4.0)))
                 .fixed(12.0, 20.0)
                 .style(
                     Style::new()

@@ -8,7 +8,7 @@ use blit::{
     FrameGraphMemory, Ui, UiState,
     color::Color,
     container::Sizing,
-    geometry::{LogicalInsets, PhysicalRect},
+    geometry::{PhysicalRect, Sides},
     input::Input,
     layout::Flex,
     render,
@@ -116,7 +116,7 @@ fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
 
 fn representative_frame(ui: &mut Ui) {
     let mut root = ui
-        .layout(Flex::column().padding(LogicalInsets::uniform(8.0)).gap(8.0))
+        .layout(Flex::column().padding(Sides::all(8.0)).gap(8.0))
         .width(Sizing::grow())
         .open();
     root.add(|ui: &mut Ui| {

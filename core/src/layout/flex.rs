@@ -1,4 +1,4 @@
-use crate::{container::Sizing, geometry::LogicalInsets};
+use crate::{container::Sizing, geometry::Sides};
 
 use super::{Axis, Layout, LayoutCx, UnitScope};
 
@@ -7,7 +7,7 @@ crate::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Flex {
         new(axis: Axis),
-        padding: LogicalInsets = LogicalInsets::uniform(0.0),
+        padding: Sides = Sides::all(0.0),
         gap: f32 = 0.0,
         align: Align = Align::Stretch,
         justify: Justify = Justify::Start,
