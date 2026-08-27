@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::{
     Ui,
     container::Sizing,
-    geometry::{LogicalInsets, LogicalPoint},
+    geometry::{LogicalPoint, Sides},
     input::ScrollPhase,
     interact::{Sense, WidgetId},
     layout::Flex,
@@ -17,7 +17,7 @@ pub struct ScrollArea<'a> {
     height: Sizing,
     z_index: i16,
     gap: f32,
-    padding: LogicalInsets,
+    padding: Sides,
     scroll_speed: f32,
     inertia_friction: f32,
     drag_to_scroll: bool,
@@ -88,7 +88,7 @@ impl<'a> ScrollArea<'a> {
             height: Sizing::grow(),
             z_index: 0,
             gap: 0.0,
-            padding: LogicalInsets::default(),
+            padding: Sides::default(),
             scroll_speed: 1.0,
             inertia_friction: 6.0,
             drag_to_scroll: true,
@@ -116,7 +116,7 @@ impl<'a> ScrollArea<'a> {
         self
     }
 
-    pub fn padding(mut self, padding: LogicalInsets) -> Self {
+    pub fn padding(mut self, padding: Sides) -> Self {
         self.padding = padding;
         self
     }

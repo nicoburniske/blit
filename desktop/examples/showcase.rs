@@ -4,7 +4,7 @@ use blit::{
     Ui,
     animation::{Easing, Transition},
     container::{Absolute, Anchor, Sizing},
-    geometry::{LogicalInsets, LogicalPoint, LogicalSize},
+    geometry::{LogicalPoint, LogicalSize, Sides},
     image::{
         ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageSampling, ImageTiling,
     },
@@ -147,11 +147,7 @@ impl Application for State {
         let max_width = (screen.width - 420.0).max(240.0);
         let max_height = (screen.height - 190.0).max(180.0);
         let mut root = ui
-            .layout(
-                Flex::column()
-                    .padding(LogicalInsets::uniform(20.0))
-                    .gap(16.0),
-            )
+            .layout(Flex::column().padding(Sides::all(20.0)).gap(16.0))
             .grow()
             .style(Style::new().background(colors::BACKGROUND))
             .open();
@@ -197,7 +193,7 @@ impl State {
         });
         header.add(|ui: &mut Ui| {
             let mut tabs = ui
-                .layout(Flex::row().padding(LogicalInsets::uniform(4.0)).gap(2.0))
+                .layout(Flex::row().padding(Sides::all(4.0)).gap(2.0))
                 .style(Style::new().background(colors::TRACK).uniform_radius(9.0))
                 .open();
             for (index, (label, page)) in [
@@ -268,11 +264,7 @@ impl State {
 
     fn controls(&mut self, ui: &mut Ui) {
         let mut controls = ui
-            .layout(
-                Flex::column()
-                    .padding(LogicalInsets::uniform(15.0))
-                    .gap(11.0),
-            )
+            .layout(Flex::column().padding(Sides::all(15.0)).gap(11.0))
             .width(Sizing::fixed(310.0))
             .height(Sizing::grow())
             .style(
@@ -450,11 +442,7 @@ impl State {
 
     fn preview(&mut self, ui: &mut Ui, max_width: f32, max_height: f32) {
         let mut preview = ui
-            .layout(
-                Flex::column()
-                    .padding(LogicalInsets::uniform(12.0))
-                    .gap(9.0),
-            )
+            .layout(Flex::column().padding(Sides::all(12.0)).gap(9.0))
             .grow()
             .style(
                 Style::new()
@@ -476,7 +464,7 @@ impl State {
 
     fn playground(&mut self, ui: &mut Ui, max_width: f32, max_height: f32) {
         let mut viewport = ui
-            .layout(Flex::column().padding(LogicalInsets::uniform(8.0)))
+            .layout(Flex::column().padding(Sides::all(8.0)))
             .grow()
             .style(Style::new().background(colors::TRACK).uniform_radius(8.0))
             .clip(Clip::Bounds)
@@ -493,11 +481,7 @@ impl State {
     }
     fn transitions(&mut self, ui: &mut Ui) {
         let mut transitions = ui
-            .layout(
-                Flex::column()
-                    .padding(LogicalInsets::uniform(10.0))
-                    .gap(8.0),
-            )
+            .layout(Flex::column().padding(Sides::all(10.0)).gap(8.0))
             .width(Sizing::grow())
             .height(Sizing::fixed(156.0))
             .style(
@@ -567,7 +551,7 @@ impl State {
         let mut tracks = ui.layout(Flex::row().gap(8.0)).grow().open();
         tracks.add(|ui: &mut Ui| {
             let mut track = ui
-                .layout(Flex::row().padding(LogicalInsets::uniform(7.0)))
+                .layout(Flex::row().padding(Sides::all(7.0)))
                 .width(Sizing::percent(0.5))
                 .height(Sizing::grow())
                 .style(Style::new().background(colors::SURFACE).uniform_radius(6.0))
@@ -599,7 +583,7 @@ impl State {
         });
         tracks.add(|ui: &mut Ui| {
             let mut track = ui
-                .layout(Flex::row().padding(LogicalInsets::uniform(7.0)))
+                .layout(Flex::row().padding(Sides::all(7.0)))
                 .width(Sizing::percent(0.5))
                 .height(Sizing::grow())
                 .style(Style::new().background(colors::SURFACE).uniform_radius(6.0))
@@ -633,11 +617,7 @@ impl State {
     }
     fn scrolling(&mut self, ui: &mut Ui) {
         let mut page = ui
-            .layout(
-                Flex::column()
-                    .padding(LogicalInsets::uniform(16.0))
-                    .gap(10.0),
-            )
+            .layout(Flex::column().padding(Sides::all(16.0)).gap(10.0))
             .grow()
             .style(
                 Style::new()
@@ -651,7 +631,7 @@ impl State {
         page.add(|ui: &mut Ui| {
             let mut scroll = ScrollArea::vertical(&mut self.scroll)
                 .id("showcase scroll")
-                .padding(LogicalInsets::uniform(10.0))
+                .padding(Sides::all(10.0))
                 .gap(8.0)
                 .begin(ui);
             for index in 0..24 {
@@ -659,7 +639,7 @@ impl State {
                     let mut row = ui
                         .layout(
                             Flex::row()
-                                .padding(LogicalInsets::uniform(12.0))
+                                .padding(Sides::all(12.0))
                                 .align(Align::Center)
                                 .gap(12.0),
                         )
@@ -688,11 +668,7 @@ impl State {
 
     fn input_page(&mut self, ui: &mut Ui) {
         let mut page = ui
-            .layout(
-                Flex::column()
-                    .padding(LogicalInsets::uniform(16.0))
-                    .gap(14.0),
-            )
+            .layout(Flex::column().padding(Sides::all(16.0)).gap(14.0))
             .grow()
             .style(
                 Style::new()
@@ -719,7 +695,7 @@ impl State {
         page.add(
             TextInput::new(&mut self.name)
                 .width(Sizing::fixed(360.0))
-                .padding(LogicalInsets::uniform(10.0))
+                .padding(Sides::all(10.0))
                 .style(
                     Style::new()
                         .background(colors::TRACK)
@@ -739,7 +715,7 @@ impl State {
         page.add(
             TextInput::new(&mut self.password)
                 .width(Sizing::fixed(360.0))
-                .padding(LogicalInsets::uniform(10.0))
+                .padding(Sides::all(10.0))
                 .style(
                     Style::new()
                         .background(colors::TRACK)
@@ -771,11 +747,7 @@ impl State {
         }
         let image = self.image.as_ref().unwrap();
         let mut page = ui
-            .layout(
-                Flex::column()
-                    .padding(LogicalInsets::uniform(16.0))
-                    .gap(12.0),
-            )
+            .layout(Flex::column().padding(Sides::all(16.0)).gap(12.0))
             .grow()
             .style(
                 Style::new()
@@ -866,11 +838,7 @@ impl State {
             2.0 - pulse * 2.0
         });
         let mut page = ui
-            .layout(
-                Flex::column()
-                    .padding(LogicalInsets::uniform(16.0))
-                    .gap(14.0),
-            )
+            .layout(Flex::column().padding(Sides::all(16.0)).gap(14.0))
             .grow()
             .style(
                 Style::new()
@@ -936,7 +904,7 @@ impl State {
         let mut screen_badge = ui
             .layout(
                 Flex::row()
-                    .padding(LogicalInsets {
+                    .padding(Sides {
                         top: 6.0,
                         right: 10.0,
                         bottom: 6.0,
@@ -1108,7 +1076,7 @@ fn carousel(mut active: usize) -> impl Widget<Output = usize> {
                     let mut card = ui
                         .layout(
                             Flex::column()
-                                .padding(LogicalInsets::uniform(12.0))
+                                .padding(Sides::all(12.0))
                                 .justify(Justify::SpaceBetween),
                         )
                         .fixed(170.0, 104.0)
@@ -1334,7 +1302,7 @@ impl Widget for ResizeGrip {
         {
             grip.add(|ui: &mut Ui| {
                 let mut readout = ui
-                    .layout(Flex::row().padding(LogicalInsets {
+                    .layout(Flex::row().padding(Sides {
                         top: 4.0,
                         right: 7.0,
                         bottom: 4.0,
@@ -1360,7 +1328,7 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
         let mut layout = ui
             .layout(
                 Flex::new(config.axis)
-                    .padding(LogicalInsets::uniform(config.padding * config.zoom))
+                    .padding(Sides::all(config.padding * config.zoom))
                     .gap(config.gap * config.zoom)
                     .align(config.align)
                     .justify(config.justify),
@@ -1490,7 +1458,7 @@ impl Widget for Button<'_> {
     fn render(self, ui: &mut Ui) -> ButtonResponse {
         let interaction = ui.interact(self.widget_id, Sense::CLICK);
         let mut button = ui
-            .layout(Flex::row().padding(LogicalInsets {
+            .layout(Flex::row().padding(Sides {
                 top: self.padding_y,
                 right: self.padding_x,
                 bottom: self.padding_y,

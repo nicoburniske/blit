@@ -25,21 +25,40 @@ pub type PhysicalRect = Rect<i32>;
 pub type LogicalSize = Size<f32>;
 pub type PhysicalSize = Size<i32>;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct LogicalInsets {
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-    pub left: f32,
+crate::builder! {
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    pub struct Sides {
+        new(),
+        top: f32 = 0.0,
+        right: f32 = 0.0,
+        bottom: f32 = 0.0,
+        left: f32 = 0.0,
+    }
 }
 
-impl LogicalInsets {
-    pub const fn uniform(value: f32) -> Self {
+impl Sides {
+    pub const fn all(value: f32) -> Self {
         Self {
             top: value,
             right: value,
             bottom: value,
             left: value,
+        }
+    }
+
+    pub const fn x(value: f32) -> Self {
+        Self {
+            right: value,
+            left: value,
+            ..Self::all(0.0)
+        }
+    }
+
+    pub const fn y(value: f32) -> Self {
+        Self {
+            top: value,
+            bottom: value,
+            ..Self::all(0.0)
         }
     }
 }
@@ -71,12 +90,12 @@ impl LogicalRect {
         })
     }
 
-    pub fn inset(self, insets: LogicalInsets) -> Self {
+    pub fn inset(self, sides: Sides) -> Self {
         Self {
-            x: self.x + insets.left,
-            y: self.y + insets.top,
-            width: (self.width - insets.left - insets.right).max(0.0),
-            height: (self.height - insets.top - insets.bottom).max(0.0),
+            x: self.x + sides.left,
+            y: self.y + sides.top,
+            width: (self.width - sides.left - sides.right).max(0.0),
+            height: (self.height - sides.top - sides.bottom).max(0.0),
         }
     }
 
