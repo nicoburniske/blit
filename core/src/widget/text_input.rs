@@ -4,11 +4,13 @@ use super::Widget;
 use crate::{
     Ui,
     color::Color,
-    container::{Item, Sizing},
-    geometry::LogicalRect,
+    container::Sizing,
+    geometry::{LogicalInsets, LogicalRect},
     input::{Input, Key},
     interact::{Sense, WidgetId},
+    layout::Flex,
     node::Content,
+    style::Style,
     text::{
         FontId, TextCaret, TextContent, TextOptions, TextOverflow, TextRequest, TextRunId,
         TextSelection, TextStyle, TextWrap,
@@ -27,6 +29,10 @@ crate::builder! {
         cursor_width: f32 = 1.0,
         text_style: TextStyle = TextStyle::default(),
         text_options: TextOptions = TextOptions::default(),
+        width: Sizing = Sizing::grow(),
+        height: Sizing = Sizing::fit(),
+        padding: LogicalInsets = LogicalInsets::default(),
+        style: Style<'a> = Style::new(),
         read_only: bool = false,
         z_index: i16 = 0,
     }
@@ -49,11 +55,6 @@ pub struct TextInputResponse {
 }
 
 impl TextInput<'_> {
-    pub fn style(mut self, style: impl Into<TextStyle>) -> Self {
-        self.text_style = style.into();
-        self
-    }
-
     pub fn font(mut self, font: FontId) -> Self {
         self.text_style.font = font;
         self
@@ -100,7 +101,8 @@ impl Widget for TextInput<'_> {
         let mut text_run = ui.text_run(self.display_text(), self.text_style);
 
         let id = self.state.id;
-        let previous_area = ui.geometry(id);
+        let text_id = id.child("text");
+        let previous_area = ui.geometry(text_id);
         let focused = ui.is_focused(id);
         self.state.focused = focused;
         let interaction = ui.interact(id, Sense::FOCUS);
@@ -236,23 +238,38 @@ impl Widget for TextInput<'_> {
             width: self.cursor_width,
             color: self.cursor_color,
         });
-        let node = ui.add_leaf(
-            Item {
-                width: Sizing::grow(),
-                height: Sizing::fit(),
-                z_index: self.z_index,
-            },
-            Content::Text(TextContent {
-                text: text_run,
-                color: self.text_color,
-                style: self.text_style,
-                options,
-                offset_x: self.state.scroll_x,
-                selection,
-                caret,
-            }),
-        );
-        ui.set_node_id(node, id);
+        let width = self.width;
+        let height = self.height;
+        let padding = self.padding;
+        let style = self.style;
+        let z_index = self.z_index;
+        let mut field = ui
+            .layout(Flex::column().padding(padding))
+            .id(id)
+            .width(width)
+            .height(height)
+            .z_index(z_index)
+            .style(style)
+            .open();
+        field.add(|ui: &mut Ui| {
+            let node = ui.add_leaf(
+                crate::container::Item {
+                    width: Sizing::grow(),
+                    height: Sizing::fit(),
+                    z_index: 0,
+                },
+                Content::Text(TextContent {
+                    text: text_run,
+                    color: self.text_color,
+                    style: self.text_style,
+                    options,
+                    offset_x: self.state.scroll_x,
+                    selection,
+                    caret,
+                }),
+            );
+            ui.set_node_id(node, text_id);
+        });
 
         response
     }
