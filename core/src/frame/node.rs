@@ -11,8 +11,7 @@ pub struct Node {
     pub content: ContentId,
     pub style: StyleId,
     pub clip_spec: ClipSpecId,
-    // layout resolves area in place: dimensions start intrinsic,
-    // then each axis writes its final position and size
+    // positions remain parent-local until layout finishes
     pub area: LogicalRect,
     pub clip: ClipId,
     pub clip_bounds: LogicalRect,
@@ -46,19 +45,6 @@ impl Node {
         match axis {
             Axis::Horizontal => self.area.width = size,
             Axis::Vertical => self.area.height = size,
-        }
-    }
-
-    pub fn set_axis(&mut self, axis: Axis, position: f32, size: f32) {
-        match axis {
-            Axis::Horizontal => {
-                self.area.x = position;
-                self.area.width = size;
-            }
-            Axis::Vertical => {
-                self.area.y = position;
-                self.area.height = size;
-            }
         }
     }
 }

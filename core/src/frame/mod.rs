@@ -21,7 +21,7 @@ use crate::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, Sides},
     image::{ImageContent, ImageRequest},
     interact::{InteractionState, WidgetId},
-    layout::{Axis, Flex, Layout},
+    layout::{Axis, Constraints, Flex, Layout},
     node::{Content, NodeId},
     renderer::Renderer,
     style::{Border, BorderRadius, Clip, LinearGradient, Shadow, Style},
@@ -40,7 +40,6 @@ pub struct FrameGraph {
     positioned_layouts: Vec<PositionedLayout>,
     layout_nodes: Vec<NodeId>,
     layout_data: DataArena,
-    position_offsets: Vec<LogicalPoint>,
     layers: Vec<PaintLayer>,
     // empty when declaration order is paint order
     paint_order: Vec<NodeId>,
@@ -116,18 +115,9 @@ impl FrameGraph {
         let positioned = !self.positioned_layouts.is_empty();
         self.layout(renderer, positioned);
         let mut active_transitions = TransitionProperties::NONE;
-        let mut has_position_transition = false;
         for state in transition_states.iter_mut().filter(|state| state.seen) {
-            has_position_transition |= state
-                .config
-                .properties
-                .intersects(TransitionProperties::POSITION);
             state.advance(self.transition_area(state.node), time);
             active_transitions = active_transitions.union(state.active);
-        }
-        if has_position_transition {
-            self.position_offsets
-                .resize(self.nodes.len(), LogicalPoint::default());
         }
         if active_transitions.intersects(TransitionProperties::SIZE) {
             self.prepare_transitioned_dimensions(transition_states);
@@ -136,6 +126,7 @@ impl FrameGraph {
         if active_transitions.intersects(TransitionProperties::POSITION) {
             self.apply_transitioned_positions(transition_states);
         }
+        self.resolve_positions();
         self.resolve_paint_order();
         if self.clear {
             commands.push_clear(self.nodes[0].area.to_physical(scale_factor));
@@ -269,7 +260,6 @@ impl FrameGraph {
                 + self.positioned_layouts.capacity() * size_of::<PositionedLayout>()
                 + self.layout_nodes.capacity() * size_of::<NodeId>()
                 + self.layout_data.heap_bytes()
-                + self.position_offsets.capacity() * size_of::<LogicalPoint>()
                 + self.layers.capacity() * size_of::<PaintLayer>()
                 + self.paint_order.capacity() * size_of::<NodeId>()
                 + self.styles.capacity() * size_of::<StoredStyle>()
@@ -512,54 +502,57 @@ impl FrameGraph {
     }
 
     fn layout(&mut self, renderer: &mut dyn Renderer, positioned: bool) {
-        self.measure_intrinsic(renderer, positioned);
-        self.place_layouts(Axis::Horizontal, positioned);
-        self.measure_wrapped_text(renderer);
-        self.measure_layouts(Axis::Vertical, positioned);
-        self.place_layouts(Axis::Vertical, positioned);
+        let root = self.nodes[0].area;
+        self.layout_node(
+            NodeId::ROOT,
+            Constraints::tight(LogicalSize {
+                width: root.width,
+                height: root.height,
+            }),
+            renderer,
+            positioned,
+        );
+        if positioned {
+            for index in 1..self.layout_nodes.len() {
+                let node = self.layout_nodes[index];
+                if self.nodes[node.index()].layout.is_positioned() {
+                    self.layout_positioned(node, renderer);
+                }
+            }
+        }
     }
 
-    fn measure_intrinsic(&mut self, renderer: &mut dyn Renderer, positioned: bool) {
-        for node in self.nodes.iter_mut().skip(1) {
-            let size = match node.content.decode() {
+    fn layout_node(
+        &mut self,
+        node: NodeId,
+        constraints: Constraints,
+        renderer: &mut dyn Renderer,
+        positioned: bool,
+    ) -> LogicalSize {
+        let size = if let Some(layout) = self.stored_layout(node) {
+            (layout.vtable.run)(node, layout, self, constraints, renderer, positioned)
+        } else {
+            let intrinsic = match self.nodes[node.index()].content.decode() {
                 ContentRef::None => LogicalSize::default(),
                 ContentRef::Text(index) => {
                     let text = self.texts[index];
                     renderer.measure_text(&TextLayoutRequest {
                         text: text.text,
                         style: text.style,
-                        wrap: TextWrap::None,
-                        max_width: None,
+                        wrap: text.options.wrap,
+                        max_width: (text.options.wrap != TextWrap::None
+                            && constraints.max.width.is_finite())
+                        .then_some(constraints.max.width),
                         max_lines: text.options.max_lines,
                     })
                 }
                 ContentRef::Image(index) => self.images[index].intrinsic,
             };
-            node.area.width = size.width;
-            node.area.height = size.height;
-        }
-        self.measure_layouts(Axis::Horizontal, positioned);
-    }
-
-    fn measure_wrapped_text(&mut self, renderer: &mut dyn Renderer) {
-        for node in &mut self.nodes {
-            let ContentRef::Text(index) = node.content.decode() else {
-                continue;
-            };
-            let text = self.texts[index];
-            if text.options.wrap == TextWrap::None {
-                continue;
-            }
-            node.area.height = renderer
-                .measure_text(&TextLayoutRequest {
-                    text: text.text,
-                    style: text.style,
-                    wrap: text.options.wrap,
-                    max_width: Some(node.area.width),
-                    max_lines: text.options.max_lines,
-                })
-                .height;
-        }
+            constraints.constrain(intrinsic)
+        };
+        self.nodes[node.index()].area.width = size.width;
+        self.nodes[node.index()].area.height = size.height;
+        size
     }
 
     fn stored_layout(&self, node: NodeId) -> Option<StoredLayout> {
@@ -572,86 +565,111 @@ impl FrameGraph {
         })
     }
 
-    fn measure_layouts(&mut self, axis: Axis, positioned: bool) {
-        for index in (1..self.layout_nodes.len()).rev() {
-            let node = self.layout_nodes[index];
-            let layout = self.stored_layout(node).unwrap();
-            (layout.vtable.measure)(node, layout, self, axis, positioned);
-        }
-    }
-
-    fn place_layouts(&mut self, axis: Axis, positioned: bool) {
-        for index in 0..self.layout_nodes.len() {
-            let node = self.layout_nodes[index];
-            let layout = self.stored_layout(node).unwrap();
-            (layout.vtable.place)(node, layout, self, axis, positioned);
-        }
-    }
-
     fn layout_offset(&self, node: NodeId) -> LogicalPoint {
         self.stored_layout(node)
             .map_or(LogicalPoint::default(), |layout| layout.offset)
     }
 
-    fn position_reference(&self, node: NodeId) -> (NodeId, LogicalPoint) {
+    fn position_offset(&self, node: NodeId) -> LogicalPoint {
         let layout = self.nodes[node.index()].layout;
         if layout.is_positioned() {
             let positioned = self.positioned_layouts[layout.index().unwrap()];
-            let offset = if positioned.uses_target_content_origin {
+            return if positioned.uses_target_content_origin {
                 self.layout_offset(positioned.target)
             } else {
                 LogicalPoint::default()
             };
-            return (positioned.target, offset);
         }
-        let parent = self.nodes[node.index()].parent;
-        (parent, self.layout_offset(parent))
+        self.layout_offset(self.nodes[node.index()].parent)
     }
 
-    fn resolve_positioned(&mut self, node: NodeId, axis: Axis) {
-        fn anchor_factor(anchor: Anchor, axis: Axis) -> f32 {
-            match (axis, anchor) {
-                (Axis::Horizontal, Anchor::TopLeft | Anchor::Left | Anchor::BottomLeft)
-                | (Axis::Vertical, Anchor::TopLeft | Anchor::Top | Anchor::TopRight) => 0.0,
-                (Axis::Horizontal, Anchor::Top | Anchor::Center | Anchor::Bottom)
-                | (Axis::Vertical, Anchor::Left | Anchor::Center | Anchor::Right) => 0.5,
-                (Axis::Horizontal, Anchor::TopRight | Anchor::Right | Anchor::BottomRight)
-                | (Axis::Vertical, Anchor::BottomLeft | Anchor::Bottom | Anchor::BottomRight) => {
-                    1.0
-                }
+    fn layout_positioned(&mut self, node: NodeId, renderer: &mut dyn Renderer) {
+        fn anchor_factor(anchor: Anchor) -> LogicalPoint {
+            match anchor {
+                Anchor::TopLeft => LogicalPoint { x: 0.0, y: 0.0 },
+                Anchor::Top => LogicalPoint { x: 0.5, y: 0.0 },
+                Anchor::TopRight => LogicalPoint { x: 1.0, y: 0.0 },
+                Anchor::Left => LogicalPoint { x: 0.0, y: 0.5 },
+                Anchor::Center => LogicalPoint { x: 0.5, y: 0.5 },
+                Anchor::Right => LogicalPoint { x: 1.0, y: 0.5 },
+                Anchor::BottomLeft => LogicalPoint { x: 0.0, y: 1.0 },
+                Anchor::Bottom => LogicalPoint { x: 0.5, y: 1.0 },
+                Anchor::BottomRight => LogicalPoint { x: 1.0, y: 1.0 },
             }
         }
 
         let positioned = self.positioned_layouts[self.nodes[node.index()].layout.index().unwrap()];
-        let (target, target_offset) = self.position_reference(node);
-        let target = self.nodes[target.index()].area;
-        let (origin, available, offset) = match axis {
-            Axis::Horizontal => (
-                target.x + target_offset.x,
-                target.width,
-                positioned.offset.x,
-            ),
-            Axis::Vertical => (
-                target.y + target_offset.y,
-                target.height,
-                positioned.offset.y,
-            ),
+        let target = self.nodes[positioned.target.index()].area;
+        let available = LogicalSize {
+            width: target.width,
+            height: target.height,
         };
-        let node = &mut self.nodes[node.index()];
-        let size = node.sizing(axis).resolve(node.size(axis), available, true);
-        let position = origin + available * anchor_factor(positioned.target_anchor, axis)
-            - size * anchor_factor(positioned.child_anchor, axis)
-            + offset;
-        node.set_axis(axis, position, size);
+        let range = |sizing: Sizing, available: f32| match sizing {
+            Sizing::Fit { min, max } => {
+                let min = min.max(0.0);
+                (min, max.max(min).min(available).max(min))
+            }
+            Sizing::Grow { .. } => {
+                let size = sizing.clamp(available);
+                (size, size)
+            }
+            Sizing::Fixed(size) => {
+                let size = size.max(0.0);
+                (size, size)
+            }
+            Sizing::Percent(_) => {
+                let size = sizing.resolve(0.0, available, true);
+                (size, size)
+            }
+        };
+        let width = range(self.nodes[node.index()].slot.width, available.width);
+        let height = range(self.nodes[node.index()].slot.height, available.height);
+        let size = self.layout_node(
+            node,
+            Constraints {
+                min: LogicalSize {
+                    width: width.0,
+                    height: height.0,
+                },
+                max: LogicalSize {
+                    width: width.1,
+                    height: height.1,
+                },
+            },
+            renderer,
+            true,
+        );
+        let target_factor = anchor_factor(positioned.target_anchor);
+        let child_factor = anchor_factor(positioned.child_anchor);
+        let reference_offset = self.position_offset(node);
+        self.nodes[node.index()].area.x = available.width * target_factor.x
+            - size.width * child_factor.x
+            + positioned.offset.x
+            + reference_offset.x;
+        self.nodes[node.index()].area.y = available.height * target_factor.y
+            - size.height * child_factor.y
+            + positioned.offset.y
+            + reference_offset.y;
+    }
+
+    fn resolve_positions(&mut self) {
+        for index in 1..self.nodes.len() {
+            let layout = self.nodes[index].layout;
+            let reference = if layout.is_positioned() {
+                self.positioned_layouts[layout.index().unwrap()].target
+            } else {
+                self.nodes[index].parent
+            };
+            self.nodes[index].area.x += self.nodes[reference.index()].area.x;
+            self.nodes[index].area.y += self.nodes[reference.index()].area.y;
+        }
     }
 
     fn transition_area(&self, node: NodeId) -> LogicalRect {
         let mut area = self.nodes[node.index()].area;
-        let (parent, parent_offset) = self.position_reference(node);
-        let parent_node = &self.nodes[parent.index()];
-        // positions transition within the parent and ignore scrolling
-        area.x -= parent_node.area.x + parent_offset.x;
-        area.y -= parent_node.area.y + parent_offset.y;
+        let offset = self.position_offset(node);
+        area.x -= offset.x;
+        area.y -= offset.y;
         area
     }
 
@@ -667,35 +685,16 @@ impl FrameGraph {
         }
     }
 
-    fn apply_transitioned_positions(&mut self, states: &mut [TransitionState]) {
-        states.sort_unstable_by_key(|state| state.node.index());
-        self.position_offsets[0] = LogicalPoint::default();
-        let mut states = states.iter().filter(|state| state.seen).peekable();
-        for index in 1..self.nodes.len() {
-            let (parent, parent_offset) = self.position_reference(NodeId::new(index));
-            let inherited = self.position_offsets[parent.index()];
-            let mut local = LogicalPoint::default();
-            if let Some(state) = states.next_if(|state| state.node.index() == index) {
-                let parent_area = self.nodes[parent.index()].area;
-                let parent_delta = self.position_offsets[parent.index()];
-                if state.active.intersects(TransitionProperties::X) {
-                    let target = self.nodes[index].area.x
-                        - (parent_area.x - parent_delta.x + parent_offset.x);
-                    local.x = state.current.x - target;
-                }
-                if state.active.intersects(TransitionProperties::Y) {
-                    let target = self.nodes[index].area.y
-                        - (parent_area.y - parent_delta.y + parent_offset.y);
-                    local.y = state.current.y - target;
-                }
+    fn apply_transitioned_positions(&mut self, states: &[TransitionState]) {
+        for state in states.iter().filter(|state| state.seen) {
+            let offset = self.position_offset(state.node);
+            let area = &mut self.nodes[state.node.index()].area;
+            if state.active.intersects(TransitionProperties::X) {
+                area.x = state.current.x + offset.x;
             }
-            let offset = LogicalPoint {
-                x: inherited.x + local.x,
-                y: inherited.y + local.y,
-            };
-            self.position_offsets[index] = offset;
-            self.nodes[index].area.x += offset.x;
-            self.nodes[index].area.y += offset.y;
+            if state.active.intersects(TransitionProperties::Y) {
+                area.y = state.current.y + offset.y;
+            }
         }
     }
 

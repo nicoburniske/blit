@@ -7,7 +7,7 @@ use crate::{
     animation::Transition,
     geometry::{LogicalPoint, Sides},
     interact::WidgetId,
-    layout::{Flex, Layout, raw_scope},
+    layout::{Flex, Layout, RawScope},
     style::{Clip, Style},
 };
 
@@ -155,7 +155,11 @@ impl<'ui, 'style, L: Layout> Container<'ui, 'style, L> {
 
     pub fn open(self) -> L::Scope<'ui> {
         let node = self.ui.open_layout(self.layout, self.config);
-        L::Scope::from(raw_scope(self.ui, node))
+        L::Scope::from(RawScope {
+            ui: self.ui,
+            node,
+            layout: std::marker::PhantomData,
+        })
     }
 }
 
