@@ -3,8 +3,8 @@ mod builder;
 pub mod color;
 pub mod command_list;
 pub mod container;
+mod frame;
 pub mod geometry;
-mod graph;
 pub mod image;
 pub mod input;
 pub mod interact;
@@ -257,7 +257,7 @@ impl Ui {
             index
         } else {
             let states = &mut self.state_mut().transitions;
-            states.push(graph::TransitionState::new(id));
+            states.push(frame::TransitionState::new(id));
             states.len() - 1
         };
         self.state_mut().transitions[index].begin(node, transition);
@@ -278,7 +278,7 @@ impl Ui {
         unsafe { self.renderer.as_mut() }
     }
 
-    fn frame_mut(&mut self) -> &mut graph::FrameGraph {
+    fn frame_mut(&mut self) -> &mut frame::FrameGraph {
         &mut self.state_mut().frame
     }
 }
@@ -292,12 +292,12 @@ pub struct FrameGraphMemory {
 }
 
 pub struct UiState {
-    frame: graph::FrameGraph,
+    frame: frame::FrameGraph,
     commands: CommandList,
     interaction: interact::InteractionState,
-    geometry: graph::GeometryState,
+    geometry: frame::GeometryState,
     animations: Vec<animation::AnimationState>,
-    transitions: Vec<graph::TransitionState>,
+    transitions: Vec<frame::TransitionState>,
     timers: Vec<timer::TimerState>,
     frame_requested: bool,
     full_repaint: bool,
@@ -311,10 +311,10 @@ impl UiState {
     pub fn new(physical_screen: PhysicalRect, scale_factor: f32) -> Self {
         assert!(scale_factor.is_finite() && scale_factor > 0.0);
         Self {
-            frame: graph::FrameGraph::default(),
+            frame: frame::FrameGraph::default(),
             commands: CommandList::default(),
             interaction: interact::InteractionState::default(),
-            geometry: graph::GeometryState::default(),
+            geometry: frame::GeometryState::default(),
             animations: Vec::new(),
             transitions: Vec::new(),
             timers: Vec::new(),
@@ -336,7 +336,7 @@ impl UiState {
             || self
                 .transitions
                 .iter()
-                .any(graph::TransitionState::is_active)
+                .any(frame::TransitionState::is_active)
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
