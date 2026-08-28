@@ -17,7 +17,7 @@
 mod flex;
 mod rect;
 
-pub use crate::graph::{Children, LayoutCx};
+pub use crate::frame::{Children, LayoutCx};
 pub use flex::*;
 pub use rect::*;
 
