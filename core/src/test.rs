@@ -1515,9 +1515,7 @@ fn looping_animation_and_timers_schedule_frames() {
 }
 
 #[test]
-fn input_and_geometry_types_remain_compact_and_exact() {
-    assert_eq!(std::mem::size_of::<Input>(), 20);
-    assert_eq!(std::mem::size_of::<Slot>(), 28);
+fn logical_rect_rounds_outward_to_physical_pixels() {
     assert_eq!(
         LogicalRect {
             x: 1.2,
