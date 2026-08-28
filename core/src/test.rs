@@ -276,6 +276,10 @@ fn custom_layout_is_stored_and_invoked_after_declaration() {
         fn add<W: Widget>(&mut self, gap: f32, widget: W) -> W::Output {
             self.0.add(Gap(gap), widget)
         }
+
+        fn close(self) {
+            self.0.close()
+        }
     }
 
     impl Layout for ReverseRow {
@@ -314,7 +318,7 @@ fn custom_layout_is_stored_and_invoked_after_declaration() {
         let mut row = ui.layout(ReverseRow { gap: 1.0 }).fixed(10.0, 4.0).open();
         row.add(0.0, fixed_rectangle(2.0, 4.0, Color::BLACK));
         row.add(2.0, fixed_rectangle(3.0, 4.0, Color::WHITE));
-        drop(row);
+        row.close();
         ui.layout(ReverseRow { gap: 0.0 })
             .style(Style::new().background(Color::GRAY))
             .open();
@@ -605,7 +609,7 @@ fn absolute_can_target_an_earlier_widget() {
                 .absolute(Absolute::at(2.0, 1.0))
                 .open();
         });
-        drop(parent);
+        parent.close();
         ui.layout(Flex::column())
             .fixed(1.0, 1.0)
             .style(Style::new().background(Color::BLACK))
@@ -656,7 +660,7 @@ fn z_index_orders_complete_subtrees() {
                 .slot(Slot::new().fixed(1.0, 1.0).z_index(100))
                 .style(Style::new().background(Color::BLACK)),
         );
-        drop(layer);
+        layer.close();
         fixed_rectangle(1.0, 1.0, Color::GRAY).render(ui);
     });
 
@@ -685,7 +689,7 @@ fn layers_order_hit_testing() {
             .id(normal)
             .z_index(100)
             .open();
-        drop(normal_scope);
+        normal_scope.close();
         let raised_hovered = ui.interact(raised, Sense::CLICK).hovered;
         ui.layout(Flex::column())
             .fixed(10.0, 10.0)
@@ -730,7 +734,7 @@ fn hit_sides_expand_within_clip_bounds() {
                 .absolute(Absolute::at(1.0, 1.0))
                 .open();
         });
-        drop(clip);
+        clip.close();
         (hovered, ui.geometry(id))
     };
 
