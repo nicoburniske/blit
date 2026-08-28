@@ -78,7 +78,11 @@ impl Ui {
 
     /// evaluates the current input against geometry resolved before this callback
     pub fn interact(&mut self, id: WidgetId, sense: Sense) -> Interaction {
-        self.state_mut().interaction.response(id, sense)
+        let interaction = self.state_mut().interaction.response(id, sense);
+        if interaction.activated || interaction.deactivated || interaction.clicked {
+            self.request_frame();
+        }
+        interaction
     }
 
     pub fn time(&self) -> Duration {

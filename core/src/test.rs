@@ -1081,11 +1081,13 @@ fn interaction_reports_active_lifecycle() {
     assert!(activated.active);
     assert!(activated.activated);
     assert!(!activated.deactivated);
+    assert!(harness.has_pending_redraw());
 
     let active = harness.render(Duration::ZERO, Input::None, render);
     assert!(active.active);
     assert!(!active.activated);
     assert!(!active.deactivated);
+    assert!(!harness.has_pending_redraw());
 
     let deactivated = harness.render(
         Duration::ZERO,
@@ -1100,6 +1102,7 @@ fn interaction_reports_active_lifecycle() {
     assert!(!deactivated.active);
     assert!(deactivated.deactivated);
     assert!(!deactivated.clicked);
+    assert!(harness.has_pending_redraw());
 }
 
 #[test]
