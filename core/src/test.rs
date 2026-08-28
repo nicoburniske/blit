@@ -10,7 +10,10 @@ use crate::{
     image,
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
     interact::{Sense, WidgetId},
-    layout::{Align, Axis, Flex, Justify, Layout, LayoutCx, RawScope, RectLayout, UnitScope},
+    layout::{
+        Align, Axis, Constraints, Flex, Justify, Layout, LayoutCx, RawScope, RectLayout, UnitScope,
+        Wrap,
+    },
     renderer::Renderer,
     repaint::{IncrementalRepaint, MyersTracker},
     style::{Clip, GradientStop, LinearGradient, Style},
@@ -286,30 +289,42 @@ fn custom_layout_is_stored_and_invoked_after_declaration() {
         type Item = Gap;
         type Scope<'a> = ReverseScope<'a>;
 
-        fn measure(&self, cx: &LayoutCx<'_, Self::Item>, _: Axis) -> Option<f32> {
-            cx.children().next().is_none().then_some(1.0)
-        }
-
-        fn place(&self, cx: &mut LayoutCx<'_, Self::Item>, axis: Axis) {
-            let rect = cx.rect();
-            let (origin, available) = match axis {
-                Axis::Horizontal => (rect.x, rect.width),
-                Axis::Vertical => (rect.y, rect.height),
-            };
-            let mut cursor = origin + available;
-            for (index, node) in cx.children().enumerate() {
-                let sizing = cx.sizing(node, axis);
-                let size =
-                    sizing.resolve(cx.axis_size(node, axis), available, axis == Axis::Vertical);
-                if axis == Axis::Horizontal {
-                    cursor -= cx.item(node).0 + size;
-                    cx.set_z_index(node, -(index as i16));
-                    cx.set_axis(node, axis, cursor, size);
-                    cursor -= self.gap;
-                } else {
-                    cx.set_axis(node, axis, origin, size);
+        fn layout(
+            &self,
+            cx: &mut LayoutCx<'_, Self::Item>,
+            constraints: Constraints,
+        ) -> LogicalSize {
+            let empty = cx.children().next().is_none();
+            let size = constraints.constrain(if empty {
+                LogicalSize {
+                    width: 1.0,
+                    height: 1.0,
                 }
+            } else {
+                LogicalSize::default()
+            });
+            let mut cursor = size.width;
+            for (index, node) in cx.children().enumerate() {
+                let natural = cx.layout_child(node, Constraints::loose(size));
+                let child = LogicalSize {
+                    width: cx.sizing(node, Axis::Horizontal).resolve(
+                        natural.width,
+                        size.width,
+                        false,
+                    ),
+                    height: cx.sizing(node, Axis::Vertical).resolve(
+                        natural.height,
+                        size.height,
+                        true,
+                    ),
+                };
+                cx.layout_child(node, Constraints::tight(child));
+                cursor -= cx.item(node).0 + child.width;
+                cx.set_z_index(node, -(index as i16));
+                cx.set_position(node, LogicalPoint { x: cursor, y: 0.0 });
+                cursor -= self.gap;
             }
+            size
         }
     }
 
@@ -318,6 +333,13 @@ fn custom_layout_is_stored_and_invoked_after_declaration() {
         let mut row = ui.layout(ReverseRow { gap: 1.0 }).fixed(10.0, 4.0).open();
         row.add(0.0, fixed_rectangle(2.0, 4.0, Color::BLACK));
         row.add(2.0, fixed_rectangle(3.0, 4.0, Color::WHITE));
+        row.add(0.0, |ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(1.0, 1.0)
+                .absolute(Absolute::at(6.0, 1.0))
+                .style(Style::new().background(Color::GRAY))
+                .open();
+        });
         row.close();
         ui.layout(ReverseRow { gap: 0.0 })
             .style(Style::new().background(Color::GRAY))
@@ -325,10 +347,11 @@ fn custom_layout_is_stored_and_invoked_after_declaration() {
     });
 
     let areas = &harness.renderer().rectangle_areas;
-    assert_eq!(areas.len(), 3);
+    assert_eq!(areas.len(), 4);
     assert_eq!((areas[0].x, areas[0].width), (2.0, 3.0));
     assert_eq!((areas[1].x, areas[1].width), (8.0, 2.0));
-    assert_eq!((areas[2].y, areas[2].height), (4.0, 1.0));
+    assert_eq!((areas[2].x, areas[2].y), (6.0, 1.0));
+    assert_eq!((areas[3].y, areas[3].height), (4.0, 1.0));
 }
 
 #[test]
@@ -384,6 +407,70 @@ fn rect_layout_uses_supplied_rectangles_and_measures_their_extent() {
 }
 
 #[test]
+fn wrap_forms_horizontal_and_vertical_runs() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut horizontal = ui
+            .layout(Wrap::horizontal().item_gap(1.0).run_gap(2.0))
+            .fixed(5.0, 5.0)
+            .open();
+        horizontal.add(fixed_rectangle(2.0, 1.0, Color::BLACK));
+        horizontal.add(fixed_rectangle(2.0, 2.0, Color::GRAY));
+        horizontal.add(fixed_rectangle(2.0, 1.0, Color::WHITE));
+        horizontal.close();
+
+        let mut vertical = ui
+            .layout(Wrap::vertical().item_gap(1.0).run_gap(2.0))
+            .fixed(10.0, 5.0)
+            .open();
+        vertical.add(fixed_rectangle(1.0, 2.0, Color::BLACK));
+        vertical.add(fixed_rectangle(2.0, 2.0, Color::GRAY));
+        vertical.add(|ui: &mut Ui| {
+            let mut child = ui.layout(Flex::row()).fixed(1.0, 2.0).open();
+            child.add(fixed_rectangle(1.0, 2.0, Color::WHITE));
+        });
+    });
+
+    let areas = &harness.renderer().rectangle_areas;
+    assert_eq!(
+        areas[..3]
+            .iter()
+            .map(|area| (area.x, area.y))
+            .collect::<Vec<_>>(),
+        [(0.0, 0.0), (3.0, 0.0), (0.0, 4.0)]
+    );
+    assert_eq!(
+        areas[3..]
+            .iter()
+            .map(|area| (area.x, area.y))
+            .collect::<Vec<_>>(),
+        [(0.0, 5.0), (0.0, 8.0), (4.0, 5.0)]
+    );
+}
+
+#[test]
+fn wrap_remeasures_text_at_run_width() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut wrap = ui.layout(Wrap::horizontal()).fixed(10.0, 20.0).open();
+        wrap.add(
+            widget::Text::new("1234")
+                .text_size(4.0)
+                .wrap(text::TextWrap::Character),
+        );
+    });
+
+    assert_eq!(harness.renderer().text_widths, [None, Some(10.0)]);
+    assert_eq!(
+        (
+            harness.renderer().text_areas[0].width,
+            harness.renderer().text_areas[0].height,
+        ),
+        (10.0, 8.0)
+    );
+}
+
+#[test]
 #[should_panic(expected = "layout item is missing")]
 fn unit_scope_does_not_store_layout_items() {
     #[derive(Clone, Copy)]
@@ -393,14 +480,15 @@ fn unit_scope_does_not_store_layout_items() {
         type Item = ();
         type Scope<'a> = UnitScope<'a, Self>;
 
-        fn measure(&self, _: &LayoutCx<'_, Self::Item>, _: Axis) -> Option<f32> {
-            None
-        }
-
-        fn place(&self, cx: &mut LayoutCx<'_, Self::Item>, _: Axis) {
+        fn layout(
+            &self,
+            cx: &mut LayoutCx<'_, Self::Item>,
+            constraints: Constraints,
+        ) -> LogicalSize {
             for node in cx.children() {
                 cx.item(node);
             }
+            constraints.constrain(LogicalSize::default())
         }
     }
 
@@ -1360,7 +1448,7 @@ fn nested_position_transitions_compose() {
         .easing(Easing::Linear)
         .position();
     let render = |ui: &mut Ui, parent_offset: f32, child_offset: f32| {
-        let mut column = ui.layout(Flex::column()).fixed(2.0, 10.0).open();
+        let mut column = ui.layout(Wrap::vertical()).fixed(2.0, 10.0).open();
         column.add(fixed_rectangle(2.0, parent_offset, Color::TRANSPARENT));
         column.add(|ui: &mut Ui| {
             let mut parent = ui

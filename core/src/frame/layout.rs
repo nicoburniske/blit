@@ -7,6 +7,7 @@ use super::*;
 /// access to one container and its direct children during layout
 pub struct LayoutCx<'a, I> {
     frame: &'a mut FrameGraph,
+    renderer: &'a mut dyn Renderer,
     nodes: *const Node,
     node: NodeId,
     positioned: bool,
@@ -14,11 +15,13 @@ pub struct LayoutCx<'a, I> {
     offset: LogicalPoint,
 }
 
-/// iterator over a layout container's direct children
+/// iterator over a layout container's in-flow direct children
+#[derive(Clone)]
 pub struct Children<'a> {
     nodes: *const Node,
     next: usize,
     end: usize,
+    positioned: bool,
     marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -27,32 +30,24 @@ impl Iterator for Children<'_> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.next >= self.end {
-            return None;
+        while self.next < self.end {
+            let node = NodeId::new(self.next);
+            // safety: layout freezes node storage and subtree boundaries
+            let stored = unsafe { &*self.nodes.add(self.next) };
+            self.next = stored.subtree_end as usize;
+            if !self.positioned || !stored.layout.is_positioned() {
+                return Some(node);
+            }
         }
-        let node = NodeId::new(self.next);
-        // safety: layout freezes node storage and subtree boundaries
-        self.next = unsafe { (*self.nodes.add(self.next)).subtree_end as usize };
-        Some(node)
+        None
     }
 }
 
 impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
-    /// the container being laid out
-    #[inline]
-    pub fn node(&self) -> NodeId {
-        self.node
-    }
-
-    /// the container's current rectangle
-    #[inline]
-    pub fn rect(&self) -> LogicalRect {
-        self.frame.nodes[self.node.index()].area
-    }
-
     /// the current size of a node
     #[inline]
     pub fn size(&self, node: NodeId) -> LogicalSize {
+        self.debug_assert_child(node);
         let area = self.frame.nodes[node.index()].area;
         LogicalSize {
             width: area.width,
@@ -60,22 +55,53 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
         }
     }
 
-    /// iterates over this container's direct children
+    /// lays out a direct child under the supplied constraints
+    pub fn layout_child(&mut self, node: NodeId, constraints: Constraints) -> LogicalSize {
+        self.debug_assert_child(node);
+        self.frame
+            .layout_node(node, constraints, self.renderer, self.positioned)
+    }
+
+    /// applies constraints to a child previously passed to [`Self::layout_child`]
+    ///
+    /// simple leaves reuse their current measured size
+    /// containers and wrapped text recalculate their layout
+    pub fn constrain_child(&mut self, node: NodeId, constraints: Constraints) -> LogicalSize {
+        self.debug_assert_child(node);
+        if self.frame.stored_layout(node).is_none()
+            && !matches!(
+                self.frame.nodes[node.index()].content.decode(),
+                ContentRef::Text(index) if self.frame.texts[index].options.wrap != TextWrap::None
+            )
+        {
+            let size = constraints.constrain(self.size(node));
+            self.frame.nodes[node.index()].area.width = size.width;
+            self.frame.nodes[node.index()].area.height = size.height;
+            size
+        } else {
+            self.frame
+                .layout_node(node, constraints, self.renderer, self.positioned)
+        }
+    }
+
+    /// sets a direct child's position relative to this container
+    #[inline]
+    pub fn set_position(&mut self, node: NodeId, position: LogicalPoint) {
+        self.debug_assert_child(node);
+        self.frame.nodes[node.index()].area.x = position.x + self.offset.x;
+        self.frame.nodes[node.index()].area.y = position.y + self.offset.y;
+    }
+
+    /// iterates over this container's in-flow direct children
     #[inline]
     pub fn children(&self) -> Children<'a> {
         Children {
             nodes: self.nodes,
             next: self.node.index() + 1,
             end: self.frame.nodes[self.node.index()].subtree_end as usize,
+            positioned: self.positioned,
             marker: std::marker::PhantomData,
         }
-    }
-
-    /// whether a child participates in this container's layout
-    #[inline]
-    pub fn is_in_flow(&self, node: NodeId) -> bool {
-        debug_assert_eq!(self.frame.nodes[node.index()].parent, self.node);
-        !self.positioned || !self.frame.nodes[node.index()].layout.is_positioned()
     }
 
     /// metadata supplied by a direct child for this layout
@@ -83,11 +109,7 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     /// panics when the child was declared without metadata
     #[inline]
     pub fn item(&self, node: NodeId) -> I {
-        assert_eq!(
-            self.frame.nodes[node.index()].parent,
-            self.node,
-            "layout metadata is only available for direct children"
-        );
+        self.debug_assert_child(node);
         let offset = self.frame.nodes[node.index()]
             .layout_item
             .offset()
@@ -98,46 +120,40 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     /// the sizing requested by a child on an axis
     #[inline]
     pub fn sizing(&self, node: NodeId, axis: Axis) -> crate::container::Sizing {
-        debug_assert_eq!(self.frame.nodes[node.index()].parent, self.node);
+        self.debug_assert_child(node);
         self.frame.nodes[node.index()].sizing(axis)
     }
 
     /// the current size of a child on an axis
     #[inline]
     pub fn axis_size(&self, node: NodeId, axis: Axis) -> f32 {
-        debug_assert_eq!(self.frame.nodes[node.index()].parent, self.node);
+        self.debug_assert_child(node);
         self.frame.nodes[node.index()].size(axis)
     }
 
     /// sets a child's size on an axis without changing its position
     #[inline]
     pub fn set_size(&mut self, node: NodeId, axis: Axis, size: f32) {
-        debug_assert_eq!(self.frame.nodes[node.index()].parent, self.node);
+        self.debug_assert_child(node);
         self.frame.nodes[node.index()].set_size(axis, size)
     }
 
     /// sets a direct child's order among its paint siblings
     #[inline]
     pub fn set_z_index(&mut self, node: NodeId, z_index: i16) {
-        assert_eq!(
-            self.frame.nodes[node.index()].parent,
-            self.node,
-            "z-index can only be set for direct children"
-        );
+        self.debug_assert_child(node);
         self.frame.nodes[node.index()].slot.z_index = z_index;
         self.frame.needs_paint_order |= z_index != 0;
     }
 
-    /// sets a child's position and size on an axis
     #[inline]
-    pub fn set_axis(&mut self, node: NodeId, axis: Axis, position: f32, size: f32) {
-        debug_assert_eq!(self.frame.nodes[node.index()].parent, self.node);
-        let position = position
-            + match axis {
-                Axis::Horizontal => self.offset.x,
-                Axis::Vertical => self.offset.y,
-            };
-        self.frame.nodes[node.index()].set_axis(axis, position, size)
+    #[track_caller]
+    fn debug_assert_child(&self, node: NodeId) {
+        debug_assert_eq!(
+            self.frame.nodes[node.index()].parent,
+            self.node,
+            "layout can only access direct children"
+        );
     }
 }
 
@@ -148,11 +164,17 @@ pub struct StoredLayout {
     pub offset: LogicalPoint,
 }
 
-pub type RunLayout = fn(NodeId, StoredLayout, &mut FrameGraph, Axis, positioned: bool);
+pub type RunLayout = fn(
+    NodeId,
+    StoredLayout,
+    &mut FrameGraph,
+    Constraints,
+    &mut dyn Renderer,
+    positioned: bool,
+) -> LogicalSize;
 
 pub struct LayoutVtable {
-    pub measure: RunLayout,
-    pub place: RunLayout,
+    pub run: RunLayout,
     pub layout_type: fn() -> TypeId,
 }
 
@@ -160,8 +182,7 @@ pub struct LayoutVtableFor<L>(std::marker::PhantomData<L>);
 
 impl<L: Layout> LayoutVtableFor<L> {
     pub const VALUE: LayoutVtable = LayoutVtable {
-        measure: run_layout::<L, false>,
-        place: run_layout::<L, true>,
+        run: run_layout::<L>,
         layout_type: TypeId::of::<L>,
     };
 }
@@ -243,30 +264,27 @@ impl DataArena {
     }
 }
 
-fn run_layout<L: Layout, const PLACE: bool>(
+fn run_layout<L: Layout>(
     node: NodeId,
     stored: StoredLayout,
     frame: &mut FrameGraph,
-    axis: Axis,
+    constraints: Constraints,
+    renderer: &mut dyn Renderer,
     positioned: bool,
-) {
+) -> LogicalSize {
     debug_assert_eq!((stored.vtable.layout_type)(), TypeId::of::<L>());
     let layout: L = frame.layout_data.load(stored.data_offset as usize);
     let graph_nodes = frame.nodes.as_ptr();
-    let mut cx = LayoutCx {
-        frame,
-        nodes: graph_nodes,
-        node,
-        positioned,
-        item: std::marker::PhantomData,
-        offset: stored.offset,
-    };
-    if PLACE {
-        if positioned && cx.frame.nodes[node.index()].layout.is_positioned() {
-            cx.frame.resolve_positioned(node, axis);
-        }
-        layout.place(&mut cx, axis);
-    } else if let Some(size) = layout.measure(&cx, axis) {
-        cx.frame.nodes[node.index()].set_size(axis, size);
-    }
+    layout.layout(
+        &mut LayoutCx {
+            frame,
+            renderer,
+            nodes: graph_nodes,
+            node,
+            positioned,
+            item: std::marker::PhantomData,
+            offset: stored.offset,
+        },
+        constraints,
+    )
 }

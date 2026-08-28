@@ -1,32 +1,28 @@
 //! user-defined frame layout policies and child declaration scopes
 //!
-//! layout resolves the complete frame graph in ordered passes:
-//!
-//! 1. measure intrinsic content
-//! 2. measure bottom-up and place top-down horizontally
-//! 3. wrap text at its resolved width
-//! 4. measure bottom-up and place top-down vertically
-//!
-//! [`Layout`] operates on one [`Axis`] at a time. this staged model is not
-//! recursive constraint propagation. layouts can place any widget subtree with
-//! arbitrary axis-aligned geometry, including overlap and radial arrangements.
-//! layouts may set sibling paint order with [`LayoutCx::set_z_index`]. positions
-//! must remain relative to [`LayoutCx::rect`] so moving a container only
-//! translates its descendants.
+//! layout passes constraints down the tree and returns sizes upward, then
+//! resolves parent-local positions to absolute coordinates.
 
 mod flex;
 mod rect;
+mod wrap;
 
 pub use crate::frame::{Children, LayoutCx};
 pub use flex::*;
 pub use rect::*;
+pub use wrap::*;
 
-use crate::{Ui, container::LayerId, node::NodeId, widget::Widget};
+use crate::{
+    Ui,
+    container::{LayerId, Sizing},
+    geometry::LogicalSize,
+    node::NodeId,
+    widget::Widget,
+};
 
 /// layout policy for a container's direct children
 ///
-/// layout and item values must not require alignment greater than 8 bytes.
-/// moving a container must only translate its descendants.
+/// layout and item values are stored in an 8-byte-aligned arena
 pub trait Layout: Copy + 'static {
     /// per-child layout metadata
     ///
@@ -37,42 +33,75 @@ pub trait Layout: Copy + 'static {
     /// child declaration scope
     type Scope<'a>: From<RawScope<'a, Self>>;
 
-    /// intrinsic size on one axis, or `None` to preserve core's size
-    fn measure(&self, cx: &LayoutCx<'_, Self::Item>, axis: Axis) -> Option<f32>;
-
-    /// places children on one axis
-    fn place(&self, cx: &mut LayoutCx<'_, Self::Item>, axis: Axis);
+    /// lays out direct children and returns this container's constrained size
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize;
 }
 
-/// low-level child declaration scope for custom layout scopes
-pub struct RawScope<'ui, L: Layout> {
-    ui: &'ui mut Ui,
-    node: NodeId,
-    layout: std::marker::PhantomData<fn() -> L>,
+/// minimum and maximum dimensions available to a layout node
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Constraints {
+    pub min: LogicalSize,
+    pub max: LogicalSize,
+}
+
+impl Constraints {
+    pub const fn loose(max: LogicalSize) -> Self {
+        Self {
+            min: LogicalSize {
+                width: 0.0,
+                height: 0.0,
+            },
+            max,
+        }
+    }
+
+    pub const fn tight(size: LogicalSize) -> Self {
+        Self {
+            min: size,
+            max: size,
+        }
+    }
+
+    pub fn constrain(self, size: LogicalSize) -> LogicalSize {
+        LogicalSize {
+            width: size.width.clamp(self.min.width, self.max.width),
+            height: size.height.clamp(self.min.height, self.max.height),
+        }
+    }
+}
+
+/// layout axis
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Axis {
+    Horizontal,
+    #[default]
+    Vertical,
+}
+
+/// child alignment across a layout's flow axis
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Align {
+    Start,
+    Center,
+    End,
+    #[default]
+    Stretch,
+}
+
+/// child distribution along a layout's flow axis
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Justify {
+    #[default]
+    Start,
+    Center,
+    End,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
 }
 
 /// scope for layouts whose children need no metadata
 pub struct UnitScope<'ui, L: Layout<Item = ()> = Flex>(RawScope<'ui, L>);
-
-/// scope for layouts whose children require metadata
-pub struct ItemScope<'ui, L: Layout>(RawScope<'ui, L>);
-
-impl<L: Layout> RawScope<'_, L> {
-    /// declares a paint layer clipped by this container
-    pub fn layer(&mut self) -> LayerId {
-        self.ui.layer()
-    }
-
-    /// declares one child subtree and attaches its layout metadata
-    pub fn add<W: Widget>(&mut self, item: L::Item, widget: W) -> W::Output {
-        let child = self.ui.begin_layout_item();
-        let output = widget.render(self.ui);
-        self.ui.finish_layout_item::<L>(self.node, child, item);
-        output
-    }
-
-    pub fn close(self) {}
-}
 
 impl<'ui, L: Layout<Item = ()>> From<RawScope<'ui, L>> for UnitScope<'ui, L> {
     fn from(scope: RawScope<'ui, L>) -> Self {
@@ -96,6 +125,9 @@ impl<L: Layout<Item = ()>> UnitScope<'_, L> {
     pub fn close(self) {}
 }
 
+/// scope for layouts whose children require metadata
+pub struct ItemScope<'ui, L: Layout>(RawScope<'ui, L>);
+
 impl<'ui, L: Layout> From<RawScope<'ui, L>> for ItemScope<'ui, L> {
     fn from(scope: RawScope<'ui, L>) -> Self {
         Self(scope)
@@ -114,24 +146,106 @@ impl<L: Layout> ItemScope<'_, L> {
     pub fn close(self) {}
 }
 
+/// low-level child declaration scope for custom layout scopes
+pub struct RawScope<'ui, L: Layout> {
+    pub(crate) ui: &'ui mut Ui,
+    pub(crate) node: NodeId,
+    pub(crate) layout: std::marker::PhantomData<fn() -> L>,
+}
+
+impl<L: Layout> RawScope<'_, L> {
+    /// declares a paint layer clipped by this container
+    pub fn layer(&mut self) -> LayerId {
+        self.ui.layer()
+    }
+
+    /// declares one child subtree and attaches its layout metadata
+    pub fn add<W: Widget>(&mut self, item: L::Item, widget: W) -> W::Output {
+        let child = self.ui.begin_layout_item();
+        let output = widget.render(self.ui);
+        self.ui.finish_layout_item::<L>(self.node, child, item);
+        output
+    }
+
+    pub fn close(self) {}
+}
+
 impl<L: Layout> Drop for RawScope<'_, L> {
     fn drop(&mut self) {
         self.ui.close_container(self.node)
     }
 }
 
-/// layout axis
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Axis {
-    Horizontal,
-    #[default]
-    Vertical,
+// internals
+
+fn size_on_axis(size: LogicalSize, axis: Axis) -> f32 {
+    match axis {
+        Axis::Horizontal => size.width,
+        Axis::Vertical => size.height,
+    }
 }
 
-pub(crate) fn raw_scope<L: Layout>(ui: &mut Ui, node: NodeId) -> RawScope<'_, L> {
-    RawScope {
-        ui,
-        node,
-        layout: std::marker::PhantomData,
+fn flow_size(main: f32, cross: f32, axis: Axis) -> LogicalSize {
+    match axis {
+        Axis::Horizontal => LogicalSize {
+            width: main,
+            height: cross,
+        },
+        Axis::Vertical => LogicalSize {
+            width: cross,
+            height: main,
+        },
+    }
+}
+
+fn sizing_range(sizing: Sizing, available: f32) -> (f32, f32) {
+    match sizing {
+        Sizing::Fit { min, max } | Sizing::Grow { min, max } => {
+            let min = min.max(0.0);
+            (min, max.max(min).min(available).max(min))
+        }
+        Sizing::Fixed(size) => {
+            let size = size.max(0.0);
+            (size, size)
+        }
+        Sizing::Percent(_) => {
+            let size = sizing.resolve(0.0, available, false);
+            (size, size)
+        }
+    }
+}
+
+fn flow_constraints(axis: Axis, main: (f32, f32), cross: (f32, f32)) -> Constraints {
+    let (width, height) = match axis {
+        Axis::Horizontal => (main, cross),
+        Axis::Vertical => (cross, main),
+    };
+    Constraints {
+        min: LogicalSize {
+            width: width.0,
+            height: height.0,
+        },
+        max: LogicalSize {
+            width: width.1,
+            height: height.1,
+        },
+    }
+}
+
+fn justify_offset(justify: Justify, remaining: f32, count: usize) -> (f32, f32) {
+    match justify {
+        Justify::Start => (0.0, 0.0),
+        Justify::Center => (remaining / 2.0, 0.0),
+        Justify::End => (remaining, 0.0),
+        Justify::SpaceBetween if count > 1 => (0.0, remaining / (count - 1) as f32),
+        Justify::SpaceAround if count != 0 => {
+            let space = remaining / count as f32;
+            (space / 2.0, space)
+        }
+        Justify::SpaceEvenly if count != 0 => {
+            let space = remaining / (count + 1) as f32;
+            (space, space)
+        }
+        _ => (0.0, 0.0),
     }
 }

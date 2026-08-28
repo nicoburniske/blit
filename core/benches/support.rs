@@ -9,7 +9,7 @@ use blit::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     image::{ImageData, ImageHandle, ImageId},
     interact::{Sense, WidgetId},
-    layout::{Flex, RectLayout, UnitScope},
+    layout::{Flex, RectLayout, UnitScope, Wrap},
     renderer::Renderer,
     style::Style,
     text::{self, TextLayoutRequest, TextRunId, TextStyle},
@@ -58,7 +58,7 @@ pub fn layout_frame(ui: &mut Ui) {
         .layout(Flex::column().gap(2.0))
         .width(Sizing::grow())
         .open();
-    layout_rows(&mut column)
+    layout_rows(&mut column, true)
 }
 
 pub fn transition_frame(ui: &mut Ui, right: bool) {
@@ -74,40 +74,53 @@ pub fn transition_frame(ui: &mut Ui, right: bool) {
         .absolute(Absolute::attach(anchor, anchor))
         .transition(Transition::new(Duration::from_millis(100)).position())
         .open();
-    layout_rows(&mut column)
+    layout_rows(&mut column, false)
 }
 
-fn layout_rows(column: &mut UnitScope<'_>) {
+fn layout_rows(column: &mut UnitScope<'_>, complex: bool) {
     for index in 0..ROWS {
-        column.add(|ui: &mut Ui| {
-            if index % 2 != 0 {
-                let mut row = ui
-                    .layout(RectLayout)
-                    .width(Sizing::grow())
-                    .height(Sizing::fixed(20.0))
-                    .open();
-                for (x, width) in [(0.0, 120.0), (124.0, 400.0), (528.0, 80.0)] {
-                    row.add(
-                        LogicalRect {
-                            x,
-                            y: 0.0,
-                            width,
-                            height: 20.0,
-                        },
-                        Rectangle::new(),
-                    );
+        column.add(
+            |ui: &mut Ui| match if complex { index % 3 } else { index % 2 } {
+                0 => {
+                    let mut row = ui
+                        .layout(Flex::row().gap(4.0))
+                        .width(Sizing::grow())
+                        .height(Sizing::fixed(20.0))
+                        .open();
+                    row.add(Rectangle::new().slot(Slot::new().width(Sizing::fixed(120.0))));
+                    row.add(Rectangle::new().slot(Slot::new().width(Sizing::grow())));
+                    row.add(Rectangle::new().slot(Slot::new().width(Sizing::fixed(80.0))));
                 }
-            } else {
-                let mut row = ui
-                    .layout(Flex::row().gap(4.0))
-                    .width(Sizing::grow())
-                    .height(Sizing::fixed(20.0))
-                    .open();
-                row.add(Rectangle::new().slot(Slot::new().width(Sizing::fixed(120.0))));
-                row.add(Rectangle::new().slot(Slot::new().width(Sizing::grow())));
-                row.add(Rectangle::new().slot(Slot::new().width(Sizing::fixed(80.0))));
-            }
-        });
+                1 => {
+                    let mut row = ui
+                        .layout(RectLayout)
+                        .width(Sizing::grow())
+                        .height(Sizing::fixed(20.0))
+                        .open();
+                    for (x, width) in [(0.0, 120.0), (124.0, 400.0), (528.0, 80.0)] {
+                        row.add(
+                            LogicalRect {
+                                x,
+                                y: 0.0,
+                                width,
+                                height: 20.0,
+                            },
+                            Rectangle::new(),
+                        );
+                    }
+                }
+                _ => {
+                    let mut row = ui
+                        .layout(Wrap::horizontal().item_gap(4.0).run_gap(4.0))
+                        .width(Sizing::grow())
+                        .height(Sizing::fixed(20.0))
+                        .open();
+                    for width in [500.0; 3] {
+                        row.add(Rectangle::new().slot(Slot::new().fixed(width, 8.0)));
+                    }
+                }
+            },
+        );
     }
 }
 

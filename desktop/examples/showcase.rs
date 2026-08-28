@@ -10,7 +10,9 @@ use blit::{
     },
     input::{Input, Key},
     interact::{Interaction, Sense, WidgetId},
-    layout::{Align, Axis, Flex, ItemScope, Justify, Layout, LayoutCx},
+    layout::{
+        Align, Axis, Constraints, Flex, ItemScope, Justify, Layout, LayoutCx, UnitScope, Wrap,
+    },
     style::{Clip, Style},
     text::{FontId, HorizontalAlign, TextWrap},
     widget::{Image, Rectangle, ScrollArea, ScrollState, Text, TextInput, TextInputState, Widget},
@@ -55,6 +57,7 @@ struct State {
 
 #[derive(Clone, Copy)]
 struct CanvasConfig {
+    layout: CanvasLayout,
     axis: Axis,
     justify: Justify,
     align: Align,
@@ -82,9 +85,16 @@ enum ItemSizing {
     Grow,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CanvasLayout {
+    Flex,
+    Wrap,
+}
+
 impl Default for CanvasConfig {
     fn default() -> Self {
         Self {
+            layout: CanvasLayout::Flex,
             axis: Axis::Horizontal,
             justify: Justify::Start,
             align: Align::Center,
@@ -280,6 +290,18 @@ impl State {
                 .color(colors::ACCENT)
                 .text_size(12.0),
         );
+        controls.add(
+            Text::new("layout")
+                .color(colors::TEXT_MUTED)
+                .text_size(11.0),
+        );
+        controls.add(options(
+            "layout",
+            &mut self.canvas.layout,
+            [("Flex", CanvasLayout::Flex), ("Wrap", CanvasLayout::Wrap)],
+            6.0,
+            12.0,
+        ));
 
         controls.add(
             Text::new("item transitions")
@@ -433,7 +455,7 @@ impl State {
         ));
 
         controls.add(
-            Text::new("The ten numbered rectangles share these parameters. Grow consumes free space; Fit uses the label's intrinsic size.")
+            Text::new("Flex distributes free space and Wrap forms runs. Axis, alignment, and justification apply to both flow layouts.")
                 .color(colors::TEXT_DIM)
                 .text_size(11.0)
                 .wrap(TextWrap::Word),
@@ -950,64 +972,57 @@ impl Layout for CarouselLayout {
     type Item = usize;
     type Scope<'a> = ItemScope<'a, Self>;
 
-    fn measure(&self, cx: &LayoutCx<'_, Self::Item>, axis: Axis) -> Option<f32> {
-        let mut measured: Option<f32> = None;
-        for node in cx.children() {
-            if cx.is_in_flow(node) {
-                let size =
-                    cx.sizing(node, axis)
-                        .resolve(cx.axis_size(node, axis), f32::INFINITY, true);
-                measured = Some(measured.map_or(size, |measured| measured.max(size)));
-            }
-        }
-        measured.map(|size| {
-            if axis == Axis::Horizontal {
-                size + self.spacing * 2.0
-            } else {
-                size
-            }
-        })
-    }
-
-    fn place(&self, cx: &mut LayoutCx<'_, Self::Item>, axis: Axis) {
-        let count = cx.children().filter(|node| cx.is_in_flow(*node)).count();
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
+        let count = cx.children().count();
         if count == 0 {
-            return;
+            return constraints.constrain(LogicalSize::default());
         }
         let active = self.active % count;
-
-        let rect = cx.rect();
-        let (origin, available) = match axis {
-            Axis::Horizontal => (rect.x, rect.width),
-            Axis::Vertical => (rect.y, rect.height),
-        };
+        let mut natural = LogicalSize::default();
         for node in cx.children() {
-            if cx.is_in_flow(node) {
-                let index = cx.item(node) % count;
-                let forward = if index >= active {
-                    index - active
-                } else {
-                    count - (active - index)
-                };
-                let backward = count - forward;
-                let size = cx
-                    .sizing(node, axis)
-                    .resolve(cx.axis_size(node, axis), available, true);
-                let offset = if axis == Axis::Horizontal {
-                    let distance = forward.min(backward);
-                    cx.set_z_index(node, -i16::try_from(distance).unwrap_or(i16::MAX));
-                    let position = if forward <= backward {
-                        forward as f32
-                    } else {
-                        -(backward as f32)
-                    };
-                    position * self.spacing
-                } else {
-                    0.0
-                };
-                cx.set_axis(node, axis, origin + (available - size) / 2.0 + offset, size);
-            }
+            let child = cx.layout_child(node, Constraints::loose(constraints.max));
+            natural.width = natural.width.max(child.width);
+            natural.height = natural.height.max(child.height);
         }
+        natural.width += self.spacing * 2.0;
+        let size = constraints.constrain(natural);
+        for node in cx.children() {
+            let index = cx.item(node) % count;
+            let forward = if index >= active {
+                index - active
+            } else {
+                count - (active - index)
+            };
+            let backward = count - forward;
+            let child = LogicalSize {
+                width: cx.sizing(node, Axis::Horizontal).resolve(
+                    cx.size(node).width,
+                    size.width,
+                    true,
+                ),
+                height: cx.sizing(node, Axis::Vertical).resolve(
+                    cx.size(node).height,
+                    size.height,
+                    true,
+                ),
+            };
+            cx.constrain_child(node, Constraints::tight(child));
+            let distance = forward.min(backward);
+            cx.set_z_index(node, -i16::try_from(distance).unwrap_or(i16::MAX));
+            let offset = if forward <= backward {
+                forward as f32
+            } else {
+                -(backward as f32)
+            } * self.spacing;
+            cx.set_position(
+                node,
+                LogicalPoint {
+                    x: (size.width - child.width) / 2.0 + offset,
+                    y: (size.height - child.height) / 2.0,
+                },
+            );
+        }
+        size
     }
 }
 
@@ -1323,108 +1338,128 @@ impl Widget for ResizeGrip {
 
 fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
     move |ui: &mut Ui| {
-        let mut layout = ui
-            .layout(
-                Flex::new(config.axis)
-                    .padding(Sides::all(config.padding * config.zoom))
-                    .gap(config.gap * config.zoom)
-                    .align(config.align)
-                    .justify(config.justify),
-            )
-            .grow()
-            .style(
-                Style::new()
-                    .background(colors::CANVAS)
-                    .solid_border(2.0, colors::CANVAS_BORDER)
-                    .uniform_radius(8.0),
-            )
-            .clip(Clip::Bounds)
-            .open();
-        let badge_layer = layout.layer();
+        let style = Style::new()
+            .background(colors::CANVAS)
+            .solid_border(2.0, colors::CANVAS_BORDER)
+            .uniform_radius(8.0);
+        match config.layout {
+            CanvasLayout::Flex => {
+                let mut layout = ui
+                    .layout(
+                        Flex::new(config.axis)
+                            .padding(Sides::all(config.padding * config.zoom))
+                            .gap(config.gap * config.zoom)
+                            .align(config.align)
+                            .justify(config.justify),
+                    )
+                    .grow()
+                    .style(style)
+                    .clip(Clip::Bounds)
+                    .open();
+                canvas_items(&mut layout, config);
+            }
+            CanvasLayout::Wrap => {
+                let mut layout = ui
+                    .layout(
+                        Wrap::new(config.axis)
+                            .padding(Sides::all(config.padding * config.zoom))
+                            .gap(config.gap * config.zoom)
+                            .align(config.align)
+                            .justify(config.justify),
+                    )
+                    .grow()
+                    .style(style)
+                    .clip(Clip::Bounds)
+                    .open();
+                canvas_items(&mut layout, config);
+            }
+        }
+    }
+}
 
-        for (index, label) in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
-            .into_iter()
-            .enumerate()
-        {
-            let main = (26.0 + (index % 5) as f32 * 5.0) * config.zoom;
-            let cross = (48.0 + (index % 4) as f32 * 13.0) * config.zoom;
-            let main = match config.sizing {
-                ItemSizing::Fixed => Sizing::fixed(main),
-                ItemSizing::Fit => Sizing::fit().min(20.0 * config.zoom).max(main),
-                ItemSizing::Grow => Sizing::grow().min(20.0 * config.zoom),
+fn canvas_items<L: Layout<Item = ()>>(layout: &mut UnitScope<'_, L>, config: CanvasConfig) {
+    let badge_layer = layout.layer();
+
+    for (index, label) in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+        .into_iter()
+        .enumerate()
+    {
+        let main = (26.0 + (index % 5) as f32 * 5.0) * config.zoom;
+        let cross = (48.0 + (index % 4) as f32 * 13.0) * config.zoom;
+        let main = match config.sizing {
+            ItemSizing::Fixed => Sizing::fixed(main),
+            ItemSizing::Fit => Sizing::fit().min(20.0 * config.zoom).max(main),
+            ItemSizing::Grow => Sizing::grow().min(20.0 * config.zoom),
+        };
+        let cross = if config.align == Align::Stretch {
+            Sizing::fit()
+        } else {
+            Sizing::fixed(cross)
+        };
+        layout.add(|ui: &mut Ui| {
+            let item = ui.layout(
+                Flex::column()
+                    .align(Align::Stretch)
+                    .justify(Justify::Center),
+            );
+            let item = match config.axis {
+                Axis::Horizontal => item.width(main).height(cross),
+                Axis::Vertical => item.width(cross).height(main),
             };
-            let cross = if config.align == Align::Stretch {
-                Sizing::fit()
-            } else {
-                Sizing::fixed(cross)
-            };
-            layout.add(|ui: &mut Ui| {
-                let item = ui.layout(
-                    Flex::column()
-                        .align(Align::Stretch)
-                        .justify(Justify::Center),
-                );
-                let item = match config.axis {
-                    Axis::Horizontal => item.width(main).height(cross),
-                    Axis::Vertical => item.width(cross).height(main),
-                };
-                let item = if config.transitions {
-                    item.id(WidgetId::new(("canvas item", index))).transition(
-                        Transition::new(Duration::from_secs_f32(
-                            config.transition_duration / 1000.0,
-                        ))
+            let item = if config.transitions {
+                item.id(WidgetId::new(("canvas item", index))).transition(
+                    Transition::new(Duration::from_secs_f32(config.transition_duration / 1000.0))
                         .easing(Easing::EaseOutQuad)
                         .layout(),
-                    )
-                } else {
-                    item
-                };
-                let mut rectangle = item
-                    .style(
-                        Style::new()
-                            .background(colors::ITEMS[index])
-                            .uniform_radius(5.0),
-                    )
-                    .open();
-                rectangle.add(
-                    Text::new(label)
-                        .color(colors::WHITE)
-                        .text_size(11.0 * config.zoom)
-                        .align(HorizontalAlign::Center),
-                );
-                let anchor = match index {
-                    0 => Some(Anchor::TopRight),
-                    4 => Some(Anchor::BottomLeft),
-                    9 => Some(Anchor::BottomRight),
-                    _ => None,
-                };
-                if let Some(anchor) = anchor {
-                    rectangle.add(|ui: &mut Ui| {
-                        let mut badge = ui
-                            .layout(Flex::row().align(Align::Center).justify(Justify::Center))
-                            .fixed(
-                                (28.0 * config.zoom).max(20.0),
-                                (14.0 * config.zoom).max(10.0),
-                            )
-                            .style(
-                                Style::new()
-                                    .background(colors::BACKGROUND)
-                                    .solid_border(1.0, colors::WHITE)
-                                    .uniform_radius(5.0),
-                            )
-                            .layer(badge_layer)
-                            .z_index(1)
-                            .absolute(Absolute::attach(anchor, Anchor::Center))
-                            .open();
-                        badge.add(
-                            Text::new("ABS")
-                                .color(colors::WHITE)
-                                .text_size((8.0 * config.zoom).max(7.0)),
-                        );
-                    });
-                }
-            });
-        }
+                )
+            } else {
+                item
+            };
+            let mut rectangle = item
+                .style(
+                    Style::new()
+                        .background(colors::ITEMS[index])
+                        .uniform_radius(5.0),
+                )
+                .open();
+            rectangle.add(
+                Text::new(label)
+                    .color(colors::WHITE)
+                    .text_size(11.0 * config.zoom)
+                    .align(HorizontalAlign::Center),
+            );
+            let anchor = match index {
+                0 => Some(Anchor::TopRight),
+                4 => Some(Anchor::BottomLeft),
+                9 => Some(Anchor::BottomRight),
+                _ => None,
+            };
+            if let Some(anchor) = anchor {
+                rectangle.add(|ui: &mut Ui| {
+                    let mut badge = ui
+                        .layout(Flex::row().align(Align::Center).justify(Justify::Center))
+                        .fixed(
+                            (28.0 * config.zoom).max(20.0),
+                            (14.0 * config.zoom).max(10.0),
+                        )
+                        .style(
+                            Style::new()
+                                .background(colors::BACKGROUND)
+                                .solid_border(1.0, colors::WHITE)
+                                .uniform_radius(5.0),
+                        )
+                        .layer(badge_layer)
+                        .z_index(1)
+                        .absolute(Absolute::attach(anchor, Anchor::Center))
+                        .open();
+                    badge.add(
+                        Text::new("ABS")
+                            .color(colors::WHITE)
+                            .text_size((8.0 * config.zoom).max(7.0)),
+                    );
+                });
+            }
+        });
     }
 }
 
