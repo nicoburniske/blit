@@ -12,7 +12,7 @@ use crate::{
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     container::{Absolute, Anchor, ContainerConfig, Item, PositionTarget, Sizing},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize},
+    geometry::{LogicalPoint, LogicalRect, LogicalSize, Sides},
     image::{ImageContent, ImageRequest},
     interact::{InteractionState, WidgetId},
     layout::{Axis, Flex, Layout},
@@ -303,6 +303,7 @@ impl FrameGraph {
             ContentId::NONE,
             container.clip,
             container.id,
+            container.hit,
         );
         self.open_containers.push(node);
         self.layout_nodes.push(node);
@@ -315,11 +316,24 @@ impl FrameGraph {
             _ => Style::new(),
         };
         let content = self.store_content(content);
-        self.append(item, None, None, style, content, Clip::None, None)
+        self.append(
+            item,
+            None,
+            None,
+            style,
+            content,
+            Clip::None,
+            None,
+            Sides::all(0.0),
+        )
     }
 
     pub fn set_id(&mut self, node: NodeId, id: WidgetId) {
-        self.geometry.push(GeometryRecord { node, id });
+        self.geometry.push(GeometryRecord {
+            node,
+            id,
+            hit: Sides::all(0.0),
+        });
     }
 
     pub fn transition_parent(&self, node: NodeId) -> NodeId {
@@ -407,6 +421,7 @@ impl FrameGraph {
         content: ContentId,
         clip: Clip,
         id: Option<WidgetId>,
+        hit: Sides,
     ) -> NodeId {
         let parent = *self
             .open_containers
@@ -456,7 +471,7 @@ impl FrameGraph {
             clip_bounds: LogicalRect::default(),
         });
         if let Some(id) = id {
-            self.geometry.push(GeometryRecord { node, id });
+            self.geometry.push(GeometryRecord { node, id, hit });
         }
         node
     }
@@ -1029,10 +1044,14 @@ impl FrameGraph {
     fn register_hits(&self, interaction: &mut InteractionState, scale_factor: f32) {
         interaction.register_hits(self.geometry.iter().map(|record| {
             let node = &self.nodes[record.node.index()];
-            let area = node
-                .area
-                .intersection(node.clip_bounds)
-                .map(|area| area.to_physical(scale_factor));
+            let area = LogicalRect {
+                x: node.area.x - record.hit.left,
+                y: node.area.y - record.hit.top,
+                width: node.area.width + record.hit.left + record.hit.right,
+                height: node.area.height + record.hit.top + record.hit.bottom,
+            }
+            .intersection(node.clip_bounds)
+            .map(|area| area.to_physical(scale_factor));
             (record.id, area)
         }));
     }
@@ -1398,6 +1417,7 @@ impl TransitionState {
 struct GeometryRecord {
     node: NodeId,
     id: WidgetId,
+    hit: Sides,
 }
 
 struct StoredStyle {
