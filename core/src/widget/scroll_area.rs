@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::{
     Ui,
-    container::Sizing,
+    container::{LayerId, Sizing, Slot},
     geometry::{LogicalPoint, Sides},
     input::ScrollPhase,
     interact::{Sense, WidgetId},
@@ -13,9 +13,7 @@ use crate::{
 
 pub struct ScrollArea<'a> {
     state: &'a mut ScrollState,
-    width: Sizing,
-    height: Sizing,
-    z_index: i16,
+    slot: Slot,
     gap: f32,
     padding: Sides,
     scroll_speed: f32,
@@ -84,9 +82,7 @@ impl<'a> ScrollArea<'a> {
         let id = state.id;
         Self {
             state,
-            width: Sizing::grow(),
-            height: Sizing::grow(),
-            z_index: 0,
+            slot: Slot::new().grow(),
             gap: 0.0,
             padding: Sides::default(),
             scroll_speed: 1.0,
@@ -96,18 +92,8 @@ impl<'a> ScrollArea<'a> {
         }
     }
 
-    pub fn width(mut self, width: Sizing) -> Self {
-        self.width = width;
-        self
-    }
-
-    pub fn height(mut self, height: Sizing) -> Self {
-        self.height = height;
-        self
-    }
-
-    pub fn z_index(mut self, z_index: i16) -> Self {
-        self.z_index = z_index;
+    pub fn slot(mut self, slot: Slot) -> Self {
+        self.slot = slot;
         self
     }
 
@@ -154,12 +140,10 @@ impl<'a> ScrollArea<'a> {
         } else {
             Sense::SCROLL
         };
-        let mut viewport_config = crate::ContainerConfig::default();
-        viewport_config.item.width = self.width;
-        viewport_config.item.height = self.height;
-        viewport_config.item.z_index = self.z_index;
-        viewport_config.id = Some(id);
-        viewport_config.clip = Clip::Bounds;
+        let viewport_config = crate::ContainerConfig::new()
+            .slot(self.slot)
+            .id(id)
+            .clip(Clip::Bounds);
         let interaction = ui.interact(id, sense);
         let viewport = ui.open_layout(Flex::column().overflow(true), viewport_config);
         let now = ui.time();
@@ -245,13 +229,13 @@ impl<'a> ScrollArea<'a> {
             self.state.offset = self.state.offset.clamp(0.0, maximum);
         }
 
-        let mut content_config = crate::ContainerConfig::default();
-        content_config.item.width = Sizing::grow();
-        content_config.offset = LogicalPoint {
-            x: 0.0,
-            y: -self.state.offset,
-        };
-        content_config.id = Some(content_id);
+        let content_config = crate::ContainerConfig::new()
+            .slot(Slot::new().width(Sizing::grow()))
+            .offset(LogicalPoint {
+                x: 0.0,
+                y: -self.state.offset,
+            })
+            .id(content_id);
         let content = ui.open_layout(
             Flex::column().padding(self.padding).gap(self.gap),
             content_config,
@@ -265,6 +249,10 @@ impl<'a> ScrollArea<'a> {
 }
 
 impl ScrollScope<'_> {
+    pub fn layer(&mut self) -> LayerId {
+        self.ui.layer()
+    }
+
     pub fn add<W: super::Widget>(&mut self, widget: W) -> W::Output {
         widget.render(self.ui)
     }

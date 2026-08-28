@@ -21,7 +21,7 @@ pub use crate::graph::{Children, LayoutCx};
 pub use flex::*;
 pub use rect::*;
 
-use crate::{Ui, node::NodeId, widget::Widget};
+use crate::{Ui, container::LayerId, node::NodeId, widget::Widget};
 
 /// layout policy for a container's direct children
 ///
@@ -58,6 +58,11 @@ pub struct UnitScope<'ui, L: Layout<Item = ()> = Flex>(RawScope<'ui, L>);
 pub struct ItemScope<'ui, L: Layout>(RawScope<'ui, L>);
 
 impl<L: Layout> RawScope<'_, L> {
+    /// declares a paint layer clipped by this container
+    pub fn layer(&mut self) -> LayerId {
+        self.ui.layer()
+    }
+
     /// declares one child subtree and attaches its layout metadata
     pub fn add<W: Widget>(&mut self, item: L::Item, widget: W) -> W::Output {
         let child = self.ui.begin_layout_item();
@@ -74,6 +79,10 @@ impl<'ui, L: Layout<Item = ()>> From<RawScope<'ui, L>> for UnitScope<'ui, L> {
 }
 
 impl<L: Layout<Item = ()>> UnitScope<'_, L> {
+    pub fn layer(&mut self) -> LayerId {
+        self.0.layer()
+    }
+
     /// renders one child subtree without storing layout metadata
     ///
     /// unit carries no information, so layouts using this scope do not call
@@ -90,6 +99,10 @@ impl<'ui, L: Layout> From<RawScope<'ui, L>> for ItemScope<'ui, L> {
 }
 
 impl<L: Layout> ItemScope<'_, L> {
+    pub fn layer(&mut self) -> LayerId {
+        self.0.layer()
+    }
+
     pub fn add<W: Widget>(&mut self, item: L::Item, widget: W) -> W::Output {
         self.0.add(item, widget)
     }

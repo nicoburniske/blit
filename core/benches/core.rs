@@ -12,7 +12,7 @@ use blit::{
 use divan::counter::ItemsCount;
 
 use support::{
-    CELLS_PER_ROW, ITEMS, NoopRenderer, command_frame, layout_frame, transition_frame,
+    CELLS_PER_ROW, ITEMS, NoopRenderer, command_frame, layer_frame, layout_frame, transition_frame,
     z_index_frame,
 };
 
@@ -67,6 +67,11 @@ fn layout_and_commands(bencher: divan::Bencher) {
 #[divan::bench]
 fn z_index(bencher: divan::Bencher) {
     benchmark_frame(bencher, z_index_frame)
+}
+
+#[divan::bench]
+fn layers(bencher: divan::Bencher) {
+    benchmark_frame(bencher, layer_frame)
 }
 
 #[divan::bench(args = [

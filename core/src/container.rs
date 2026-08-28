@@ -1,5 +1,7 @@
 //! frame-local child-bearing container configuration
 
+use std::num::NonZeroU16;
+
 use crate::{
     Ui,
     animation::Transition,
@@ -26,7 +28,7 @@ crate::builder! {
             absolute: Absolute,
             transition: Transition,
         },
-        item: Item = Item::new(),
+        slot: Slot = Slot::new(),
         offset: LogicalPoint = LogicalPoint { x: 0.0, y: 0.0 },
         hit: Sides = Sides::all(0.0),
         style: Style<'a> = Style::new(),
@@ -35,15 +37,23 @@ crate::builder! {
 }
 
 crate::builder! {
-    /// sizing applied to one item by its parent
+    /// sizing and paint placement of a widget in its parent
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Item {
+    pub struct Slot {
         new(),
+        @optional {
+            layer: LayerId,
+        },
         width: Sizing = Sizing::fit(),
         height: Sizing = Sizing::fit(),
         z_index: i16 = 0,
     }
 }
+
+/// frame-local paint layer declared with [`Ui::layer`]
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LayerId(pub(crate) NonZeroU16);
 
 /// sizing behavior on one axis
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -65,31 +75,42 @@ impl<'ui, L> Container<'ui, 'static, L> {
 }
 
 impl<'ui, 'style, L: Layout> Container<'ui, 'style, L> {
+    pub fn slot(mut self, slot: Slot) -> Self {
+        self.config.slot = slot;
+        self
+    }
+
     pub fn width(mut self, width: Sizing) -> Self {
-        self.config.item.width = width;
+        self.config.slot.width = width;
         self
     }
 
     pub fn height(mut self, height: Sizing) -> Self {
-        self.config.item.height = height;
+        self.config.slot.height = height;
         self
     }
 
     pub fn fixed(mut self, width: f32, height: f32) -> Self {
-        self.config.item.width = Sizing::fixed(width);
-        self.config.item.height = Sizing::fixed(height);
+        self.config.slot.width = Sizing::fixed(width);
+        self.config.slot.height = Sizing::fixed(height);
         self
     }
 
     pub fn grow(mut self) -> Self {
-        self.config.item.width = Sizing::grow();
-        self.config.item.height = Sizing::grow();
+        self.config.slot.width = Sizing::grow();
+        self.config.slot.height = Sizing::grow();
         self
     }
 
     /// sets this child's order among its paint siblings
     pub fn z_index(mut self, z_index: i16) -> Self {
-        self.config.item.z_index = z_index;
+        self.config.slot.z_index = z_index;
+        self
+    }
+
+    /// paints this container and its descendants in a declared layer
+    pub fn layer(mut self, layer: LayerId) -> Self {
+        self.config.slot.layer = Some(layer);
         self
     }
 
@@ -144,9 +165,23 @@ impl Default for ContainerConfig<'_> {
     }
 }
 
-impl Default for Item {
+impl Default for Slot {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Slot {
+    pub const fn fixed(mut self, width: f32, height: f32) -> Self {
+        self.width = Sizing::fixed(width);
+        self.height = Sizing::fixed(height);
+        self
+    }
+
+    pub const fn grow(mut self) -> Self {
+        self.width = Sizing::grow();
+        self.height = Sizing::grow();
+        self
     }
 }
 
@@ -239,6 +274,7 @@ pub struct Absolute {
 pub enum PositionTarget {
     #[default]
     Parent,
+    Widget(WidgetId),
     Screen,
 }
 

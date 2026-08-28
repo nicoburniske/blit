@@ -5,7 +5,7 @@ use crate::{
     animation::{Easing, Transition},
     color::Color,
     command_list::{ClipId, Command, CommandList},
-    container::{Absolute, Anchor, Sizing},
+    container::{Absolute, Anchor, PositionTarget, Sizing, Slot},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Sides},
     image,
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
@@ -187,8 +187,7 @@ fn button(ui: &mut Ui) -> bool {
 
 fn rectangle(width: Sizing, height: Sizing, color: Color) -> widget::Rectangle<'static> {
     widget::Rectangle::new()
-        .width(width)
-        .height(height)
+        .slot(Slot::new().width(width).height(height))
         .style(Style::new().background(color))
 }
 
@@ -511,11 +510,13 @@ fn absolute_containers_do_not_participate_in_flow() {
 fn z_index_orders_normal_siblings() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
-        fixed_rectangle(1.0, 1.0, Color::BLACK)
-            .z_index(2)
+        widget::Rectangle::new()
+            .slot(Slot::new().fixed(1.0, 1.0).z_index(2))
+            .style(Style::new().background(Color::BLACK))
             .render(ui);
-        fixed_rectangle(2.0, 1.0, Color::BLACK)
-            .z_index(-1)
+        widget::Rectangle::new()
+            .slot(Slot::new().fixed(2.0, 1.0).z_index(-1))
+            .style(Style::new().background(Color::BLACK))
             .render(ui);
         fixed_rectangle(3.0, 1.0, Color::BLACK).render(ui);
     });
@@ -532,11 +533,13 @@ fn z_index_orders_normal_siblings() {
 }
 
 #[test]
-fn screen_absolute_is_a_root_sibling_and_uses_root_clip() {
+fn root_layer_escapes_structural_order_and_clip() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
-        fixed_rectangle(1.0, 1.0, Color::BLACK)
-            .z_index(2)
+        let overlay = ui.layer();
+        widget::Rectangle::new()
+            .slot(Slot::new().fixed(1.0, 1.0).z_index(2))
+            .style(Style::new().background(Color::BLACK))
             .render(ui);
         let mut parent = ui
             .layout(Flex::column())
@@ -548,7 +551,7 @@ fn screen_absolute_is_a_root_sibling_and_uses_root_clip() {
         parent.add(|ui: &mut Ui| {
             ui.layout(Flex::column())
                 .fixed(1.0, 1.0)
-                .z_index(1)
+                .layer(overlay)
                 .style(Style::new().background(Color::WHITE))
                 .absolute(Absolute::screen(8.0, 8.0))
                 .open();
@@ -562,7 +565,65 @@ fn screen_absolute_is_a_root_sibling_and_uses_root_clip() {
             .iter()
             .map(|area| (area.x, area.y))
             .collect::<Vec<_>>(),
-        [(0.0, 1.0), (8.0, 8.0), (0.0, 0.0)]
+        [(0.0, 1.0), (0.0, 0.0), (8.0, 8.0)]
+    );
+}
+
+#[test]
+fn local_layer_inherits_its_declaration_clip() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut parent = ui
+            .layout(Flex::column())
+            .fixed(2.0, 2.0)
+            .clip(Clip::Bounds)
+            .open();
+        let overlay = parent.layer();
+        parent.add(|ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(1.0, 1.0)
+                .layer(overlay)
+                .style(Style::new().background(Color::BLACK))
+                .absolute(Absolute::at(8.0, 8.0))
+                .open();
+        });
+    });
+
+    assert!(harness.renderer().rectangle_areas.is_empty());
+}
+
+#[test]
+fn absolute_can_target_an_earlier_widget() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let target = WidgetId::new("absolute target");
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut parent = ui.layout(Flex::column()).fixed(10.0, 10.0).open();
+        parent.add(|ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(4.0, 3.0)
+                .id(target)
+                .absolute(Absolute::at(2.0, 1.0))
+                .open();
+        });
+        drop(parent);
+        ui.layout(Flex::column())
+            .fixed(1.0, 1.0)
+            .style(Style::new().background(Color::BLACK))
+            .absolute(
+                Absolute::attach(Anchor::BottomRight, Anchor::TopLeft)
+                    .relative_to(PositionTarget::Widget(target)),
+            )
+            .open();
+    });
+
+    assert_eq!(
+        harness.renderer().rectangle_areas,
+        [LogicalRect {
+            x: 6.0,
+            y: 4.0,
+            width: 1.0,
+            height: 1.0,
+        }]
     );
 }
 
@@ -590,7 +651,11 @@ fn z_index_orders_complete_subtrees() {
             .z_index(1)
             .absolute(Absolute::at(3.0, 0.0))
             .open();
-        layer.add(fixed_rectangle(1.0, 1.0, Color::BLACK).z_index(100));
+        layer.add(
+            widget::Rectangle::new()
+                .slot(Slot::new().fixed(1.0, 1.0).z_index(100))
+                .style(Style::new().background(Color::BLACK)),
+        );
         drop(layer);
         fixed_rectangle(1.0, 1.0, Color::GRAY).render(ui);
     });
@@ -607,23 +672,26 @@ fn z_index_orders_complete_subtrees() {
 }
 
 #[test]
-fn z_index_orders_hit_testing() {
+fn layers_order_hit_testing() {
     let mut harness = Harness::new(TestRenderer::default());
     let normal = WidgetId::new("normal hit");
     let raised = WidgetId::new("raised hit");
     let render = |ui: &mut Ui| {
+        let overlay = ui.layer();
         let normal_hovered = ui.interact(normal, Sense::CLICK).hovered;
         let normal_scope = ui
             .layout(Flex::column())
             .fixed(10.0, 10.0)
             .id(normal)
+            .z_index(100)
             .open();
         drop(normal_scope);
         let raised_hovered = ui.interact(raised, Sense::CLICK).hovered;
         ui.layout(Flex::column())
             .fixed(10.0, 10.0)
             .id(raised)
-            .z_index(1)
+            .layer(overlay)
+            .z_index(-100)
             .absolute(Absolute::at(0.0, 0.0))
             .open();
         (normal_hovered, raised_hovered)
@@ -771,7 +839,7 @@ fn containers_resolve_nested_flex_and_justification() {
             .open();
         row.add(
             widget::Rectangle::new()
-                .width(Sizing::fixed(2.0))
+                .slot(Slot::new().width(Sizing::fixed(2.0)))
                 .style(Style::new().background(Color::BLACK)),
         );
         row.add(|ui: &mut Ui| {
@@ -782,13 +850,13 @@ fn containers_resolve_nested_flex_and_justification() {
                 .open();
             middle.add(
                 widget::Rectangle::new()
-                    .height(Sizing::fixed(4.0))
+                    .slot(Slot::new().height(Sizing::fixed(4.0)))
                     .style(Style::new().background(Color::WHITE)),
             );
         });
         row.add(
             widget::Rectangle::new()
-                .width(Sizing::fixed(2.0))
+                .slot(Slot::new().width(Sizing::fixed(2.0)))
                 .style(Style::new().background(Color::BLACK)),
         );
     });
@@ -833,7 +901,7 @@ fn wrapped_text_uses_its_resolved_width() {
         let mut text = ui.layout(Flex::row()).width(Sizing::grow()).id(id).open();
         text.add(
             widget::Text::new("1234")
-                .width(Sizing::grow())
+                .slot(Slot::new().width(Sizing::grow()))
                 .text_size(4.0)
                 .wrap(text::TextWrap::Character),
         );
@@ -947,7 +1015,7 @@ fn moved_output_damages_old_and_new_bounds() {
             .height(Sizing::fixed(2.0))
             .open();
         if offset != 0.0 {
-            row.add(widget::Rectangle::new().width(Sizing::fixed(offset)));
+            row.add(widget::Rectangle::new().slot(Slot::new().width(Sizing::fixed(offset))));
         }
         row.add(fixed_rectangle(2.0, 2.0, Color::BLACK));
     };
@@ -1442,6 +1510,7 @@ fn looping_animation_and_timers_schedule_frames() {
 #[test]
 fn input_and_geometry_types_remain_compact_and_exact() {
     assert_eq!(std::mem::size_of::<Input>(), 20);
+    assert_eq!(std::mem::size_of::<Slot>(), 28);
     assert_eq!(
         LogicalRect {
             x: 1.2,

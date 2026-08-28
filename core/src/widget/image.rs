@@ -2,7 +2,7 @@ use super::Widget;
 use crate::{
     Ui,
     color::Color,
-    container::{Item, Sizing},
+    container::Slot,
     geometry::LogicalSize,
     image::{ImageContent, ImageFit, ImageHandle, ImageSampling, ImageTiling, NineSlice},
     node::Content,
@@ -15,11 +15,9 @@ crate::builder! {
             colorize: Color,
             nine_slice: NineSlice,
         },
+        slot: Slot = Slot::new(),
         fit: ImageFit = ImageFit::default(),
         sampling: ImageSampling = ImageSampling::default(),
-        width: Sizing = Sizing::fit(),
-        height: Sizing = Sizing::fit(),
-        z_index: i16 = 0,
         opacity: f32 = 1.0,
         horizontal_tiling: ImageTiling = ImageTiling::default(),
         vertical_tiling: ImageTiling = ImageTiling::default(),
@@ -32,11 +30,7 @@ impl Widget for Image<'_> {
     fn render(self, ui: &mut Ui) {
         let size = self.resource.size();
         ui.add_leaf(
-            Item {
-                width: self.width,
-                height: self.height,
-                z_index: self.z_index,
-            },
+            self.slot,
             Content::Image(ImageContent {
                 image: self.resource.id(),
                 intrinsic: LogicalSize {

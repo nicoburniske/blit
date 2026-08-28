@@ -3,7 +3,7 @@ use std::{fmt::Write, time::Duration};
 use blit::{
     Ui,
     animation::{Easing, Transition},
-    container::{Absolute, Anchor, Sizing},
+    container::{Absolute, Anchor, Sizing, Slot},
     geometry::{LogicalPoint, LogicalSize, Sides},
     image::{
         ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageSampling, ImageTiling,
@@ -694,7 +694,7 @@ impl State {
         };
         page.add(
             TextInput::new(&mut self.name)
-                .width(Sizing::fixed(360.0))
+                .slot(Slot::new().width(Sizing::fixed(360.0)))
                 .padding(Sides::all(10.0))
                 .style(
                     Style::new()
@@ -714,7 +714,7 @@ impl State {
         };
         page.add(
             TextInput::new(&mut self.password)
-                .width(Sizing::fixed(360.0))
+                .slot(Slot::new().width(Sizing::fixed(360.0)))
                 .padding(Sides::all(10.0))
                 .style(
                     Style::new()
@@ -804,8 +804,11 @@ impl State {
                     sample.add(Text::new(label).color(colors::TEXT_DIM).text_size(10.0));
                     sample.add(
                         Image::new(image)
-                            .width(Sizing::grow())
-                            .height(Sizing::fixed(180.0))
+                            .slot(
+                                Slot::new()
+                                    .width(Sizing::grow())
+                                    .height(Sizing::fixed(180.0)),
+                            )
                             .fit(fit)
                             .sampling(sampling)
                             .horizontal_tiling(tiling)
@@ -888,14 +891,11 @@ impl State {
                 .style(Style::new().background(colors::TRACK).uniform_radius(8.0))
                 .open();
             pulse_box.add(
-                Rectangle::new()
-                    .width(Sizing::fixed(size))
-                    .height(Sizing::fixed(size))
-                    .style(
-                        Style::new()
-                            .background(colors::SURFACE_PURPLE)
-                            .uniform_radius(size / 2.0),
-                    ),
+                Rectangle::new().slot(Slot::new().fixed(size, size)).style(
+                    Style::new()
+                        .background(colors::SURFACE_PURPLE)
+                        .uniform_radius(size / 2.0),
+                ),
             );
         });
     }
@@ -928,8 +928,7 @@ impl State {
             .open();
         screen_badge.add(
             Rectangle::new()
-                .width(Sizing::fixed(6.0))
-                .height(Sizing::fixed(6.0))
+                .slot(Slot::new().fixed(6.0, 6.0))
                 .style(Style::new().background(colors::ACCENT).uniform_radius(3.0)),
         );
         screen_badge.add(Text::new(fps).color(colors::TEXT).text_size(10.0));
@@ -1038,7 +1037,7 @@ fn carousel(mut active: usize) -> impl Widget<Output = usize> {
                     .color(colors::ACCENT)
                     .text_size(10.0),
             );
-            controls.add(Rectangle::new().width(Sizing::grow()));
+            controls.add(Rectangle::new().slot(Slot::new().width(Sizing::grow())));
             if controls
                 .add(choice("carousel previous", "PREV", false).padding_y(4.0))
                 .clicked()
@@ -1285,8 +1284,7 @@ impl Widget for ResizeGrip {
             .open();
         grip.add(
             Rectangle::new()
-                .width(Sizing::fixed(marker_width))
-                .height(Sizing::fixed(marker_height))
+                .slot(Slot::new().fixed(marker_width, marker_height))
                 .style(
                     Style::new()
                         .background(if self.interaction.hovered || self.interaction.dragging {
@@ -1342,6 +1340,7 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
             )
             .clip(Clip::Bounds)
             .open();
+        let badge_layer = layout.layer();
 
         for (index, label) in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
             .into_iter()
@@ -1413,6 +1412,7 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
                                     .solid_border(1.0, colors::WHITE)
                                     .uniform_radius(5.0),
                             )
+                            .layer(badge_layer)
                             .z_index(1)
                             .absolute(Absolute::attach(anchor, Anchor::Center))
                             .open();
