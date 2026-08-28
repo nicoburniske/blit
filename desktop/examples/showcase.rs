@@ -3,7 +3,7 @@ use std::{fmt::Write, time::Duration};
 use blit::{
     Ui,
     animation::{Easing, Transition},
-    container::{Absolute, Anchor, Sizing, Slot},
+    container::{Absolute, Anchor, LayerId, Sizing, Slot},
     geometry::{LogicalPoint, LogicalSize, Sides},
     image::{
         ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageSampling, ImageTiling,
@@ -11,7 +11,7 @@ use blit::{
     input::{Input, Key},
     interact::{Interaction, Sense, WidgetId},
     layout::{
-        Align, Axis, Constraints, Flex, ItemScope, Justify, Layout, LayoutCx, UnitScope, Wrap,
+        Align, Axis, Constraints, Flex, Grid, ItemScope, Justify, Layout, LayoutCx, UnitScope, Wrap,
     },
     style::{Clip, Style},
     text::{FontId, HorizontalAlign, TextWrap},
@@ -89,6 +89,7 @@ enum ItemSizing {
 enum CanvasLayout {
     Flex,
     Wrap,
+    Grid,
 }
 
 impl Default for CanvasConfig {
@@ -298,7 +299,11 @@ impl State {
         controls.add(options(
             "layout",
             &mut self.canvas.layout,
-            [("Flex", CanvasLayout::Flex), ("Wrap", CanvasLayout::Wrap)],
+            [
+                ("Flex", CanvasLayout::Flex),
+                ("Wrap", CanvasLayout::Wrap),
+                ("Grid", CanvasLayout::Grid),
+            ],
             6.0,
             12.0,
         ));
@@ -455,7 +460,7 @@ impl State {
         ));
 
         controls.add(
-            Text::new("Flex distributes free space and Wrap forms runs. Axis, alignment, and justification apply to both flow layouts.")
+            Text::new("Flex distributes free space, Wrap forms runs, and Grid automatically packs row and column spans into five equal columns. Axis, alignment, and justification apply to the flow layouts.")
                 .color(colors::TEXT_DIM)
                 .text_size(11.0)
                 .wrap(TextWrap::Word),
@@ -1373,17 +1378,62 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
                     .open();
                 canvas_items(&mut layout, config);
             }
+            CanvasLayout::Grid => {
+                let mut layout = ui
+                    .layout(
+                        Grid::columns(5)
+                            .spanning()
+                            .padding(Sides::all(config.padding * config.zoom))
+                            .gap(config.gap * config.zoom),
+                    )
+                    .grow()
+                    .style(style)
+                    .clip(Clip::Bounds)
+                    .open();
+                let badge_layer = layout.layer();
+                for (index, (label, (rows, columns))) in [
+                    ("1", (2, 2)),
+                    ("2", (1, 1)),
+                    ("3", (1, 2)),
+                    ("4", (1, 1)),
+                    ("5", (1, 2)),
+                    ("6", (2, 1)),
+                    ("7", (1, 2)),
+                    ("8", (2, 2)),
+                    ("9", (1, 1)),
+                    ("10", (1, 1)),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    layout.add_span(
+                        rows,
+                        columns,
+                        canvas_item(index, label, badge_layer, config),
+                    );
+                }
+            }
         }
     }
 }
 
 fn canvas_items<L: Layout<Item = ()>>(layout: &mut UnitScope<'_, L>, config: CanvasConfig) {
     let badge_layer = layout.layer();
-
     for (index, label) in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
         .into_iter()
         .enumerate()
     {
+        layout.add(canvas_item(index, label, badge_layer, config));
+    }
+}
+
+fn canvas_item(
+    index: usize,
+    label: &'static str,
+    badge_layer: LayerId,
+    config: CanvasConfig,
+) -> impl Widget<Output = ()> {
+    move |ui: &mut Ui| {
         let main = (26.0 + (index % 5) as f32 * 5.0) * config.zoom;
         let cross = (48.0 + (index % 4) as f32 * 13.0) * config.zoom;
         let main = match config.sizing {
@@ -1396,70 +1446,68 @@ fn canvas_items<L: Layout<Item = ()>>(layout: &mut UnitScope<'_, L>, config: Can
         } else {
             Sizing::fixed(cross)
         };
-        layout.add(|ui: &mut Ui| {
-            let item = ui.layout(
-                Flex::column()
-                    .align(Align::Stretch)
-                    .justify(Justify::Center),
-            );
-            let item = match config.axis {
-                Axis::Horizontal => item.width(main).height(cross),
-                Axis::Vertical => item.width(cross).height(main),
-            };
-            let item = if config.transitions {
-                item.id(WidgetId::new(("canvas item", index))).transition(
-                    Transition::new(Duration::from_secs_f32(config.transition_duration / 1000.0))
-                        .easing(Easing::EaseOutQuad)
-                        .layout(),
-                )
-            } else {
-                item
-            };
-            let mut rectangle = item
-                .style(
-                    Style::new()
-                        .background(colors::ITEMS[index])
-                        .uniform_radius(5.0),
-                )
-                .open();
-            rectangle.add(
-                Text::new(label)
-                    .color(colors::WHITE)
-                    .text_size(11.0 * config.zoom)
-                    .align(HorizontalAlign::Center),
-            );
-            let anchor = match index {
-                0 => Some(Anchor::TopRight),
-                4 => Some(Anchor::BottomLeft),
-                9 => Some(Anchor::BottomRight),
-                _ => None,
-            };
-            if let Some(anchor) = anchor {
-                rectangle.add(|ui: &mut Ui| {
-                    let mut badge = ui
-                        .layout(Flex::row().align(Align::Center).justify(Justify::Center))
-                        .fixed(
-                            (28.0 * config.zoom).max(20.0),
-                            (14.0 * config.zoom).max(10.0),
-                        )
-                        .style(
-                            Style::new()
-                                .background(colors::BACKGROUND)
-                                .solid_border(1.0, colors::WHITE)
-                                .uniform_radius(5.0),
-                        )
-                        .layer(badge_layer)
-                        .z_index(1)
-                        .absolute(Absolute::attach(anchor, Anchor::Center))
-                        .open();
-                    badge.add(
-                        Text::new("ABS")
-                            .color(colors::WHITE)
-                            .text_size((8.0 * config.zoom).max(7.0)),
-                    );
-                });
-            }
-        });
+        let item = ui.layout(
+            Flex::column()
+                .align(Align::Stretch)
+                .justify(Justify::Center),
+        );
+        let item = match config.axis {
+            Axis::Horizontal => item.width(main).height(cross),
+            Axis::Vertical => item.width(cross).height(main),
+        };
+        let item = if config.transitions {
+            item.id(WidgetId::new(("canvas item", index))).transition(
+                Transition::new(Duration::from_secs_f32(config.transition_duration / 1000.0))
+                    .easing(Easing::EaseOutQuad)
+                    .layout(),
+            )
+        } else {
+            item
+        };
+        let mut rectangle = item
+            .style(
+                Style::new()
+                    .background(colors::ITEMS[index])
+                    .uniform_radius(5.0),
+            )
+            .open();
+        rectangle.add(
+            Text::new(label)
+                .color(colors::WHITE)
+                .text_size(11.0 * config.zoom)
+                .align(HorizontalAlign::Center),
+        );
+        let anchor = match index {
+            0 => Some(Anchor::TopRight),
+            4 => Some(Anchor::BottomLeft),
+            9 => Some(Anchor::BottomRight),
+            _ => None,
+        };
+        if let Some(anchor) = anchor {
+            rectangle.add(|ui: &mut Ui| {
+                let mut badge = ui
+                    .layout(Flex::row().align(Align::Center).justify(Justify::Center))
+                    .fixed(
+                        (28.0 * config.zoom).max(20.0),
+                        (14.0 * config.zoom).max(10.0),
+                    )
+                    .style(
+                        Style::new()
+                            .background(colors::BACKGROUND)
+                            .solid_border(1.0, colors::WHITE)
+                            .uniform_radius(5.0),
+                    )
+                    .layer(badge_layer)
+                    .z_index(1)
+                    .absolute(Absolute::attach(anchor, Anchor::Center))
+                    .open();
+                badge.add(
+                    Text::new("ABS")
+                        .color(colors::WHITE)
+                        .text_size((8.0 * config.zoom).max(7.0)),
+                );
+            });
+        }
     }
 }
 

@@ -11,8 +11,8 @@ use crate::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
     interact::{Sense, WidgetId},
     layout::{
-        Align, Axis, Constraints, Flex, Justify, Layout, LayoutCx, RawScope, RectLayout, UnitScope,
-        Wrap,
+        Align, Axis, Constraints, Flex, Grid, Justify, Layout, LayoutCx, RawScope, RectLayout,
+        UnitScope, Wrap,
     },
     renderer::Renderer,
     repaint::{IncrementalRepaint, MyersTracker},
@@ -280,9 +280,7 @@ fn custom_layout_is_stored_and_invoked_after_declaration() {
             self.0.add(Gap(gap), widget)
         }
 
-        fn close(self) {
-            self.0.close()
-        }
+        fn close(self) {}
     }
 
     impl Layout for ReverseRow {
@@ -467,6 +465,61 @@ fn wrap_remeasures_text_at_run_width() {
             harness.renderer().text_areas[0].height,
         ),
         (10.0, 8.0)
+    );
+}
+
+#[test]
+fn grid_uses_equal_columns_and_row_heights() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut outer = ui.layout(Wrap::horizontal()).fixed(5.0, 6.0).open();
+        outer.add(|ui: &mut Ui| {
+            let mut grid = ui.layout(Grid::columns(2).gap(1.0)).fixed(5.0, 6.0).open();
+            grid.add(fixed_rectangle(1.0, 1.0, Color::BLACK));
+            grid.add(fixed_rectangle(1.0, 2.0, Color::GRAY));
+            grid.add(fixed_rectangle(1.0, 3.0, Color::WHITE));
+        });
+    });
+
+    let areas = &harness.renderer().rectangle_areas;
+    assert_eq!(
+        areas
+            .iter()
+            .map(|area| (area.x, area.y, area.width, area.height))
+            .collect::<Vec<_>>(),
+        [
+            (0.0, 0.0, 2.0, 2.0),
+            (3.0, 0.0, 2.0, 2.0),
+            (0.0, 3.0, 2.0, 3.0),
+        ]
+    );
+}
+
+#[test]
+fn spanning_grid_uses_equal_row_units() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut grid = ui
+            .layout(Grid::columns(3).spanning().gap(1.0))
+            .fixed(8.0, 7.0)
+            .open();
+        grid.add_span(2, 2, fixed_rectangle(1.0, 5.0, Color::BLACK));
+        grid.add(fixed_rectangle(1.0, 2.0, Color::GRAY));
+        grid.add(fixed_rectangle(1.0, 3.0, Color::WHITE));
+    });
+
+    assert_eq!(
+        harness
+            .renderer()
+            .rectangle_areas
+            .iter()
+            .map(|area| (area.x, area.y, area.width, area.height))
+            .collect::<Vec<_>>(),
+        [
+            (0.0, 0.0, 5.0, 7.0),
+            (6.0, 0.0, 2.0, 3.0),
+            (6.0, 4.0, 2.0, 3.0),
+        ]
     );
 }
 

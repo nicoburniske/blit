@@ -9,7 +9,7 @@ use blit::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     image::{ImageData, ImageHandle, ImageId},
     interact::{Sense, WidgetId},
-    layout::{Flex, RectLayout, UnitScope, Wrap},
+    layout::{Flex, Grid, RectLayout, UnitScope, Wrap},
     renderer::Renderer,
     style::Style,
     text::{self, TextLayoutRequest, TextRunId, TextStyle},
@@ -80,7 +80,7 @@ pub fn transition_frame(ui: &mut Ui, right: bool) {
 fn layout_rows(column: &mut UnitScope<'_>, complex: bool) {
     for index in 0..ROWS {
         column.add(
-            |ui: &mut Ui| match if complex { index % 3 } else { index % 2 } {
+            |ui: &mut Ui| match if complex { index % 4 } else { index % 2 } {
                 0 => {
                     let mut row = ui
                         .layout(Flex::row().gap(4.0))
@@ -108,6 +108,16 @@ fn layout_rows(column: &mut UnitScope<'_>, complex: bool) {
                             Rectangle::new(),
                         );
                     }
+                }
+                2 => {
+                    let mut row = ui
+                        .layout(Grid::columns(3).spanning().gap(4.0))
+                        .width(Sizing::grow())
+                        .height(Sizing::fixed(20.0))
+                        .open();
+                    row.add_span(2, 2, Rectangle::new().slot(Slot::new().fixed(120.0, 8.0)));
+                    row.add(Rectangle::new().slot(Slot::new().fixed(400.0, 8.0)));
+                    row.add(Rectangle::new().slot(Slot::new().fixed(80.0, 8.0)));
                 }
                 _ => {
                     let mut row = ui

@@ -158,7 +158,7 @@ impl<'ui, 'style, L: Layout> Container<'ui, 'style, L> {
         L::Scope::from(RawScope {
             ui: self.ui,
             node,
-            layout: std::marker::PhantomData,
+            layout: self.layout,
         })
     }
 }

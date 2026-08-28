@@ -4,11 +4,13 @@
 //! resolves parent-local positions to absolute coordinates.
 
 mod flex;
+mod grid;
 mod rect;
 mod wrap;
 
 pub use crate::frame::{Children, LayoutCx};
 pub use flex::*;
+pub use grid::*;
 pub use rect::*;
 pub use wrap::*;
 
@@ -111,7 +113,7 @@ impl<'ui, L: Layout<Item = ()>> From<RawScope<'ui, L>> for UnitScope<'ui, L> {
 
 impl<L: Layout<Item = ()>> UnitScope<'_, L> {
     pub fn layer(&mut self) -> LayerId {
-        self.0.layer()
+        self.0.ui.layer()
     }
 
     /// renders one child subtree without storing layout metadata
@@ -136,7 +138,7 @@ impl<'ui, L: Layout> From<RawScope<'ui, L>> for ItemScope<'ui, L> {
 
 impl<L: Layout> ItemScope<'_, L> {
     pub fn layer(&mut self) -> LayerId {
-        self.0.layer()
+        self.0.ui.layer()
     }
 
     pub fn add<W: Widget>(&mut self, item: L::Item, widget: W) -> W::Output {
@@ -147,18 +149,14 @@ impl<L: Layout> ItemScope<'_, L> {
 }
 
 /// low-level child declaration scope for custom layout scopes
+#[non_exhaustive]
 pub struct RawScope<'ui, L: Layout> {
-    pub(crate) ui: &'ui mut Ui,
-    pub(crate) node: NodeId,
-    pub(crate) layout: std::marker::PhantomData<fn() -> L>,
+    pub ui: &'ui mut Ui,
+    pub node: NodeId,
+    pub layout: L,
 }
 
 impl<L: Layout> RawScope<'_, L> {
-    /// declares a paint layer clipped by this container
-    pub fn layer(&mut self) -> LayerId {
-        self.ui.layer()
-    }
-
     /// declares one child subtree and attaches its layout metadata
     pub fn add<W: Widget>(&mut self, item: L::Item, widget: W) -> W::Output {
         let child = self.ui.begin_layout_item();
@@ -166,8 +164,6 @@ impl<L: Layout> RawScope<'_, L> {
         self.ui.finish_layout_item::<L>(self.node, child, item);
         output
     }
-
-    pub fn close(self) {}
 }
 
 impl<L: Layout> Drop for RawScope<'_, L> {
