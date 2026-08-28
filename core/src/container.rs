@@ -3,7 +3,7 @@
 use crate::{
     Ui,
     animation::Transition,
-    geometry::LogicalPoint,
+    geometry::{LogicalPoint, Sides},
     interact::WidgetId,
     layout::{Flex, Layout, raw_scope},
     style::{Clip, Style},
@@ -28,6 +28,7 @@ crate::builder! {
         },
         item: Item = Item::new(),
         offset: LogicalPoint = LogicalPoint { x: 0.0, y: 0.0 },
+        hit: Sides = Sides::all(0.0),
         style: Style<'a> = Style::new(),
         clip: Clip = Clip::None,
     }
@@ -99,6 +100,14 @@ impl<'ui, 'style, L: Layout> Container<'ui, 'style, L> {
 
     pub fn id(mut self, id: WidgetId) -> Self {
         self.config.id = Some(id);
+        self
+    }
+
+    /// extends this container's hit area without affecting layout or paint
+    ///
+    /// requires an [`id`](Self::id)
+    pub fn hit(mut self, sides: Sides) -> Self {
+        self.config.hit = sides;
         self
     }
 

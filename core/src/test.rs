@@ -6,7 +6,7 @@ use crate::{
     color::Color,
     command_list::{ClipId, Command, CommandList},
     container::{Absolute, Anchor, Sizing},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
+    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Sides},
     image,
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
     interact::{Sense, WidgetId},
@@ -640,6 +640,61 @@ fn z_index_orders_hit_testing() {
     );
 
     assert_eq!(hovered, (false, true));
+}
+
+#[test]
+fn hit_sides_expand_within_clip_bounds() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("expanded hit");
+    let render = |ui: &mut Ui| {
+        let hovered = ui.interact(id, Sense::CLICK).hovered;
+        let mut clip = ui
+            .layout(Flex::column())
+            .fixed(4.0, 4.0)
+            .clip(Clip::Bounds)
+            .absolute(Absolute::at(3.0, 3.0))
+            .open();
+        clip.add(|ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(2.0, 2.0)
+                .id(id)
+                .hit(Sides::all(2.0))
+                .absolute(Absolute::at(1.0, 1.0))
+                .open();
+        });
+        drop(clip);
+        (hovered, ui.geometry(id))
+    };
+
+    harness.render(Duration::ZERO, Input::None, render);
+    let (hovered, geometry) = harness.render(
+        Duration::ZERO,
+        Input::PointerMove {
+            position: LogicalPoint { x: 3.0, y: 3.0 },
+            modifiers: Modifiers::NONE,
+        },
+        render,
+    );
+    assert!(hovered);
+    assert_eq!(
+        geometry,
+        Some(LogicalRect {
+            x: 4.0,
+            y: 4.0,
+            width: 2.0,
+            height: 2.0,
+        })
+    );
+
+    let (hovered, _) = harness.render(
+        Duration::ZERO,
+        Input::PointerMove {
+            position: LogicalPoint { x: 2.0, y: 2.0 },
+            modifiers: Modifiers::NONE,
+        },
+        render,
+    );
+    assert!(!hovered);
 }
 
 #[test]
