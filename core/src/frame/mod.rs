@@ -114,11 +114,7 @@ impl FrameGraph {
         self.nodes[0].subtree_end =
             u32::try_from(self.nodes.len()).expect("too many nodes in one frame");
         let positioned = !self.positioned_layouts.is_empty();
-        if positioned {
-            self.layout::<true>(renderer);
-        } else {
-            self.layout::<false>(renderer);
-        }
+        self.layout(renderer, positioned);
         let mut active_transitions = TransitionProperties::NONE;
         let mut has_position_transition = false;
         for state in transition_states.iter_mut().filter(|state| state.seen) {
@@ -135,11 +131,7 @@ impl FrameGraph {
         }
         if active_transitions.intersects(TransitionProperties::SIZE) {
             self.prepare_transitioned_dimensions(transition_states);
-            if positioned {
-                self.layout::<true>(renderer);
-            } else {
-                self.layout::<false>(renderer);
-            }
+            self.layout(renderer, positioned);
         }
         if active_transitions.intersects(TransitionProperties::POSITION) {
             self.apply_transitioned_positions(transition_states);
@@ -519,15 +511,15 @@ impl FrameGraph {
         }
     }
 
-    fn layout<const POSITIONED: bool>(&mut self, renderer: &mut dyn Renderer) {
-        self.measure_intrinsic::<POSITIONED>(renderer);
-        self.run_layouts::<true, POSITIONED>(Axis::Horizontal);
+    fn layout(&mut self, renderer: &mut dyn Renderer, positioned: bool) {
+        self.measure_intrinsic(renderer, positioned);
+        self.place_layouts(Axis::Horizontal, positioned);
         self.measure_wrapped_text(renderer);
-        self.run_layouts::<false, POSITIONED>(Axis::Vertical);
-        self.run_layouts::<true, POSITIONED>(Axis::Vertical);
+        self.measure_layouts(Axis::Vertical, positioned);
+        self.place_layouts(Axis::Vertical, positioned);
     }
 
-    fn measure_intrinsic<const POSITIONED: bool>(&mut self, renderer: &mut dyn Renderer) {
+    fn measure_intrinsic(&mut self, renderer: &mut dyn Renderer, positioned: bool) {
         for node in self.nodes.iter_mut().skip(1) {
             let size = match node.content.decode() {
                 ContentRef::None => LogicalSize::default(),
@@ -546,7 +538,7 @@ impl FrameGraph {
             node.area.width = size.width;
             node.area.height = size.height;
         }
-        self.run_layouts::<false, POSITIONED>(Axis::Horizontal);
+        self.measure_layouts(Axis::Horizontal, positioned);
     }
 
     fn measure_wrapped_text(&mut self, renderer: &mut dyn Renderer) {
@@ -580,49 +572,19 @@ impl FrameGraph {
         })
     }
 
-    fn run_layouts<const PLACE: bool, const POSITIONED: bool>(&mut self, axis: Axis) {
-        if PLACE {
-            let mut start = 0;
-            while start < self.layout_nodes.len() {
-                let vtable = self.stored_layout(self.layout_nodes[start]).unwrap().vtable;
-                let mut end = start + 1;
-                while end < self.layout_nodes.len()
-                    && std::ptr::eq(
-                        self.stored_layout(self.layout_nodes[end]).unwrap().vtable,
-                        vtable,
-                    )
-                {
-                    end += 1;
-                }
-                let nodes = unsafe { self.layout_nodes.as_ptr().add(start) };
-                // safety: layout storage and node order are frozen during layout
-                unsafe { (vtable.place)(nodes, end - start, self, axis, POSITIONED) };
-                start = end;
-            }
-            return;
+    fn measure_layouts(&mut self, axis: Axis, positioned: bool) {
+        for index in (1..self.layout_nodes.len()).rev() {
+            let node = self.layout_nodes[index];
+            let layout = self.stored_layout(node).unwrap();
+            (layout.vtable.measure)(node, layout, self, axis, positioned);
         }
+    }
 
-        let mut end = self.layout_nodes.len();
-        while end > 1 {
-            let vtable = self
-                .stored_layout(self.layout_nodes[end - 1])
-                .unwrap()
-                .vtable;
-            let mut start = end - 1;
-            while start > 1
-                && std::ptr::eq(
-                    self.stored_layout(self.layout_nodes[start - 1])
-                        .unwrap()
-                        .vtable,
-                    vtable,
-                )
-            {
-                start -= 1;
-            }
-            let nodes = unsafe { self.layout_nodes.as_ptr().add(start) };
-            // safety: layout storage and node order are frozen during layout
-            unsafe { (vtable.measure)(nodes, end - start, self, axis, POSITIONED) };
-            end = start;
+    fn place_layouts(&mut self, axis: Axis, positioned: bool) {
+        for index in 0..self.layout_nodes.len() {
+            let node = self.layout_nodes[index];
+            let layout = self.stored_layout(node).unwrap();
+            (layout.vtable.place)(node, layout, self, axis, positioned);
         }
     }
 

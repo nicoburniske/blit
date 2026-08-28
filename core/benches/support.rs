@@ -9,7 +9,7 @@ use blit::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     image::{ImageData, ImageHandle, ImageId},
     interact::{Sense, WidgetId},
-    layout::{Flex, UnitScope},
+    layout::{Flex, RectLayout, UnitScope},
     renderer::Renderer,
     style::Style,
     text::{self, TextLayoutRequest, TextRunId, TextStyle},
@@ -78,16 +78,35 @@ pub fn transition_frame(ui: &mut Ui, right: bool) {
 }
 
 fn layout_rows(column: &mut UnitScope<'_>) {
-    for _ in 0..ROWS {
+    for index in 0..ROWS {
         column.add(|ui: &mut Ui| {
-            let mut row = ui
-                .layout(Flex::row().gap(4.0))
-                .width(Sizing::grow())
-                .height(Sizing::fixed(20.0))
-                .open();
-            row.add(Rectangle::new().slot(Slot::new().width(Sizing::fixed(120.0))));
-            row.add(Rectangle::new().slot(Slot::new().width(Sizing::grow())));
-            row.add(Rectangle::new().slot(Slot::new().width(Sizing::fixed(80.0))));
+            if index % 2 != 0 {
+                let mut row = ui
+                    .layout(RectLayout)
+                    .width(Sizing::grow())
+                    .height(Sizing::fixed(20.0))
+                    .open();
+                for (x, width) in [(0.0, 120.0), (124.0, 400.0), (528.0, 80.0)] {
+                    row.add(
+                        LogicalRect {
+                            x,
+                            y: 0.0,
+                            width,
+                            height: 20.0,
+                        },
+                        Rectangle::new(),
+                    );
+                }
+            } else {
+                let mut row = ui
+                    .layout(Flex::row().gap(4.0))
+                    .width(Sizing::grow())
+                    .height(Sizing::fixed(20.0))
+                    .open();
+                row.add(Rectangle::new().slot(Slot::new().width(Sizing::fixed(120.0))));
+                row.add(Rectangle::new().slot(Slot::new().width(Sizing::grow())));
+                row.add(Rectangle::new().slot(Slot::new().width(Sizing::fixed(80.0))));
+            }
         });
     }
 }

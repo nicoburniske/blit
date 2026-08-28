@@ -148,11 +148,11 @@ pub struct StoredLayout {
     pub offset: LogicalPoint,
 }
 
-pub type RunLayouts = unsafe fn(*const NodeId, usize, &mut FrameGraph, Axis, positioned: bool);
+pub type RunLayout = fn(NodeId, StoredLayout, &mut FrameGraph, Axis, positioned: bool);
 
 pub struct LayoutVtable {
-    pub measure: RunLayouts,
-    pub place: RunLayouts,
+    pub measure: RunLayout,
+    pub place: RunLayout,
     pub layout_type: fn() -> TypeId,
 }
 
@@ -160,8 +160,8 @@ pub struct LayoutVtableFor<L>(std::marker::PhantomData<L>);
 
 impl<L: Layout> LayoutVtableFor<L> {
     pub const VALUE: LayoutVtable = LayoutVtable {
-        measure: run_layout_batch::<L, false>,
-        place: run_layout_batch::<L, true>,
+        measure: run_layout::<L, false>,
+        place: run_layout::<L, true>,
         layout_type: TypeId::of::<L>,
     };
 }
@@ -243,36 +243,30 @@ impl DataArena {
     }
 }
 
-unsafe fn run_layout_batch<L: Layout, const PLACE: bool>(
-    nodes: *const NodeId,
-    len: usize,
+fn run_layout<L: Layout, const PLACE: bool>(
+    node: NodeId,
+    stored: StoredLayout,
     frame: &mut FrameGraph,
     axis: Axis,
     positioned: bool,
 ) {
-    for index in 0..len {
-        let index = if PLACE { index } else { len - index - 1 };
-        // safety: the scheduler passes a frozen slice of layout node IDs
-        let node = unsafe { nodes.add(index).read() };
-        let stored = frame.stored_layout(node).unwrap();
-        debug_assert_eq!((stored.vtable.layout_type)(), TypeId::of::<L>());
-        let layout: L = frame.layout_data.load(stored.data_offset as usize);
-        let graph_nodes = frame.nodes.as_ptr();
-        let mut cx = LayoutCx {
-            frame,
-            nodes: graph_nodes,
-            node,
-            positioned,
-            item: std::marker::PhantomData,
-            offset: stored.offset,
-        };
-        if PLACE {
-            if positioned && cx.frame.nodes[node.index()].layout.is_positioned() {
-                cx.frame.resolve_positioned(node, axis);
-            }
-            layout.place(&mut cx, axis);
-        } else if let Some(size) = layout.measure(&cx, axis) {
-            cx.frame.nodes[node.index()].set_size(axis, size);
+    debug_assert_eq!((stored.vtable.layout_type)(), TypeId::of::<L>());
+    let layout: L = frame.layout_data.load(stored.data_offset as usize);
+    let graph_nodes = frame.nodes.as_ptr();
+    let mut cx = LayoutCx {
+        frame,
+        nodes: graph_nodes,
+        node,
+        positioned,
+        item: std::marker::PhantomData,
+        offset: stored.offset,
+    };
+    if PLACE {
+        if positioned && cx.frame.nodes[node.index()].layout.is_positioned() {
+            cx.frame.resolve_positioned(node, axis);
         }
+        layout.place(&mut cx, axis);
+    } else if let Some(size) = layout.measure(&cx, axis) {
+        cx.frame.nodes[node.index()].set_size(axis, size);
     }
 }
