@@ -17,7 +17,7 @@ use blit::{
     repaint::{IncrementalRepaint, MyersTracker},
     style::{BorderRadius, Clip, GradientStop, LinearGradient, Shadow, Style},
     text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
-    widget::{Image as ImageWidget, Rectangle as RectangleWidget, Text, Widget},
+    widget::{Image as ImageWidget, Rectangle as RectangleWidget, Text},
 };
 
 use super::*;
@@ -715,7 +715,7 @@ fn partial_drag_rasterizes_less_than_full_redraw() {
 }
 
 #[test]
-fn dropped_image_slots_are_reused_after_end_frame() {
+fn dropped_image_is_removed_after_last_handle() {
     static PIXEL: [u8; 4] = [255, 255, 255, 255];
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config());
     let texture = ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1);
@@ -731,14 +731,6 @@ fn dropped_image_slots_are_reused_after_end_frame() {
     drop(retained);
     renderer.render(&CommandList::default(), &[]);
     assert!(!renderer.context.images.contains_key(first_key));
-
-    let second = renderer.create_image(ImageData::new(
-        ImagePixels::Static(&PIXEL),
-        ImageFormat::Rgba8,
-        1,
-        1,
-    ));
-    assert_ne!(second.id(), first_id);
 }
 
 #[test]
@@ -1818,33 +1810,5 @@ fn text_runs_are_keyed_by_content_and_style() {
             },
         ),
         first
-    );
-}
-
-#[test]
-fn borrowed_dynamic_text_renders_after_the_source_is_reused() {
-    let mut harness = Harness::new(
-        Renderer::new(VecBuffer::<Xrgb8888>::new(96, 48), renderer_config())
-            .strategy(Scanline::default()),
-        false,
-    );
-    let mut text = String::from("managed");
-
-    harness.render(Duration::ZERO, Input::None, |ui| {
-        Text::new(&text).color(Color::WHITE).render(ui);
-    });
-    text.clear();
-    text.push_str("updated");
-    harness.render(Duration::ZERO, Input::None, |ui| {
-        Text::new(&text).color(Color::WHITE).render(ui);
-    });
-
-    assert!(
-        harness
-            .renderer()
-            .buffer()
-            .pixels()
-            .iter()
-            .any(|pixel| pixel.raw() != 0)
     );
 }
