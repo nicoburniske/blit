@@ -70,6 +70,8 @@ impl<L: Layout> RawScope<'_, L> {
         self.ui.finish_layout_item::<L>(self.node, child, item);
         output
     }
+
+    pub fn close(self) {}
 }
 
 impl<'ui, L: Layout<Item = ()>> From<RawScope<'ui, L>> for UnitScope<'ui, L> {
@@ -90,6 +92,8 @@ impl<L: Layout<Item = ()>> UnitScope<'_, L> {
     pub fn add<W: Widget>(&mut self, widget: W) -> W::Output {
         widget.render(self.0.ui)
     }
+
+    pub fn close(self) {}
 }
 
 impl<'ui, L: Layout> From<RawScope<'ui, L>> for ItemScope<'ui, L> {
@@ -106,6 +110,8 @@ impl<L: Layout> ItemScope<'_, L> {
     pub fn add<W: Widget>(&mut self, item: L::Item, widget: W) -> W::Output {
         self.0.add(item, widget)
     }
+
+    pub fn close(self) {}
 }
 
 impl<L: Layout> Drop for RawScope<'_, L> {
