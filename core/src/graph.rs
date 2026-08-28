@@ -3,6 +3,7 @@
 use std::{
     any::TypeId,
     mem::{MaybeUninit, align_of, size_of},
+    num::NonZeroU16,
     time::Duration,
 };
 
@@ -11,7 +12,7 @@ use crate::{
     animation::{Transition, TransitionProperties},
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
-    container::{Absolute, Anchor, ContainerConfig, Item, PositionTarget, Sizing},
+    container::{Absolute, Anchor, ContainerConfig, LayerId, PositionTarget, Sizing, Slot},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, Sides},
     image::{ImageContent, ImageRequest},
     interact::{InteractionState, WidgetId},
@@ -35,6 +36,7 @@ pub struct FrameGraph {
     layout_nodes: Vec<NodeId>,
     layout_data: DataArena,
     position_offsets: Vec<LogicalPoint>,
+    layers: Vec<PaintLayer>,
     // empty when declaration order is paint order
     paint_order: Vec<NodeId>,
     styles: Vec<StoredStyle>,
@@ -164,7 +166,7 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
             self.node,
             "z-index can only be set for direct children"
         );
-        self.frame.nodes[node.index()].item.z_index = z_index;
+        self.frame.nodes[node.index()].slot.z_index = z_index;
         self.frame.needs_paint_order |= z_index != 0;
     }
 
@@ -193,6 +195,7 @@ impl FrameGraph {
         self.positioned_layouts.clear();
         self.layout_nodes.clear();
         self.layout_data.clear();
+        self.layers.clear();
         self.paint_order.clear();
         self.styles.clear();
         self.shadows.clear();
@@ -206,7 +209,8 @@ impl FrameGraph {
         self.nodes.push(Node {
             parent: NodeId::ROOT,
             subtree_end: 1,
-            item: Item {
+            slot: Slot {
+                layer: None,
                 width: Sizing::fixed(screen.width),
                 height: Sizing::fixed(screen.height),
                 z_index: 0,
@@ -254,7 +258,7 @@ impl FrameGraph {
                 .config
                 .properties
                 .intersects(TransitionProperties::POSITION);
-            state.advance(self.transition_area(state.node, state.parent), time);
+            state.advance(self.transition_area(state.node), time);
             active_transitions = active_transitions.union(state.active);
         }
         if has_position_transition {
@@ -296,7 +300,7 @@ impl FrameGraph {
     ) -> NodeId {
         let layout = self.store_layout(layout, container.offset);
         let node = self.append(
-            container.item,
+            container.slot,
             Some(layout),
             container.absolute,
             container.style,
@@ -310,14 +314,14 @@ impl FrameGraph {
         node
     }
 
-    pub fn add_leaf(&mut self, item: Item, content: Content<'_>) -> NodeId {
+    pub fn add_leaf(&mut self, slot: Slot, content: Content<'_>) -> NodeId {
         let style = match content {
             Content::Rectangle(style) => style,
             _ => Style::new(),
         };
         let content = self.store_content(content);
         self.append(
-            item,
+            slot,
             None,
             None,
             style,
@@ -336,15 +340,19 @@ impl FrameGraph {
         });
     }
 
-    pub fn transition_parent(&self, node: NodeId) -> NodeId {
-        if self.open_containers.last() == Some(&node) {
-            self.open_containers[self.open_containers.len() - 2]
-        } else {
-            *self
-                .open_containers
-                .last()
-                .expect("transition requires a layout parent")
-        }
+    pub fn add_layer(&mut self) -> LayerId {
+        let owner = *self
+            .open_containers
+            .last()
+            .expect("layer declaration requires a root");
+        let raw = u16::try_from(self.layers.len() + 1).expect("too many layers in one frame");
+        let id = LayerId(NonZeroU16::new(raw).unwrap());
+        self.layers.push(PaintLayer {
+            owner,
+            clip: ClipId::default(),
+            clip_bounds: LogicalRect::default(),
+        });
+        id
     }
 
     pub fn set_style(&mut self, node: NodeId, style: Style<'_>) {
@@ -402,6 +410,7 @@ impl FrameGraph {
                 + self.layout_nodes.capacity() * size_of::<NodeId>()
                 + self.layout_data.heap_bytes()
                 + self.position_offsets.capacity() * size_of::<LogicalPoint>()
+                + self.layers.capacity() * size_of::<PaintLayer>()
                 + self.paint_order.capacity() * size_of::<NodeId>()
                 + self.styles.capacity() * size_of::<StoredStyle>()
                 + self.shadows.capacity() * size_of::<Shadow>()
@@ -414,7 +423,7 @@ impl FrameGraph {
     #[allow(clippy::too_many_arguments)]
     fn append(
         &mut self,
-        item: Item,
+        slot: Slot,
         layout: Option<StoredLayout>,
         position: Option<Absolute>,
         style: Style<'_>,
@@ -428,18 +437,38 @@ impl FrameGraph {
             .last()
             .expect("node declaration requires a root");
         let node = NodeId::new(self.nodes.len());
-        self.needs_paint_order |=
-            // explicit z-index changes sibling order
-            item.z_index != 0
-            // nested screen targets move into the root sibling order
-            || (parent != NodeId::ROOT
-                && position.is_some_and(|absolute| absolute.target == PositionTarget::Screen));
+        self.needs_paint_order |= slot.z_index != 0 || slot.layer.is_some();
         let style = self.store_style(style);
         let layout = match (layout, position) {
             (Some(layout), Some(absolute)) => {
+                let (target, uses_target_content_origin) = match absolute.target {
+                    PositionTarget::Parent => (parent, true),
+                    PositionTarget::Widget(id) => {
+                        let mut targets = self
+                            .geometry
+                            .iter()
+                            .filter(|record| record.id == id)
+                            .map(|record| record.node);
+                        let target = targets.next().unwrap_or_else(|| {
+                            panic!("absolute target {id:?} must be declared first")
+                        });
+                        assert!(
+                            targets.next().is_none(),
+                            "absolute target {id:?} is duplicate"
+                        );
+                        (target, false)
+                    }
+                    PositionTarget::Screen => (NodeId::ROOT, false),
+                };
                 let id = LayoutId::positioned(self.positioned_layouts.len());
-                self.positioned_layouts
-                    .push(PositionedLayout { layout, absolute });
+                self.positioned_layouts.push(PositionedLayout {
+                    layout,
+                    offset: absolute.offset,
+                    target,
+                    target_anchor: absolute.target_anchor,
+                    uses_target_content_origin,
+                    child_anchor: absolute.child_anchor,
+                });
                 id
             }
             (Some(layout), None) => {
@@ -460,7 +489,7 @@ impl FrameGraph {
         self.nodes.push(Node {
             parent,
             subtree_end: u32::try_from(self.nodes.len() + 1).expect("too many nodes in one frame"),
-            item,
+            slot,
             layout,
             layout_item: LayoutItemId::NONE,
             style,
@@ -560,35 +589,53 @@ impl FrameGraph {
             if parent != NodeId::ROOT {
                 self.paint_order.push(parent);
             }
-
             let start = self.layout_nodes.len();
             let mut child = parent.index() + 1;
             let end = self.nodes[parent.index()].subtree_end as usize;
             while child < end {
-                if !self.is_screen_targeted(child) {
+                if self.nodes[child].slot.layer.is_none() {
                     self.layout_nodes.push(NodeId::new(child));
                 }
                 child = self.nodes[child].subtree_end as usize;
             }
-            if parent == NodeId::ROOT {
+            if parent == NodeId::ROOT && !self.layers.is_empty() {
                 for index in 1..self.nodes.len() {
-                    if self.is_screen_targeted(index) {
+                    if self.nodes[index].slot.layer.is_some() {
                         self.layout_nodes.push(NodeId::new(index));
                     }
                 }
             }
-            if self.layout_nodes.len() - start > 1 {
-                if self.layout_nodes[start..]
-                    .iter()
-                    .any(|node| self.nodes[node.index()].item.z_index != 0)
-                {
-                    self.layout_nodes[start..].sort_unstable_by(|a, b| {
-                        (self.nodes[b.index()].item.z_index, b.index())
-                            .cmp(&(self.nodes[a.index()].item.z_index, a.index()))
-                    });
-                } else {
-                    self.layout_nodes[start..].reverse();
-                }
+            if self.layout_nodes.len() - start <= 1 {
+                continue;
+            }
+            let children = &mut self.layout_nodes[start..];
+            // store children in reverse paint order because traversal pops from the end
+            if children.iter().any(|node| {
+                let slot = self.nodes[node.index()].slot;
+                slot.layer.is_some() || slot.z_index != 0
+            }) {
+                children.sort_unstable_by(|a, b| {
+                    let a_index = a.index();
+                    let b_index = b.index();
+                    (
+                        self.nodes[b_index]
+                            .slot
+                            .layer
+                            .map_or(0, |layer| layer.0.get()),
+                        self.nodes[b_index].slot.z_index,
+                        b_index,
+                    )
+                        .cmp(&(
+                            self.nodes[a_index]
+                                .slot
+                                .layer
+                                .map_or(0, |layer| layer.0.get()),
+                            self.nodes[a_index].slot.z_index,
+                            a_index,
+                        ))
+                });
+            } else {
+                children.reverse();
             }
         }
         debug_assert_eq!(self.paint_order.len(), self.nodes.len() - 1);
@@ -602,15 +649,6 @@ impl FrameGraph {
             self.geometry
                 .sort_unstable_by_key(|record| ranks[record.node.index()].index());
         }
-    }
-
-    fn is_screen_targeted(&self, index: usize) -> bool {
-        let layout = self.nodes[index].layout;
-        layout.is_positioned()
-            && self.positioned_layouts[layout.index().unwrap()]
-                .absolute
-                .target
-                == PositionTarget::Screen
     }
 
     fn layout<const POSITIONED: bool>(&mut self, renderer: &mut dyn Renderer) {
@@ -725,56 +763,49 @@ impl FrameGraph {
             .map_or(LogicalPoint::default(), |layout| layout.offset)
     }
 
-    fn resolve_absolute_children(&mut self, parent: usize, axis: Axis) {
-        let mut child = parent + 1;
-        let end = self.nodes[parent].subtree_end as usize;
-        while child < end {
-            let node = &self.nodes[child];
-            let next = node.subtree_end as usize;
-            if !node.layout.is_positioned() {
-                child = next;
-                continue;
-            }
-            let position = self.positioned_layouts[node.layout.index().unwrap()].absolute;
-            let (target, target_offset) = match position.target {
-                PositionTarget::Parent => (
-                    self.nodes[parent].area,
-                    self.layout_offset(NodeId::new(parent)),
-                ),
-                PositionTarget::Screen => (self.nodes[0].area, LogicalPoint::default()),
+    fn position_reference(&self, node: NodeId) -> (NodeId, LogicalPoint) {
+        let layout = self.nodes[node.index()].layout;
+        if layout.is_positioned() {
+            let positioned = self.positioned_layouts[layout.index().unwrap()];
+            let offset = if positioned.uses_target_content_origin {
+                self.layout_offset(positioned.target)
+            } else {
+                LogicalPoint::default()
             };
-            let (origin, available, offset) = match axis {
-                Axis::Horizontal => (target.x + target_offset.x, target.width, position.offset.x),
-                Axis::Vertical => (target.y + target_offset.y, target.height, position.offset.y),
-            };
-            let node = &mut self.nodes[child];
-            let size = node.sizing(axis).resolve(node.size(axis), available, true);
-            let position = origin + available * position.target_anchor.factor(axis)
-                - size * position.child_anchor.factor(axis)
-                + offset;
-            node.set_axis(axis, position, size);
-            child = next;
+            return (positioned.target, offset);
         }
+        let parent = self.nodes[node.index()].parent;
+        (parent, self.layout_offset(parent))
     }
 
-    fn transition_area(&self, node: NodeId, mut parent: NodeId) -> LogicalRect {
-        let node = node.index();
-        let layout = self.nodes[node].layout;
-        let screen_targeted = layout.is_positioned()
-            && self.positioned_layouts[layout.index().unwrap()]
-                .absolute
-                .target
-                == PositionTarget::Screen;
-        if screen_targeted {
-            parent = NodeId::ROOT;
-        }
-        let mut area = self.nodes[node].area;
-        let parent_node = &self.nodes[parent.index()];
-        let parent_offset = if screen_targeted {
-            LogicalPoint::default()
-        } else {
-            self.layout_offset(parent)
+    fn resolve_positioned(&mut self, node: NodeId, axis: Axis) {
+        let positioned = self.positioned_layouts[self.nodes[node.index()].layout.index().unwrap()];
+        let (target, target_offset) = self.position_reference(node);
+        let target = self.nodes[target.index()].area;
+        let (origin, available, offset) = match axis {
+            Axis::Horizontal => (
+                target.x + target_offset.x,
+                target.width,
+                positioned.offset.x,
+            ),
+            Axis::Vertical => (
+                target.y + target_offset.y,
+                target.height,
+                positioned.offset.y,
+            ),
         };
+        let node = &mut self.nodes[node.index()];
+        let size = node.sizing(axis).resolve(node.size(axis), available, true);
+        let position = origin + available * positioned.target_anchor.factor(axis)
+            - size * positioned.child_anchor.factor(axis)
+            + offset;
+        node.set_axis(axis, position, size);
+    }
+
+    fn transition_area(&self, node: NodeId) -> LogicalRect {
+        let mut area = self.nodes[node.index()].area;
+        let (parent, parent_offset) = self.position_reference(node);
+        let parent_node = &self.nodes[parent.index()];
         // positions transition within the parent and ignore scrolling
         area.x -= parent_node.area.x + parent_offset.x;
         area.y -= parent_node.area.y + parent_offset.y;
@@ -785,10 +816,10 @@ impl FrameGraph {
         for state in states.iter().filter(|state| state.seen) {
             let node = &mut self.nodes[state.node.index()];
             if state.active.intersects(TransitionProperties::WIDTH) {
-                node.item.width = Sizing::fixed(state.current.width);
+                node.slot.width = Sizing::fixed(state.current.width);
             }
             if state.active.intersects(TransitionProperties::HEIGHT) {
-                node.item.height = Sizing::fixed(state.current.height);
+                node.slot.height = Sizing::fixed(state.current.height);
             }
         }
     }
@@ -798,29 +829,10 @@ impl FrameGraph {
         self.position_offsets[0] = LogicalPoint::default();
         let mut states = states.iter().filter(|state| state.seen).peekable();
         for index in 1..self.nodes.len() {
-            let layout = self.nodes[index].layout;
-            let screen_targeted = layout.is_positioned()
-                && self.positioned_layouts[layout.index().unwrap()]
-                    .absolute
-                    .target
-                    == PositionTarget::Screen;
-            let inherited = if screen_targeted {
-                LogicalPoint::default()
-            } else {
-                self.position_offsets[self.nodes[index].parent.index()]
-            };
+            let (parent, parent_offset) = self.position_reference(NodeId::new(index));
+            let inherited = self.position_offsets[parent.index()];
             let mut local = LogicalPoint::default();
             if let Some(state) = states.next_if(|state| state.node.index() == index) {
-                let parent = if screen_targeted {
-                    NodeId::ROOT
-                } else {
-                    state.parent
-                };
-                let parent_offset = if screen_targeted {
-                    LogicalPoint::default()
-                } else {
-                    self.layout_offset(parent)
-                };
                 let parent_area = self.nodes[parent.index()].area;
                 let parent_delta = self.position_offsets[parent.index()];
                 if state.active.intersects(TransitionProperties::X) {
@@ -869,12 +881,25 @@ impl FrameGraph {
                     .intersection(self.nodes[index].area)
                     .unwrap_or_default(),
             };
+            // todo: index layers by owner. current resolution is O(nodes * layers)
+            for layer in self
+                .layers
+                .iter_mut()
+                .filter(|layer| layer.owner.index() == index)
+            {
+                layer.clip = child_clip;
+                layer.clip_bounds = child_clip_bounds;
+            }
             let mut child = index + 1;
             let end = self.nodes[index].subtree_end as usize;
             while child < end {
-                if self.is_screen_targeted(child) {
-                    self.nodes[child].clip = self.nodes[0].clip;
-                    self.nodes[child].clip_bounds = self.nodes[0].clip_bounds;
+                if let Some(layer) = self.nodes[child].slot.layer {
+                    let layer = self
+                        .layers
+                        .get(layer.0.get() as usize - 1)
+                        .expect("layer must be declared in the current frame");
+                    self.nodes[child].clip = layer.clip;
+                    self.nodes[child].clip_bounds = layer.clip_bounds;
                 } else {
                     self.nodes[child].clip = child_clip;
                     self.nodes[child].clip_bounds = child_clip_bounds;
@@ -1081,10 +1106,10 @@ unsafe fn run_layout_batch<L: Layout, const PLACE: bool>(
             offset: stored.offset,
         };
         if PLACE {
-            layout.place(&mut cx, axis);
-            if positioned {
-                cx.frame.resolve_absolute_children(node.index(), axis);
+            if positioned && cx.frame.nodes[node.index()].layout.is_positioned() {
+                cx.frame.resolve_positioned(node, axis);
             }
+            layout.place(&mut cx, axis);
         } else if let Some(size) = layout.measure(&cx, axis) {
             cx.frame.nodes[node.index()].set_size(axis, size);
         }
@@ -1117,7 +1142,7 @@ impl GeometryState {
 struct Node {
     parent: NodeId,
     subtree_end: u32,
-    item: Item,
+    slot: Slot,
     layout: LayoutId,
     layout_item: LayoutItemId,
     content: ContentId,
@@ -1142,8 +1167,8 @@ impl Node {
 
     fn sizing(&self, axis: Axis) -> Sizing {
         match axis {
-            Axis::Horizontal => self.item.width,
-            Axis::Vertical => self.item.height,
+            Axis::Horizontal => self.slot.width,
+            Axis::Vertical => self.slot.height,
         }
     }
 
@@ -1270,7 +1295,17 @@ impl<L: Layout> LayoutVtableFor<L> {
 #[derive(Clone, Copy)]
 struct PositionedLayout {
     layout: StoredLayout,
-    absolute: Absolute,
+    offset: LogicalPoint,
+    target: NodeId,
+    target_anchor: Anchor,
+    child_anchor: Anchor,
+    uses_target_content_origin: bool,
+}
+
+struct PaintLayer {
+    owner: NodeId,
+    clip: ClipId,
+    clip_bounds: LogicalRect,
 }
 
 impl Anchor {
@@ -1294,7 +1329,6 @@ pub struct TransitionState {
     pub started_at: Option<Duration>,
     pub active: TransitionProperties,
     pub node: NodeId,
-    pub parent: NodeId,
     pub config: Transition,
     pub initialized: bool,
     pub seen: bool,
@@ -1310,17 +1344,15 @@ impl TransitionState {
             started_at: None,
             active: TransitionProperties::NONE,
             node: NodeId::ROOT,
-            parent: NodeId::ROOT,
             config: Transition::new(Duration::ZERO),
             initialized: false,
             seen: false,
         }
     }
 
-    pub fn begin(&mut self, node: NodeId, parent: NodeId, config: Transition) {
+    pub fn begin(&mut self, node: NodeId, config: Transition) {
         assert!(!self.seen, "duplicate transition WidgetId {:?}", self.id);
         self.node = node;
-        self.parent = parent;
         self.config = config;
         self.seen = true;
     }

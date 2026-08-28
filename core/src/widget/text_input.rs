@@ -4,7 +4,7 @@ use super::Widget;
 use crate::{
     Ui,
     color::Color,
-    container::Sizing,
+    container::{Sizing, Slot},
     geometry::{LogicalRect, Sides},
     input::{Input, Key},
     interact::{Sense, WidgetId},
@@ -23,18 +23,16 @@ crate::builder! {
         @optional {
             mask: char,
         },
+        slot: Slot = Slot::new().width(Sizing::grow()),
         text_color: Color = Color::BLACK,
         selection_background: Color = Color::GRAY,
         cursor_color: Color = Color::BLACK,
         cursor_width: f32 = 1.0,
         text_style: TextStyle = TextStyle::default(),
         text_options: TextOptions = TextOptions::default(),
-        width: Sizing = Sizing::grow(),
-        height: Sizing = Sizing::fit(),
         padding: Sides = Sides::default(),
         style: Style<'a> = Style::new(),
         read_only: bool = false,
-        z_index: i16 = 0,
     }
 }
 
@@ -238,26 +236,17 @@ impl Widget for TextInput<'_> {
             width: self.cursor_width,
             color: self.cursor_color,
         });
-        let width = self.width;
-        let height = self.height;
         let padding = self.padding;
         let style = self.style;
-        let z_index = self.z_index;
         let mut field = ui
             .layout(Flex::column().padding(padding))
             .id(id)
-            .width(width)
-            .height(height)
-            .z_index(z_index)
+            .slot(self.slot)
             .style(style)
             .open();
         field.add(|ui: &mut Ui| {
             let node = ui.add_leaf(
-                crate::container::Item {
-                    width: Sizing::grow(),
-                    height: Sizing::fit(),
-                    z_index: 0,
-                },
+                Slot::new().width(Sizing::grow()),
                 Content::Text(TextContent {
                     text: text_run,
                     color: self.text_color,

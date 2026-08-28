@@ -5,7 +5,7 @@ use blit::{
     animation::Transition,
     color::Color,
     command_list::CommandList,
-    container::{Absolute, Anchor, Sizing},
+    container::{Absolute, Anchor, Sizing, Slot},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     image::{ImageData, ImageHandle, ImageId},
     interact::{Sense, WidgetId},
@@ -85,10 +85,24 @@ fn layout_rows(column: &mut UnitScope<'_>) {
                 .width(Sizing::grow())
                 .height(Sizing::fixed(20.0))
                 .open();
-            row.add(Rectangle::new().width(Sizing::fixed(120.0)));
-            row.add(Rectangle::new().width(Sizing::grow()));
-            row.add(Rectangle::new().width(Sizing::fixed(80.0)));
+            row.add(Rectangle::new().slot(Slot::new().width(Sizing::fixed(120.0))));
+            row.add(Rectangle::new().slot(Slot::new().width(Sizing::grow())));
+            row.add(Rectangle::new().slot(Slot::new().width(Sizing::fixed(80.0))));
         });
+    }
+}
+
+pub fn layer_frame(ui: &mut Ui) {
+    let overlay = ui.layer();
+    for index in 0..ROWS {
+        let mut item = ui
+            .layout(Flex::column())
+            .fixed(20.0, 20.0)
+            .absolute(Absolute::at(index as f32, 0.0))
+            .open();
+        for _ in 0..CELLS_PER_ROW {
+            item.add(Rectangle::new().slot(Slot::new().layer(overlay).fixed(4.0, 4.0)));
+        }
     }
 }
 
@@ -101,11 +115,7 @@ pub fn z_index_frame(ui: &mut Ui) {
             .absolute(Absolute::at(index as f32, 0.0))
             .open();
         for _ in 0..CELLS_PER_ROW {
-            item.add(
-                Rectangle::new()
-                    .width(Sizing::fixed(4.0))
-                    .height(Sizing::fixed(4.0)),
-            );
+            item.add(Rectangle::new().slot(Slot::new().fixed(4.0, 4.0)));
         }
     }
 }
@@ -134,7 +144,7 @@ pub fn command_frame(ui: &mut Ui) {
             {
                 row.add(
                     Rectangle::new()
-                        .width(width)
+                        .slot(Slot::new().width(width))
                         .style(Style::new().background(Color::BLACK))
                         .id(WidgetId::new(row_index * CELLS_PER_ROW + cell_index)),
                 );

@@ -23,7 +23,7 @@ use std::{ptr::NonNull, time::Duration};
 
 use animation::Easing;
 use command_list::CommandList;
-use container::{Container, ContainerConfig, Item};
+use container::{Container, ContainerConfig, LayerId, Slot};
 use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
 use image::{ImageData, ImageHandle};
 use input::Input;
@@ -50,6 +50,11 @@ impl Ui {
 
     pub fn layout<L: layout::Layout>(&mut self, layout: L) -> Container<'_, '_, L> {
         Container::new(self, layout)
+    }
+
+    /// declares a paint layer rooted at the current container
+    pub fn layer(&mut self) -> LayerId {
+        self.frame_mut().add_layer()
     }
 
     /// returns geometry resolved before the current render callback
@@ -189,8 +194,8 @@ impl Ui {
         self.renderer_mut().text_cursor_rect(request, byte_offset)
     }
 
-    pub fn add_leaf(&mut self, item: Item, content: Content<'_>) -> NodeId {
-        self.frame_mut().add_leaf(item, content)
+    pub fn add_leaf(&mut self, slot: Slot, content: Content<'_>) -> NodeId {
+        self.frame_mut().add_leaf(slot, content)
     }
 
     pub fn begin_layout_item(&self) -> NodeId {
@@ -251,8 +256,7 @@ impl Ui {
             states.push(graph::TransitionState::new(id));
             states.len() - 1
         };
-        let parent = self.frame_mut().transition_parent(node);
-        self.state_mut().transitions[index].begin(node, parent, transition);
+        self.state_mut().transitions[index].begin(node, transition);
     }
 
     fn state(&self) -> &UiState {

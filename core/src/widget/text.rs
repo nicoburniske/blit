@@ -2,7 +2,7 @@ use super::Widget;
 use crate::{
     Ui,
     color::Color,
-    container::{Item, Sizing},
+    container::Slot,
     node::Content,
     text::{
         FontId, HorizontalAlign, TextContent, TextOptions, TextOverflow, TextStyle, TextWrap,
@@ -13,13 +13,11 @@ use crate::{
 crate::builder! {
     pub struct Text<'a> {
         new(text: &'a str),
+        slot: Slot = Slot::new(),
         color: Color = Color::BLACK,
         text_style: TextStyle = TextStyle::default(),
         options: TextOptions = TextOptions::default(),
         offset_x: f32 = 0.0,
-        width: Sizing = Sizing::fit(),
-        height: Sizing = Sizing::fit(),
-        z_index: i16 = 0,
     }
 }
 
@@ -76,11 +74,7 @@ impl Widget for Text<'_> {
     fn render(self, ui: &mut Ui) {
         let text = ui.text_run(self.text, self.text_style);
         ui.add_leaf(
-            Item {
-                width: self.width,
-                height: self.height,
-                z_index: self.z_index,
-            },
+            self.slot,
             Content::Text(TextContent {
                 text,
                 color: self.color,

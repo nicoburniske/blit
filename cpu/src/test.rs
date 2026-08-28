@@ -5,7 +5,7 @@ use blit::{
     animation::Easing,
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
-    container::Sizing,
+    container::{Sizing, Slot},
     geometry::{LogicalPoint, LogicalRect, PhysicalRect},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
@@ -228,7 +228,7 @@ fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, durati
             .width(Sizing::grow())
             .height(Sizing::fixed(20.0))
             .open();
-        row.add(RectangleWidget::new().width(Sizing::fixed(x)));
+        row.add(RectangleWidget::new().slot(Slot::new().width(Sizing::fixed(x))));
         row.add(|ui: &mut Ui| {
             let mut movement = ui
                 .layout(Flex::column().padding(blit::geometry::Sides::all(4.0)))
@@ -239,16 +239,13 @@ fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, durati
                         .uniform_radius(4.0),
                 )
                 .open();
-            movement.add(
-                RectangleWidget::new()
-                    .width(Sizing::grow())
-                    .height(Sizing::grow())
-                    .style(Style::new().background(if position < screen_width / 2.0 {
-                        Color::from_rgba8(230, 220, 180, 255)
-                    } else {
-                        Color::from_rgba8(180, 210, 240, 255)
-                    })),
-            );
+            movement.add(RectangleWidget::new().slot(Slot::new().grow()).style(
+                Style::new().background(if position < screen_width / 2.0 {
+                    Color::from_rgba8(230, 220, 180, 255)
+                } else {
+                    Color::from_rgba8(180, 210, 240, 255)
+                }),
+            ));
         });
     });
 }
@@ -346,15 +343,13 @@ fn resolved_nodes_match_direct_commands() {
             .open();
         panel.add(
             ImageWidget::new(&image)
-                .width(Sizing::fixed(8.0))
-                .height(Sizing::fixed(8.0))
+                .slot(Slot::new().fixed(8.0, 8.0))
                 .fit(ImageFit::Fill)
                 .sampling(ImageSampling::Nearest),
         );
         panel.add(
             Text::new("M")
-                .width(Sizing::fixed(24.0))
-                .height(Sizing::fixed(8.0))
+                .slot(Slot::new().fixed(24.0, 8.0))
                 .color(Color::WHITE),
         );
     });
