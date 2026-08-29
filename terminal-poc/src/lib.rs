@@ -32,6 +32,7 @@ pub struct TerminalRenderer {
     boxes: Vec<BoxCell>,
     cells: Vec<Cell>,
     previous: Vec<Cell>,
+    damaged: Vec<bool>,
 }
 
 impl TerminalRenderer {
@@ -51,6 +52,7 @@ impl TerminalRenderer {
             boxes: vec![BoxCell::default(); columns * rows],
             cells: vec![Cell::default(); columns * rows],
             previous: vec![Cell::invalid(); columns * rows],
+            damaged: vec![true; columns * rows],
         }
     }
 
@@ -76,6 +78,7 @@ impl TerminalRenderer {
         self.boxes.resize(columns * rows, BoxCell::default());
         self.cells.resize(columns * rows, Cell::default());
         self.previous = vec![Cell::invalid(); columns * rows];
+        self.damaged = vec![true; columns * rows];
     }
 
     fn cell_bounds(&self, area: LogicalRect) -> (usize, usize, usize, usize) {
@@ -95,6 +98,26 @@ impl TerminalRenderer {
         )
     }
 
+    fn clear_damaged(&mut self, bounds: (usize, usize, usize, usize)) {
+        let (left, top, right, bottom) = bounds;
+        let stride = self.columns * 2;
+        for y in top..bottom {
+            for x in left..right {
+                let index = y * self.columns + x;
+                if !self.damaged[index] {
+                    continue;
+                }
+                self.glyphs[index] = None;
+                self.boxes[index] = BoxCell::default();
+                for sub_y in y * 2..y * 2 + 2 {
+                    for sub_x in x * 2..x * 2 + 2 {
+                        self.pixels[sub_y * stride + sub_x] = Pixel::default();
+                    }
+                }
+            }
+        }
+    }
+
     pub fn present(&mut self, output: &mut impl io::Write) -> io::Result<()> {
         let mut ansi = String::new();
         let mut style = None;
@@ -102,7 +125,7 @@ impl TerminalRenderer {
             let mut x = 0;
             while x < self.columns {
                 let index = y * self.columns + x;
-                if self.previous[index] == self.cells[index] {
+                if !self.damaged[index] || self.previous[index] == self.cells[index] {
                     x += 1;
                     continue;
                 }
@@ -110,7 +133,7 @@ impl TerminalRenderer {
                 while x < self.columns {
                     let index = y * self.columns + x;
                     let cell = &self.cells[index];
-                    if self.previous[index] == *cell {
+                    if !self.damaged[index] || self.previous[index] == *cell {
                         break;
                     }
                     let next_style = (cell.foreground, cell.background, cell.bold);
@@ -422,14 +445,58 @@ impl Renderer for TerminalRenderer {
         })
     }
 
-    fn render(&mut self, commands: &CommandList, _: &[PhysicalRect]) {
-        self.pixels.fill(Pixel::default());
-        self.glyphs.fill(None);
-        self.boxes.fill(BoxCell::default());
+    fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
+        self.damaged.fill(false);
+        let screen = self.screen();
+        let mut damage_bounds = (self.columns, self.rows, 0, 0);
+        for damage in damage {
+            let Some(damage) = damage.intersection(screen) else {
+                continue;
+            };
+            let left = (damage.x as f32 / CELL_WIDTH).floor() as usize;
+            let top = (damage.y as f32 / CELL_HEIGHT).floor() as usize;
+            let right = (damage.x.saturating_add(damage.width) as f32 / CELL_WIDTH)
+                .ceil()
+                .min(self.columns as f32) as usize;
+            let bottom = (damage.y.saturating_add(damage.height) as f32 / CELL_HEIGHT)
+                .ceil()
+                .min(self.rows as f32) as usize;
+            damage_bounds.0 = damage_bounds.0.min(left);
+            damage_bounds.1 = damage_bounds.1.min(top);
+            damage_bounds.2 = damage_bounds.2.max(right);
+            damage_bounds.3 = damage_bounds.3.max(bottom);
+            for row in
+                self.damaged[top * self.columns..bottom * self.columns].chunks_mut(self.columns)
+            {
+                row[left..right].fill(true);
+            }
+        }
+        if damage_bounds.2 == 0 || damage_bounds.3 == 0 {
+            return;
+        }
+        self.clear_damaged(damage_bounds);
         self.kitty_placements.clear();
-        let screen = self.screen().to_logical(self.scale_factor);
+        let logical_screen = screen.to_logical(self.scale_factor);
         for (z, record) in commands.iter().enumerate() {
-            let mut clip = screen;
+            if !matches!(record.command, Command::Image(_)) {
+                let Some(bounds) = record.bounds.intersection(screen) else {
+                    continue;
+                };
+                let left = (bounds.x as f32 / CELL_WIDTH).floor() as usize;
+                let top = (bounds.y as f32 / CELL_HEIGHT).floor() as usize;
+                let right =
+                    (bounds.x.saturating_add(bounds.width) as f32 / CELL_WIDTH).ceil() as usize;
+                let bottom =
+                    (bounds.y.saturating_add(bounds.height) as f32 / CELL_HEIGHT).ceil() as usize;
+                if right <= damage_bounds.0
+                    || bottom <= damage_bounds.1
+                    || left >= damage_bounds.2
+                    || top >= damage_bounds.3
+                {
+                    continue;
+                }
+            }
+            let mut clip = logical_screen;
             let mut clip_id = record.clip;
             while let Some(node) = commands.clip(clip_id) {
                 let Some(intersection) = clip.intersection(node.area) else {
@@ -441,9 +508,7 @@ impl Renderer for TerminalRenderer {
             }
             match record.command {
                 Command::Clear => {
-                    self.pixels.fill(Pixel::default());
-                    self.glyphs.fill(None);
-                    self.boxes.fill(BoxCell::default());
+                    self.clear_damaged(damage_bounds);
                     self.kitty_placements.clear();
                 }
                 Command::Rectangle(rectangle) => {
@@ -452,8 +517,11 @@ impl Renderer for TerminalRenderer {
                     let (left, top, right, bottom) = self.cell_bounds(rectangle.area);
                     if rectangle.background.alpha != 0 && rectangle.opacity > 0.0 {
                         let stride = self.columns * 2;
-                        for y in top..bottom {
-                            for x in left..right {
+                        for y in top.max(damage_bounds.1)..bottom.min(damage_bounds.3) {
+                            for x in left.max(damage_bounds.0)..right.min(damage_bounds.2) {
+                                if !self.damaged[y * self.columns + x] {
+                                    continue;
+                                }
                                 let center_x = (x as f32 + 0.5) * cell_width;
                                 let center_y = (y as f32 + 0.5) * cell_height;
                                 if !clip.contains(center_x, center_y) {
@@ -518,7 +586,9 @@ impl Renderer for TerminalRenderer {
                             ] {
                                 let center_x = (x as f32 + 0.5) * cell_width;
                                 let center_y = (y as f32 + 0.5) * cell_height;
-                                if clip.contains(center_x, center_y) {
+                                if self.damaged[y * self.columns + x]
+                                    && clip.contains(center_x, center_y)
+                                {
                                     let cell = &mut self.boxes[y * self.columns + x];
                                     cell.rounded = cell.edges == 0 && rounded;
                                     cell.edges |= edges;
@@ -531,7 +601,9 @@ impl Renderer for TerminalRenderer {
                             for x in [left, right] {
                                 let center_x = (x as f32 + 0.5) * cell_width;
                                 let center_y = (y as f32 + 0.5) * cell_height;
-                                if clip.contains(center_x, center_y) {
+                                if self.damaged[y * self.columns + x]
+                                    && clip.contains(center_x, center_y)
+                                {
                                     let cell = &mut self.boxes[y * self.columns + x];
                                     cell.rounded = false;
                                     cell.edges |= 1 | 4;
@@ -610,23 +682,26 @@ impl Renderer for TerminalRenderer {
                                     logical_y + line_height / 2.0,
                                 )
                             {
-                                self.glyphs[y as usize * self.columns + x as usize] = Some(Glyph {
-                                    text: grapheme.clone(),
-                                    color: request.color,
-                                    bold: request.style.weight >= 600,
-                                    z,
-                                });
+                                let index = y as usize * self.columns + x as usize;
+                                if self.damaged[index] {
+                                    self.glyphs[index] = Some(Glyph {
+                                        text: grapheme.clone(),
+                                        color: request.color,
+                                        bold: request.style.weight >= 600,
+                                        z,
+                                    });
+                                }
                                 let width = UnicodeWidthStr::width(grapheme.as_str()).max(1);
                                 for continuation in 1..width {
                                     let continuation_x = x as usize + continuation;
-                                    if continuation_x < self.columns {
-                                        self.glyphs[y as usize * self.columns + continuation_x] =
-                                            Some(Glyph {
-                                                text: String::new(),
-                                                color: request.color,
-                                                bold: request.style.weight >= 600,
-                                                z,
-                                            });
+                                    let index = y as usize * self.columns + continuation_x;
+                                    if continuation_x < self.columns && self.damaged[index] {
+                                        self.glyphs[index] = Some(Glyph {
+                                            text: String::new(),
+                                            color: request.color,
+                                            bold: request.style.weight >= 600,
+                                            z,
+                                        });
                                     }
                                 }
                             }
@@ -666,8 +741,11 @@ impl Renderer for TerminalRenderer {
         const BOXES: [&str; 16] = [
             " ", "╵", "╴", "└", "╷", "│", "┌", "├", "╶", "┘", "─", "┴", "┐", "┤", "┬", "┼",
         ];
-        for cell_y in 0..self.rows {
-            for cell_x in 0..self.columns {
+        for cell_y in damage_bounds.1..damage_bounds.3 {
+            for cell_x in damage_bounds.0..damage_bounds.2 {
+                if !self.damaged[cell_y * self.columns + cell_x] {
+                    continue;
+                }
                 let pixel_x = cell_x * 2;
                 let pixel_y = cell_y * 2;
                 let stride = self.columns * 2;
@@ -991,6 +1069,61 @@ mod tests {
             },
         );
         assert!(renderer.plain_text().contains("hello terminal"));
+    }
+
+    #[test]
+    fn damaged_render_matches_full_render() {
+        use blit::command_list::{ClipId, Rectangle};
+
+        let screen = TerminalRenderer::new(8, 4).screen();
+        let frame = |x: f32| {
+            let mut commands = CommandList::default();
+            commands.push_clear(screen);
+            let background = screen.to_logical(1.0);
+            commands.push_rectangle(
+                Rectangle::new(background).background(Color::from_rgba8(20, 30, 40, 255)),
+                screen,
+                ClipId::default(),
+            );
+            let accent = LogicalRect {
+                x,
+                y: CELL_HEIGHT,
+                width: CELL_WIDTH,
+                height: CELL_HEIGHT,
+            };
+            commands.push_rectangle(
+                Rectangle::new(accent).background(Color::from_rgba8(80, 220, 180, 128)),
+                accent.to_physical(1.0),
+                ClipId::default(),
+            );
+            commands
+        };
+        let old = frame(CELL_WIDTH);
+        let current = frame(CELL_WIDTH * 2.0);
+        let damage = [
+            LogicalRect {
+                x: CELL_WIDTH,
+                y: CELL_HEIGHT,
+                width: CELL_WIDTH,
+                height: CELL_HEIGHT,
+            }
+            .to_physical(1.0),
+            LogicalRect {
+                x: CELL_WIDTH * 2.0,
+                y: CELL_HEIGHT,
+                width: CELL_WIDTH,
+                height: CELL_HEIGHT,
+            }
+            .to_physical(1.0),
+        ];
+
+        let mut incremental = TerminalRenderer::new(8, 4);
+        incremental.render(&old, &[screen]);
+        incremental.render(&current, &damage);
+        let mut full = TerminalRenderer::new(8, 4);
+        full.render(&current, &[screen]);
+
+        assert_eq!(incremental.cells, full.cells);
     }
 
     #[test]
