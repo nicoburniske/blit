@@ -366,6 +366,7 @@ impl TextRenderer {
         byte_offset: usize,
         scale_factor: f32,
     ) -> LogicalRect {
+        let width = scale_factor.recip();
         let Some(index) = (request.text.0 as u32)
             .checked_sub(1)
             .map(|index| index as usize)
@@ -373,7 +374,7 @@ impl TextRenderer {
             return LogicalRect {
                 x: request.area.x,
                 y: request.area.y,
-                width: 1.0,
+                width,
                 height: request.style.size,
             };
         };
@@ -400,14 +401,14 @@ impl TextRenderer {
             return LogicalRect {
                 x: request.area.x,
                 y: request.area.y,
-                width: 1.0,
+                width,
                 height: request.style.size,
             };
         };
         LogicalRect {
             x: request.area.x + caret.x / scale_factor,
             y: request.area.y + caret.y / scale_factor,
-            width: 1.0,
+            width,
             height: caret.height / scale_factor,
         }
     }

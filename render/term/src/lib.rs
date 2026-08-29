@@ -1003,7 +1003,7 @@ impl Renderer for TerminalRenderer {
                 - request.offset_x,
             y: request.area.y
                 + before.matches('\n').count() as f32 * CELL_HEIGHT / self.scale_factor,
-            width: 0.0,
+            width: CELL_WIDTH / self.scale_factor,
             height: CELL_HEIGHT / self.scale_factor,
         }
     }

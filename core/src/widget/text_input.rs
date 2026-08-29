@@ -27,7 +27,7 @@ crate::builder! {
         text_color: Color = Color::BLACK,
         selection_background: Color = Color::GRAY,
         cursor_color: Color = Color::BLACK,
-        cursor_width: f32 = 1.0,
+        cursor_width: f32 = 0.0,
         text_style: TextStyle = TextStyle::default(),
         text_options: TextOptions = TextOptions::default(),
         padding: Sides = Sides::default(),
@@ -218,10 +218,11 @@ impl Widget for TextInput<'_> {
                 &self.request(text_run, area),
                 self.display_offset(self.state.cursor),
             );
+            let cursor_width = self.cursor_width.max(cursor.width);
             if cursor.x < area.x {
                 self.state.scroll_x = (self.state.scroll_x - (area.x - cursor.x)).max(0.0);
-            } else if cursor.x + self.cursor_width > area.x + area.width {
-                self.state.scroll_x += cursor.x + self.cursor_width - area.x - area.width;
+            } else if cursor.x + cursor_width > area.x + area.width {
+                self.state.scroll_x += cursor.x + cursor_width - area.x - area.width;
             }
         }
 

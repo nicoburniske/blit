@@ -884,9 +884,10 @@ impl FrameGraph {
                 }
                 if let Some(caret) = text.caret {
                     let cursor = renderer.text_cursor_rect(&request, caret.offset);
+                    let width = caret.width.max(cursor.width).min(node.area.width);
                     let x = cursor.x.clamp(
                         node.area.x,
-                        (node.area.x + node.area.width - caret.width).max(node.area.x),
+                        (node.area.x + node.area.width - width).max(node.area.x),
                     );
                     let top = cursor.y.max(node.area.y);
                     let bottom = (cursor.y + cursor.height).min(node.area.y + node.area.height);
@@ -894,7 +895,7 @@ impl FrameGraph {
                         let area = LogicalRect {
                             x,
                             y: top,
-                            width: caret.width.min(node.area.width),
+                            width,
                             height: bottom - top,
                         };
                         if let Some(bounds) = node.visible_bounds(area, scale_factor) {

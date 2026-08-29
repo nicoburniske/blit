@@ -497,6 +497,7 @@ fn renderer_supports_custom_pixel_layouts() {
             .any(|pixel| pixel.red > 12)
     );
 
+    renderer.set_scale(Scale2::uniform(2.0));
     let request = TextRequest {
         text: renderer.text_run("abc", TextStyle::default()),
         area: LogicalRect {
@@ -516,6 +517,7 @@ fn renderer_supports_custom_pixel_layouts() {
     );
     let start = renderer.text_cursor_rect(&request, 0);
     let end = renderer.text_cursor_rect(&request, "abc".len());
+    assert_eq!(start.width, 0.5);
     assert!(end.x > start.x);
 }
 
