@@ -73,6 +73,10 @@ impl Ui {
         self.state().screen
     }
 
+    pub fn layout_resolution(&self) -> LayoutResolution {
+        self.state().layout_resolution
+    }
+
     pub fn input(&self) -> &Input {
         &self.input
     }

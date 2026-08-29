@@ -122,8 +122,9 @@ fn renderer_config(size: WindowSize) -> io::Result<RendererConfig> {
         .columns(size.cols)
         .rows(size.rows)
         .cell_size(LogicalSize {
-            width: f32::from(pixel_width) / f32::from(size.cols),
-            height: f32::from(pixel_height) / f32::from(size.rows),
+            width: f32::from(pixel_width) * f32::from(size.rows)
+                / (f32::from(pixel_height) * f32::from(size.cols)),
+            height: 1.0,
         }))
 }
 
