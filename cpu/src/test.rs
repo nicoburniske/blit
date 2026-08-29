@@ -1,21 +1,23 @@
 use std::{ops::Range, time::Duration};
 
 use blit::{
-    RepaintBuffer, Runtime,
+    Ui, UiState,
     animation::Easing,
     color::Color,
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
+    command_list::{BoxShadow, ClipId, CommandList, Rectangle},
+    container::{Sizing, Slot},
+    geometry::{LogicalPoint, LogicalRect, PhysicalRect},
+    image::{
+        ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
+    },
     input::Input,
     interact::WidgetId,
-    keyboard::KeyboardRequest,
-    paint::{
-        BorderRadius, BoxShadow, GradientStop, ImageFit, ImageRequest, ImageSampling, ImageTiling,
-        LinearGradient, Rectangle, TextOptions, TextRequest, TextStyle,
-    },
-    paint_list::{ClipId, PaintList},
-    platform::PlatformImpl,
-    resource::{ImageData, ImageFormat, ImageId, ImagePixels, StringData, StringId},
-    widget::Text,
+    layout::Flex,
+    renderer::Renderer as _,
+    repaint::{IncrementalRepaint, MyersTracker},
+    style::{BorderRadius, Clip, GradientStop, LinearGradient, Shadow, Style},
+    text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
+    widget::{Image as ImageWidget, Rectangle as RectangleWidget, Text},
 };
 
 use super::*;
@@ -49,63 +51,44 @@ struct TrackingBuffer {
     height: usize,
 }
 
-struct RuntimePlatform<B: PixelBuffer = VecBuffer<Xrgb8888>, S: RenderStrategy<B> = Scanline> {
+struct Harness<B: PixelBuffer, S: RenderStrategy<B>> {
     renderer: Renderer<B, S>,
-    repaint_buffer: RepaintBuffer,
+    state: UiState,
+    repaint: IncrementalRepaint<MyersTracker>,
 }
 
-impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> PlatformImpl
-    for RuntimePlatform<B, S>
-{
-    fn render(&mut self, paint: &PaintList, damage: &[PhysicalRect]) {
-        self.renderer.render(paint, damage)
+impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> Harness<B, S> {
+    fn new(renderer: Renderer<B, S>, swapped: bool) -> Self {
+        let state = UiState::new(renderer.screen(), 1.0);
+        Self {
+            renderer,
+            state,
+            repaint: IncrementalRepaint::new(MyersTracker::default(), swapped),
+        }
     }
 
-    fn screen(&mut self) -> PhysicalRect {
-        self.renderer.screen()
+    fn render(&mut self, time: Duration, input: Input, build: impl FnMut(&mut Ui)) {
+        blit::render(
+            &mut self.renderer,
+            &mut self.state,
+            &mut self.repaint,
+            time,
+            [input],
+            build,
+        );
     }
 
-    fn repaint_buffer(&self) -> RepaintBuffer {
-        self.repaint_buffer
+    fn renderer(&mut self) -> &mut Renderer<B, S> {
+        &mut self.renderer
     }
 
-    fn create_image(&mut self, data: ImageData) -> ImageId {
-        self.renderer.create_image(data)
+    fn invalidate_all(&mut self) {
+        self.state.invalidate_all();
     }
 
-    fn drop_image(&mut self, image: ImageId) {
-        self.renderer.drop_image(image)
+    fn has_pending_redraw(&self) -> bool {
+        self.state.has_pending_redraw()
     }
-
-    fn create_string(&mut self, string: StringData) -> StringId {
-        self.renderer.create_string(string)
-    }
-
-    fn drop_string(&mut self, string: StringId) {
-        self.renderer.drop_string(string)
-    }
-
-    fn string(&self, string: StringId) -> &str {
-        self.renderer.string(string)
-    }
-
-    fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
-        self.renderer.text_offset_at_position(request, position)
-    }
-
-    fn measure_text(&mut self, request: &TextRequest) -> LogicalSize {
-        self.renderer.measure_text(request)
-    }
-
-    fn measure_text_height(&mut self, request: &TextRequest) -> f32 {
-        self.renderer.measure_text_height(request)
-    }
-
-    fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        self.renderer.text_cursor_rect(request, byte_offset)
-    }
-
-    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
 }
 
 struct SwappedBuffer {
@@ -173,24 +156,24 @@ impl PixelBuffer for SwappedBuffer {
 }
 
 struct CoherenceHarness {
-    partial: Runtime<RuntimePlatform<SwappedBuffer>>,
-    full: Runtime<RuntimePlatform<SwappedBuffer>>,
+    partial: Harness<SwappedBuffer, Scanline>,
+    full: Harness<SwappedBuffer, Scanline>,
     frame: usize,
     id: WidgetId,
 }
 
 impl CoherenceHarness {
     fn new(width: usize, height: usize) -> Self {
-        let make_runtime = || {
-            Runtime::new(RuntimePlatform {
-                renderer: Renderer::new(SwappedBuffer::new(width, height), renderer_config())
+        let make_harness = || {
+            Harness::new(
+                Renderer::new(SwappedBuffer::new(width, height), renderer_config())
                     .strategy(Scanline::default()),
-                repaint_buffer: RepaintBuffer::Swapped,
-            })
+                true,
+            )
         };
         Self {
-            partial: make_runtime(),
-            full: make_runtime(),
+            partial: make_harness(),
+            full: make_harness(),
             frame: 0,
             id: WidgetId::new("coherence harness movement"),
         }
@@ -206,8 +189,8 @@ impl CoherenceHarness {
 
     fn render_at(&mut self, time: Duration, position: f32, duration: Duration) -> (usize, usize) {
         if self.frame != 0 {
-            self.partial.platform().renderer.buffer_mut().swap();
-            self.full.platform().renderer.buffer_mut().swap();
+            self.partial.renderer().buffer_mut().swap();
+            self.full.renderer().buffer_mut().swap();
         }
         let id = self.id;
         self.partial.render(time, Input::None, |ui| {
@@ -219,74 +202,52 @@ impl CoherenceHarness {
         });
 
         assert_eq!(
-            self.partial.platform().renderer.buffer().pixels(),
-            self.full.platform().renderer.buffer().pixels(),
+            self.partial.renderer().buffer().pixels(),
+            self.full.renderer().buffer().pixels(),
             "frame {} at position {position}",
             self.frame
         );
-        let partial = self
-            .partial
-            .platform()
-            .renderer
-            .buffer_mut()
-            .take_rendered_pixels();
-        let full = self
-            .full
-            .platform()
-            .renderer
-            .buffer_mut()
-            .take_rendered_pixels();
+        let partial = self.partial.renderer().buffer_mut().take_rendered_pixels();
+        let full = self.full.renderer().buffer_mut().take_rendered_pixels();
         self.frame += 1;
         (partial, full)
     }
 }
 
 fn render_coherence_scene(ui: &mut blit::Ui, id: WidgetId, position: f32, duration: Duration) {
-    let screen = ui.screen();
-    Rectangle::new(screen)
-        .background(Color::from_rgba8(24, 36, 48, 255))
-        .render(ui);
-    for (index, color) in [
-        Color::from_rgba8(90, 30, 40, 255),
-        Color::from_rgba8(30, 80, 50, 255),
-        Color::from_rgba8(40, 50, 100, 255),
-        Color::from_rgba8(100, 80, 30, 255),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        Rectangle::new(LogicalRect {
-            x: index as f32 * screen.width / 4.0,
-            width: screen.width / 4.0,
-            ..screen
-        })
-        .background(color)
-        .render(ui);
-    }
-
-    let mut movement = ui.animate(id, position, duration, Easing::Linear);
-    let x = movement.value();
-    Rectangle::new(LogicalRect {
-        x,
-        y: 6.0,
-        width: 12.0,
-        height: 20.0,
-    })
-    .background(Color::from_rgba8(20, 20, 20, 160))
-    .uniform_radius(4.0)
-    .render(&mut movement);
-    Rectangle::new(LogicalRect {
-        x: x + 4.0,
-        y: 10.0,
-        width: 4.0,
-        height: 12.0,
-    })
-    .background(if position < screen.width / 2.0 {
-        Color::from_rgba8(230, 220, 180, 255)
-    } else {
-        Color::from_rgba8(180, 210, 240, 255)
-    })
-    .render(&mut movement);
+    let screen_width = ui.screen().width;
+    let x = ui.animate(id, position, duration, Easing::Linear);
+    let mut scene = ui
+        .layout(Flex::column())
+        .grow()
+        .style(Style::new().background(Color::from_rgba8(24, 36, 48, 255)))
+        .open();
+    scene.add(|ui: &mut Ui| {
+        let mut row = ui
+            .layout(Flex::row())
+            .width(Sizing::grow())
+            .height(Sizing::fixed(20.0))
+            .open();
+        row.add(RectangleWidget::new().slot(Slot::new().width(Sizing::fixed(x))));
+        row.add(|ui: &mut Ui| {
+            let mut movement = ui
+                .layout(Flex::column().padding(blit::geometry::Sides::all(4.0)))
+                .fixed(12.0, 20.0)
+                .style(
+                    Style::new()
+                        .background(Color::from_rgba8(20, 20, 20, 160))
+                        .uniform_radius(4.0),
+                )
+                .open();
+            movement.add(RectangleWidget::new().slot(Slot::new().grow()).style(
+                Style::new().background(if position < screen_width / 2.0 {
+                    Color::from_rgba8(230, 220, 180, 255)
+                } else {
+                    Color::from_rgba8(180, 210, 240, 255)
+                }),
+            ));
+        });
+    });
 }
 
 impl PixelBuffer for TrackingBuffer {
@@ -333,16 +294,161 @@ fn renderer_config() -> RendererConfig {
 }
 
 #[test]
+fn resolved_nodes_match_direct_commands() {
+    let renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config())
+        .strategy(Scanline::default());
+    let mut harness = Harness::new(renderer, false);
+    let image = harness.renderer().create_image(ImageData::new(
+        ImagePixels::Owned([220, 80, 40].repeat(8 * 8).into_boxed_slice()),
+        ImageFormat::Rgb8,
+        8,
+        8,
+    ));
+    let stops = [
+        GradientStop::new(0.0, Color::WHITE),
+        GradientStop::new(1.0, Color::BLACK),
+    ];
+    let radius = BorderRadius {
+        top_left: 4.0,
+        top_right: 4.0,
+        bottom_right: 4.0,
+        bottom_left: 4.0,
+    };
+    let screen = LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 32.0,
+        height: 24.0,
+    };
+    let shadow = Shadow::new(Color::from_rgba8(20, 30, 40, 128))
+        .offset(1.0, 1.0)
+        .blur(1.0);
+    let inset_shadow = Shadow::new(Color::from_rgba8(10, 20, 30, 96))
+        .offset(0.0, 1.0)
+        .blur(2.0);
+
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut panel = ui
+            .layout(Flex::column())
+            .grow()
+            .style(
+                Style::new()
+                    .background(Color::from_rgba8(40, 70, 100, 255))
+                    .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
+                    .radius(radius)
+                    .shadow(shadow)
+                    .inset_shadow(inset_shadow),
+            )
+            .clip(Clip::Rounded(radius))
+            .open();
+        panel.add(
+            ImageWidget::new(&image)
+                .slot(Slot::new().fixed(8.0, 8.0))
+                .fit(ImageFit::Fill)
+                .sampling(ImageSampling::Nearest),
+        );
+        panel.add(
+            Text::new("M")
+                .slot(Slot::new().fixed(24.0, 8.0))
+                .color(Color::WHITE),
+        );
+    });
+
+    let mut direct = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config())
+        .strategy(Scanline::default());
+    let direct_image = direct.create_image(ImageData::new(
+        ImagePixels::Owned([220, 80, 40].repeat(8 * 8).into_boxed_slice()),
+        ImageFormat::Rgb8,
+        8,
+        8,
+    ));
+    let mut commands = CommandList::default();
+    let box_shadow = BoxShadow::new(screen, Color::from_rgba8(20, 30, 40, 128))
+        .radius(radius)
+        .offset(1.0, 1.0)
+        .blur(1.0);
+    commands.push_box_shadow(
+        box_shadow,
+        box_shadow.bounds().to_physical(1.0),
+        ClipId::default(),
+    );
+    commands.push_rectangle(
+        Rectangle::new(screen)
+            .background(Color::from_rgba8(40, 70, 100, 255))
+            .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
+            .radius(radius),
+        screen.to_physical(1.0),
+        ClipId::default(),
+    );
+    let inset_shadow = BoxShadow::new(screen, inset_shadow.color)
+        .radius(radius)
+        .offset(inset_shadow.offset_x, inset_shadow.offset_y)
+        .blur(inset_shadow.blur)
+        .inset(true);
+    commands.push_box_shadow(
+        inset_shadow,
+        inset_shadow.bounds().to_physical(1.0),
+        ClipId::default(),
+    );
+    let clip = commands.push_clip(ClipId::default(), screen, radius);
+    let image_area = LogicalRect {
+        width: 8.0,
+        height: 8.0,
+        ..LogicalRect::default()
+    };
+    commands.push_image(
+        ImageRequest {
+            image: direct_image.id(),
+            area: image_area,
+            fit: ImageFit::Fill,
+            sampling: ImageSampling::Nearest,
+            opacity: 1.0,
+            colorize: None,
+            nine_slice: None,
+            horizontal_tiling: ImageTiling::None,
+            vertical_tiling: ImageTiling::None,
+        },
+        image_area.to_physical(1.0),
+        clip,
+    );
+    let text_area = LogicalRect {
+        y: 8.0,
+        width: 24.0,
+        height: 8.0,
+        ..LogicalRect::default()
+    };
+    let text = direct.text_run("M", TextStyle::default());
+    commands.push_text(
+        TextRequest {
+            text,
+            area: text_area,
+            offset_x: 0.0,
+            color: Color::WHITE,
+            style: TextStyle::default(),
+            options: TextOptions::default(),
+        },
+        text_area.to_physical(1.0),
+        clip,
+    );
+    direct.render(&commands, &[screen.to_physical(1.0)]);
+
+    assert_eq!(
+        harness.renderer().buffer().pixels(),
+        direct.buffer().pixels()
+    );
+}
+
+#[test]
 fn renderer_supports_custom_pixel_layouts() {
     let mut renderer = Renderer::new(VecBuffer::<BgrPixel>::new(32, 24), renderer_config());
-    let m = renderer.create_string(StringData::Static("M"));
+    let m = renderer.text_run("M", TextStyle::default());
     let clip = PhysicalRect {
         x: 0,
         y: 0,
         width: 32,
         height: 24,
     };
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(LogicalRect {
             x: 0.0,
@@ -367,7 +473,7 @@ fn renderer_supports_custom_pixel_layouts() {
     paint.clear();
     paint.push_text(
         TextRequest {
-            text: m.into(),
+            text: m,
             area: LogicalRect {
                 x: 0.0,
                 y: 0.0,
@@ -378,7 +484,6 @@ fn renderer_supports_custom_pixel_layouts() {
             color: Color::WHITE,
             style: TextStyle::default(),
             options: TextOptions::default(),
-            intrinsic_height: false,
         },
         clip,
         ClipId::default(),
@@ -393,7 +498,7 @@ fn renderer_supports_custom_pixel_layouts() {
     );
 
     let request = TextRequest {
-        text: "abc".into(),
+        text: renderer.text_run("abc", TextStyle::default()),
         area: LogicalRect {
             x: 0.0,
             y: 0.0,
@@ -404,7 +509,6 @@ fn renderer_supports_custom_pixel_layouts() {
         color: Color::WHITE,
         style: TextStyle::default(),
         options: TextOptions::default(),
-        intrinsic_height: false,
     };
     assert_eq!(
         renderer.text_offset_at_position(&request, LogicalPoint { x: 100.0, y: 12.0 },),
@@ -416,29 +520,49 @@ fn renderer_supports_custom_pixel_layouts() {
 }
 
 #[test]
-fn replacement_rectangles_overwrite_stale_pixels() {
+fn text_measurement_reports_wrapped_layout_size() {
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
+    let request = TextLayoutRequest {
+        text: renderer.text_run("hello world", TextStyle::default()),
+        style: TextStyle::default(),
+        wrap: TextWrap::None,
+        max_width: None,
+        max_lines: None,
+    };
+    let unwrapped = renderer.measure_text(&request);
+    let wrapped = renderer.measure_text(&TextLayoutRequest {
+        wrap: TextWrap::Word,
+        max_width: Some(unwrapped.width / 2.0),
+        ..request
+    });
+
+    assert!(wrapped.width < unwrapped.width);
+    assert!(wrapped.height > unwrapped.height);
+}
+
+#[test]
+fn clear_resets_stale_pixels_before_drawing() {
     fn render<S: RenderStrategy<VecBuffer<Argb8888>>>(
         strategy: S,
-        replace: bool,
+        clear: bool,
         stale: Argb8888,
     ) -> Vec<Argb8888> {
         let mut renderer =
             Renderer::new(VecBuffer::<Argb8888>::new(12, 10), renderer_config()).strategy(strategy);
         renderer.buffer_mut().pixels_mut().fill(stale);
         let screen = renderer.screen();
-        let area = LogicalRect {
+        let rectangle = Rectangle::new(LogicalRect {
             width: 12.0,
             height: 10.0,
             ..LogicalRect::default()
-        };
-        let mut rectangle = Rectangle::new(area)
-            .background(Color::from_rgba8(40, 120, 220, 144))
-            .border(2.0, Color::from_rgba8(240, 80, 30, 192))
-            .uniform_radius(5.0);
-        if replace {
-            rectangle = rectangle.replace(true);
+        })
+        .background(Color::from_rgba8(40, 120, 220, 144))
+        .solid_border(2.0, Color::from_rgba8(240, 80, 30, 192))
+        .uniform_radius(5.0);
+        let mut paint = CommandList::default();
+        if clear {
+            paint.push_clear(screen);
         }
-        let mut paint = PaintList::default();
         paint.push_rectangle(rectangle, screen, ClipId::default());
         renderer.render(&paint, &[screen]);
         renderer.buffer().pixels().to_vec()
@@ -458,17 +582,8 @@ fn replacement_rectangles_overwrite_stale_pixels() {
     let mut renderer = Renderer::new(VecBuffer::<Argb8888>::new(12, 10), renderer_config());
     renderer.buffer_mut().pixels_mut().fill(stale);
     let screen = renderer.screen();
-    let mut paint = PaintList::default();
-    paint.push_rectangle(
-        Rectangle::new(LogicalRect {
-            width: 12.0,
-            height: 10.0,
-            ..LogicalRect::default()
-        })
-        .replace(true),
-        screen,
-        ClipId::default(),
-    );
+    let mut paint = CommandList::default();
+    paint.push_clear(screen);
     renderer.render(&paint, &[screen]);
     assert!(
         renderer
@@ -494,16 +609,15 @@ fn commands_outside_damage_are_not_prepared() {
         width: 4.0,
         height: 4.0,
     };
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_text(
         TextRequest {
-            text: StringId(u64::MAX).into(),
+            text: TextRunId(u64::MAX),
             area: outside,
             offset_x: 0.0,
             color: Color::WHITE,
             style: TextStyle::default(),
             options: TextOptions::default(),
-            intrinsic_height: false,
         },
         outside.to_physical(1.0),
         ClipId::default(),
@@ -532,7 +646,7 @@ fn partial_frames_match_full_redraw() {
     for position in [4.0, 4.0, 9.0, 17.0, 29.0, 41.0, 33.0, 18.0, 7.0, 4.0] {
         harness.render(position);
     }
-    assert!(harness.partial.has_pending_redraw());
+    assert!(!harness.partial.has_pending_redraw());
     harness.render(4.0);
     assert!(!harness.partial.has_pending_redraw());
 
@@ -542,23 +656,17 @@ fn partial_frames_match_full_redraw() {
     for time in [35, 60, 85, 110] {
         harness.render_at(Duration::from_millis(time), 4.0, Duration::from_millis(100));
     }
-    assert!(harness.partial.has_pending_redraw());
+    assert!(!harness.partial.has_pending_redraw());
     harness.render_at(Duration::from_millis(111), 4.0, Duration::from_millis(100));
     assert!(!harness.partial.has_pending_redraw());
 
     let stale = Xrgb8888::from_raw(0x00ff_00ff);
     harness
         .partial
-        .platform()
-        .renderer
+        .renderer()
         .buffer_mut()
         .replace_inactive(stale);
-    harness
-        .full
-        .platform()
-        .renderer
-        .buffer_mut()
-        .replace_inactive(stale);
+    harness.full.renderer().buffer_mut().replace_inactive(stale);
     harness.partial.invalidate_all();
     harness.render(4.0);
     harness.render(4.0);
@@ -607,26 +715,22 @@ fn partial_drag_rasterizes_less_than_full_redraw() {
 }
 
 #[test]
-fn dropped_image_slots_are_reused_after_end_frame() {
+fn dropped_image_is_removed_after_last_handle() {
     static PIXEL: [u8; 4] = [255, 255, 255, 255];
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config());
     let texture = ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1);
 
     let first = renderer.create_image(texture);
-    renderer.drop_image(first);
-    let first_key = RendererImageId::from(KeyData::from_ffi(first.0));
+    let retained = first.clone();
+    let first_id = first.id();
+    drop(first);
+    let first_key = RendererImageId::from(KeyData::from_ffi(first_id.0));
+    renderer.render(&CommandList::default(), &[]);
     assert!(renderer.context.images.contains_key(first_key));
 
-    renderer.render(&PaintList::default(), &[]);
+    drop(retained);
+    renderer.render(&CommandList::default(), &[]);
     assert!(!renderer.context.images.contains_key(first_key));
-
-    let second = renderer.create_image(ImageData::new(
-        ImagePixels::Static(&PIXEL),
-        ImageFormat::Rgba8,
-        1,
-        1,
-    ));
-    assert_ne!(second, first);
 }
 
 #[test]
@@ -681,8 +785,10 @@ fn image_alpha_rows_are_cached_and_used() {
         6,
         4,
     ));
-    let key = RendererImageId::from(KeyData::from_ffi(image.0));
+    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
     let rows = &renderer.context.images[key].alpha_rows;
+    let rows: [_; 4] =
+        std::array::from_fn(|index| rows.get(ImageFormat::Rgba8Premultiplied, index).unwrap());
     assert!(rows.iter().map(|row| row.visible_start).eq([1, 1, 0, 0]));
     assert!(rows.iter().map(|row| row.visible_end).eq([4, 4, 6, 6]));
     assert!(rows.iter().map(|row| row.opaque_start).eq([1, 1, 0, 0]));
@@ -692,7 +798,7 @@ fn image_alpha_rows_are_cached_and_used() {
 
     let screen = renderer.screen();
     let request = ImageRequest {
-        image,
+        image: image.id(),
         area: screen.to_logical(1.0),
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
@@ -704,7 +810,7 @@ fn image_alpha_rows_are_cached_and_used() {
     };
     BLENDED.store(0, Ordering::Relaxed);
     COPIED.store(0, Ordering::Relaxed);
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_image(request, screen, ClipId::default());
     renderer.render(&paint, &[screen]);
     assert_eq!(COPIED.load(Ordering::Relaxed), 10);
@@ -737,8 +843,10 @@ fn image_alpha_rows_are_cached_and_used() {
         6,
         4,
     ));
-    let key = RendererImageId::from(KeyData::from_ffi(image.0));
+    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
     let rows = &renderer.context.images[key].alpha_rows;
+    let rows: [_; 4] =
+        std::array::from_fn(|index| rows.get(ImageFormat::Alpha8(Color::WHITE), index).unwrap());
     assert!(rows.iter().map(|row| row.visible_start).eq([1, 0, 1, 0]));
     assert!(rows.iter().map(|row| row.visible_end).eq([3, 0, 4, 6]));
     assert!(
@@ -749,7 +857,7 @@ fn image_alpha_rows_are_cached_and_used() {
     paint.clear();
     paint.push_image(
         ImageRequest {
-            image,
+            image: image.id(),
             opacity: 1.0,
             ..request
         },
@@ -758,13 +866,45 @@ fn image_alpha_rows_are_cached_and_used() {
     );
     renderer.render(&paint, &[screen]);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 11);
+
+    let image = renderer.create_image(ImageData::new(
+        ImagePixels::Static(&[255; 6 * 4]),
+        ImageFormat::Alpha8(Color::WHITE),
+        6,
+        4,
+    ));
+    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
+    let image = &renderer.context.images[key];
+    assert!(image.opaque);
+    assert!(
+        image
+            .alpha_rows
+            .get(ImageFormat::Alpha8(Color::WHITE), 0)
+            .is_none()
+    );
+
+    let image = renderer.create_image(ImageData::new(
+        ImagePixels::Static(&[255; 6 * 4 * 4]),
+        ImageFormat::Rgba8Premultiplied,
+        6,
+        4,
+    ));
+    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
+    let image = &renderer.context.images[key];
+    assert!(image.opaque);
+    assert!(
+        image
+            .alpha_rows
+            .get(ImageFormat::Rgba8Premultiplied, 0)
+            .is_none()
+    );
 }
 
 #[test]
 fn direct_preserves_exact_overlapping_damage() {
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(4, 4), renderer_config());
     let screen = renderer.screen();
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(screen.to_logical(1.0)).background(Color::from_rgba8(255, 0, 0, 128)),
         screen,
@@ -811,7 +951,7 @@ fn direct_preserves_exact_overlapping_damage() {
 fn direct_does_not_merge_touching_damage() {
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(3, 3), renderer_config());
     let screen = renderer.screen();
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(screen.to_logical(1.0)).background(Color::WHITE),
         screen,
@@ -851,7 +991,7 @@ fn direct_preserves_damage_beyond_stack_capacity() {
         width: 1,
         height: 1,
     });
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(screen.to_logical(1.0)).background(Color::WHITE),
         screen,
@@ -895,7 +1035,7 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
             height: 1,
         },
     ];
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(LogicalRect {
             x: 0.0,
@@ -931,7 +1071,7 @@ fn scanline_merges_overlapping_damage_per_line() {
         renderer_config(),
     )
     .strategy(Scanline::default());
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(LogicalRect {
             x: 0.0,
@@ -989,7 +1129,7 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
         width: 2,
         height: 1,
     }];
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(LogicalRect {
             x: 0.0,
@@ -1020,6 +1160,7 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
 fn scanline_skips_commands_behind_opaque_content() {
     static RECTANGLE_PIXELS: std::sync::atomic::AtomicUsize =
         std::sync::atomic::AtomicUsize::new(0);
+    static SOLID_PAIRS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
     #[derive(Clone, Copy, Default)]
     struct CountingPixel {
@@ -1053,6 +1194,16 @@ fn scanline_skips_commands_behind_opaque_content() {
                 _ => pixels.iter_mut().for_each(|pixel| pixel.blend(color)),
             }
         }
+
+        fn blend_solid_pair(
+            pixels: &mut [Self],
+            first: PremultipliedRgbaColor,
+            second: PremultipliedRgbaColor,
+        ) {
+            SOLID_PAIRS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Self::blend_slice(pixels, first);
+            Self::blend_slice(pixels, second);
+        }
     }
 
     let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(4, 2), renderer_config())
@@ -1063,7 +1214,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         height: 2.0,
         ..LogicalRect::default()
     };
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(
         Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
         screen,
@@ -1081,6 +1232,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     );
     renderer.render(&paint, &[screen]);
 
+    assert_eq!(SOLID_PAIRS.load(std::sync::atomic::Ordering::Relaxed), 2);
     assert!(
         renderer
             .buffer()
@@ -1144,7 +1296,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         ..LogicalRect::default()
     };
     let image = ImageRequest {
-        image,
+        image: image.id(),
         area,
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
@@ -1182,7 +1334,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         1,
     ));
     let transparent_image = ImageRequest {
-        image: transparent_image,
+        image: transparent_image.id(),
         ..image
     };
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -1225,7 +1377,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         1,
     ));
     let underlay = ImageRequest {
-        image: underlay,
+        image: underlay.id(),
         area: screen.to_logical(1.0),
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
@@ -1236,7 +1388,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         vertical_tiling: ImageTiling::None,
     };
     let partial_image = ImageRequest {
-        image: partial_image,
+        image: partial_image.id(),
         area: screen.to_logical(1.0),
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
@@ -1354,7 +1506,7 @@ fn cached_dirty_ranges_match_direct_rendering() {
         width: 8,
         height: 8,
     };
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_rectangle(red, clip, ClipId::default());
     paint.push_rectangle(green, clip, ClipId::default());
     direct.render(&paint, &damage);
@@ -1369,8 +1521,8 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
         strategy: S,
     ) -> Renderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(128, 96), renderer_config())
-            .with_scale_factor(2.0)
             .strategy(strategy);
+        renderer.set_scale_factor(2.0);
         let screen = renderer.screen();
         let first = BoxShadow::new(
             LogicalRect {
@@ -1400,7 +1552,7 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
             color: Color::from_rgba8(20, 80, 220, 140),
             ..first
         };
-        let mut paint = PaintList::default();
+        let mut paint = CommandList::default();
         paint.push_box_shadow(first, screen, ClipId::default());
         paint.push_box_shadow(second, screen, ClipId::default());
         renderer.render(&paint, &[screen]);
@@ -1417,21 +1569,35 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
             screen,
             ClipId::default(),
         );
+        paint.push_rectangle(
+            Rectangle::new(first.area)
+                .background(Color::WHITE)
+                .radius(first.radius),
+            screen,
+            ClipId::default(),
+        );
+        let inset = BoxShadow {
+            area: first.area,
+            color: Color::BLACK,
+            offset_x: 0.0,
+            offset_y: 0.0,
+            spread: 0.0,
+            inset: true,
+            ..first
+        };
+        paint.push_box_shadow(inset, screen, ClipId::default());
         renderer.render(&paint, &[screen]);
-        assert_eq!(renderer.context.images.len(), 2);
+        assert_eq!(renderer.context.images.len(), 3);
         renderer
     }
 
     let direct = render(Direct::default());
     let scanline = render(Scanline::default());
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
-    assert!(
-        direct
-            .buffer()
-            .pixels()
-            .iter()
-            .any(|pixel| pixel.raw() != 0)
-    );
+    let pixels = direct.buffer().pixels();
+    assert_eq!(pixels[44 * 128 + 60].raw(), 0x00ff_ffff);
+    assert_ne!(pixels[20 * 128 + 60].raw(), 0x00ff_ffff);
+    assert_eq!(pixels[0].raw(), 0);
 }
 
 #[test]
@@ -1442,7 +1608,7 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
         let mut renderer =
             Renderer::new(VecBuffer::<Xrgb8888>::new(48, 36), renderer_config()).strategy(strategy);
         let screen = renderer.screen();
-        let mut paint = PaintList::default();
+        let mut paint = CommandList::default();
         let clip = paint.push_clip(
             ClipId::default(),
             LogicalRect {
@@ -1502,7 +1668,7 @@ fn rounded_clips_match_between_strategies() {
             1,
             1,
         ));
-        let string = renderer.create_string(StringData::Static("M"));
+        let string = renderer.text_run("M", TextStyle::default());
         let screen = renderer.screen();
         let area = LogicalRect {
             width: 16.0,
@@ -1511,7 +1677,7 @@ fn rounded_clips_match_between_strategies() {
         };
         let red = Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 255));
         let image = ImageRequest {
-            image,
+            image: image.id(),
             area,
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
@@ -1522,16 +1688,15 @@ fn rounded_clips_match_between_strategies() {
             vertical_tiling: ImageTiling::None,
         };
         let text = TextRequest {
-            text: string.into(),
+            text: string,
             area,
             offset_x: 0.0,
             color: Color::WHITE,
             style: TextStyle::default(),
             options: TextOptions::default(),
-            intrinsic_height: false,
         };
 
-        let mut paint = PaintList::default();
+        let mut paint = CommandList::default();
         let outer_clip = paint.push_clip(
             ClipId::default(),
             area,
@@ -1598,10 +1763,10 @@ fn dropped_image_remains_valid_until_frame_end() {
         width: 1,
         height: 1,
     }];
-    let mut paint = PaintList::default();
+    let mut paint = CommandList::default();
     paint.push_image(
         ImageRequest {
-            image,
+            image: image.id(),
             area: LogicalRect {
                 x: 0.0,
                 y: 0.0,
@@ -1619,146 +1784,31 @@ fn dropped_image_remains_valid_until_frame_end() {
         damage[0],
         ClipId::default(),
     );
-    renderer.drop_image(image);
+    let image_id = image.id();
+    drop(image);
     renderer.render(&paint, &damage);
 
     assert_eq!(renderer.buffer().pixels()[0].raw(), 0x00ff_0000);
-    let image = RendererImageId::from(KeyData::from_ffi(image.0));
+    let image = RendererImageId::from(KeyData::from_ffi(image_id.0));
     assert!(!renderer.context.images.contains_key(image));
 }
 
 #[test]
-fn strings_drop_after_frame_end() {
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config())
-        .strategy(Scanline::default());
-    let damage = [PhysicalRect {
-        x: 0,
-        y: 0,
-        width: 32,
-        height: 24,
-    }];
-    let string = renderer.create_string(StringData::Owned(String::from("M").into_boxed_str()));
-    let mut paint = PaintList::default();
-    paint.push_text(
-        TextRequest {
-            text: string.into(),
-            area: LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 32.0,
-                height: 24.0,
+fn text_runs_are_keyed_by_content_and_style() {
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
+    let style = TextStyle::default();
+    let first = renderer.text_run("same", style);
+
+    assert_eq!(renderer.text_run("same", style), first);
+    assert_ne!(renderer.text_run("changed", style), first);
+    assert_ne!(
+        renderer.text_run(
+            "same",
+            TextStyle {
+                weight: 500,
+                ..style
             },
-            offset_x: 0.0,
-            color: Color::WHITE,
-            style: TextStyle::default(),
-            options: TextOptions::default(),
-            intrinsic_height: false,
-        },
-        damage[0],
-        ClipId::default(),
+        ),
+        first
     );
-    renderer.drop_string(string);
-    assert_eq!(renderer.string(string), "M");
-    renderer.render(&paint, &damage);
-
-    assert!(
-        renderer
-            .buffer()
-            .pixels()
-            .iter()
-            .any(|pixel| pixel.raw() != 0)
-    );
-    let string = RendererStringId::from(KeyData::from_ffi(string.0));
-    assert!(!renderer.context.strings.contains_key(string));
-}
-
-#[test]
-fn managed_strings_deref_render_and_drop() {
-    let mut runtime = Runtime::new(RuntimePlatform {
-        renderer: Renderer::new(VecBuffer::<Xrgb8888>::new(96, 48), renderer_config())
-            .strategy(Scanline::default()),
-        repaint_buffer: RepaintBuffer::Reused,
-    });
-    let owned = runtime
-        .erased_platform()
-        .create_string(String::from("managed"));
-    let mut static_string = runtime.erased_platform().create_string("static");
-
-    assert_eq!(&*owned, "managed");
-    assert_eq!(&*static_string, "static");
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        Text::new(&owned).color(Color::WHITE).render(
-            ui,
-            LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 96.0,
-                height: 24.0,
-            },
-        );
-        Text::new(&static_string).color(Color::WHITE).render(
-            ui,
-            LogicalRect {
-                x: 0.0,
-                y: 24.0,
-                width: 96.0,
-                height: 24.0,
-            },
-        );
-        Text::new("literal").color(Color::WHITE).render(
-            ui,
-            LogicalRect {
-                x: 48.0,
-                y: 0.0,
-                width: 48.0,
-                height: 24.0,
-            },
-        );
-    });
-    assert!(
-        runtime
-            .platform()
-            .renderer
-            .buffer()
-            .pixels()
-            .iter()
-            .any(|pixel| pixel.raw() != 0)
-    );
-
-    assert!(
-        runtime
-            .platform()
-            .renderer
-            .context
-            .strings
-            .values()
-            .any(|string| matches!(&string.data, StringData::Static("static")))
-    );
-    assert_eq!(runtime.platform().renderer.context.strings.len(), 2);
-
-    let old = static_string.id();
-    assert_eq!(static_string.edit().as_str(), "static");
-    assert_eq!(static_string.id(), old);
-    static_string.edit().push_str(" updated");
-    assert_eq!(&*static_string, "static updated");
-    assert_ne!(static_string.id(), old);
-    assert_eq!(runtime.platform().renderer.context.strings.len(), 3);
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        Text::new(&static_string).color(Color::WHITE).render(
-            ui,
-            LogicalRect {
-                x: 0.0,
-                y: 24.0,
-                width: 96.0,
-                height: 24.0,
-            },
-        );
-    });
-    assert_eq!(runtime.platform().renderer.context.strings.len(), 2);
-
-    drop(owned);
-    drop(static_string);
-    assert_eq!(runtime.platform().renderer.context.strings.len(), 2);
-    runtime.render(Duration::ZERO, Input::None, |_| {});
-    assert_eq!(runtime.platform().renderer.context.strings.len(), 0);
 }

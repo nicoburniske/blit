@@ -6,16 +6,17 @@ mod strategy;
 mod text;
 
 use blit::{
+    command_list::{BoxShadow, Command, CommandList as ResolvedCommandList, Rectangle},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
-    paint::{Border, BoxShadow, FontId, ImageRequest, Rectangle, TextRequest},
-    paint_list::{Command, PaintList},
-    resource::{ImageData, ImageId, StringData, StringId, TextSource},
+    image::{ImageData, ImageHandle, ImageId, ImageRequest},
+    style::Border,
+    text::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 pub use blit_font::Font;
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
-use render::{image, image_patch::AlphaRow, rectangle, shadow};
+use render::{image, image_patch::AlphaRows, rectangle, shadow};
 pub use strategy::{Direct, RenderStrategy, Scanline};
 use strategy::{
     clip::ClipStack,
@@ -48,9 +49,6 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 buffer,
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
-                has_dead_images: false,
-                strings: SlotMap::with_key(),
-                has_dead_strings: false,
                 shadows: shadow::Cache::new(config.shadow_cache_capacity),
                 text: TextRenderer::new(config),
                 commands: CommandList::default(),
@@ -69,12 +67,6 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
-    pub fn with_scale_factor(mut self, scale_factor: f32) -> Self {
-        assert!(scale_factor.is_finite() && scale_factor > 0.0);
-        self.context.scale_factor = scale_factor;
-        self
-    }
-
     pub fn screen(&self) -> PhysicalRect {
         PhysicalRect {
             x: 0,
@@ -82,15 +74,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             width: self.context.buffer.width() as i32,
             height: self.context.buffer.height() as i32,
         }
-    }
-
-    pub fn scale_factor(&self) -> f32 {
-        self.context.scale_factor
-    }
-
-    pub fn set_scale_factor(&mut self, scale_factor: f32) {
-        assert!(scale_factor.is_finite() && scale_factor > 0.0);
-        self.context.scale_factor = scale_factor;
     }
 
     pub fn buffer(&self) -> &B {
@@ -101,47 +84,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         &mut self.context.buffer
     }
 
-    pub fn render(&mut self, paint: &PaintList, damage: &[PhysicalRect]) {
-        assert!(self.context.commands.is_empty());
-        if !damage.is_empty() {
-            for clip in paint.clips() {
-                self.context.clips.push_node(
-                    clip.parent.0,
-                    clip.area,
-                    clip.radius,
-                    self.context.scale_factor,
-                );
-            }
-            for record in paint.iter() {
-                if !damage
-                    .iter()
-                    .any(|damage| record.bounds.intersection(*damage).is_some())
-                {
-                    continue;
-                }
-                match record.command {
-                    Command::Rectangle(rectangle) => {
-                        self.prepare_rectangle(&rectangle, record.bounds, record.clip.0)
-                    }
-                    Command::Image(image) => {
-                        self.prepare_image(&image, record.bounds, record.clip.0)
-                    }
-                    Command::Text(text) => {
-                        self.prepare_text(&text, record.bounds, record.clip.0);
-                    }
-                    Command::BoxShadow(shadow) => {
-                        self.prepare_box_shadow(&shadow, record.bounds, record.clip.0)
-                    }
-                }
-            }
-            self.strategy.render(&mut self.context, damage);
-        }
-        self.context.commands.clear();
-        self.context.clips.clear();
-        self.context.finish_frame();
-    }
-
-    fn prepare_rectangle(&mut self, request: &Rectangle<'_>, bounds: PhysicalRect, clip: u16) {
+    fn prepare_rectangle(&mut self, request: &Rectangle<'_>, bounds: PhysicalRect, clip: u32) {
         if let Border::Gradient { width, gradient } = request.border
             && let Some(prepared) =
                 rectangle::Gradient::new(request, width, gradient, self.context.scale_factor)
@@ -164,7 +107,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         }
     }
 
-    fn prepare_box_shadow(&mut self, shadow: &BoxShadow, bounds: PhysicalRect, clip: u16) {
+    fn prepare_box_shadow(&mut self, shadow: &BoxShadow, bounds: PhysicalRect, clip: u32) {
         let Some(request) = self.context.shadows.prepare(
             &mut self.context.images,
             shadow,
@@ -184,8 +127,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                             image,
                             bounds,
                             clip,
-                            texture.opaque,
-                            texture.has_opaque_spans,
+                            image.is_opaque(&texture.data, texture.opaque),
+                            image.has_opaque_spans(&texture.data, texture.has_opaque_spans),
                         )
                     });
                 }
@@ -193,7 +136,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         }
     }
 
-    fn prepare_image(&mut self, request: &ImageRequest, bounds: PhysicalRect, clip: u16) {
+    fn prepare_image(&mut self, request: &ImageRequest, bounds: PhysicalRect, clip: u32) {
         let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
         if let Some(texture) = self.context.images.get(image) {
             image::prepare(
@@ -206,8 +149,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                         image,
                         bounds,
                         clip,
-                        texture.opaque,
-                        texture.has_opaque_spans,
+                        image.is_opaque(&texture.data, texture.opaque),
+                        image.has_opaque_spans(&texture.data, texture.has_opaque_spans),
                     )
                 },
             );
@@ -218,22 +161,20 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         &mut self,
         request: &TextRequest,
         bounds: PhysicalRect,
-        clip: u16,
+        clip: u32,
     ) -> Option<PhysicalRect> {
         let area = request.area.to_physical(self.context.scale_factor);
         let visible_area = area.intersection(bounds)?;
-        let RenderContext {
-            strings,
-            text,
-            scale_factor,
-            ..
-        } = &mut self.context;
-        let string = resolve_text(strings, request.text);
-        let (paragraph, paragraph_bounds) = text.prepare(request, string, *scale_factor);
+        let (glyph_start, glyph_end, lines, paragraph_bounds) = self
+            .context
+            .text
+            .prepare(request, self.context.scale_factor);
         let bounds = paragraph_bounds.intersection(visible_area)?;
         self.context.commands.push_text(
             PreparedText {
-                paragraph,
+                glyph_start,
+                glyph_end,
+                lines,
                 area,
                 color: request.color,
             },
@@ -241,89 +182,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             clip,
         );
         Some(bounds)
-    }
-
-    pub fn create_image(&mut self, data: ImageData) -> ImageId {
-        data.validate();
-        let image = self.context.images.insert(StoredImage::new(data));
-        ImageId(image.data().as_ffi())
-    }
-
-    pub fn drop_image(&mut self, image: ImageId) {
-        let image = RendererImageId::from(KeyData::from_ffi(image.0));
-        if let Some(image) = self.context.images.get_mut(image) {
-            image.live = false;
-            self.context.has_dead_images = true;
-        }
-    }
-
-    pub fn create_string(&mut self, string: StringData) -> StringId {
-        let string = self.context.strings.insert(StoredString {
-            data: string,
-            live: true,
-        });
-        StringId(string.data().as_ffi())
-    }
-
-    pub fn drop_string(&mut self, string: StringId) {
-        let string = RendererStringId::from(KeyData::from_ffi(string.0));
-        if let Some(string) = self.context.strings.get_mut(string) {
-            string.live = false;
-            self.context.has_dead_strings = true;
-        }
-    }
-
-    pub fn string(&self, string: StringId) -> &str {
-        let string = RendererStringId::from(KeyData::from_ffi(string.0));
-        self.context.strings[string].data.as_ref()
-    }
-
-    pub fn text_offset_at_position(
-        &mut self,
-        request: &TextRequest,
-        position: LogicalPoint,
-    ) -> usize {
-        let RenderContext {
-            strings,
-            text,
-            scale_factor,
-            ..
-        } = &mut self.context;
-        let string = resolve_text(strings, request.text);
-        text.offset_at_position(request, string, position, *scale_factor)
-    }
-
-    pub fn measure_text(&mut self, request: &TextRequest) -> LogicalSize {
-        let RenderContext {
-            strings,
-            text,
-            scale_factor,
-            ..
-        } = &mut self.context;
-        let string = resolve_text(strings, request.text);
-        text.measure(request, string, *scale_factor)
-    }
-
-    pub fn measure_text_height(&mut self, request: &TextRequest) -> f32 {
-        let RenderContext {
-            strings,
-            text,
-            scale_factor,
-            ..
-        } = &mut self.context;
-        let string = resolve_text(strings, request.text);
-        text.measure_height(request, string, *scale_factor)
-    }
-
-    pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        let RenderContext {
-            strings,
-            text,
-            scale_factor,
-            ..
-        } = &mut self.context;
-        let string = resolve_text(strings, request.text);
-        text.cursor_rect(request, string, byte_offset, *scale_factor)
     }
 }
 
@@ -333,7 +191,6 @@ use text::TextRenderer;
 
 new_key_type! {
     pub struct RendererImageId;
-    pub struct RendererStringId;
 }
 
 #[doc(hidden)]
@@ -341,45 +198,36 @@ pub struct RenderContext<B: PixelBuffer> {
     buffer: B,
     scale_factor: f32,
     images: SlotMap<RendererImageId, StoredImage>,
-    has_dead_images: bool,
-    strings: SlotMap<RendererStringId, StoredString>,
-    has_dead_strings: bool,
     shadows: shadow::Cache,
     text: TextRenderer,
     commands: CommandList,
     clips: ClipStack,
 }
 
-struct StoredString {
-    data: StringData,
-    live: bool,
-}
-
-fn resolve_text(strings: &SlotMap<RendererStringId, StoredString>, source: TextSource) -> &str {
-    match source {
-        TextSource::Resource(string) => {
-            let string = RendererStringId::from(KeyData::from_ffi(string.0));
-            strings[string].data.as_ref()
-        }
-        TextSource::Static(string) => string,
-    }
-}
-
 pub struct StoredImage {
+    handle: ImageHandle,
     data: ImageData,
-    alpha_rows: Box<[AlphaRow]>,
+    alpha_rows: AlphaRows,
     has_opaque_spans: bool,
     opaque: bool,
-    live: bool,
 }
 
 impl StoredImage {
-    fn new(data: ImageData) -> Self {
+    fn insert(images: &mut SlotMap<RendererImageId, StoredImage>, data: ImageData) -> ImageHandle {
+        data.validate();
+        let size = data.size;
+        let image = images.insert_with_key(|id| {
+            let handle = ImageHandle::new(ImageId(id.data().as_ffi()), size);
+            Self::new(handle, data)
+        });
+        images[image].handle.clone()
+    }
+
+    fn new(handle: ImageHandle, data: ImageData) -> Self {
         let width = data.texture_rect.width as usize;
         let height = data.texture_rect.height as usize;
         let bytes = data.pixels.bytes();
         let mut has_opaque_spans = false;
-        let mut opaque = true;
         let rgba_opaque = || {
             (0..height).all(|line| {
                 bytes[line * data.stride_bytes..][..width * 4]
@@ -387,20 +235,19 @@ impl StoredImage {
                     .all(|pixel| pixel[3] == 255)
             })
         };
-        let alpha_rows = match data.format {
-            blit::resource::ImageFormat::Rgb8 | blit::resource::ImageFormat::Luma8 => {
-                Box::default()
+        let (alpha_rows, opaque) = match data.format {
+            blit::image::ImageFormat::Rgb8 | blit::image::ImageFormat::Luma8 => {
+                (AlphaRows::default(), true)
             }
-            blit::resource::ImageFormat::Rgba8 => {
-                opaque = rgba_opaque();
-                Box::default()
+            blit::image::ImageFormat::Rgba8 => (AlphaRows::default(), rgba_opaque()),
+            blit::image::ImageFormat::Rgba8Premultiplied if rgba_opaque() => {
+                (AlphaRows::default(), true)
             }
-            blit::resource::ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => {
-                opaque = rgba_opaque();
-                Box::default()
+            blit::image::ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => {
+                (AlphaRows::default(), false)
             }
-            blit::resource::ImageFormat::Rgba8Premultiplied => {
-                let mut rows = Vec::with_capacity(height);
+            blit::image::ImageFormat::Rgba8Premultiplied => {
+                let mut rows = Vec::with_capacity(height * 4);
                 for y in 0..height {
                     let row = &bytes[y * data.stride_bytes..][..width * 4];
                     let mut visible_start = width;
@@ -429,26 +276,29 @@ impl StoredImage {
                     }
                     visible_start = visible_start.min(visible_end);
                     has_opaque_spans |= opaque_start < opaque_end;
-                    opaque &= opaque_start == 0 && opaque_end == width;
-                    rows.push(AlphaRow {
-                        visible_start: visible_start as u16,
-                        visible_end: visible_end as u16,
-                        opaque_start: opaque_start as u16,
-                        opaque_end: opaque_end as u16,
-                    });
+                    rows.extend([
+                        visible_start as u16,
+                        visible_end as u16,
+                        opaque_start as u16,
+                        opaque_end as u16,
+                    ]);
                 }
-                rows.into_boxed_slice()
+                (AlphaRows(rows.into_boxed_slice()), false)
             }
-            blit::resource::ImageFormat::Alpha8(_) if width > u16::MAX as usize => {
-                opaque = (0..height).all(|line| {
+            blit::image::ImageFormat::Alpha8(_)
+                if (0..height).all(|line| {
                     bytes[line * data.stride_bytes..][..width]
                         .iter()
                         .all(|alpha| *alpha == 255)
-                });
-                Box::default()
+                }) =>
+            {
+                (AlphaRows::default(), true)
             }
-            blit::resource::ImageFormat::Alpha8(_) => {
-                let mut rows = Vec::with_capacity(height);
+            blit::image::ImageFormat::Alpha8(_) if width > u16::MAX as usize => {
+                (AlphaRows::default(), false)
+            }
+            blit::image::ImageFormat::Alpha8(_) => {
+                let mut rows = Vec::with_capacity(height * 2);
                 for y in 0..height {
                     let row = &bytes[y * data.stride_bytes..][..width];
                     let mut visible_start = width;
@@ -458,45 +308,105 @@ impl StoredImage {
                             visible_start = visible_start.min(x);
                             visible_end = x + 1;
                         }
-                        opaque &= *alpha == 255;
                     }
                     visible_start = visible_start.min(visible_end);
-                    rows.push(AlphaRow {
-                        visible_start: visible_start as u16,
-                        visible_end: visible_end as u16,
-                        opaque_start: 0,
-                        opaque_end: 0,
-                    });
+                    rows.extend([visible_start as u16, visible_end as u16]);
                 }
-                rows.into_boxed_slice()
+                (AlphaRows(rows.into_boxed_slice()), false)
             }
         };
         Self {
+            handle,
             data,
             alpha_rows,
             has_opaque_spans,
             opaque,
-            live: true,
         }
     }
 }
 
 impl<B: PixelBuffer> RenderContext<B> {
     fn finish_frame(&mut self) {
-        self.shadows.finish_frame(&mut self.images);
+        self.shadows.finish_frame();
         self.text.finish_frame();
-        if self.has_dead_images {
-            self.images.retain(|_, image| image.live);
-            self.has_dead_images = false;
+        self.images
+            .retain(|_, image| !image.handle.is_uniquely_owned());
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>> blit::renderer::Renderer for Renderer<B, S> {
+    fn set_scale_factor(&mut self, scale_factor: f32) {
+        assert!(scale_factor.is_finite() && scale_factor > 0.0);
+        self.context.scale_factor = scale_factor;
+    }
+
+    fn render(&mut self, commands: &ResolvedCommandList, damage: &[PhysicalRect]) {
+        assert!(self.context.commands.is_empty());
+        if !damage.is_empty() {
+            for clip in commands.clips() {
+                self.context.clips.push_node(
+                    clip.parent.0,
+                    clip.area,
+                    clip.radius,
+                    self.context.scale_factor,
+                );
+            }
+            for record in commands.iter() {
+                if !damage
+                    .iter()
+                    .any(|damage| record.bounds.intersection(*damage).is_some())
+                {
+                    continue;
+                }
+                match record.command {
+                    Command::Clear => self.context.commands.push_clear(record.bounds),
+                    Command::Rectangle(rectangle) => {
+                        self.prepare_rectangle(&rectangle, record.bounds, record.clip.0)
+                    }
+                    Command::Image(image) => {
+                        self.prepare_image(&image, record.bounds, record.clip.0)
+                    }
+                    Command::Text(text) => {
+                        self.prepare_text(&text, record.bounds, record.clip.0);
+                    }
+                    Command::BoxShadow(shadow) => {
+                        self.prepare_box_shadow(&shadow, record.bounds, record.clip.0)
+                    }
+                }
+            }
+            self.strategy.render(&mut self.context, damage);
         }
-        if self.has_dead_strings {
-            let RenderContext { strings, text, .. } = self;
-            strings.retain(|_, string| string.live);
-            text.retain_strings(|string| {
-                strings.contains_key(RendererStringId::from(KeyData::from_ffi(string.0)))
-            });
-            self.has_dead_strings = false;
-        }
+        self.context.commands.clear();
+        self.context.clips.clear();
+        self.context.finish_frame();
+    }
+
+    fn create_image(&mut self, data: ImageData) -> ImageHandle {
+        StoredImage::insert(&mut self.context.images, data)
+    }
+
+    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.context
+            .text
+            .text_run(text, style, self.context.scale_factor)
+    }
+
+    fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
+        self.context
+            .text
+            .offset_at_position(request, position, self.context.scale_factor)
+    }
+
+    fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
+        self.context
+            .text
+            .measure(request, self.context.scale_factor)
+    }
+
+    fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
+        self.context
+            .text
+            .cursor_rect(request, byte_offset, self.context.scale_factor)
     }
 }
 

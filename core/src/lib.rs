@@ -1,58 +1,101 @@
 pub mod animation;
 pub mod color;
+pub mod command_list;
+pub mod container;
+mod frame;
 pub mod geometry;
+pub mod image;
 pub mod input;
 pub mod interact;
-pub mod keyboard;
 pub mod layout;
-pub mod paint;
-pub mod paint_list;
-pub mod platform;
-pub mod resource;
+mod macros;
+pub mod node;
+pub mod renderer;
+pub mod repaint;
+pub mod style;
 #[cfg(test)]
 mod test;
+pub mod text;
 mod timer;
 pub mod widget;
 
-use std::{
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
-    time::Duration,
-};
+use std::{ptr::NonNull, time::Duration};
 
-use animation::{Easing, Transition};
+use animation::Easing;
+use command_list::CommandList;
+use container::{Container, ContainerConfig, LayerId, Slot};
 use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
+use image::{ImageData, ImageHandle};
 use input::Input;
 use interact::{Interaction, Sense, WidgetId};
-use paint_list::{ClipId, PaintList, PaintListDiffer};
-use platform::{Platform, PlatformImpl};
+use node::{Content, NodeId};
+use renderer::Renderer;
+use repaint::Repaint;
+use style::Style;
+use text::{TextRunId, TextStyle};
 
 pub struct Ui {
-    shared: NonNull<UiShared>,
+    state: NonNull<UiState>,
+    renderer: NonNull<dyn Renderer>,
     time: Duration,
     input: Input,
-    screen: LogicalRect,
-    clip: PhysicalRect,
     scale_factor: f32,
-    paint_clip: ClipId,
-    current_id: WidgetId,
 }
 
 impl Ui {
-    pub fn platform(&mut self) -> &mut Platform {
-        &mut self.shared_mut().platform
+    /// restores damaged screen pixels to the render target's default value before painting
+    pub fn clear(&mut self) {
+        self.frame_mut().clear()
+    }
+
+    pub fn layout<L: layout::Layout>(&mut self, layout: L) -> Container<'_, '_, L> {
+        Container::new(self, layout)
+    }
+
+    /// declares a paint layer rooted at the current container
+    pub fn layer(&mut self) -> LayerId {
+        self.frame_mut().add_layer()
+    }
+
+    /// returns geometry resolved before the current render callback
+    ///
+    /// nodes declared in this callback become available to subsequent callbacks
+    pub fn geometry(&self, id: WidgetId) -> Option<LogicalRect> {
+        self.state().geometry.get(id)
+    }
+
+    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
+        self.renderer_mut().create_image(data)
     }
 
     pub fn screen(&self) -> LogicalRect {
-        self.screen
+        self.state().screen
     }
 
     pub fn input(&self) -> &Input {
         &self.input
     }
 
+    /// evaluates the current input against geometry resolved before this callback
+    pub fn interact(&mut self, id: WidgetId, sense: Sense) -> Interaction {
+        let interaction = self.state_mut().interaction.response(id, sense);
+        if interaction.activated || interaction.deactivated || interaction.clicked {
+            self.request_frame();
+        }
+        interaction
+    }
+
     pub fn time(&self) -> Duration {
         self.time
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+
+    /// changes the scale factor on the next frame
+    pub fn set_scale_factor(&mut self, scale_factor: f32) {
+        self.state_mut().set_scale_factor(scale_factor)
     }
 
     /// animates a value toward `target`, keyed by `id`
@@ -65,47 +108,19 @@ impl Ui {
         target: f32,
         duration: Duration,
         easing: Easing,
-    ) -> AnimationScope<'_> {
+    ) -> f32 {
         let time = self.time;
-        begin_animations(self, [id], [target], |_, animation| {
+        animation::AnimationState::update(self, id, target, |animation| {
             animation.advance(target, duration, easing, time)
-        })
-    }
-
-    /// animates independent values keyed by `id`
-    ///
-    /// each value follows [`Ui::animate`] with its own target, duration, and
-    /// easing. array order must remain stable between frames
-    pub fn animate_values<const N: usize>(
-        &mut self,
-        id: WidgetId,
-        transitions: [Transition; N],
-    ) -> AnimationScope<'_, N> {
-        let time = self.time;
-        let ids = std::array::from_fn(|index| id.child(("animation value", index)));
-        let initial = transitions.map(|transition| transition.target);
-        begin_animations(self, ids, initial, |index, animation| {
-            let transition = transitions[index];
-            animation.advance(
-                transition.target,
-                transition.duration,
-                transition.easing,
-                time,
-            )
         })
     }
 
     /// animates a repeating value from `0.0` up to `1.0`, keyed by `id`
     ///
     /// zero duration stops the loop and resets the value
-    pub fn animate_loop(
-        &mut self,
-        id: WidgetId,
-        duration: Duration,
-        easing: Easing,
-    ) -> AnimationScope<'_> {
+    pub fn animate_loop(&mut self, id: WidgetId, duration: Duration, easing: Easing) -> f32 {
         let time = self.time;
-        begin_animations(self, [id], [0.0], |_, animation| {
+        animation::AnimationState::update(self, id, 0.0, |animation| {
             animation.advance_loop(duration, easing, time)
         })
     }
@@ -113,10 +128,10 @@ impl Ui {
     /// returns `true` once when `duration` has elapsed for `id`
     ///
     /// the timer starts on its first call and is removed when it is not called
-    /// during a frame. [`Runtime::next_timer_deadline`] reports when the next
+    /// during a frame. [`UiState::next_timer_deadline`] reports when the next
     /// timer needs a frame
     pub fn timer(&mut self, id: WidgetId, duration: Duration) -> bool {
-        begin_timer(self, id, duration, None)
+        timer::TimerState::update(self, id, duration, None)
     }
 
     /// returns `true` whenever another `duration` has elapsed for `id`
@@ -129,503 +144,337 @@ impl Ui {
             !duration.is_zero(),
             "looping timer duration must not be zero"
         );
-        begin_timer(self, id, duration, Some(duration))
-    }
-
-    /// creates a [`WidgetId`] beneath the current id scope
-    pub fn id(&self, source: impl std::hash::Hash) -> WidgetId {
-        self.current_id.child(source)
-    }
-
-    /// begins a nested id scope derived from `source`
-    ///
-    /// ids created through the scoped [`Ui`] are children of this scope. the
-    /// previous scope is restored when the returned value is dropped
-    pub fn begin_scope(&mut self, source: impl std::hash::Hash) -> IdScope<'_> {
-        let previous = self.current_id;
-        self.current_id = self.current_id.child(source);
-        IdScope { ui: self, previous }
-    }
-
-    /// limits drawing and interaction to `area`
-    ///
-    /// the area is intersected with the current clip, allowing scopes to nest
-    /// the previous clip is restored when the returned value is dropped
-    pub fn begin_clip(&mut self, area: LogicalRect) -> ClipScope<'_> {
-        let previous = self.clip;
-        let previous_paint_clip = self.paint_clip;
-        self.clip = area
-            .to_physical(self.scale_factor)
-            .intersection(previous)
-            .unwrap_or_default();
-        ClipScope {
-            ui: self,
-            previous,
-            previous_paint_clip,
-        }
-    }
-
-    /// limits drawing to the rounded rectangle and interaction to its bounds
-    ///
-    /// the bounds are intersected with the current clip, allowing scopes to
-    /// nest. the previous clip is restored when the returned value is dropped
-    pub fn begin_rounded_clip(
-        &mut self,
-        area: LogicalRect,
-        radius: paint::BorderRadius,
-    ) -> ClipScope<'_> {
-        let mut scope = self.begin_clip(area);
-        if scope.clip.width > 0 && scope.clip.height > 0 {
-            let parent = scope.paint_clip;
-            scope.paint_clip = scope.paint_mut().push_clip(parent, area, radius);
-        }
-        scope
-    }
-
-    pub fn interact(&mut self, id: WidgetId, area: LogicalRect, sense: Sense) -> Interaction {
-        let area = area.to_physical(self.scale_factor).intersection(self.clip);
-        self.shared_mut().interaction.interact(id, area, sense)
+        timer::TimerState::update(self, id, duration, Some(duration))
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {
-        self.shared().interaction.is_focused(id)
+        self.state().interaction.is_focused(id)
     }
 
     pub fn focus(&mut self, id: WidgetId) {
-        if self.shared_mut().interaction.focus(id) {
+        if self.state_mut().interaction.focus(id) {
             self.request_frame();
         }
     }
 
     pub fn clear_focus(&mut self) {
-        if self.shared_mut().interaction.clear_focus() {
+        if self.state_mut().interaction.clear_focus() {
             self.request_frame();
         }
     }
 
     pub fn pointer_position(&self) -> Option<LogicalPoint> {
-        self.shared().interaction.pointer_position()
+        self.state().interaction.pointer_position()
     }
 
     pub fn request_frame(&mut self) {
-        self.shared_mut().frame_requested = true
+        self.state_mut().request_frame()
     }
 
     pub fn invalidate_all(&mut self) {
-        let shared = self.shared_mut();
-        shared.frame_requested = true;
-        shared.full_repaint = true;
-    }
-
-    pub fn paint_rectangle(&mut self, rectangle: paint::Rectangle<'_>) {
-        let Some(bounds) = rectangle
-            .area
-            .to_physical(self.scale_factor)
-            .intersection(self.clip)
-        else {
-            return;
-        };
-        let clip = self.paint_clip;
-        self.paint_mut().push_rectangle(rectangle, bounds, clip);
-    }
-
-    pub fn paint_box_shadow(&mut self, shadow: paint::BoxShadow) {
-        let Some(bounds) = shadow
-            .bounds()
-            .to_physical(self.scale_factor)
-            .intersection(self.clip)
-        else {
-            return;
-        };
-        let clip = self.paint_clip;
-        self.paint_mut().push_box_shadow(shadow, bounds, clip);
-    }
-
-    pub fn paint_image(&mut self, image: paint::ImageRequest) {
-        let Some(bounds) = image
-            .area
-            .to_physical(self.scale_factor)
-            .intersection(self.clip)
-        else {
-            return;
-        };
-        let clip = self.paint_clip;
-        self.paint_mut().push_image(image, bounds, clip);
-    }
-
-    pub fn paint_text(&mut self, text: paint::TextRequest) {
-        let Some(bounds) = text
-            .area
-            .to_physical(self.scale_factor)
-            .intersection(self.clip)
-        else {
-            return;
-        };
-        let clip = self.paint_clip;
-        self.paint_mut().push_text(text, bounds, clip);
+        self.state_mut().invalidate_all()
     }
 }
-
-pub struct AnimationScope<'a, const N: usize = 1> {
-    ui: &'a mut Ui,
-    values: [f32; N],
-    active: [bool; N],
-}
-
-impl AnimationScope<'_, 1> {
-    pub fn value(&self) -> f32 {
-        self.values[0]
-    }
-}
-
-impl<const N: usize> AnimationScope<'_, N> {
-    pub fn values(&self) -> [f32; N] {
-        self.values
-    }
-
-    pub fn is_active(&self) -> bool {
-        self.active.iter().any(|active| *active)
-    }
-
-    pub fn finish(self) {}
-}
-
-impl<const N: usize> Deref for AnimationScope<'_, N> {
-    type Target = Ui;
-
-    fn deref(&self) -> &Self::Target {
-        self.ui
-    }
-}
-
-impl<const N: usize> DerefMut for AnimationScope<'_, N> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ui
-    }
-}
-
-pub struct IdScope<'a> {
-    ui: &'a mut Ui,
-    previous: WidgetId,
-}
-
-impl IdScope<'_> {
-    pub fn ui(&mut self) -> &mut Ui {
-        self.ui
-    }
-
-    pub fn finish(self) {
-        drop(self)
-    }
-}
-
-impl Drop for IdScope<'_> {
-    fn drop(&mut self) {
-        self.ui.current_id = self.previous;
-    }
-}
-
-pub struct ClipScope<'a> {
-    ui: &'a mut Ui,
-    previous: PhysicalRect,
-    previous_paint_clip: ClipId,
-}
-
-impl ClipScope<'_> {
-    pub fn finish(self) {
-        drop(self)
-    }
-}
-
-impl Deref for ClipScope<'_> {
-    type Target = Ui;
-
-    fn deref(&self) -> &Self::Target {
-        self.ui
-    }
-}
-
-impl DerefMut for ClipScope<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ui
-    }
-}
-
-impl Drop for ClipScope<'_> {
-    fn drop(&mut self) {
-        self.ui.clip = self.previous;
-        self.ui.paint_clip = self.previous_paint_clip;
-    }
-}
-
-fn begin_animations<const N: usize>(
-    ui: &mut Ui,
-    ids: [WidgetId; N],
-    initial: [f32; N],
-    mut advance: impl FnMut(usize, &mut animation::AnimationState),
-) -> AnimationScope<'_, N> {
-    assert!(N != 0, "animation groups must contain at least one value");
-
-    let mut values = [0.0; N];
-    let mut active = [false; N];
-    for value_index in 0..N {
-        let id = ids[value_index];
-        let (value, value_active) = {
-            let animations = &mut ui.shared_mut().animations;
-            let index = match animations.binary_search_by_key(&id, |animation| animation.id) {
-                Ok(index) => index,
-                Err(index) => {
-                    animations.insert(
-                        index,
-                        animation::AnimationState::new(id, initial[value_index]),
-                    );
-                    index
-                }
-            };
-            assert!(
-                !animations[index].seen,
-                "duplicate animation WidgetId {id:?}"
-            );
-            advance(value_index, &mut animations[index]);
-            (animations[index].value, animations[index].is_active())
-        };
-        values[value_index] = value;
-        active[value_index] = value_active;
-    }
-
-    AnimationScope { ui, values, active }
-}
-
-fn begin_timer(ui: &mut Ui, id: WidgetId, duration: Duration, interval: Option<Duration>) -> bool {
-    let time = ui.time;
-    let timers = &mut ui.shared_mut().timers;
-    let timer = if let Some(timer) = timers.iter_mut().find(|timer| timer.id == id) {
-        timer
-    } else {
-        timers.push(timer::TimerState::new(id, duration, interval, time));
-        timers.last_mut().unwrap()
-    };
-    assert!(!timer.seen, "duplicate timer WidgetId {id:?}");
-    timer.advance(duration, interval, time)
-}
-
-//
-// internals
-//
 
 impl Ui {
-    fn shared(&self) -> &UiShared {
-        // only used in context of render
-        unsafe { self.shared.as_ref() }
+    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.renderer_mut().text_run(text, style)
     }
 
-    fn shared_mut(&mut self) -> &mut UiShared {
-        // only used in context of render
-        unsafe { self.shared.as_mut() }
+    pub fn text_offset_at_position(
+        &mut self,
+        request: &text::TextRequest,
+        position: LogicalPoint,
+    ) -> usize {
+        self.renderer_mut()
+            .text_offset_at_position(request, position)
     }
 
-    fn paint_mut(&mut self) -> &mut PaintList {
-        &mut self.shared_mut().paint
+    pub fn text_cursor_rect(
+        &mut self,
+        request: &text::TextRequest,
+        byte_offset: usize,
+    ) -> LogicalRect {
+        self.renderer_mut().text_cursor_rect(request, byte_offset)
+    }
+
+    pub fn add_leaf(&mut self, slot: Slot, content: Content<'_>) -> NodeId {
+        self.frame_mut().add_leaf(slot, content)
+    }
+
+    pub fn begin_layout_item(&self) -> NodeId {
+        self.state().frame.begin_layout_item()
+    }
+
+    pub fn finish_layout_item<L: layout::Layout>(
+        &mut self,
+        parent: NodeId,
+        child: NodeId,
+        item: L::Item,
+    ) {
+        self.frame_mut()
+            .finish_layout_item::<L>(parent, child, item)
+    }
+
+    pub fn open_layout<L: layout::Layout>(
+        &mut self,
+        layout: L,
+        container: ContainerConfig<'_>,
+    ) -> NodeId {
+        let id = container.id;
+        let transition = container.transition;
+        let node = self.frame_mut().add_container(layout, container);
+        if let (Some(id), Some(transition)) = (id, transition) {
+            self.set_node_transition(node, id, transition);
+        }
+        node
+    }
+
+    pub fn close_container(&mut self, node: NodeId) {
+        self.frame_mut().close(node)
+    }
+
+    pub fn set_node_id(&mut self, node: NodeId, id: WidgetId) {
+        self.frame_mut().set_id(node, id)
+    }
+
+    pub fn set_node_style(&mut self, node: NodeId, style: Style<'_>) {
+        self.frame_mut().set_style(node, style)
+    }
+
+    pub fn set_node_transition(
+        &mut self,
+        node: NodeId,
+        id: WidgetId,
+        transition: animation::Transition,
+    ) {
+        let states = &mut self.state_mut().transitions;
+        match states.binary_search_by_key(&id, |state| state.id) {
+            Ok(index) => states[index].begin(node, transition),
+            Err(index) => {
+                states.insert(index, frame::TransitionState::new(id, node, transition));
+            }
+        }
+    }
+
+    fn state(&self) -> &UiState {
+        // only used in context of render
+        unsafe { self.state.as_ref() }
+    }
+
+    fn state_mut(&mut self) -> &mut UiState {
+        // only used in context of render
+        unsafe { self.state.as_mut() }
+    }
+
+    fn renderer_mut(&mut self) -> &mut dyn Renderer {
+        // only used in context of render
+        unsafe { self.renderer.as_mut() }
+    }
+
+    fn frame_mut(&mut self) -> &mut frame::FrameGraph {
+        &mut self.state_mut().frame
     }
 }
 
+/// retained frame graph memory after its buffers have grown
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum RepaintBuffer {
-    /// the same buffer retains the previously rendered frame
-    #[default]
-    Reused,
-    /// two buffers alternate, so each frame also repairs the previous frame's damage
-    Swapped,
+pub struct FrameGraphMemory {
+    pub node_size: usize,
+    pub node_capacity: usize,
+    pub heap_bytes: usize,
 }
 
-pub struct Runtime<P: PlatformImpl> {
-    platform: Box<P>,
-    shared: UiShared,
-    repaint_buffer: RepaintBuffer,
-    screen: LogicalRect,
-    physical_screen: PhysicalRect,
-    scale_factor: f32,
-    previous_paint: PaintList,
-    differ: PaintListDiffer,
-    previous_damage: Vec<PhysicalRect>,
-    render_damage: Vec<PhysicalRect>,
-}
-
-struct UiShared {
-    platform: Platform,
-    paint: PaintList,
+pub struct UiState {
+    frame: frame::FrameGraph,
+    commands: CommandList,
     interaction: interact::InteractionState,
+    geometry: frame::GeometryState,
     animations: Vec<animation::AnimationState>,
+    transitions: Vec<frame::TransitionState>,
     timers: Vec<timer::TimerState>,
     frame_requested: bool,
     full_repaint: bool,
+    screen: LogicalRect,
+    physical_screen: PhysicalRect,
+    scale_factor: f32,
+    scale_factor_changed: bool,
 }
 
-impl<P: PlatformImpl + 'static> Runtime<P> {
-    pub fn new(platform: P) -> Self {
-        let repaint_buffer = platform.repaint_buffer();
-        let mut platform = Box::new(platform);
-        let physical_screen = platform.screen();
-        let scale_factor = platform.scale_factor();
+impl UiState {
+    pub fn new(physical_screen: PhysicalRect, scale_factor: f32) -> Self {
         assert!(scale_factor.is_finite() && scale_factor > 0.0);
-        let screen = physical_screen.to_logical(scale_factor);
-        let erased_platform = Platform::new(platform.as_mut());
         Self {
-            platform,
-            shared: UiShared {
-                platform: erased_platform,
-                paint: PaintList::default(),
-                interaction: interact::InteractionState::default(),
-                animations: Vec::new(),
-                timers: Vec::new(),
-                frame_requested: true,
-                full_repaint: true,
-            },
-            repaint_buffer,
-            screen,
+            frame: frame::FrameGraph::default(),
+            commands: CommandList::default(),
+            interaction: interact::InteractionState::default(),
+            geometry: frame::GeometryState::default(),
+            animations: Vec::new(),
+            transitions: Vec::new(),
+            timers: Vec::new(),
+            frame_requested: true,
+            full_repaint: true,
+            screen: physical_screen.to_logical(scale_factor),
             physical_screen,
             scale_factor,
-            previous_paint: PaintList::default(),
-            differ: PaintListDiffer::default(),
-            previous_damage: Vec::new(),
-            render_damage: Vec::new(),
+            scale_factor_changed: true,
         }
-    }
-
-    pub fn platform(&mut self) -> &mut P {
-        self.platform.as_mut()
-    }
-
-    pub fn erased_platform(&mut self) -> &mut Platform {
-        &mut self.shared.platform
-    }
-
-    pub fn render<R>(
-        &mut self,
-        time: Duration,
-        input: Input,
-        render: impl FnOnce(&mut Ui) -> R,
-    ) -> R {
-        self.shared.frame_requested = false;
-        let output = self.record(time, input, render);
-        self.commit();
-        output
-    }
-
-    pub fn render_batch(
-        &mut self,
-        time: Duration,
-        inputs: impl IntoIterator<Item = Input>,
-        mut render: impl FnMut(&mut Ui),
-    ) {
-        let mut inputs = inputs.into_iter();
-        let Some(input) = inputs.next() else { return };
-        self.shared.frame_requested = false;
-        self.record(time, input, &mut render);
-        for input in inputs {
-            self.record(time, input, &mut render);
-        }
-        self.commit();
     }
 
     pub fn has_pending_redraw(&self) -> bool {
-        self.shared.frame_requested
-            || self.shared.full_repaint
-            || self.repaint_buffer == RepaintBuffer::Swapped && !self.previous_damage.is_empty()
+        self.frame_requested
             || self
-                .shared
                 .animations
                 .iter()
                 .any(animation::AnimationState::is_active)
+            || self
+                .transitions
+                .iter()
+                .any(frame::TransitionState::is_active)
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
-        self.shared
-            .timers
+        self.timers
             .iter()
             .filter_map(timer::TimerState::deadline)
             .min()
     }
 
     pub fn request_frame(&mut self) {
-        self.shared.frame_requested = true
+        self.frame_requested = true;
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+
+    pub fn set_screen(&mut self, physical_screen: PhysicalRect) {
+        if self.physical_screen != physical_screen {
+            self.physical_screen = physical_screen;
+            self.screen = physical_screen.to_logical(self.scale_factor);
+            self.invalidate_all();
+        }
+    }
+
+    pub fn set_scale_factor(&mut self, scale_factor: f32) {
+        assert!(scale_factor.is_finite() && scale_factor > 0.0);
+        if self.scale_factor != scale_factor {
+            self.scale_factor = scale_factor;
+            self.scale_factor_changed = true;
+            self.frame_requested = true;
+        }
     }
 
     pub fn invalidate_all(&mut self) {
-        self.shared.frame_requested = true;
-        self.shared.full_repaint = true;
+        self.frame_requested = true;
+        self.full_repaint = true;
     }
 
-    pub fn refresh_screen(&mut self) {
-        let physical_screen = self.platform.screen();
-        let scale_factor = self.platform.scale_factor();
-        assert!(scale_factor.is_finite() && scale_factor > 0.0);
-        if self.physical_screen == physical_screen && self.scale_factor == scale_factor {
-            return;
-        }
-        self.physical_screen = physical_screen;
-        self.screen = physical_screen.to_logical(scale_factor);
-        self.scale_factor = scale_factor;
-        self.previous_damage.clear();
-        self.invalidate_all();
+    pub fn frame_graph_memory(&self) -> FrameGraphMemory {
+        self.frame.memory()
+    }
+}
+
+/// processes inputs and renders the final UI frame
+///
+/// `render` runs once per input so each event observes state changes from
+/// earlier events. layout and interaction state are updated after every call,
+/// while only the final command list is repainted after the last input
+///
+/// an empty input sequence renders once with [`Input::None`]
+///
+/// the same renderer and repaint policy must be used for the lifetime of the
+/// [`UiState`]
+pub fn render<P: Renderer, R: Repaint>(
+    renderer: &mut P,
+    state: &mut UiState,
+    repaint: &mut R,
+    time: Duration,
+    inputs: impl IntoIterator<Item = Input>,
+    mut render: impl FnMut(&mut Ui),
+) {
+    let scale_factor = state.scale_factor;
+    if std::mem::take(&mut state.scale_factor_changed) {
+        renderer.set_scale_factor(scale_factor);
+        state.screen = state.physical_screen.to_logical(scale_factor);
+        state.full_repaint = true;
     }
 
-    pub fn screen(&self) -> LogicalRect {
-        self.screen
+    // record every input against the state produced by the previous one
+    let mut inputs = inputs.into_iter();
+    state.frame_requested = false;
+    record(
+        renderer,
+        state,
+        scale_factor,
+        time,
+        inputs.next().unwrap_or_default(),
+        &mut render,
+    );
+    for input in inputs {
+        record(renderer, state, scale_factor, time, input, &mut render);
     }
 
-    fn record<R>(&mut self, time: Duration, input: Input, render: impl FnOnce(&mut Ui) -> R) -> R {
-        self.shared.paint.clear();
-        for animation in &mut self.shared.animations {
-            animation.seen = false;
-        }
-        for timer in &mut self.shared.timers {
-            timer.seen = false;
-        }
-        self.shared
-            .interaction
-            .begin_frame(&input, self.scale_factor);
+    // repaint only the final recorded frame
+    if std::mem::take(&mut state.full_repaint) {
+        repaint.invalidate();
+    }
+    repaint.render(renderer, &mut state.commands, state.physical_screen);
+}
+
+fn record<P: Renderer>(
+    renderer: &mut P,
+    state: &mut UiState,
+    scale_factor: f32,
+    time: Duration,
+    input: Input,
+    render: impl FnOnce(&mut Ui),
+) {
+    // reset transient data and begin input processing
+    state.commands.clear();
+    state.frame.begin(state.screen);
+    for animation in &mut state.animations {
+        animation.seen = false;
+    }
+    for transition in &mut state.transitions {
+        transition.seen = false;
+    }
+    for timer in &mut state.timers {
+        timer.seen = false;
+    }
+    state.interaction.begin_frame(&input);
+
+    {
+        let renderer = NonNull::from(&mut *renderer as &mut (dyn Renderer + '_));
+        // safety: `Ui` only borrows this pointer for the render callback
+        let renderer: NonNull<dyn Renderer> = unsafe { std::mem::transmute(renderer) };
         let mut ui = Ui {
-            shared: NonNull::from(&mut self.shared),
+            state: NonNull::from(&mut *state),
+            renderer,
             time,
             input,
-            screen: self.screen,
-            clip: self.physical_screen,
-            scale_factor: self.scale_factor,
-            paint_clip: ClipId::default(),
-            current_id: WidgetId::new("blit root"),
+            scale_factor,
         };
-        let output = render(&mut ui);
-        {
-            let shared = ui.shared_mut();
-            if shared.interaction.end_frame(self.scale_factor) {
-                shared.frame_requested = true;
-            }
-            shared.animations.retain(|animation| animation.seen);
-            shared.timers.retain(|timer| timer.seen);
-        }
-        output
+        render(&mut ui);
     }
 
-    fn commit(&mut self) {
-        self.render_damage.clear();
-        if std::mem::take(&mut self.shared.full_repaint) {
-            self.render_damage.push(self.physical_screen);
-        } else {
-            self.render_damage
-                .extend_from_slice(self.differ.diff(&self.previous_paint, &self.shared.paint));
-        }
-        let current_damage_len = self.render_damage.len();
-        if self.repaint_buffer == RepaintBuffer::Swapped {
-            self.render_damage.extend_from_slice(&self.previous_damage);
-        }
-        self.platform
-            .render(&self.shared.paint, &self.render_damage);
-        self.previous_damage.clear();
-        if self.repaint_buffer == RepaintBuffer::Swapped {
-            self.previous_damage
-                .extend_from_slice(&self.render_damage[..current_damage_len]);
-        }
-        std::mem::swap(&mut self.previous_paint, &mut self.shared.paint);
+    // resolve the frame and retain state needed by the next input
+    let mut frame = std::mem::take(&mut state.frame);
+    frame.finish(
+        renderer,
+        &mut state.commands,
+        &mut state.interaction,
+        &mut state.geometry,
+        &mut state.transitions,
+        time,
+        scale_factor,
+    );
+    state.frame = frame;
+    if state.interaction.end_frame() {
+        state.frame_requested = true;
     }
+    state.geometry.end_frame();
+    state.animations.retain(|animation| animation.seen);
+    state.transitions.retain(|transition| transition.seen);
+    state.timers.retain(|timer| timer.seen);
 }

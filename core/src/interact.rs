@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    geometry::{LogicalPoint, PhysicalPoint, PhysicalRect},
+    geometry::{LogicalPoint, LogicalRect},
     input::{Input, PointerButton, ScrollPhase},
 };
 
@@ -16,6 +16,7 @@ const DRAG_THRESHOLD: f32 = 6.0;
 pub struct WidgetId(u64);
 
 impl WidgetId {
+    #[inline]
     pub fn new(source: impl Hash) -> Self {
         let mut hasher = DefaultHasher::new();
         source.hash(&mut hasher);
@@ -78,17 +79,35 @@ impl Sense {
     };
 }
 
+/// primary-pointer ownership begins with `activated`, remains `active`, and ends with `deactivated`
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Interaction {
+    /// owns primary pointer
+    pub active: bool,
+    /// ownership began on current input
+    pub activated: bool,
+    /// ownership ended on current input
+    pub deactivated: bool,
+    /// pointer inside hit area
     pub hovered: bool,
-    pub pressed: bool,
+    /// primary pointer released inside hit area without dragging
     pub clicked: bool,
-    pub dragged: bool,
+    /// owns drag beyond movement threshold while pointer is down
+    pub dragging: bool,
+    /// pointer movement since previous input during a drag, otherwise zero
     pub drag_delta: LogicalPoint,
-    pub drag_released: bool,
-    pub scroll_delta: LogicalPoint,
-    pub scroll_continuous: bool,
-    pub scroll_phase: Option<ScrollPhase>,
+    /// scroll input routed to this hit area
+    pub scroll: Option<ScrollInteraction>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollInteraction {
+    /// distance in logical pixels
+    pub delta: LogicalPoint,
+    /// pixel-based gesture rather than a discrete wheel step
+    pub continuous: bool,
+    /// gesture phase
+    pub phase: ScrollPhase,
 }
 
 #[derive(Default)]
@@ -98,9 +117,12 @@ pub(crate) struct InteractionState {
     hovered: Option<WidgetId>,
     drag_owner: Option<WidgetId>,
     scroll_owner: Option<WidgetId>,
+    activated: Option<WidgetId>,
+    deactivated: Option<WidgetId>,
     pointer: PointerState,
     previous_hits: Vec<HitItem>,
     current_hits: Vec<HitItem>,
+    requests: Vec<(WidgetId, Sense)>,
     #[cfg(debug_assertions)]
     seen: std::collections::HashSet<WidgetId>,
 }
@@ -133,16 +155,19 @@ enum PointerEvent {
 #[derive(Clone, Copy)]
 struct HitItem {
     id: WidgetId,
-    area: PhysicalRect,
+    area: LogicalRect,
     sense: Sense,
 }
 
 impl InteractionState {
-    pub fn begin_frame(&mut self, input: &Input, scale_factor: f32) {
+    pub fn begin_frame(&mut self, input: &Input) {
         #[cfg(debug_assertions)]
         self.seen.clear();
+        self.requests.clear();
 
         self.pointer.event = PointerEvent::None;
+        self.activated = None;
+        self.deactivated = None;
 
         match *input {
             Input::PointerDown {
@@ -170,7 +195,12 @@ impl InteractionState {
                     let y = position.y - self.pointer.origin.y;
                     if x * x + y * y >= DRAG_THRESHOLD * DRAG_THRESHOLD {
                         self.pointer.dragging = true;
+                        let previous = self.active;
                         self.active = self.drag_owner;
+                        if self.active != previous {
+                            self.deactivated = previous;
+                            self.activated = self.active;
+                        }
                     }
                 }
             }
@@ -183,6 +213,7 @@ impl InteractionState {
                 self.pointer.position = Some(position);
                 self.pointer.down = false;
                 self.pointer.event = PointerEvent::Up { leave };
+                self.deactivated = self.active;
             }
             Input::PointerUp { position, .. } => self.pointer.position = Some(position),
             Input::PointerLeave => self.pointer.position = None,
@@ -207,7 +238,7 @@ impl InteractionState {
             _ => {}
         }
 
-        let position = self.physical_position(scale_factor);
+        let position = self.pointer.position;
         let hovered = position.and_then(|position| Self::hit(&self.previous_hits, position));
         self.hovered = hovered.map(|item| item.id);
         self.scroll_owner = position.and_then(|position| {
@@ -219,7 +250,12 @@ impl InteractionState {
         });
 
         if matches!(self.pointer.event, PointerEvent::Down) {
+            let previous = self.active;
             self.active = hovered.filter(|item| item.sense.click).map(|item| item.id);
+            if self.active != previous {
+                self.deactivated = previous;
+                self.activated = self.active;
+            }
             self.focused = hovered.filter(|item| item.sense.focus).map(|item| item.id);
             self.drag_owner = position.and_then(|position| {
                 self.previous_hits
@@ -231,53 +267,55 @@ impl InteractionState {
         }
     }
 
-    pub fn interact(
-        &mut self,
-        id: WidgetId,
-        area: Option<PhysicalRect>,
-        sense: Sense,
-    ) -> Interaction {
+    pub fn response(&mut self, id: WidgetId, sense: Sense) -> Interaction {
         #[cfg(debug_assertions)]
         assert!(self.seen.insert(id), "duplicate WidgetId {id:?}");
-
-        self.current_hits.push(HitItem {
-            id,
-            area: area.unwrap_or_default(),
-            sense,
-        });
+        self.requests.push((id, sense));
 
         let active = self.active == Some(id);
         let hovered = self.hovered == Some(id);
         Interaction {
             hovered,
-            pressed: active && self.pointer.down && !self.pointer.dragging,
+            active: active && self.pointer.down,
+            activated: self.activated == Some(id),
+            deactivated: self.deactivated == Some(id),
             clicked: active
                 && hovered
                 && matches!(self.pointer.event, PointerEvent::Up { .. })
                 && !self.pointer.dragging,
-            dragged: active && self.pointer.dragging,
+            dragging: active && self.pointer.down && self.pointer.dragging,
             drag_delta: match self.pointer.event {
                 PointerEvent::Move(delta) if active && self.pointer.dragging => delta,
                 _ => LogicalPoint::default(),
             },
-            drag_released: active
-                && self.pointer.dragging
-                && matches!(self.pointer.event, PointerEvent::Up { .. }),
-            scroll_delta: match self.pointer.event {
-                PointerEvent::Scroll { delta, .. } if self.scroll_owner == Some(id) => delta,
-                _ => LogicalPoint::default(),
-            },
-            scroll_continuous: matches!(
-                self.pointer.event,
+            scroll: match self.pointer.event {
                 PointerEvent::Scroll {
-                    continuous: true,
-                    ..
-                }
-            ),
-            scroll_phase: match self.pointer.event {
-                PointerEvent::Scroll { phase, .. } if self.scroll_owner == Some(id) => Some(phase),
+                    delta,
+                    continuous,
+                    phase,
+                } if self.scroll_owner == Some(id) => Some(ScrollInteraction {
+                    delta,
+                    continuous,
+                    phase,
+                }),
                 _ => None,
             },
+        }
+    }
+
+    pub fn register_hits(
+        &mut self,
+        hits: impl IntoIterator<Item = (WidgetId, Option<LogicalRect>)>,
+    ) {
+        self.requests.sort_unstable_by_key(|request| request.0);
+        for (id, area) in hits {
+            if let Ok(index) = self.requests.binary_search_by_key(&id, |request| request.0) {
+                self.current_hits.push(HitItem {
+                    id,
+                    area: area.unwrap_or_default(),
+                    sense: self.requests[index].1,
+                });
+            }
         }
     }
 
@@ -301,7 +339,7 @@ impl InteractionState {
         self.pointer.position
     }
 
-    pub fn end_frame(&mut self, scale_factor: f32) -> bool {
+    pub fn end_frame(&mut self) -> bool {
         if self
             .active
             .is_some_and(|id| !self.current_hits.iter().any(|item| item.id == id))
@@ -327,19 +365,13 @@ impl InteractionState {
         self.current_hits.clear();
 
         let next_hovered = self
-            .physical_position(scale_factor)
+            .pointer
+            .position
             .and_then(|position| Self::hit(&self.previous_hits, position));
         next_hovered.map(|item| item.id) != self.hovered
     }
 
-    fn physical_position(&self, scale_factor: f32) -> Option<PhysicalPoint> {
-        self.pointer.position.map(|position| PhysicalPoint {
-            x: (position.x * scale_factor).floor() as i32,
-            y: (position.y * scale_factor).floor() as i32,
-        })
-    }
-
-    fn hit(hits: &[HitItem], position: PhysicalPoint) -> Option<HitItem> {
+    fn hit(hits: &[HitItem], position: LogicalPoint) -> Option<HitItem> {
         hits.iter()
             .rev()
             .find(|item| item.area.contains(position.x, position.y))

@@ -9,7 +9,7 @@ mod pixel;
 
 use std::{error::Error, fmt};
 
-use blit::{Ui, platform::Platform};
+use blit::Ui;
 use blit_cpu::RendererConfig;
 use winit::event_loop::EventLoopProxy as WinitEventLoopProxy;
 
@@ -47,7 +47,7 @@ impl<T> EventLoopProxy<T> {
 pub trait Application: Sized + 'static {
     type Input: Send + 'static;
 
-    fn new(platform: Platform, input: EventLoopProxy<Self::Input>, root: Root<Self>) -> Self;
+    fn new(input: EventLoopProxy<Self::Input>, root: Root<Self>) -> Self;
 
     fn input(&mut self, input: Self::Input);
 

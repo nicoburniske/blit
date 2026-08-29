@@ -1,7 +1,6 @@
 use blit::{
     geometry::PhysicalRect,
-    paint::{ImageFit, ImageRequest, ImageTiling},
-    resource::ImageData,
+    image::{ImageData, ImageFit, ImageRequest, ImageTiling},
 };
 
 use super::image_patch::{Patch, Prepared};
@@ -29,8 +28,8 @@ pub fn prepare(
         return;
     }
 
-    let mut record = |prepared: Prepared| {
-        if let Some(clip) = prepared.bounds.intersection(clip) {
+    let mut record = |prepared: Prepared, bounds: PhysicalRect| {
+        if let Some(clip) = bounds.intersection(clip) {
             emit(prepared, clip);
         }
     };
@@ -88,7 +87,6 @@ pub fn prepare(
                 };
                 if let Some(prepared) = Prepared::new(
                     request,
-                    texture,
                     Patch {
                         source,
                         display,
@@ -106,7 +104,7 @@ pub fn prepare(
                     },
                     scale_factor,
                 ) {
-                    record(prepared);
+                    record(prepared, display);
                 }
             }
         }
@@ -146,7 +144,6 @@ pub fn prepare(
     };
     if let Some(prepared) = Prepared::new(
         request,
-        texture,
         Patch {
             source,
             display,
@@ -156,7 +153,7 @@ pub fn prepare(
         },
         scale_factor,
     ) {
-        record(prepared);
+        record(prepared, bounds);
     }
 }
 
@@ -174,12 +171,13 @@ mod tests {
     use blit::{
         color::Color,
         geometry::LogicalRect,
-        paint::{ImageFit, ImageSampling, ImageTiling, NineSlice},
-        resource::{ImageFormat, ImageId, ImagePixels},
+        image::{
+            ImageFit, ImageFormat, ImageId, ImagePixels, ImageSampling, ImageTiling, NineSlice,
+        },
     };
 
     use super::*;
-    use crate::{PixelBuffer, VecBuffer, Xrgb8888};
+    use crate::{PixelBuffer, VecBuffer, Xrgb8888, render::image_patch::AlphaRows};
 
     fn draw<B: PixelBuffer>(
         buffer: &mut B,
@@ -188,8 +186,26 @@ mod tests {
         clip: PhysicalRect,
         scale_factor: f32,
     ) {
+        let alpha_rows = AlphaRows::default();
         prepare(request, texture, clip, scale_factor, |image, clip| {
-            image.draw(buffer, texture, &[], clip)
+            let screen = PhysicalRect {
+                x: buffer.x_offset() as i32,
+                y: 0,
+                width: buffer.width() as i32,
+                height: buffer.height() as i32,
+            };
+            if let Some(clip) = clip.intersection(screen) {
+                for y in clip.y..clip.y + clip.height {
+                    image.draw_line(
+                        buffer.line_mut(y as usize),
+                        texture,
+                        &alpha_rows,
+                        clip,
+                        screen.x,
+                        y,
+                    );
+                }
+            }
         });
     }
 

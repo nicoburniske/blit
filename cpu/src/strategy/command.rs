@@ -1,30 +1,34 @@
-use std::mem::MaybeUninit;
+use std::ops::Range;
 
-use blit::{color::Color, geometry::PhysicalRect, paint::GradientStop};
+use blit::{color::Color, geometry::PhysicalRect, style::GradientStop};
 
 use super::clip::ClipId;
-use crate::render::{
-    image_patch::Prepared as PreparedImage,
-    rectangle::{Gradient as PreparedGradient, Prepared as PreparedRectangle},
+use crate::{
+    render::{
+        image_patch::Prepared as PreparedImage,
+        rectangle::{
+            Gradient as PreparedGradient, Prepared as PreparedRectangle,
+            SolidPair as PreparedSolidPair,
+        },
+    },
+    text::PreparedLines,
 };
 
-const RECTANGLE: u8 = 0;
-const GRADIENT_RECTANGLE: u8 = 1;
-const IMAGE: u8 = 2;
-const TEXT: u8 = 3;
+pub type CommandId = u32;
 
-/// packed records avoid sizing every command for the largest enum variant
 #[derive(Default)]
 pub struct CommandList {
-    words: Vec<Word>,
-    overwrites: Vec<usize>,
-    partial_opaque: Vec<usize>,
+    commands: Vec<StoredCommand>,
+    gradient_stops: Vec<GradientStop>,
     has_translucent_image: bool,
+    has_partial_opaque: bool,
     pub has_clips: bool,
 }
 
 pub enum Payload<'a> {
+    Clear,
     Rectangle(&'a PreparedRectangle),
+    SolidPair(&'a PreparedSolidPair),
     GradientRectangle(&'a PreparedGradient, &'a [GradientStop]),
     Image(&'a PreparedImage),
     Text(&'a PreparedText),
@@ -33,14 +37,20 @@ pub enum Payload<'a> {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct PreparedText {
-    pub paragraph: usize,
+    pub glyph_start: u32,
+    pub glyph_end: u32,
+    pub lines: PreparedLines,
     pub area: PhysicalRect,
     pub color: Color,
 }
 
 impl CommandList {
     pub fn is_empty(&self) -> bool {
-        self.words.is_empty()
+        self.commands.is_empty()
+    }
+
+    pub fn push_clear(&mut self, bounds: PhysicalRect) {
+        self.push(StoredPayload::Clear, bounds, 0, true, false);
     }
 
     pub fn push_rectangle(
@@ -49,10 +59,24 @@ impl CommandList {
         bounds: PhysicalRect,
         clip: ClipId,
     ) {
-        if clip == 0 && rectangle.overwrites() {
-            self.overwrites.push(self.words.len());
+        let overwrites = clip == 0 && rectangle.overwrites();
+        if clip == 0
+            && let Some(previous) = self.commands.last_mut()
+            && previous.clip == 0
+            && previous.bounds == bounds
+            && let StoredPayload::Rectangle(first) = &previous.payload
+            && let Some(pair) = first.fuse(&rectangle)
+        {
+            previous.payload = StoredPayload::SolidPair(pair);
+            return;
         }
-        self.push(RECTANGLE, rectangle, bounds, clip)
+        self.push(
+            StoredPayload::Rectangle(rectangle),
+            bounds,
+            clip,
+            overwrites,
+            false,
+        );
     }
 
     pub fn push_gradient_rectangle(
@@ -62,24 +86,28 @@ impl CommandList {
         bounds: PhysicalRect,
         clip: ClipId,
     ) -> bool {
-        let Ok(stops_len) = stops.len().try_into() else {
+        let Ok(start) = u32::try_from(self.gradient_stops.len()) else {
             return false;
         };
-        let offset = self.words.len();
-        let pushed = self.push_record(
-            GRADIENT_RECTANGLE,
-            PreparedGradientRectangle {
+        let Ok(len) = u32::try_from(stops.len()) else {
+            return false;
+        };
+        let Some(end) = start.checked_add(len) else {
+            return false;
+        };
+        self.gradient_stops.extend_from_slice(stops);
+        let overwrites = clip == 0 && rectangle.overwrites();
+        self.push(
+            StoredPayload::GradientRectangle {
                 rectangle,
-                stops_len,
+                stops: start..end,
             },
-            stops,
             bounds,
             clip,
+            overwrites,
+            false,
         );
-        if pushed && clip == 0 && rectangle.overwrites() {
-            self.overwrites.push(offset);
-        }
-        pushed
+        true
     }
 
     pub fn push_image(
@@ -87,102 +115,76 @@ impl CommandList {
         image: PreparedImage,
         bounds: PhysicalRect,
         clip: ClipId,
-        texture_opaque: bool,
-        texture_has_opaque_spans: bool,
+        opaque: bool,
+        has_opaque_spans: bool,
     ) {
-        let opaque = image.is_opaque(texture_opaque);
-        if clip == 0 && opaque {
-            self.overwrites.push(self.words.len());
-        } else if clip == 0
-            && self.has_translucent_image
-            && image.has_opaque_spans(texture_has_opaque_spans)
-        {
-            self.partial_opaque.push(self.words.len());
-        }
+        let partial_opaque = clip == 0 && !opaque && self.has_translucent_image && has_opaque_spans;
+        self.push(
+            StoredPayload::Image(image),
+            bounds,
+            clip,
+            clip == 0 && opaque,
+            partial_opaque,
+        );
         self.has_translucent_image |= !opaque;
-        self.push(IMAGE, image, bounds, clip)
+        self.has_partial_opaque |= partial_opaque;
     }
 
     pub fn push_text(&mut self, text: PreparedText, bounds: PhysicalRect, clip: ClipId) {
-        self.push(TEXT, text, bounds, clip)
+        self.push(StoredPayload::Text(text), bounds, clip, false, false);
     }
 
     #[inline]
-    pub fn get(&self, offset: usize) -> Payload<'_> {
-        let record = unsafe { self.words.as_ptr().add(offset).cast::<u8>() };
-        let header = self.header(offset);
-        match header.kind {
-            RECTANGLE => Payload::Rectangle(unsafe {
-                &*record
-                    .add(payload_offset::<PreparedRectangle>())
-                    .cast::<PreparedRectangle>()
-            }),
-            GRADIENT_RECTANGLE => {
-                let command = unsafe {
-                    &*record
-                        .add(payload_offset::<PreparedGradientRectangle>())
-                        .cast::<PreparedGradientRectangle>()
-                };
-                let stops_offset = (payload_offset::<PreparedGradientRectangle>()
-                    + size_of::<PreparedGradientRectangle>())
-                .next_multiple_of(align_of::<GradientStop>());
-                Payload::GradientRectangle(&command.rectangle, unsafe {
-                    std::slice::from_raw_parts(
-                        record.add(stops_offset).cast::<GradientStop>(),
-                        command.stops_len as usize,
-                    )
-                })
-            }
-            IMAGE => Payload::Image(unsafe {
-                &*record
-                    .add(payload_offset::<PreparedImage>())
-                    .cast::<PreparedImage>()
-            }),
-            TEXT => Payload::Text(unsafe {
-                &*record
-                    .add(payload_offset::<PreparedText>())
-                    .cast::<PreparedText>()
-            }),
-            _ => unreachable!(),
+    pub fn get(&self, id: CommandId) -> Payload<'_> {
+        match &self.commands[id as usize].payload {
+            StoredPayload::Clear => Payload::Clear,
+            StoredPayload::Rectangle(rectangle) => Payload::Rectangle(rectangle),
+            StoredPayload::SolidPair(pair) => Payload::SolidPair(pair),
+            StoredPayload::GradientRectangle { rectangle, stops } => Payload::GradientRectangle(
+                rectangle,
+                &self.gradient_stops[stops.start as usize..stops.end as usize],
+            ),
+            StoredPayload::Image(image) => Payload::Image(image),
+            StoredPayload::Text(text) => Payload::Text(text),
         }
     }
 
-    pub fn vertical_bounds(&self, offset: usize) -> std::ops::Range<i32> {
-        let header = self.header(offset);
-        header.top..header.bottom
+    pub fn vertical_bounds(&self, id: CommandId) -> Range<i32> {
+        let bounds = self.commands[id as usize].bounds;
+        bounds.y..bounds.y.saturating_add(bounds.height)
     }
 
-    pub fn horizontal_bounds(&self, offset: usize) -> std::ops::Range<i32> {
-        let header = self.header(offset);
-        header.left..header.right
+    pub fn horizontal_bounds(&self, id: CommandId) -> Range<i32> {
+        let bounds = self.commands[id as usize].bounds;
+        bounds.x..bounds.x.saturating_add(bounds.width)
     }
 
-    pub fn bounds(&self, offset: usize) -> PhysicalRect {
-        let header = self.header(offset);
-        PhysicalRect {
-            x: header.left,
-            y: header.top,
-            width: header.right - header.left,
-            height: header.bottom - header.top,
-        }
+    pub fn bounds(&self, id: CommandId) -> PhysicalRect {
+        self.commands[id as usize].bounds
     }
 
-    pub fn clip(&self, offset: usize) -> ClipId {
-        self.header(offset).clip
+    pub fn clip(&self, id: CommandId) -> ClipId {
+        self.commands[id as usize].clip
     }
 
-    pub fn overwrite_offsets(&self) -> &[usize] {
-        &self.overwrites
+    pub fn overwrites(&self, id: CommandId) -> bool {
+        self.commands[id as usize].overwrites
     }
 
-    pub fn partial_opaque_offsets(&self) -> &[usize] {
-        &self.partial_opaque
+    pub fn has_partial_opaque(&self) -> bool {
+        self.has_partial_opaque
     }
 
-    pub fn overwrite_span(&self, offset: usize, line: i32) -> Option<std::ops::Range<i32>> {
-        let bounds = self.horizontal_bounds(offset);
-        let span = match self.get(offset) {
+    pub fn partial_opaque(&self, id: CommandId) -> bool {
+        self.commands[id as usize].partial_opaque
+    }
+
+    pub fn overwrite_span(&self, id: CommandId, line: i32) -> Option<Range<i32>> {
+        let bounds = self.horizontal_bounds(id);
+        let span = match self.get(id) {
+            Payload::Clear => bounds.clone(),
             Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
+            Payload::SolidPair(_) => bounds.clone(),
             Payload::Image(_) => bounds.clone(),
             Payload::GradientRectangle(rectangle, _) => rectangle.overwrite_span(line)?,
             Payload::Text(_) => return None,
@@ -192,123 +194,58 @@ impl CommandList {
         (start < end).then_some(start..end)
     }
 
-    pub fn offsets(&self) -> Offsets<'_> {
-        Offsets {
-            commands: self,
-            offset: 0,
-        }
+    pub fn offsets(&self) -> Range<CommandId> {
+        0..command_id(self.commands.len())
     }
 
     pub fn clear(&mut self) {
-        self.words.clear();
-        self.overwrites.clear();
-        self.partial_opaque.clear();
+        self.commands.clear();
+        self.gradient_stops.clear();
         self.has_translucent_image = false;
+        self.has_partial_opaque = false;
         self.has_clips = false;
     }
 
-    fn push<T: Copy>(&mut self, kind: u8, payload: T, bounds: PhysicalRect, clip: ClipId) {
-        assert!(self.push_record(kind, payload, &[], bounds, clip));
-    }
-
-    fn push_record<T: Copy>(
+    fn push(
         &mut self,
-        kind: u8,
-        payload: T,
-        stops: &[GradientStop],
+        payload: StoredPayload,
         bounds: PhysicalRect,
         clip: ClipId,
-    ) -> bool {
-        assert!(align_of::<T>() <= align_of::<Word>());
-        let payload_offset = payload_offset::<T>();
-        let stops_offset =
-            (payload_offset + size_of::<T>()).next_multiple_of(align_of::<GradientStop>());
-        let bytes = if stops.is_empty() {
-            payload_offset + size_of::<T>()
-        } else {
-            stops_offset + size_of_val(stops)
-        };
-        let record_words = bytes.div_ceil(size_of::<Word>());
-        let Ok(record_words) = record_words.try_into() else {
-            return false;
-        };
+        overwrites: bool,
+        partial_opaque: bool,
+    ) {
         self.has_clips |= clip != 0;
-        let offset = self.words.len();
-        self.words.resize_with(offset + record_words as usize, || {
-            Word(MaybeUninit::uninit())
+        self.commands.push(StoredCommand {
+            bounds,
+            clip,
+            overwrites,
+            partial_opaque,
+            payload,
         });
-        let record = unsafe { self.words.as_mut_ptr().add(offset).cast::<u8>() };
-        unsafe {
-            record.cast::<Header>().write(Header {
-                top: bounds.y,
-                bottom: bounds.y.saturating_add(bounds.height),
-                left: bounds.x,
-                right: bounds.x.saturating_add(bounds.width),
-                record_words,
-                kind,
-                clip,
-            });
-            record.add(payload_offset).cast::<T>().write(payload);
-            if !stops.is_empty() {
-                record
-                    .add(stops_offset)
-                    .cast::<GradientStop>()
-                    .copy_from_nonoverlapping(stops.as_ptr(), stops.len());
-            }
-        }
-        true
-    }
-
-    fn record_words(&self, offset: usize) -> usize {
-        self.header(offset).record_words as usize
-    }
-
-    fn header(&self, offset: usize) -> &Header {
-        assert!(offset < self.words.len());
-        unsafe { &*self.words.as_ptr().add(offset).cast::<Header>() }
     }
 }
 
-#[derive(Clone, Copy)]
-#[repr(C)]
-struct PreparedGradientRectangle {
-    rectangle: PreparedGradient,
-    stops_len: u32,
+struct StoredCommand {
+    bounds: PhysicalRect,
+    clip: ClipId,
+    overwrites: bool,
+    partial_opaque: bool,
+    payload: StoredPayload,
 }
 
-fn payload_offset<T>() -> usize {
-    size_of::<Header>().next_multiple_of(align_of::<T>())
+enum StoredPayload {
+    Clear,
+    Rectangle(PreparedRectangle),
+    SolidPair(PreparedSolidPair),
+    GradientRectangle {
+        rectangle: PreparedGradient,
+        stops: Range<u32>,
+    },
+    Image(PreparedImage),
+    Text(PreparedText),
 }
 
-pub struct Offsets<'a> {
-    commands: &'a CommandList,
-    offset: usize,
+#[track_caller]
+fn command_id(index: usize) -> CommandId {
+    CommandId::try_from(index).expect("too many CPU commands in one frame")
 }
-
-impl Iterator for Offsets<'_> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.offset == self.commands.words.len() {
-            return None;
-        }
-        let offset = self.offset;
-        self.offset += self.commands.record_words(offset);
-        Some(offset)
-    }
-}
-
-#[derive(Clone, Copy)]
-#[repr(C)]
-struct Header {
-    top: i32,
-    bottom: i32,
-    left: i32,
-    right: i32,
-    record_words: u8,
-    kind: u8,
-    clip: u16,
-}
-
-#[repr(C, align(8))]
-struct Word(MaybeUninit<[u8; 8]>);

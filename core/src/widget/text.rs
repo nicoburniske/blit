@@ -1,28 +1,47 @@
-use super::SizedWidget;
+use super::Widget;
 use crate::{
     Ui,
     color::Color,
-    geometry::{LogicalRect, LogicalSize},
-    paint::{
-        HorizontalAlign, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap, VerticalAlign,
+    container::Slot,
+    node::Content,
+    text::{
+        FontId, HorizontalAlign, TextContent, TextOptions, TextOverflow, TextStyle, TextWrap,
+        VerticalAlign,
     },
-    resource::TextSource,
 };
 
-crate::widget! {
-    pub struct Text {
-        new(pub text: impl Into<TextSource>);
-        pub color: Color = Color::BLACK,
-        pub text_style: TextStyle,
-        pub options: TextOptions,
-        pub offset_x: f32,
-        #[skip]
-        pub intrinsic_height: bool,
+crate::builder! {
+    pub struct Text<'a> {
+        new(text: &'a str),
+        slot: Slot = Slot::new(),
+        color: Color = Color::BLACK,
+        text_style: TextStyle = TextStyle::default(),
+        options: TextOptions = TextOptions::default(),
+        offset_x: f32 = 0.0,
     }
-    features: [text_style]
 }
 
-impl Text {
+impl Text<'_> {
+    pub fn style(mut self, style: impl Into<TextStyle>) -> Self {
+        self.text_style = style.into();
+        self
+    }
+
+    pub fn font(mut self, font: FontId) -> Self {
+        self.text_style.font = font;
+        self
+    }
+
+    pub fn text_size(mut self, size: f32) -> Self {
+        self.text_style.size = size;
+        self
+    }
+
+    pub fn text_weight(mut self, weight: u16) -> Self {
+        self.text_style.weight = weight;
+        self
+    }
+
     pub fn wrap(mut self, wrap: TextWrap) -> Self {
         self.options.wrap = wrap;
         self
@@ -47,72 +66,24 @@ impl Text {
         self.options.max_lines = Some(max_lines);
         self
     }
-
-    pub fn measure_exact(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize {
-        let request = TextRequest {
-            text: self.text,
-            area: LogicalRect {
-                height: 0.0,
-                ..available
-            },
-            offset_x: self.offset_x,
-            color: self.color,
-            style: self.text_style,
-            options: self.options,
-            intrinsic_height: true,
-        };
-        let measured = ui.platform().measure_text(&request);
-        LogicalSize {
-            width: measured.width.clamp(0.0, available.width.max(0.0)),
-            height: measured.height.clamp(0.0, available.height.max(0.0)),
-        }
-    }
-
-    pub fn render(self, ui: &mut Ui, area: LogicalRect) {
-        let request = TextRequest {
-            text: self.text,
-            area,
-            offset_x: self.offset_x,
-            color: self.color,
-            style: self.text_style,
-            options: self.options,
-            intrinsic_height: self.intrinsic_height,
-        };
-        ui.paint_text(request);
-    }
 }
 
-impl SizedWidget for Text {
+impl Widget for Text<'_> {
     type Output = ();
 
-    fn measure(&self, ui: &mut Ui, available: LogicalRect) -> LogicalSize {
-        let mut options = self.options;
-        options.vertical_align = VerticalAlign::Top;
-        let request = TextRequest {
-            text: self.text,
-            area: LogicalRect {
-                height: 0.0,
-                ..available
-            },
-            offset_x: self.offset_x,
-            color: self.color,
-            style: self.text_style,
-            options,
-            intrinsic_height: true,
-        };
-        LogicalSize {
-            width: available.width,
-            height: ui
-                .platform()
-                .measure_text_height(&request)
-                .min(available.height),
-        }
-    }
-
-    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
-        let mut text = self;
-        text.options.vertical_align = VerticalAlign::Top;
-        text.intrinsic_height = true;
-        Text::render(text, ui, area)
+    fn render(self, ui: &mut Ui) {
+        let text = ui.text_run(self.text, self.text_style);
+        ui.add_leaf(
+            self.slot,
+            Content::Text(TextContent {
+                text,
+                color: self.color,
+                style: self.text_style,
+                options: self.options,
+                offset_x: self.offset_x,
+                selection: None,
+                caret: None,
+            }),
+        );
     }
 }

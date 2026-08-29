@@ -1,262 +1,1278 @@
-use std::{cell::Cell, time::Duration};
+use std::time::Duration;
 
 use crate::{
-    RepaintBuffer, Runtime, Ui,
+    Ui, UiState,
     animation::{Easing, Transition},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
+    color::Color,
+    command_list::{ClipId, Command, CommandList},
+    container::{Absolute, Anchor, Sizing, Slot},
+    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Sides},
+    image,
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
     interact::{Sense, WidgetId},
-    keyboard::KeyboardRequest,
-    paint,
-    paint_list::{ClipId, PaintList},
-    platform::PlatformImpl,
-    resource, widget,
+    layout::{
+        Align, Axis, Constraints, Flex, Grid, Justify, Layout, LayoutCx, RawScope, RectLayout,
+        UnitScope, Wrap,
+    },
+    renderer::Renderer,
+    repaint::{IncrementalRepaint, MyersTracker},
+    style::{Clip, GradientStop, LinearGradient, Style},
+    text,
+    widget::{self, Widget},
 };
 
 #[derive(Default)]
-struct TestPlatform {
-    strings: Vec<Option<resource::StringData>>,
-    dead_strings: Vec<usize>,
+struct TestRenderer {
+    text_runs: Vec<(String, text::TextStyle)>,
     damage: Vec<PhysicalRect>,
     paint_bounds: Vec<PhysicalRect>,
     paint_clips: Vec<ClipId>,
+    rectangle_areas: Vec<LogicalRect>,
+    text_areas: Vec<LogicalRect>,
+    clear_count: usize,
+    text_widths: Vec<Option<f32>>,
     clip_count: usize,
-    repaint_buffer: RepaintBuffer,
+    scale_factors: Vec<f32>,
 }
 
-struct FixedSize(f32);
-
-impl widget::SizedWidget for FixedSize {
-    type Output = LogicalRect;
-
-    fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
-        LogicalSize {
-            width: available.width,
-            height: self.0,
-        }
+impl Renderer for TestRenderer {
+    fn set_scale_factor(&mut self, scale_factor: f32) {
+        self.scale_factors.push(scale_factor);
     }
 
-    fn render(self, _: &mut Ui, area: LogicalRect) -> Self::Output {
-        area
-    }
-}
-
-impl PlatformImpl for TestPlatform {
-    fn render(&mut self, paint: &PaintList, damage: &[PhysicalRect]) {
+    fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
         self.damage.clear();
         self.damage.extend_from_slice(damage);
         self.paint_bounds.clear();
         self.paint_clips.clear();
-        for record in paint.iter() {
+        self.rectangle_areas.clear();
+        self.text_areas.clear();
+        self.clear_count = 0;
+        for record in commands.iter() {
             self.paint_bounds.push(record.bounds);
             self.paint_clips.push(record.clip);
+            match record.command {
+                Command::Clear => self.clear_count += 1,
+                Command::Rectangle(rectangle) => self.rectangle_areas.push(rectangle.area),
+                Command::Text(text) => self.text_areas.push(text.area),
+                Command::Image(_) | Command::BoxShadow(_) => {}
+            }
         }
-        self.clip_count = paint.clips().len();
-        for string in self.dead_strings.drain(..) {
-            self.strings[string] = None;
+        self.clip_count = commands.clips().len();
+    }
+
+    fn create_image(&mut self, data: image::ImageData) -> image::ImageHandle {
+        image::ImageHandle::new(image::ImageId(0), data.size)
+    }
+
+    fn text_run(&mut self, text: &str, style: text::TextStyle) -> text::TextRunId {
+        if let Some(index) = self
+            .text_runs
+            .iter()
+            .position(|(stored, stored_style)| stored == text && *stored_style == style)
+        {
+            return text::TextRunId(index as u64 + 1);
+        }
+        self.text_runs.push((text.to_owned(), style));
+        text::TextRunId(self.text_runs.len() as u64)
+    }
+
+    fn text_offset_at_position(&mut self, request: &text::TextRequest, _: LogicalPoint) -> usize {
+        self.text_runs[request.text.0 as usize - 1].0.len()
+    }
+
+    fn measure_text(&mut self, request: &text::TextLayoutRequest) -> LogicalSize {
+        self.text_widths.push(request.max_width);
+        let text = &self.text_runs[request.text.0 as usize - 1].0;
+        let natural = text.chars().count() as f32 * request.style.size;
+        let width = natural.min(request.max_width.unwrap_or(f32::INFINITY));
+        let lines = request
+            .max_width
+            .filter(|width| *width > 0.0)
+            .map_or(1.0, |width| (natural / width).ceil().max(1.0));
+        LogicalSize {
+            width,
+            height: request.style.size * lines,
         }
     }
 
-    fn screen(&mut self) -> PhysicalRect {
-        PhysicalRect {
+    fn text_cursor_rect(&mut self, request: &text::TextRequest, byte_offset: usize) -> LogicalRect {
+        LogicalRect {
+            x: request.area.x + byte_offset as f32 * request.style.size - request.offset_x,
+            y: request.area.y,
+            width: 0.0,
+            height: request.style.size,
+        }
+    }
+}
+
+struct Harness {
+    renderer: TestRenderer,
+    state: UiState,
+    repaint: IncrementalRepaint<MyersTracker>,
+}
+
+impl Harness {
+    fn new(renderer: TestRenderer) -> Self {
+        let state = UiState::new(
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 10,
+                height: 10,
+            },
+            1.0,
+        );
+        Self {
+            renderer,
+            state,
+            repaint: IncrementalRepaint::new(MyersTracker::default(), false),
+        }
+    }
+
+    fn render<R>(
+        &mut self,
+        time: Duration,
+        input: Input,
+        mut render: impl FnMut(&mut Ui) -> R,
+    ) -> R {
+        let mut output = None;
+        crate::render(
+            &mut self.renderer,
+            &mut self.state,
+            &mut self.repaint,
+            time,
+            [input],
+            |ui| output = Some(render(ui)),
+        );
+        output.unwrap()
+    }
+
+    fn renderer(&mut self) -> &mut TestRenderer {
+        &mut self.renderer
+    }
+
+    fn has_pending_redraw(&self) -> bool {
+        self.state.has_pending_redraw()
+    }
+
+    fn next_timer_deadline(&self) -> Option<Duration> {
+        self.state.next_timer_deadline()
+    }
+}
+
+#[test]
+fn renderer_scale_changes_before_the_next_frame() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        assert_eq!(ui.scale_factor(), 1.0);
+        ui.set_scale_factor(2.0);
+        assert_eq!(ui.scale_factor(), 1.0);
+    });
+    assert_eq!(harness.renderer().scale_factors, [1.0]);
+
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        assert_eq!(ui.scale_factor(), 2.0);
+    });
+    assert_eq!(harness.renderer().scale_factors, [1.0, 2.0]);
+
+    harness.render(Duration::ZERO, Input::None, |_| {});
+    assert_eq!(harness.renderer().scale_factors, [1.0, 2.0]);
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "id belongs to another frame")]
+fn frame_ids_reject_other_frames() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let node = harness.render(Duration::ZERO, Input::None, |ui| {
+        ui.add_leaf(Slot::new(), crate::node::Content::Rectangle(Style::new()))
+    });
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        ui.set_node_style(node, Style::new())
+    });
+}
+
+fn button(ui: &mut Ui) -> bool {
+    let id = WidgetId::new("test button");
+    let interaction = ui.interact(id, Sense::CLICK);
+    let mut button = ui.layout(Flex::row()).fixed(10.0, 10.0).id(id).open();
+    button.add(widget::Text::new("button"));
+    interaction.clicked
+}
+
+fn rectangle(width: Sizing, height: Sizing, color: Color) -> widget::Rectangle<'static> {
+    widget::Rectangle::new()
+        .slot(Slot::new().width(width).height(height))
+        .style(Style::new().background(color))
+}
+
+fn fixed_rectangle(width: f32, height: f32, color: Color) -> widget::Rectangle<'static> {
+    rectangle(Sizing::fixed(width), Sizing::fixed(height), color)
+}
+
+#[test]
+fn clear_is_the_stable_frame_background() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        ui.clear();
+        fixed_rectangle(2.0, 2.0, Color::WHITE).render(ui);
+    });
+    harness.render(Duration::ZERO, Input::None, |ui| ui.clear());
+
+    assert_eq!(harness.renderer().clear_count, 1);
+    assert_eq!(
+        harness.renderer().paint_bounds,
+        [PhysicalRect {
             x: 0,
             y: 0,
             width: 10,
             height: 10,
-        }
-    }
-
-    fn repaint_buffer(&self) -> RepaintBuffer {
-        self.repaint_buffer
-    }
-
-    fn create_image(&mut self, _: resource::ImageData) -> resource::ImageId {
-        resource::ImageId(0)
-    }
-
-    fn drop_image(&mut self, _: resource::ImageId) {}
-
-    fn create_string(&mut self, string: resource::StringData) -> resource::StringId {
-        self.strings.push(Some(string));
-        resource::StringId(self.strings.len() as u64)
-    }
-
-    fn drop_string(&mut self, string: resource::StringId) {
-        self.dead_strings.push(string.0 as usize - 1);
-    }
-
-    fn string(&self, string: resource::StringId) -> &str {
-        self.strings[string.0 as usize - 1]
-            .as_ref()
-            .unwrap()
-            .as_ref()
-    }
-
-    fn text_offset_at_position(&mut self, request: &paint::TextRequest, _: LogicalPoint) -> usize {
-        match request.text {
-            resource::TextSource::Resource(string) => self.string(string),
-            resource::TextSource::Static(string) => string,
-        }
-        .len()
-    }
-
-    fn measure_text(&mut self, request: &paint::TextRequest) -> LogicalSize {
-        LogicalSize {
-            width: request.area.width,
-            height: request.style.size,
-        }
-    }
-
-    fn measure_text_height(&mut self, request: &paint::TextRequest) -> f32 {
-        request.style.size
-    }
-
-    fn text_cursor_rect(&mut self, request: &paint::TextRequest, _: usize) -> LogicalRect {
-        request.area
-    }
-
-    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {}
+        }]
+    );
+    assert_eq!(
+        harness.renderer().damage,
+        [PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 2,
+        }]
+    );
 }
 
 #[test]
-fn input_stays_compact() {
-    assert_eq!(std::mem::size_of::<Input>(), 20)
-}
-
-#[test]
-fn static_text_uses_no_string_resources() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let area = runtime.screen();
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        widget::Text::new("label").render(ui, area);
-        widget::Button::new("button").render(ui, area);
+fn container_scopes_and_rectangle_leaves_resolve_layout() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut row = ui.layout(Flex::row()).fixed(9.0, 1.0).open();
+        for (maximum, color) in [(1.0, Color::BLACK), (4.0, Color::GRAY)] {
+            row.add(rectangle(
+                Sizing::grow().max(maximum),
+                Sizing::fixed(1.0),
+                color,
+            ));
+        }
+        row.add(rectangle(Sizing::grow(), Sizing::fixed(1.0), Color::WHITE));
     });
-    assert!(runtime.platform().strings.is_empty());
 
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        widget::Text::new("label").render(ui, area);
-        widget::Button::new("button").render(ui, area);
-    });
-    assert!(runtime.platform().damage.is_empty());
+    let areas = &harness.renderer().rectangle_areas;
+    assert_eq!(areas.len(), 3);
+    assert_eq!(
+        (
+            areas[0].width,
+            areas[1].x,
+            areas[1].width,
+            areas[2].x,
+            areas[2].width,
+        ),
+        (1.0, 1.0, 4.0, 5.0, 4.0)
+    );
 }
 
 #[test]
-fn paint_changes_produce_automatic_damage() {
-    let screen = PhysicalRect {
+fn custom_layout_is_stored_and_invoked_after_declaration() {
+    #[derive(Clone, Copy)]
+    struct ReverseRow {
+        gap: f32,
+    }
+
+    #[derive(Clone, Copy)]
+    struct Gap(f32);
+
+    struct ReverseScope<'a>(RawScope<'a, ReverseRow>);
+
+    impl<'a> From<RawScope<'a, ReverseRow>> for ReverseScope<'a> {
+        fn from(scope: RawScope<'a, ReverseRow>) -> Self {
+            Self(scope)
+        }
+    }
+
+    impl ReverseScope<'_> {
+        fn add<W: Widget>(&mut self, gap: f32, widget: W) -> W::Output {
+            self.0.add(Gap(gap), widget)
+        }
+
+        fn close(self) {}
+    }
+
+    impl Layout for ReverseRow {
+        type Item = Gap;
+        type Scope<'a> = ReverseScope<'a>;
+
+        fn layout(
+            &self,
+            cx: &mut LayoutCx<'_, Self::Item>,
+            constraints: Constraints,
+        ) -> LogicalSize {
+            let empty = cx.children().next().is_none();
+            let size = constraints.constrain(if empty {
+                LogicalSize {
+                    width: 1.0,
+                    height: 1.0,
+                }
+            } else {
+                LogicalSize::default()
+            });
+            let mut cursor = size.width;
+            for (index, node) in cx.children().enumerate() {
+                let natural = cx.layout_child(node, Constraints::loose(size));
+                let child = LogicalSize {
+                    width: cx.sizing(node, Axis::Horizontal).resolve(
+                        natural.width,
+                        size.width,
+                        false,
+                    ),
+                    height: cx.sizing(node, Axis::Vertical).resolve(
+                        natural.height,
+                        size.height,
+                        true,
+                    ),
+                };
+                cx.layout_child(node, Constraints::tight(child));
+                cursor -= cx.item(node).0 + child.width;
+                cx.set_z_index(node, -(index as i16));
+                cx.set_position(node, LogicalPoint { x: cursor, y: 0.0 });
+                cursor -= self.gap;
+            }
+            size
+        }
+    }
+
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut row = ui.layout(ReverseRow { gap: 1.0 }).fixed(10.0, 4.0).open();
+        row.add(0.0, fixed_rectangle(2.0, 4.0, Color::BLACK));
+        row.add(2.0, fixed_rectangle(3.0, 4.0, Color::WHITE));
+        row.add(0.0, |ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(1.0, 1.0)
+                .absolute(Absolute::at(6.0, 1.0))
+                .style(Style::new().background(Color::GRAY))
+                .open();
+        });
+        row.close();
+        ui.layout(ReverseRow { gap: 0.0 })
+            .style(Style::new().background(Color::GRAY))
+            .open();
+    });
+
+    let areas = &harness.renderer().rectangle_areas;
+    assert_eq!(areas.len(), 4);
+    assert_eq!((areas[0].x, areas[0].width), (2.0, 3.0));
+    assert_eq!((areas[1].x, areas[1].width), (8.0, 2.0));
+    assert_eq!((areas[2].x, areas[2].y), (6.0, 1.0));
+    assert_eq!((areas[3].y, areas[3].height), (4.0, 1.0));
+}
+
+#[test]
+fn rect_layout_uses_supplied_rectangles_and_measures_their_extent() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let stops = [
+            GradientStop::new(0.0, Color::BLACK),
+            GradientStop::new(1.0, Color::WHITE),
+        ];
+        let mut outer = ui
+            .layout(Flex::row().align(Align::Start))
+            .fixed(10.0, 10.0)
+            .open();
+        outer.add(|ui: &mut Ui| {
+            let mut layout = ui
+                .layout(RectLayout)
+                .style(Style::new().background(Color::GRAY))
+                .open();
+            layout.add(
+                LogicalRect {
+                    x: 2.0,
+                    y: 1.0,
+                    width: 3.0,
+                    height: 4.0,
+                },
+                widget::Rectangle::new().style(
+                    Style::new()
+                        .background(Color::BLACK)
+                        .gradient_border(1.0, LinearGradient::new(&stops)),
+                ),
+            );
+            layout.add(
+                LogicalRect {
+                    x: 0.0,
+                    y: 6.0,
+                    width: 2.0,
+                    height: 1.0,
+                },
+                widget::Rectangle::new().style(Style::new().background(Color::WHITE)),
+            );
+        });
+    });
+
+    let areas = &harness.renderer().rectangle_areas;
+    assert_eq!(areas.len(), 3);
+    assert_eq!((areas[0].width, areas[0].height), (5.0, 7.0));
+    assert_eq!(areas[1].x, 2.0);
+    assert_eq!(areas[1].y, 1.0);
+    assert_eq!(areas[1].width, 3.0);
+    assert_eq!(areas[1].height, 4.0);
+    assert_eq!((areas[2].x, areas[2].y, areas[2].width), (0.0, 6.0, 2.0));
+}
+
+#[test]
+fn wrap_forms_horizontal_and_vertical_runs() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut horizontal = ui
+            .layout(Wrap::horizontal().item_gap(1.0).run_gap(2.0))
+            .fixed(5.0, 5.0)
+            .open();
+        horizontal.add(fixed_rectangle(2.0, 1.0, Color::BLACK));
+        horizontal.add(fixed_rectangle(2.0, 2.0, Color::GRAY));
+        horizontal.add(fixed_rectangle(2.0, 1.0, Color::WHITE));
+        horizontal.close();
+
+        let mut vertical = ui
+            .layout(Wrap::vertical().item_gap(1.0).run_gap(2.0))
+            .fixed(10.0, 5.0)
+            .open();
+        vertical.add(fixed_rectangle(1.0, 2.0, Color::BLACK));
+        vertical.add(fixed_rectangle(2.0, 2.0, Color::GRAY));
+        vertical.add(|ui: &mut Ui| {
+            let mut child = ui.layout(Flex::row()).fixed(1.0, 2.0).open();
+            child.add(fixed_rectangle(1.0, 2.0, Color::WHITE));
+        });
+    });
+
+    let areas = &harness.renderer().rectangle_areas;
+    assert_eq!(
+        areas[..3]
+            .iter()
+            .map(|area| (area.x, area.y))
+            .collect::<Vec<_>>(),
+        [(0.0, 0.0), (3.0, 0.0), (0.0, 4.0)]
+    );
+    assert_eq!(
+        areas[3..]
+            .iter()
+            .map(|area| (area.x, area.y))
+            .collect::<Vec<_>>(),
+        [(0.0, 5.0), (0.0, 8.0), (4.0, 5.0)]
+    );
+}
+
+#[test]
+fn wrap_remeasures_text_at_run_width() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut wrap = ui.layout(Wrap::horizontal()).fixed(10.0, 20.0).open();
+        wrap.add(
+            widget::Text::new("1234")
+                .text_size(4.0)
+                .wrap(text::TextWrap::Character),
+        );
+    });
+
+    assert_eq!(harness.renderer().text_widths, [None, Some(10.0)]);
+    assert_eq!(
+        (
+            harness.renderer().text_areas[0].width,
+            harness.renderer().text_areas[0].height,
+        ),
+        (10.0, 8.0)
+    );
+}
+
+#[test]
+fn grid_uses_equal_columns_and_row_heights() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut outer = ui.layout(Wrap::horizontal()).fixed(5.0, 6.0).open();
+        outer.add(|ui: &mut Ui| {
+            let mut grid = ui.layout(Grid::columns(2).gap(1.0)).fixed(5.0, 6.0).open();
+            grid.add(fixed_rectangle(1.0, 1.0, Color::BLACK));
+            grid.add(fixed_rectangle(1.0, 2.0, Color::GRAY));
+            grid.add(fixed_rectangle(1.0, 3.0, Color::WHITE));
+        });
+    });
+
+    let areas = &harness.renderer().rectangle_areas;
+    assert_eq!(
+        areas
+            .iter()
+            .map(|area| (area.x, area.y, area.width, area.height))
+            .collect::<Vec<_>>(),
+        [
+            (0.0, 0.0, 2.0, 2.0),
+            (3.0, 0.0, 2.0, 2.0),
+            (0.0, 3.0, 2.0, 3.0),
+        ]
+    );
+}
+
+#[test]
+fn spanning_grid_uses_equal_row_units() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut grid = ui
+            .layout(Grid::columns(3).spanning().gap(1.0))
+            .fixed(8.0, 7.0)
+            .open();
+        grid.add_span(2, 2, fixed_rectangle(1.0, 5.0, Color::BLACK));
+        grid.add(fixed_rectangle(1.0, 2.0, Color::GRAY));
+        grid.add(fixed_rectangle(1.0, 3.0, Color::WHITE));
+    });
+
+    assert_eq!(
+        harness
+            .renderer()
+            .rectangle_areas
+            .iter()
+            .map(|area| (area.x, area.y, area.width, area.height))
+            .collect::<Vec<_>>(),
+        [
+            (0.0, 0.0, 5.0, 7.0),
+            (6.0, 0.0, 2.0, 3.0),
+            (6.0, 4.0, 2.0, 3.0),
+        ]
+    );
+}
+
+#[test]
+#[should_panic(expected = "layout item is missing")]
+fn unit_scope_does_not_store_layout_items() {
+    #[derive(Clone, Copy)]
+    struct UnitItems;
+
+    impl Layout for UnitItems {
+        type Item = ();
+        type Scope<'a> = UnitScope<'a, Self>;
+
+        fn layout(
+            &self,
+            cx: &mut LayoutCx<'_, Self::Item>,
+            constraints: Constraints,
+        ) -> LogicalSize {
+            for node in cx.children() {
+                cx.item(node);
+            }
+            constraints.constrain(LogicalSize::default())
+        }
+    }
+
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut layout = ui.layout(UnitItems).fixed(2.0, 2.0).open();
+        layout.add(fixed_rectangle(2.0, 2.0, Color::TRANSPARENT));
+    });
+}
+
+#[test]
+fn percentage_sizing_does_not_expand_fit_parent() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut outer = ui
+            .layout(Flex::row().align(Align::Start))
+            .fixed(10.0, 10.0)
+            .open();
+        outer.add(|ui: &mut Ui| {
+            let mut fit = ui.layout(Flex::row()).height(Sizing::fixed(10.0)).open();
+            fit.add(rectangle(
+                Sizing::percent(0.5),
+                Sizing::fixed(10.0),
+                Color::BLACK,
+            ));
+            fit.add(fixed_rectangle(4.0, 10.0, Color::GRAY));
+        });
+    });
+
+    let areas = &harness.renderer().rectangle_areas;
+    assert_eq!(areas.len(), 2);
+    assert_eq!(
+        (areas[0].width, areas[1].x, areas[1].width),
+        (2.0, 2.0, 4.0)
+    );
+}
+
+#[test]
+fn absolute_containers_do_not_participate_in_flow() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("offset absolute");
+    let transition = Transition::new(Duration::from_millis(100)).position();
+    let render = |ui: &mut Ui, offset| {
+        let mut row = ui
+            .layout(Flex::row().gap(2.0))
+            .fixed(10.0, 10.0)
+            .offset(offset)
+            .open();
+        row.add(fixed_rectangle(2.0, 2.0, Color::BLACK));
+        row.add(|ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(3.0, 2.0)
+                .style(Style::new().background(Color::GRAY))
+                .id(id)
+                .transition(transition)
+                .absolute(Absolute::at(3.0, -1.0))
+                .open();
+        });
+        row.add(rectangle(Sizing::grow(), Sizing::fixed(2.0), Color::WHITE));
+        row.add(|ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(2.0, 2.0)
+                .style(Style::new().background(Color::GRAY))
+                .absolute(
+                    Absolute::screen(0.0, 0.0).anchors(Anchor::BottomRight, Anchor::BottomRight),
+                )
+                .open();
+        });
+    };
+
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        render(ui, LogicalPoint::default())
+    });
+    harness.render(Duration::from_millis(10), Input::None, |ui| {
+        render(ui, LogicalPoint { x: 1.0, y: 1.0 })
+    });
+
+    assert_eq!(
+        harness.renderer().rectangle_areas,
+        [
+            LogicalRect {
+                x: 1.0,
+                y: 1.0,
+                width: 2.0,
+                height: 2.0,
+            },
+            LogicalRect {
+                x: 4.0,
+                y: 0.0,
+                width: 3.0,
+                height: 2.0,
+            },
+            LogicalRect {
+                x: 5.0,
+                y: 1.0,
+                width: 6.0,
+                height: 2.0,
+            },
+            LogicalRect {
+                x: 8.0,
+                y: 8.0,
+                width: 2.0,
+                height: 2.0,
+            },
+        ]
+    );
+    assert!(!harness.has_pending_redraw());
+}
+
+#[test]
+fn z_index_orders_normal_siblings() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        widget::Rectangle::new()
+            .slot(Slot::new().fixed(1.0, 1.0).z_index(2))
+            .style(Style::new().background(Color::BLACK))
+            .render(ui);
+        widget::Rectangle::new()
+            .slot(Slot::new().fixed(2.0, 1.0).z_index(-1))
+            .style(Style::new().background(Color::BLACK))
+            .render(ui);
+        fixed_rectangle(3.0, 1.0, Color::BLACK).render(ui);
+    });
+
+    assert_eq!(
+        harness
+            .renderer()
+            .rectangle_areas
+            .iter()
+            .map(|area| area.width)
+            .collect::<Vec<_>>(),
+        [2.0, 3.0, 1.0]
+    );
+}
+
+#[test]
+fn root_layer_escapes_structural_order_and_clip() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let overlay = ui.layer();
+        widget::Rectangle::new()
+            .slot(Slot::new().fixed(1.0, 1.0).z_index(2))
+            .style(Style::new().background(Color::BLACK))
+            .render(ui);
+        let mut parent = ui
+            .layout(Flex::column())
+            .fixed(2.0, 2.0)
+            .z_index(-1)
+            .style(Style::new().background(Color::GRAY))
+            .clip(Clip::Bounds)
+            .open();
+        parent.add(|ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(1.0, 1.0)
+                .layer(overlay)
+                .style(Style::new().background(Color::WHITE))
+                .absolute(Absolute::screen(8.0, 8.0))
+                .open();
+        });
+    });
+
+    assert_eq!(
+        harness
+            .renderer()
+            .rectangle_areas
+            .iter()
+            .map(|area| (area.x, area.y))
+            .collect::<Vec<_>>(),
+        [(0.0, 1.0), (0.0, 0.0), (8.0, 8.0)]
+    );
+}
+
+#[test]
+fn local_layer_inherits_its_declaration_clip() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut parent = ui
+            .layout(Flex::column())
+            .fixed(2.0, 2.0)
+            .clip(Clip::Bounds)
+            .open();
+        let overlay = parent.layer();
+        parent.add(|ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(1.0, 1.0)
+                .layer(overlay)
+                .style(Style::new().background(Color::BLACK))
+                .absolute(Absolute::at(8.0, 8.0))
+                .open();
+        });
+    });
+
+    assert!(harness.renderer().rectangle_areas.is_empty());
+}
+
+#[test]
+fn absolute_can_target_an_earlier_node() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut parent = ui.layout(Flex::column()).fixed(10.0, 10.0).open();
+        let target = parent.add(|ui: &mut Ui| {
+            let target = ui
+                .layout(Flex::column())
+                .fixed(4.0, 3.0)
+                .absolute(Absolute::at(2.0, 1.0))
+                .open();
+            target.node()
+        });
+        parent.close();
+        ui.layout(Flex::column())
+            .fixed(1.0, 1.0)
+            .style(Style::new().background(Color::BLACK))
+            .absolute(Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target))
+            .open();
+    });
+
+    assert_eq!(
+        harness.renderer().rectangle_areas,
+        [LogicalRect {
+            x: 6.0,
+            y: 4.0,
+            width: 1.0,
+            height: 1.0,
+        }]
+    );
+}
+
+#[test]
+fn z_index_orders_complete_subtrees() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        ui.layout(Flex::column())
+            .fixed(1.0, 1.0)
+            .style(Style::new().background(Color::BLACK))
+            .z_index(-1)
+            .absolute(Absolute::at(1.0, 0.0))
+            .open();
+        fixed_rectangle(1.0, 1.0, Color::GRAY).render(ui);
+        ui.layout(Flex::column())
+            .fixed(1.0, 1.0)
+            .style(Style::new().background(Color::WHITE))
+            .z_index(2)
+            .absolute(Absolute::at(4.0, 0.0))
+            .open();
+        let mut layer = ui
+            .layout(Flex::column())
+            .fixed(1.0, 1.0)
+            .style(Style::new().background(Color::WHITE))
+            .z_index(1)
+            .absolute(Absolute::at(3.0, 0.0))
+            .open();
+        layer.add(
+            widget::Rectangle::new()
+                .slot(Slot::new().fixed(1.0, 1.0).z_index(100))
+                .style(Style::new().background(Color::BLACK)),
+        );
+        layer.close();
+        fixed_rectangle(1.0, 1.0, Color::GRAY).render(ui);
+    });
+
+    assert_eq!(
+        harness
+            .renderer()
+            .rectangle_areas
+            .iter()
+            .map(|area| area.x)
+            .collect::<Vec<_>>(),
+        [1.0, 0.0, 0.0, 3.0, 3.0, 4.0]
+    );
+}
+
+#[test]
+fn layers_order_hit_testing() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let normal = WidgetId::new("normal hit");
+    let raised = WidgetId::new("raised hit");
+    let render = |ui: &mut Ui| {
+        let overlay = ui.layer();
+        let normal_hovered = ui.interact(normal, Sense::CLICK).hovered;
+        let normal_scope = ui
+            .layout(Flex::column())
+            .fixed(10.0, 10.0)
+            .id(normal)
+            .z_index(100)
+            .open();
+        normal_scope.close();
+        let raised_hovered = ui.interact(raised, Sense::CLICK).hovered;
+        ui.layout(Flex::column())
+            .fixed(10.0, 10.0)
+            .id(raised)
+            .layer(overlay)
+            .z_index(-100)
+            .absolute(Absolute::at(0.0, 0.0))
+            .open();
+        (normal_hovered, raised_hovered)
+    };
+
+    harness.render(Duration::ZERO, Input::None, &render);
+    let hovered = harness.render(
+        Duration::ZERO,
+        Input::PointerMove {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            modifiers: Modifiers::NONE,
+        },
+        render,
+    );
+
+    assert_eq!(hovered, (false, true));
+}
+
+#[test]
+fn hit_sides_expand_within_clip_bounds() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("expanded hit");
+    let render = |ui: &mut Ui| {
+        let hovered = ui.interact(id, Sense::CLICK).hovered;
+        let mut clip = ui
+            .layout(Flex::column())
+            .fixed(4.0, 4.0)
+            .clip(Clip::Bounds)
+            .absolute(Absolute::at(3.0, 3.0))
+            .open();
+        clip.add(|ui: &mut Ui| {
+            ui.layout(Flex::column())
+                .fixed(2.0, 2.0)
+                .id(id)
+                .hit(Sides::all(2.0))
+                .absolute(Absolute::at(1.0, 1.0))
+                .open();
+        });
+        clip.close();
+        (hovered, ui.geometry(id))
+    };
+
+    harness.render(Duration::ZERO, Input::None, render);
+    let (hovered, geometry) = harness.render(
+        Duration::ZERO,
+        Input::PointerMove {
+            position: LogicalPoint { x: 3.0, y: 3.0 },
+            modifiers: Modifiers::NONE,
+        },
+        render,
+    );
+    assert!(hovered);
+    assert_eq!(
+        geometry,
+        Some(LogicalRect {
+            x: 4.0,
+            y: 4.0,
+            width: 2.0,
+            height: 2.0,
+        })
+    );
+
+    let (hovered, _) = harness.render(
+        Duration::ZERO,
+        Input::PointerMove {
+            position: LogicalPoint { x: 2.0, y: 2.0 },
+            modifiers: Modifiers::NONE,
+        },
+        render,
+    );
+    assert!(!hovered);
+}
+
+#[test]
+fn z_index_changes_damage_overlapping_content() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let render = |raised: bool| {
+        move |ui: &mut Ui| {
+            for (index, color) in [Color::BLACK, Color::WHITE].into_iter().enumerate() {
+                ui.layout(Flex::column())
+                    .fixed(10.0, 10.0)
+                    .z_index(if (index == 0) == raised { 1 } else { 0 })
+                    .style(Style::new().background(color))
+                    .absolute(Absolute::at(0.0, 0.0))
+                    .open();
+            }
+        }
+    };
+
+    harness.render(Duration::ZERO, Input::None, render(false));
+    harness.render(Duration::ZERO, Input::None, render(true));
+
+    assert!(!harness.renderer().damage.is_empty());
+}
+
+#[test]
+fn absolute_container_fits_children_before_anchoring() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut parent = ui.layout(Flex::column()).fixed(10.0, 10.0).open();
+        parent.add(|ui: &mut Ui| {
+            let mut absolute = ui
+                .layout(Flex::column())
+                .style(Style::new().background(Color::GRAY))
+                .absolute(
+                    Absolute::attach(Anchor::BottomRight, Anchor::BottomRight).offset(-1.0, -2.0),
+                )
+                .open();
+            absolute.add(fixed_rectangle(3.0, 4.0, Color::WHITE));
+        });
+    });
+
+    assert_eq!(
+        harness.renderer().rectangle_areas,
+        [
+            LogicalRect {
+                x: 6.0,
+                y: 4.0,
+                width: 3.0,
+                height: 4.0,
+            },
+            LogicalRect {
+                x: 6.0,
+                y: 4.0,
+                width: 3.0,
+                height: 4.0,
+            },
+        ]
+    );
+}
+
+#[test]
+fn containers_resolve_nested_flex_and_justification() {
+    let mut harness = Harness::new(TestRenderer::default());
+
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut row = ui
+            .layout(
+                Flex::row()
+                    .align(Align::Stretch)
+                    .justify(Justify::SpaceBetween),
+            )
+            .width(Sizing::grow())
+            .height(Sizing::fixed(10.0))
+            .open();
+        row.add(
+            widget::Rectangle::new()
+                .slot(Slot::new().width(Sizing::fixed(2.0)))
+                .style(Style::new().background(Color::BLACK)),
+        );
+        row.add(|ui: &mut Ui| {
+            let mut middle = ui
+                .layout(Flex::column())
+                .width(Sizing::grow())
+                .style(Style::new().background(Color::GRAY))
+                .open();
+            middle.add(
+                widget::Rectangle::new()
+                    .slot(Slot::new().height(Sizing::fixed(4.0)))
+                    .style(Style::new().background(Color::WHITE)),
+            );
+        });
+        row.add(
+            widget::Rectangle::new()
+                .slot(Slot::new().width(Sizing::fixed(2.0)))
+                .style(Style::new().background(Color::BLACK)),
+        );
+    });
+
+    assert_eq!(
+        harness.renderer().paint_bounds,
+        [
+            PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 10,
+            },
+            PhysicalRect {
+                x: 2,
+                y: 0,
+                width: 6,
+                height: 10,
+            },
+            PhysicalRect {
+                x: 2,
+                y: 0,
+                width: 6,
+                height: 4,
+            },
+            PhysicalRect {
+                x: 8,
+                y: 0,
+                width: 2,
+                height: 10,
+            },
+        ]
+    );
+}
+
+#[test]
+fn wrapped_text_uses_its_resolved_width() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("wrapped text");
+
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut text = ui.layout(Flex::row()).width(Sizing::grow()).id(id).open();
+        text.add(
+            widget::Text::new("1234")
+                .slot(Slot::new().width(Sizing::grow()))
+                .text_size(4.0)
+                .wrap(text::TextWrap::Character),
+        );
+    });
+    assert_eq!(harness.renderer().text_widths, [None, Some(10.0)]);
+    assert_eq!(harness.renderer().text_areas[0].width, 10.0);
+    let geometry = harness.render(Duration::ZERO, Input::None, |ui| ui.geometry(id).unwrap());
+
+    assert_eq!(geometry.width, 10.0);
+    assert_eq!(geometry.height, 8.0);
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        widget::Text::new("no wrap").render(ui);
+    });
+    assert_eq!(harness.renderer().text_widths.len(), 3);
+}
+
+#[test]
+fn container_clips_content_and_descendants() {
+    let mut harness = Harness::new(TestRenderer::default());
+
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut clipped = ui
+            .layout(Flex::column().overflow(true))
+            .width(Sizing::grow())
+            .height(Sizing::fixed(5.0))
+            .clip(Clip::Bounds)
+            .open();
+        clipped.add(widget::Text::new("clipped"));
+        clipped.add(rectangle(Sizing::grow(), Sizing::fixed(10.0), Color::BLACK));
+    });
+
+    assert_eq!(harness.renderer().clip_count, 1);
+    assert!(
+        harness
+            .renderer()
+            .paint_clips
+            .iter()
+            .all(|clip| *clip != ClipId::default())
+    );
+}
+
+#[test]
+fn resolved_geometry_is_available_on_the_next_frame() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("geometry");
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        fixed_rectangle(3.0, 4.0, Color::TRANSPARENT)
+            .id(id)
+            .render(ui);
+    });
+
+    let geometry = harness.render(Duration::ZERO, Input::None, |ui| ui.geometry(id).unwrap());
+    assert_eq!(geometry.width, 3.0);
+    assert_eq!(geometry.height, 4.0);
+}
+
+#[test]
+fn fixed_sizing_can_overflow_parent_bounds() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        fixed_rectangle(20.0, 2.0, Color::BLACK).render(ui);
+    });
+
+    assert_eq!(harness.renderer().rectangle_areas[0].width, 20.0);
+    assert_eq!(harness.renderer().paint_bounds[0].width, 10);
+}
+
+#[test]
+fn scroll_uses_natural_content_geometry_and_offsets_commands() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let mut state = widget::ScrollState::default();
+    let render = |ui: &mut Ui, state: &mut widget::ScrollState| {
+        let mut scroll = widget::ScrollArea::vertical(state).gap(1.0).begin(ui);
+        scroll.add(rectangle(Sizing::fit(), Sizing::fixed(8.0), Color::BLACK));
+        scroll.add(rectangle(Sizing::fit(), Sizing::fixed(8.0), Color::WHITE));
+    };
+
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
+    assert_eq!(state.content_height, 17.0);
+
+    state.scroll_to(7.0);
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
+    assert_eq!(harness.renderer().rectangle_areas[0].y, -7.0);
+    assert_eq!(harness.renderer().paint_bounds[0].y, 0);
+    assert_eq!(harness.renderer().paint_bounds[1].y, 2);
+    assert_eq!(harness.renderer().clip_count, 1);
+}
+
+#[test]
+fn static_text_reuses_runs_and_stable_output_has_no_damage() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let render = |ui: &mut Ui| {
+        widget::Text::new("label").render(ui);
+        button(ui);
+    };
+
+    harness.render(Duration::ZERO, Input::None, render);
+    assert_eq!(harness.renderer().text_runs.len(), 2);
+    harness.render(Duration::ZERO, Input::None, render);
+    assert!(harness.renderer().damage.is_empty());
+}
+
+#[test]
+fn moved_output_damages_old_and_new_bounds() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let render = |ui: &mut Ui, offset| {
+        let mut row = ui
+            .layout(Flex::row())
+            .width(Sizing::grow())
+            .height(Sizing::fixed(2.0))
+            .open();
+        if offset != 0.0 {
+            row.add(widget::Rectangle::new().slot(Slot::new().width(Sizing::fixed(offset))));
+        }
+        row.add(fixed_rectangle(2.0, 2.0, Color::BLACK));
+    };
+
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, 8.0));
+    assert_eq!(harness.renderer().damage.len(), 2);
+    assert!(harness.renderer().damage.contains(&PhysicalRect {
         x: 0,
         y: 0,
-        width: 10,
-        height: 10,
-    };
-    let first = LogicalRect {
-        x: 1.0,
-        y: 2.0,
-        width: 3.0,
-        height: 4.0,
-    };
-    let second = LogicalRect {
-        x: 5.0,
-        y: 2.0,
-        width: 3.0,
-        height: 4.0,
-    };
-    let mut runtime = Runtime::new(TestPlatform::default());
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        paint::Rectangle::new(first).render(ui)
-    });
-    assert_eq!(runtime.platform().damage, [screen]);
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        paint::Rectangle::new(first).render(ui)
-    });
-    assert!(runtime.platform().damage.is_empty());
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        paint::Rectangle::new(second).render(ui)
-    });
-    assert_eq!(runtime.platform().damage.len(), 2);
-    assert!(runtime.platform().damage.contains(&first.to_physical(1.0)));
-    assert!(runtime.platform().damage.contains(&second.to_physical(1.0)));
-}
-
-#[test]
-fn swapped_buffer_replays_semantic_damage_once() {
-    let screen = PhysicalRect {
-        x: 0,
+        width: 2,
+        height: 2,
+    }));
+    assert!(harness.renderer().damage.contains(&PhysicalRect {
+        x: 8,
         y: 0,
-        width: 10,
-        height: 10,
-    };
-    let platform = TestPlatform {
-        repaint_buffer: RepaintBuffer::Swapped,
-        ..TestPlatform::default()
-    };
-    let mut runtime = Runtime::new(platform);
-
-    runtime.render(Duration::ZERO, Input::None, |_| {});
-    assert_eq!(runtime.platform().damage, [screen]);
-    assert!(runtime.has_pending_redraw());
-
-    runtime.render(Duration::ZERO, Input::None, |_| {});
-    assert_eq!(runtime.platform().damage, [screen]);
-    assert!(!runtime.has_pending_redraw());
+        width: 2,
+        height: 2,
+    }));
 }
 
 #[test]
-fn render_batch_commits_only_the_final_scene() {
-    let first = LogicalRect {
-        x: 0.0,
-        y: 0.0,
-        width: 2.0,
-        height: 2.0,
-    };
-    let second = LogicalRect {
-        x: 8.0,
-        y: 8.0,
-        width: 2.0,
-        height: 2.0,
-    };
-    let mut runtime = Runtime::new(TestPlatform::default());
-    runtime.render(Duration::ZERO, Input::None, |_| {});
+fn swapped_buffer_replays_damage_on_next_frame() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.repaint = IncrementalRepaint::new(MyersTracker::default(), true);
 
-    let mut pass = 0;
-    runtime.render_batch(Duration::ZERO, [Input::None, Input::None], |ui| {
-        if pass == 0 {
-            paint::Rectangle::new(first).render(ui);
-        } else {
-            paint::Rectangle::new(second).render(ui);
-        }
-        pass += 1;
-    });
-
-    assert_eq!(pass, 2);
-    assert_eq!(runtime.platform().damage, [second.to_physical(1.0)]);
+    harness.render(Duration::ZERO, Input::None, |_| {});
+    assert!(!harness.has_pending_redraw());
+    harness.render(Duration::ZERO, Input::None, |_| {});
+    assert_eq!(
+        harness.renderer().damage,
+        [PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10
+        }]
+    );
+    harness.render(Duration::ZERO, Input::None, |_| {});
+    assert!(harness.renderer().damage.is_empty());
 }
 
 #[test]
-fn empty_render_batch_preserves_a_frame_request() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    runtime.render(Duration::ZERO, Input::None, |_| {});
-    runtime.request_frame();
+fn interaction_reports_active_lifecycle() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("interaction lifecycle");
+    let render = |ui: &mut Ui| {
+        let interaction = ui.interact(id, Sense::CLICK);
+        ui.layout(Flex::column()).fixed(10.0, 10.0).id(id).open();
+        interaction
+    };
 
-    runtime.render_batch(Duration::ZERO, [], |_| {});
+    harness.render(Duration::ZERO, Input::None, render);
+    let activated = harness.render(
+        Duration::ZERO,
+        Input::PointerDown {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+        },
+        render,
+    );
+    assert!(activated.active);
+    assert!(activated.activated);
+    assert!(!activated.deactivated);
+    assert!(harness.has_pending_redraw());
 
-    assert!(runtime.has_pending_redraw());
+    let active = harness.render(Duration::ZERO, Input::None, render);
+    assert!(active.active);
+    assert!(!active.activated);
+    assert!(!active.deactivated);
+    assert!(!harness.has_pending_redraw());
+
+    let deactivated = harness.render(
+        Duration::ZERO,
+        Input::PointerUp {
+            position: LogicalPoint { x: 15.0, y: 5.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+            leave: false,
+        },
+        render,
+    );
+    assert!(!deactivated.active);
+    assert!(deactivated.deactivated);
+    assert!(!deactivated.clicked);
+    assert!(harness.has_pending_redraw());
 }
 
 #[test]
-fn render_batch_processes_each_input() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let button = runtime.erased_platform().create_string("button");
-    let area = runtime.screen();
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        widget::Button::new(&button).render(ui, area)
+fn render_processes_each_input_and_commits_the_final_scene() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let render = button;
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        render(ui);
     });
 
     let mut clicked = false;
-    runtime.render_batch(
+    crate::render(
+        &mut harness.renderer,
+        &mut harness.state,
+        &mut harness.repaint,
         Duration::ZERO,
         [
             Input::PointerDown {
@@ -271,143 +1287,70 @@ fn render_batch_processes_each_input() {
                 leave: false,
             },
         ],
-        |ui| clicked |= widget::Button::new(&button).render(ui, area).clicked(),
+        |ui| clicked |= render(ui),
     );
 
     assert!(clicked);
 }
 
 #[test]
-fn scroll_area_advances_by_widget_height() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+fn scroll_drag_cancels_button_click() {
+    let mut harness = Harness::new(TestRenderer::default());
     let mut state = widget::ScrollState::default();
-    let viewport = runtime.screen();
-
-    let positions = runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut area = widget::ScrollArea::vertical(&mut state)
-            .spacing(1.0)
-            .begin(ui, viewport);
-        let positions = [
-            area.add(FixedSize(8.0)).unwrap().y,
-            area.add(FixedSize(8.0)).unwrap().y,
-        ];
-        area.finish();
-        positions
-    });
-    assert_eq!(positions, [0.0, 9.0]);
-    assert_eq!(state.content_height, 17.0);
-
-    runtime.render(
+    let render = |ui: &mut Ui, state: &mut widget::ScrollState| {
+        widget::ScrollArea::vertical(state).begin(ui).add(button)
+    };
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
+    harness.render(
         Duration::ZERO,
-        Input::Scroll {
+        Input::PointerDown {
             position: LogicalPoint { x: 5.0, y: 5.0 },
-            delta_x: 0.0,
-            delta_y: 3.0,
+            button: PointerButton::Primary,
             modifiers: Modifiers::NONE,
-            continuous: false,
-            phase: crate::input::ScrollPhase::Moved,
         },
-        |ui| {
-            let mut area = widget::ScrollArea::vertical(&mut state)
-                .spacing(1.0)
-                .begin(ui, viewport);
-            area.add(FixedSize(8.0));
-            area.add(FixedSize(8.0));
-            area.finish();
+        |ui| render(ui, &mut state),
+    );
+    harness.render(
+        Duration::from_millis(10),
+        Input::PointerMove {
+            position: LogicalPoint { x: 5.0, y: 12.0 },
+            modifiers: Modifiers::NONE,
         },
+        |ui| render(ui, &mut state),
     );
-    let positions = runtime.render(Duration::from_millis(25), Input::None, |ui| {
-        let mut area = widget::ScrollArea::vertical(&mut state)
-            .spacing(1.0)
-            .begin(ui, viewport);
-        let positions = [
-            area.add(FixedSize(8.0)).unwrap().y,
-            area.add(FixedSize(8.0)).unwrap().y,
-        ];
-        area.finish();
-        positions
-    });
-    assert!(positions[0] < 0.0 && positions[0] > -3.0);
-
-    let positions = runtime.render(Duration::from_millis(50), Input::None, |ui| {
-        let mut area = widget::ScrollArea::vertical(&mut state)
-            .spacing(1.0)
-            .begin(ui, viewport);
-        let positions = [
-            area.add(FixedSize(8.0)).unwrap().y,
-            area.add(FixedSize(8.0)).unwrap().y,
-        ];
-        area.finish();
-        positions
-    });
-    assert!(positions[0] < -1.5 && positions[0] > -3.0);
-}
-
-#[test]
-fn logical_rect_rounds_outward_to_pixels() {
-    assert_eq!(
-        LogicalRect {
-            x: 1.2,
-            y: 2.8,
-            width: 3.1,
-            height: 4.1
-        }
-        .to_physical(1.0),
-        PhysicalRect {
-            x: 1,
-            y: 2,
-            width: 4,
-            height: 5
-        }
+    let response = harness.render(
+        Duration::from_millis(20),
+        Input::PointerUp {
+            position: LogicalPoint { x: 5.0, y: 12.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+            leave: false,
+        },
+        |ui| render(ui, &mut state),
     );
-}
 
-#[test]
-fn logical_rect_can_be_inset_by_axis() {
-    assert_eq!(
-        LogicalRect {
-            x: 10.0,
-            y: 20.0,
-            width: 100.0,
-            height: 80.0
-        }
-        .inset_x(10.0)
-        .inset_y(5.0),
-        LogicalRect {
-            x: 20.0,
-            y: 25.0,
-            width: 80.0,
-            height: 70.0
-        }
-    );
+    assert!(!response);
 }
 
 #[test]
 fn text_input_edits_at_utf8_cursor_boundaries() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let area = LogicalRect {
-        x: 0.0,
-        y: 0.0,
-        width: 10.0,
-        height: 10.0,
-    };
-    let mut input = widget::TextInputState::default();
-    input.text = "aé🙂".into();
-    let render = |ui: &mut Ui, input: &mut widget::TextInputState| {
-        widget::TextInput::new(input).render(ui, area)
-    };
+    let mut harness = Harness::new(TestRenderer::default());
+    let mut state = widget::TextInputState::default();
+    state.text = "aé🙂".into();
+    let render =
+        |ui: &mut Ui, state: &mut widget::TextInputState| widget::TextInput::new(state).render(ui);
 
-    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut input));
-    runtime.render(
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
+    harness.render(
         Duration::ZERO,
         Input::PointerDown {
             position: LogicalPoint { x: 1.0, y: 1.0 },
             button: PointerButton::Primary,
             modifiers: Modifiers::NONE,
         },
-        |ui| render(ui, &mut input),
+        |ui| render(ui, &mut state),
     );
-    runtime.render(
+    harness.render(
         Duration::ZERO,
         Input::PointerUp {
             position: LogicalPoint { x: 1.0, y: 1.0 },
@@ -415,312 +1358,49 @@ fn text_input_edits_at_utf8_cursor_boundaries() {
             modifiers: Modifiers::NONE,
             leave: false,
         },
-        |ui| render(ui, &mut input),
+        |ui| render(ui, &mut state),
     );
-
-    runtime.render(
+    harness.render(
         Duration::ZERO,
         Input::Key(KeyInput::new(Key::Backspace)),
-        |ui| render(ui, &mut input),
+        |ui| render(ui, &mut state),
     );
-    assert_eq!(input.text, "aé");
+    assert_eq!(state.text, "aé");
 
-    runtime.render(
+    harness.render(
         Duration::ZERO,
         Input::Key(KeyInput::new(Key::ArrowLeft)),
-        |ui| render(ui, &mut input),
+        |ui| render(ui, &mut state),
     );
-    runtime.render(
+    harness.render(
         Duration::ZERO,
         Input::Key(KeyInput::new(Key::Delete)),
-        |ui| render(ui, &mut input),
+        |ui| render(ui, &mut state),
     );
-    assert_eq!(input.text, "a");
+    assert_eq!(state.text, "a");
 
-    let response = runtime.render(Duration::ZERO, Input::Text('界'), |ui| {
-        render(ui, &mut input)
+    let response = harness.render(Duration::ZERO, Input::Text('界'), |ui| {
+        render(ui, &mut state)
     });
     assert!(response.edited);
-    assert_eq!(input.text, "a界");
-
-    let response = runtime.render(
-        Duration::ZERO,
-        Input::Key(KeyInput::new(Key::Enter)),
-        |ui| render(ui, &mut input),
-    );
-    assert!(response.accepted);
-
-    let response = runtime.render(
-        Duration::ZERO,
-        Input::Key(KeyInput {
-            pressed: false,
-            ..KeyInput::new(Key::Backspace)
-        }),
-        |ui| render(ui, &mut input),
-    );
-    assert!(!response.edited);
-    assert_eq!(input.text, "a界");
-
-    input.text = "e\u{301}".into();
-    runtime.render(
-        Duration::ZERO,
-        Input::Key(KeyInput::new(Key::Backspace)),
-        |ui| render(ui, &mut input),
-    );
-    assert!(input.text.is_empty());
+    assert_eq!(state.text, "a界");
 }
 
 #[test]
-fn scroll_drag_cancels_button_click() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let button = runtime.erased_platform().create_string("button");
-    let mut state = widget::ScrollState::default();
-    let viewport = runtime.screen();
-
-    let render = |ui: &mut Ui, state: &mut widget::ScrollState| {
-        let mut area = widget::ScrollArea::vertical(state).begin(ui, viewport);
-        let response = area.add(widget::Button::new(&button));
-        area.finish();
-        response
-    };
-
-    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, &mut state));
-    runtime.render(
-        Duration::ZERO,
-        Input::PointerDown {
-            position: LogicalPoint { x: 5.0, y: 5.0 },
-            button: PointerButton::Primary,
-            modifiers: Modifiers::NONE,
-        },
-        |ui| render(ui, &mut state),
-    );
-    runtime.render(
-        Duration::ZERO,
-        Input::PointerMove {
-            position: LogicalPoint { x: 5.0, y: -5.0 },
-            modifiers: Modifiers::NONE,
-        },
-        |ui| render(ui, &mut state),
-    );
-    let response = runtime.render(
-        Duration::ZERO,
-        Input::PointerUp {
-            position: LogicalPoint { x: 5.0, y: 5.0 },
-            button: PointerButton::Primary,
-            modifiers: Modifiers::NONE,
-            leave: false,
-        },
-        |ui| render(ui, &mut state),
-    );
-
-    assert!(!response.unwrap().clicked());
-}
-
-#[test]
-fn scroll_area_measures_but_does_not_render_offscreen_widgets() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let mut state = widget::ScrollState::default();
-    let viewport = runtime.screen();
-
-    let third = runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut area = widget::ScrollArea::vertical(&mut state)
-            .spacing(1.0)
-            .begin(ui, viewport);
-        assert!(area.add(FixedSize(8.0)).is_some());
-        assert!(area.add(FixedSize(8.0)).is_some());
-        let third = area.add(FixedSize(8.0));
-        area.finish();
-        third
-    });
-
-    assert!(third.is_none());
-    assert_eq!(state.content_height, 26.0);
-}
-
-#[test]
-fn virtual_list_measures_once_and_renders_visible_items() {
-    struct CountedSize<'a> {
-        height: f32,
-        measures: &'a Cell<usize>,
-        renders: &'a Cell<usize>,
-    }
-
-    impl widget::SizedWidget for CountedSize<'_> {
-        type Output = LogicalRect;
-
-        fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
-            self.measures.set(self.measures.get() + 1);
-            LogicalSize {
-                width: available.width,
-                height: self.height,
-            }
-        }
-
-        fn render(self, _: &mut Ui, area: LogicalRect) -> Self::Output {
-            self.renders.set(self.renders.get() + 1);
-            area
-        }
-    }
-
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let mut state = widget::VirtualListState::default();
-    let viewport = runtime.screen();
-    let heights = [4.0, 7.0, 5.0];
-    let measures = Cell::new(0);
-    let renders = Cell::new(0);
-
-    let range = runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut list = widget::VirtualList::vertical(&mut state, heights.len()).spacing(1.0);
-        for index in list.unmeasured() {
-            list.measure(
-                ui,
-                viewport,
-                index,
-                CountedSize {
-                    height: heights[index],
-                    measures: &measures,
-                    renders: &renders,
-                },
-            );
-        }
-        let mut area = list.begin(ui, viewport);
-        let range = area.range();
-        for index in range.clone() {
-            area.add(
-                index,
-                CountedSize {
-                    height: heights[index],
-                    measures: &measures,
-                    renders: &renders,
-                },
-            );
-        }
-        range
-    });
-    assert_eq!(range, 0..2);
-    assert_eq!(measures.get(), 3);
-    assert_eq!(renders.get(), 2);
-    assert_eq!(state.scroll().content_height, 18.0);
-
-    state.scroll_mut().scroll_to(8.0, viewport.height);
-    let range = runtime.render(Duration::ZERO, Input::None, |ui| {
-        let list = widget::VirtualList::vertical(&mut state, heights.len()).spacing(1.0);
-        assert!(list.unmeasured().is_empty());
-        let mut area = list.begin(ui, viewport);
-        let range = area.range();
-        for index in range.clone() {
-            area.add(
-                index,
-                CountedSize {
-                    height: heights[index],
-                    measures: &measures,
-                    renders: &renders,
-                },
-            );
-        }
-        range
-    });
-    assert_eq!(range, 1..3);
-    assert_eq!(measures.get(), 3);
-    assert_eq!(renders.get(), 4);
-}
-
-#[test]
-fn button_click_requires_matching_press_and_release() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let button = runtime.erased_platform().create_string("button");
-    let area = runtime.screen();
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        widget::Button::new(&button).render(ui, area)
-    });
-    runtime.render(
-        Duration::ZERO,
-        Input::PointerDown {
-            position: LogicalPoint { x: 5.0, y: 5.0 },
-            button: PointerButton::Primary,
-            modifiers: Modifiers::NONE,
-        },
-        |ui| widget::Button::new(&button).render(ui, area),
-    );
-    let response = runtime.render(
-        Duration::ZERO,
-        Input::PointerUp {
-            position: LogicalPoint { x: 5.0, y: 5.0 },
-            button: PointerButton::Primary,
-            modifiers: Modifiers::NONE,
-            leave: false,
-        },
-        |ui| widget::Button::new(&button).render(ui, area),
-    );
-
-    assert!(response.clicked());
-}
-
-#[test]
-fn pointer_damage_renders_immediately_and_replays_once() {
-    let platform = TestPlatform {
-        repaint_buffer: RepaintBuffer::Swapped,
-        ..TestPlatform::default()
-    };
-    let mut runtime = Runtime::new(platform);
-    let button = runtime.erased_platform().create_string("button");
-    let area = runtime.screen();
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        widget::Button::new(&button).render(ui, area);
-    });
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        widget::Button::new(&button).render(ui, area);
-    });
-    assert!(!runtime.has_pending_redraw());
-
-    runtime.render(
-        Duration::ZERO,
-        Input::PointerDown {
-            position: LogicalPoint { x: 5.0, y: 5.0 },
-            button: PointerButton::Primary,
-            modifiers: Modifiers::NONE,
-        },
-        |ui| widget::Button::new(&button).render(ui, area),
-    );
-    assert_eq!(
-        runtime.platform().damage,
-        [area.to_physical(1.0), area.to_physical(1.0)]
-    );
-    assert!(runtime.has_pending_redraw());
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        widget::Button::new(&button).render(ui, area);
-    });
-    assert!(!runtime.has_pending_redraw());
-}
-
-#[test]
-fn focus_moves_between_text_inputs() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+fn focus_moves_between_text_inputs_and_clears_when_absent() {
+    let mut harness = Harness::new(TestRenderer::default());
     let mut first = widget::TextInputState::default();
     let mut second = widget::TextInputState::default();
-    let first_area = LogicalRect {
-        x: 0.0,
-        y: 0.0,
-        width: 10.0,
-        height: 5.0,
-    };
-    let second_area = LogicalRect {
-        y: 5.0,
-        ..first_area
-    };
     let render =
         |ui: &mut Ui, first: &mut widget::TextInputState, second: &mut widget::TextInputState| {
-            widget::TextInput::new(first).render(ui, first_area);
-            widget::TextInput::new(second).render(ui, second_area);
+            widget::TextInput::new(first).render(ui);
+            widget::TextInput::new(second).render(ui);
         };
 
-    runtime.render(Duration::ZERO, Input::None, |ui| {
+    harness.render(Duration::ZERO, Input::None, |ui| {
         render(ui, &mut first, &mut second)
     });
-    runtime.render(
+    harness.render(
         Duration::ZERO,
         Input::PointerDown {
             position: LogicalPoint { x: 2.0, y: 7.0 },
@@ -729,394 +1409,277 @@ fn focus_moves_between_text_inputs() {
         },
         |ui| render(ui, &mut first, &mut second),
     );
-    runtime.render(Duration::ZERO, Input::Text('x'), |ui| {
+    harness.render(Duration::ZERO, Input::Text('x'), |ui| {
         render(ui, &mut first, &mut second)
     });
-
     assert!(first.text.is_empty());
     assert_eq!(second.text, "x");
-}
 
-#[test]
-fn text_input_can_be_focused_by_id() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let mut input = widget::TextInputState::default();
-    let id = input.id;
-    let area = runtime.screen();
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        ui.focus(id);
-        widget::TextInput::new(&mut input).render(ui, area);
-    });
-    let focused = runtime.render(Duration::ZERO, Input::Text('x'), |ui| {
-        widget::TextInput::new(&mut input).render(ui, area);
-        ui.is_focused(id)
-    });
-
-    assert!(focused);
-    assert_eq!(input.text, "x");
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        ui.clear_focus();
-        widget::TextInput::new(&mut input).render(ui, area);
-    });
-    let focused = runtime.render(Duration::ZERO, Input::Text('y'), |ui| {
-        widget::TextInput::new(&mut input).render(ui, area);
-        ui.is_focused(id)
-    });
-
-    assert!(!focused);
-    assert_eq!(input.text, "x");
-}
-
-#[test]
-fn stored_widget_id_is_not_changed_by_scope() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let mut input = widget::TextInputState::default();
-    let id = input.id;
-    let area = runtime.screen();
-
-    let focused = runtime.render(Duration::ZERO, Input::None, |ui| {
-        ui.focus(id);
-        let mut scope = ui.begin_scope("login");
-        widget::TextInput::new(&mut input).render(scope.ui(), area);
-        scope.ui().is_focused(id)
-    });
-
-    assert!(focused);
-}
-
-#[test]
-fn clip_scopes_limit_paint_and_restore_the_parent_clip() {
-    for rounded in [false, true] {
-        let mut runtime = Runtime::new(TestPlatform::default());
-        let clip = LogicalRect {
-            x: 2.0,
-            y: 2.0,
-            width: 4.0,
-            height: 4.0,
-        };
-        let outside = LogicalRect {
-            x: 8.0,
-            y: 8.0,
-            width: 2.0,
-            height: 2.0,
-        };
-
-        runtime.render(Duration::ZERO, Input::None, |ui| {
-            let screen = ui.screen();
-            {
-                let mut scope = if rounded {
-                    ui.begin_rounded_clip(clip, paint::BorderRadius::default())
-                } else {
-                    ui.begin_clip(clip)
-                };
-                paint::Rectangle::new(screen).render(&mut scope);
-            }
-            paint::Rectangle::new(outside).render(ui);
-        });
-
-        assert_eq!(
-            runtime.platform().paint_bounds,
-            [clip.to_physical(1.0), outside.to_physical(1.0)]
-        );
-        assert_eq!(runtime.platform().clip_count, usize::from(rounded));
-        assert_eq!(
-            runtime.platform().paint_clips[0] != ClipId::default(),
-            rounded
-        );
-        assert_eq!(runtime.platform().paint_clips[1], ClipId::default());
-    }
-}
-
-#[test]
-fn focus_is_cleared_when_widget_is_not_rendered() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let mut input = widget::TextInputState::default();
-    let id = input.id;
-    let area = runtime.screen();
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        ui.focus(id);
-        widget::TextInput::new(&mut input).render(ui, area);
-    });
-    runtime.render(Duration::ZERO, Input::None, |_| {});
-
-    assert!(!runtime.render(Duration::ZERO, Input::None, |ui| ui.is_focused(id)));
+    harness.render(Duration::ZERO, Input::None, |_| {});
+    let id = second.id;
+    assert!(!harness.render(Duration::ZERO, Input::None, |ui| ui.is_focused(id)));
 }
 
 #[test]
 fn animation_is_keyed_and_target_driven() {
-    let mut runtime = Runtime::new(TestPlatform::default());
+    let mut harness = Harness::new(TestRenderer::default());
     let id = WidgetId::new("offset");
     let duration = Duration::from_millis(100);
 
-    let initial = runtime.render(Duration::ZERO, Input::None, |ui| {
-        ui.animate(id, 0.0, duration, Easing::Linear).value()
-    });
-    let started = runtime.render(Duration::from_millis(10), Input::None, |ui| {
-        ui.animate(id, 10.0, duration, Easing::Linear).value()
-    });
-    let middle = runtime.render(Duration::from_millis(60), Input::None, |ui| {
-        ui.animate(id, 10.0, duration, Easing::Linear).value()
-    });
-    let (finished, active) = runtime.render(Duration::from_millis(110), Input::None, |ui| {
-        let animation = ui.animate(id, 10.0, duration, Easing::Linear);
-        (animation.value(), animation.is_active())
-    });
-
-    assert_eq!(initial, 0.0);
-    assert_eq!(started, 0.0);
-    assert_eq!(middle, 5.0);
-    assert_eq!(finished, 10.0);
-    assert!(!active);
-}
-
-#[test]
-fn grouped_animations_advance_independently() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let id = WidgetId::new("position");
-    let transitions = |x, y| {
-        [
-            Transition::new(x, Duration::from_millis(100), Easing::Linear),
-            Transition::new(y, Duration::from_millis(200), Easing::Linear),
-        ]
-    };
-
-    runtime.render(Duration::ZERO, Input::None, |ui| {
-        ui.animate_values(id, transitions(0.0, 0.0));
-    });
-    runtime.render(Duration::from_millis(10), Input::None, |ui| {
-        ui.animate_values(id, transitions(10.0, 20.0));
-    });
-    let changed = runtime.render(Duration::from_millis(60), Input::None, |ui| {
-        ui.animate_values(id, transitions(15.0, 20.0)).values()
-    });
-    let (middle, middle_active) = runtime.render(Duration::from_millis(110), Input::None, |ui| {
-        let animation = ui.animate_values(id, transitions(15.0, 20.0));
-        (animation.values(), animation.is_active())
-    });
-    let (finished, finished_active) =
-        runtime.render(Duration::from_millis(210), Input::None, |ui| {
-            let animation = ui.animate_values(id, transitions(15.0, 20.0));
-            (animation.values(), animation.is_active())
-        });
-
-    assert_eq!(changed, [5.0, 5.0]);
-    assert_eq!(middle, [10.0, 10.0]);
-    assert!(middle_active);
-    assert_eq!(finished, [15.0, 20.0]);
-    assert!(!finished_active);
-}
-
-#[test]
-fn swapped_animation_damage_history_is_bounded() {
-    let platform = TestPlatform {
-        repaint_buffer: RepaintBuffer::Swapped,
-        ..TestPlatform::default()
-    };
-    let mut runtime = Runtime::new(platform);
-    let id = WidgetId::new("bounded animation damage");
-    let render = |ui: &mut Ui, target| {
-        let mut animation = ui.animate(id, target, Duration::ZERO, Easing::Linear);
-        paint::Rectangle::new(LogicalRect {
-            x: animation.value(),
-            y: 0.0,
-            width: 2.0,
-            height: 2.0,
-        })
-        .render(&mut animation);
-    };
-    {
-        let mut frame = |target, time| {
-            runtime.render(Duration::from_millis(time), Input::None, |ui| {
-                render(ui, target)
-            });
-            runtime.platform().damage.clone()
-        };
-
-        frame(0.0, 0);
-        frame(0.0, 1);
-        assert_eq!(frame(3.0, 2).len(), 2);
-        assert_eq!(frame(6.0, 3).len(), 4);
-        assert_eq!(frame(8.0, 4).len(), 4);
-        assert_eq!(frame(8.0, 5).len(), 2);
-        assert!(frame(8.0, 6).is_empty());
-    }
-    assert!(!runtime.has_pending_redraw());
-}
-
-#[test]
-fn immediate_animation_does_not_replay_on_reused_buffer() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let id = WidgetId::new("immediate animation");
-    let old = LogicalRect {
-        x: 0.0,
-        y: 0.0,
-        width: 2.0,
-        height: 2.0,
-    };
-    let new = LogicalRect { x: 8.0, ..old };
-    let render = |ui: &mut Ui, target| {
-        let mut animation = ui.animate(id, target, Duration::ZERO, Easing::Linear);
-        paint::Rectangle::new(LogicalRect {
-            x: animation.value(),
-            ..old
-        })
-        .render(&mut animation);
-    };
-
-    runtime.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
-    runtime.render(Duration::from_millis(1), Input::None, |ui| render(ui, 8.0));
-    assert_eq!(runtime.platform().damage.len(), 2);
-    assert!(runtime.platform().damage.contains(&old.to_physical(1.0)));
-    assert!(runtime.platform().damage.contains(&new.to_physical(1.0)));
-
-    runtime.render(Duration::from_millis(2), Input::None, |ui| render(ui, 8.0));
-    assert!(runtime.platform().damage.is_empty());
-}
-
-#[test]
-fn nested_animations_can_paint_through_their_scopes() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let outer_id = WidgetId::new("outer animation");
-    let inner_id = WidgetId::new("inner animation");
-    let area = LogicalRect {
-        x: 2.0,
-        y: 3.0,
-        width: 4.0,
-        height: 5.0,
-    };
-
-    let (offset, opacity) = runtime.render(Duration::ZERO, Input::None, |ui| {
-        let mut outer = ui.animate(outer_id, 2.0, Duration::ZERO, Easing::Linear);
-        let offset = outer.value();
-        let mut inner = outer.animate(inner_id, 0.5, Duration::ZERO, Easing::Linear);
-        let opacity = inner.value();
-        paint::Rectangle::new(LogicalRect {
-            x: area.x + offset,
-            ..area
-        })
-        .opacity(opacity)
-        .render(&mut inner);
-        (offset, opacity)
-    });
-
-    assert_eq!(offset, 2.0);
-    assert_eq!(opacity, 0.5);
-}
-
-#[test]
-fn looping_animation_repeats() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let id = WidgetId::new("looping animation");
-
-    let value = runtime.render(Duration::from_millis(100), Input::None, |ui| {
-        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear)
-            .value()
-    });
-    assert_eq!(value, 0.0);
-    assert!(runtime.has_pending_redraw());
-
-    let value = runtime.render(Duration::from_millis(350), Input::None, |ui| {
-        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear)
-            .value()
-    });
-    assert_eq!(value, 0.25);
-
-    let value = runtime.render(Duration::from_millis(1350), Input::None, |ui| {
-        ui.animate_loop(id, Duration::from_secs(1), Easing::Linear)
-            .value()
-    });
-    assert_eq!(value, 0.25);
-    assert!(runtime.has_pending_redraw());
-
-    let value = runtime.render(Duration::from_millis(1351), Input::None, |ui| {
-        ui.animate_loop(id, Duration::ZERO, Easing::Linear).value()
-    });
-    assert_eq!(value, 0.0);
-    assert!(!runtime.has_pending_redraw());
-}
-
-#[test]
-fn timers_fire_and_report_the_next_deadline() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let once = WidgetId::new("one shot timer");
-    let repeating = WidgetId::new("looping timer");
-
-    runtime.render(Duration::from_millis(10), Input::None, |ui| {
-        assert!(!ui.timer(once, Duration::from_millis(100)));
-        assert!(!ui.timer_loop(repeating, Duration::from_millis(50)));
+    assert_eq!(
+        harness.render(Duration::ZERO, Input::None, |ui| {
+            ui.animate(id, 0.0, duration, Easing::Linear)
+        }),
+        0.0
+    );
+    harness.render(Duration::from_millis(10), Input::None, |ui| {
+        ui.animate(id, 10.0, duration, Easing::Linear);
     });
     assert_eq!(
-        runtime.next_timer_deadline(),
+        harness.render(Duration::from_millis(60), Input::None, |ui| {
+            ui.animate(id, 10.0, duration, Easing::Linear)
+        }),
+        5.0
+    );
+    assert_eq!(
+        harness.render(Duration::from_millis(110), Input::None, |ui| {
+            ui.animate(id, 10.0, duration, Easing::Linear)
+        }),
+        10.0
+    );
+    assert!(!harness.has_pending_redraw());
+}
+
+#[test]
+fn transition_animates_resolved_positions() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let first = WidgetId::new("first transitioned item");
+    let second = WidgetId::new("second transitioned item");
+    let transition = Transition::new(Duration::from_millis(100))
+        .easing(Easing::Linear)
+        .position();
+    let render = |ui: &mut Ui, reversed: bool| {
+        let mut row = ui.layout(Flex::row()).fixed(4.0, 2.0).open();
+        let ids = if reversed {
+            [second, first]
+        } else {
+            [first, second]
+        };
+        for id in ids {
+            row.add(|ui: &mut Ui| {
+                ui.layout(Flex::column())
+                    .fixed(2.0, 2.0)
+                    .style(Style::new().background(Color::WHITE))
+                    .id(id)
+                    .transition(transition)
+                    .open();
+            });
+        }
+    };
+
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, false));
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 0.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 2.0);
+
+    harness.render(Duration::from_millis(10), Input::None, |ui| {
+        render(ui, true)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 2.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 0.0);
+    assert!(harness.has_pending_redraw());
+
+    harness.render(Duration::from_millis(60), Input::None, |ui| {
+        render(ui, true)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 1.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 1.0);
+
+    harness.render(Duration::from_millis(110), Input::None, |ui| {
+        render(ui, true)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 0.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 2.0);
+    assert!(!harness.has_pending_redraw());
+}
+
+#[test]
+fn nested_position_transitions_compose() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let parent = WidgetId::new("transitioned parent");
+    let child = WidgetId::new("transitioned child");
+    let transition = Transition::new(Duration::from_millis(100))
+        .easing(Easing::Linear)
+        .position();
+    let render = |ui: &mut Ui, parent_offset: f32, child_offset: f32| {
+        let mut column = ui.layout(Wrap::vertical()).fixed(2.0, 10.0).open();
+        column.add(fixed_rectangle(2.0, parent_offset, Color::TRANSPARENT));
+        column.add(|ui: &mut Ui| {
+            let mut parent = ui
+                .layout(Flex::column())
+                .fixed(2.0, 2.0)
+                .style(Style::new().background(Color::WHITE))
+                .id(parent)
+                .transition(transition)
+                .open();
+            parent.add(fixed_rectangle(2.0, child_offset, Color::TRANSPARENT));
+            parent.add(
+                fixed_rectangle(2.0, 1.0, Color::BLACK)
+                    .id(child)
+                    .transition(transition),
+            );
+            parent.add(|ui: &mut Ui| {
+                ui.layout(Flex::column())
+                    .fixed(1.0, 1.0)
+                    .style(Style::new().background(Color::BLACK))
+                    .absolute(Absolute::screen(0.0, 4.0))
+                    .open();
+            });
+        });
+    };
+
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0, 0.0));
+    harness.render(Duration::from_millis(10), Input::None, |ui| {
+        render(ui, 2.0, 1.0)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].y, 0.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].y, 0.0);
+
+    harness.render(Duration::from_millis(60), Input::None, |ui| {
+        render(ui, 2.0, 1.0)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].y, 1.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].y, 1.5);
+    assert_eq!(harness.renderer().rectangle_areas[2].y, 4.0);
+
+    harness.render(Duration::from_millis(110), Input::None, |ui| {
+        render(ui, 2.0, 1.0)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].y, 2.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].y, 3.0);
+}
+
+#[test]
+fn transition_without_id_is_ignored() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let transition = Transition::new(Duration::from_millis(100)).layout();
+
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let _container = ui.layout(Flex::column()).transition(transition).open();
+    });
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        widget::Rectangle::new().transition(transition).render(ui);
+    });
+
+    assert!(!harness.has_pending_redraw());
+}
+
+#[test]
+fn transition_does_not_animate_unchanged_parent_relative_position() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("child of moving parent");
+    let transition = Transition::new(Duration::from_millis(100)).position();
+    let render = |ui: &mut Ui, top: f32| {
+        let mut column = ui.layout(Flex::column()).fixed(2.0, 10.0).open();
+        column.add(fixed_rectangle(2.0, top, Color::TRANSPARENT));
+        column.add(|ui: &mut Ui| {
+            let mut parent = ui.layout(Flex::column()).fixed(2.0, 2.0).open();
+            parent.add(
+                fixed_rectangle(2.0, 2.0, Color::WHITE)
+                    .id(id)
+                    .transition(transition),
+            );
+        });
+    };
+
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, 0.0));
+    harness.render(Duration::from_millis(10), Input::None, |ui| render(ui, 2.0));
+    assert_eq!(harness.renderer().rectangle_areas[0].y, 2.0);
+    assert!(!harness.has_pending_redraw());
+}
+
+#[test]
+fn transitioned_layout_uses_transitioned_dimensions() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("resizing item");
+    let transition = Transition::new(Duration::from_millis(100))
+        .easing(Easing::Linear)
+        .layout();
+    let render = |ui: &mut Ui, width: f32| {
+        let mut row = ui
+            .layout(Flex::row().justify(Justify::Center))
+            .fixed(10.0, 2.0)
+            .open();
+        row.add(
+            fixed_rectangle(width, 2.0, Color::WHITE)
+                .id(id)
+                .transition(transition),
+        );
+        row.add(fixed_rectangle(2.0, 2.0, Color::BLACK));
+    };
+
+    harness.render(Duration::ZERO, Input::None, |ui| render(ui, 2.0));
+    harness.render(Duration::from_millis(10), Input::None, |ui| render(ui, 6.0));
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 3.0);
+    assert_eq!(harness.renderer().rectangle_areas[0].width, 2.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 5.0);
+
+    harness.render(Duration::from_millis(60), Input::None, |ui| render(ui, 6.0));
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 2.0);
+    assert_eq!(harness.renderer().rectangle_areas[0].width, 4.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 6.0);
+
+    harness.render(Duration::from_millis(110), Input::None, |ui| {
+        render(ui, 6.0)
+    });
+    assert_eq!(harness.renderer().rectangle_areas[0].x, 1.0);
+    assert_eq!(harness.renderer().rectangle_areas[0].width, 6.0);
+    assert_eq!(harness.renderer().rectangle_areas[1].x, 7.0);
+    assert!(!harness.has_pending_redraw());
+}
+
+#[test]
+fn looping_animation_and_timers_schedule_frames() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let animation = WidgetId::new("loop");
+    let timer = WidgetId::new("timer");
+
+    harness.render(Duration::from_millis(10), Input::None, |ui| {
+        assert_eq!(
+            ui.animate_loop(animation, Duration::from_secs(1), Easing::Linear),
+            0.0
+        );
+        assert!(!ui.timer_loop(timer, Duration::from_millis(50)));
+    });
+    assert!(harness.has_pending_redraw());
+    assert_eq!(
+        harness.next_timer_deadline(),
         Some(Duration::from_millis(60))
     );
-    assert!(!runtime.has_pending_redraw());
 
-    runtime.render(Duration::from_millis(60), Input::None, |ui| {
-        assert!(!ui.timer(once, Duration::from_millis(100)));
-        assert!(ui.timer_loop(repeating, Duration::from_millis(50)));
-    });
-    assert_eq!(
-        runtime.next_timer_deadline(),
-        Some(Duration::from_millis(110))
-    );
-
-    runtime.render(Duration::from_millis(110), Input::None, |ui| {
-        assert!(ui.timer(once, Duration::from_millis(100)));
-        assert!(ui.timer_loop(repeating, Duration::from_millis(50)));
-    });
-    assert_eq!(
-        runtime.next_timer_deadline(),
-        Some(Duration::from_millis(160))
-    );
-
-    runtime.render(Duration::from_millis(111), Input::None, |ui| {
-        assert!(!ui.timer(once, Duration::from_millis(100)));
-        assert!(!ui.timer_loop(repeating, Duration::from_millis(50)));
+    harness.render(Duration::from_millis(60), Input::None, |ui| {
+        assert_eq!(
+            ui.animate_loop(animation, Duration::from_secs(1), Easing::Linear),
+            0.05
+        );
+        assert!(ui.timer_loop(timer, Duration::from_millis(50)));
     });
 }
 
 #[test]
-fn id_scopes_create_distinct_widget_ids() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-
-    let (root, nested) = runtime.render(Duration::ZERO, Input::None, |ui| {
-        let root = ui.id("button");
-        let mut scope = ui.begin_scope("todo");
-        let nested = scope.ui().id("button");
-        scope.finish();
-        (root, nested)
-    });
-
-    assert_ne!(root, nested);
-}
-
-#[test]
-fn only_topmost_widget_is_hovered() {
-    let mut runtime = Runtime::new(TestPlatform::default());
-    let area = runtime.screen();
-    let render = |ui: &mut Ui| {
-        let back = ui.interact(ui.id("back"), area, Sense::CLICK);
-        let front = ui.interact(ui.id("front"), area, Sense::CLICK);
-        (back, front)
-    };
-
-    runtime.render(Duration::ZERO, Input::None, &render);
-    let (back, front) = runtime.render(
-        Duration::ZERO,
-        Input::PointerMove {
-            position: LogicalPoint { x: 5.0, y: 5.0 },
-            modifiers: Modifiers::NONE,
-        },
-        render,
+fn logical_rect_rounds_outward_to_physical_pixels() {
+    assert_eq!(
+        LogicalRect {
+            x: 1.2,
+            y: 2.8,
+            width: 3.1,
+            height: 4.1,
+        }
+        .to_physical(1.0),
+        PhysicalRect {
+            x: 1,
+            y: 2,
+            width: 4,
+            height: 5,
+        }
     );
-
-    assert!(!back.hovered);
-    assert!(front.hovered);
-
-    let (back, front) = runtime.render(Duration::ZERO, Input::PointerLeave, render);
-    assert!(!back.hovered);
-    assert!(!front.hovered);
 }

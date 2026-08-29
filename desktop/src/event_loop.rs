@@ -1,16 +1,11 @@
 use std::{num::NonZeroU32, pin::Pin, rc::Rc, time::Instant};
 
 use blit::{
-    RepaintBuffer,
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
+    geometry::LogicalPoint,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
-    keyboard::KeyboardRequest,
-    paint::TextRequest,
-    paint_list::PaintList,
-    platform::PlatformImpl,
-    resource::{ImageData, ImageId, StringData, StringId},
+    repaint::{IncrementalRepaint, MyersTracker},
 };
-use blit_cpu::{PixelBuffer, Renderer, Scanline};
+use blit_cpu::{Renderer, Scanline};
 use blit_executor::{LocalExecutor, TaskId};
 use softbuffer::{Context, Surface};
 use winit::{
@@ -54,7 +49,7 @@ struct Runner<A: Application> {
     state: Option<State<A>>,
     context: Context<OwnedDisplayHandle>,
     inputs: Vec<Input>,
-    cursor: Option<LogicalPoint>,
+    cursor: Option<PhysicalPosition<f64>>,
     modifiers: Modifiers,
     started_at: Instant,
     error: Option<RunError>,
@@ -71,29 +66,25 @@ enum State<A: Application> {
 struct Active<A: Application> {
     app: A,
     executor: Pin<Box<LocalExecutor<A>>>,
-    runtime: blit::Runtime<DesktopPlatform>,
+    renderer: Renderer<DesktopBuffer, Scanline>,
+    ui: blit::UiState,
+    repaint: IncrementalRepaint<MyersTracker>,
     surface: Surface<OwnedDisplayHandle, Rc<Window>>,
     window: Rc<Window>,
 }
 
 impl<A: Application> Active<A> {
-    fn resize(&mut self, size: PhysicalSize<u32>, scale_factor: f64) -> Result<(), RunError> {
+    fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), RunError> {
         let (Some(width), Some(height)) =
             (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
         else {
             return Ok(());
         };
         self.surface.resize(width, height)?;
-        self.runtime
-            .platform()
-            .renderer
+        self.renderer
             .buffer_mut()
             .resize(size.width as usize, size.height as usize);
-        self.runtime
-            .platform()
-            .renderer
-            .set_scale_factor(scale_factor as f32);
-        self.runtime.refresh_screen();
+        self.ui.set_screen(self.renderer.screen());
         Ok(())
     }
 }
@@ -154,40 +145,28 @@ impl<A: Application> Runner<A> {
         };
         let time = self.started_at.elapsed();
         let timer_due = active
-            .runtime
+            .ui
             .next_timer_deadline()
             .is_some_and(|deadline| time >= deadline);
-        if self.inputs.is_empty() && !active.runtime.has_pending_redraw() && !timer_due {
+        if self.inputs.is_empty() && !active.ui.has_pending_redraw() && !timer_due {
             return;
         }
         let mut buffer = match active.surface.buffer_mut() {
             Ok(buffer) => buffer,
             Err(error) => return self.fail(event_loop, error),
         };
-        if buffer.len()
-            != active.runtime.platform().renderer.buffer().width()
-                * active.runtime.platform().renderer.buffer().height()
-        {
-            return;
-        }
         if buffer.age() == 0 {
-            active.runtime.invalidate_all();
+            active.ui.invalidate_all();
         }
-        active
-            .runtime
-            .platform()
-            .renderer
-            .buffer_mut()
-            .set(&mut buffer);
-        if !self.inputs.is_empty() {
-            active
-                .runtime
-                .render_batch(time, self.inputs.drain(..), |ui| active.app.render(ui));
-        } else if active.runtime.has_pending_redraw() || timer_due {
-            active
-                .runtime
-                .render(time, Input::None, |ui| active.app.render(ui));
-        }
+        active.renderer.buffer_mut().set(&mut buffer);
+        blit::render(
+            &mut active.renderer,
+            &mut active.ui,
+            &mut active.repaint,
+            time,
+            self.inputs.drain(..),
+            |ui| active.app.render(ui),
+        );
         active.window.pre_present_notify();
         if let Err(error) = buffer.present() {
             self.fail(event_loop, error);
@@ -217,34 +196,29 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Ok(surface) => surface,
             Err(error) => return self.fail(event_loop, error),
         };
-        let platform = DesktopPlatform {
-            renderer: Renderer::new(
-                DesktopBuffer::new(size.width as usize, size.height as usize),
-                config.renderer,
-            )
-            .with_scale_factor(window.scale_factor() as f32)
-            .strategy(Scanline::default()),
-            window: window.clone(),
-            ime_allowed: false,
-            ime_requested: false,
-        };
-        let mut runtime = blit::Runtime::new(platform);
+        let renderer = Renderer::new(
+            DesktopBuffer::new(size.width as usize, size.height as usize),
+            config.renderer,
+        )
+        .strategy(Scanline::default());
+        let ui = blit::UiState::new(renderer.screen(), window.scale_factor() as f32);
         let wake = input.inner.clone();
         let executor = Box::pin(LocalExecutor::new(move |task| {
             let _ = wake.send_event(Event::TaskReady(task));
         }));
         // safety: executor remains pinned and is dropped after app
         let root = unsafe { executor.as_ref().root() };
-        let app = A::new(*runtime.erased_platform(), input, root);
-        let scale_factor = window.scale_factor();
+        let app = A::new(input, root);
         let mut active = Box::new(Active {
             app,
             executor,
-            runtime,
+            renderer,
+            ui,
+            repaint: IncrementalRepaint::new(MyersTracker::default(), true),
             surface,
             window,
         });
-        if let Err(error) = active.resize(size, scale_factor) {
+        if let Err(error) = active.resize(size) {
             return self.fail(event_loop, error);
         }
         active.window.request_redraw();
@@ -263,7 +237,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Event::TaskReady(task) => active.executor.as_ref().run(&mut active.app, task),
         };
         if request_frame {
-            active.runtime.request_frame();
+            active.ui.request_frame();
             active.window.request_redraw();
         }
     }
@@ -283,14 +257,15 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
-                if let Err(error) = active.resize(size, active.window.scale_factor()) {
+                if let Err(error) = active.resize(size) {
                     self.fail(event_loop, error);
                 } else {
                     active.window.request_redraw();
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                if let Err(error) = active.resize(active.window.inner_size(), scale_factor) {
+                active.ui.set_scale_factor(scale_factor as f32);
+                if let Err(error) = active.resize(active.window.inner_size()) {
                     self.fail(event_loop, error);
                 } else {
                     active.window.request_redraw();
@@ -307,9 +282,9 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 );
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let position = logical_position(position, active.window.scale_factor());
                 active.window.request_redraw();
                 self.cursor = Some(position);
+                let position = logical_position(position, active.ui.scale_factor());
                 self.push_input(Input::PointerMove {
                     position,
                     modifiers: self.modifiers,
@@ -322,6 +297,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(position) = self.cursor {
+                    let position = logical_position(position, active.ui.scale_factor());
                     let button = match button {
                         MouseButton::Left => PointerButton::Primary,
                         MouseButton::Right => PointerButton::Secondary,
@@ -348,19 +324,22 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 }
             }
             WindowEvent::MouseWheel { delta, phase, .. } => {
-                let position = self.cursor.unwrap_or_else(|| {
-                    let size = active.window.inner_size();
-                    let scale = active.window.scale_factor() as f32;
-                    LogicalPoint {
-                        x: size.width as f32 / scale / 2.0,
-                        y: size.height as f32 / scale / 2.0,
-                    }
-                });
+                let scale = active.ui.scale_factor();
+                let position = self.cursor.map_or_else(
+                    || {
+                        let size = active.window.inner_size();
+                        LogicalPoint {
+                            x: size.width as f32 / scale / 2.0,
+                            y: size.height as f32 / scale / 2.0,
+                        }
+                    },
+                    |position| logical_position(position, scale),
+                );
                 let (delta_x, delta_y, continuous) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (-x * 40.0, -y * 40.0, false),
                     MouseScrollDelta::PixelDelta(delta) => (
-                        (-delta.x / active.window.scale_factor()) as f32,
-                        (-delta.y / active.window.scale_factor()) as f32,
+                        (-delta.x / active.ui.scale_factor() as f64) as f32,
+                        (-delta.y / active.ui.scale_factor() as f64) as f32,
                         true,
                     ),
                 };
@@ -436,7 +415,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 self.push_text(&text);
             }
             WindowEvent::Touch(touch) => {
-                let position = logical_position(touch.location, active.window.scale_factor());
+                let position = logical_position(touch.location, active.ui.scale_factor());
                 active.window.request_redraw();
                 let input = match touch.phase {
                     TouchPhase::Started => Input::PointerDown {
@@ -466,16 +445,16 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             return;
         };
         let now = self.started_at.elapsed();
-        if active.runtime.has_pending_redraw()
+        if active.ui.has_pending_redraw()
             || active
-                .runtime
+                .ui
                 .next_timer_deadline()
                 .is_some_and(|deadline| deadline <= now)
             || !self.inputs.is_empty()
         {
             active.window.request_redraw();
             event_loop.set_control_flow(ControlFlow::Wait);
-        } else if let Some(deadline) = active.runtime.next_timer_deadline() {
+        } else if let Some(deadline) = active.ui.next_timer_deadline() {
             event_loop.set_control_flow(ControlFlow::WaitUntil(self.started_at + deadline));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
@@ -483,79 +462,9 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
     }
 }
 
-fn logical_position(position: PhysicalPosition<f64>, scale_factor: f64) -> LogicalPoint {
+fn logical_position(position: PhysicalPosition<f64>, scale_factor: f32) -> LogicalPoint {
     LogicalPoint {
-        x: (position.x / scale_factor) as f32,
-        y: (position.y / scale_factor) as f32,
-    }
-}
-
-struct DesktopPlatform {
-    renderer: Renderer<DesktopBuffer, Scanline>,
-    window: Rc<Window>,
-    ime_allowed: bool,
-    ime_requested: bool,
-}
-
-impl PlatformImpl for DesktopPlatform {
-    fn render(&mut self, paint: &PaintList, damage: &[PhysicalRect]) {
-        if self.ime_allowed != self.ime_requested {
-            self.window.set_ime_allowed(self.ime_requested);
-            self.ime_allowed = self.ime_requested;
-        }
-        self.ime_requested = false;
-        self.renderer.render(paint, damage)
-    }
-
-    fn screen(&mut self) -> PhysicalRect {
-        self.renderer.screen()
-    }
-
-    fn scale_factor(&mut self) -> f32 {
-        self.renderer.scale_factor()
-    }
-
-    fn repaint_buffer(&self) -> RepaintBuffer {
-        RepaintBuffer::Swapped
-    }
-
-    fn create_image(&mut self, data: ImageData) -> ImageId {
-        self.renderer.create_image(data)
-    }
-
-    fn drop_image(&mut self, image: ImageId) {
-        self.renderer.drop_image(image)
-    }
-
-    fn create_string(&mut self, string: StringData) -> StringId {
-        self.renderer.create_string(string)
-    }
-
-    fn drop_string(&mut self, string: StringId) {
-        self.renderer.drop_string(string)
-    }
-
-    fn string(&self, string: StringId) -> &str {
-        self.renderer.string(string)
-    }
-
-    fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
-        self.renderer.text_offset_at_position(request, position)
-    }
-
-    fn measure_text(&mut self, request: &TextRequest) -> LogicalSize {
-        self.renderer.measure_text(request)
-    }
-
-    fn measure_text_height(&mut self, request: &TextRequest) -> f32 {
-        self.renderer.measure_text_height(request)
-    }
-
-    fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        self.renderer.text_cursor_rect(request, byte_offset)
-    }
-
-    fn show_keyboard(&mut self, _: &KeyboardRequest<'_>) {
-        self.ime_requested = true
+        x: (position.x / scale_factor as f64) as f32,
+        y: (position.y / scale_factor as f64) as f32,
     }
 }
