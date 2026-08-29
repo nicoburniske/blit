@@ -53,6 +53,9 @@ pub struct FrameGraph {
 
 impl FrameGraph {
     pub fn begin(&mut self, screen: LogicalRect) {
+        #[cfg(debug_assertions)]
+        generation::begin();
+        let root = self.node_id(0);
         self.clear = false;
         self.needs_paint_order = false;
         self.nodes.clear();
@@ -71,12 +74,12 @@ impl FrameGraph {
         self.clip_specs.clear();
         self.geometry.clear();
         self.gradient_stops.clear();
-        let root = self.store_layout(Flex::column(), LogicalPoint::default());
-        self.layouts.push(root);
-        self.layout_nodes.push(NodeId::ROOT);
+        let layout = self.store_layout(Flex::column(), LogicalPoint::default());
+        self.layouts.push(layout);
+        self.layout_nodes.push(root);
         let root_layout = LayoutId::normal(0);
         self.nodes.push(Node {
-            parent: NodeId::ROOT,
+            parent: root,
             subtree_end: 1,
             slot: Slot {
                 layer: None,
@@ -93,7 +96,7 @@ impl FrameGraph {
             clip: ClipId::default(),
             clip_bounds: screen,
         });
-        self.open_containers.push(NodeId::ROOT);
+        self.open_containers.push(root);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -109,7 +112,7 @@ impl FrameGraph {
     ) {
         assert_eq!(
             self.open_containers,
-            [NodeId::ROOT],
+            [self.node_id(0)],
             "a container scope was not dropped"
         );
         self.nodes[0].subtree_end =
@@ -199,7 +202,11 @@ impl FrameGraph {
             .last()
             .expect("layer declaration requires a root");
         let raw = u16::try_from(self.layers.len() + 1).expect("too many layers in one frame");
-        let id = LayerId(NonZeroU16::new(raw).unwrap());
+        let id = LayerId(
+            NonZeroU16::new(raw).unwrap(),
+            #[cfg(debug_assertions)]
+            generation::get(),
+        );
         self.layers.push(PaintLayer {
             owner,
             clip: ClipId::default(),
@@ -224,7 +231,7 @@ impl FrameGraph {
     }
 
     pub fn begin_layout_item(&self) -> NodeId {
-        NodeId::new(self.nodes.len())
+        self.node_id(self.nodes.len())
     }
 
     pub fn finish_layout_item<L: Layout>(&mut self, parent: NodeId, child: NodeId, item: L::Item) {
@@ -290,7 +297,7 @@ impl FrameGraph {
             .open_containers
             .last()
             .expect("node declaration requires a root");
-        let node = NodeId::new(self.nodes.len());
+        let node = self.node_id(self.nodes.len());
         self.needs_paint_order |= slot.z_index != 0 || slot.layer.is_some();
         let style = self.store_style(style);
         let layout = match (layout, position) {
@@ -304,7 +311,7 @@ impl FrameGraph {
                         );
                         (target, false)
                     }
-                    PositionTarget::Screen => (NodeId::ROOT, false),
+                    PositionTarget::Screen => (self.node_id(0), false),
                 };
                 let id = LayoutId::positioned(self.positioned_layouts.len());
                 self.positioned_layouts.push(PositionedLayout {
@@ -430,9 +437,10 @@ impl FrameGraph {
         }
 
         self.layout_nodes.clear();
-        self.layout_nodes.push(NodeId::ROOT);
+        let root = self.node_id(0);
+        self.layout_nodes.push(root);
         while let Some(parent) = self.layout_nodes.pop() {
-            if parent != NodeId::ROOT {
+            if parent != root {
                 self.paint_order.push(parent);
             }
             let start = self.layout_nodes.len();
@@ -440,14 +448,15 @@ impl FrameGraph {
             let end = self.nodes[parent.index()].subtree_end as usize;
             while child < end {
                 if self.nodes[child].slot.layer.is_none() {
-                    self.layout_nodes.push(NodeId::new(child));
+                    self.layout_nodes.push(self.node_id(child));
                 }
                 child = self.nodes[child].subtree_end as usize;
             }
-            if parent == NodeId::ROOT && !self.layers.is_empty() {
+            if parent == root && !self.layers.is_empty() {
                 for index in 1..self.nodes.len() {
                     if self.nodes[index].slot.layer.is_some() {
-                        self.layout_nodes.push(NodeId::new(index));
+                        let node = self.node_id(index);
+                        self.layout_nodes.push(node);
                     }
                 }
             }
@@ -487,9 +496,9 @@ impl FrameGraph {
         debug_assert_eq!(self.paint_order.len(), self.nodes.len() - 1);
 
         if !self.geometry.is_empty() {
-            self.layout_nodes.resize(self.nodes.len(), NodeId::ROOT);
+            self.layout_nodes.resize(self.nodes.len(), root);
             for (rank, node) in self.paint_order.iter().copied().enumerate() {
-                self.layout_nodes[node.index()] = NodeId::new(rank);
+                self.layout_nodes[node.index()] = self.node_id(rank);
             }
             let ranks = &self.layout_nodes;
             self.geometry
@@ -498,12 +507,13 @@ impl FrameGraph {
     }
 
     fn layout(&mut self, renderer: &mut dyn Renderer, positioned: bool) {
-        let root = self.nodes[0].area;
+        let root = self.node_id(0);
+        let area = self.nodes[0].area;
         self.layout_node(
-            NodeId::ROOT,
+            root,
             Constraints::tight(LogicalSize {
-                width: root.width,
-                height: root.height,
+                width: area.width,
+                height: area.height,
             }),
             renderer,
             positioned,
@@ -697,7 +707,7 @@ impl FrameGraph {
     fn resolve_clips(&mut self, commands: &mut CommandList) {
         self.nodes[0].clip = ClipId::default();
         self.layer_order
-            .sort_unstable_by_key(|layer| self.layers[layer.0.get() as usize - 1].owner.index());
+            .sort_unstable_by_key(|layer| self.layers[layer.index()].owner.index());
         let mut next_layer = 0;
         for index in 0..self.nodes.len() {
             let clip = self.nodes[index]
@@ -724,7 +734,7 @@ impl FrameGraph {
             };
             // resolve this owner's layers until the next owner is reached
             while next_layer < self.layer_order.len() {
-                let layer = self.layer_order[next_layer].0.get() as usize - 1;
+                let layer = self.layer_order[next_layer].index();
                 if self.layers[layer].owner.index() != index {
                     break;
                 }
@@ -739,7 +749,7 @@ impl FrameGraph {
                 if let Some(layer) = self.nodes[child].slot.layer {
                     let layer = self
                         .layers
-                        .get(layer.0.get() as usize - 1)
+                        .get(layer.index())
                         .expect("layer must be declared in the current frame");
                     self.nodes[child].clip = layer.clip;
                     self.nodes[child].clip_bounds = layer.clip_bounds;
@@ -921,6 +931,41 @@ impl FrameGraph {
             .intersection(node.clip_bounds);
             (record.id, area)
         }));
+    }
+
+    fn node_id(&self, index: usize) -> NodeId {
+        NodeId {
+            value: u32::try_from(index + 1).expect("too many nodes in one frame"),
+            #[cfg(debug_assertions)]
+            generation: generation::get(),
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+pub mod generation {
+    use std::{
+        cell::Cell,
+        sync::atomic::{AtomicU16, Ordering},
+    };
+
+    static NEXT: AtomicU16 = AtomicU16::new(1);
+
+    thread_local! {
+        static CURRENT: Cell<u16> = const { Cell::new(0) };
+    }
+
+    pub fn begin() {
+        CURRENT.set(NEXT.fetch_add(1, Ordering::Relaxed));
+    }
+
+    pub fn get() -> u16 {
+        CURRENT.get()
+    }
+
+    #[inline]
+    pub fn assert(id: u16) {
+        assert_eq!(id, get(), "id belongs to another frame");
     }
 }
 

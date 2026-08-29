@@ -16,7 +16,7 @@ pub struct TransitionState {
 }
 
 impl TransitionState {
-    pub fn new(id: WidgetId) -> Self {
+    pub fn new(id: WidgetId, node: NodeId, config: Transition) -> Self {
         Self {
             id,
             current: LogicalRect::default(),
@@ -24,10 +24,10 @@ impl TransitionState {
             target: LogicalRect::default(),
             started_at: None,
             active: TransitionProperties::NONE,
-            node: NodeId::ROOT,
-            config: Transition::new(Duration::ZERO),
+            node,
+            config,
             initialized: false,
-            seen: false,
+            seen: true,
         }
     }
 
