@@ -51,23 +51,24 @@ impl Layout for Wrap {
             return constraints.constrain(LogicalSize::default());
         }
 
+        let padding = cx.resolve_sides(self.padding);
         let (main_padding, cross_padding, main_leading, cross_leading) = match self.axis {
             Axis::Horizontal => (
-                self.padding.left + self.padding.right,
-                self.padding.top + self.padding.bottom,
-                self.padding.left,
-                self.padding.top,
+                padding.left + padding.right,
+                padding.top + padding.bottom,
+                padding.left,
+                padding.top,
             ),
             Axis::Vertical => (
-                self.padding.top + self.padding.bottom,
-                self.padding.left + self.padding.right,
-                self.padding.top,
-                self.padding.left,
+                padding.top + padding.bottom,
+                padding.left + padding.right,
+                padding.top,
+                padding.left,
             ),
         };
         let max_cross = (size_on_axis(constraints.max, cross_axis) - cross_padding).max(0.0);
-        let item_gap = self.item_gap.max(0.0);
-        let run_gap = self.run_gap.max(0.0);
+        let item_gap = cx.resolve_extent(self.axis, self.item_gap).max(0.0);
+        let run_gap = cx.resolve_extent(cross_axis, self.run_gap).max(0.0);
         let mut natural_main = 0.0;
 
         for node in cx.children() {

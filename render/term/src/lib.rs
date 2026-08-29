@@ -413,6 +413,15 @@ impl Renderer for TerminalRenderer {
         self.scale_factor = scale_factor;
     }
 
+    fn layout_resolution(&self) -> blit::layout::LayoutResolution {
+        blit::layout::LayoutResolution::Discrete {
+            step: LogicalSize {
+                width: CELL_WIDTH / self.scale_factor,
+                height: CELL_HEIGHT / self.scale_factor,
+            },
+        }
+    }
+
     fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
         let cell_width = CELL_WIDTH / self.scale_factor;
         let cell_height = CELL_HEIGHT / self.scale_factor;
@@ -1070,6 +1079,45 @@ mod tests {
     }
 
     #[test]
+    fn absolute_slots_use_terminal_resolution() {
+        use blit::{container::Absolute, interact::WidgetId, layout::Flex};
+
+        let mut renderer = TerminalRenderer::new(4, 3);
+        let mut state = UiState::new(renderer.screen(), 1.0);
+        let id = WidgetId::new("absolute resolution");
+        blit::render(
+            &mut renderer,
+            &mut state,
+            &mut FullRepaint,
+            Duration::ZERO,
+            [],
+            |ui| {
+                let mut root = ui.layout(Flex::column()).grow().open();
+                root.add(|ui: &mut blit::Ui| {
+                    ui.layout(Flex::column())
+                        .fixed(3.0, 4.0)
+                        .id(id)
+                        .absolute(Absolute::at(0.0, 0.0))
+                        .open();
+                });
+            },
+        );
+
+        let mut area = None;
+        blit::render(
+            &mut renderer,
+            &mut state,
+            &mut FullRepaint,
+            Duration::ZERO,
+            [],
+            |ui| area = ui.geometry(id),
+        );
+        let area = area.unwrap();
+        assert_eq!(area.width, CELL_WIDTH);
+        assert_eq!(area.height, CELL_HEIGHT);
+    }
+
+    #[test]
     fn text_at_half_cell_offset_reaches_quantized_cell() {
         use blit::{command_list::ClipId, text::TextOptions};
 
@@ -1245,8 +1293,8 @@ mod tests {
             },
         );
 
-        assert_eq!(renderer.cells[0].text, "╭");
-        assert_eq!(renderer.cells[0].background, background);
+        assert_eq!(renderer.cells[renderer.columns + 1].text, "╭");
+        assert_eq!(renderer.cells[renderer.columns + 1].background, background);
     }
 
     #[test]
@@ -1287,10 +1335,10 @@ mod tests {
                 [],
                 &mut render,
             );
-            assert_eq!(renderer.cells[3].text, "┐");
+            assert_eq!(renderer.cells[2].text, "┐");
 
             let position = LogicalPoint {
-                x: CELL_WIDTH * 3.5,
+                x: CELL_WIDTH * 2.5,
                 y: CELL_HEIGHT / 2.0,
             };
             blit::render(

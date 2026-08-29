@@ -8,6 +8,7 @@ use super::*;
 pub struct LayoutCx<'a, I> {
     frame: &'a mut FrameGraph,
     renderer: &'a mut dyn Renderer,
+    resolution: LayoutResolution,
     nodes: *const Node,
     node: NodeId,
     positioned: bool,
@@ -122,6 +123,19 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     pub fn sizing(&self, node: NodeId, axis: Axis) -> crate::container::Sizing {
         self.assert_child(node);
         self.frame.nodes[node.index()].sizing(axis)
+    }
+
+    pub fn resolve_extent(&self, axis: Axis, value: f32) -> f32 {
+        self.resolution.extent(axis, value)
+    }
+
+    pub fn resolve_sides(&self, sides: Sides) -> Sides {
+        Sides {
+            top: self.resolve_extent(Axis::Vertical, sides.top),
+            right: self.resolve_extent(Axis::Horizontal, sides.right),
+            bottom: self.resolve_extent(Axis::Vertical, sides.bottom),
+            left: self.resolve_extent(Axis::Horizontal, sides.left),
+        }
     }
 
     /// the current size of a child on an axis
@@ -275,10 +289,12 @@ fn run_layout<L: Layout>(
     debug_assert_eq!((stored.vtable.layout_type)(), TypeId::of::<L>());
     let layout: L = frame.layout_data.load(stored.data_offset as usize);
     let graph_nodes = frame.nodes.as_ptr();
+    let resolution = frame.layout_resolution;
     layout.layout(
         &mut LayoutCx {
             frame,
             renderer,
+            resolution,
             nodes: graph_nodes,
             node,
             positioned,

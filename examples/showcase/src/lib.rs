@@ -164,7 +164,7 @@ impl Showcase {
                     .justify(Justify::SpaceBetween),
             )
             .width(Sizing::grow())
-            .height(Sizing::fixed(64.0))
+            .height(Sizing::fit().min(64.0))
             .style(Style::new().background(colors::BACKGROUND))
             .open();
         header.add(|ui: &mut Ui| {

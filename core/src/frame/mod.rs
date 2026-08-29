@@ -21,7 +21,7 @@ use crate::{
     geometry::{LogicalPoint, LogicalRect, LogicalSize, Sides},
     image::{ImageContent, ImageRequest},
     interact::{InteractionState, WidgetId},
-    layout::{Axis, Constraints, Flex, Layout},
+    layout::{Axis, Constraints, Flex, Layout, LayoutResolution},
     node::{Content, NodeId},
     renderer::Renderer,
     style::{Border, BorderRadius, Clip, LinearGradient, Shadow, Style},
@@ -32,6 +32,7 @@ use crate::{
 pub struct FrameGraph {
     clear: bool,
     needs_paint_order: bool,
+    layout_resolution: LayoutResolution,
     nodes: Vec<Node>,
     open_containers: Vec<NodeId>,
     texts: Vec<TextContent>,
@@ -52,12 +53,13 @@ pub struct FrameGraph {
 }
 
 impl FrameGraph {
-    pub fn begin(&mut self, screen: LogicalRect) {
+    pub fn begin(&mut self, screen: LogicalRect, layout_resolution: LayoutResolution) {
         #[cfg(debug_assertions)]
         generation::begin();
         let root = self.node_id(0);
         self.clear = false;
         self.needs_paint_order = false;
+        self.layout_resolution = layout_resolution;
         self.nodes.clear();
         self.open_containers.clear();
         self.texts.clear();
@@ -293,6 +295,11 @@ impl FrameGraph {
         id: Option<WidgetId>,
         hit: Sides,
     ) -> NodeId {
+        let slot = Slot {
+            width: self.layout_resolution.sizing(Axis::Horizontal, slot.width),
+            height: self.layout_resolution.sizing(Axis::Vertical, slot.height),
+            ..slot
+        };
         let parent = *self
             .open_containers
             .last()
@@ -683,10 +690,14 @@ impl FrameGraph {
         for state in states.iter().filter(|state| state.seen) {
             let node = &mut self.nodes[state.node.index()];
             if state.active.intersects(TransitionProperties::WIDTH) {
-                node.slot.width = Sizing::fixed(state.current.width);
+                node.slot.width = self
+                    .layout_resolution
+                    .sizing(Axis::Horizontal, Sizing::fixed(state.current.width));
             }
             if state.active.intersects(TransitionProperties::HEIGHT) {
-                node.slot.height = Sizing::fixed(state.current.height);
+                node.slot.height = self
+                    .layout_resolution
+                    .sizing(Axis::Vertical, Sizing::fixed(state.current.height));
             }
         }
     }

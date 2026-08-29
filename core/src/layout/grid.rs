@@ -174,10 +174,15 @@ impl Layout for Grid {
 
     fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         let columns = self.columns as usize;
-        let column_gap = self.column_gap.max(0.0);
-        let row_gap = self.row_gap.max(0.0);
-        let horizontal_padding = self.padding.left + self.padding.right;
-        let vertical_padding = self.padding.top + self.padding.bottom;
+        let padding = cx.resolve_sides(self.padding);
+        let column_gap = cx
+            .resolve_extent(super::Axis::Horizontal, self.column_gap)
+            .max(0.0);
+        let row_gap = cx
+            .resolve_extent(super::Axis::Vertical, self.row_gap)
+            .max(0.0);
+        let horizontal_padding = padding.left + padding.right;
+        let vertical_padding = padding.top + padding.bottom;
         let horizontal_gaps = column_gap * columns.saturating_sub(1) as f32;
         let max_height = (constraints.max.height - vertical_padding).max(0.0);
         let mut natural_column_width: f32 = 0.0;
@@ -256,8 +261,8 @@ impl Layout for Grid {
                 cx.set_position(
                     node,
                     LogicalPoint {
-                        x: self.padding.left + item.column as f32 * (cell_width + column_gap),
-                        y: self.padding.top + item.row as f32 * (row_height + row_gap),
+                        x: padding.left + item.column as f32 * (cell_width + column_gap),
+                        y: padding.top + item.row as f32 * (row_height + row_gap),
                     },
                 );
             }
@@ -319,7 +324,7 @@ impl Layout for Grid {
 
         let mut natural_height = vertical_padding + row_gap * rows.saturating_sub(1) as f32;
         let mut children = cx.children().peekable();
-        let mut y = self.padding.top;
+        let mut y = padding.top;
         while children.peek().is_some() {
             let row = children.clone();
             let mut row_count = 0usize;
@@ -343,7 +348,7 @@ impl Layout for Grid {
                 cx.set_position(
                     node,
                     LogicalPoint {
-                        x: self.padding.left + column as f32 * (cell_width + column_gap),
+                        x: padding.left + column as f32 * (cell_width + column_gap),
                         y,
                     },
                 );

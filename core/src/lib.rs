@@ -299,6 +299,7 @@ pub struct UiState {
     physical_screen: PhysicalRect,
     scale_factor: f32,
     scale_factor_changed: bool,
+    layout_resolution: layout::LayoutResolution,
 }
 
 impl UiState {
@@ -318,6 +319,7 @@ impl UiState {
             physical_screen,
             scale_factor,
             scale_factor_changed: true,
+            layout_resolution: layout::LayoutResolution::Continuous,
         }
     }
 
@@ -396,6 +398,7 @@ pub fn render<P: Renderer, R: Repaint>(
     let scale_factor = state.scale_factor;
     if std::mem::take(&mut state.scale_factor_changed) {
         renderer.set_scale_factor(scale_factor);
+        state.layout_resolution = renderer.layout_resolution();
         state.screen = state.physical_screen.to_logical(scale_factor);
         state.full_repaint = true;
     }
@@ -432,7 +435,7 @@ fn record<P: Renderer>(
 ) {
     // reset transient data and begin input processing
     state.commands.clear();
-    state.frame.begin(state.screen);
+    state.frame.begin(state.screen, state.layout_resolution);
     for animation in &mut state.animations {
         animation.seen = false;
     }
