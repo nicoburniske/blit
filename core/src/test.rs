@@ -33,6 +33,7 @@ struct TestRenderer {
     text_widths: Vec<Option<f32>>,
     clip_count: usize,
     scale_factors: Vec<f32>,
+    interaction_offset: f32,
 }
 
 impl Renderer for TestRenderer {
@@ -59,6 +60,12 @@ impl Renderer for TestRenderer {
             }
         }
         self.clip_count = commands.clips().len();
+    }
+
+    fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
+        let mut area = area.intersection(clip)?;
+        area.x += self.interaction_offset;
+        Some(area)
     }
 
     fn create_image(&mut self, data: image::ImageData) -> image::ImageHandle {
@@ -1258,6 +1265,44 @@ fn interaction_reports_active_lifecycle() {
     assert!(deactivated.deactivated);
     assert!(!deactivated.clicked);
     assert!(harness.has_pending_redraw());
+}
+
+#[test]
+fn renderer_projects_interaction_geometry() {
+    let mut harness = Harness::new(TestRenderer {
+        interaction_offset: 5.0,
+        ..TestRenderer::default()
+    });
+    let id = WidgetId::new("projected interaction");
+    let render = |ui: &mut Ui| {
+        let interaction = ui.interact(id, Sense::CLICK);
+        ui.layout(Flex::column()).fixed(3.0, 3.0).id(id).open();
+        interaction
+    };
+    harness.render(Duration::ZERO, Input::None, render);
+    let position = LogicalPoint { x: 6.0, y: 1.0 };
+    let down = harness.render(
+        Duration::ZERO,
+        Input::PointerDown {
+            position,
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+        },
+        render,
+    );
+    let up = harness.render(
+        Duration::ZERO,
+        Input::PointerUp {
+            position,
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+            leave: false,
+        },
+        render,
+    );
+
+    assert!(down.active);
+    assert!(up.clicked);
 }
 
 #[test]

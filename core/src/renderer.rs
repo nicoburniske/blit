@@ -12,6 +12,11 @@ pub trait Renderer {
     /// damage rectangles may overlap and are interpreted as their union
     fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]);
 
+    /// projects logical interaction geometry into the rendered coordinate space
+    fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
+        area.intersection(clip)
+    }
+
     /// stores image data and returns its renderer-backed handle
     fn create_image(&mut self, data: ImageData) -> ImageHandle;
 

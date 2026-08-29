@@ -78,6 +78,23 @@ impl TerminalRenderer {
         self.previous = vec![Cell::invalid(); columns * rows];
     }
 
+    fn cell_bounds(&self, area: LogicalRect) -> (usize, usize, usize, usize) {
+        let cell_width = CELL_WIDTH / self.scale_factor;
+        let cell_height = CELL_HEIGHT / self.scale_factor;
+        (
+            (area.x / cell_width)
+                .round()
+                .clamp(0.0, self.columns as f32) as usize,
+            (area.y / cell_height).round().clamp(0.0, self.rows as f32) as usize,
+            ((area.x + area.width) / cell_width)
+                .round()
+                .clamp(0.0, self.columns as f32) as usize,
+            ((area.y + area.height) / cell_height)
+                .round()
+                .clamp(0.0, self.rows as f32) as usize,
+        )
+    }
+
     pub fn present(&mut self, output: &mut impl io::Write) -> io::Result<()> {
         let mut ansi = String::new();
         let mut style = None;
@@ -373,6 +390,38 @@ impl Renderer for TerminalRenderer {
         self.scale_factor = scale_factor;
     }
 
+    fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
+        let cell_width = CELL_WIDTH / self.scale_factor;
+        let cell_height = CELL_HEIGHT / self.scale_factor;
+        let (mut left, mut top, mut right, mut bottom) = self.cell_bounds(area);
+        left = left.max(
+            (clip.x / cell_width - 0.5)
+                .ceil()
+                .clamp(0.0, self.columns as f32) as usize,
+        );
+        top = top.max(
+            (clip.y / cell_height - 0.5)
+                .ceil()
+                .clamp(0.0, self.rows as f32) as usize,
+        );
+        right = right.min(
+            ((clip.x + clip.width) / cell_width - 0.5)
+                .ceil()
+                .clamp(0.0, self.columns as f32) as usize,
+        );
+        bottom = bottom.min(
+            ((clip.y + clip.height) / cell_height - 0.5)
+                .ceil()
+                .clamp(0.0, self.rows as f32) as usize,
+        );
+        (right > left && bottom > top).then_some(LogicalRect {
+            x: left as f32 * cell_width,
+            y: top as f32 * cell_height,
+            width: (right - left) as f32 * cell_width,
+            height: (bottom - top) as f32 * cell_height,
+        })
+    }
+
     fn render(&mut self, commands: &CommandList, _: &[PhysicalRect]) {
         self.pixels.fill(Pixel::default());
         self.glyphs.fill(None);
@@ -400,14 +449,7 @@ impl Renderer for TerminalRenderer {
                 Command::Rectangle(rectangle) => {
                     let cell_width = CELL_WIDTH / self.scale_factor;
                     let cell_height = CELL_HEIGHT / self.scale_factor;
-                    let left = (rectangle.area.x / cell_width).round().max(0.0) as usize;
-                    let top = (rectangle.area.y / cell_height).round().max(0.0) as usize;
-                    let right = ((rectangle.area.x + rectangle.area.width) / cell_width)
-                        .round()
-                        .min(self.columns as f32) as usize;
-                    let bottom = ((rectangle.area.y + rectangle.area.height) / cell_height)
-                        .round()
-                        .min(self.rows as f32) as usize;
+                    let (left, top, right, bottom) = self.cell_bounds(rectangle.area);
                     if rectangle.background.alpha != 0 && rectangle.opacity > 0.0 {
                         let stride = self.columns * 2;
                         for y in top..bottom {
@@ -1008,6 +1050,75 @@ mod tests {
 
         assert_eq!(renderer.cells[0].text, "╭");
         assert_eq!(renderer.cells[0].background, background);
+    }
+
+    #[test]
+    fn border_cells_are_interactive() {
+        use blit::{
+            geometry::{LogicalPoint, Sides},
+            input::{Input, Modifiers, PointerButton},
+            interact::{Sense, WidgetId},
+            layout::Flex,
+            style::Style,
+        };
+
+        let mut renderer = TerminalRenderer::new(4, 3);
+        let mut state = UiState::new(renderer.screen(), 1.0);
+        let id = WidgetId::new("cell border interaction");
+        let mut clicked = false;
+        {
+            let mut render = |ui: &mut blit::Ui| {
+                clicked |= ui.interact(id, Sense::CLICK).clicked;
+                ui.clear();
+                let mut root = ui
+                    .layout(Flex::column().padding(Sides::x(CELL_WIDTH / 2.0)))
+                    .grow()
+                    .open();
+                root.add(|ui: &mut blit::Ui| {
+                    ui.layout(Flex::column())
+                        .id(id)
+                        .grow()
+                        .style(Style::new().solid_border(1.0, Color::WHITE))
+                        .open();
+                });
+            };
+            blit::render(
+                &mut renderer,
+                &mut state,
+                &mut FullRepaint,
+                Duration::ZERO,
+                [],
+                &mut render,
+            );
+            assert_eq!(renderer.cells[3].text, "┐");
+
+            let position = LogicalPoint {
+                x: CELL_WIDTH * 3.5,
+                y: CELL_HEIGHT / 2.0,
+            };
+            blit::render(
+                &mut renderer,
+                &mut state,
+                &mut FullRepaint,
+                Duration::ZERO,
+                [
+                    Input::PointerDown {
+                        position,
+                        button: PointerButton::Primary,
+                        modifiers: Modifiers::NONE,
+                    },
+                    Input::PointerUp {
+                        position,
+                        button: PointerButton::Primary,
+                        modifiers: Modifiers::NONE,
+                        leave: false,
+                    },
+                ],
+                &mut render,
+            );
+        }
+
+        assert!(clicked);
     }
 
     #[test]
