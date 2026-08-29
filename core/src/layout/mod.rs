@@ -90,6 +90,7 @@ pub enum LayoutResolution {
 }
 
 impl LayoutResolution {
+    #[inline]
     pub fn extent(self, axis: Axis, value: f32) -> f32 {
         let Self::Discrete { step } = self else {
             return value;
@@ -102,7 +103,8 @@ impl LayoutResolution {
         (value / step).ceil() * step
     }
 
-    pub(crate) fn sizing(self, axis: Axis, sizing: Sizing) -> Sizing {
+    #[inline(always)]
+    pub fn sizing(self, axis: Axis, sizing: Sizing) -> Sizing {
         match sizing {
             Sizing::Fit { min, max } => Sizing::Fit {
                 min: self.extent(axis, min),
