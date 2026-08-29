@@ -1,0 +1,11 @@
+[package]
+name = "blit-terminal-poc"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+blit.workspace = true
+crossterm = "0.29"
+unicode-segmentation = "1.12"
+unicode-width = "0.2"

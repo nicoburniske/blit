@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["cache", "core", "cpu", "desktop", "executor", "font"]
+members = ["cache", "core", "cpu", "desktop", "executor", "font", "terminal-poc"]
 
 [workspace.package]
 license = "MIT"
