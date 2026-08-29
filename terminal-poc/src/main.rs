@@ -1,7 +1,7 @@
 use std::{
     fs::File,
     io::{self, stdout},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use blit::{
@@ -40,6 +40,7 @@ const BLUE: Color = Color::from_rgba8(94, 159, 255, 255);
 const PINK: Color = Color::from_rgba8(238, 119, 174, 255);
 const TEXT: Color = Color::from_rgba8(231, 237, 248, 255);
 const MUTED: Color = Color::from_rgba8(137, 151, 175, 255);
+const MAX_EVENTS_PER_FRAME: usize = 32;
 
 struct AppState {
     selected: usize,
@@ -77,91 +78,148 @@ fn run_interactive() -> io::Result<()> {
         rounded: true,
         image: demo_image(&mut renderer),
     };
-    let mut input = Input::None;
     let mut output = stdout();
     enable_raw_mode()?;
     execute!(output, EnterAlternateScreen, Hide, EnableMouseCapture)?;
     let result = (|| -> io::Result<()> {
-        loop {
-            render_with_state(&mut renderer, &mut state, &mut app, input);
-            input = Input::None;
-            renderer.present(&mut output)?;
-            if !event::poll(Duration::from_millis(100))? {
-                continue;
+        let start = Instant::now();
+        render_with_state(&mut renderer, &mut state, &mut app, Duration::ZERO, &[]);
+        renderer.present(&mut output)?;
+        'run: loop {
+            let now = start.elapsed();
+            let mut next_event = if state.has_pending_redraw() {
+                if event::poll(Duration::ZERO)? {
+                    Some(event::read()?)
+                } else {
+                    None
+                }
+            } else if let Some(deadline) = state.next_timer_deadline() {
+                if event::poll(deadline.saturating_sub(now))? {
+                    Some(event::read()?)
+                } else {
+                    None
+                }
+            } else {
+                Some(event::read()?)
+            };
+            let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
+            let mut input_count = 0;
+            let mut event_count = 0;
+            while let Some(terminal_event) = next_event {
+                event_count += 1;
+                let input = match terminal_event {
+                    Event::Resize(columns, rows) => {
+                        renderer.resize(columns, rows);
+                        state.set_screen(renderer.screen());
+                        None
+                    }
+                    Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => break 'run,
+                        KeyCode::Left => Some(Input::Key(KeyInput::new(Key::ArrowLeft))),
+                        KeyCode::Right => Some(Input::Key(KeyInput::new(Key::ArrowRight))),
+                        KeyCode::Up => Some(Input::Key(KeyInput::new(Key::ArrowUp))),
+                        KeyCode::Down => Some(Input::Key(KeyInput::new(Key::ArrowDown))),
+                        KeyCode::Char(character) => Some(Input::Text(character)),
+                        _ => None,
+                    },
+                    Event::Mouse(mouse) => {
+                        let position = LogicalPoint {
+                            x: (f32::from(mouse.column) + 0.5) * blit_terminal_poc::CELL_WIDTH,
+                            y: (f32::from(mouse.row) + 0.5) * blit_terminal_poc::CELL_HEIGHT,
+                        };
+                        let modifiers = Modifiers::new(
+                            mouse.modifiers.contains(KeyModifiers::SHIFT),
+                            mouse.modifiers.contains(KeyModifiers::CONTROL),
+                            mouse.modifiers.contains(KeyModifiers::ALT),
+                            mouse.modifiers.contains(KeyModifiers::SUPER),
+                        );
+                        let button = match mouse.kind {
+                            MouseEventKind::Down(button)
+                            | MouseEventKind::Up(button)
+                            | MouseEventKind::Drag(button) => match button {
+                                TerminalMouseButton::Left => PointerButton::Primary,
+                                TerminalMouseButton::Right => PointerButton::Secondary,
+                                TerminalMouseButton::Middle => PointerButton::Middle,
+                            },
+                            _ => PointerButton::Primary,
+                        };
+                        Some(match mouse.kind {
+                            MouseEventKind::Down(_) => Input::PointerDown {
+                                position,
+                                button,
+                                modifiers,
+                            },
+                            MouseEventKind::Up(_) => Input::PointerUp {
+                                position,
+                                button,
+                                modifiers,
+                                leave: false,
+                            },
+                            MouseEventKind::Drag(_) | MouseEventKind::Moved => Input::PointerMove {
+                                position,
+                                modifiers,
+                            },
+                            MouseEventKind::ScrollUp
+                            | MouseEventKind::ScrollDown
+                            | MouseEventKind::ScrollLeft
+                            | MouseEventKind::ScrollRight => Input::Scroll {
+                                position,
+                                delta_x: match mouse.kind {
+                                    MouseEventKind::ScrollLeft => {
+                                        -blit_terminal_poc::CELL_WIDTH * 3.0
+                                    }
+                                    MouseEventKind::ScrollRight => {
+                                        blit_terminal_poc::CELL_WIDTH * 3.0
+                                    }
+                                    _ => 0.0,
+                                },
+                                delta_y: match mouse.kind {
+                                    MouseEventKind::ScrollUp => {
+                                        -blit_terminal_poc::CELL_HEIGHT * 3.0
+                                    }
+                                    MouseEventKind::ScrollDown => {
+                                        blit_terminal_poc::CELL_HEIGHT * 3.0
+                                    }
+                                    _ => 0.0,
+                                },
+                                modifiers,
+                                continuous: false,
+                                phase: ScrollPhase::Moved,
+                            },
+                        })
+                    }
+                    _ => None,
+                };
+                if let Some(input) = input {
+                    if input_count != 0
+                        && matches!(input, Input::PointerMove { .. })
+                        && matches!(inputs[input_count - 1], Input::PointerMove { .. })
+                    {
+                        inputs[input_count - 1] = input;
+                    } else {
+                        inputs[input_count] = input;
+                        input_count += 1;
+                    }
+                }
+                next_event = if event_count < MAX_EVENTS_PER_FRAME && event::poll(Duration::ZERO)? {
+                    Some(event::read()?)
+                } else {
+                    None
+                };
             }
-            match event::read()? {
-                Event::Resize(columns, rows) => {
-                    renderer.resize(columns, rows);
-                    state.set_screen(renderer.screen());
-                }
-                Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => break,
-                    KeyCode::Left => input = Input::Key(KeyInput::new(Key::ArrowLeft)),
-                    KeyCode::Right => input = Input::Key(KeyInput::new(Key::ArrowRight)),
-                    KeyCode::Up => input = Input::Key(KeyInput::new(Key::ArrowUp)),
-                    KeyCode::Down => input = Input::Key(KeyInput::new(Key::ArrowDown)),
-                    KeyCode::Char(character) => input = Input::Text(character),
-                    _ => continue,
-                },
-                Event::Mouse(mouse) => {
-                    let position = LogicalPoint {
-                        x: (f32::from(mouse.column) + 0.5) * blit_terminal_poc::CELL_WIDTH,
-                        y: (f32::from(mouse.row) + 0.5) * blit_terminal_poc::CELL_HEIGHT,
-                    };
-                    let modifiers = Modifiers::new(
-                        mouse.modifiers.contains(KeyModifiers::SHIFT),
-                        mouse.modifiers.contains(KeyModifiers::CONTROL),
-                        mouse.modifiers.contains(KeyModifiers::ALT),
-                        mouse.modifiers.contains(KeyModifiers::SUPER),
-                    );
-                    let button = match mouse.kind {
-                        MouseEventKind::Down(button)
-                        | MouseEventKind::Up(button)
-                        | MouseEventKind::Drag(button) => match button {
-                            TerminalMouseButton::Left => PointerButton::Primary,
-                            TerminalMouseButton::Right => PointerButton::Secondary,
-                            TerminalMouseButton::Middle => PointerButton::Middle,
-                        },
-                        _ => PointerButton::Primary,
-                    };
-                    input = match mouse.kind {
-                        MouseEventKind::Down(_) => Input::PointerDown {
-                            position,
-                            button,
-                            modifiers,
-                        },
-                        MouseEventKind::Up(_) => Input::PointerUp {
-                            position,
-                            button,
-                            modifiers,
-                            leave: false,
-                        },
-                        MouseEventKind::Drag(_) | MouseEventKind::Moved => Input::PointerMove {
-                            position,
-                            modifiers,
-                        },
-                        MouseEventKind::ScrollUp
-                        | MouseEventKind::ScrollDown
-                        | MouseEventKind::ScrollLeft
-                        | MouseEventKind::ScrollRight => Input::Scroll {
-                            position,
-                            delta_x: match mouse.kind {
-                                MouseEventKind::ScrollLeft => -blit_terminal_poc::CELL_WIDTH * 3.0,
-                                MouseEventKind::ScrollRight => blit_terminal_poc::CELL_WIDTH * 3.0,
-                                _ => 0.0,
-                            },
-                            delta_y: match mouse.kind {
-                                MouseEventKind::ScrollUp => -blit_terminal_poc::CELL_HEIGHT * 3.0,
-                                MouseEventKind::ScrollDown => blit_terminal_poc::CELL_HEIGHT * 3.0,
-                                _ => 0.0,
-                            },
-                            modifiers,
-                            continuous: false,
-                            phase: ScrollPhase::Moved,
-                        },
-                    };
-                }
-                _ => {}
+            let now = start.elapsed();
+            let timer_due = state
+                .next_timer_deadline()
+                .is_some_and(|deadline| deadline <= now);
+            if input_count != 0 || state.has_pending_redraw() || timer_due {
+                render_with_state(
+                    &mut renderer,
+                    &mut state,
+                    &mut app,
+                    now,
+                    &inputs[..input_count],
+                );
+                renderer.present(&mut output)?;
             }
         }
         Ok(())
@@ -180,7 +238,7 @@ fn render_frame(renderer: &mut TerminalRenderer) {
         rounded: true,
         image: demo_image(renderer),
     };
-    render_with_state(renderer, &mut state, &mut app, Input::None);
+    render_with_state(renderer, &mut state, &mut app, Duration::ZERO, &[]);
 }
 
 fn demo_image(renderer: &mut TerminalRenderer) -> ImageHandle {
@@ -213,14 +271,15 @@ fn render_with_state(
     renderer: &mut TerminalRenderer,
     state: &mut UiState,
     app: &mut AppState,
-    input: Input,
+    time: Duration,
+    inputs: &[Input],
 ) {
     blit::render(
         renderer,
         state,
         &mut FullRepaint,
-        Duration::ZERO,
-        [input],
+        time,
+        inputs.iter().copied(),
         |ui| app_widget(app).render(ui),
     );
 }
