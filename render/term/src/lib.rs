@@ -616,6 +616,13 @@ impl Renderer for TerminalRenderer {
                 }
                 Command::BoxShadow(_) => {}
                 Command::Text(request) => {
+                    let (area_left, area_top, area_right, area_bottom) =
+                        self.cell_bounds(request.area);
+                    let (clip_left, clip_top, clip_right, clip_bottom) = self.cell_bounds(clip);
+                    let left = area_left.max(clip_left);
+                    let top = area_top.max(clip_top);
+                    let right = area_right.min(clip_right);
+                    let bottom = area_bottom.min(clip_bottom);
                     let layout_request = TextLayoutRequest {
                         text: request.text,
                         style: request.style,
@@ -639,48 +646,40 @@ impl Renderer for TerminalRenderer {
                             line.width += 1;
                         }
                     }
-                    let line_height = CELL_HEIGHT / self.scale_factor;
-                    let block_height = layout.lines.len() as f32 * line_height;
+                    let area_width = area_right as isize - area_left as isize;
+                    let area_height = area_bottom as isize - area_top as isize;
+                    let line_count = layout.lines.len() as isize;
                     let start_y = match request.options.vertical_align {
-                        VerticalAlign::Top => request.area.y,
+                        VerticalAlign::Top => area_top as isize,
                         VerticalAlign::Center => {
-                            request.area.y + (request.area.height - block_height) / 2.0
+                            area_top as isize + (area_height - line_count).div_euclid(2)
                         }
-                        VerticalAlign::Bottom => {
-                            request.area.y + request.area.height - block_height
-                        }
+                        VerticalAlign::Bottom => area_bottom as isize - line_count,
                     };
                     for (line_index, line) in layout.lines.iter().enumerate() {
-                        let line_width = line.width as f32 * CELL_WIDTH / self.scale_factor;
                         let start_x = match request.options.horizontal_align {
-                            HorizontalAlign::Left => request.area.x - request.offset_x,
+                            HorizontalAlign::Left => {
+                                area_left as isize
+                                    - (request.offset_x / (CELL_WIDTH / self.scale_factor)).round()
+                                        as isize
+                            }
                             HorizontalAlign::Center => {
-                                request.area.x + (request.area.width - line_width) / 2.0
+                                area_left as isize
+                                    + (area_width - line.width as isize).div_euclid(2)
                             }
-                            HorizontalAlign::Right => {
-                                request.area.x + request.area.width - line_width
-                            }
+                            HorizontalAlign::Right => area_right as isize - line.width as isize,
                         };
                         let mut column = 0;
                         for grapheme in &line.graphemes {
-                            let x = ((start_x / (CELL_WIDTH / self.scale_factor)).round() as isize)
-                                + column as isize;
-                            let y =
-                                ((start_y / line_height).round() as isize) + line_index as isize;
-                            let logical_x = x as f32 * CELL_WIDTH / self.scale_factor;
-                            let logical_y = y as f32 * line_height;
+                            let width = UnicodeWidthStr::width(grapheme.as_str()).max(1);
+                            let x = start_x + column as isize;
+                            let y = start_y + line_index as isize;
                             if x >= 0
                                 && y >= 0
-                                && (x as usize) < self.columns
-                                && (y as usize) < self.rows
-                                && clip.contains(
-                                    logical_x + CELL_WIDTH / self.scale_factor / 2.0,
-                                    logical_y + line_height / 2.0,
-                                )
-                                && request.area.contains(
-                                    logical_x + CELL_WIDTH / self.scale_factor / 2.0,
-                                    logical_y + line_height / 2.0,
-                                )
+                                && (x as usize) >= left
+                                && (y as usize) >= top
+                                && (x as usize + width) <= right
+                                && (y as usize) < bottom
                             {
                                 let index = y as usize * self.columns + x as usize;
                                 if self.damaged[index] {
@@ -691,11 +690,10 @@ impl Renderer for TerminalRenderer {
                                         z,
                                     });
                                 }
-                                let width = UnicodeWidthStr::width(grapheme.as_str()).max(1);
                                 for continuation in 1..width {
                                     let continuation_x = x as usize + continuation;
                                     let index = y as usize * self.columns + continuation_x;
-                                    if continuation_x < self.columns && self.damaged[index] {
+                                    if self.damaged[index] {
                                         self.glyphs[index] = Some(Glyph {
                                             text: String::new(),
                                             color: request.color,
@@ -705,7 +703,7 @@ impl Renderer for TerminalRenderer {
                                     }
                                 }
                             }
-                            column += UnicodeWidthStr::width(grapheme.as_str()).max(1);
+                            column += width;
                         }
                     }
                 }
@@ -1069,6 +1067,72 @@ mod tests {
             },
         );
         assert!(renderer.plain_text().contains("hello terminal"));
+    }
+
+    #[test]
+    fn text_at_half_cell_offset_reaches_quantized_cell() {
+        use blit::{command_list::ClipId, text::TextOptions};
+
+        let mut renderer = TerminalRenderer::new(4, 3);
+        let text = renderer.text_run("x", TextStyle::default());
+        let area = LogicalRect {
+            x: CELL_WIDTH / 2.0,
+            y: CELL_HEIGHT / 2.0,
+            width: CELL_WIDTH,
+            height: CELL_HEIGHT,
+        };
+        let mut commands = CommandList::default();
+        commands.push_clear(renderer.screen());
+        commands.push_text(
+            TextRequest {
+                text,
+                area,
+                offset_x: 0.0,
+                color: Color::WHITE,
+                style: TextStyle::default(),
+                options: TextOptions::default(),
+            },
+            area.to_physical(1.0),
+            ClipId::default(),
+        );
+        renderer.render(&commands, &[renderer.screen()]);
+
+        assert_eq!(renderer.cells[renderer.columns + 1].text, "x");
+    }
+
+    #[test]
+    fn text_alignment_uses_quantized_area() {
+        use blit::{command_list::ClipId, text::TextOptions};
+
+        let mut renderer = TerminalRenderer::new(5, 5);
+        let text = renderer.text_run("x", TextStyle::default());
+        let area = LogicalRect {
+            x: CELL_WIDTH * 0.4,
+            y: CELL_HEIGHT * 0.4,
+            width: CELL_WIDTH * 3.2,
+            height: CELL_HEIGHT * 3.2,
+        };
+        let mut commands = CommandList::default();
+        commands.push_clear(renderer.screen());
+        commands.push_text(
+            TextRequest {
+                text,
+                area,
+                offset_x: 0.0,
+                color: Color::WHITE,
+                style: TextStyle::default(),
+                options: TextOptions {
+                    horizontal_align: HorizontalAlign::Center,
+                    vertical_align: VerticalAlign::Center,
+                    ..TextOptions::default()
+                },
+            },
+            area.to_physical(1.0),
+            ClipId::default(),
+        );
+        renderer.render(&commands, &[renderer.screen()]);
+
+        assert_eq!(renderer.cells[renderer.columns + 1].text, "x");
     }
 
     #[test]
