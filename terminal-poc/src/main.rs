@@ -14,7 +14,7 @@ use blit::{
     interact::{Sense, WidgetId},
     layout::{Align, Flex},
     renderer::Renderer as _,
-    repaint::FullRepaint,
+    repaint::{FullRepaint, IncrementalRepaint, MyersTracker, Repaint},
     style::Style,
     text::TextWrap,
     widget::{Image, Text, Widget},
@@ -75,6 +75,7 @@ fn run_interactive() -> io::Result<()> {
         rounded: true,
         image: demo_image(&mut renderer),
     };
+    let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
     terminal.enter_raw_mode()?;
     write!(
         terminal,
@@ -83,7 +84,14 @@ fn run_interactive() -> io::Result<()> {
     terminal.flush()?;
     let result = (|| -> io::Result<()> {
         let start = Instant::now();
-        render_with_state(&mut renderer, &mut state, &mut app, Duration::ZERO, &[]);
+        render_with_state(
+            &mut renderer,
+            &mut state,
+            &mut repaint,
+            &mut app,
+            Duration::ZERO,
+            &[],
+        );
         renderer.present(&mut terminal)?;
         'run: loop {
             let now = start.elapsed();
@@ -114,6 +122,7 @@ fn run_interactive() -> io::Result<()> {
                 render_with_state(
                     &mut renderer,
                     &mut state,
+                    &mut repaint,
                     &mut app,
                     now,
                     &inputs[..input_count],
@@ -250,7 +259,14 @@ fn render_frame(renderer: &mut TerminalRenderer) {
         rounded: true,
         image: demo_image(renderer),
     };
-    render_with_state(renderer, &mut state, &mut app, Duration::ZERO, &[]);
+    render_with_state(
+        renderer,
+        &mut state,
+        &mut FullRepaint,
+        &mut app,
+        Duration::ZERO,
+        &[],
+    );
 }
 
 fn demo_image(renderer: &mut TerminalRenderer) -> ImageHandle {
@@ -279,9 +295,10 @@ fn demo_image(renderer: &mut TerminalRenderer) -> ImageHandle {
     ))
 }
 
-fn render_with_state(
+fn render_with_state<R: Repaint>(
     renderer: &mut TerminalRenderer,
     state: &mut UiState,
+    repaint: &mut R,
     app: &mut AppState,
     time: Duration,
     inputs: &[Input],
@@ -289,7 +306,7 @@ fn render_with_state(
     blit::render(
         renderer,
         state,
-        &mut FullRepaint,
+        repaint,
         time,
         inputs.iter().copied(),
         |ui| app_widget(app).render(ui),
