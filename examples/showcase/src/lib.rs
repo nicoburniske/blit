@@ -1,4 +1,4 @@
-use std::{fmt::Write, time::Duration};
+use std::{collections::VecDeque, fmt::Write, time::Duration};
 
 use blit::{
     Ui,
@@ -29,7 +29,9 @@ pub struct Showcase {
     name: TextInputState,
     password: TextInputState,
     image: Option<ImageHandle>,
-    last_frame: Option<Duration>,
+    fps_frame_at: Option<Duration>,
+    fps_updated_at: Option<Duration>,
+    fps_frames: VecDeque<Duration>,
     fps_label: String,
 }
 
@@ -100,7 +102,9 @@ impl Default for Showcase {
             name: TextInputState::default(),
             password: TextInputState::default(),
             image: None,
-            last_frame: None,
+            fps_frame_at: None,
+            fps_updated_at: None,
+            fps_frames: VecDeque::new(),
             fps_label: "FPS --".into(),
         }
     }
@@ -125,11 +129,30 @@ impl Showcase {
         }
 
         let now = ui.time();
-        if let Some(previous) = self.last_frame.replace(now) {
-            let elapsed = now.saturating_sub(previous).as_secs_f32();
-            if elapsed > 0.0 {
-                self.fps_label.clear();
-                let _ = write!(self.fps_label, "FPS {:.0}", 1.0 / elapsed);
+        if self.fps_frame_at.replace(now) != Some(now) {
+            self.fps_frames.push_back(now);
+            while self
+                .fps_frames
+                .front()
+                .is_some_and(|frame| now.saturating_sub(*frame) > Duration::from_secs(1))
+            {
+                self.fps_frames.pop_front();
+            }
+            if self
+                .fps_updated_at
+                .is_none_or(|updated| now.saturating_sub(updated) >= Duration::from_millis(250))
+            {
+                self.fps_updated_at = Some(now);
+                if self.fps_frames.len() > 1
+                    && let (Some(first), Some(last)) =
+                        (self.fps_frames.front(), self.fps_frames.back())
+                {
+                    let elapsed = last.saturating_sub(*first);
+                    let fps =
+                        self.fps_frames.len().saturating_sub(1) as f32 / elapsed.as_secs_f32();
+                    self.fps_label.clear();
+                    let _ = write!(self.fps_label, "FPS {fps:03.0}");
+                }
             }
         }
 
