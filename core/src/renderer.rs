@@ -34,6 +34,7 @@ pub trait Renderer {
     /// returns the typographic size without rasterizing
     fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize;
 
-    /// returns the cursor position and line height for the nearest valid byte offset
+    /// returns the caret position, line height, and minimum representable width
+    /// for the nearest valid byte offset
     fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect;
 }
