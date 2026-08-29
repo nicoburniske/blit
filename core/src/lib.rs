@@ -248,19 +248,15 @@ impl Ui {
         id: WidgetId,
         transition: animation::Transition,
     ) {
-        let index = if let Some(index) = self
-            .state()
-            .transitions
-            .iter()
-            .position(|state| state.id == id)
-        {
-            index
-        } else {
-            let states = &mut self.state_mut().transitions;
-            states.push(frame::TransitionState::new(id));
-            states.len() - 1
+        let states = &mut self.state_mut().transitions;
+        let index = match states.binary_search_by_key(&id, |state| state.id) {
+            Ok(index) => index,
+            Err(index) => {
+                states.insert(index, frame::TransitionState::new(id));
+                index
+            }
         };
-        self.state_mut().transitions[index].begin(node, transition);
+        states[index].begin(node, transition);
     }
 
     fn state(&self) -> &UiState {
