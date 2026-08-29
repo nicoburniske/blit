@@ -149,6 +149,7 @@ dependencies = [
  "base64",
  "blit",
  "blit-showcase",
+ "blit_cache",
  "divan",
  "unicode-segmentation",
  "unicode-width",
