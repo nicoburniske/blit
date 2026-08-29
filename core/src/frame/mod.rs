@@ -138,7 +138,7 @@ impl FrameGraph {
         }
         self.resolve_clips(commands);
         self.emit(renderer, commands, scale_factor);
-        self.register_hits(interaction);
+        self.register_hits(renderer, interaction);
         for record in &self.geometry {
             geometry.register(record.id, self.nodes[record.node.index()].area);
         }
@@ -919,7 +919,7 @@ impl FrameGraph {
         }
     }
 
-    fn register_hits(&self, interaction: &mut InteractionState) {
+    fn register_hits(&self, renderer: &dyn Renderer, interaction: &mut InteractionState) {
         interaction.register_hits(self.geometry.iter().map(|record| {
             let node = &self.nodes[record.node.index()];
             let area = LogicalRect {
@@ -927,8 +927,8 @@ impl FrameGraph {
                 y: node.area.y - record.hit.top,
                 width: node.area.width + record.hit.left + record.hit.right,
                 height: node.area.height + record.hit.top + record.hit.bottom,
-            }
-            .intersection(node.clip_bounds);
+            };
+            let area = renderer.interaction_area(area, node.clip_bounds);
             (record.id, area)
         }));
     }
