@@ -8,6 +8,7 @@ use crate::{
     geometry::{LogicalPoint, Sides},
     interact::WidgetId,
     layout::{Flex, Layout, RawScope},
+    node::NodeId,
     style::{Clip, Style},
 };
 
@@ -280,7 +281,7 @@ pub struct Absolute {
 pub enum PositionTarget {
     #[default]
     Parent,
-    Widget(WidgetId),
+    Node(NodeId),
     Screen,
 }
 
@@ -320,8 +321,9 @@ impl Absolute {
         Self::at(0.0, 0.0).anchors(target, child)
     }
 
-    pub const fn relative_to(mut self, target: PositionTarget) -> Self {
-        self.target = target;
+    /// targets a node declared earlier in the current render
+    pub const fn relative_to(mut self, target: NodeId) -> Self {
+        self.target = PositionTarget::Node(target);
         self
     }
 

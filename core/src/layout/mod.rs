@@ -112,6 +112,10 @@ impl<'ui, L: Layout<Item = ()>> From<RawScope<'ui, L>> for UnitScope<'ui, L> {
 }
 
 impl<L: Layout<Item = ()>> UnitScope<'_, L> {
+    pub fn node(&self) -> NodeId {
+        self.0.node
+    }
+
     pub fn layer(&mut self) -> LayerId {
         self.0.ui.layer()
     }
@@ -137,6 +141,10 @@ impl<'ui, L: Layout> From<RawScope<'ui, L>> for ItemScope<'ui, L> {
 }
 
 impl<L: Layout> ItemScope<'_, L> {
+    pub fn node(&self) -> NodeId {
+        self.0.node
+    }
+
     pub fn layer(&mut self) -> LayerId {
         self.0.ui.layer()
     }
