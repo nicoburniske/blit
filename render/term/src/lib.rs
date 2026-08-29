@@ -599,10 +599,7 @@ impl Renderer for TerminalRenderer {
                                     && clip.contains(center_x, center_y)
                                 {
                                     let cell = &mut self.boxes[y * self.columns + x];
-                                    cell.rounded = cell.edges == 0 && rounded;
-                                    cell.edges |= edges;
-                                    cell.color = color;
-                                    cell.z = cell.z.max(z);
+                                    cell.paint(edges, rounded, color, z);
                                 }
                             }
                         }
@@ -614,10 +611,7 @@ impl Renderer for TerminalRenderer {
                                     && clip.contains(center_x, center_y)
                                 {
                                     let cell = &mut self.boxes[y * self.columns + x];
-                                    cell.rounded = false;
-                                    cell.edges |= 1 | 4;
-                                    cell.color = color;
-                                    cell.z = cell.z.max(z);
+                                    cell.paint(1 | 4, false, color, z);
                                 }
                             }
                         }
@@ -985,6 +979,21 @@ struct BoxCell {
     rounded: bool,
 }
 
+impl BoxCell {
+    fn paint(&mut self, edges: u8, rounded: bool, color: Color, z: usize) {
+        if z > self.z {
+            self.edges = edges;
+            self.rounded = rounded;
+            self.color = color;
+            self.z = z;
+        } else if z == self.z {
+            self.rounded = self.edges == 0 && rounded;
+            self.edges |= edges;
+            self.color = color;
+        }
+    }
+}
+
 #[derive(Clone)]
 struct Glyph {
     text: String,
@@ -1236,6 +1245,42 @@ mod tests {
         full.render(&current, &[screen]);
 
         assert_eq!(incremental.cells, full.cells);
+    }
+
+    #[test]
+    fn higher_borders_replace_lower_edges() {
+        use blit::command_list::{ClipId, Rectangle};
+
+        let mut renderer = TerminalRenderer::new(7, 5);
+        let mut commands = CommandList::default();
+        commands.push_clear(renderer.screen());
+        let lower = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: CELL_WIDTH * 4.0,
+            height: CELL_HEIGHT * 5.0,
+        };
+        commands.push_rectangle(
+            Rectangle::new(lower).solid_border(1.0, Color::WHITE),
+            lower.to_physical(1.0),
+            ClipId::default(),
+        );
+        let upper = LogicalRect {
+            x: CELL_WIDTH * 2.0,
+            y: CELL_HEIGHT,
+            width: CELL_WIDTH * 3.0,
+            height: CELL_HEIGHT * 3.0,
+        };
+        commands.push_rectangle(
+            Rectangle::new(upper)
+                .background(Color::BLACK)
+                .solid_border(1.0, Color::WHITE),
+            upper.to_physical(1.0),
+            ClipId::default(),
+        );
+        renderer.render(&commands, &[renderer.screen()]);
+
+        assert_eq!(renderer.cells[renderer.columns + 3].text, "─");
     }
 
     #[test]
