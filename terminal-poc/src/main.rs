@@ -21,7 +21,7 @@ use blit::{
 };
 use blit_terminal_poc::TerminalRenderer;
 use termina::{
-    Event as TerminalEvent, PlatformTerminal, Terminal,
+    Event as TerminalEvent, PlatformTerminal, Terminal, WindowSize,
     event::{
         KeyCode as TerminalKeyCode, KeyEventKind as TerminalKeyEventKind,
         Modifiers as TerminalModifiers, MouseButton as TerminalMouseButton, MouseEventKind,
@@ -87,129 +87,24 @@ fn run_interactive() -> io::Result<()> {
         renderer.present(&mut terminal)?;
         'run: loop {
             let now = start.elapsed();
-            let mut next_event = if state.has_pending_redraw() {
-                if terminal.poll(|_| true, Some(Duration::ZERO))? {
-                    Some(terminal.read(|_| true)?)
-                } else {
-                    None
-                }
-            } else if let Some(deadline) = state.next_timer_deadline() {
-                if terminal.poll(|_| true, Some(deadline.saturating_sub(now)))? {
-                    Some(terminal.read(|_| true)?)
-                } else {
-                    None
-                }
+            let timeout = if state.has_pending_redraw() {
+                Some(Duration::ZERO)
             } else {
-                Some(terminal.read(|_| true)?)
+                state
+                    .next_timer_deadline()
+                    .map(|deadline| deadline.saturating_sub(now))
             };
             let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
-            let mut input_count = 0;
-            let mut event_count = 0;
-            while let Some(terminal_event) = next_event {
-                event_count += 1;
-                let input = match terminal_event {
-                    TerminalEvent::WindowResized(size) => {
-                        renderer.resize(size.cols, size.rows);
-                        state.set_screen(renderer.screen());
-                        None
-                    }
-                    TerminalEvent::Key(key) if key.kind == TerminalKeyEventKind::Press => match key
-                        .code
-                    {
-                        TerminalKeyCode::Char('q') | TerminalKeyCode::Escape => break 'run,
-                        TerminalKeyCode::Left => Some(Input::Key(KeyInput::new(Key::ArrowLeft))),
-                        TerminalKeyCode::Right => Some(Input::Key(KeyInput::new(Key::ArrowRight))),
-                        TerminalKeyCode::Up => Some(Input::Key(KeyInput::new(Key::ArrowUp))),
-                        TerminalKeyCode::Down => Some(Input::Key(KeyInput::new(Key::ArrowDown))),
-                        TerminalKeyCode::Char(character) => Some(Input::Text(character)),
-                        _ => None,
-                    },
-                    TerminalEvent::Mouse(mouse) => {
-                        let position = LogicalPoint {
-                            x: (f32::from(mouse.column) + 0.5) * blit_terminal_poc::CELL_WIDTH,
-                            y: (f32::from(mouse.row) + 0.5) * blit_terminal_poc::CELL_HEIGHT,
-                        };
-                        let modifiers = Modifiers::new(
-                            mouse.modifiers.contains(TerminalModifiers::SHIFT),
-                            mouse.modifiers.contains(TerminalModifiers::CONTROL),
-                            mouse.modifiers.contains(TerminalModifiers::ALT),
-                            mouse.modifiers.contains(TerminalModifiers::SUPER),
-                        );
-                        let button = match mouse.kind {
-                            MouseEventKind::Down(button)
-                            | MouseEventKind::Up(button)
-                            | MouseEventKind::Drag(button) => match button {
-                                TerminalMouseButton::Left => PointerButton::Primary,
-                                TerminalMouseButton::Right => PointerButton::Secondary,
-                                TerminalMouseButton::Middle => PointerButton::Middle,
-                            },
-                            _ => PointerButton::Primary,
-                        };
-                        Some(match mouse.kind {
-                            MouseEventKind::Down(_) => Input::PointerDown {
-                                position,
-                                button,
-                                modifiers,
-                            },
-                            MouseEventKind::Up(_) => Input::PointerUp {
-                                position,
-                                button,
-                                modifiers,
-                                leave: false,
-                            },
-                            MouseEventKind::Drag(_) | MouseEventKind::Moved => Input::PointerMove {
-                                position,
-                                modifiers,
-                            },
-                            MouseEventKind::ScrollUp
-                            | MouseEventKind::ScrollDown
-                            | MouseEventKind::ScrollLeft
-                            | MouseEventKind::ScrollRight => Input::Scroll {
-                                position,
-                                delta_x: match mouse.kind {
-                                    MouseEventKind::ScrollLeft => {
-                                        -blit_terminal_poc::CELL_WIDTH * 3.0
-                                    }
-                                    MouseEventKind::ScrollRight => {
-                                        blit_terminal_poc::CELL_WIDTH * 3.0
-                                    }
-                                    _ => 0.0,
-                                },
-                                delta_y: match mouse.kind {
-                                    MouseEventKind::ScrollUp => {
-                                        -blit_terminal_poc::CELL_HEIGHT * 3.0
-                                    }
-                                    MouseEventKind::ScrollDown => {
-                                        blit_terminal_poc::CELL_HEIGHT * 3.0
-                                    }
-                                    _ => 0.0,
-                                },
-                                modifiers,
-                                continuous: false,
-                                phase: ScrollPhase::Moved,
-                            },
-                        })
-                    }
-                    _ => None,
-                };
-                if let Some(input) = input {
-                    if input_count != 0
-                        && matches!(input, Input::PointerMove { .. })
-                        && matches!(inputs[input_count - 1], Input::PointerMove { .. })
-                    {
-                        inputs[input_count - 1] = input;
-                    } else {
-                        inputs[input_count] = input;
-                        input_count += 1;
-                    }
-                }
-                next_event = if event_count < MAX_EVENTS_PER_FRAME
-                    && terminal.poll(|_| true, Some(Duration::ZERO))?
-                {
-                    Some(terminal.read(|_| true)?)
-                } else {
-                    None
-                };
+            let (input_count, resized) = poll_inputs(&terminal, timeout, &mut inputs)?;
+            if let Some(size) = resized {
+                renderer.resize(size.cols, size.rows);
+                state.set_screen(renderer.screen());
+            }
+            if inputs[..input_count].iter().any(|input| {
+                matches!(input, Input::Text('q'))
+                    || matches!(input, Input::Key(key) if key.key == Key::Escape)
+            }) {
+                break 'run;
             }
             let now = start.elapsed();
             let timer_due = state
@@ -239,6 +134,113 @@ fn run_interactive() -> io::Result<()> {
         })
         .and_then(|_| terminal.enter_cooked_mode());
     result.and(restore)
+}
+
+fn poll_inputs(
+    terminal: &PlatformTerminal,
+    timeout: Option<Duration>,
+    inputs: &mut [Input],
+) -> io::Result<(usize, Option<WindowSize>)> {
+    if inputs.is_empty() || !terminal.poll(|_| true, timeout)? {
+        return Ok((0, None));
+    }
+
+    let mut input_count = 0;
+    let mut event_count = 0;
+    let mut resized = None;
+    loop {
+        let terminal_event = terminal.read(|_| true)?;
+        event_count += 1;
+        let input = match terminal_event {
+            TerminalEvent::WindowResized(size) => {
+                resized = Some(size);
+                None
+            }
+            TerminalEvent::Key(key) if key.kind == TerminalKeyEventKind::Press => match key.code {
+                TerminalKeyCode::Escape => Some(Input::Key(KeyInput::new(Key::Escape))),
+                TerminalKeyCode::Left => Some(Input::Key(KeyInput::new(Key::ArrowLeft))),
+                TerminalKeyCode::Right => Some(Input::Key(KeyInput::new(Key::ArrowRight))),
+                TerminalKeyCode::Up => Some(Input::Key(KeyInput::new(Key::ArrowUp))),
+                TerminalKeyCode::Down => Some(Input::Key(KeyInput::new(Key::ArrowDown))),
+                TerminalKeyCode::Char(character) => Some(Input::Text(character)),
+                _ => None,
+            },
+            TerminalEvent::Mouse(mouse) => {
+                let position = LogicalPoint {
+                    x: (f32::from(mouse.column) + 0.5) * blit_terminal_poc::CELL_WIDTH,
+                    y: (f32::from(mouse.row) + 0.5) * blit_terminal_poc::CELL_HEIGHT,
+                };
+                let modifiers = Modifiers::new(
+                    mouse.modifiers.contains(TerminalModifiers::SHIFT),
+                    mouse.modifiers.contains(TerminalModifiers::CONTROL),
+                    mouse.modifiers.contains(TerminalModifiers::ALT),
+                    mouse.modifiers.contains(TerminalModifiers::SUPER),
+                );
+                let button = match mouse.kind {
+                    MouseEventKind::Down(button)
+                    | MouseEventKind::Up(button)
+                    | MouseEventKind::Drag(button) => match button {
+                        TerminalMouseButton::Left => PointerButton::Primary,
+                        TerminalMouseButton::Right => PointerButton::Secondary,
+                        TerminalMouseButton::Middle => PointerButton::Middle,
+                    },
+                    _ => PointerButton::Primary,
+                };
+                Some(match mouse.kind {
+                    MouseEventKind::Down(_) => Input::PointerDown {
+                        position,
+                        button,
+                        modifiers,
+                    },
+                    MouseEventKind::Up(_) => Input::PointerUp {
+                        position,
+                        button,
+                        modifiers,
+                        leave: false,
+                    },
+                    MouseEventKind::Drag(_) | MouseEventKind::Moved => Input::PointerMove {
+                        position,
+                        modifiers,
+                    },
+                    MouseEventKind::ScrollUp
+                    | MouseEventKind::ScrollDown
+                    | MouseEventKind::ScrollLeft
+                    | MouseEventKind::ScrollRight => Input::Scroll {
+                        position,
+                        delta_x: match mouse.kind {
+                            MouseEventKind::ScrollLeft => -blit_terminal_poc::CELL_WIDTH * 3.0,
+                            MouseEventKind::ScrollRight => blit_terminal_poc::CELL_WIDTH * 3.0,
+                            _ => 0.0,
+                        },
+                        delta_y: match mouse.kind {
+                            MouseEventKind::ScrollUp => -blit_terminal_poc::CELL_HEIGHT * 3.0,
+                            MouseEventKind::ScrollDown => blit_terminal_poc::CELL_HEIGHT * 3.0,
+                            _ => 0.0,
+                        },
+                        modifiers,
+                        continuous: false,
+                        phase: ScrollPhase::Moved,
+                    },
+                })
+            }
+            _ => None,
+        };
+        if let Some(input) = input {
+            if input_count != 0
+                && matches!(input, Input::PointerMove { .. })
+                && matches!(inputs[input_count - 1], Input::PointerMove { .. })
+            {
+                inputs[input_count - 1] = input;
+            } else {
+                inputs[input_count] = input;
+                input_count += 1;
+            }
+        }
+        if event_count == inputs.len() || !terminal.poll(|_| true, Some(Duration::ZERO))? {
+            break;
+        }
+    }
+    Ok((input_count, resized))
 }
 
 fn render_frame(renderer: &mut TerminalRenderer) {
