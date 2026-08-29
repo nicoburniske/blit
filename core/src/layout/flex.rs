@@ -51,6 +51,10 @@ impl Layout for Flex {
                 };
                 return (size, size);
             }
+            if let Sizing::Fixed(size) = sizing {
+                let size = size.max(0.0).min(available);
+                return (size, size);
+            }
             sizing_range(sizing, available)
         }
 

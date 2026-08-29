@@ -1153,10 +1153,22 @@ fn resolved_geometry_is_available_on_the_next_frame() {
 }
 
 #[test]
-fn fixed_sizing_can_overflow_parent_bounds() {
+fn flex_constrains_fixed_sizing_to_parent_bounds() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
         fixed_rectangle(20.0, 2.0, Color::BLACK).render(ui);
+    });
+
+    assert_eq!(harness.renderer().rectangle_areas[0].width, 10.0);
+    assert_eq!(harness.renderer().paint_bounds[0].width, 10);
+}
+
+#[test]
+fn flex_allows_fixed_sizing_to_overflow_when_enabled() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut parent = ui.layout(Flex::row().overflow(true)).open();
+        parent.add(fixed_rectangle(20.0, 2.0, Color::BLACK));
     });
 
     assert_eq!(harness.renderer().rectangle_areas[0].width, 20.0);
