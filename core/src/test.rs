@@ -180,6 +180,19 @@ fn renderer_scale_changes_before_the_next_frame() {
     assert_eq!(harness.renderer().scale_factors, [1.0, 2.0]);
 }
 
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "id belongs to another frame")]
+fn frame_ids_reject_other_frames() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let node = harness.render(Duration::ZERO, Input::None, |ui| {
+        ui.add_leaf(Slot::new(), crate::node::Content::Rectangle(Style::new()))
+    });
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        ui.set_node_style(node, Style::new())
+    });
+}
+
 fn button(ui: &mut Ui) -> bool {
     let id = WidgetId::new("test button");
     let interaction = ui.interact(id, Sense::CLICK);

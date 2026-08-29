@@ -1,5 +1,4 @@
 pub mod animation;
-mod builder;
 pub mod color;
 pub mod command_list;
 pub mod container;
@@ -9,6 +8,7 @@ pub mod image;
 pub mod input;
 pub mod interact;
 pub mod layout;
+mod macros;
 pub mod node;
 pub mod renderer;
 pub mod repaint;
@@ -249,14 +249,12 @@ impl Ui {
         transition: animation::Transition,
     ) {
         let states = &mut self.state_mut().transitions;
-        let index = match states.binary_search_by_key(&id, |state| state.id) {
-            Ok(index) => index,
+        match states.binary_search_by_key(&id, |state| state.id) {
+            Ok(index) => states[index].begin(node, transition),
             Err(index) => {
-                states.insert(index, frame::TransitionState::new(id));
-                index
+                states.insert(index, frame::TransitionState::new(id, node, transition));
             }
-        };
-        states[index].begin(node, transition);
+        }
     }
 
     fn state(&self) -> &UiState {

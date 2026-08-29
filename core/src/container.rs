@@ -54,9 +54,20 @@ crate::builder! {
 /// frame-local paint layer declared with [`Ui::layer`]
 ///
 /// do not store this across renders
-#[repr(transparent)]
+#[cfg_attr(not(debug_assertions), repr(transparent))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LayerId(pub(crate) NonZeroU16);
+pub struct LayerId(
+    pub(crate) NonZeroU16,
+    #[cfg(debug_assertions)] pub(crate) u16,
+);
+
+impl LayerId {
+    pub(crate) fn index(self) -> usize {
+        #[cfg(debug_assertions)]
+        crate::frame::generation::assert(self.1);
+        self.0.get() as usize - 1
+    }
+}
 
 /// sizing behavior on one axis
 #[derive(Clone, Copy, Debug, PartialEq)]

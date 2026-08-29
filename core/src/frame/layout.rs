@@ -19,8 +19,8 @@ pub struct LayoutCx<'a, I> {
 #[derive(Clone)]
 pub struct Children<'a> {
     nodes: *const Node,
-    next: usize,
-    end: usize,
+    next: NodeId,
+    end: u32,
     positioned: bool,
     marker: std::marker::PhantomData<&'a ()>,
 }
@@ -30,11 +30,11 @@ impl Iterator for Children<'_> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        while self.next < self.end {
-            let node = NodeId::new(self.next);
+        while self.next.value <= self.end {
+            let node = self.next;
             // safety: layout freezes node storage and subtree boundaries
-            let stored = unsafe { &*self.nodes.add(self.next) };
-            self.next = stored.subtree_end as usize;
+            let stored = unsafe { &*self.nodes.add(node.index()) };
+            self.next.value = stored.subtree_end + 1;
             if !self.positioned || !stored.layout.is_positioned() {
                 return Some(node);
             }
@@ -97,8 +97,8 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     pub fn children(&self) -> Children<'a> {
         Children {
             nodes: self.nodes,
-            next: self.node.index() + 1,
-            end: self.frame.nodes[self.node.index()].subtree_end as usize,
+            next: self.frame.node_id(self.node.index() + 1),
+            end: self.frame.nodes[self.node.index()].subtree_end,
             positioned: self.positioned,
             marker: std::marker::PhantomData,
         }
