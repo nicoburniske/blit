@@ -2,12 +2,17 @@ use crate::{
     command_list::CommandList,
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
     image::{ImageData, ImageHandle},
+    layout::LayoutResolution,
     text::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 
 pub trait Renderer {
     /// updates the logical-to-physical scale used by rendering and text layout
     fn set_scale_factor(&mut self, scale_factor: f32);
+
+    fn layout_resolution(&self) -> LayoutResolution {
+        LayoutResolution::Continuous
+    }
 
     /// damage rectangles may overlap and are interpreted as their union
     fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]);

@@ -80,6 +80,44 @@ pub enum Axis {
     Vertical,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum LayoutResolution {
+    #[default]
+    Continuous,
+    Discrete {
+        step: LogicalSize,
+    },
+}
+
+impl LayoutResolution {
+    pub fn extent(self, axis: Axis, value: f32) -> f32 {
+        let Self::Discrete { step } = self else {
+            return value;
+        };
+        if value <= 0.0 || !value.is_finite() {
+            return value;
+        }
+        let step = size_on_axis(step, axis);
+        assert!(step.is_finite() && step > 0.0);
+        (value / step).ceil() * step
+    }
+
+    pub(crate) fn sizing(self, axis: Axis, sizing: Sizing) -> Sizing {
+        match sizing {
+            Sizing::Fit { min, max } => Sizing::Fit {
+                min: self.extent(axis, min),
+                max: self.extent(axis, max),
+            },
+            Sizing::Grow { min, max } => Sizing::Grow {
+                min: self.extent(axis, min),
+                max: self.extent(axis, max),
+            },
+            Sizing::Fixed(size) => Sizing::Fixed(self.extent(axis, size)),
+            Sizing::Percent(fraction) => Sizing::Percent(fraction),
+        }
+    }
+}
+
 /// child alignment across a layout's flow axis
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {

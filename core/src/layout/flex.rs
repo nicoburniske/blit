@@ -63,17 +63,12 @@ impl Layout for Flex {
             Axis::Horizontal => Axis::Vertical,
             Axis::Vertical => Axis::Horizontal,
         };
-        let gap = self.gap.max(0.0);
+        let padding = cx.resolve_sides(self.padding);
+        let gap = cx.resolve_extent(self.axis, self.gap).max(0.0);
         let gaps = gap * count.saturating_sub(1) as f32;
         let (main_padding, cross_padding) = match self.axis {
-            Axis::Horizontal => (
-                self.padding.left + self.padding.right,
-                self.padding.top + self.padding.bottom,
-            ),
-            Axis::Vertical => (
-                self.padding.top + self.padding.bottom,
-                self.padding.left + self.padding.right,
-            ),
+            Axis::Horizontal => (padding.left + padding.right, padding.top + padding.bottom),
+            Axis::Vertical => (padding.top + padding.bottom, padding.left + padding.right),
         };
         let max_main = (size_on_axis(constraints.max, self.axis) - main_padding - gaps).max(0.0);
         let max_cross = (size_on_axis(constraints.max, cross_axis) - cross_padding).max(0.0);
@@ -254,8 +249,8 @@ impl Layout for Flex {
         let remaining = (available_main - used - gaps).max(0.0);
         let (offset, extra_gap) = justify_offset(self.justify, remaining, count);
         let (main_leading, cross_leading) = match self.axis {
-            Axis::Horizontal => (self.padding.left, self.padding.top),
-            Axis::Vertical => (self.padding.top, self.padding.left),
+            Axis::Horizontal => (padding.left, padding.top),
+            Axis::Vertical => (padding.top, padding.left),
         };
         let mut cursor = main_leading + offset;
         for node in cx.children() {
