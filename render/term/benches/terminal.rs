@@ -4,13 +4,13 @@ use blit::{
     UiState,
     color::Color,
     command_list::{ClipId, CommandList, Rectangle},
-    geometry::{LogicalPoint, LogicalRect, PhysicalRect, Scale2},
+    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2},
     input::{Input, Modifiers},
     renderer::Renderer as _,
     repaint::{IncrementalRepaint, MyersTracker},
 };
 use blit_showcase::{Page, Showcase};
-use blit_term::{PIXEL_LIKE, RendererConfig, TerminalRenderer};
+use blit_term::{RendererConfig, TerminalRenderer};
 use divan::counter::ItemsCount;
 
 const CHANGED_CELL: PhysicalRect = PhysicalRect {
@@ -199,6 +199,9 @@ fn showcase_renderer() -> TerminalRenderer {
         RendererConfig::new()
             .columns(140)
             .rows(50)
-            .cell_size(PIXEL_LIKE),
+            .cell_size(LogicalSize {
+                width: 8.0,
+                height: 16.0,
+            }),
     )
 }

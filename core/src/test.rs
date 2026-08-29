@@ -34,6 +34,7 @@ struct TestRenderer {
     clip_count: usize,
     scale_factors: Vec<f32>,
     interaction_offset: f32,
+    fixed_zoom: bool,
 }
 
 impl Renderer for TestRenderer {
@@ -47,6 +48,7 @@ impl Renderer for TestRenderer {
             },
             physical_per_logical: Scale2::IDENTITY,
             layout_resolution: crate::layout::LayoutResolution::Continuous,
+            supports_zoom: !self.fixed_zoom,
         }
     }
 
@@ -179,17 +181,35 @@ fn renderer_scale_changes_before_the_next_frame() {
     harness.render(Duration::ZERO, Input::None, |ui| {
         assert_eq!(ui.zoom(), 1.0);
         ui.set_zoom(2.0);
+        ui.set_zoom(3.0);
         assert_eq!(ui.zoom(), 1.0);
     });
     assert_eq!(harness.renderer().scale_factors, [1.0]);
 
     harness.render(Duration::ZERO, Input::None, |ui| {
-        assert_eq!(ui.zoom(), 2.0);
+        assert_eq!(ui.zoom(), 3.0);
     });
-    assert_eq!(harness.renderer().scale_factors, [1.0, 2.0]);
+    assert_eq!(harness.renderer().scale_factors, [1.0, 3.0]);
 
     harness.render(Duration::ZERO, Input::None, |_| {});
-    assert_eq!(harness.renderer().scale_factors, [1.0, 2.0]);
+    assert_eq!(harness.renderer().scale_factors, [1.0, 3.0]);
+}
+
+#[test]
+fn fixed_renderer_ignores_zoom() {
+    let mut renderer = TestRenderer::default();
+    renderer.fixed_zoom = true;
+    let mut harness = Harness::new(renderer);
+    harness.state.set_zoom(2.0);
+    assert_eq!(harness.state.zoom(), 2.0);
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        assert_eq!(ui.zoom(), 1.0);
+        ui.set_zoom(4.0);
+        assert_eq!(ui.zoom(), 1.0);
+    });
+    assert_eq!(harness.state.zoom(), 2.0);
+    assert_eq!(harness.renderer().scale_factors, [1.0]);
+    assert!(!harness.has_pending_redraw());
 }
 
 #[cfg(debug_assertions)]

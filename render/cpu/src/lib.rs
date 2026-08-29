@@ -353,6 +353,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> blit::renderer::Renderer for Renderer
                 y: self.context.device_scale,
             },
             layout_resolution: blit::layout::LayoutResolution::Continuous,
+            supports_zoom: true,
         }
     }
 

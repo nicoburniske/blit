@@ -2,7 +2,7 @@ use std::{io, io::Write as _, time::Duration, time::Instant};
 
 use blit::{
     Ui, UiState,
-    geometry::{LogicalPoint, Scale2},
+    geometry::{LogicalPoint, LogicalSize, Scale2},
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
     renderer::Renderer as _,
     repaint::{IncrementalRepaint, MyersTracker},
@@ -28,8 +28,7 @@ pub enum ControlFlow {
 pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
     let mut terminal = PlatformTerminal::new()?;
     let size = terminal.get_dimensions()?;
-    let mut renderer =
-        TerminalRenderer::new(RendererConfig::new().columns(size.cols).rows(size.rows));
+    let mut renderer = TerminalRenderer::new(renderer_config(size)?);
     let mut state = UiState::default();
     let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
     terminal.enter_raw_mode()?;
@@ -65,16 +64,19 @@ pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
                     .map(|deadline| deadline.saturating_sub(now))
             };
             let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
-            let scale = renderer.geometry().physical_per_logical.zoom(state.zoom());
+            let scale = renderer.geometry().physical_per_logical;
             let (input_count, resized) = poll_inputs(&terminal, timeout, scale, &mut inputs)?;
-            if let Some(size) = resized {
-                renderer.resize(size.cols, size.rows);
-            }
+            let resized = if let Some(size) = resized {
+                renderer.resize(renderer_config(size)?);
+                true
+            } else {
+                false
+            };
             let now = start.elapsed();
             let timer_due = state
                 .next_timer_deadline()
                 .is_some_and(|deadline| deadline <= now);
-            if input_count != 0 || state.has_pending_redraw() || timer_due {
+            if resized || input_count != 0 || state.has_pending_redraw() || timer_due {
                 blit::render(
                     &mut renderer,
                     &mut state,
@@ -106,6 +108,25 @@ pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
     result.and(restore)
 }
 
+fn renderer_config(size: WindowSize) -> io::Result<RendererConfig> {
+    let Some(pixel_width) = size.pixel_width.filter(|width| *width != 0) else {
+        return Err(io::Error::other("terminal did not report its pixel width"));
+    };
+    let Some(pixel_height) = size.pixel_height.filter(|height| *height != 0) else {
+        return Err(io::Error::other("terminal did not report its pixel height"));
+    };
+    if size.cols == 0 || size.rows == 0 {
+        return Err(io::Error::other("terminal reported an empty window"));
+    }
+    Ok(RendererConfig::new()
+        .columns(size.cols)
+        .rows(size.rows)
+        .cell_size(LogicalSize {
+            width: f32::from(pixel_width) / f32::from(size.cols),
+            height: f32::from(pixel_height) / f32::from(size.rows),
+        }))
+}
+
 fn poll_inputs(
     terminal: &PlatformTerminal,
     timeout: Option<Duration>,
@@ -118,15 +139,11 @@ fn poll_inputs(
 
     let mut input_count = 0;
     let mut event_count = 0;
-    let mut resized = None;
     loop {
         let terminal_event = terminal.read(|_| true)?;
         event_count += 1;
         let input = match terminal_event {
-            TerminalEvent::WindowResized(size) => {
-                resized = Some(size);
-                None
-            }
+            TerminalEvent::WindowResized(size) => return Ok((0, Some(size))),
             TerminalEvent::Key(key) if key.kind == TerminalKeyEventKind::Press => {
                 let modifiers = Modifiers::new(
                     key.modifiers.contains(TerminalModifiers::SHIFT),
@@ -246,5 +263,5 @@ fn poll_inputs(
             break;
         }
     }
-    Ok((input_count, resized))
+    Ok((input_count, None))
 }

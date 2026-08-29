@@ -33,10 +33,9 @@ impl Renderer for NoopRenderer {
             },
             physical_per_logical: Scale2::IDENTITY,
             layout_resolution: blit::layout::LayoutResolution::Continuous,
+            supports_zoom: true,
         }
     }
-
-    fn set_scale(&mut self, _: Scale2) {}
 
     fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
         black_box((commands.len(), damage.len()));
