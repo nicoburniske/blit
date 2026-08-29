@@ -2,11 +2,12 @@ use std::{io, io::Write as _, time::Duration, time::Instant};
 
 use blit::{
     Ui, UiState,
-    geometry::LogicalPoint,
+    geometry::{LogicalPoint, Scale2},
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
+    renderer::Renderer as _,
     repaint::{IncrementalRepaint, MyersTracker},
 };
-use blit_term::{CELL_HEIGHT, CELL_WIDTH, TerminalRenderer};
+use blit_term::{RendererConfig, TerminalRenderer};
 use termina::{
     Event as TerminalEvent, PlatformTerminal, Terminal, WindowSize,
     event::{
@@ -27,8 +28,9 @@ pub enum ControlFlow {
 pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
     let mut terminal = PlatformTerminal::new()?;
     let size = terminal.get_dimensions()?;
-    let mut renderer = TerminalRenderer::new(size.cols, size.rows);
-    let mut state = UiState::new(renderer.screen(), 1.0);
+    let mut renderer =
+        TerminalRenderer::new(RendererConfig::new().columns(size.cols).rows(size.rows));
+    let mut state = UiState::default();
     let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
     terminal.enter_raw_mode()?;
     write!(
@@ -63,10 +65,10 @@ pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
                     .map(|deadline| deadline.saturating_sub(now))
             };
             let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
-            let (input_count, resized) = poll_inputs(&terminal, timeout, &mut inputs)?;
+            let scale = renderer.geometry().physical_per_logical.zoom(state.zoom());
+            let (input_count, resized) = poll_inputs(&terminal, timeout, scale, &mut inputs)?;
             if let Some(size) = resized {
                 renderer.resize(size.cols, size.rows);
-                state.set_screen(renderer.screen());
             }
             let now = start.elapsed();
             let timer_due = state
@@ -107,6 +109,7 @@ pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
 fn poll_inputs(
     terminal: &PlatformTerminal,
     timeout: Option<Duration>,
+    scale: Scale2,
     inputs: &mut [Input],
 ) -> io::Result<(usize, Option<WindowSize>)> {
     if inputs.is_empty() || !terminal.poll(|_| true, timeout)? {
@@ -170,8 +173,8 @@ fn poll_inputs(
             }
             TerminalEvent::Mouse(mouse) => {
                 let position = LogicalPoint {
-                    x: (f32::from(mouse.column) + 0.5) * CELL_WIDTH,
-                    y: (f32::from(mouse.row) + 0.5) * CELL_HEIGHT,
+                    x: (f32::from(mouse.column) + 0.5) / scale.x,
+                    y: (f32::from(mouse.row) + 0.5) / scale.y,
                 };
                 let modifiers = Modifiers::new(
                     mouse.modifiers.contains(TerminalModifiers::SHIFT),
@@ -211,13 +214,13 @@ fn poll_inputs(
                     | MouseEventKind::ScrollRight => Input::Scroll {
                         position,
                         delta_x: match mouse.kind {
-                            MouseEventKind::ScrollLeft => -CELL_WIDTH * 3.0,
-                            MouseEventKind::ScrollRight => CELL_WIDTH * 3.0,
+                            MouseEventKind::ScrollLeft => -3.0 / scale.x,
+                            MouseEventKind::ScrollRight => 3.0 / scale.x,
                             _ => 0.0,
                         },
                         delta_y: match mouse.kind {
-                            MouseEventKind::ScrollUp => -CELL_HEIGHT * 3.0,
-                            MouseEventKind::ScrollDown => CELL_HEIGHT * 3.0,
+                            MouseEventKind::ScrollUp => -3.0 / scale.y,
+                            MouseEventKind::ScrollDown => 3.0 / scale.y,
                             _ => 0.0,
                         },
                         modifiers,

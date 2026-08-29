@@ -74,6 +74,10 @@ struct Active<A: Application> {
 }
 
 impl<A: Application> Active<A> {
+    fn scale(&self) -> f32 {
+        self.window.scale_factor() as f32 * self.ui.zoom()
+    }
+
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), RunError> {
         let (Some(width), Some(height)) =
             (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
@@ -84,7 +88,6 @@ impl<A: Application> Active<A> {
         self.renderer
             .buffer_mut()
             .resize(size.width as usize, size.height as usize);
-        self.ui.set_screen(self.renderer.screen());
         Ok(())
     }
 }
@@ -196,12 +199,13 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Ok(surface) => surface,
             Err(error) => return self.fail(event_loop, error),
         };
-        let renderer = Renderer::new(
+        let mut renderer = Renderer::new(
             DesktopBuffer::new(size.width as usize, size.height as usize),
             config.renderer,
         )
         .strategy(Scanline::default());
-        let ui = blit::UiState::new(renderer.screen(), window.scale_factor() as f32);
+        renderer.set_device_scale(window.scale_factor() as f32);
+        let ui = blit::UiState::default();
         let wake = input.inner.clone();
         let executor = Box::pin(LocalExecutor::new(move |task| {
             let _ = wake.send_event(Event::TaskReady(task));
@@ -264,7 +268,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                active.ui.set_scale_factor(scale_factor as f32);
+                active.renderer.set_device_scale(scale_factor as f32);
                 if let Err(error) = active.resize(active.window.inner_size()) {
                     self.fail(event_loop, error);
                 } else {
@@ -284,7 +288,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             WindowEvent::CursorMoved { position, .. } => {
                 active.window.request_redraw();
                 self.cursor = Some(position);
-                let position = logical_position(position, active.ui.scale_factor());
+                let position = logical_position(position, active.scale());
                 self.push_input(Input::PointerMove {
                     position,
                     modifiers: self.modifiers,
@@ -297,7 +301,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(position) = self.cursor {
-                    let position = logical_position(position, active.ui.scale_factor());
+                    let position = logical_position(position, active.scale());
                     let button = match button {
                         MouseButton::Left => PointerButton::Primary,
                         MouseButton::Right => PointerButton::Secondary,
@@ -324,7 +328,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 }
             }
             WindowEvent::MouseWheel { delta, phase, .. } => {
-                let scale = active.ui.scale_factor();
+                let scale = active.scale();
                 let position = self.cursor.map_or_else(
                     || {
                         let size = active.window.inner_size();
@@ -338,8 +342,8 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 let (delta_x, delta_y, continuous) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (-x * 40.0, -y * 40.0, false),
                     MouseScrollDelta::PixelDelta(delta) => (
-                        (-delta.x / active.ui.scale_factor() as f64) as f32,
-                        (-delta.y / active.ui.scale_factor() as f64) as f32,
+                        (-delta.x / scale as f64) as f32,
+                        (-delta.y / scale as f64) as f32,
                         true,
                     ),
                 };
@@ -415,7 +419,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 self.push_text(&text);
             }
             WindowEvent::Touch(touch) => {
-                let position = logical_position(touch.location, active.ui.scale_factor());
+                let position = logical_position(touch.location, active.scale());
                 active.window.request_redraw();
                 let input = match touch.phase {
                     TouchPhase::Started => Input::PointerDown {

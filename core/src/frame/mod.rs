@@ -18,7 +18,7 @@ use crate::{
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     container::{Absolute, Anchor, ContainerConfig, LayerId, PositionTarget, Sizing, Slot},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, Sides},
+    geometry::{LogicalPoint, LogicalRect, LogicalSize, Scale2, Sides},
     image::{ImageContent, ImageRequest},
     interact::{InteractionState, WidgetId},
     layout::{Axis, Constraints, Flex, Layout, LayoutResolution},
@@ -110,7 +110,7 @@ impl FrameGraph {
         geometry: &mut GeometryState,
         transition_states: &mut [TransitionState],
         time: Duration,
-        scale_factor: f32,
+        scale: Scale2,
     ) {
         assert_eq!(
             self.open_containers,
@@ -136,10 +136,10 @@ impl FrameGraph {
         self.resolve_positions();
         self.resolve_paint_order();
         if self.clear {
-            commands.push_clear(self.nodes[0].area.to_physical(scale_factor));
+            commands.push_clear(self.nodes[0].area.to_physical(scale));
         }
         self.resolve_clips(commands);
-        self.emit(renderer, commands, scale_factor);
+        self.emit(renderer, commands, scale);
         self.register_hits(renderer, interaction);
         for record in &self.geometry {
             geometry.register(record.id, self.nodes[record.node.index()].area);
@@ -773,14 +773,14 @@ impl FrameGraph {
         }
     }
 
-    fn emit(&self, renderer: &mut dyn Renderer, commands: &mut CommandList, scale_factor: f32) {
+    fn emit(&self, renderer: &mut dyn Renderer, commands: &mut CommandList, scale: Scale2) {
         if self.paint_order.is_empty() {
             for index in 1..self.nodes.len() {
-                self.emit_node(index, renderer, commands, scale_factor);
+                self.emit_node(index, renderer, commands, scale);
             }
         } else {
             for node in &self.paint_order {
-                self.emit_node(node.index(), renderer, commands, scale_factor);
+                self.emit_node(node.index(), renderer, commands, scale);
             }
         }
     }
@@ -791,7 +791,7 @@ impl FrameGraph {
         index: usize,
         renderer: &mut dyn Renderer,
         commands: &mut CommandList,
-        scale_factor: f32,
+        scale: Scale2,
     ) {
         let node = &self.nodes[index];
         if let Some(style) = node.style.index().map(|index| &self.styles[index]) {
@@ -801,7 +801,7 @@ impl FrameGraph {
                     .offset(shadow.offset_x, shadow.offset_y)
                     .blur(shadow.blur)
                     .spread(shadow.spread);
-                if let Some(bounds) = node.visible_bounds(shadow.bounds(), scale_factor) {
+                if let Some(bounds) = node.visible_bounds(shadow.bounds(), scale) {
                     commands.push_box_shadow(shadow, bounds, node.clip);
                 }
             }
@@ -828,7 +828,7 @@ impl FrameGraph {
                     radius: style.radius,
                     opacity: style.opacity,
                 };
-                if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
+                if let Some(bounds) = node.visible_bounds(node.area, scale) {
                     commands.push_rectangle(rectangle, bounds, node.clip);
                 }
             }
@@ -839,7 +839,7 @@ impl FrameGraph {
                     .blur(shadow.blur)
                     .spread(shadow.spread)
                     .inset(true);
-                if let Some(bounds) = node.visible_bounds(shadow.bounds(), scale_factor) {
+                if let Some(bounds) = node.visible_bounds(shadow.bounds(), scale) {
                     commands.push_box_shadow(shadow, bounds, node.clip);
                 }
             }
@@ -870,7 +870,7 @@ impl FrameGraph {
                             width: right - left,
                             height: bottom - top,
                         };
-                        if let Some(bounds) = node.visible_bounds(area, scale_factor) {
+                        if let Some(bounds) = node.visible_bounds(area, scale) {
                             commands.push_rectangle(
                                 Rectangle::new(area).background(selection.color),
                                 bounds,
@@ -879,7 +879,7 @@ impl FrameGraph {
                         }
                     }
                 }
-                if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
+                if let Some(bounds) = node.visible_bounds(node.area, scale) {
                     commands.push_text(request, bounds, node.clip);
                 }
                 if let Some(caret) = text.caret {
@@ -898,7 +898,7 @@ impl FrameGraph {
                             width,
                             height: bottom - top,
                         };
-                        if let Some(bounds) = node.visible_bounds(area, scale_factor) {
+                        if let Some(bounds) = node.visible_bounds(area, scale) {
                             commands.push_rectangle(
                                 Rectangle::new(area).background(caret.color),
                                 bounds,
@@ -910,7 +910,7 @@ impl FrameGraph {
             }
             ContentRef::Image(index) => {
                 let image = self.images[index];
-                if let Some(bounds) = node.visible_bounds(node.area, scale_factor) {
+                if let Some(bounds) = node.visible_bounds(node.area, scale) {
                     commands.push_image(
                         ImageRequest {
                             image: image.image,

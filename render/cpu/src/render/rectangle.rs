@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use blit::{
     command_list::Rectangle,
-    geometry::PhysicalRect,
+    geometry::{PhysicalRect, Scale2},
     style::{Border, GradientStop, LinearGradient},
 };
 
@@ -24,7 +24,7 @@ pub struct Prepared {
 
 impl Prepared {
     pub fn new(rectangle: &Rectangle<'_>, scale_factor: f32) -> Option<Self> {
-        let geometry = rectangle.area.to_physical(scale_factor);
+        let geometry = rectangle.area.to_physical(Scale2::uniform(scale_factor));
         if geometry.width <= 0 || geometry.height <= 0 || rectangle.opacity <= 0.0 {
             return None;
         }
@@ -206,7 +206,7 @@ impl Gradient {
         {
             return None;
         }
-        let geometry = rectangle.area.to_physical(scale_factor);
+        let geometry = rectangle.area.to_physical(Scale2::uniform(scale_factor));
         let border_width = (width * scale_factor).round().max(0.0) as i32;
         if geometry.width <= 0
             || geometry.height <= 0

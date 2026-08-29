@@ -1,5 +1,5 @@
 use blit::{
-    geometry::PhysicalRect,
+    geometry::{PhysicalRect, Scale2},
     image::{ImageData, ImageFit, ImageRequest, ImageTiling},
 };
 
@@ -12,7 +12,7 @@ pub fn prepare(
     scale_factor: f32,
     mut emit: impl FnMut(Prepared, PhysicalRect),
 ) {
-    let geometry = request.area.to_physical(scale_factor);
+    let geometry = request.area.to_physical(Scale2::uniform(scale_factor));
     let source = PhysicalRect {
         x: 0,
         y: 0,

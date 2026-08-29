@@ -8,7 +8,7 @@ use blit::{
     FrameGraphMemory, Ui, UiState,
     color::Color,
     container::Sizing,
-    geometry::{PhysicalRect, Sides},
+    geometry::Sides,
     input::Input,
     layout::Flex,
     render,
@@ -66,13 +66,7 @@ struct Report {
 fn measure(name: &'static str, nodes: usize, frame: fn(&mut Ui)) -> Report {
     let baseline = CURRENT.load(Relaxed);
     let mut renderer = NoopRenderer;
-    let screen = PhysicalRect {
-        x: 0,
-        y: 0,
-        width: 1280,
-        height: 8192,
-    };
-    let mut state = UiState::new(screen, 1.0);
+    let mut state = UiState::default();
     let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
     GROSS.store(0, Relaxed);
     render(

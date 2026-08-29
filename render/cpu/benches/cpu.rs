@@ -3,7 +3,7 @@ use std::hint::black_box;
 use blit::{
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
-    geometry::{LogicalRect, PhysicalRect},
+    geometry::{LogicalRect, PhysicalRect, Scale2},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
@@ -20,6 +20,7 @@ use divan::counter::ItemsCount;
 const WIDTH: usize = 480;
 const HEIGHT: usize = 800;
 const PIXELS: usize = WIDTH * HEIGHT;
+const SCALE: Scale2 = Scale2::IDENTITY;
 
 #[global_allocator]
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
@@ -69,7 +70,7 @@ fn render_rectangles(bencher: divan::Bencher) {
                 (index * 61) as u8,
                 255,
             )),
-            area.to_physical(1.0),
+            area.to_physical(SCALE),
             ClipId::default(),
         );
     }
@@ -210,15 +211,15 @@ fn gradient_border(bencher: divan::Bencher) {
             .background(Color::from_rgba8(16, 24, 40, 255))
             .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
             .uniform_radius(24.0),
-        area.to_physical(1.0),
+        area.to_physical(SCALE),
         ClipId::default(),
     );
-    let damage = [area.to_physical(1.0)];
+    let damage = [area.to_physical(SCALE)];
     let mut renderer = renderer(WIDTH, HEIGHT, Scanline::default());
     renderer.render(&commands, &damage);
 
     bencher
-        .counter(ItemsCount::new(area.to_physical(1.0).height as usize))
+        .counter(ItemsCount::new(area.to_physical(SCALE).height as usize))
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
@@ -234,8 +235,12 @@ fn shadow(bencher: divan::Bencher, cached: bool) {
         .uniform_radius(24.0)
         .blur(16.0);
     let mut commands = CommandList::default();
-    commands.push_box_shadow(shadow, shadow.bounds().to_physical(1.0), ClipId::default());
-    let damage = [shadow.bounds().to_physical(1.0)];
+    commands.push_box_shadow(
+        shadow,
+        shadow.bounds().to_physical(SCALE),
+        ClipId::default(),
+    );
+    let damage = [shadow.bounds().to_physical(SCALE)];
     let mut renderer = renderer_with_shadow_cache(
         WIDTH,
         HEIGHT,
@@ -269,7 +274,7 @@ where
                 (index * 67) as u8,
                 255,
             )),
-            area.to_physical(1.0),
+            area.to_physical(SCALE),
             ClipId::default(),
         );
     }
@@ -305,11 +310,11 @@ where
             Rectangle::new(area)
                 .background(Color::from_rgba8(40, 72, 112, 255))
                 .uniform_radius(8.0),
-            area.to_physical(1.0),
+            area.to_physical(SCALE),
             ClipId::default(),
         );
         if DAMAGED.contains(&index) {
-            damage.push(area.to_physical(1.0));
+            damage.push(area.to_physical(SCALE));
         }
     }
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
@@ -340,11 +345,11 @@ where
                 (index * 47) as u8,
                 if index + 1 == COMMANDS { 255 } else { 64 },
             )),
-            area.to_physical(1.0),
+            area.to_physical(SCALE),
             ClipId::default(),
         );
     }
-    let damage = [area.to_physical(1.0)];
+    let damage = [area.to_physical(SCALE)];
     let mut renderer = renderer(SIZE, SIZE, strategy);
     renderer.render(&commands, &damage);
 
@@ -393,7 +398,7 @@ where
                 horizontal_tiling: ImageTiling::None,
                 vertical_tiling: ImageTiling::None,
             },
-            area.to_physical(1.0),
+            area.to_physical(SCALE),
             ClipId::default(),
         );
     }
@@ -434,7 +439,7 @@ where
                 style: TextStyle::default(),
                 options: TextOptions::default(),
             },
-            area.to_physical(1.0),
+            area.to_physical(SCALE),
             ClipId::default(),
         );
     }
@@ -484,7 +489,7 @@ where
                 style: TextStyle::default(),
                 options: TextOptions::default(),
             },
-            area.to_physical(1.0),
+            area.to_physical(SCALE),
             ClipId::default(),
         );
     }
@@ -533,10 +538,10 @@ where
                 ..TextOptions::default()
             },
         },
-        area.to_physical(1.0),
+        area.to_physical(SCALE),
         ClipId::default(),
     );
-    let damage = [area.to_physical(1.0)];
+    let damage = [area.to_physical(SCALE)];
     renderer.render(&commands, &damage);
 
     bencher
@@ -574,11 +579,11 @@ where
                 (index * 53) as u8,
                 16,
             )),
-            area.to_physical(1.0),
+            area.to_physical(SCALE),
             clip,
         );
     }
-    let damage = [area.to_physical(1.0)];
+    let damage = [area.to_physical(SCALE)];
     let mut renderer = renderer(SIZE, SIZE, strategy);
     renderer.render(&commands, &damage);
 

@@ -10,9 +10,9 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use blit::{
     color::Color,
     command_list::{Command, CommandList},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
+    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2},
     image::{ImageData, ImageHandle, ImageId},
-    renderer::Renderer,
+    renderer::{RenderGeometry, Renderer},
     style::Border,
     text::{
         HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextRunId, TextStyle,
@@ -23,15 +23,40 @@ use blit_cache::{DeferredCache, Scale};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-pub const CELL_WIDTH: f32 = 8.0;
-pub const CELL_HEIGHT: f32 = 16.0;
 const TEXT_RUN_CACHE_CAPACITY: usize = 2 * 1024 * 1024;
 const TEXT_LAYOUT_CACHE_CAPACITY: usize = 4 * 1024 * 1024;
+
+pub const PIXEL_LIKE: LogicalSize = LogicalSize {
+    width: 8.0,
+    height: 16.0,
+};
+pub const CELL_NATIVE: LogicalSize = LogicalSize {
+    width: 1.0,
+    height: 1.0,
+};
+
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct RendererConfig {
+        new(),
+        columns: u16 = 80,
+        rows: u16 = 24,
+        cell_size: LogicalSize = CELL_NATIVE,
+    }
+}
+
+impl Default for RendererConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub struct TerminalRenderer {
     columns: usize,
     rows: usize,
-    scale_factor: f32,
+    base_cell_size: LogicalSize,
+    scale: Scale2,
+    cell_size: LogicalSize,
     text_runs: DeferredCache<RunKey, CachedRun, RunScale>,
     text_layouts: DeferredCache<LayoutKey, TextLayout, LayoutScale>,
     next_text_run: u32,
@@ -50,13 +75,25 @@ pub struct TerminalRenderer {
 }
 
 impl TerminalRenderer {
-    pub fn new(columns: u16, rows: u16) -> Self {
+    pub fn new(config: RendererConfig) -> Self {
+        let RendererConfig {
+            columns,
+            rows,
+            cell_size,
+        } = config;
+        assert!(cell_size.width.is_finite() && cell_size.width > 0.0);
+        assert!(cell_size.height.is_finite() && cell_size.height > 0.0);
         let columns = usize::from(columns.max(1));
         let rows = usize::from(rows.max(1));
         Self {
             columns,
             rows,
-            scale_factor: 1.0,
+            base_cell_size: cell_size,
+            scale: Scale2 {
+                x: 1.0 / cell_size.width,
+                y: 1.0 / cell_size.height,
+            },
+            cell_size,
             text_runs: DeferredCache::new(RunScale, TEXT_RUN_CACHE_CAPACITY),
             text_layouts: DeferredCache::new(LayoutScale, TEXT_LAYOUT_CACHE_CAPACITY),
             next_text_run: 1,
@@ -79,8 +116,8 @@ impl TerminalRenderer {
         PhysicalRect {
             x: 0,
             y: 0,
-            width: (self.columns as f32 * CELL_WIDTH) as i32,
-            height: (self.rows as f32 * CELL_HEIGHT) as i32,
+            width: self.columns as i32,
+            height: self.rows as i32,
         }
     }
 
@@ -101,17 +138,15 @@ impl TerminalRenderer {
     }
 
     fn cell_bounds(&self, area: LogicalRect) -> (usize, usize, usize, usize) {
-        let cell_width = CELL_WIDTH / self.scale_factor;
-        let cell_height = CELL_HEIGHT / self.scale_factor;
         (
-            (area.x / cell_width)
+            (area.x * self.scale.x)
                 .round()
                 .clamp(0.0, self.columns as f32) as usize,
-            (area.y / cell_height).round().clamp(0.0, self.rows as f32) as usize,
-            ((area.x + area.width) / cell_width)
+            (area.y * self.scale.y).round().clamp(0.0, self.rows as f32) as usize,
+            ((area.x + area.width) * self.scale.x)
                 .round()
                 .clamp(0.0, self.columns as f32) as usize,
-            ((area.y + area.height) / cell_height)
+            ((area.y + area.height) * self.scale.y)
                 .round()
                 .clamp(0.0, self.rows as f32) as usize,
         )
@@ -188,10 +223,9 @@ impl TerminalRenderer {
             true
         }
 
-        let cell_width = CELL_WIDTH / self.scale_factor;
         let max_columns = request
             .max_width
-            .map(|width| (width / cell_width).floor().max(0.0) as usize);
+            .map(|width| (width * self.scale.x).floor().max(0.0) as usize);
         let max_lines = usize::from(request.max_lines.unwrap_or(u16::MAX)).max(1);
         let key = LayoutKey {
             text: request.text,
@@ -314,40 +348,48 @@ impl TerminalRenderer {
 }
 
 impl Renderer for TerminalRenderer {
-    fn set_scale_factor(&mut self, scale_factor: f32) {
-        self.scale_factor = scale_factor;
-    }
-
-    fn layout_resolution(&self) -> blit::layout::LayoutResolution {
-        blit::layout::LayoutResolution::Discrete {
-            step: LogicalSize {
-                width: CELL_WIDTH / self.scale_factor,
-                height: CELL_HEIGHT / self.scale_factor,
+    fn geometry(&self) -> RenderGeometry {
+        RenderGeometry {
+            physical_bounds: self.screen(),
+            physical_per_logical: Scale2 {
+                x: 1.0 / self.base_cell_size.width,
+                y: 1.0 / self.base_cell_size.height,
+            },
+            layout_resolution: blit::layout::LayoutResolution::Discrete {
+                step: self.base_cell_size,
             },
         }
     }
 
+    fn set_scale(&mut self, scale: Scale2) {
+        self.scale = scale;
+        self.cell_size = LogicalSize {
+            width: 1.0 / scale.x,
+            height: 1.0 / scale.y,
+        };
+    }
+
     fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
-        let cell_width = CELL_WIDTH / self.scale_factor;
-        let cell_height = CELL_HEIGHT / self.scale_factor;
+        let cell_width = self.cell_size.width;
+        let cell_height = self.cell_size.height;
         let (mut left, mut top, mut right, mut bottom) = self.cell_bounds(area);
         left = left.max(
-            (clip.x / cell_width - 0.5)
+            (clip.x * self.scale.x - 0.5)
                 .ceil()
                 .clamp(0.0, self.columns as f32) as usize,
         );
         top = top.max(
-            (clip.y / cell_height - 0.5)
+            (clip.y * self.scale.y - 0.5)
                 .ceil()
                 .clamp(0.0, self.rows as f32) as usize,
         );
         right = right.min(
-            ((clip.x + clip.width) / cell_width - 0.5)
+            ((clip.x + clip.width) * self.scale.x - 0.5)
                 .ceil()
                 .clamp(0.0, self.columns as f32) as usize,
         );
         bottom = bottom.min(
-            ((clip.y + clip.height) / cell_height - 0.5)
+            ((clip.y + clip.height) * self.scale.y - 0.5)
                 .ceil()
                 .clamp(0.0, self.rows as f32) as usize,
         );
@@ -368,14 +410,10 @@ impl Renderer for TerminalRenderer {
             let Some(damage) = damage.intersection(screen) else {
                 continue;
             };
-            let left = (damage.x as f32 / CELL_WIDTH).floor() as usize;
-            let top = (damage.y as f32 / CELL_HEIGHT).floor() as usize;
-            let right = (damage.x.saturating_add(damage.width) as f32 / CELL_WIDTH)
-                .ceil()
-                .min(self.columns as f32) as usize;
-            let bottom = (damage.y.saturating_add(damage.height) as f32 / CELL_HEIGHT)
-                .ceil()
-                .min(self.rows as f32) as usize;
+            let left = damage.x as usize;
+            let top = damage.y as usize;
+            let right = damage.x.saturating_add(damage.width) as usize;
+            let bottom = damage.y.saturating_add(damage.height) as usize;
             damage_bounds.0 = damage_bounds.0.min(left);
             damage_bounds.1 = damage_bounds.1.min(top);
             damage_bounds.2 = damage_bounds.2.max(right);
@@ -393,18 +431,16 @@ impl Renderer for TerminalRenderer {
         }
         self.clear_damaged(damage_bounds);
         self.kitty_placements.clear();
-        let logical_screen = screen.to_logical(self.scale_factor);
+        let logical_screen = screen.to_logical(self.scale);
         for (z, record) in commands.iter().enumerate() {
             if !matches!(record.command, Command::Image(_)) {
                 let Some(bounds) = record.bounds.intersection(screen) else {
                     continue;
                 };
-                let left = (bounds.x as f32 / CELL_WIDTH).floor() as usize;
-                let top = (bounds.y as f32 / CELL_HEIGHT).floor() as usize;
-                let right =
-                    (bounds.x.saturating_add(bounds.width) as f32 / CELL_WIDTH).ceil() as usize;
-                let bottom =
-                    (bounds.y.saturating_add(bounds.height) as f32 / CELL_HEIGHT).ceil() as usize;
+                let left = bounds.x as usize;
+                let top = bounds.y as usize;
+                let right = bounds.x.saturating_add(bounds.width) as usize;
+                let bottom = bounds.y.saturating_add(bounds.height) as usize;
                 if right <= damage_bounds.0
                     || bottom <= damage_bounds.1
                     || left >= damage_bounds.2
@@ -429,8 +465,8 @@ impl Renderer for TerminalRenderer {
                     self.kitty_placements.clear();
                 }
                 Command::Rectangle(rectangle) => {
-                    let cell_width = CELL_WIDTH / self.scale_factor;
-                    let cell_height = CELL_HEIGHT / self.scale_factor;
+                    let cell_width = self.cell_size.width;
+                    let cell_height = self.cell_size.height;
                     let (left, top, right, bottom) = self.cell_bounds(rectangle.area);
                     if rectangle.background.alpha != 0 && rectangle.opacity > 0.0 {
                         let stride = self.columns * 2;
@@ -545,11 +581,8 @@ impl Renderer for TerminalRenderer {
                     let layout = self.text_layouts.get_index(layout);
                     let ellipsis = request.options.overflow == TextOverflow::Ellipsis
                         && (layout.truncated
-                            || layout.width as f32 * CELL_WIDTH / self.scale_factor
-                                > request.area.width);
-                    let maximum = (request.area.width / (CELL_WIDTH / self.scale_factor))
-                        .floor()
-                        .max(1.0) as usize;
+                            || layout.width as f32 * self.cell_size.width > request.area.width);
+                    let maximum = (request.area.width * self.scale.x).floor().max(1.0) as usize;
                     let area_width = area_right as isize - area_left as isize;
                     let area_height = area_bottom as isize - area_top as isize;
                     let line_count = layout.lines.len() as isize;
@@ -574,8 +607,7 @@ impl Renderer for TerminalRenderer {
                         let start_x = match request.options.horizontal_align {
                             HorizontalAlign::Left => {
                                 area_left as isize
-                                    - (request.offset_x / (CELL_WIDTH / self.scale_factor)).round()
-                                        as isize
+                                    - (request.offset_x * self.scale.x).round() as isize
                             }
                             HorizontalAlign::Center => {
                                 area_left as isize
@@ -635,14 +667,12 @@ impl Renderer for TerminalRenderer {
                 }
                 Command::Image(request) => {
                     if let Some(area) = request.area.intersection(clip) {
-                        let cell_width = CELL_WIDTH / self.scale_factor;
-                        let cell_height = CELL_HEIGHT / self.scale_factor;
-                        let x = (area.x / cell_width).floor().max(0.0) as usize;
-                        let y = (area.y / cell_height).floor().max(0.0) as usize;
-                        let right = ((area.x + area.width) / cell_width)
+                        let x = (area.x * self.scale.x).floor().max(0.0) as usize;
+                        let y = (area.y * self.scale.y).floor().max(0.0) as usize;
+                        let right = ((area.x + area.width) * self.scale.x)
                             .ceil()
                             .min(self.columns as f32) as usize;
-                        let bottom = ((area.y + area.height) / cell_height)
+                        let bottom = ((area.y + area.height) * self.scale.y)
                             .ceil()
                             .min(self.rows as f32) as usize;
                         if right > x && bottom > y {
@@ -966,8 +996,7 @@ impl Renderer for TerminalRenderer {
             .text_runs
             .get_index(self.text_run_index(request.text))
             .text;
-        let target = ((position.x - request.area.x + request.offset_x)
-            / (CELL_WIDTH / self.scale_factor))
+        let target = ((position.x - request.area.x + request.offset_x) * self.scale.x)
             .round()
             .max(0.0) as usize;
         let mut width = 0;
@@ -985,8 +1014,8 @@ impl Renderer for TerminalRenderer {
         let layout = self.layout_text(request);
         let layout = self.text_layouts.get_index(layout);
         LogicalSize {
-            width: layout.width as f32 * CELL_WIDTH / self.scale_factor,
-            height: layout.lines.len() as f32 * CELL_HEIGHT / self.scale_factor,
+            width: layout.width as f32 * self.cell_size.width,
+            height: layout.lines.len() as f32 * self.cell_size.height,
         }
     }
 
@@ -998,13 +1027,11 @@ impl Renderer for TerminalRenderer {
         let before = &text[..text.floor_char_boundary(byte_offset.min(text.len()))];
         let line = before.rsplit_once('\n').map_or(before, |(_, line)| line);
         LogicalRect {
-            x: request.area.x
-                + UnicodeWidthStr::width(line) as f32 * CELL_WIDTH / self.scale_factor
+            x: request.area.x + UnicodeWidthStr::width(line) as f32 * self.cell_size.width
                 - request.offset_x,
-            y: request.area.y
-                + before.matches('\n').count() as f32 * CELL_HEIGHT / self.scale_factor,
-            width: CELL_WIDTH / self.scale_factor,
-            height: CELL_HEIGHT / self.scale_factor,
+            y: request.area.y + before.matches('\n').count() as f32 * self.cell_size.height,
+            width: self.cell_size.width,
+            height: self.cell_size.height,
         }
     }
 }
@@ -1196,10 +1223,26 @@ mod tests {
     use blit::{UiState, repaint::FullRepaint};
     use std::time::Duration;
 
+    const CELL_WIDTH: f32 = PIXEL_LIKE.width;
+    const CELL_HEIGHT: f32 = PIXEL_LIKE.height;
+    const SCALE: Scale2 = Scale2 {
+        x: 1.0 / CELL_WIDTH,
+        y: 1.0 / CELL_HEIGHT,
+    };
+
+    fn pixel_renderer(columns: u16, rows: u16) -> TerminalRenderer {
+        TerminalRenderer::new(
+            RendererConfig::new()
+                .columns(columns)
+                .rows(rows)
+                .cell_size(PIXEL_LIKE),
+        )
+    }
+
     #[test]
     fn real_blit_text_reaches_terminal_cells() {
-        let mut renderer = TerminalRenderer::new(20, 4);
-        let mut state = UiState::new(renderer.screen(), 1.0);
+        let mut renderer = pixel_renderer(20, 4);
+        let mut state = UiState::default();
         blit::render(
             &mut renderer,
             &mut state,
@@ -1216,11 +1259,27 @@ mod tests {
     }
 
     #[test]
+    fn default_geometry_uses_cells() {
+        let mut renderer = TerminalRenderer::new(RendererConfig::new().columns(4).rows(3));
+        let mut state = UiState::default();
+        let mut screen = LogicalRect::default();
+        blit::render(
+            &mut renderer,
+            &mut state,
+            &mut FullRepaint,
+            Duration::ZERO,
+            [],
+            |ui| screen = ui.screen(),
+        );
+        assert_eq!(screen, renderer.screen().to_logical(Scale2::IDENTITY));
+    }
+
+    #[test]
     fn absolute_slots_use_terminal_resolution() {
         use blit::{container::Absolute, interact::WidgetId, layout::Flex};
 
-        let mut renderer = TerminalRenderer::new(4, 3);
-        let mut state = UiState::new(renderer.screen(), 1.0);
+        let mut renderer = pixel_renderer(4, 3);
+        let mut state = UiState::default();
         let id = WidgetId::new("absolute resolution");
         blit::render(
             &mut renderer,
@@ -1258,7 +1317,7 @@ mod tests {
     fn text_at_half_cell_offset_reaches_quantized_cell() {
         use blit::{command_list::ClipId, text::TextOptions};
 
-        let mut renderer = TerminalRenderer::new(4, 3);
+        let mut renderer = pixel_renderer(4, 3);
         let text = renderer.text_run("x", TextStyle::default());
         let area = LogicalRect {
             x: CELL_WIDTH / 2.0,
@@ -1277,7 +1336,7 @@ mod tests {
                 style: TextStyle::default(),
                 options: TextOptions::default(),
             },
-            area.to_physical(1.0),
+            area.to_physical(SCALE),
             ClipId::default(),
         );
         renderer.render(&commands, &[renderer.screen()]);
@@ -1289,7 +1348,7 @@ mod tests {
     fn text_alignment_uses_quantized_area() {
         use blit::{command_list::ClipId, text::TextOptions};
 
-        let mut renderer = TerminalRenderer::new(5, 5);
+        let mut renderer = pixel_renderer(5, 5);
         let text = renderer.text_run("x", TextStyle::default());
         let area = LogicalRect {
             x: CELL_WIDTH * 0.4,
@@ -1312,7 +1371,7 @@ mod tests {
                     ..TextOptions::default()
                 },
             },
-            area.to_physical(1.0),
+            area.to_physical(SCALE),
             ClipId::default(),
         );
         renderer.render(&commands, &[renderer.screen()]);
@@ -1324,11 +1383,11 @@ mod tests {
     fn damaged_render_matches_full_render() {
         use blit::command_list::{ClipId, Rectangle};
 
-        let screen = TerminalRenderer::new(8, 4).screen();
+        let screen = pixel_renderer(8, 4).screen();
         let frame = |x: f32| {
             let mut commands = CommandList::default();
             commands.push_clear(screen);
-            let background = screen.to_logical(1.0);
+            let background = screen.to_logical(SCALE);
             commands.push_rectangle(
                 Rectangle::new(background).background(Color::from_rgba8(20, 30, 40, 255)),
                 screen,
@@ -1342,7 +1401,7 @@ mod tests {
             };
             commands.push_rectangle(
                 Rectangle::new(accent).background(Color::from_rgba8(80, 220, 180, 128)),
-                accent.to_physical(1.0),
+                accent.to_physical(SCALE),
                 ClipId::default(),
             );
             commands
@@ -1356,20 +1415,20 @@ mod tests {
                 width: CELL_WIDTH,
                 height: CELL_HEIGHT,
             }
-            .to_physical(1.0),
+            .to_physical(SCALE),
             LogicalRect {
                 x: CELL_WIDTH * 2.0,
                 y: CELL_HEIGHT,
                 width: CELL_WIDTH,
                 height: CELL_HEIGHT,
             }
-            .to_physical(1.0),
+            .to_physical(SCALE),
         ];
 
-        let mut incremental = TerminalRenderer::new(8, 4);
+        let mut incremental = pixel_renderer(8, 4);
         incremental.render(&old, &[screen]);
         incremental.render(&current, &damage);
-        let mut full = TerminalRenderer::new(8, 4);
+        let mut full = pixel_renderer(8, 4);
         full.render(&current, &[screen]);
 
         assert_eq!(incremental.cells, full.cells);
@@ -1379,7 +1438,7 @@ mod tests {
     fn higher_borders_replace_lower_edges() {
         use blit::command_list::{ClipId, Rectangle};
 
-        let mut renderer = TerminalRenderer::new(7, 5);
+        let mut renderer = pixel_renderer(7, 5);
         let mut commands = CommandList::default();
         commands.push_clear(renderer.screen());
         let lower = LogicalRect {
@@ -1390,7 +1449,7 @@ mod tests {
         };
         commands.push_rectangle(
             Rectangle::new(lower).solid_border(1.0, Color::WHITE),
-            lower.to_physical(1.0),
+            lower.to_physical(SCALE),
             ClipId::default(),
         );
         let upper = LogicalRect {
@@ -1403,7 +1462,7 @@ mod tests {
             Rectangle::new(upper)
                 .background(Color::BLACK)
                 .solid_border(1.0, Color::WHITE),
-            upper.to_physical(1.0),
+            upper.to_physical(SCALE),
             ClipId::default(),
         );
         renderer.render(&commands, &[renderer.screen()]);
@@ -1413,7 +1472,7 @@ mod tests {
 
     #[test]
     fn word_wrap_keeps_words_intact() {
-        let mut renderer = TerminalRenderer::new(20, 4);
+        let mut renderer = pixel_renderer(20, 4);
         let text = renderer.text_run("hello world", TextStyle::default());
         let layout = renderer.layout_text(&TextLayoutRequest {
             text,
@@ -1430,7 +1489,7 @@ mod tests {
 
     #[test]
     fn text_runs_and_layouts_are_reused() {
-        let mut renderer = TerminalRenderer::new(20, 4);
+        let mut renderer = pixel_renderer(20, 4);
         let style = TextStyle::default();
         let text = renderer.text_run("cached text", style);
         assert_eq!(renderer.text_run("cached text", style), text);
@@ -1456,9 +1515,9 @@ mod tests {
         };
 
         let background = Color::from_rgba8(80, 120, 160, 255);
-        let mut renderer = TerminalRenderer::new(8, 4);
-        let mut state = UiState::new(renderer.screen(), 1.0);
-        state.set_scale_factor(1.25);
+        let mut renderer = pixel_renderer(8, 4);
+        let mut state = UiState::default();
+        state.set_zoom(1.25);
         blit::render(
             &mut renderer,
             &mut state,
@@ -1498,8 +1557,8 @@ mod tests {
             style::Style,
         };
 
-        let mut renderer = TerminalRenderer::new(4, 3);
-        let mut state = UiState::new(renderer.screen(), 1.0);
+        let mut renderer = pixel_renderer(4, 3);
+        let mut state = UiState::default();
         let id = WidgetId::new("cell border interaction");
         let mut clicked = false;
         {
@@ -1559,7 +1618,7 @@ mod tests {
 
     #[test]
     fn disjoint_interaction_clip_is_empty() {
-        let renderer = TerminalRenderer::new(4, 3);
+        let renderer = pixel_renderer(4, 3);
         assert_eq!(
             renderer.interaction_area(
                 LogicalRect {
@@ -1589,14 +1648,14 @@ mod tests {
             widget::Image,
         };
 
-        let mut renderer = TerminalRenderer::new(8, 4);
+        let mut renderer = pixel_renderer(8, 4);
         let image = renderer.create_image(ImageData::new(
             ImagePixels::Static(&[255, 0, 0, 255]),
             ImageFormat::Rgba8,
             1,
             1,
         ));
-        let mut state = UiState::new(renderer.screen(), 1.0);
+        let mut state = UiState::default();
         blit::render(
             &mut renderer,
             &mut state,

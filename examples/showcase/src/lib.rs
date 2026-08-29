@@ -118,14 +118,14 @@ impl Showcase {
     pub fn render(&mut self, ui: &mut Ui) {
         let scale_factor = match ui.input() {
             Input::Key(key) if key.pressed && key.modifiers.control() => match key.key {
-                Key::Character('+') | Key::Character('=') => Some(ui.scale_factor() + 0.25),
-                Key::Character('-') => Some(ui.scale_factor() - 0.25),
+                Key::Character('+') | Key::Character('=') => Some(ui.zoom() + 0.25),
+                Key::Character('-') => Some(ui.zoom() - 0.25),
                 _ => None,
             },
             _ => None,
         };
         if let Some(scale_factor) = scale_factor {
-            ui.set_scale_factor(scale_factor.clamp(0.5, 4.0));
+            ui.set_zoom(scale_factor.clamp(0.5, 4.0));
         }
 
         let now = ui.time();

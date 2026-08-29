@@ -25,6 +25,27 @@ pub type PhysicalRect = Rect<i32>;
 pub type LogicalSize = Size<f32>;
 pub type PhysicalSize = Size<i32>;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Scale2 {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Scale2 {
+    pub const IDENTITY: Self = Self { x: 1.0, y: 1.0 };
+
+    pub const fn uniform(scale: f32) -> Self {
+        Self { x: scale, y: scale }
+    }
+
+    pub fn zoom(self, zoom: f32) -> Self {
+        Self {
+            x: self.x * zoom,
+            y: self.y * zoom,
+        }
+    }
+}
+
 crate::builder! {
     #[derive(Clone, Copy, Debug, Default, PartialEq)]
     pub struct Sides {
@@ -144,11 +165,11 @@ impl LogicalRect {
         }
     }
 
-    pub fn to_physical(self, scale_factor: f32) -> PhysicalRect {
-        let x = (self.x * scale_factor).floor() as i32;
-        let y = (self.y * scale_factor).floor() as i32;
-        let right = ((self.x + self.width) * scale_factor).ceil() as i32;
-        let bottom = ((self.y + self.height) * scale_factor).ceil() as i32;
+    pub fn to_physical(self, scale: Scale2) -> PhysicalRect {
+        let x = (self.x * scale.x).floor() as i32;
+        let y = (self.y * scale.y).floor() as i32;
+        let right = ((self.x + self.width) * scale.x).ceil() as i32;
+        let bottom = ((self.y + self.height) * scale.y).ceil() as i32;
         PhysicalRect {
             x,
             y,
@@ -159,12 +180,12 @@ impl LogicalRect {
 }
 
 impl PhysicalRect {
-    pub fn to_logical(self, scale_factor: f32) -> LogicalRect {
+    pub fn to_logical(self, scale: Scale2) -> LogicalRect {
         LogicalRect {
-            x: self.x as f32 / scale_factor,
-            y: self.y as f32 / scale_factor,
-            width: self.width as f32 / scale_factor,
-            height: self.height as f32 / scale_factor,
+            x: self.x as f32 / scale.x,
+            y: self.y as f32 / scale.y,
+            width: self.width as f32 / scale.x,
+            height: self.height as f32 / scale.y,
         }
     }
 
