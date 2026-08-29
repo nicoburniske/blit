@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    geometry::{LogicalPoint, PhysicalPoint, PhysicalRect},
+    geometry::{LogicalPoint, LogicalRect},
     input::{Input, PointerButton, ScrollPhase},
 };
 
@@ -155,12 +155,12 @@ enum PointerEvent {
 #[derive(Clone, Copy)]
 struct HitItem {
     id: WidgetId,
-    area: PhysicalRect,
+    area: LogicalRect,
     sense: Sense,
 }
 
 impl InteractionState {
-    pub fn begin_frame(&mut self, input: &Input, scale_factor: f32) {
+    pub fn begin_frame(&mut self, input: &Input) {
         #[cfg(debug_assertions)]
         self.seen.clear();
         self.requests.clear();
@@ -238,7 +238,7 @@ impl InteractionState {
             _ => {}
         }
 
-        let position = self.physical_position(scale_factor);
+        let position = self.pointer.position;
         let hovered = position.and_then(|position| Self::hit(&self.previous_hits, position));
         self.hovered = hovered.map(|item| item.id);
         self.scroll_owner = position.and_then(|position| {
@@ -305,7 +305,7 @@ impl InteractionState {
 
     pub fn register_hits(
         &mut self,
-        hits: impl IntoIterator<Item = (WidgetId, Option<PhysicalRect>)>,
+        hits: impl IntoIterator<Item = (WidgetId, Option<LogicalRect>)>,
     ) {
         self.requests.sort_unstable_by_key(|request| request.0);
         for (id, area) in hits {
@@ -339,7 +339,7 @@ impl InteractionState {
         self.pointer.position
     }
 
-    pub fn end_frame(&mut self, scale_factor: f32) -> bool {
+    pub fn end_frame(&mut self) -> bool {
         if self
             .active
             .is_some_and(|id| !self.current_hits.iter().any(|item| item.id == id))
@@ -365,19 +365,13 @@ impl InteractionState {
         self.current_hits.clear();
 
         let next_hovered = self
-            .physical_position(scale_factor)
+            .pointer
+            .position
             .and_then(|position| Self::hit(&self.previous_hits, position));
         next_hovered.map(|item| item.id) != self.hovered
     }
 
-    fn physical_position(&self, scale_factor: f32) -> Option<PhysicalPoint> {
-        self.pointer.position.map(|position| PhysicalPoint {
-            x: (position.x * scale_factor).floor() as i32,
-            y: (position.y * scale_factor).floor() as i32,
-        })
-    }
-
-    fn hit(hits: &[HitItem], position: PhysicalPoint) -> Option<HitItem> {
+    fn hit(hits: &[HitItem], position: LogicalPoint) -> Option<HitItem> {
         hits.iter()
             .rev()
             .find(|item| item.area.contains(position.x, position.y))

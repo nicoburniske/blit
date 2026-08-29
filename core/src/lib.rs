@@ -444,7 +444,7 @@ fn record<P: Renderer>(
     for timer in &mut state.timers {
         timer.seen = false;
     }
-    state.interaction.begin_frame(&input, scale_factor);
+    state.interaction.begin_frame(&input);
 
     {
         let renderer = NonNull::from(&mut *renderer as &mut (dyn Renderer + '_));
@@ -472,7 +472,7 @@ fn record<P: Renderer>(
         scale_factor,
     );
     state.frame = frame;
-    if state.interaction.end_frame(scale_factor) {
+    if state.interaction.end_frame() {
         state.frame_requested = true;
     }
     state.geometry.end_frame();
