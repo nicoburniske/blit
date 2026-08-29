@@ -6,7 +6,7 @@ use std::{
 use blit::{
     color::Color,
     command_list::{ClipId, CommandList, Rectangle},
-    geometry::{LogicalRect, PhysicalRect},
+    geometry::{LogicalRect, PhysicalRect, Scale2},
     renderer::Renderer as _,
     text::FontId,
 };
@@ -30,7 +30,7 @@ fn main() {
         };
         commands.push_rectangle(
             Rectangle::new(area).background(Color::BLACK),
-            area.to_physical(1.0),
+            area.to_physical(Scale2::IDENTITY),
             ClipId::default(),
         );
     }

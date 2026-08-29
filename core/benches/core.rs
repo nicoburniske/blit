@@ -4,7 +4,7 @@ use blit::{
     Ui, UiState,
     color::Color,
     command_list::{ClipId, CommandList, Rectangle},
-    geometry::{LogicalRect, PhysicalRect},
+    geometry::{LogicalRect, PhysicalRect, Scale2},
     input::Input,
     render,
     repaint::{DamageTracker, IncrementalRepaint, MyersTracker},
@@ -33,7 +33,7 @@ fn layout(bencher: divan::Bencher) {
 #[divan::bench]
 fn layout_with_position_transition(bencher: divan::Bencher) {
     let mut renderer = NoopRenderer;
-    let mut state = benchmark_state();
+    let mut state = UiState::default();
     let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
     let mut time = Duration::ZERO;
     let mut right = false;
@@ -104,7 +104,7 @@ enum DiffCase {
 
 fn benchmark_frame(bencher: divan::Bencher, frame: fn(&mut Ui)) {
     let mut renderer = NoopRenderer;
-    let mut state = benchmark_state();
+    let mut state = UiState::default();
     let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
     render(
         &mut renderer,
@@ -132,18 +132,6 @@ fn benchmark_frame(bencher: divan::Bencher, frame: fn(&mut Ui)) {
             frame,
         )
     });
-}
-
-fn benchmark_state() -> UiState {
-    UiState::new(
-        PhysicalRect {
-            x: 0,
-            y: 0,
-            width: 1280,
-            height: 8192,
-        },
-        1.0,
-    )
 }
 
 fn command_list(case: DiffCase, new: bool) -> CommandList {
@@ -176,7 +164,7 @@ fn command_list(case: DiffCase, new: bool) -> CommandList {
             };
         commands.push_rectangle(
             Rectangle::new(area).background(if changed { Color::WHITE } else { Color::BLACK }),
-            area.to_physical(1.0),
+            area.to_physical(Scale2::IDENTITY),
             ClipId::default(),
         );
     }

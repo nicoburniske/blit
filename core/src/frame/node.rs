@@ -21,10 +21,10 @@ impl Node {
     pub fn visible_bounds(
         &self,
         area: LogicalRect,
-        scale_factor: f32,
+        scale: Scale2,
     ) -> Option<crate::geometry::PhysicalRect> {
         area.intersection(self.clip_bounds)
-            .map(|area| area.to_physical(scale_factor))
+            .map(|area| area.to_physical(scale))
     }
 
     pub fn sizing(&self, axis: Axis) -> Sizing {

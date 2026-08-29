@@ -6,7 +6,7 @@ use crate::{
     color::Color,
     command_list::{ClipId, Command, CommandList},
     container::{Absolute, Anchor, Sizing, Slot},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Sides},
+    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2, Sides},
     image,
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
     interact::{Sense, WidgetId},
@@ -14,7 +14,7 @@ use crate::{
         Align, Axis, Constraints, Flex, Grid, Justify, Layout, LayoutCx, RawScope, RectLayout,
         UnitScope, Wrap,
     },
-    renderer::Renderer,
+    renderer::{RenderGeometry, Renderer},
     repaint::{IncrementalRepaint, MyersTracker},
     style::{Clip, GradientStop, LinearGradient, Style},
     text,
@@ -37,8 +37,21 @@ struct TestRenderer {
 }
 
 impl Renderer for TestRenderer {
-    fn set_scale_factor(&mut self, scale_factor: f32) {
-        self.scale_factors.push(scale_factor);
+    fn geometry(&self) -> RenderGeometry {
+        RenderGeometry {
+            physical_bounds: PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 10,
+                height: 10,
+            },
+            physical_per_logical: Scale2::IDENTITY,
+            layout_resolution: crate::layout::LayoutResolution::Continuous,
+        }
+    }
+
+    fn set_scale(&mut self, scale: Scale2) {
+        self.scale_factors.push(scale.x);
     }
 
     fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
@@ -121,15 +134,7 @@ struct Harness {
 
 impl Harness {
     fn new(renderer: TestRenderer) -> Self {
-        let state = UiState::new(
-            PhysicalRect {
-                x: 0,
-                y: 0,
-                width: 10,
-                height: 10,
-            },
-            1.0,
-        );
+        let state = UiState::default();
         Self {
             renderer,
             state,
@@ -172,14 +177,14 @@ impl Harness {
 fn renderer_scale_changes_before_the_next_frame() {
     let mut harness = Harness::new(TestRenderer::default());
     harness.render(Duration::ZERO, Input::None, |ui| {
-        assert_eq!(ui.scale_factor(), 1.0);
-        ui.set_scale_factor(2.0);
-        assert_eq!(ui.scale_factor(), 1.0);
+        assert_eq!(ui.zoom(), 1.0);
+        ui.set_zoom(2.0);
+        assert_eq!(ui.zoom(), 1.0);
     });
     assert_eq!(harness.renderer().scale_factors, [1.0]);
 
     harness.render(Duration::ZERO, Input::None, |ui| {
-        assert_eq!(ui.scale_factor(), 2.0);
+        assert_eq!(ui.zoom(), 2.0);
     });
     assert_eq!(harness.renderer().scale_factors, [1.0, 2.0]);
 
@@ -1764,7 +1769,7 @@ fn logical_rect_rounds_outward_to_physical_pixels() {
             width: 3.1,
             height: 4.1,
         }
-        .to_physical(1.0),
+        .to_physical(Scale2::IDENTITY),
         PhysicalRect {
             x: 1,
             y: 2,

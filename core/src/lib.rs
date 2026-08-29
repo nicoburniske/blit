@@ -24,12 +24,13 @@ use std::{ptr::NonNull, time::Duration};
 use animation::Easing;
 use command_list::CommandList;
 use container::{Container, ContainerConfig, LayerId, Slot};
-use geometry::{LogicalPoint, LogicalRect, PhysicalRect};
+use geometry::{LogicalPoint, LogicalRect, Scale2};
 use image::{ImageData, ImageHandle};
 use input::Input;
 use interact::{Interaction, Sense, WidgetId};
+use layout::LayoutResolution;
 use node::{Content, NodeId};
-use renderer::Renderer;
+use renderer::{RenderGeometry, Renderer};
 use repaint::Repaint;
 use style::Style;
 use text::{TextRunId, TextStyle};
@@ -39,7 +40,7 @@ pub struct Ui {
     renderer: NonNull<dyn Renderer>,
     time: Duration,
     input: Input,
-    scale_factor: f32,
+    zoom: f32,
 }
 
 impl Ui {
@@ -89,13 +90,13 @@ impl Ui {
         self.time
     }
 
-    pub fn scale_factor(&self) -> f32 {
-        self.scale_factor
+    pub fn zoom(&self) -> f32 {
+        self.zoom
     }
 
-    /// changes the scale factor on the next frame
-    pub fn set_scale_factor(&mut self, scale_factor: f32) {
-        self.state_mut().set_scale_factor(scale_factor)
+    /// changes zoom on the next frame
+    pub fn set_zoom(&mut self, zoom: f32) {
+        self.state_mut().set_zoom(zoom)
     }
 
     /// animates a value toward `target`, keyed by `id`
@@ -296,15 +297,13 @@ pub struct UiState {
     frame_requested: bool,
     full_repaint: bool,
     screen: LogicalRect,
-    physical_screen: PhysicalRect,
-    scale_factor: f32,
-    scale_factor_changed: bool,
-    layout_resolution: layout::LayoutResolution,
+    render_geometry: Option<RenderGeometry>,
+    zoom: f32,
+    layout_resolution: LayoutResolution,
 }
 
-impl UiState {
-    pub fn new(physical_screen: PhysicalRect, scale_factor: f32) -> Self {
-        assert!(scale_factor.is_finite() && scale_factor > 0.0);
+impl Default for UiState {
+    fn default() -> Self {
         Self {
             frame: frame::FrameGraph::default(),
             commands: CommandList::default(),
@@ -315,14 +314,15 @@ impl UiState {
             timers: Vec::new(),
             frame_requested: true,
             full_repaint: true,
-            screen: physical_screen.to_logical(scale_factor),
-            physical_screen,
-            scale_factor,
-            scale_factor_changed: true,
-            layout_resolution: layout::LayoutResolution::Continuous,
+            screen: LogicalRect::default(),
+            render_geometry: None,
+            zoom: 1.0,
+            layout_resolution: LayoutResolution::Continuous,
         }
     }
+}
 
+impl UiState {
     pub fn has_pending_redraw(&self) -> bool {
         self.frame_requested
             || self
@@ -346,23 +346,15 @@ impl UiState {
         self.frame_requested = true;
     }
 
-    pub fn scale_factor(&self) -> f32 {
-        self.scale_factor
+    pub fn zoom(&self) -> f32 {
+        self.zoom
     }
 
-    pub fn set_screen(&mut self, physical_screen: PhysicalRect) {
-        if self.physical_screen != physical_screen {
-            self.physical_screen = physical_screen;
-            self.screen = physical_screen.to_logical(self.scale_factor);
-            self.invalidate_all();
-        }
-    }
-
-    pub fn set_scale_factor(&mut self, scale_factor: f32) {
-        assert!(scale_factor.is_finite() && scale_factor > 0.0);
-        if self.scale_factor != scale_factor {
-            self.scale_factor = scale_factor;
-            self.scale_factor_changed = true;
+    pub fn set_zoom(&mut self, zoom: f32) {
+        assert!(zoom.is_finite() && zoom > 0.0);
+        if self.zoom != zoom {
+            self.zoom = zoom;
+            self.render_geometry = None;
             self.frame_requested = true;
         }
     }
@@ -395,40 +387,47 @@ pub fn render<P: Renderer, R: Repaint>(
     inputs: impl IntoIterator<Item = Input>,
     mut render: impl FnMut(&mut Ui),
 ) {
-    let scale_factor = state.scale_factor;
-    if std::mem::take(&mut state.scale_factor_changed) {
-        renderer.set_scale_factor(scale_factor);
-        state.layout_resolution = renderer.layout_resolution();
-        state.screen = state.physical_screen.to_logical(scale_factor);
+    let geometry = renderer.geometry();
+    let scale = geometry.physical_per_logical.zoom(state.zoom);
+    if state.render_geometry != Some(geometry) {
+        assert!(scale.x.is_finite() && scale.x > 0.0);
+        assert!(scale.y.is_finite() && scale.y > 0.0);
+        renderer.set_scale(scale);
+        state.render_geometry = Some(geometry);
+        state.layout_resolution = geometry.layout_resolution;
+        if let LayoutResolution::Discrete { step } = &mut state.layout_resolution {
+            step.width /= state.zoom;
+            step.height /= state.zoom;
+        }
+        state.screen = geometry.physical_bounds.to_logical(scale);
         state.full_repaint = true;
     }
-
     // record every input against the state produced by the previous one
     let mut inputs = inputs.into_iter();
     state.frame_requested = false;
     record(
         renderer,
         state,
-        scale_factor,
+        scale,
         time,
         inputs.next().unwrap_or_default(),
         &mut render,
     );
     for input in inputs {
-        record(renderer, state, scale_factor, time, input, &mut render);
+        record(renderer, state, scale, time, input, &mut render);
     }
 
     // repaint only the final recorded frame
     if std::mem::take(&mut state.full_repaint) {
         repaint.invalidate();
     }
-    repaint.render(renderer, &mut state.commands, state.physical_screen);
+    repaint.render(renderer, &mut state.commands, geometry.physical_bounds);
 }
 
 fn record<P: Renderer>(
     renderer: &mut P,
     state: &mut UiState,
-    scale_factor: f32,
+    scale: Scale2,
     time: Duration,
     input: Input,
     render: impl FnOnce(&mut Ui),
@@ -456,7 +455,7 @@ fn record<P: Renderer>(
             renderer,
             time,
             input,
-            scale_factor,
+            zoom: state.zoom,
         };
         render(&mut ui);
     }
@@ -470,7 +469,7 @@ fn record<P: Renderer>(
         &mut state.geometry,
         &mut state.transitions,
         time,
-        scale_factor,
+        scale,
     );
     state.frame = frame;
     if state.interaction.end_frame() {

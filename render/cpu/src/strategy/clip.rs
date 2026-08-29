@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use blit::{
-    geometry::{LogicalRect, PhysicalRect},
+    geometry::{LogicalRect, PhysicalRect, Scale2},
     style::BorderRadius,
 };
 
@@ -81,7 +81,7 @@ impl ClipStack {
             parent as usize <= self.nodes.len(),
             "invalid rounded clip parent"
         );
-        let area = area.to_physical(scale_factor);
+        let area = area.to_physical(Scale2::uniform(scale_factor));
         let id = u32::try_from(self.nodes.len() + 1).expect("too many rounded clips in one frame");
         self.nodes.push(ClipNode {
             parent,

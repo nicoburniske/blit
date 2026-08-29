@@ -7,8 +7,9 @@ mod text;
 
 use blit::{
     command_list::{BoxShadow, Command, CommandList as ResolvedCommandList, Rectangle},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
+    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2},
     image::{ImageData, ImageHandle, ImageId, ImageRequest},
+    renderer::RenderGeometry,
     style::Border,
     text::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
@@ -47,6 +48,7 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
         Self {
             context: RenderContext {
                 buffer,
+                device_scale: 1.0,
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
                 shadows: shadow::Cache::new(config.shadow_cache_capacity),
@@ -67,6 +69,11 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
+    pub fn set_device_scale(&mut self, scale: f32) {
+        assert!(scale.is_finite() && scale > 0.0);
+        self.context.device_scale = scale;
+    }
+
     pub fn screen(&self) -> PhysicalRect {
         PhysicalRect {
             x: 0,
@@ -163,7 +170,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         bounds: PhysicalRect,
         clip: u32,
     ) -> Option<PhysicalRect> {
-        let area = request.area.to_physical(self.context.scale_factor);
+        let area = request
+            .area
+            .to_physical(Scale2::uniform(self.context.scale_factor));
         let visible_area = area.intersection(bounds)?;
         let (glyph_start, glyph_end, lines, paragraph_bounds) = self
             .context
@@ -196,6 +205,7 @@ new_key_type! {
 #[doc(hidden)]
 pub struct RenderContext<B: PixelBuffer> {
     buffer: B,
+    device_scale: f32,
     scale_factor: f32,
     images: SlotMap<RendererImageId, StoredImage>,
     shadows: shadow::Cache,
@@ -335,9 +345,20 @@ impl<B: PixelBuffer> RenderContext<B> {
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>> blit::renderer::Renderer for Renderer<B, S> {
-    fn set_scale_factor(&mut self, scale_factor: f32) {
-        assert!(scale_factor.is_finite() && scale_factor > 0.0);
-        self.context.scale_factor = scale_factor;
+    fn geometry(&self) -> RenderGeometry {
+        RenderGeometry {
+            physical_bounds: self.screen(),
+            physical_per_logical: Scale2 {
+                x: self.context.device_scale,
+                y: self.context.device_scale,
+            },
+            layout_resolution: blit::layout::LayoutResolution::Continuous,
+        }
+    }
+
+    fn set_scale(&mut self, scale: Scale2) {
+        assert_eq!(scale.x, scale.y, "CPU rendering requires uniform scale");
+        self.context.scale_factor = scale.x;
     }
 
     fn render(&mut self, commands: &ResolvedCommandList, damage: &[PhysicalRect]) {

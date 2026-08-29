@@ -10,7 +10,7 @@ use std::{
 
 use blit::{
     color::Color,
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
+    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2},
     text::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit_cache::{DeferredCache, Scale};
@@ -152,7 +152,7 @@ impl TextRenderer {
         request: &TextRequest,
         scale_factor: f32,
     ) -> (u32, u32, PreparedLines, PhysicalRect) {
-        let area = request.area.to_physical(scale_factor);
+        let area = request.area.to_physical(Scale2::uniform(scale_factor));
         let Some(index) = (request.text.0 as u32)
             .checked_sub(1)
             .map(|index| index as usize)

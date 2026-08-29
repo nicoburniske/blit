@@ -1,8 +1,11 @@
 use std::mem::size_of;
 
-use blit::text::{
-    HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextRunId, TextWrap,
-    VerticalAlign,
+use blit::{
+    geometry::Scale2,
+    text::{
+        HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextRunId, TextWrap,
+        VerticalAlign,
+    },
 };
 use blit_cache::{DeferredCache, Scale};
 use blit_font::{GlyphRasterConfig, Layout, LayoutSettings, LinePosition, TextRun};
@@ -233,7 +236,7 @@ struct PaintKey {
 
 impl PaintKey {
     fn new(request: &TextRequest, scale_factor: f32) -> Self {
-        let area = request.area.to_physical(scale_factor);
+        let area = request.area.to_physical(Scale2::uniform(scale_factor));
         Self {
             layout: LayoutKey::paint(request, scale_factor),
             width: area.width,
@@ -275,7 +278,7 @@ pub fn resolve(
         lines.clear();
     }
     carets.clear();
-    let area = request.area.to_physical(scale_factor);
+    let area = request.area.to_physical(Scale2::uniform(scale_factor));
     let mut visible_lines = paragraph
         .lines
         .len()

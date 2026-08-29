@@ -1,6 +1,6 @@
 use blit::{
     command_list::{BoxShadow, Rectangle},
-    geometry::{LogicalRect, PhysicalRect},
+    geometry::{LogicalRect, PhysicalRect, Scale2},
     image::{
         ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageRequest, ImageSampling,
         ImageTiling, NineSlice,
@@ -68,7 +68,7 @@ impl Cache {
             return None;
         }
         let (key, bounds) = if shadow.inset {
-            let shape = shadow.area.to_physical(scale_factor);
+            let shape = shadow.area.to_physical(Scale2::uniform(scale_factor));
             if shape.width <= 0 || shape.height <= 0 {
                 return None;
             }
@@ -106,7 +106,7 @@ impl Cache {
                     Rectangle::new(area).background(shadow.color).radius(radius),
                 ));
             }
-            let shape = area.to_physical(scale_factor);
+            let shape = area.to_physical(Scale2::uniform(scale_factor));
             if shape.width <= 0 || shape.height <= 0 {
                 return None;
             }
@@ -266,7 +266,7 @@ impl Cache {
         };
         Some(Prepared::Image(ImageRequest {
             image,
-            area: bounds.to_logical(1.0),
+            area: bounds.to_logical(Scale2::IDENTITY),
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,

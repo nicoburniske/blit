@@ -6,11 +6,11 @@ use blit::{
     color::Color,
     command_list::CommandList,
     container::{Absolute, Anchor, Sizing, Slot},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect},
+    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2},
     image::{ImageData, ImageHandle, ImageId},
     interact::{Sense, WidgetId},
     layout::{Flex, Grid, RectLayout, UnitScope, Wrap},
-    renderer::Renderer,
+    renderer::{RenderGeometry, Renderer},
     style::Style,
     text::{self, TextLayoutRequest, TextRunId, TextStyle},
     widget::Rectangle,
@@ -23,7 +23,20 @@ pub const ITEMS: usize = ROWS * CELLS_PER_ROW;
 pub struct NoopRenderer;
 
 impl Renderer for NoopRenderer {
-    fn set_scale_factor(&mut self, _: f32) {}
+    fn geometry(&self) -> RenderGeometry {
+        RenderGeometry {
+            physical_bounds: PhysicalRect {
+                x: 0,
+                y: 0,
+                width: 1280,
+                height: 8192,
+            },
+            physical_per_logical: Scale2::IDENTITY,
+            layout_resolution: blit::layout::LayoutResolution::Continuous,
+        }
+    }
+
+    fn set_scale(&mut self, _: Scale2) {}
 
     fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
         black_box((commands.len(), damage.len()));

@@ -6,7 +6,7 @@ use blit::{
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     container::{Sizing, Slot},
-    geometry::{LogicalPoint, LogicalRect, PhysicalRect},
+    geometry::{LogicalPoint, LogicalRect, PhysicalRect, Scale2},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
@@ -21,6 +21,8 @@ use blit::{
 };
 
 use super::*;
+
+const SCALE: Scale2 = Scale2::IDENTITY;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
@@ -59,7 +61,7 @@ struct Harness<B: PixelBuffer, S: RenderStrategy<B>> {
 
 impl<B: PixelBuffer + 'static, S: RenderStrategy<B> + 'static> Harness<B, S> {
     fn new(renderer: Renderer<B, S>, swapped: bool) -> Self {
-        let state = UiState::new(renderer.screen(), 1.0);
+        let state = UiState::default();
         Self {
             renderer,
             state,
@@ -369,7 +371,7 @@ fn resolved_nodes_match_direct_commands() {
         .blur(1.0);
     commands.push_box_shadow(
         box_shadow,
-        box_shadow.bounds().to_physical(1.0),
+        box_shadow.bounds().to_physical(SCALE),
         ClipId::default(),
     );
     commands.push_rectangle(
@@ -377,7 +379,7 @@ fn resolved_nodes_match_direct_commands() {
             .background(Color::from_rgba8(40, 70, 100, 255))
             .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
             .radius(radius),
-        screen.to_physical(1.0),
+        screen.to_physical(SCALE),
         ClipId::default(),
     );
     let inset_shadow = BoxShadow::new(screen, inset_shadow.color)
@@ -387,7 +389,7 @@ fn resolved_nodes_match_direct_commands() {
         .inset(true);
     commands.push_box_shadow(
         inset_shadow,
-        inset_shadow.bounds().to_physical(1.0),
+        inset_shadow.bounds().to_physical(SCALE),
         ClipId::default(),
     );
     let clip = commands.push_clip(ClipId::default(), screen, radius);
@@ -408,7 +410,7 @@ fn resolved_nodes_match_direct_commands() {
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
         },
-        image_area.to_physical(1.0),
+        image_area.to_physical(SCALE),
         clip,
     );
     let text_area = LogicalRect {
@@ -427,10 +429,10 @@ fn resolved_nodes_match_direct_commands() {
             style: TextStyle::default(),
             options: TextOptions::default(),
         },
-        text_area.to_physical(1.0),
+        text_area.to_physical(SCALE),
         clip,
     );
-    direct.render(&commands, &[screen.to_physical(1.0)]);
+    direct.render(&commands, &[screen.to_physical(SCALE)]);
 
     assert_eq!(
         harness.renderer().buffer().pixels(),
@@ -621,16 +623,16 @@ fn commands_outside_damage_are_not_prepared() {
             style: TextStyle::default(),
             options: TextOptions::default(),
         },
-        outside.to_physical(1.0),
+        outside.to_physical(SCALE),
         ClipId::default(),
     );
     paint.push_rectangle(
         Rectangle::new(damaged).background(Color::WHITE),
-        damaged.to_physical(1.0),
+        damaged.to_physical(SCALE),
         ClipId::default(),
     );
 
-    renderer.render(&paint, &[damaged.to_physical(1.0)]);
+    renderer.render(&paint, &[damaged.to_physical(SCALE)]);
 
     assert_eq!(
         renderer.buffer().pixels(),
@@ -801,7 +803,7 @@ fn image_alpha_rows_are_cached_and_used() {
     let screen = renderer.screen();
     let request = ImageRequest {
         image: image.id(),
-        area: screen.to_logical(1.0),
+        area: screen.to_logical(SCALE),
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
         opacity: 1.0,
@@ -908,7 +910,7 @@ fn direct_preserves_exact_overlapping_damage() {
     let screen = renderer.screen();
     let mut paint = CommandList::default();
     paint.push_rectangle(
-        Rectangle::new(screen.to_logical(1.0)).background(Color::from_rgba8(255, 0, 0, 128)),
+        Rectangle::new(screen.to_logical(SCALE)).background(Color::from_rgba8(255, 0, 0, 128)),
         screen,
         ClipId::default(),
     );
@@ -955,7 +957,7 @@ fn direct_does_not_merge_touching_damage() {
     let screen = renderer.screen();
     let mut paint = CommandList::default();
     paint.push_rectangle(
-        Rectangle::new(screen.to_logical(1.0)).background(Color::WHITE),
+        Rectangle::new(screen.to_logical(SCALE)).background(Color::WHITE),
         screen,
         ClipId::default(),
     );
@@ -995,7 +997,7 @@ fn direct_preserves_damage_beyond_stack_capacity() {
     });
     let mut paint = CommandList::default();
     paint.push_rectangle(
-        Rectangle::new(screen.to_logical(1.0)).background(Color::WHITE),
+        Rectangle::new(screen.to_logical(SCALE)).background(Color::WHITE),
         screen,
         ClipId::default(),
     );
@@ -1380,7 +1382,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     ));
     let underlay = ImageRequest {
         image: underlay.id(),
-        area: screen.to_logical(1.0),
+        area: screen.to_logical(SCALE),
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
         opacity: 1.0,
@@ -1391,7 +1393,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     };
     let partial_image = ImageRequest {
         image: partial_image.id(),
-        area: screen.to_logical(1.0),
+        area: screen.to_logical(SCALE),
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
         opacity: 1.0,
@@ -1401,9 +1403,9 @@ fn scanline_skips_commands_behind_opaque_content() {
         vertical_tiling: ImageTiling::None,
     };
     let background =
-        Rectangle::new(screen.to_logical(1.0)).background(Color::from_rgba8(255, 0, 0, 128));
+        Rectangle::new(screen.to_logical(SCALE)).background(Color::from_rgba8(255, 0, 0, 128));
     let overlay =
-        Rectangle::new(screen.to_logical(1.0)).background(Color::from_rgba8(0, 0, 255, 128));
+        Rectangle::new(screen.to_logical(SCALE)).background(Color::from_rgba8(0, 0, 255, 128));
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
     paint.clear();
     paint.push_rectangle(background, screen, ClipId::default());
@@ -1524,7 +1526,7 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
     ) -> Renderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(128, 96), renderer_config())
             .strategy(strategy);
-        renderer.set_scale_factor(2.0);
+        renderer.set_scale(Scale2::uniform(2.0));
         let screen = renderer.screen();
         let first = BoxShadow::new(
             LogicalRect {
