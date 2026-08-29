@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::interact::WidgetId;
+use crate::{Ui, interact::WidgetId};
 
 pub struct TimerState {
     pub id: WidgetId,
@@ -11,6 +11,24 @@ pub struct TimerState {
 }
 
 impl TimerState {
+    pub fn update(
+        ui: &mut Ui,
+        id: WidgetId,
+        duration: Duration,
+        interval: Option<Duration>,
+    ) -> bool {
+        let time = ui.time;
+        let timers = &mut ui.state_mut().timers;
+        let timer = if let Some(timer) = timers.iter_mut().find(|timer| timer.id == id) {
+            timer
+        } else {
+            timers.push(Self::new(id, duration, interval, time));
+            timers.last_mut().unwrap()
+        };
+        assert!(!timer.seen, "duplicate timer WidgetId {id:?}");
+        timer.advance(duration, interval, time)
+    }
+
     pub fn new(
         id: WidgetId,
         duration: Duration,

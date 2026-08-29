@@ -1,17 +1,26 @@
 use std::time::Duration;
 
-use super::SizedWidget;
 use crate::{
     Ui,
-    geometry::{LogicalInsets, LogicalRect, PhysicalRect},
+    container::{LayerId, Sizing, Slot},
+    geometry::{LogicalPoint, Sides},
     input::ScrollPhase,
     interact::{Sense, WidgetId},
+    layout::Flex,
+    node::NodeId,
+    style::Clip,
 };
 
-const WHEEL_FRICTION: f32 = 64.0;
-const MIN_SCROLL_VELOCITY: f32 = 5.0;
-const MAX_SCROLL_VELOCITY: f32 = 12_000.0;
-const MAX_FRAME_TIME: f32 = 0.05;
+pub struct ScrollArea<'a> {
+    state: &'a mut ScrollState,
+    slot: Slot,
+    gap: f32,
+    padding: Sides,
+    scroll_speed: f32,
+    inertia_friction: f32,
+    drag_to_scroll: bool,
+    id: WidgetId,
+}
 
 #[derive(Debug)]
 pub struct ScrollState {
@@ -22,6 +31,7 @@ pub struct ScrollState {
     tracking: bool,
     continuous_inertia: bool,
     last_frame: Option<Duration>,
+    viewport_height: f32,
 }
 
 impl Default for ScrollState {
@@ -34,23 +44,24 @@ impl Default for ScrollState {
             tracking: false,
             continuous_inertia: false,
             last_frame: None,
+            viewport_height: 0.0,
         }
     }
 }
 
 impl ScrollState {
-    pub fn maximum_offset(&self, viewport_height: f32) -> f32 {
-        (self.content_height - viewport_height).max(0.0)
+    pub fn maximum_offset(&self) -> f32 {
+        (self.content_height - self.viewport_height).max(0.0)
     }
 
-    pub fn scroll_by(&mut self, pixels: f32, viewport_height: f32) {
-        self.offset = (self.offset + pixels).clamp(0.0, self.maximum_offset(viewport_height));
+    pub fn scroll_by(&mut self, pixels: f32) {
+        self.offset = (self.offset + pixels).clamp(0.0, self.maximum_offset());
         self.velocity = 0.0;
         self.tracking = false;
     }
 
-    pub fn scroll_to(&mut self, offset: f32, viewport_height: f32) {
-        self.offset = offset.clamp(0.0, self.maximum_offset(viewport_height));
+    pub fn scroll_to(&mut self, offset: f32) {
+        self.offset = offset.clamp(0.0, self.maximum_offset());
         self.velocity = 0.0;
         self.tracking = false;
     }
@@ -60,14 +71,10 @@ impl ScrollState {
     }
 }
 
-pub struct ScrollArea<'a> {
-    state: &'a mut ScrollState,
-    spacing: f32,
-    padding: LogicalInsets,
-    scroll_speed: f32,
-    inertia_friction: f32,
-    drag_to_scroll: bool,
-    id: WidgetId,
+pub struct ScrollScope<'a> {
+    ui: &'a mut Ui,
+    viewport: NodeId,
+    content: NodeId,
 }
 
 impl<'a> ScrollArea<'a> {
@@ -75,8 +82,9 @@ impl<'a> ScrollArea<'a> {
         let id = state.id;
         Self {
             state,
-            spacing: 0.0,
-            padding: LogicalInsets::default(),
+            slot: Slot::new().grow(),
+            gap: 0.0,
+            padding: Sides::default(),
             scroll_speed: 1.0,
             inertia_friction: 6.0,
             drag_to_scroll: true,
@@ -84,12 +92,17 @@ impl<'a> ScrollArea<'a> {
         }
     }
 
-    pub fn spacing(mut self, spacing: f32) -> Self {
-        self.spacing = spacing.max(0.0);
+    pub fn slot(mut self, slot: Slot) -> Self {
+        self.slot = slot;
         self
     }
 
-    pub fn padding(mut self, padding: LogicalInsets) -> Self {
+    pub fn gap(mut self, gap: f32) -> Self {
+        self.gap = gap.max(0.0);
+        self
+    }
+
+    pub fn padding(mut self, padding: Sides) -> Self {
         self.padding = padding;
         self
     }
@@ -114,28 +127,25 @@ impl<'a> ScrollArea<'a> {
         self
     }
 
-    pub fn begin<'ui>(self, ui: &'ui mut Ui, viewport: LogicalRect) -> Area<'ui>
-    where
-        'a: 'ui,
-    {
-        self.begin_with_padding(ui, viewport, |_, padding| padding)
-    }
+    pub fn begin(self, ui: &'a mut Ui) -> ScrollScope<'a> {
+        let id = WidgetId::new(("scroll area", self.id));
+        let content_id = id.child("content");
+        self.state.viewport_height = ui.geometry(id).map_or(0.0, |area| area.height);
+        if let Some(area) = ui.geometry(content_id) {
+            self.state.content_height = area.height;
+        }
 
-    pub fn begin_with_padding<'ui>(
-        self,
-        ui: &'ui mut Ui,
-        viewport: LogicalRect,
-        padding: impl FnOnce(f32, LogicalInsets) -> LogicalInsets,
-    ) -> Area<'ui>
-    where
-        'a: 'ui,
-    {
         let sense = if self.drag_to_scroll {
             Sense::SCROLL_AND_DRAG
         } else {
             Sense::SCROLL
         };
-        let interaction = ui.interact(ui.id(("scroll area", self.id)), viewport, sense);
+        let viewport_config = crate::ContainerConfig::new()
+            .slot(self.slot)
+            .id(id)
+            .clip(Clip::Bounds);
+        let interaction = ui.interact(id, sense);
+        let viewport = ui.open_layout(Flex::column().overflow(true), viewport_config);
         let now = ui.time();
         let elapsed = self.state.last_frame.replace(now).map_or(0.0, |previous| {
             now.saturating_sub(previous)
@@ -154,12 +164,12 @@ impl<'a> ScrollArea<'a> {
             }
             self.state.tracking = true;
             self.state.continuous_inertia = true;
-        } else if interaction.drag_released {
+        } else if interaction.deactivated {
             self.state.tracking = false;
             released = true;
-        } else if let Some(phase) = interaction.scroll_phase {
-            if interaction.scroll_continuous {
-                match phase {
+        } else if let Some(scroll) = interaction.scroll {
+            if scroll.continuous {
+                match scroll.phase {
                     ScrollPhase::Started => {
                         self.state.velocity = 0.0;
                         self.state.tracking = true;
@@ -173,17 +183,16 @@ impl<'a> ScrollArea<'a> {
                         released = true;
                     }
                 }
-                direct_delta = interaction.scroll_delta.y * self.scroll_speed;
+                direct_delta = scroll.delta.y * self.scroll_speed;
                 self.state.continuous_inertia = true;
-            } else if interaction.scroll_delta.y != 0.0 {
+            } else if scroll.delta.y != 0.0 {
                 self.state.tracking = false;
                 self.state.continuous_inertia = false;
-                self.state.velocity +=
-                    interaction.scroll_delta.y * WHEEL_FRICTION * self.scroll_speed;
+                self.state.velocity += scroll.delta.y * WHEEL_FRICTION * self.scroll_speed;
             }
         }
 
-        let maximum = self.state.maximum_offset(viewport.height);
+        let maximum = self.state.maximum_offset();
         if direct_delta != 0.0 {
             self.state.offset = (self.state.offset + direct_delta).clamp(0.0, maximum);
             if sample_velocity && elapsed > 0.0 {
@@ -220,88 +229,43 @@ impl<'a> ScrollArea<'a> {
             self.state.offset = self.state.offset.clamp(0.0, maximum);
         }
 
-        let padding = padding(self.state.offset, self.padding);
-        let bounds = viewport.inset(padding);
-        let offset = self.state.offset;
-        let previous_clip = ui.clip;
-        ui.clip = viewport
-            .to_physical(ui.scale_factor)
-            .intersection(previous_clip)
-            .unwrap_or_default();
-
-        Area {
+        let content_config = crate::ContainerConfig::new()
+            .slot(Slot::new().width(Sizing::grow()))
+            .offset(LogicalPoint {
+                x: 0.0,
+                y: -self.state.offset,
+            })
+            .id(content_id);
+        let content = ui.open_layout(
+            Flex::column().padding(self.padding).gap(self.gap),
+            content_config,
+        );
+        ScrollScope {
             ui,
-            state: self.state,
             viewport,
-            bounds,
-            padding,
-            offset,
-            spacing: self.spacing,
-            cursor: 0.0,
-            count: 0,
-            previous_clip,
+            content,
         }
     }
 }
 
-pub struct Area<'a> {
-    ui: &'a mut Ui,
-    state: &'a mut ScrollState,
-    viewport: LogicalRect,
-    bounds: LogicalRect,
-    padding: LogicalInsets,
-    offset: f32,
-    spacing: f32,
-    cursor: f32,
-    count: usize,
-    previous_clip: PhysicalRect,
-}
-
-impl Area<'_> {
-    pub fn add<W: SizedWidget>(&mut self, widget: W) -> Option<W::Output> {
-        let available = LogicalRect {
-            x: self.bounds.x,
-            y: self.bounds.y + self.cursor - self.offset,
-            width: self.bounds.width,
-            height: f32::INFINITY,
-        };
-        let size = widget.measure(self.ui, available);
-        let area = LogicalRect {
-            width: size.width.clamp(0.0, available.width),
-            height: size.height,
-            ..available
-        };
-        self.cursor += area.height + self.spacing;
-        self.count += 1;
-        area.to_physical(self.ui.scale_factor)
-            .intersection(self.ui.clip)
-            .map(|_| widget.render(self.ui, area))
+impl ScrollScope<'_> {
+    pub fn layer(&mut self) -> LayerId {
+        self.ui.layer()
     }
 
-    pub fn ui(&mut self) -> &mut Ui {
-        self.ui
-    }
-
-    pub fn finish(self) {
-        drop(self)
+    pub fn add<W: super::Widget>(&mut self, widget: W) -> W::Output {
+        widget.render(self.ui)
     }
 }
 
-impl Drop for Area<'_> {
+impl Drop for ScrollScope<'_> {
     fn drop(&mut self) {
-        let used_height = if self.count == 0 {
-            0.0
-        } else {
-            self.cursor - self.spacing
-        };
-        self.state.content_height = self.padding.top + used_height + self.padding.bottom;
-        let maximum = self.state.maximum_offset(self.viewport.height);
-        let clamped = self.state.offset.clamp(0.0, maximum);
-        if clamped != self.state.offset {
-            self.state.offset = clamped;
-            self.state.velocity = 0.0;
-            self.ui.request_frame();
-        }
-        self.ui.clip = self.previous_clip;
+        self.ui.close_container(self.content);
+        self.ui.close_container(self.viewport);
     }
 }
+
+const WHEEL_FRICTION: f32 = 64.0;
+const MIN_SCROLL_VELOCITY: f32 = 5.0;
+const MAX_SCROLL_VELOCITY: f32 = 12_000.0;
+const MAX_FRAME_TIME: f32 = 0.05;

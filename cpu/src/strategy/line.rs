@@ -6,15 +6,15 @@ use slotmap::{KeyData, SlotMap};
 use super::{
     RenderStrategy,
     clip::{ClipLine, ClipSpan},
-    command::{CommandList, Payload},
+    command::{CommandId, CommandList, Payload},
     raster,
 };
 use crate::{Pixel, PixelBuffer, RenderContext, RendererImageId, StoredImage, TextRenderer};
 
 #[derive(Default)]
 pub struct Scanline {
-    starts: Vec<usize>,
-    active: Vec<usize>,
+    starts: Vec<CommandId>,
+    active: Vec<CommandId>,
     ranges: Vec<Range<usize>>,
     clip_ranges: Vec<Option<ClipLine>>,
 }
@@ -49,10 +49,10 @@ impl<P: Pixel> PixelBuffer for LineBuffer<'_, P> {
 
 fn draw_commands<const CLIPPED: bool, P: Pixel>(
     commands: &CommandList,
-    active: &[usize],
+    active: &[CommandId],
     clip_ranges: &[Option<ClipLine>],
     images: &SlotMap<RendererImageId, StoredImage>,
-    text: &TextRenderer,
+    text: &mut TextRenderer,
     buffer: &mut LineBuffer<'_, P>,
 ) {
     let line = buffer.line as i32;
@@ -135,7 +135,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let commands = &context.commands;
         let clips = &context.clips;
         let images = &context.images;
-        let text = &context.text;
+        let text = &mut context.text;
         let buffer = &mut context.buffer;
         let clipped = commands.has_clips;
 
@@ -228,23 +228,24 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
             }
 
             for range in &self.ranges {
-                let first = commands
-                    .overwrite_offsets()
+                let first = self
+                    .active
                     .iter()
+                    .enumerate()
                     .rev()
-                    .find(|command| {
-                        let vertical = commands.vertical_bounds(**command);
-                        vertical.start <= line
-                            && vertical.end > line
+                    .find(|(_, command)| {
+                        commands.overwrites(**command)
                             && commands
                                 .overwrite_span(**command, line)
                                 .is_some_and(|span| {
                                     span.start <= range.start as i32 && span.end >= range.end as i32
                                 })
                     })
-                    .map(|command| self.active.binary_search(command).unwrap())
+                    .map(|(index, _)| index)
                     .unwrap_or(0);
-                if commands.partial_opaque_offsets().is_empty() {
+                // splitting short spans costs more than redrawing their covered pixels
+                // TODO: what heuristic to use?
+                if range.len() < 128 && !commands.has_partial_opaque() {
                     let active = &self.active[first..];
                     buffer.process_line(line as usize, range.clone(), |pixels| {
                         let mut buffer = LineBuffer {
@@ -275,21 +276,32 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     });
                     continue;
                 }
-                let partial_opaque = commands.partial_opaque_offsets();
-                let partial_opaque = &partial_opaque
-                    [partial_opaque.partition_point(|command| *command <= self.active[first])..];
-                let overwrite = partial_opaque.iter().rev().find_map(|command| {
-                    let command_first = self.active.binary_search(command).ok()?;
-                    let Payload::Image(image) = commands.get(*command) else {
-                        unreachable!()
-                    };
-                    let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
-                    let texture = images.get(image_id)?;
-                    let span = image.opaque_span(line, &texture.alpha_rows)?;
-                    let start = span.start.max(range.start as i32);
-                    let end = span.end.min(range.end as i32);
-                    (start < end).then_some((start as usize, end as usize, command_first))
-                });
+                let overwrite = self.active[first + 1..].iter().enumerate().rev().find_map(
+                    |(offset, command)| {
+                        let command_first = first + 1 + offset;
+                        // rounded commands and partially opaque images can hide a scanline center
+                        let span = if commands.overwrites(*command) {
+                            commands.overwrite_span(*command, line)
+                        } else if commands.partial_opaque(*command) {
+                            let Payload::Image(image) = commands.get(*command) else {
+                                unreachable!()
+                            };
+                            let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
+                            let texture = images.get(image_id)?;
+                            image.opaque_span(
+                                line,
+                                commands.bounds(*command),
+                                &texture.data,
+                                &texture.alpha_rows,
+                            )
+                        } else {
+                            None
+                        }?;
+                        let start = span.start.max(range.start as i32);
+                        let end = span.end.min(range.end as i32);
+                        (start < end).then_some((start as usize, end as usize, command_first))
+                    },
+                );
                 let active = &self.active;
                 buffer.process_line(line as usize, range.clone(), |pixels| {
                     let mut draw = |first: usize, start: usize, end: usize| {
@@ -324,6 +336,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         }
                     };
                     if let Some((start, end, overwrite)) = overwrite {
+                        // only the uncovered edges need commands behind the opaque span
                         draw(first, range.start, start);
                         draw(overwrite, start, end);
                         draw(first, end, range.end);

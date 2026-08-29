@@ -1,10 +1,10 @@
 use std::ops::{Add, Mul, Sub};
 
-use blit::{geometry::PhysicalRect, paint::BorderRadius};
+use blit::{geometry::PhysicalRect, style::BorderRadius};
 
 use crate::{Pixel, PremultipliedRgbaColor};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Radii {
     pub top_left: i32,
     pub top_right: i32,
@@ -126,7 +126,6 @@ pub struct RoundedRectangle {
     pub right_clip: i32,
     pub top_clip: i32,
     pub bottom_clip: i32,
-    pub replace: bool,
 }
 
 pub struct RoundedGradient {
@@ -137,7 +136,6 @@ pub struct RoundedGradient {
     pub right_clip: i32,
     pub top_clip: i32,
     pub bottom_clip: i32,
-    pub replace: bool,
 }
 
 pub fn draw_line<P: Pixel>(
@@ -166,13 +164,6 @@ pub fn draw_line<P: Pixel>(
         }
     };
 
-    if rounded.replace {
-        let left = x1.floor().min(width as u32) as usize;
-        let right = x8.ceil().min(width as u32) as usize;
-        P::replace_slice(&mut row[..left], PremultipliedRgbaColor::default());
-        P::replace_slice(&mut row[right..], PremultipliedRgbaColor::default());
-    }
-
     anti_alias(x1, x2, &mut |x, coverage| {
         if x < width {
             let color = if border == Shifted::ZERO {
@@ -181,22 +172,14 @@ pub fn draw_line<P: Pixel>(
                 rounded.border_color
             };
             let color = color.coverage(coverage);
-            if rounded.replace {
-                row[x].replace(color);
-            } else {
-                row[x].blend(color);
-            }
+            row[x].blend(color);
         }
     });
     if y < rounded.border_width {
         let left = x2.ceil().min(width as u32) as usize;
         let right = x7.floor().min(width as u32) as usize;
         if left < right {
-            if rounded.replace {
-                P::replace_slice(&mut row[left..right], rounded.border_color);
-            } else {
-                P::blend_slice(&mut row[left..right], rounded.border_color);
-            }
+            P::blend_slice(&mut row[left..right], rounded.border_color);
         }
     } else {
         if border > Shifted::ZERO {
@@ -204,53 +187,33 @@ pub fn draw_line<P: Pixel>(
                 let left = x2.ceil().min(width as u32) as usize;
                 let right = x3.floor().min(width as u32) as usize;
                 if left < right {
-                    if rounded.replace {
-                        P::replace_slice(&mut row[left..right], rounded.border_color);
-                    } else {
-                        P::blend_slice(&mut row[left..right], rounded.border_color);
-                    }
+                    P::blend_slice(&mut row[left..right], rounded.border_color);
                 }
             }
             anti_alias(x3, x4, &mut |x, coverage| {
                 if x < width {
                     let color = interpolate(coverage, rounded.border_color, rounded.inner_color);
-                    if rounded.replace {
-                        row[x].replace(color);
-                    } else {
-                        row[x].blend(color);
-                    }
+                    row[x].blend(color);
                 }
             });
         }
         let left = x4.ceil().min(width as u32) as usize;
         let right = x5.floor().min(width as u32) as usize;
         if left < right {
-            if rounded.replace {
-                P::replace_slice(&mut row[left..right], rounded.inner_color);
-            } else {
-                P::blend_slice(&mut row[left..right], rounded.inner_color);
-            }
+            P::blend_slice(&mut row[left..right], rounded.inner_color);
         }
         if border > Shifted::ZERO {
             anti_alias(x5, x6, &mut |x, coverage| {
                 if x < width {
                     let color = interpolate(coverage, rounded.inner_color, rounded.border_color);
-                    if rounded.replace {
-                        row[x].replace(color);
-                    } else {
-                        row[x].blend(color);
-                    }
+                    row[x].blend(color);
                 }
             });
             if Shifted::ONE + x6 <= x7 {
                 let left = x6.ceil().min(width as u32) as usize;
                 let right = x7.floor().min(width as u32) as usize;
                 if left < right {
-                    if rounded.replace {
-                        P::replace_slice(&mut row[left..right], rounded.border_color);
-                    } else {
-                        P::blend_slice(&mut row[left..right], rounded.border_color);
-                    }
+                    P::blend_slice(&mut row[left..right], rounded.border_color);
                 }
             }
         }
@@ -263,11 +226,7 @@ pub fn draw_line<P: Pixel>(
                 rounded.border_color
             };
             let color = color.coverage(255 - coverage);
-            if rounded.replace {
-                row[x].replace(color);
-            } else {
-                row[x].blend(color);
-            }
+            row[x].blend(color);
         }
     });
 }
@@ -293,29 +252,19 @@ pub fn draw_gradient_line<P: Pixel>(
         ],
         width,
     );
-    if rounded.replace {
-        let left = x1.floor().min(width as u32) as usize;
-        let right = x8.ceil().min(width as u32) as usize;
-        P::replace_slice(&mut row[..left], PremultipliedRgbaColor::default());
-        P::replace_slice(&mut row[right..], PremultipliedRgbaColor::default());
-    }
     for x in x1.floor()..x2.ceil() {
         let x = x as usize;
         if x < width {
             let color = border_color(span.x + x as i32).coverage(edge_coverage(x1, x2, x as i32));
-            if rounded.replace {
-                row[x].replace(color);
-            } else {
-                row[x].blend(color);
-            }
+            row[x].blend(color);
         }
     }
     if y < rounded.border_width {
-        draw_gradient(row, span.x, x2, x7, rounded.replace, &mut border_color);
+        draw_gradient(row, span.x, x2, x7, &mut border_color);
     } else {
         if border > Shifted::ZERO {
             if Shifted::ONE + x2 <= x3 {
-                draw_gradient(row, span.x, x2, x3, rounded.replace, &mut border_color);
+                draw_gradient(row, span.x, x2, x3, &mut border_color);
             }
             for x in x3.floor()..x4.ceil() {
                 let x = x as usize;
@@ -325,22 +274,14 @@ pub fn draw_gradient_line<P: Pixel>(
                         border_color(span.x + x as i32),
                         rounded.inner_color,
                     );
-                    if rounded.replace {
-                        row[x].replace(color);
-                    } else {
-                        row[x].blend(color);
-                    }
+                    row[x].blend(color);
                 }
             }
         }
         let left = x4.ceil().min(width as u32) as usize;
         let right = x5.floor().min(width as u32) as usize;
         if left < right {
-            if rounded.replace {
-                P::replace_slice(&mut row[left..right], rounded.inner_color);
-            } else {
-                P::blend_slice(&mut row[left..right], rounded.inner_color);
-            }
+            P::blend_slice(&mut row[left..right], rounded.inner_color);
         }
         if border > Shifted::ZERO {
             for x in x5.floor()..x6.ceil() {
@@ -351,15 +292,11 @@ pub fn draw_gradient_line<P: Pixel>(
                         rounded.inner_color,
                         border_color(span.x + x as i32),
                     );
-                    if rounded.replace {
-                        row[x].replace(color);
-                    } else {
-                        row[x].blend(color);
-                    }
+                    row[x].blend(color);
                 }
             }
             if Shifted::ONE + x6 <= x7 {
-                draw_gradient(row, span.x, x6, x7, rounded.replace, &mut border_color);
+                draw_gradient(row, span.x, x6, x7, &mut border_color);
             }
         }
     }
@@ -368,11 +305,7 @@ pub fn draw_gradient_line<P: Pixel>(
         if x < width {
             let color =
                 border_color(span.x + x as i32).coverage(255 - edge_coverage(x7, x8, x as i32));
-            if rounded.replace {
-                row[x].replace(color);
-            } else {
-                row[x].blend(color);
-            }
+            row[x].blend(color);
         }
     }
 }
@@ -382,18 +315,13 @@ fn draw_gradient<P: Pixel>(
     span_x: i32,
     start: Shifted,
     end: Shifted,
-    replace: bool,
     border_color: &mut impl FnMut(i32) -> PremultipliedRgbaColor,
 ) {
     let start = start.ceil().min(row.len() as u32) as usize;
     let end = end.floor().min(row.len() as u32) as usize;
     for (x, pixel) in row.iter_mut().enumerate().take(end).skip(start) {
         let color = border_color(span_x + x as i32);
-        if replace {
-            pixel.replace(color);
-        } else {
-            pixel.blend(color);
-        }
+        pixel.blend(color);
     }
 }
 

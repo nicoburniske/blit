@@ -2,7 +2,7 @@ use blit::geometry::PhysicalRect;
 use slotmap::{KeyData, SlotMap};
 
 use super::command::Payload;
-use crate::{PixelBuffer, PixelSpan, RendererImageId, StoredImage, TextRenderer};
+use crate::{Pixel, PixelBuffer, PixelSpan, RendererImageId, StoredImage, TextRenderer};
 
 #[inline(always)]
 pub fn draw_line<B: PixelBuffer>(
@@ -11,10 +11,16 @@ pub fn draw_line<B: PixelBuffer>(
     clip: PhysicalRect,
     coverage: u8,
     images: &SlotMap<RendererImageId, StoredImage>,
-    text: &TextRenderer,
+    text: &mut TextRenderer,
     buffer: &mut B,
 ) {
     match payload {
+        Payload::Clear => {
+            let x = buffer.x_offset() as i32;
+            let start = (clip.x - x) as usize;
+            let end = start + clip.width as usize;
+            buffer.line_mut(line as usize)[start..end].fill(B::Pixel::background());
+        }
         Payload::Rectangle(rectangle) => {
             let covered;
             let rectangle = if coverage == 255 {
@@ -30,6 +36,17 @@ pub fn draw_line<B: PixelBuffer>(
             };
             let x = buffer.x_offset() as i32;
             rectangle.draw_line(
+                line,
+                clip,
+                PixelSpan {
+                    x,
+                    pixels: buffer.line_mut(line as usize),
+                },
+            );
+        }
+        Payload::SolidPair(pair) => {
+            let x = buffer.x_offset() as i32;
+            pair.draw_line(
                 line,
                 clip,
                 PixelSpan {
@@ -65,7 +82,15 @@ pub fn draw_line<B: PixelBuffer>(
                     };
                     &covered
                 };
-                request.draw(buffer, &image.data, &image.alpha_rows, clip);
+                let screen_x = buffer.x_offset() as i32;
+                request.draw_line(
+                    buffer.line_mut(line as usize),
+                    &image.data,
+                    &image.alpha_rows,
+                    clip,
+                    screen_x,
+                    line,
+                );
             }
         }
         Payload::Text(command) => {
@@ -75,7 +100,9 @@ pub fn draw_line<B: PixelBuffer>(
             }
             let x = buffer.x_offset() as i32;
             text.draw_line(
-                command.paragraph,
+                command.glyph_start,
+                command.glyph_end,
+                command.lines,
                 command.area,
                 color,
                 line,

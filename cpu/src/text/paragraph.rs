@@ -1,139 +1,207 @@
 use std::mem::size_of;
 
-use blit::{
-    paint::{FontId, HorizontalAlign, TextOverflow, TextRequest, TextWrap, VerticalAlign},
-    resource::{StringId, TextSource},
+use blit::text::{
+    HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextRunId, TextWrap,
+    VerticalAlign,
 };
-use blit_cache::{Cache, Scale};
-use blit_font::{Layout, LayoutSettings};
+use blit_cache::{DeferredCache, Scale};
+use blit_font::{GlyphRasterConfig, Layout, LayoutSettings, LinePosition, TextRun};
 
-use super::font::FontCache;
-
-/// stores measured and rasterized paragraphs between frames
 pub struct ParagraphCache {
-    cache: Cache<ParagraphKey, Paragraph, ParagraphScale>,
-    /// reusable layout scratch state
+    layouts: DeferredCache<LayoutKey, ParagraphLayout, LayoutScale>,
+    paints: DeferredCache<PaintKey, ParagraphPaint, PaintScale>,
     layout: Layout,
+    // reusable paragraph resolution scratch buffers
+    glyphs: Vec<PaintGlyph>,
+    lines: Vec<PaintLine>,
+    carets: Vec<Caret>,
 }
 
-struct ParagraphScale;
+struct LayoutScale;
+struct PaintScale;
 
-impl Scale<ParagraphKey, Paragraph> for ParagraphScale {
-    fn weight(&self, _key: &ParagraphKey, paragraph: &Paragraph) -> usize {
-        size_of::<Paragraph>()
-            + paragraph.rendered.as_ref().map_or(0, |rendered| {
-                rendered.alpha.len() + rendered.carets.len() * size_of::<Caret>()
-            })
+impl Scale<LayoutKey, ParagraphLayout> for LayoutScale {
+    fn weight(&self, _key: &LayoutKey, paragraph: &ParagraphLayout) -> usize {
+        size_of::<ParagraphLayout>() + paragraph.lines.len() * size_of::<LinePosition>()
+    }
+}
+
+impl Scale<PaintKey, ParagraphPaint> for PaintScale {
+    fn weight(&self, _key: &PaintKey, paragraph: &ParagraphPaint) -> usize {
+        size_of::<ParagraphPaint>()
+            + paragraph.glyphs.len() * size_of::<PaintGlyph>()
+            + paragraph.lines.len() * size_of::<PaintLine>()
     }
 }
 
 impl ParagraphCache {
-    pub fn new(capacity: usize, metric_cache_capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
-            cache: Cache::new(ParagraphScale, capacity),
-            layout: Layout::with_metric_cache_capacity(metric_cache_capacity),
+            layouts: DeferredCache::new(LayoutScale, capacity),
+            paints: DeferredCache::new(PaintScale, capacity),
+            layout: Layout::with_metric_cache_capacity(0),
+            glyphs: Vec::new(),
+            lines: Vec::new(),
+            carets: Vec::new(),
         }
     }
 
-    /// gets wrapped height
-    pub fn measure_height(
+    pub fn measure(
         &mut self,
-        key: ParagraphKey,
-        request: &TextRequest,
-        text: &str,
+        key: LayoutKey,
+        request: &TextLayoutRequest,
+        run: &TextRun,
         scale_factor: f32,
-        fonts: &mut FontCache,
-    ) -> f32 {
-        let Self { cache, layout } = self;
-        match cache.get_or_insert_with(key, || Paragraph {
-            layout_height: Self::layout_height(layout, request, text, scale_factor, fonts),
-            rendered: None,
-        }) {
-            Ok(paragraph) => paragraph.layout_height / scale_factor,
-            Err(paragraph) => paragraph.layout_height / scale_factor,
+    ) -> blit::geometry::LogicalSize {
+        let size = self.layout(key, request.wrap, request.max_width, run, scale_factor);
+        let paragraph = self.layouts.get_index(size);
+        let lines = &paragraph.lines[..paragraph
+            .lines
+            .len()
+            .min(request.max_lines.map_or(usize::MAX, usize::from))];
+        blit::geometry::LogicalSize {
+            width: lines.iter().map(|line| line.width).fold(0.0, f32::max) / scale_factor,
+            height: lines.last().map_or_else(
+                || run.line_metrics().new_line_size,
+                |line| line.baseline_y - line.max_ascent + line.max_new_line_size,
+            ) / scale_factor,
         }
     }
 
-    /// gets and rasterizes an entry without evicting until the frame ends
-    pub fn prepare(
+    pub fn prepare(&mut self, request: &TextRequest, run: &TextRun, scale_factor: f32) -> usize {
+        self.layout(
+            LayoutKey::paint(request, scale_factor),
+            request.options.wrap,
+            (request.options.wrap != TextWrap::None).then_some(request.area.width.max(0.0)),
+            run,
+            scale_factor,
+        )
+    }
+
+    pub fn get(&self, index: usize) -> &ParagraphLayout {
+        self.layouts.get_index(index)
+    }
+
+    pub fn prepare_paint(
         &mut self,
-        key: ParagraphKey,
         request: &TextRequest,
-        text: &str,
+        run: &TextRun,
+        font: &blit_font::Font,
         scale_factor: f32,
-        fonts: &mut FontCache,
     ) -> usize {
-        let Self { cache, layout } = self;
-        let Ok((_, index)) = cache.get_or_insert_deferred_with(key, || Paragraph {
-            layout_height: Self::layout_height(layout, request, text, scale_factor, fonts),
-            rendered: None,
-        }) else {
-            panic!("paragraph cache capacity must fit an entry");
-        };
-        cache.update_index(index, |paragraph| {
-            if paragraph.rendered.is_none() {
-                paragraph.rendered = Some(Self::render(layout, request, text, scale_factor, fonts));
+        let layout = self.prepare(request, run, scale_factor);
+        let Self {
+            layouts,
+            paints,
+            glyphs,
+            lines,
+            carets,
+            ..
+        } = self;
+        let (_, index) = paints.get_or_insert(PaintKey::new(request, scale_factor), || {
+            let resolved = resolve(
+                layouts.get_index(layout),
+                request,
+                run,
+                font,
+                scale_factor,
+                glyphs,
+                Some(lines),
+                carets,
+                true,
+                false,
+            );
+            ParagraphPaint {
+                bounds: resolved,
+                glyphs: glyphs.as_slice().into(),
+                lines: lines.as_slice().into(),
             }
         });
         index
     }
 
-    pub fn get(&self, index: usize) -> &Paragraph {
-        self.cache.get_index(index)
+    pub fn get_paint(&self, index: usize) -> &ParagraphPaint {
+        self.paints.get_index(index)
     }
 
     pub fn finish_frame(&mut self) {
-        self.cache.trim_to_weight()
+        self.layouts.trim_to_weight();
+        self.paints.trim_to_weight();
     }
 
-    pub fn retain_strings(&mut self, mut live: impl FnMut(StringId) -> bool) {
-        self.cache.retain(|(key, _)| match key.text {
-            TextSource::Resource(string) => live(string),
-            TextSource::Static(_) => true,
-        });
-    }
-
-    /// builds a position independent cache key
-    pub fn key(request: &TextRequest, scale_factor: f32) -> ParagraphKey {
-        let area = request.area.to_physical(scale_factor);
-        ParagraphKey {
+    pub fn layout_key(request: &TextLayoutRequest, scale_factor: f32) -> LayoutKey {
+        LayoutKey {
             text: request.text,
-            width: area.width,
-            height: if request.intrinsic_height {
-                0
-            } else {
-                area.height
-            },
-            offset_x: (request.offset_x * scale_factor).round() as i32,
-            font: request.style.font,
-            size: (request.style.size * scale_factor).to_bits(),
-            weight: request.style.weight,
-            wrap: request.options.wrap,
-            overflow: request.options.overflow,
-            horizontal_align: request.options.horizontal_align,
-            vertical_align: request.options.vertical_align,
-            max_lines: request.options.max_lines,
-            intrinsic_height: request.intrinsic_height,
+            max_width: (request.wrap != TextWrap::None).then(|| {
+                request.max_width.map_or(i32::MAX, |width| {
+                    (width.max(0.0) * scale_factor).ceil() as i32
+                })
+            }),
+            wrap: request.wrap,
         }
     }
+
+    fn layout(
+        &mut self,
+        key: LayoutKey,
+        wrap: TextWrap,
+        max_width: Option<f32>,
+        run: &TextRun,
+        scale_factor: f32,
+    ) -> usize {
+        let layout = &mut self.layout;
+        let (_, index) = self.layouts.get_or_insert(key, || {
+            layout.layout_lines(
+                run,
+                LayoutSettings {
+                    max_width: (wrap != TextWrap::None).then_some(
+                        max_width.map_or(f32::MAX, |width| (width.max(0.0) * scale_factor).ceil()),
+                    ),
+                    wrap,
+                    ..LayoutSettings::default()
+                },
+            );
+            ParagraphLayout {
+                lines: layout
+                    .lines()
+                    .map_or_else(Box::<[LinePosition]>::default, Into::into),
+            }
+        });
+        index
+    }
 }
 
-pub struct Paragraph {
-    /// layout height exists before rasterization
-    pub layout_height: f32,
-    pub rendered: Option<RenderedParagraph>,
+pub struct ParagraphLayout {
+    pub lines: Box<[LinePosition]>,
 }
 
-/// raster and caret data independent of screen position
-pub struct RenderedParagraph {
+pub struct ParagraphPaint {
+    pub bounds: ResolvedParagraph,
+    pub glyphs: Box<[PaintGlyph]>,
+    pub lines: Box<[PaintLine]>,
+}
+
+#[derive(Clone, Copy)]
+pub struct PaintLine {
+    pub glyph_start: u32,
+    pub glyph_end: u32,
+    pub top: i32,
+    pub bottom: i32,
+}
+
+#[derive(Clone, Copy)]
+pub struct ResolvedParagraph {
     pub x: i32,
     pub y: i32,
     pub width: usize,
     pub height: usize,
-    pub layout_width: f32,
-    pub layout_height: f32,
-    pub alpha: Box<[u8]>,
-    pub carets: Box<[Caret]>,
+}
+
+#[derive(Clone, Copy)]
+pub struct PaintGlyph {
+    pub key: GlyphRasterConfig,
+    pub x: i32,
+    pub y: i32,
 }
 
 #[derive(Clone, Copy)]
@@ -145,506 +213,262 @@ pub struct Caret {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ParagraphKey {
-    text: TextSource,
+pub struct LayoutKey {
+    text: TextRunId,
+    max_width: Option<i32>,
+    wrap: TextWrap,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct PaintKey {
+    layout: LayoutKey,
     width: i32,
     height: i32,
     offset_x: i32,
-    font: FontId,
-    size: u32,
-    weight: u16,
-    wrap: TextWrap,
     overflow: TextOverflow,
     horizontal_align: HorizontalAlign,
     vertical_align: VerticalAlign,
     max_lines: Option<u16>,
-    intrinsic_height: bool,
 }
 
-impl ParagraphCache {
-    fn layout_height(
-        layout: &mut Layout,
-        request: &TextRequest,
-        text: &str,
-        scale_factor: f32,
-        fonts: &mut FontCache,
-    ) -> f32 {
-        let Some((_, font)) = fonts.font(request.style.font, request.style.weight) else {
-            return request.style.size * scale_factor;
-        };
-        let size = request.style.size * scale_factor;
+impl PaintKey {
+    fn new(request: &TextRequest, scale_factor: f32) -> Self {
         let area = request.area.to_physical(scale_factor);
-        layout.layout(
-            font,
-            text,
-            size,
-            LayoutSettings {
-                max_width: (request.options.wrap != TextWrap::None)
-                    .then_some(area.width.max(0) as f32),
-                wrap: request.options.wrap,
-                ..LayoutSettings::default()
-            },
-        );
-        layout
-            .lines()
-            .and_then(|lines| {
-                lines
-                    .iter()
-                    .take(request.options.max_lines.map_or(usize::MAX, usize::from))
-                    .next_back()
-            })
-            .map_or_else(
-                || font.horizontal_line_metrics(size).new_line_size.ceil(),
-                |line| line.baseline_y - line.max_ascent + line.max_new_line_size,
-            )
+        Self {
+            layout: LayoutKey::paint(request, scale_factor),
+            width: area.width,
+            height: area.height,
+            offset_x: (request.offset_x * scale_factor).round() as i32,
+            overflow: request.options.overflow,
+            horizontal_align: request.options.horizontal_align,
+            vertical_align: request.options.vertical_align,
+            max_lines: request.options.max_lines,
+        }
+    }
+}
+
+impl LayoutKey {
+    fn paint(request: &TextRequest, scale_factor: f32) -> Self {
+        Self {
+            text: request.text,
+            max_width: (request.options.wrap != TextWrap::None)
+                .then_some((request.area.width.max(0.0) * scale_factor).ceil() as i32),
+            wrap: request.options.wrap,
+        }
+    }
+}
+
+pub fn resolve(
+    paragraph: &ParagraphLayout,
+    request: &TextRequest,
+    run: &TextRun,
+    font: &blit_font::Font,
+    scale_factor: f32,
+    glyphs: &mut Vec<PaintGlyph>,
+    mut lines: Option<&mut Vec<PaintLine>>,
+    carets: &mut Vec<Caret>,
+    resolve_glyphs: bool,
+    resolve_carets: bool,
+) -> ResolvedParagraph {
+    glyphs.clear();
+    if let Some(lines) = &mut lines {
+        lines.clear();
+    }
+    carets.clear();
+    let area = request.area.to_physical(scale_factor);
+    let mut visible_lines = paragraph
+        .lines
+        .len()
+        .min(request.options.max_lines.map_or(usize::MAX, usize::from));
+    if request.options.overflow == TextOverflow::Ellipsis {
+        let mut height = 0.0;
+        let mut fitting_lines = 0;
+        for line in &paragraph.lines {
+            height += line.max_new_line_size;
+            if height > area.height.max(0) as f32 {
+                break;
+            }
+            fitting_lines += 1;
+        }
+        visible_lines = visible_lines.min(fitting_lines);
     }
 
-    fn render(
-        layout: &mut Layout,
-        request: &TextRequest,
-        text: &str,
-        scale_factor: f32,
-        fonts: &mut FontCache,
-    ) -> RenderedParagraph {
-        let area = request.area.to_physical(scale_factor);
-        let Some((face, font)) = fonts.font(request.style.font, request.style.weight) else {
-            return RenderedParagraph {
-                x: 0,
-                y: 0,
-                width: 0,
-                height: 0,
-                layout_width: 0.0,
-                layout_height: 0.0,
-                alpha: Box::new([]),
-                carets: Box::new([]),
-            };
-        };
-
-        let size = request.style.size * scale_factor;
-        let max_width =
-            (request.options.wrap != TextWrap::None).then_some(area.width.max(0) as f32);
-        layout.layout(
-            font,
-            text,
-            size,
-            LayoutSettings {
-                max_width,
-                wrap: request.options.wrap,
-                ..LayoutSettings::default()
-            },
-        );
-
-        let mut rendered = None;
-        if let Some(lines) = layout.lines() {
-            let mut visible_lines = lines.len();
-            if let Some(max_lines) = request.options.max_lines {
-                visible_lines = visible_lines.min(max_lines as usize);
-            }
-            if request.options.overflow == TextOverflow::Ellipsis && !request.intrinsic_height {
-                let mut height = 0.0;
-                let mut fitting_lines = 0;
-                for line in lines {
-                    height += line.max_new_line_size;
-                    if height > area.height.max(0) as f32 {
-                        break;
-                    }
-                    fitting_lines += 1;
-                }
-                visible_lines = visible_lines.min(fitting_lines);
-            }
-
-            let glyphs = layout.glyphs();
-            let lines_truncated = visible_lines < lines.len();
-            let line_overflows = visible_lines != 0 && request.options.wrap == TextWrap::None && {
-                let line = lines[visible_lines - 1];
-                let start = line.glyph_start.min(glyphs.len());
-                let end = line.glyph_end.saturating_add(1).min(glyphs.len());
-                glyphs[start..end]
-                    .iter()
-                    .any(|glyph| glyph.x + glyph.width as f32 > area.width as f32)
-            };
-
-            if visible_lines == 0 && !lines.is_empty() {
-                rendered = Some(String::new());
-            } else if visible_lines != 0 && (lines_truncated || line_overflows) {
-                let line = lines[visible_lines - 1];
-                let start = line.glyph_start.min(glyphs.len());
-                let end = line.glyph_end.saturating_add(1).min(glyphs.len());
-                let glyphs = &glyphs[start..end];
-                let mut end = glyphs
-                    .last()
-                    .map_or(0, |glyph| glyph.byte_offset + glyph.parent.len_utf8());
-                if request.options.overflow == TextOverflow::Ellipsis {
-                    let available = area.width.max(0) as f32
-                        - font.metrics(font.glyph_id('…'), size).advance_width.ceil();
-                    end = glyphs
-                        .iter()
-                        .take_while(|glyph| glyph.x + glyph.width as f32 <= available)
-                        .last()
-                        .map_or_else(
-                            || glyphs.first().map_or(0, |glyph| glyph.byte_offset),
-                            |glyph| glyph.byte_offset + glyph.parent.len_utf8(),
-                        );
-                    let mut rendered_text = text[..end].trim_end().to_owned();
-                    rendered_text.push('…');
-                    rendered = Some(rendered_text);
-                } else {
-                    rendered = Some(text[..end].trim_end_matches(['\r', '\n']).to_owned());
-                }
-            }
-        }
-
-        layout.layout(
-            font,
-            rendered.as_deref().unwrap_or(text),
-            size,
-            LayoutSettings {
-                max_width,
-                max_height: (!request.intrinsic_height).then_some(area.height.max(0) as f32),
-                horizontal_align: request.options.horizontal_align,
-                vertical_align: request.options.vertical_align,
-                wrap: request.options.wrap,
-            },
-        );
-        let layout_height = layout.lines().map_or_else(
-            || font.horizontal_line_metrics(size).new_line_size.ceil(),
-            |_| layout.height(),
-        );
-        let glyphs = layout.glyphs();
-        let natural_width = glyphs
+    let source_glyphs = run.glyphs();
+    let lines_truncated = visible_lines < paragraph.lines.len();
+    let line_overflows = visible_lines != 0 && request.options.wrap == TextWrap::None && {
+        let line = paragraph.lines[visible_lines - 1];
+        let mut pen = 0.0;
+        source_glyphs[line.glyph_start..=line.glyph_end]
             .iter()
-            .map(|glyph| glyph.x + glyph.width as f32)
-            .fold(0.0, f32::max);
-        let offset_x = if request.options.wrap == TextWrap::None {
-            match request.options.horizontal_align {
-                HorizontalAlign::Left => 0.0,
-                HorizontalAlign::Center => (area.width as f32 - natural_width) / 2.0,
-                HorizontalAlign::Right => area.width as f32 - natural_width,
+            .any(|glyph| {
+                let overflows = pen + glyph.x + glyph.width as f32 > area.width as f32;
+                pen += glyph.advance;
+                overflows
+            })
+    };
+    let ellipsize = request.options.overflow == TextOverflow::Ellipsis
+        && visible_lines != 0
+        && (lines_truncated || line_overflows);
+    let size = request.style.size * scale_factor;
+    let ellipsis_id = font.glyph_id('…');
+    let ellipsis_metrics = font.metrics(ellipsis_id, size);
+    let ellipsis_advance = ellipsis_metrics.advance_width.ceil();
+    let content_height = paragraph.lines[..visible_lines].last().map_or(0.0, |line| {
+        line.baseline_y - line.max_ascent + line.max_new_line_size
+    });
+    let vertical_offset = match request.options.vertical_align {
+        VerticalAlign::Top => 0.0,
+        VerticalAlign::Center => ((area.height as f32 - content_height) / 2.0).floor(),
+        VerticalAlign::Bottom => (area.height as f32 - content_height).floor(),
+    };
+    let paint_offset_x = request.offset_x * scale_factor;
+    if resolve_glyphs {
+        glyphs.reserve(source_glyphs.len());
+    }
+    if resolve_carets {
+        carets.reserve(source_glyphs.len() + 1);
+    }
+    let mut left = area.width;
+    let mut top = area.height;
+    let mut right = 0;
+    let mut bottom = 0;
+
+    for (line_index, line) in paragraph.lines[..visible_lines].iter().enumerate() {
+        let glyph_start = glyphs.len();
+        let mut line_top = i32::MAX;
+        let mut line_bottom = i32::MIN;
+        let source = &source_glyphs[line.glyph_start..=line.glyph_end];
+        let final_ellipsis_line = ellipsize && line_index + 1 == visible_lines;
+        let mut source_end = source.len();
+        let mut line_width = line.width;
+        if final_ellipsis_line {
+            let available = area.width.max(0) as f32 - ellipsis_advance;
+            let mut pen = 0.0;
+            source_end = 0;
+            for glyph in source {
+                if pen + glyph.x + glyph.width as f32 > available {
+                    break;
+                }
+                source_end += 1;
+                pen += glyph.advance;
             }
-        } else {
-            0.0
-        };
-        let paint_offset_x = offset_x - request.offset_x * scale_factor;
-        let mut carets = Vec::with_capacity(glyphs.len() + 1);
-        let mut layout_width = 0.0f32;
-        if let Some(lines) = layout.lines() {
-            for line in lines {
-                let start = line.glyph_start.min(glyphs.len());
-                let end = line.glyph_end.saturating_add(1).min(glyphs.len());
-                let mut line_left = f32::INFINITY;
-                let mut line_right = f32::NEG_INFINITY;
-                let mut last = None;
-                for glyph in &glyphs[start..end] {
-                    let x = glyph.pen_x + paint_offset_x;
-                    let end = x + glyph.advance;
-                    line_left = line_left.min(x);
-                    line_right = line_right.max(end);
-                    last = Some((glyph.byte_offset + glyph.parent.len_utf8(), end));
-                    carets.push(Caret {
-                        byte_offset: glyph.byte_offset,
+            while source_end != 0 && source[source_end - 1].parent.is_whitespace() {
+                source_end -= 1;
+            }
+            line_width = source[..source_end]
+                .iter()
+                .map(|glyph| glyph.advance)
+                .sum::<f32>()
+                + ellipsis_advance;
+        }
+        let horizontal_offset = match request.options.horizontal_align {
+            HorizontalAlign::Left => 0.0,
+            HorizontalAlign::Center => ((area.width as f32 - line_width) / 2.0).floor(),
+            HorizontalAlign::Right => (area.width as f32 - line_width).floor(),
+        } - paint_offset_x;
+        let mut pen = 0.0;
+        let mut last = None;
+        for glyph in &source[..source_end] {
+            let caret_x = pen + horizontal_offset;
+            let end = caret_x + glyph.advance;
+            last = Some((glyph.byte_offset + glyph.parent.len_utf8(), end));
+            if resolve_carets {
+                carets.push(Caret {
+                    byte_offset: glyph.byte_offset,
+                    x: caret_x,
+                    y: line.baseline_y - line.max_ascent + vertical_offset,
+                    height: line.max_new_line_size,
+                });
+            }
+            if resolve_glyphs
+                && !glyph.char_data.is_control()
+                && glyph.width != 0
+                && glyph.height != 0
+            {
+                let x = (pen + glyph.x + horizontal_offset).round() as i32;
+                let y = (glyph.y + line.baseline_y + vertical_offset).round() as i32;
+                let glyph_right = x.saturating_add(glyph.width as i32);
+                let glyph_bottom = y.saturating_add(glyph.height as i32);
+                if x < area.width && glyph_right > 0 && y < area.height && glyph_bottom > 0 {
+                    left = left.min(x.max(0));
+                    top = top.min(y.max(0));
+                    right = right.max(glyph_right.min(area.width));
+                    bottom = bottom.max(glyph_bottom.min(area.height));
+                    line_top = line_top.min(y);
+                    line_bottom = line_bottom.max(glyph_bottom);
+                    glyphs.push(PaintGlyph {
+                        key: glyph.key,
                         x,
-                        y: line.baseline_y - line.max_ascent,
-                        height: line.max_new_line_size,
+                        y,
                     });
                 }
-                if line_left.is_finite() && line_right.is_finite() {
-                    layout_width = layout_width.max(line_right - line_left);
-                }
-                if let Some((byte_offset, x)) = last {
-                    carets.push(Caret {
-                        byte_offset,
-                        x,
-                        y: line.baseline_y - line.max_ascent,
-                        height: line.max_new_line_size,
-                    });
-                }
+            }
+            pen += glyph.advance;
+        }
+        if final_ellipsis_line && resolve_glyphs {
+            let x = (pen + ellipsis_metrics.bounds.xmin.floor() + horizontal_offset).round() as i32;
+            let y = (line.baseline_y
+                + (-ellipsis_metrics.bounds.height - ellipsis_metrics.bounds.ymin).floor()
+                + vertical_offset)
+                .round() as i32;
+            let glyph_right = x.saturating_add(ellipsis_metrics.width as i32);
+            let glyph_bottom = y.saturating_add(ellipsis_metrics.height as i32);
+            if x < area.width && glyph_right > 0 && y < area.height && glyph_bottom > 0 {
+                left = left.min(x.max(0));
+                top = top.min(y.max(0));
+                right = right.max(glyph_right.min(area.width));
+                bottom = bottom.max(glyph_bottom.min(area.height));
+                line_top = line_top.min(y);
+                line_bottom = line_bottom.max(glyph_bottom);
+                glyphs.push(PaintGlyph {
+                    key: GlyphRasterConfig {
+                        glyph_id: ellipsis_id,
+                        size,
+                    },
+                    x,
+                    y,
+                });
             }
         }
-        if carets.is_empty() {
-            let line = font.horizontal_line_metrics(size);
-            let height = line.new_line_size.ceil();
-            let y = match request.options.vertical_align {
-                VerticalAlign::Top => 0.0,
-                VerticalAlign::Center => (area.height as f32 - height) / 2.0,
-                VerticalAlign::Bottom => area.height as f32 - height,
-            };
-            carets.push(Caret {
-                byte_offset: 0,
-                x: paint_offset_x,
-                y,
-                height,
+        if glyph_start != glyphs.len()
+            && let Some(lines) = &mut lines
+        {
+            lines.push(PaintLine {
+                glyph_start: u32::try_from(glyph_start).expect("too many paragraph glyphs"),
+                glyph_end: u32::try_from(glyphs.len()).expect("too many paragraph glyphs"),
+                top: line_top,
+                bottom: line_bottom,
             });
         }
-        let mut left = area.width;
-        let bounds_height = if request.intrinsic_height {
-            i32::MAX
-        } else {
-            area.height
+        if resolve_carets && let Some((byte_offset, x)) = last {
+            carets.push(Caret {
+                byte_offset,
+                x,
+                y: line.baseline_y - line.max_ascent + vertical_offset,
+                height: line.max_new_line_size,
+            });
+        }
+    }
+
+    if resolve_carets && carets.is_empty() {
+        let height = font.horizontal_line_metrics(size).new_line_size.ceil();
+        let y = match request.options.vertical_align {
+            VerticalAlign::Top => 0.0,
+            VerticalAlign::Center => (area.height as f32 - height) / 2.0,
+            VerticalAlign::Bottom => area.height as f32 - height,
         };
-        let mut top = bounds_height;
-        let mut right = 0;
-        let mut bottom = 0;
-        for glyph in glyphs {
-            if glyph.char_data.is_control() || glyph.width == 0 || glyph.height == 0 {
-                continue;
-            }
-            let x = (glyph.x + paint_offset_x).round() as i32;
-            let y = glyph.y.round() as i32;
-            left = left.min(x.max(0).min(area.width));
-            top = top.min(y.max(0).min(bounds_height));
-            right = right.max((x + glyph.width as i32).max(0).min(area.width));
-            bottom = bottom.max((y + glyph.height as i32).max(0).min(bounds_height));
-        }
-        let width = (right - left).max(0) as usize;
-        let height = (bottom - top).max(0) as usize;
-        let mut alpha = vec![0u8; width * height];
-        for glyph in glyphs {
-            if glyph.char_data.is_control() {
-                continue;
-            }
-            let cached = fonts.glyph(face, glyph.key);
-            let cached = match &cached {
-                Ok(cached) => *cached,
-                Err(cached) => cached,
-            };
-            let x = (glyph.x + paint_offset_x).round() as i32;
-            let y = glyph.y.round() as i32;
-            let source_left = (left - x).max(0) as usize;
-            let source_top = (top - y).max(0) as usize;
-            let source_right = (right - x).min(cached.metrics.width as i32).max(0) as usize;
-            let source_bottom = (bottom - y).min(cached.metrics.height as i32).max(0) as usize;
-            for source_y in source_top..source_bottom {
-                for source_x in source_left..source_right {
-                    let destination_x = (x + source_x as i32 - left) as usize;
-                    let destination_y = (y + source_y as i32 - top) as usize;
-                    let source = cached.alpha[source_y * cached.metrics.width + source_x] as u16;
-                    let destination = &mut alpha[destination_y * width + destination_x];
-                    *destination = (source + *destination as u16 * (255 - source) / 255) as u8;
-                }
-            }
-        }
-        RenderedParagraph {
-            x: left,
-            y: top,
-            width,
+        carets.push(Caret {
+            byte_offset: 0,
+            x: -paint_offset_x,
+            y,
             height,
-            layout_width,
-            layout_height,
-            alpha: alpha.into_boxed_slice(),
-            carets: carets.into_boxed_slice(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use blit::{
-        color::Color,
-        geometry::LogicalRect,
-        paint::{
-            FontId, HorizontalAlign, TextOptions, TextOverflow, TextRequest, TextStyle, TextWrap,
-        },
-    };
-
-    use super::*;
-    use crate::{Font, FontFace};
-
-    fn prepare(
-        paragraphs: &mut ParagraphCache,
-        request: &TextRequest,
-        text: &str,
-        fonts: &mut FontCache,
-    ) -> usize {
-        paragraphs.prepare(ParagraphCache::key(request, 1.0), request, text, 1.0, fonts)
+        });
     }
 
-    #[test]
-    fn font_lookup_and_overflow_are_exact() {
-        let font = Font::from_static(include_bytes!(env!("BLIT_TEST_FONT"))).unwrap();
-        let mut fonts = FontCache::new(
-            vec![FontFace {
-                id: FontId::default(),
-                weight: 400,
-                font,
-            }],
-            1024 * 1024,
-        );
-        let mut paragraphs = ParagraphCache::new(1024 * 1024, 256);
-        let area = LogicalRect {
-            x: 0.0,
-            y: 0.0,
-            width: 100.0,
-            height: 50.0,
-        };
-        let request = TextRequest {
-            text: StringId(1).into(),
-            area,
-            offset_x: 0.0,
-            color: Color::WHITE,
-            style: TextStyle {
-                font: FontId(9),
-                ..TextStyle::default()
-            },
-            options: TextOptions::default(),
-            intrinsic_height: false,
-        };
-        let index = prepare(&mut paragraphs, &request, "missing", &mut fonts);
-        let missing = paragraphs.get(index).rendered.as_ref().unwrap();
-        assert_eq!((missing.width, missing.height), (0, 0));
-
-        let request = TextRequest {
-            text: StringId(2).into(),
-            area,
-            offset_x: 0.0,
-            color: Color::WHITE,
-            style: TextStyle::default(),
-            options: TextOptions {
-                max_lines: Some(1),
-                ..TextOptions::default()
-            },
-            intrinsic_height: false,
-        };
-        let one_line = prepare(&mut paragraphs, &request, "first\nsecond", &mut fonts);
-        let request = TextRequest {
-            text: StringId(3).into(),
-            options: TextOptions::default(),
-            ..request
-        };
-        let first = prepare(&mut paragraphs, &request, "first", &mut fonts);
-        let one_line = paragraphs.get(one_line).rendered.as_ref().unwrap();
-        let first = paragraphs.get(first).rendered.as_ref().unwrap();
-        assert_eq!(
-            (
-                one_line.x,
-                one_line.y,
-                one_line.width,
-                one_line.height,
-                &one_line.alpha
-            ),
-            (first.x, first.y, first.width, first.height, &first.alpha),
-        );
-
-        let narrow = LogicalRect {
-            width: 12.0,
-            ..area
-        };
-        let request = TextRequest {
-            text: StringId(4).into(),
-            area: narrow,
-            options: TextOptions {
-                overflow: TextOverflow::Ellipsis,
-                ..TextOptions::default()
-            },
-            ..request
-        };
-        let truncated = prepare(&mut paragraphs, &request, "WWWW", &mut fonts);
-        let request = TextRequest {
-            text: StringId(5).into(),
-            options: TextOptions::default(),
-            ..request
-        };
-        let ellipsis = prepare(&mut paragraphs, &request, "…", &mut fonts);
-        let truncated = paragraphs.get(truncated).rendered.as_ref().unwrap();
-        let ellipsis = paragraphs.get(ellipsis).rendered.as_ref().unwrap();
-        assert_eq!(
-            (
-                truncated.x,
-                truncated.y,
-                truncated.width,
-                truncated.height,
-                &truncated.alpha
-            ),
-            (
-                ellipsis.x,
-                ellipsis.y,
-                ellipsis.width,
-                ellipsis.height,
-                &ellipsis.alpha
-            ),
-        );
-
-        for (id, text) in ["", "first", "first\nsecond", "first\n"]
-            .into_iter()
-            .enumerate()
-        {
-            let request = TextRequest {
-                text: StringId(id as u64 + 6).into(),
-                area,
-                offset_x: 0.0,
-                color: Color::WHITE,
-                style: TextStyle::default(),
-                options: TextOptions::default(),
-                intrinsic_height: true,
-            };
-            let index = prepare(&mut paragraphs, &request, text, &mut fonts);
-            let paragraph = paragraphs.get(index);
-            assert_eq!(
-                paragraph.layout_height,
-                paragraph.rendered.as_ref().unwrap().layout_height,
-                "{text:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn control_glyphs_are_not_rasterized() {
-        let font = Font::from_static(include_bytes!(env!("BLIT_TEST_FONT"))).unwrap();
-        let mut fonts = FontCache::new(
-            vec![FontFace {
-                id: FontId::default(),
-                weight: 500,
-                font,
-            }],
-            1024 * 1024,
-        );
-        let mut paragraphs = ParagraphCache::new(1024 * 1024, 256);
-        let area = LogicalRect {
-            x: 0.0,
-            y: 0.0,
-            width: 384.0,
-            height: 36.0,
-        };
-        let request = |text| TextRequest {
-            text: StringId(text).into(),
-            area,
-            offset_x: 0.0,
-            color: Color::WHITE,
-            style: TextStyle {
-                size: 20.0,
-                weight: 500,
-                ..TextStyle::default()
-            },
-            options: TextOptions {
-                wrap: TextWrap::Word,
-                horizontal_align: HorizontalAlign::Center,
-                ..TextOptions::default()
-            },
-            intrinsic_height: false,
-        };
-        let request = request(1);
-        let multiline = prepare(&mut paragraphs, &request, "4 failed attempts\n", &mut fonts);
-        let request = TextRequest {
-            text: StringId(2).into(),
-            ..request
-        };
-        let single = prepare(&mut paragraphs, &request, "4 failed attempts", &mut fonts);
-        let multiline = paragraphs.get(multiline).rendered.as_ref().unwrap();
-        let single = paragraphs.get(single).rendered.as_ref().unwrap();
-        assert_eq!(
-            (
-                multiline.x,
-                multiline.y,
-                multiline.width,
-                multiline.height,
-                &multiline.alpha
-            ),
-            (
-                single.x,
-                single.y,
-                single.width,
-                single.height,
-                &single.alpha
-            ),
-        );
+    ResolvedParagraph {
+        x: left,
+        y: top,
+        width: (right - left).max(0) as usize,
+        height: (bottom - top).max(0) as usize,
     }
 }

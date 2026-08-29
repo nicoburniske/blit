@@ -1,75 +1,50 @@
-use super::SizedWidget;
+use super::Widget;
 use crate::{
     Ui,
     color::Color,
-    geometry::{LogicalRect, LogicalSize},
-    paint::{ImageFit, ImageRequest, ImageSampling, ImageTiling, NineSlice},
-    resource::ImageHandle,
+    container::Slot,
+    geometry::LogicalSize,
+    image::{ImageContent, ImageFit, ImageHandle, ImageSampling, ImageTiling, NineSlice},
+    node::Content,
 };
 
-crate::widget! {
+crate::builder! {
     pub struct Image<'a> {
-        new(pub resource: &'a ImageHandle);
-        pub fit: ImageFit,
-        pub sampling: ImageSampling,
-        pub opacity: f32 = 1.0,
-        #[skip]
-        pub colorize: Option<Color>,
-        #[skip]
-        pub nine_slice: Option<NineSlice>,
-        pub horizontal_tiling: ImageTiling,
-        pub vertical_tiling: ImageTiling,
+        new(resource: &'a ImageHandle),
+        @optional {
+            colorize: Color,
+            nine_slice: NineSlice,
+        },
+        slot: Slot = Slot::new(),
+        fit: ImageFit = ImageFit::default(),
+        sampling: ImageSampling = ImageSampling::default(),
+        opacity: f32 = 1.0,
+        horizontal_tiling: ImageTiling = ImageTiling::default(),
+        vertical_tiling: ImageTiling = ImageTiling::default(),
     }
 }
 
-impl<'a> Image<'a> {
-    pub fn colorize(mut self, color: Color) -> Self {
-        self.colorize = Some(color);
-        self
-    }
-
-    pub fn nine_slice(mut self, nine_slice: NineSlice) -> Self {
-        self.nine_slice = Some(nine_slice);
-        self
-    }
-
-    pub fn render(self, ui: &mut Ui, area: LogicalRect) {
-        if self.resource.is_empty() {
-            return;
-        }
-        let request = ImageRequest {
-            image: self.resource.id(),
-            area,
-            fit: self.fit,
-            sampling: self.sampling,
-            opacity: self.opacity,
-            colorize: self.colorize,
-            nine_slice: self.nine_slice,
-            horizontal_tiling: self.horizontal_tiling,
-            vertical_tiling: self.vertical_tiling,
-        };
-        ui.paint_image(request);
-    }
-}
-
-impl SizedWidget for Image<'_> {
+impl Widget for Image<'_> {
     type Output = ();
 
-    fn measure(&self, _: &mut Ui, available: LogicalRect) -> LogicalSize {
+    fn render(self, ui: &mut Ui) {
         let size = self.resource.size();
-        let height = if size.width == 0 {
-            0.0
-        } else {
-            available.width * size.height as f32 / size.width as f32
-        }
-        .min(available.height);
-        LogicalSize {
-            width: available.width,
-            height,
-        }
-    }
-
-    fn render(self, ui: &mut Ui, area: LogicalRect) -> Self::Output {
-        Image::render(self, ui, area)
+        ui.add_leaf(
+            self.slot,
+            Content::Image(ImageContent {
+                image: self.resource.id(),
+                intrinsic: LogicalSize {
+                    width: size.width as f32,
+                    height: size.height as f32,
+                },
+                fit: self.fit,
+                sampling: self.sampling,
+                opacity: self.opacity,
+                colorize: self.colorize,
+                nine_slice: self.nine_slice,
+                horizontal_tiling: self.horizontal_tiling,
+                vertical_tiling: self.vertical_tiling,
+            }),
+        );
     }
 }
