@@ -11,13 +11,14 @@ pub struct RenderGeometry {
     pub physical_bounds: PhysicalRect,
     pub physical_per_logical: Scale2,
     pub layout_resolution: LayoutResolution,
+    pub supports_zoom: bool,
 }
 
 pub trait Renderer {
     fn geometry(&self) -> RenderGeometry;
 
-    /// updates the logical-to-physical scale used by rendering and text layout
-    fn set_scale(&mut self, scale: Scale2);
+    /// updates the scale of a renderer that supports zoom
+    fn set_scale(&mut self, _: Scale2) {}
 
     /// damage rectangles may overlap and are interpreted as their union
     fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]);

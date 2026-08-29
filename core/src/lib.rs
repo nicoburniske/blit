@@ -96,7 +96,13 @@ impl Ui {
 
     /// changes zoom on the next frame
     pub fn set_zoom(&mut self, zoom: f32) {
-        self.state_mut().set_zoom(zoom)
+        if self
+            .state()
+            .render_geometry
+            .is_none_or(|geometry| geometry.supports_zoom)
+        {
+            self.state_mut().set_zoom(zoom)
+        }
     }
 
     /// animates a value toward `target`, keyed by `id`
@@ -388,7 +394,12 @@ pub fn render<P: Renderer, R: Repaint>(
     mut render: impl FnMut(&mut Ui),
 ) {
     let geometry = renderer.geometry();
-    let scale = geometry.physical_per_logical.zoom(state.zoom);
+    let zoom = if geometry.supports_zoom {
+        state.zoom
+    } else {
+        1.0
+    };
+    let scale = geometry.physical_per_logical.zoom(zoom);
     if state.render_geometry != Some(geometry) {
         assert!(scale.x.is_finite() && scale.x > 0.0);
         assert!(scale.y.is_finite() && scale.y > 0.0);
@@ -396,8 +407,8 @@ pub fn render<P: Renderer, R: Repaint>(
         state.render_geometry = Some(geometry);
         state.layout_resolution = geometry.layout_resolution;
         if let LayoutResolution::Discrete { step } = &mut state.layout_resolution {
-            step.width /= state.zoom;
-            step.height /= state.zoom;
+            step.width /= zoom;
+            step.height /= zoom;
         }
         state.screen = geometry.physical_bounds.to_logical(scale);
         state.full_repaint = true;
@@ -409,12 +420,13 @@ pub fn render<P: Renderer, R: Repaint>(
         renderer,
         state,
         scale,
+        zoom,
         time,
         inputs.next().unwrap_or_default(),
         &mut render,
     );
     for input in inputs {
-        record(renderer, state, scale, time, input, &mut render);
+        record(renderer, state, scale, zoom, time, input, &mut render);
     }
 
     // repaint only the final recorded frame
@@ -428,6 +440,7 @@ fn record<P: Renderer>(
     renderer: &mut P,
     state: &mut UiState,
     scale: Scale2,
+    zoom: f32,
     time: Duration,
     input: Input,
     render: impl FnOnce(&mut Ui),
@@ -455,7 +468,7 @@ fn record<P: Renderer>(
             renderer,
             time,
             input,
-            zoom: state.zoom,
+            zoom,
         };
         render(&mut ui);
     }

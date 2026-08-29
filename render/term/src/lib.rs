@@ -26,10 +26,6 @@ use unicode_width::UnicodeWidthStr;
 const TEXT_RUN_CACHE_CAPACITY: usize = 2 * 1024 * 1024;
 const TEXT_LAYOUT_CACHE_CAPACITY: usize = 4 * 1024 * 1024;
 
-pub const PIXEL_LIKE: LogicalSize = LogicalSize {
-    width: 8.0,
-    height: 16.0,
-};
 pub const CELL_NATIVE: LogicalSize = LogicalSize {
     width: 1.0,
     height: 1.0,
@@ -51,12 +47,18 @@ impl Default for RendererConfig {
     }
 }
 
+impl RendererConfig {
+    fn validate(&self) {
+        assert!(self.cell_size.width.is_finite() && self.cell_size.width > 0.0);
+        assert!(self.cell_size.height.is_finite() && self.cell_size.height > 0.0);
+    }
+}
+
 pub struct TerminalRenderer {
     columns: usize,
     rows: usize,
-    base_cell_size: LogicalSize,
-    scale: Scale2,
     cell_size: LogicalSize,
+    scale: Scale2,
     text_runs: DeferredCache<RunKey, CachedRun, RunScale>,
     text_layouts: DeferredCache<LayoutKey, TextLayout, LayoutScale>,
     next_text_run: u32,
@@ -76,24 +78,22 @@ pub struct TerminalRenderer {
 
 impl TerminalRenderer {
     pub fn new(config: RendererConfig) -> Self {
+        config.validate();
         let RendererConfig {
             columns,
             rows,
             cell_size,
         } = config;
-        assert!(cell_size.width.is_finite() && cell_size.width > 0.0);
-        assert!(cell_size.height.is_finite() && cell_size.height > 0.0);
         let columns = usize::from(columns.max(1));
         let rows = usize::from(rows.max(1));
         Self {
             columns,
             rows,
-            base_cell_size: cell_size,
+            cell_size,
             scale: Scale2 {
                 x: 1.0 / cell_size.width,
                 y: 1.0 / cell_size.height,
             },
-            cell_size,
             text_runs: DeferredCache::new(RunScale, TEXT_RUN_CACHE_CAPACITY),
             text_layouts: DeferredCache::new(LayoutScale, TEXT_LAYOUT_CACHE_CAPACITY),
             next_text_run: 1,
@@ -121,9 +121,20 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn resize(&mut self, columns: u16, rows: u16) {
+    pub fn resize(&mut self, config: RendererConfig) {
+        config.validate();
+        let RendererConfig {
+            columns,
+            rows,
+            cell_size,
+        } = config;
         let columns = usize::from(columns.max(1));
         let rows = usize::from(rows.max(1));
+        self.cell_size = cell_size;
+        self.scale = Scale2 {
+            x: 1.0 / cell_size.width,
+            y: 1.0 / cell_size.height,
+        };
         if self.columns == columns && self.rows == rows {
             return;
         }
@@ -351,22 +362,12 @@ impl Renderer for TerminalRenderer {
     fn geometry(&self) -> RenderGeometry {
         RenderGeometry {
             physical_bounds: self.screen(),
-            physical_per_logical: Scale2 {
-                x: 1.0 / self.base_cell_size.width,
-                y: 1.0 / self.base_cell_size.height,
-            },
+            physical_per_logical: self.scale,
             layout_resolution: blit::layout::LayoutResolution::Discrete {
-                step: self.base_cell_size,
+                step: self.cell_size,
             },
+            supports_zoom: false,
         }
-    }
-
-    fn set_scale(&mut self, scale: Scale2) {
-        self.scale = scale;
-        self.cell_size = LogicalSize {
-            width: 1.0 / scale.x,
-            height: 1.0 / scale.y,
-        };
     }
 
     fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
@@ -1223,6 +1224,10 @@ mod tests {
     use blit::{UiState, repaint::FullRepaint};
     use std::time::Duration;
 
+    const PIXEL_LIKE: LogicalSize = LogicalSize {
+        width: 8.0,
+        height: 16.0,
+    };
     const CELL_WIDTH: f32 = PIXEL_LIKE.width;
     const CELL_HEIGHT: f32 = PIXEL_LIKE.height;
     const SCALE: Scale2 = Scale2 {
@@ -1517,7 +1522,6 @@ mod tests {
         let background = Color::from_rgba8(80, 120, 160, 255);
         let mut renderer = pixel_renderer(8, 4);
         let mut state = UiState::default();
-        state.set_zoom(1.25);
         blit::render(
             &mut renderer,
             &mut state,
