@@ -268,14 +268,6 @@ impl Sizing {
             Self::Percent(_) => size.max(0.0),
         }
     }
-
-    pub fn minimum(self, resolved: f32) -> f32 {
-        match self {
-            Self::Fit { min, .. } | Self::Grow { min, .. } => min.max(0.0),
-            Self::Fixed(size) => size.max(0.0),
-            Self::Percent(_) => resolved,
-        }
-    }
 }
 
 /// absolute placement of a container outside its parent's flow

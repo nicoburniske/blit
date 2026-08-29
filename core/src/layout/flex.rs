@@ -36,6 +36,13 @@ impl Layout for Flex {
     type Scope<'a> = UnitScope<'a, Self>;
 
     fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
+        fn minimum(sizing: Sizing, resolved: f32) -> f32 {
+            match sizing {
+                Sizing::Grow { min, .. } => min.max(0.0),
+                Sizing::Fit { .. } | Sizing::Fixed(_) | Sizing::Percent(_) => resolved,
+            }
+        }
+
         fn range(sizing: Sizing, available: f32, stretch: bool) -> (f32, f32) {
             if stretch {
                 let size = match sizing {
@@ -142,14 +149,14 @@ impl Layout for Flex {
             let mut capacity = 0.0;
             for node in cx.children() {
                 let child_size = cx.axis_size(node, self.axis);
-                capacity += child_size - cx.sizing(node, self.axis).minimum(child_size);
+                capacity += child_size - minimum(cx.sizing(node, self.axis), child_size);
             }
             if capacity > 0.0 {
                 let deficit = (-free).min(capacity);
                 for node in cx.children() {
                     let child_size = cx.axis_size(node, self.axis);
                     let available_shrink =
-                        child_size - cx.sizing(node, self.axis).minimum(child_size);
+                        child_size - minimum(cx.sizing(node, self.axis), child_size);
                     let shrunk = child_size - deficit * available_shrink / capacity;
                     cx.set_size(node, self.axis, shrunk);
                     used += shrunk - child_size;
