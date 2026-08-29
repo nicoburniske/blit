@@ -7,6 +7,6 @@ license.workspace = true
 [dependencies]
 base64 = "0.22"
 blit.workspace = true
-crossterm = "0.29"
+termina = "0.3.3"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"

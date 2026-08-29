@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{self, stdout},
+    io::{self, Write as _},
     time::{Duration, Instant},
 };
 
@@ -20,15 +20,11 @@ use blit::{
     widget::{Image, Text, Widget},
 };
 use blit_terminal_poc::TerminalRenderer;
-use crossterm::{
-    cursor::{Hide, Show},
+use termina::{
+    Event as TerminalEvent, PlatformTerminal, Terminal,
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
-        MouseButton as TerminalMouseButton, MouseEventKind,
-    },
-    execute,
-    terminal::{
-        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
+        KeyCode as TerminalKeyCode, KeyEventKind as TerminalKeyEventKind,
+        Modifiers as TerminalModifiers, MouseButton as TerminalMouseButton, MouseEventKind,
     },
 };
 
@@ -70,37 +66,41 @@ fn main() -> io::Result<()> {
 }
 
 fn run_interactive() -> io::Result<()> {
-    let (columns, rows) = size()?;
-    let mut renderer = TerminalRenderer::new(columns, rows);
+    let mut terminal = PlatformTerminal::new()?;
+    let size = terminal.get_dimensions()?;
+    let mut renderer = TerminalRenderer::new(size.cols, size.rows);
     let mut state = UiState::new(renderer.screen(), 1.0);
     let mut app = AppState {
         selected: 1,
         rounded: true,
         image: demo_image(&mut renderer),
     };
-    let mut output = stdout();
-    enable_raw_mode()?;
-    execute!(output, EnterAlternateScreen, Hide, EnableMouseCapture)?;
+    terminal.enter_raw_mode()?;
+    write!(
+        terminal,
+        "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h"
+    )?;
+    terminal.flush()?;
     let result = (|| -> io::Result<()> {
         let start = Instant::now();
         render_with_state(&mut renderer, &mut state, &mut app, Duration::ZERO, &[]);
-        renderer.present(&mut output)?;
+        renderer.present(&mut terminal)?;
         'run: loop {
             let now = start.elapsed();
             let mut next_event = if state.has_pending_redraw() {
-                if event::poll(Duration::ZERO)? {
-                    Some(event::read()?)
+                if terminal.poll(|_| true, Some(Duration::ZERO))? {
+                    Some(terminal.read(|_| true)?)
                 } else {
                     None
                 }
             } else if let Some(deadline) = state.next_timer_deadline() {
-                if event::poll(deadline.saturating_sub(now))? {
-                    Some(event::read()?)
+                if terminal.poll(|_| true, Some(deadline.saturating_sub(now)))? {
+                    Some(terminal.read(|_| true)?)
                 } else {
                     None
                 }
             } else {
-                Some(event::read()?)
+                Some(terminal.read(|_| true)?)
             };
             let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
             let mut input_count = 0;
@@ -108,30 +108,32 @@ fn run_interactive() -> io::Result<()> {
             while let Some(terminal_event) = next_event {
                 event_count += 1;
                 let input = match terminal_event {
-                    Event::Resize(columns, rows) => {
-                        renderer.resize(columns, rows);
+                    TerminalEvent::WindowResized(size) => {
+                        renderer.resize(size.cols, size.rows);
                         state.set_screen(renderer.screen());
                         None
                     }
-                    Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => break 'run,
-                        KeyCode::Left => Some(Input::Key(KeyInput::new(Key::ArrowLeft))),
-                        KeyCode::Right => Some(Input::Key(KeyInput::new(Key::ArrowRight))),
-                        KeyCode::Up => Some(Input::Key(KeyInput::new(Key::ArrowUp))),
-                        KeyCode::Down => Some(Input::Key(KeyInput::new(Key::ArrowDown))),
-                        KeyCode::Char(character) => Some(Input::Text(character)),
+                    TerminalEvent::Key(key) if key.kind == TerminalKeyEventKind::Press => match key
+                        .code
+                    {
+                        TerminalKeyCode::Char('q') | TerminalKeyCode::Escape => break 'run,
+                        TerminalKeyCode::Left => Some(Input::Key(KeyInput::new(Key::ArrowLeft))),
+                        TerminalKeyCode::Right => Some(Input::Key(KeyInput::new(Key::ArrowRight))),
+                        TerminalKeyCode::Up => Some(Input::Key(KeyInput::new(Key::ArrowUp))),
+                        TerminalKeyCode::Down => Some(Input::Key(KeyInput::new(Key::ArrowDown))),
+                        TerminalKeyCode::Char(character) => Some(Input::Text(character)),
                         _ => None,
                     },
-                    Event::Mouse(mouse) => {
+                    TerminalEvent::Mouse(mouse) => {
                         let position = LogicalPoint {
                             x: (f32::from(mouse.column) + 0.5) * blit_terminal_poc::CELL_WIDTH,
                             y: (f32::from(mouse.row) + 0.5) * blit_terminal_poc::CELL_HEIGHT,
                         };
                         let modifiers = Modifiers::new(
-                            mouse.modifiers.contains(KeyModifiers::SHIFT),
-                            mouse.modifiers.contains(KeyModifiers::CONTROL),
-                            mouse.modifiers.contains(KeyModifiers::ALT),
-                            mouse.modifiers.contains(KeyModifiers::SUPER),
+                            mouse.modifiers.contains(TerminalModifiers::SHIFT),
+                            mouse.modifiers.contains(TerminalModifiers::CONTROL),
+                            mouse.modifiers.contains(TerminalModifiers::ALT),
+                            mouse.modifiers.contains(TerminalModifiers::SUPER),
                         );
                         let button = match mouse.kind {
                             MouseEventKind::Down(button)
@@ -201,8 +203,10 @@ fn run_interactive() -> io::Result<()> {
                         input_count += 1;
                     }
                 }
-                next_event = if event_count < MAX_EVENTS_PER_FRAME && event::poll(Duration::ZERO)? {
-                    Some(event::read()?)
+                next_event = if event_count < MAX_EVENTS_PER_FRAME
+                    && terminal.poll(|_| true, Some(Duration::ZERO))?
+                {
+                    Some(terminal.read(|_| true)?)
                 } else {
                     None
                 };
@@ -219,15 +223,21 @@ fn run_interactive() -> io::Result<()> {
                     now,
                     &inputs[..input_count],
                 );
-                renderer.present(&mut output)?;
+                renderer.present(&mut terminal)?;
             }
         }
         Ok(())
     })();
     let restore = renderer
-        .clear_kitty_graphics(&mut output)
-        .and_then(|_| execute!(output, DisableMouseCapture, Show, LeaveAlternateScreen))
-        .and_then(|_| disable_raw_mode());
+        .clear_kitty_graphics(&mut terminal)
+        .and_then(|_| {
+            write!(
+                terminal,
+                "\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l"
+            )?;
+            terminal.flush()
+        })
+        .and_then(|_| terminal.enter_cooked_mode());
     result.and(restore)
 }
 
