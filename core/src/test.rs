@@ -278,6 +278,38 @@ fn container_scopes_and_rectangle_leaves_resolve_layout() {
 }
 
 #[test]
+fn flex_preserves_fit_content_and_shrinks_grow_content() {
+    let mut harness = Harness::new(TestRenderer::default());
+    harness.render(Duration::ZERO, Input::None, |ui| {
+        let mut row = ui.layout(Flex::row()).fixed(10.0, 1.0).open();
+        row.add(widget::Text::new("12345678").text_size(1.0));
+        row.add(
+            widget::Text::new("abcdef")
+                .text_size(1.0)
+                .slot(Slot::new().width(Sizing::grow())),
+        );
+    });
+
+    assert_eq!(
+        harness.renderer().text_areas,
+        [
+            LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: 8.0,
+                height: 1.0,
+            },
+            LogicalRect {
+                x: 8.0,
+                y: 0.0,
+                width: 2.0,
+                height: 1.0,
+            },
+        ]
+    );
+}
+
+#[test]
 fn custom_layout_is_stored_and_invoked_after_declaration() {
     #[derive(Clone, Copy)]
     struct ReverseRow {
@@ -1438,8 +1470,9 @@ fn focus_moves_between_text_inputs_and_clears_when_absent() {
     let mut second = widget::TextInputState::default();
     let render =
         |ui: &mut Ui, first: &mut widget::TextInputState, second: &mut widget::TextInputState| {
-            widget::TextInput::new(first).render(ui);
-            widget::TextInput::new(second).render(ui);
+            let slot = Slot::new().height(Sizing::fixed(5.0));
+            widget::TextInput::new(first).slot(slot).render(ui);
+            widget::TextInput::new(second).slot(slot).render(ui);
         };
 
     harness.render(Duration::ZERO, Input::None, |ui| {
