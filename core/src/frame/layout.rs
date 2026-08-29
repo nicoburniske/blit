@@ -47,7 +47,7 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     /// the current size of a node
     #[inline]
     pub fn size(&self, node: NodeId) -> LogicalSize {
-        self.debug_assert_child(node);
+        self.assert_child(node);
         let area = self.frame.nodes[node.index()].area;
         LogicalSize {
             width: area.width,
@@ -57,7 +57,7 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
 
     /// lays out a direct child under the supplied constraints
     pub fn layout_child(&mut self, node: NodeId, constraints: Constraints) -> LogicalSize {
-        self.debug_assert_child(node);
+        self.assert_child(node);
         self.frame
             .layout_node(node, constraints, self.renderer, self.positioned)
     }
@@ -67,7 +67,7 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     /// simple leaves reuse their current measured size
     /// containers and wrapped text recalculate their layout
     pub fn constrain_child(&mut self, node: NodeId, constraints: Constraints) -> LogicalSize {
-        self.debug_assert_child(node);
+        self.assert_child(node);
         if self.frame.stored_layout(node).is_none()
             && !matches!(
                 self.frame.nodes[node.index()].content.decode(),
@@ -87,7 +87,7 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     /// sets a direct child's position relative to this container
     #[inline]
     pub fn set_position(&mut self, node: NodeId, position: LogicalPoint) {
-        self.debug_assert_child(node);
+        self.assert_child(node);
         self.frame.nodes[node.index()].area.x = position.x + self.offset.x;
         self.frame.nodes[node.index()].area.y = position.y + self.offset.y;
     }
@@ -109,7 +109,7 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     /// panics when the child was declared without metadata
     #[inline]
     pub fn item(&self, node: NodeId) -> I {
-        self.debug_assert_child(node);
+        self.assert_child(node);
         let offset = self.frame.nodes[node.index()]
             .layout_item
             .offset()
@@ -120,36 +120,36 @@ impl<'a, I: Copy + 'static> LayoutCx<'a, I> {
     /// the sizing requested by a child on an axis
     #[inline]
     pub fn sizing(&self, node: NodeId, axis: Axis) -> crate::container::Sizing {
-        self.debug_assert_child(node);
+        self.assert_child(node);
         self.frame.nodes[node.index()].sizing(axis)
     }
 
     /// the current size of a child on an axis
     #[inline]
     pub fn axis_size(&self, node: NodeId, axis: Axis) -> f32 {
-        self.debug_assert_child(node);
+        self.assert_child(node);
         self.frame.nodes[node.index()].size(axis)
     }
 
     /// sets a child's size on an axis without changing its position
     #[inline]
     pub fn set_size(&mut self, node: NodeId, axis: Axis, size: f32) {
-        self.debug_assert_child(node);
+        self.assert_child(node);
         self.frame.nodes[node.index()].set_size(axis, size)
     }
 
     /// sets a direct child's order among its paint siblings
     #[inline]
     pub fn set_z_index(&mut self, node: NodeId, z_index: i16) {
-        self.debug_assert_child(node);
+        self.assert_child(node);
         self.frame.nodes[node.index()].slot.z_index = z_index;
         self.frame.needs_paint_order |= z_index != 0;
     }
 
     #[inline]
     #[track_caller]
-    fn debug_assert_child(&self, node: NodeId) {
-        debug_assert_eq!(
+    fn assert_child(&self, node: NodeId) {
+        assert_eq!(
             self.frame.nodes[node.index()].parent,
             self.node,
             "layout can only access direct children"
@@ -241,9 +241,9 @@ impl DataArena {
     }
 
     pub fn load<T: Copy>(&self, offset: usize) -> T {
-        debug_assert!(align_of::<T>() <= align_of::<Word>());
-        debug_assert_eq!(offset % align_of::<T>(), 0);
-        debug_assert!(
+        assert!(align_of::<T>() <= align_of::<Word>());
+        assert_eq!(offset % align_of::<T>(), 0);
+        assert!(
             offset
                 .checked_add(size_of::<T>())
                 .is_some_and(|end| end <= self.len)
