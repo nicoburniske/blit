@@ -51,6 +51,8 @@ crate::builder! {
 }
 
 /// frame-local paint layer declared with [`Ui::layer`]
+///
+/// do not store this across renders
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LayerId(pub(crate) NonZeroU16);

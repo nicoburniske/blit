@@ -10,7 +10,9 @@ pub enum Content<'a> {
     Image(ImageContent),
 }
 
-/// identifies a node only during the current render callback
+/// identifies a node only during the current render
+///
+/// do not store this across renders
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NodeId(u32);
 
