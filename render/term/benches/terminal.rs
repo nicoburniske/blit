@@ -9,7 +9,7 @@ use blit::{
     renderer::Renderer as _,
     repaint::{IncrementalRepaint, MyersTracker},
 };
-use blit_showcase::{Page, Showcase};
+use blit_showcase::{Config, Page, Showcase};
 use blit_term::{RendererConfig, TerminalRenderer};
 use divan::counter::ItemsCount;
 
@@ -83,7 +83,7 @@ fn showcase_incremental(bencher: divan::Bencher, update: ShowcaseUpdate) {
     let mut renderer = showcase_renderer();
     let mut state = UiState::default();
     let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
-    let mut showcase = Showcase::default();
+    let mut showcase = Showcase::new(Config::terminal());
     blit::render(
         &mut renderer,
         &mut state,
@@ -130,7 +130,7 @@ fn showcase_full(bencher: divan::Bencher, page: Page) {
     let mut renderer = showcase_renderer();
     let mut state = UiState::default();
     let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
-    let mut showcase = Showcase::default();
+    let mut showcase = Showcase::new(Config::terminal());
     showcase.set_page(page);
     blit::render(
         &mut renderer,
@@ -200,8 +200,8 @@ fn showcase_renderer() -> TerminalRenderer {
             .columns(140)
             .rows(50)
             .cell_size(LogicalSize {
-                width: 8.0,
-                height: 16.0,
+                width: 0.5,
+                height: 1.0,
             }),
     )
 }

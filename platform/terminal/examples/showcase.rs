@@ -4,11 +4,11 @@ use blit::{
     Ui,
     input::{Input, Key},
 };
-use blit_showcase::Showcase;
+use blit_showcase::{Config, Showcase};
 use blit_terminal::ControlFlow;
 
 fn main() -> io::Result<()> {
-    let mut showcase = Showcase::default();
+    let mut showcase = Showcase::new(Config::terminal());
     blit_terminal::run(|ui: &mut Ui| {
         let control = if matches!(ui.input(), Input::Text('q'))
             || matches!(ui.input(), Input::Key(key) if key.key == Key::Escape)

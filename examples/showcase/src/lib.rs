@@ -11,20 +11,23 @@ use blit::{
     input::{Input, Key},
     interact::{Sense, WidgetId},
     layout::{
-        Align, Axis, Constraints, Flex, Grid, ItemScope, Justify, Layout, LayoutCx, UnitScope, Wrap,
+        Align, Axis, Constraints, Flex, Grid, ItemScope, Justify, Layout, LayoutCx,
+        LayoutResolution, UnitScope, Wrap,
     },
     style::{Clip, Style},
-    text::{HorizontalAlign, TextWrap},
+    text::HorizontalAlign,
     widget::{Image, Rectangle, ScrollArea, ScrollState, Text, TextInput, TextInputState, Widget},
 };
 
 pub struct Showcase {
+    config: Config,
     canvas: CanvasConfig,
     transition_easing: Easing,
     transition_target: bool,
     carousel: usize,
     resize: ResizeState,
     page: Page,
+    controls_scroll: ScrollState,
     scroll: ScrollState,
     name: TextInputState,
     password: TextInputState,
@@ -35,6 +38,63 @@ pub struct Showcase {
     fps_label: String,
 }
 
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Config {
+        new(),
+        space_xs: f32 = 2.0,
+        space_sm: f32 = 4.0,
+        space_md: f32 = 8.0,
+        space_lg: f32 = 12.0,
+        space_xl: f32 = 16.0,
+        space_xxl: f32 = 20.0,
+        text_sm: f32 = 10.0,
+        text_md: f32 = 12.0,
+        text_lg: f32 = 16.0,
+        text_xl: f32 = 23.0,
+        sz_xs: f32 = 4.0,
+        sz_sm: f32 = 24.0,
+        sz_md: f32 = 32.0,
+        sz_lg: f32 = 96.0,
+        sz_xl: f32 = 160.0,
+        border: f32 = 1.0,
+        radius_sm: f32 = 5.0,
+        radius_md: f32 = 8.0,
+        radius_lg: f32 = 11.0,
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Config {
+    pub fn terminal() -> Self {
+        Self::default()
+            .space_xs(0.5)
+            .space_sm(1.0)
+            .space_md(1.0)
+            .space_lg(1.0)
+            .space_xl(1.0)
+            .space_xxl(2.0)
+            .text_sm(1.0)
+            .text_md(1.0)
+            .text_lg(1.0)
+            .text_xl(1.0)
+            .sz_xs(0.5)
+            .sz_sm(1.0)
+            .sz_md(2.0)
+            .sz_lg(4.0)
+            .sz_xl(6.0)
+            .border(0.5)
+            .radius_sm(0.5)
+            .radius_md(0.5)
+            .radius_lg(0.5)
+    }
+}
+
 #[derive(Clone, Copy)]
 struct CanvasConfig {
     layout: CanvasLayout,
@@ -42,9 +102,8 @@ struct CanvasConfig {
     justify: Justify,
     align: Align,
     sizing: ItemSizing,
-    zoom: f32,
-    gap: f32,
-    padding: f32,
+    gap: Spacing,
+    padding: Spacing,
     transitions: bool,
     transition_duration: f32,
 }
@@ -72,6 +131,27 @@ enum CanvasLayout {
     Grid,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Spacing {
+    Zero,
+    Xs,
+    Sm,
+    Md,
+    Lg,
+}
+
+impl Spacing {
+    fn resolve(self, config: Config) -> f32 {
+        match self {
+            Self::Zero => 0.0,
+            Self::Xs => config.space_xs,
+            Self::Sm => config.space_sm,
+            Self::Md => config.space_md,
+            Self::Lg => config.space_lg,
+        }
+    }
+}
+
 impl Default for CanvasConfig {
     fn default() -> Self {
         Self {
@@ -80,9 +160,8 @@ impl Default for CanvasConfig {
             justify: Justify::Start,
             align: Align::Center,
             sizing: ItemSizing::Fixed,
-            zoom: 1.0,
-            gap: 8.0,
-            padding: 8.0,
+            gap: Spacing::Md,
+            padding: Spacing::Md,
             transitions: true,
             transition_duration: 300.0,
         }
@@ -91,13 +170,21 @@ impl Default for CanvasConfig {
 
 impl Default for Showcase {
     fn default() -> Self {
+        Self::new(Config::default())
+    }
+}
+
+impl Showcase {
+    pub fn new(config: Config) -> Self {
         Self {
+            config,
             canvas: CanvasConfig::default(),
             transition_easing: Easing::EaseInOutQuad,
             transition_target: false,
             carousel: 0,
             resize: ResizeState::default(),
             page: Page::Layout,
+            controls_scroll: ScrollState::default(),
             scroll: ScrollState::default(),
             name: TextInputState::default(),
             password: TextInputState::default(),
@@ -108,9 +195,7 @@ impl Default for Showcase {
             fps_label: "FPS --".into(),
         }
     }
-}
 
-impl Showcase {
     pub fn set_page(&mut self, page: Page) {
         self.page = page;
     }
@@ -157,58 +242,76 @@ impl Showcase {
         }
 
         ui.clear();
+        let config = self.config;
         let screen = ui.screen();
-        let max_width = (screen.width - 420.0).max(240.0);
-        let max_height = (screen.height - 190.0).max(180.0);
+        let compact = screen.width < config.text_md * 60.0;
         let mut root = ui
-            .layout(Flex::column().padding(Sides::all(20.0)).gap(16.0))
+            .layout(
+                Flex::column()
+                    .padding(Sides::all(config.space_xxl))
+                    .gap(config.space_xl),
+            )
             .grow()
             .style(Style::new().background(colors::BACKGROUND))
             .open();
 
         root.add(|ui: &mut Ui| self.header(ui));
         root.add(|ui: &mut Ui| match self.page {
-            Page::Layout => self.body(ui, max_width, max_height),
+            Page::Layout => {
+                let mut body = ui
+                    .layout(
+                        Flex::new(if compact {
+                            Axis::Vertical
+                        } else {
+                            Axis::Horizontal
+                        })
+                        .gap(self.config.space_xl),
+                    )
+                    .grow()
+                    .clip(Clip::Bounds)
+                    .open();
+                body.add(|ui: &mut Ui| self.controls(ui, compact));
+                body.add(|ui: &mut Ui| self.preview(ui));
+            }
             Page::Scrolling => self.scrolling(ui),
             Page::Input => self.input_page(ui),
             Page::Images => self.images(ui),
             Page::Animation => self.animation_page(ui),
         });
-        root.add(|ui: &mut Ui| Self::screen_badge(ui, &self.fps_label));
+        root.add(|ui: &mut Ui| self.screen_badge(ui));
     }
-}
-
-impl Showcase {
     fn header(&mut self, ui: &mut Ui) {
+        let config = self.config;
         let mut header = ui
             .layout(
-                Flex::row()
+                Wrap::horizontal()
+                    .item_gap(config.space_md)
+                    .run_gap(config.space_sm)
                     .align(Align::Center)
                     .justify(Justify::SpaceBetween),
             )
             .width(Sizing::grow())
-            .height(Sizing::fit().min(64.0))
+            .height(Sizing::fit().min(config.text_xl + config.space_md * 2.0))
             .style(Style::new().background(colors::BACKGROUND))
             .open();
-        header.add(|ui: &mut Ui| {
-            let mut title = ui.layout(Flex::column().gap(3.0)).open();
-            title.add(
-                Text::new("BLIT / SHOWCASE")
-                    .color(colors::TEXT)
-                    .text_size(23.0),
-            );
-            title.add(
-                Text::new(
-                    "Explore Blit's layout, input, rendering, scrolling, and animation primitives",
-                )
-                .color(colors::TEXT_MUTED)
-                .text_size(12.0),
-            );
-        });
+        header.add(
+            Text::new("BLIT / SHOWCASE")
+                .color(colors::TEXT)
+                .text_size(config.text_xl),
+        );
         header.add(|ui: &mut Ui| {
             let mut tabs = ui
-                .layout(Flex::row().padding(Sides::all(4.0)).gap(2.0))
-                .style(Style::new().background(colors::TRACK).uniform_radius(9.0))
+                .layout(
+                    Wrap::horizontal()
+                        .padding(Sides::all(config.space_sm))
+                        .item_gap(config.space_xs)
+                        .run_gap(config.space_xs),
+                )
+                .style(
+                    Style::new()
+                        .background(colors::TRACK)
+                        .uniform_radius(config.radius_md),
+                )
                 .open();
             for (index, (label, page)) in [
                 ("Layout", Page::Layout),
@@ -221,323 +324,323 @@ impl Showcase {
             .enumerate()
             {
                 let selected = self.page == page;
-                if tabs
-                    .add(
-                        Button::new(WidgetId::new(("page", index)))
-                            .label(label)
-                            .background(if selected {
-                                colors::SURFACE_HIGH
-                            } else {
-                                colors::TRACK
-                            })
-                            .clicked_background(colors::ACCENT_DARK)
-                            .text_color(if selected {
-                                colors::TEXT
-                            } else {
-                                colors::TEXT_MUTED
-                            })
-                            .border_width(1.0)
-                            .border_color(if selected {
-                                colors::ACCENT
-                            } else {
-                                colors::TRACK
-                            })
-                            .radius(6.0)
-                            .padding_x(15.0)
-                            .padding_y(9.0)
-                            .text_size(12.0),
-                    )
-                    .clicked()
-                {
+                if tabs.add(
+                    Button::new(WidgetId::new(("page", index)))
+                        .label(label)
+                        .background(if selected {
+                            colors::SURFACE_HIGH
+                        } else {
+                            colors::TRACK
+                        })
+                        .clicked_background(colors::ACCENT_DARK)
+                        .text_color(if selected {
+                            colors::TEXT
+                        } else {
+                            colors::TEXT_MUTED
+                        })
+                        .border_width(config.border)
+                        .border_color(if selected {
+                            colors::ACCENT
+                        } else {
+                            colors::TRACK
+                        })
+                        .radius(config.radius_sm)
+                        .padding_x(config.space_lg)
+                        .padding_y(config.space_md)
+                        .text_size(config.text_md)
+                        .min_height(config.sz_md),
+                ) {
                     self.page = page;
                 }
             }
         });
-        if header
-            .add(choice("reset playground", "Reset", false).padding_x(14.0))
-            .clicked()
+        if header.add(choice("reset playground", "Reset", false, config).padding_x(config.space_lg))
         {
             self.canvas = CanvasConfig::default();
             self.transition_easing = Easing::EaseInOutQuad;
             self.transition_target = false;
             self.carousel = 0;
-            self.resize.reset();
+            self.resize = ResizeState::default();
         }
     }
 
-    fn body(&mut self, ui: &mut Ui, max_width: f32, max_height: f32) {
-        let mut body = ui
-            .layout(Flex::row().gap(16.0))
-            .grow()
-            .clip(Clip::Bounds)
-            .open();
-
-        body.add(|ui: &mut Ui| self.controls(ui));
-        body.add(|ui: &mut Ui| self.preview(ui, max_width, max_height));
-    }
-
-    fn controls(&mut self, ui: &mut Ui) {
-        let mut controls = ui
-            .layout(Flex::column().padding(Sides::all(15.0)).gap(11.0))
-            .width(Sizing::fixed(310.0))
-            .height(Sizing::grow())
+    fn controls(&mut self, ui: &mut Ui, compact: bool) {
+        let config = self.config;
+        let mut panel = ui
+            .layout(Flex::column())
+            .width(if compact {
+                Sizing::grow()
+            } else {
+                Sizing::percent(0.28)
+            })
+            .height(if compact {
+                Sizing::percent(0.45)
+            } else {
+                Sizing::grow()
+            })
             .style(
                 Style::new()
                     .background(colors::SURFACE)
-                    .solid_border(1.0, colors::BORDER)
-                    .uniform_radius(11.0),
+                    .solid_border(config.border, colors::BORDER)
+                    .uniform_radius(config.radius_lg),
             )
             .clip(Clip::Bounds)
             .open();
-        controls.add(
-            Text::new("LAYOUT PARAMETERS")
-                .color(colors::ACCENT)
-                .text_size(12.0),
-        );
-        controls.add(
-            Text::new("layout")
-                .color(colors::TEXT_MUTED)
-                .text_size(11.0),
-        );
-        controls.add(options(
-            "layout",
-            &mut self.canvas.layout,
-            [
-                ("Flex", CanvasLayout::Flex),
-                ("Wrap", CanvasLayout::Wrap),
-                ("Grid", CanvasLayout::Grid),
-            ],
-            6.0,
-            12.0,
-        ));
+        panel.add(|ui: &mut Ui| {
+            let mut controls = ScrollArea::vertical(&mut self.controls_scroll)
+                .id("layout controls")
+                .padding(Sides::all(config.space_lg))
+                .gap(config.space_md)
+                .begin(ui);
+            controls.add(
+                Text::new("LAYOUT PARAMETERS")
+                    .color(colors::ACCENT)
+                    .text_size(config.text_md),
+            );
+            controls.add(
+                Text::new("layout")
+                    .color(colors::TEXT_MUTED)
+                    .text_size(config.text_sm),
+            );
+            controls.add(options(
+                "layout",
+                &mut self.canvas.layout,
+                [
+                    ("Flex", CanvasLayout::Flex),
+                    ("Wrap", CanvasLayout::Wrap),
+                    ("Grid", CanvasLayout::Grid),
+                ],
+                config,
+            ));
 
-        controls.add(
-            Text::new("item transitions")
-                .color(colors::TEXT_MUTED)
-                .text_size(11.0),
-        );
-        controls.add(options(
-            "item transitions",
-            &mut self.canvas.transitions,
-            [("On", true), ("Off", false)],
-            6.0,
-            10.0,
-        ));
-        controls.add(
-            Text::new("transition time")
-                .color(colors::TEXT_MUTED)
-                .text_size(11.0),
-        );
-        controls.add(options(
-            "transition time",
-            &mut self.canvas.transition_duration,
-            [
-                ("0ms", 0.0),
-                ("150ms", 150.0),
-                ("300ms", 300.0),
-                ("600ms", 600.0),
-                ("1s", 1000.0),
-            ],
-            5.0,
-            8.0,
-        ));
+            controls.add(
+                Text::new("item transitions")
+                    .color(colors::TEXT_MUTED)
+                    .text_size(config.text_sm),
+            );
+            controls.add(options(
+                "item transitions",
+                &mut self.canvas.transitions,
+                [("On", true), ("Off", false)],
+                config,
+            ));
+            controls.add(
+                Text::new("transition time")
+                    .color(colors::TEXT_MUTED)
+                    .text_size(config.text_sm),
+            );
+            controls.add(options(
+                "transition time",
+                &mut self.canvas.transition_duration,
+                [
+                    ("0ms", 0.0),
+                    ("150ms", 150.0),
+                    ("300ms", 300.0),
+                    ("600ms", 600.0),
+                    ("1s", 1000.0),
+                ],
+                config,
+            ));
 
-        controls.add(Text::new("axis").color(colors::TEXT_MUTED).text_size(11.0));
-        controls.add(options(
-            "axis",
-            &mut self.canvas.axis,
-            [
-                ("Horizontal", Axis::Horizontal),
-                ("Vertical", Axis::Vertical),
-            ],
-            6.0,
-            10.0,
-        ));
+            controls.add(
+                Text::new("axis")
+                    .color(colors::TEXT_MUTED)
+                    .text_size(config.text_sm),
+            );
+            controls.add(options(
+                "axis",
+                &mut self.canvas.axis,
+                [
+                    ("Horizontal", Axis::Horizontal),
+                    ("Vertical", Axis::Vertical),
+                ],
+                config,
+            ));
 
-        controls.add(
-            Text::new("justify")
-                .color(colors::TEXT_MUTED)
-                .text_size(11.0),
-        );
-        controls.add(options(
-            "justify start",
-            &mut self.canvas.justify,
-            [
-                ("Start", Justify::Start),
-                ("Center", Justify::Center),
-                ("End", Justify::End),
-            ],
-            6.0,
-            7.0,
-        ));
-        controls.add(options(
-            "justify space",
-            &mut self.canvas.justify,
-            [
-                ("Between", Justify::SpaceBetween),
-                ("Around", Justify::SpaceAround),
-                ("Evenly", Justify::SpaceEvenly),
-            ],
-            6.0,
-            7.0,
-        ));
+            controls.add(
+                Text::new("justify")
+                    .color(colors::TEXT_MUTED)
+                    .text_size(config.text_sm),
+            );
+            controls.add(options(
+                "justify start",
+                &mut self.canvas.justify,
+                [
+                    ("Start", Justify::Start),
+                    ("Center", Justify::Center),
+                    ("End", Justify::End),
+                ],
+                config,
+            ));
+            controls.add(options(
+                "justify space",
+                &mut self.canvas.justify,
+                [
+                    ("Between", Justify::SpaceBetween),
+                    ("Around", Justify::SpaceAround),
+                    ("Evenly", Justify::SpaceEvenly),
+                ],
+                config,
+            ));
 
-        controls.add(Text::new("align").color(colors::TEXT_MUTED).text_size(11.0));
-        controls.add(options(
-            "align",
-            &mut self.canvas.align,
-            [
-                ("Start", Align::Start),
-                ("Center", Align::Center),
-                ("End", Align::End),
-                ("Stretch", Align::Stretch),
-            ],
-            5.0,
-            6.0,
-        ));
+            controls.add(
+                Text::new("align")
+                    .color(colors::TEXT_MUTED)
+                    .text_size(config.text_sm),
+            );
+            controls.add(options(
+                "align",
+                &mut self.canvas.align,
+                [
+                    ("Start", Align::Start),
+                    ("Center", Align::Center),
+                    ("End", Align::End),
+                    ("Stretch", Align::Stretch),
+                ],
+                config,
+            ));
 
-        controls.add(
-            Text::new("item sizing")
-                .color(colors::TEXT_MUTED)
-                .text_size(11.0),
-        );
-        controls.add(options(
-            "sizing",
-            &mut self.canvas.sizing,
-            [
-                ("Fixed", ItemSizing::Fixed),
-                ("Fit", ItemSizing::Fit),
-                ("Grow", ItemSizing::Grow),
-            ],
-            6.0,
-            10.0,
-        ));
+            controls.add(
+                Text::new("item sizing")
+                    .color(colors::TEXT_MUTED)
+                    .text_size(config.text_sm),
+            );
+            controls.add(options(
+                "sizing",
+                &mut self.canvas.sizing,
+                [
+                    ("Fixed", ItemSizing::Fixed),
+                    ("Fit", ItemSizing::Fit),
+                    ("Grow", ItemSizing::Grow),
+                ],
+                config,
+            ));
 
-        controls.add(Text::new("zoom").color(colors::TEXT_MUTED).text_size(11.0));
-        controls.add(options(
-            "zoom",
-            &mut self.canvas.zoom,
-            [
-                ("50%", 0.5),
-                ("75%", 0.75),
-                ("100%", 1.0),
-                ("125%", 1.25),
-                ("150%", 1.5),
-            ],
-            5.0,
-            5.0,
-        ));
+            controls.add(
+                Text::new("gap")
+                    .color(colors::TEXT_MUTED)
+                    .text_size(config.text_sm),
+            );
+            controls.add(options(
+                "gap",
+                &mut self.canvas.gap,
+                [
+                    ("0", Spacing::Zero),
+                    ("XS", Spacing::Xs),
+                    ("SM", Spacing::Sm),
+                    ("MD", Spacing::Md),
+                    ("LG", Spacing::Lg),
+                ],
+                config,
+            ));
 
-        controls.add(Text::new("gap").color(colors::TEXT_MUTED).text_size(11.0));
-        controls.add(options(
-            "gap",
-            &mut self.canvas.gap,
-            [
-                ("0", 0.0),
-                ("4", 4.0),
-                ("8", 8.0),
-                ("16", 16.0),
-                ("24", 24.0),
-            ],
-            5.0,
-            9.0,
-        ));
-
-        controls.add(
-            Text::new("padding")
-                .color(colors::TEXT_MUTED)
-                .text_size(11.0),
-        );
-        controls.add(options(
-            "padding",
-            &mut self.canvas.padding,
-            [
-                ("0", 0.0),
-                ("4", 4.0),
-                ("8", 8.0),
-                ("16", 16.0),
-                ("24", 24.0),
-            ],
-            5.0,
-            9.0,
-        ));
-
-        controls.add(
-            Text::new("Flex distributes free space, Wrap forms runs, and Grid automatically packs row and column spans into five equal columns. Axis, alignment, and justification apply to the flow layouts.")
-                .color(colors::TEXT_DIM)
-                .text_size(11.0)
-                .wrap(TextWrap::Word),
-        );
+            controls.add(
+                Text::new("padding")
+                    .color(colors::TEXT_MUTED)
+                    .text_size(config.text_sm),
+            );
+            controls.add(options(
+                "padding",
+                &mut self.canvas.padding,
+                [
+                    ("0", Spacing::Zero),
+                    ("XS", Spacing::Xs),
+                    ("SM", Spacing::Sm),
+                    ("MD", Spacing::Md),
+                    ("LG", Spacing::Lg),
+                ],
+                config,
+            ));
+        });
     }
 
-    fn preview(&mut self, ui: &mut Ui, max_width: f32, max_height: f32) {
+    fn preview(&mut self, ui: &mut Ui) {
+        let config = self.config;
         let mut preview = ui
-            .layout(Flex::column().padding(Sides::all(12.0)).gap(9.0))
+            .layout(
+                Flex::column()
+                    .padding(Sides::all(config.space_lg))
+                    .gap(config.space_md),
+            )
             .grow()
             .style(
                 Style::new()
                     .background(colors::SURFACE)
-                    .solid_border(1.0, colors::BORDER)
-                    .uniform_radius(11.0),
+                    .solid_border(config.border, colors::BORDER)
+                    .uniform_radius(config.radius_lg),
             )
             .open();
         preview.add(
-            Text::new("DRAG THE RIGHT EDGE, BOTTOM EDGE, OR CORNER • ZOOM SCALES CONTENT")
+            Text::new("DRAG THE RIGHT EDGE, BOTTOM EDGE, OR CORNER")
                 .color(colors::TEXT_DIM)
-                .text_size(10.0),
+                .text_size(config.text_sm),
         );
 
-        preview.add(|ui: &mut Ui| self.playground(ui, max_width, max_height));
-        self.carousel = preview.add(carousel(self.carousel));
-        preview.add(|ui: &mut Ui| self.transitions(ui));
-    }
-
-    fn playground(&mut self, ui: &mut Ui, max_width: f32, max_height: f32) {
-        let mut viewport = ui
-            .layout(Flex::column().padding(Sides::all(8.0)))
-            .grow()
-            .style(Style::new().background(colors::TRACK).uniform_radius(8.0))
-            .clip(Clip::Bounds)
-            .open();
-        viewport.add(
-            Resizable::new(&mut self.resize)
-                .id("playground canvas")
-                .width(Sizing::percent(0.85))
-                .height(Sizing::percent(0.8))
-                .min_size(240.0, 180.0)
-                .max_size(max_width, max_height)
-                .content(canvas(self.canvas)),
-        );
-    }
-    fn transitions(&mut self, ui: &mut Ui) {
-        let mut transitions = ui
-            .layout(Flex::column().padding(Sides::all(10.0)).gap(8.0))
-            .width(Sizing::grow())
-            .height(Sizing::fixed(156.0))
-            .style(
-                Style::new()
-                    .background(colors::TRACK)
-                    .solid_border(1.0, colors::BORDER)
-                    .uniform_radius(8.0),
-            )
-            .open();
-        transitions.add(|ui: &mut Ui| self.transition_controls(ui));
-        transitions.add(|ui: &mut Ui| self.transition_tracks(ui, self.transition_easing));
+        preview.add(|ui: &mut Ui| {
+            let screen = ui.screen();
+            let compact = screen.width < config.text_md * 60.0;
+            let mut viewport = ui
+                .layout(Flex::column().padding(Sides::all(config.space_md)))
+                .grow()
+                .style(
+                    Style::new()
+                        .background(colors::TRACK)
+                        .uniform_radius(config.radius_md),
+                )
+                .clip(Clip::Bounds)
+                .open();
+            viewport.add(
+                Resizable::new(&mut self.resize, config)
+                    .id(WidgetId::new("playground canvas"))
+                    .width(Sizing::percent(0.85))
+                    .height(Sizing::percent(0.8))
+                    .min_size(LogicalSize {
+                        width: config.sz_xl,
+                        height: config.sz_lg,
+                    })
+                    .max_size(LogicalSize {
+                        width: screen.width * if compact { 0.8 } else { 0.7 },
+                        height: screen.height * if compact { 0.2 } else { 0.55 },
+                    })
+                    .content(canvas(self.canvas, config)),
+            );
+        });
+        self.carousel = preview.add(carousel(self.carousel, config));
+        preview.add(|ui: &mut Ui| {
+            let mut transitions = ui
+                .layout(
+                    Flex::column()
+                        .padding(Sides::all(config.space_md))
+                        .gap(config.space_md),
+                )
+                .width(Sizing::grow())
+                .height(Sizing::percent(0.25))
+                .style(
+                    Style::new()
+                        .background(colors::TRACK)
+                        .solid_border(config.border, colors::BORDER)
+                        .uniform_radius(config.radius_md),
+                )
+                .open();
+            transitions.add(|ui: &mut Ui| self.transition_controls(ui));
+            transitions.add(|ui: &mut Ui| self.transition_tracks(ui));
+        });
     }
 
     fn transition_controls(&mut self, ui: &mut Ui) {
+        let config = self.config;
         let mut header = ui
-            .layout(Flex::row().align(Align::Center).gap(6.0))
+            .layout(Flex::row().align(Align::Center).gap(config.space_sm))
             .width(Sizing::grow())
             .open();
         header.add(
             Text::new("TRANSITIONS")
                 .color(colors::ACCENT)
-                .text_size(10.0),
+                .text_size(config.text_sm),
         );
         header.add(|ui: &mut Ui| {
             let mut choices = ui
-                .layout(Flex::row().justify(Justify::End).gap(4.0))
+                .layout(Flex::row().justify(Justify::End).gap(config.space_sm))
                 .grow()
                 .open();
             for (index, (label, easing)) in [
@@ -549,48 +652,53 @@ impl Showcase {
             .into_iter()
             .enumerate()
             {
-                if choices
-                    .add(
-                        choice(
-                            ("transition easing", index),
-                            label,
-                            self.transition_easing == easing,
-                        )
-                        .padding_x(7.0)
-                        .padding_y(4.0),
+                if choices.add(
+                    choice(
+                        ("transition easing", index),
+                        label,
+                        self.transition_easing == easing,
+                        config,
                     )
-                    .clicked()
-                {
+                    .padding_y(config.space_sm),
+                ) {
                     self.transition_easing = easing;
                 }
             }
         });
-        if header
-            .add(
-                choice("reverse transitions", "Reverse", self.transition_target)
-                    .padding_x(12.0)
-                    .padding_y(4.0),
+        if header.add(
+            choice(
+                "reverse transitions",
+                "Reverse",
+                self.transition_target,
+                config,
             )
-            .clicked()
-        {
+            .padding_y(config.space_sm),
+        ) {
             self.transition_target = !self.transition_target;
         }
     }
 
-    fn transition_tracks(&self, ui: &mut Ui, easing: Easing) {
-        let mut tracks = ui.layout(Flex::row().gap(8.0)).grow().open();
+    fn transition_tracks(&self, ui: &mut Ui) {
+        let config = self.config;
+        let easing = self.transition_easing;
+        let mut tracks = ui.layout(Flex::row().gap(config.space_md)).grow().open();
         tracks.add(|ui: &mut Ui| {
             let mut track = ui
-                .layout(Flex::row().padding(Sides::all(7.0)))
+                .layout(Flex::row().padding(Sides::all(config.space_sm)))
                 .width(Sizing::percent(0.5))
                 .height(Sizing::grow())
-                .style(Style::new().background(colors::SURFACE).uniform_radius(6.0))
+                .style(
+                    Style::new()
+                        .background(colors::SURFACE)
+                        .uniform_radius(config.radius_sm),
+                )
                 .clip(Clip::Bounds)
                 .open();
             track.add(|ui: &mut Ui| {
                 let mut specimen = ui
                     .layout(Flex::row().align(Align::Center).justify(Justify::Center))
-                    .fixed(76.0, 30.0)
+                    .width(Sizing::percent(0.2))
+                    .height(Sizing::percent(0.4))
                     .id(WidgetId::new("position transition specimen"))
                     .absolute(if self.transition_target {
                         Absolute::attach(Anchor::BottomRight, Anchor::BottomRight)
@@ -605,29 +713,38 @@ impl Showcase {
                     .style(
                         Style::new()
                             .background(colors::SURFACE_BLUE)
-                            .uniform_radius(5.0),
+                            .uniform_radius(config.radius_sm),
                     )
                     .open();
-                specimen.add(Text::new("X / Y").color(colors::WHITE).text_size(10.0));
+                specimen.add(
+                    Text::new("X / Y")
+                        .color(colors::WHITE)
+                        .text_size(config.text_sm),
+                );
             });
         });
         tracks.add(|ui: &mut Ui| {
             let mut track = ui
-                .layout(Flex::row().padding(Sides::all(7.0)))
+                .layout(Flex::row().padding(Sides::all(config.space_sm)))
                 .width(Sizing::percent(0.5))
                 .height(Sizing::grow())
-                .style(Style::new().background(colors::SURFACE).uniform_radius(6.0))
+                .style(
+                    Style::new()
+                        .background(colors::SURFACE)
+                        .uniform_radius(config.radius_sm),
+                )
                 .clip(Clip::Bounds)
                 .open();
             let (width, height) = if self.transition_target {
-                (132.0, 50.0)
+                (Sizing::percent(0.45), Sizing::percent(0.7))
             } else {
-                (72.0, 28.0)
+                (Sizing::percent(0.2), Sizing::percent(0.35))
             };
             track.add(|ui: &mut Ui| {
                 let mut specimen = ui
                     .layout(Flex::row().align(Align::Center).justify(Justify::Center))
-                    .fixed(width, height)
+                    .width(width)
+                    .height(height)
                     .id(WidgetId::new("size transition specimen"))
                     .absolute(Absolute::attach(Anchor::Center, Anchor::Center))
                     .transition(
@@ -638,43 +755,60 @@ impl Showcase {
                     .style(
                         Style::new()
                             .background(colors::SURFACE_PURPLE)
-                            .uniform_radius(5.0),
+                            .uniform_radius(config.radius_sm),
                     )
                     .open();
-                specimen.add(Text::new("W / H").color(colors::WHITE).text_size(10.0));
+                specimen.add(
+                    Text::new("W / H")
+                        .color(colors::WHITE)
+                        .text_size(config.text_sm),
+                );
             });
         });
     }
     fn scrolling(&mut self, ui: &mut Ui) {
+        let config = self.config;
         let mut page = ui
-            .layout(Flex::column().padding(Sides::all(16.0)).gap(10.0))
+            .layout(
+                Flex::column()
+                    .padding(Sides::all(config.space_xl))
+                    .gap(config.space_md),
+            )
             .grow()
             .style(
                 Style::new()
                     .background(colors::SURFACE)
-                    .solid_border(1.0, colors::BORDER)
-                    .uniform_radius(11.0),
+                    .solid_border(config.border, colors::BORDER)
+                    .uniform_radius(config.radius_lg),
             )
             .open();
-        page.add(Text::new("SCROLLING").color(colors::ACCENT).text_size(13.0));
-        page.add(Text::new("Use the wheel or drag the list. The viewport clips overflowing content and retains its offset.").color(colors::TEXT_MUTED).text_size(12.0));
+        page.add(
+            Text::new("SCROLLING")
+                .color(colors::ACCENT)
+                .text_size(config.text_md),
+        );
+        page.add(
+            Text::new("Use the wheel or drag the list. The viewport clips overflowing content and retains its offset.")
+                .color(colors::TEXT_MUTED)
+                .text_size(config.text_md),
+        );
         page.add(|ui: &mut Ui| {
             let mut scroll = ScrollArea::vertical(&mut self.scroll)
                 .id("showcase scroll")
-                .padding(Sides::all(10.0))
-                .gap(8.0)
+                .padding(Sides::all(config.space_md))
+                .gap(config.space_md)
                 .begin(ui);
             for index in 0..24 {
                 scroll.add(|ui: &mut Ui| {
                     let mut row = ui
                         .layout(
                             Flex::row()
-                                .padding(Sides::all(12.0))
+                                .padding(Sides::all(config.space_lg))
                                 .align(Align::Center)
-                                .gap(12.0),
+                                .gap(config.space_lg),
                         )
                         .width(Sizing::grow())
-                        .height(Sizing::fixed(58.0))
+                        .height(Sizing::fit().min(config.text_lg + config.space_lg * 2.0))
                         .style(
                             Style::new()
                                 .background(if index % 2 == 0 {
@@ -682,14 +816,18 @@ impl Showcase {
                                 } else {
                                     colors::CANVAS
                                 })
-                                .uniform_radius(7.0),
+                                .uniform_radius(config.radius_sm),
                         )
                         .open();
-                    row.add(Text::new("ITEM").color(colors::WHITE).text_size(16.0));
+                    row.add(
+                        Text::new("ITEM")
+                            .color(colors::WHITE)
+                            .text_size(config.text_lg),
+                    );
                     row.add(
                         Text::new("scrollable content")
                             .color(colors::WHITE)
-                            .text_size(12.0),
+                            .text_size(config.text_md),
                     );
                 });
             }
@@ -697,25 +835,30 @@ impl Showcase {
     }
 
     fn input_page(&mut self, ui: &mut Ui) {
+        let config = self.config;
         let mut page = ui
-            .layout(Flex::column().padding(Sides::all(16.0)).gap(14.0))
+            .layout(
+                Flex::column()
+                    .padding(Sides::all(config.space_xl))
+                    .gap(config.space_lg),
+            )
             .grow()
             .style(
                 Style::new()
                     .background(colors::SURFACE)
-                    .solid_border(1.0, colors::BORDER)
-                    .uniform_radius(11.0),
+                    .solid_border(config.border, colors::BORDER)
+                    .uniform_radius(config.radius_lg),
             )
             .open();
         page.add(
             Text::new("TEXT INPUT / FOCUS")
                 .color(colors::ACCENT)
-                .text_size(13.0),
+                .text_size(config.text_md),
         );
         page.add(
             Text::new("Click a field, type, use arrow keys, shift to select, and enter to accept.")
                 .color(colors::TEXT_MUTED)
-                .text_size(12.0),
+                .text_size(config.text_md),
         );
         let name_border = if self.name.focused {
             colors::ACCENT
@@ -724,18 +867,18 @@ impl Showcase {
         };
         page.add(
             TextInput::new(&mut self.name)
-                .slot(Slot::new().width(Sizing::fixed(360.0)))
-                .padding(Sides::all(10.0))
+                .slot(Slot::new().width(Sizing::percent(0.5)))
+                .padding(Sides::all(config.space_md))
                 .style(
                     Style::new()
                         .background(colors::TRACK)
-                        .solid_border(1.0, name_border)
-                        .uniform_radius(7.0),
+                        .solid_border(config.border, name_border)
+                        .uniform_radius(config.radius_sm),
                 )
                 .text_color(colors::TEXT)
                 .cursor_color(colors::ACCENT)
                 .selection_background(colors::ACCENT_DARK)
-                .text_size(15.0),
+                .text_size(config.text_lg),
         );
         let password_border = if self.password.focused {
             colors::ACCENT
@@ -744,23 +887,24 @@ impl Showcase {
         };
         page.add(
             TextInput::new(&mut self.password)
-                .slot(Slot::new().width(Sizing::fixed(360.0)))
-                .padding(Sides::all(10.0))
+                .slot(Slot::new().width(Sizing::percent(0.5)))
+                .padding(Sides::all(config.space_md))
                 .style(
                     Style::new()
                         .background(colors::TRACK)
-                        .solid_border(1.0, password_border)
-                        .uniform_radius(7.0),
+                        .solid_border(config.border, password_border)
+                        .uniform_radius(config.radius_sm),
                 )
                 .mask('●')
                 .text_color(colors::TEXT)
                 .cursor_color(colors::ACCENT)
                 .selection_background(colors::ACCENT_DARK)
-                .text_size(15.0),
+                .text_size(config.text_lg),
         );
     }
 
     fn images(&mut self, ui: &mut Ui) {
+        let config = self.config;
         if self.image.is_none() {
             let mut pixels = Vec::with_capacity(64 * 64 * 4);
             for y in 0..64 {
@@ -777,29 +921,33 @@ impl Showcase {
         }
         let image = self.image.as_ref().unwrap();
         let mut page = ui
-            .layout(Flex::column().padding(Sides::all(16.0)).gap(12.0))
+            .layout(
+                Flex::column()
+                    .padding(Sides::all(config.space_xl))
+                    .gap(config.space_lg),
+            )
             .grow()
             .style(
                 Style::new()
                     .background(colors::SURFACE)
-                    .solid_border(1.0, colors::BORDER)
-                    .uniform_radius(11.0),
+                    .solid_border(config.border, colors::BORDER)
+                    .uniform_radius(config.radius_lg),
             )
             .open();
         page.add(
             Text::new("IMAGE RENDERING")
                 .color(colors::ACCENT)
-                .text_size(13.0),
+                .text_size(config.text_md),
         );
         page.add(
             Text::new(
                 "The same RGBA image rendered with nearest, bilinear, cover, and repeat settings.",
             )
             .color(colors::TEXT_MUTED)
-            .text_size(12.0),
+            .text_size(config.text_md),
         );
         page.add(|ui: &mut Ui| {
-            let mut samples = ui.layout(Flex::row().gap(12.0)).grow().open();
+            let mut samples = ui.layout(Flex::row().gap(config.space_lg)).grow().open();
             for (label, fit, sampling, tiling) in [
                 (
                     "NEAREST",
@@ -828,17 +976,17 @@ impl Showcase {
             ] {
                 samples.add(|ui: &mut Ui| {
                     let mut sample = ui
-                        .layout(Flex::column().gap(6.0))
+                        .layout(Flex::column().gap(config.space_sm))
                         .width(Sizing::percent(0.25))
                         .open();
-                    sample.add(Text::new(label).color(colors::TEXT_DIM).text_size(10.0));
+                    sample.add(
+                        Text::new(label)
+                            .color(colors::TEXT_DIM)
+                            .text_size(config.text_sm),
+                    );
                     sample.add(
                         Image::new(image)
-                            .slot(
-                                Slot::new()
-                                    .width(Sizing::grow())
-                                    .height(Sizing::fixed(180.0)),
-                            )
+                            .slot(Slot::new().width(Sizing::grow()).height(Sizing::grow()))
                             .fit(fit)
                             .sampling(sampling)
                             .horizontal_tiling(tiling)
@@ -850,6 +998,7 @@ impl Showcase {
     }
 
     fn animation_page(&mut self, ui: &mut Ui) {
+        let config = self.config;
         let loop_value = ui.animate_loop(
             WidgetId::new("showcase animation loop"),
             Duration::from_millis(3600),
@@ -871,54 +1020,68 @@ impl Showcase {
             2.0 - pulse * 2.0
         });
         let mut page = ui
-            .layout(Flex::column().padding(Sides::all(16.0)).gap(14.0))
+            .layout(
+                Flex::column()
+                    .padding(Sides::all(config.space_xl))
+                    .gap(config.space_lg),
+            )
             .grow()
             .style(
                 Style::new()
                     .background(colors::SURFACE)
-                    .solid_border(1.0, colors::BORDER)
-                    .uniform_radius(11.0),
+                    .solid_border(config.border, colors::BORDER)
+                    .uniform_radius(config.radius_lg),
             )
             .open();
         page.add(
             Text::new("KEYED LOOPING ANIMATIONS")
                 .color(colors::ACCENT)
-                .text_size(13.0),
+                .text_size(config.text_md),
         );
         page.add(
             Text::new("These values come from Ui::animate_loop, rather than layout transitions.")
                 .color(colors::TEXT_MUTED)
-                .text_size(12.0),
+                .text_size(config.text_md),
         );
         page.add(|ui: &mut Ui| {
+            let ball_size = config.space_xxl * 2.5;
             let mut track = ui
                 .layout(Flex::row())
                 .width(Sizing::grow())
-                .height(Sizing::fixed(80.0))
-                .style(Style::new().background(colors::TRACK).uniform_radius(8.0))
+                .height(Sizing::percent(0.3))
+                .style(
+                    Style::new()
+                        .background(colors::TRACK)
+                        .uniform_radius(config.radius_md),
+                )
                 .open();
             track.add(|ui: &mut Ui| {
+                let travel = ui.screen().width * 0.45;
                 ui.layout(Flex::row())
-                    .fixed(50.0, 50.0)
+                    .fixed(ball_size, ball_size)
                     .absolute(
                         Absolute::attach(Anchor::Left, Anchor::Left)
-                            .offset(loop_value * 500.0, 0.0),
+                            .offset(loop_value * travel, 0.0),
                     )
                     .style(
                         Style::new()
                             .background(colors::SURFACE_GREEN)
-                            .uniform_radius(25.0),
+                            .uniform_radius(config.radius_lg),
                     )
                     .open();
             });
         });
         page.add(|ui: &mut Ui| {
-            let size = 30.0 + pulse * 70.0;
+            let size = config.space_xxl * (1.5 + pulse * 3.5);
             let mut pulse_box = ui
                 .layout(Flex::row().align(Align::Center).justify(Justify::Center))
                 .width(Sizing::grow())
-                .height(Sizing::fixed(130.0))
-                .style(Style::new().background(colors::TRACK).uniform_radius(8.0))
+                .height(Sizing::percent(0.45))
+                .style(
+                    Style::new()
+                        .background(colors::TRACK)
+                        .uniform_radius(config.radius_md),
+                )
                 .open();
             pulse_box.add(
                 Rectangle::new().slot(Slot::new().fixed(size, size)).style(
@@ -930,49 +1093,57 @@ impl Showcase {
         });
     }
 
-    fn screen_badge(ui: &mut Ui, fps: &str) {
+    fn screen_badge(&self, ui: &mut Ui) {
+        let config = self.config;
         let mut screen_badge = ui
             .layout(
                 Flex::row()
                     .padding(Sides {
-                        top: 6.0,
-                        right: 10.0,
-                        bottom: 6.0,
-                        left: 10.0,
+                        top: config.space_sm,
+                        right: config.space_md,
+                        bottom: config.space_sm,
+                        left: config.space_md,
                     })
-                    .gap(6.0)
+                    .gap(config.space_sm)
                     .align(Align::Center),
             )
             .style(
                 Style::new()
                     .background(colors::SURFACE_HIGH)
-                    .solid_border(1.0, colors::ACCENT)
-                    .uniform_radius(7.0),
+                    .solid_border(config.border, colors::ACCENT)
+                    .uniform_radius(config.radius_sm),
             )
             .z_index(20)
             .absolute(
                 Absolute::screen(0.0, 0.0)
                     .anchors(Anchor::BottomRight, Anchor::BottomRight)
-                    .offset(-16.0, -16.0),
+                    .offset(-config.space_xl, -config.space_xl),
             )
             .open();
         screen_badge.add(
             Rectangle::new()
-                .slot(Slot::new().fixed(6.0, 6.0))
-                .style(Style::new().background(colors::ACCENT).uniform_radius(3.0)),
+                .slot(Slot::new().fixed(config.space_sm, config.space_sm))
+                .style(
+                    Style::new()
+                        .background(colors::ACCENT)
+                        .uniform_radius(config.radius_sm),
+                ),
         );
-        screen_badge.add(Text::new(fps).color(colors::TEXT).text_size(10.0));
+        screen_badge.add(
+            Text::new(&self.fps_label)
+                .color(colors::TEXT)
+                .text_size(config.text_sm),
+        );
         screen_badge.add(
             Text::new("SCREEN ABSOLUTE")
                 .color(colors::TEXT_DIM)
-                .text_size(10.0),
+                .text_size(config.text_sm),
         );
     }
 }
 
 #[derive(Clone, Copy)]
 struct CarouselLayout {
-    spacing: f32,
     active: usize,
 }
 
@@ -989,10 +1160,20 @@ impl Layout for CarouselLayout {
         let mut natural = LogicalSize::default();
         for node in cx.children() {
             let child = cx.layout_child(node, Constraints::loose(constraints.max));
-            natural.width = natural.width.max(child.width);
-            natural.height = natural.height.max(child.height);
+            natural.width = natural.width.max(cx.sizing(node, Axis::Horizontal).resolve(
+                child.width,
+                constraints.max.width,
+                true,
+            ));
+            natural.height = natural.height.max(cx.sizing(node, Axis::Vertical).resolve(
+                child.height,
+                constraints.max.height,
+                true,
+            ));
         }
-        natural.width += self.spacing * 2.0;
+        let card_size = natural;
+        let spacing = card_size.width * 0.65;
+        natural.width += spacing * 2.0;
         let size = constraints.constrain(natural);
         for node in cx.children() {
             let index = cx.item(node) % count;
@@ -1003,16 +1184,8 @@ impl Layout for CarouselLayout {
             };
             let backward = count - forward;
             let child = LogicalSize {
-                width: cx.sizing(node, Axis::Horizontal).resolve(
-                    cx.size(node).width,
-                    size.width,
-                    true,
-                ),
-                height: cx.sizing(node, Axis::Vertical).resolve(
-                    cx.size(node).height,
-                    size.height,
-                    true,
-                ),
+                width: card_size.width.min(size.width),
+                height: card_size.height.min(size.height),
             };
             cx.constrain_child(node, Constraints::tight(child));
             let distance = forward.min(backward);
@@ -1021,7 +1194,7 @@ impl Layout for CarouselLayout {
                 forward as f32
             } else {
                 -(backward as f32)
-            } * self.spacing;
+            } * spacing;
             cx.set_position(
                 node,
                 LogicalPoint {
@@ -1034,7 +1207,7 @@ impl Layout for CarouselLayout {
     }
 }
 
-fn carousel(mut active: usize) -> impl Widget<Output = usize> {
+fn carousel(mut active: usize, config: Config) -> impl Widget<Output = usize> {
     move |ui: &mut Ui| {
         const CARDS: [(&str, &str); 5] = [
             ("01", "LAYOUT"),
@@ -1046,46 +1219,37 @@ fn carousel(mut active: usize) -> impl Widget<Output = usize> {
 
         active %= CARDS.len();
         let mut section = ui
-            .layout(Flex::column().gap(7.0))
+            .layout(Flex::column().gap(config.space_sm))
             .width(Sizing::grow())
-            .height(Sizing::fixed(174.0))
+            .height(Sizing::percent(0.25))
             .open();
         section.add(|ui: &mut Ui| {
             let mut controls = ui
-                .layout(Flex::row().align(Align::Center).gap(5.0))
+                .layout(Flex::row().align(Align::Center).gap(config.space_sm))
                 .width(Sizing::grow())
                 .open();
             controls.add(
                 Text::new("CAROUSEL / CUSTOM OVERLAP LAYOUT")
                     .color(colors::ACCENT)
-                    .text_size(10.0),
+                    .text_size(config.text_sm),
             );
             controls.add(Rectangle::new().slot(Slot::new().width(Sizing::grow())));
-            if controls
-                .add(choice("carousel previous", "PREV", false).padding_y(4.0))
-                .clicked()
-            {
+            if controls.add(choice("carousel previous", "PREV", false, config)) {
                 active = (active + CARDS.len() - 1) % CARDS.len();
             }
-            if controls
-                .add(choice("carousel next", "NEXT", false).padding_y(4.0))
-                .clicked()
-            {
+            if controls.add(choice("carousel next", "NEXT", false, config)) {
                 active = (active + 1) % CARDS.len();
             }
         });
         section.add(|ui: &mut Ui| {
             let mut cards = ui
-                .layout(CarouselLayout {
-                    spacing: 112.0,
-                    active,
-                })
+                .layout(CarouselLayout { active })
                 .grow()
                 .style(
                     Style::new()
                         .background(colors::TRACK)
-                        .solid_border(1.0, colors::BORDER)
-                        .uniform_radius(8.0),
+                        .solid_border(config.border, colors::BORDER)
+                        .uniform_radius(config.radius_md),
                 )
                 .clip(Clip::Bounds)
                 .open();
@@ -1098,10 +1262,11 @@ fn carousel(mut active: usize) -> impl Widget<Output = usize> {
                     let mut card = ui
                         .layout(
                             Flex::column()
-                                .padding(Sides::all(12.0))
+                                .padding(Sides::all(config.space_lg))
                                 .justify(Justify::SpaceBetween),
                         )
-                        .fixed(170.0, 104.0)
+                        .width(Sizing::fit().min(config.sz_xl))
+                        .height(Sizing::fit().min(config.sz_lg))
                         .id(id)
                         .transition(
                             Transition::new(Duration::from_millis(350))
@@ -1112,18 +1277,30 @@ fn carousel(mut active: usize) -> impl Widget<Output = usize> {
                             Style::new()
                                 .background(colors::ITEMS[index])
                                 .solid_border(
-                                    if index == active { 2.0 } else { 1.0 },
+                                    if index == active {
+                                        config.border * 2.0
+                                    } else {
+                                        config.border
+                                    },
                                     if index == active {
                                         colors::WHITE
                                     } else {
                                         colors::BORDER
                                     },
                                 )
-                                .uniform_radius(9.0),
+                                .uniform_radius(config.radius_md),
                         )
                         .open();
-                    card.add(Text::new(number).color(colors::WHITE).text_size(22.0));
-                    card.add(Text::new(label).color(colors::WHITE).text_size(10.0));
+                    card.add(
+                        Text::new(number)
+                            .color(colors::WHITE)
+                            .text_size(config.text_xl),
+                    );
+                    card.add(
+                        Text::new(label)
+                            .color(colors::WHITE)
+                            .text_size(config.text_sm),
+                    );
                 });
             }
         });
@@ -1133,23 +1310,18 @@ fn carousel(mut active: usize) -> impl Widget<Output = usize> {
 
 #[derive(Default)]
 struct ResizeState {
-    size: Option<LogicalSize>,
-}
-
-impl ResizeState {
-    fn reset(&mut self) {
-        self.size = None;
-    }
+    width: Option<f32>,
+    height: Option<f32>,
 }
 
 blit::builder! {
     struct Resizable<'a> {
-        new(state: &'a mut ResizeState),
-        widget_id: WidgetId = WidgetId::new("resizable"),
+        new(state: &'a mut ResizeState, config: Config),
+        id: WidgetId = WidgetId::new("resizable"),
         width: Sizing = Sizing::grow(),
         height: Sizing = Sizing::grow(),
-        minimum: LogicalSize = LogicalSize::default(),
-        maximum: LogicalSize = LogicalSize {
+        min_size: LogicalSize = LogicalSize::default(),
+        max_size: LogicalSize = LogicalSize {
             width: f32::INFINITY,
             height: f32::INFINITY,
         },
@@ -1162,21 +1334,6 @@ struct ResizableWidget<'a, W> {
 }
 
 impl<'a> Resizable<'a> {
-    fn id(mut self, source: impl std::hash::Hash) -> Self {
-        self.widget_id = WidgetId::new(source);
-        self
-    }
-
-    fn min_size(mut self, width: f32, height: f32) -> Self {
-        self.minimum = LogicalSize { width, height };
-        self
-    }
-
-    fn max_size(mut self, width: f32, height: f32) -> Self {
-        self.maximum = LogicalSize { width, height };
-        self
-    }
-
     fn content<W>(self, content: W) -> ResizableWidget<'a, W> {
         ResizableWidget {
             resizable: self,
@@ -1190,9 +1347,9 @@ impl<W: Widget> Widget for ResizableWidget<'_, W> {
 
     fn render(self, ui: &mut Ui) {
         let config = self.resizable;
-        let right_id = config.widget_id.child("right grip");
-        let bottom_id = config.widget_id.child("bottom grip");
-        let corner_id = config.widget_id.child("corner grip");
+        let right_id = config.id.child("right grip");
+        let bottom_id = config.id.child("bottom grip");
+        let corner_id = config.id.child("corner grip");
         let right = ui.interact(right_id, Sense::DRAG);
         let bottom = ui.interact(bottom_id, Sense::DRAG);
         let corner = ui.interact(corner_id, Sense::DRAG);
@@ -1202,48 +1359,54 @@ impl<W: Widget> Widget for ResizableWidget<'_, W> {
             y: bottom.drag_delta.y + corner.drag_delta.y,
         };
         let max_size = LogicalSize {
-            width: config.maximum.width.max(config.minimum.width),
-            height: config.maximum.height.max(config.minimum.height),
+            width: config.max_size.width.max(config.min_size.width),
+            height: config.max_size.height.max(config.min_size.height),
         };
         if delta != LogicalPoint::default() {
-            let mut size = config.state.size.unwrap_or_else(|| {
-                ui.geometry(config.widget_id)
-                    .map_or(config.minimum, |area| LogicalSize {
-                        width: area.width,
-                        height: area.height,
-                    })
-            });
-            size.width += delta.x;
-            size.height += delta.y;
-            config.state.size = Some(size);
+            let size = ui
+                .geometry(config.id)
+                .map_or(config.min_size, |area| LogicalSize {
+                    width: area.width,
+                    height: area.height,
+                });
+            if delta.x != 0.0 {
+                config.state.width = Some(config.state.width.unwrap_or(size.width) + delta.x);
+            }
+            if delta.y != 0.0 {
+                config.state.height = Some(config.state.height.unwrap_or(size.height) + delta.y);
+            }
         }
-        if let Some(size) = &mut config.state.size {
-            size.width = size.width.clamp(config.minimum.width, max_size.width);
-            size.height = size.height.clamp(config.minimum.height, max_size.height);
+        if let Some(width) = &mut config.state.width {
+            *width = width.clamp(config.min_size.width, max_size.width);
+        }
+        if let Some(height) = &mut config.state.height {
+            *height = height.clamp(config.min_size.height, max_size.height);
         }
 
-        let shell = ui.layout(Flex::column()).id(config.widget_id);
-        let shell = if let Some(size) = config.state.size {
-            shell.fixed(size.width, size.height)
-        } else {
-            shell.width(config.width).height(config.height)
-        };
-        let mut shell = shell.open();
+        let mut shell = ui
+            .layout(Flex::column())
+            .id(config.id)
+            .width(config.state.width.map_or(config.width, Sizing::fixed))
+            .height(config.state.height.map_or(config.height, Sizing::fixed))
+            .open();
         shell.add(self.content);
         shell.add(ResizeGrip {
             id: right_id,
             highlighted: right.dragging || right.hovered && !dragging,
             edge: ResizeEdge::Right,
+            config: config.config,
         });
         shell.add(ResizeGrip {
             id: bottom_id,
             highlighted: bottom.dragging || bottom.hovered && !dragging,
             edge: ResizeEdge::Bottom,
+            config: config.config,
         });
         shell.add(ResizeGrip {
             id: corner_id,
             highlighted: corner.dragging || corner.hovered && !dragging,
             edge: ResizeEdge::Corner,
+            config: config.config,
         });
     }
 }
@@ -1252,6 +1415,7 @@ struct ResizeGrip {
     id: WidgetId,
     highlighted: bool,
     edge: ResizeEdge,
+    config: Config,
 }
 
 #[derive(Clone, Copy)]
@@ -1265,37 +1429,64 @@ impl Widget for ResizeGrip {
     type Output = ();
 
     fn render(self, ui: &mut Ui) {
+        let config = self.config;
+        let (border_center, corner_center) = match ui.layout_resolution() {
+            LayoutResolution::Continuous => {
+                let corner = config.radius_md
+                    - (config.radius_md - config.border).max(0.0) / std::f32::consts::SQRT_2;
+                (
+                    LogicalSize {
+                        width: config.border,
+                        height: config.border,
+                    },
+                    LogicalSize {
+                        width: corner,
+                        height: corner,
+                    },
+                )
+            }
+            LayoutResolution::Discrete { step } => {
+                let center = LogicalSize {
+                    width: step.width / 2.0,
+                    height: step.height / 2.0,
+                };
+                (center, center)
+            }
+        };
         let (layout, width, height, absolute, z_index, marker_width, marker_height, radius) =
             match self.edge {
                 ResizeEdge::Right => (
                     Flex::column().align(Align::Center).justify(Justify::Center),
-                    Sizing::fixed(12.0),
+                    Sizing::fixed(config.space_lg),
                     Sizing::percent(1.0),
-                    Absolute::attach(Anchor::Right, Anchor::Left).offset(-7.0, 0.0),
+                    Absolute::attach(Anchor::Right, Anchor::Center)
+                        .offset(-border_center.width, 0.0),
                     1,
-                    6.0,
-                    48.0,
-                    2.0,
+                    config.sz_xs,
+                    config.sz_md,
+                    config.radius_sm,
                 ),
                 ResizeEdge::Bottom => (
                     Flex::row().align(Align::Center).justify(Justify::Center),
                     Sizing::percent(1.0),
-                    Sizing::fixed(12.0),
-                    Absolute::attach(Anchor::Bottom, Anchor::Top).offset(0.0, -7.0),
+                    Sizing::fixed(config.space_lg),
+                    Absolute::attach(Anchor::Bottom, Anchor::Center)
+                        .offset(0.0, -border_center.height),
                     1,
-                    48.0,
-                    6.0,
-                    2.0,
+                    config.sz_md,
+                    config.sz_xs,
+                    config.radius_sm,
                 ),
                 ResizeEdge::Corner => (
                     Flex::row().align(Align::Center).justify(Justify::Center),
-                    Sizing::fixed(12.0),
-                    Sizing::fixed(12.0),
-                    Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).offset(-7.0, -7.0),
+                    Sizing::fixed(config.space_lg),
+                    Sizing::fixed(config.space_lg),
+                    Absolute::attach(Anchor::BottomRight, Anchor::Center)
+                        .offset(-corner_center.width, -corner_center.height),
                     2,
-                    6.0,
-                    6.0,
-                    3.0,
+                    config.sz_xs,
+                    config.sz_xs,
+                    config.radius_sm,
                 ),
             };
         let mut grip = ui
@@ -1303,7 +1494,7 @@ impl Widget for ResizeGrip {
             .width(width)
             .height(height)
             .id(self.id)
-            .hit(Sides::all(8.0))
+            .hit(Sides::all(config.space_md))
             .z_index(z_index)
             .absolute(absolute)
             .open();
@@ -1323,19 +1514,21 @@ impl Widget for ResizeGrip {
     }
 }
 
-fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
+fn canvas(config: CanvasConfig, theme: Config) -> impl Widget<Output = ()> {
     move |ui: &mut Ui| {
+        let gap = config.gap.resolve(theme);
+        let padding = config.padding.resolve(theme);
         let style = Style::new()
             .background(colors::CANVAS)
-            .solid_border(2.0, colors::CANVAS_BORDER)
-            .uniform_radius(8.0);
+            .solid_border(theme.border * 2.0, colors::CANVAS_BORDER)
+            .uniform_radius(theme.radius_md);
         match config.layout {
             CanvasLayout::Flex => {
                 let mut layout = ui
                     .layout(
                         Flex::new(config.axis)
-                            .padding(Sides::all(config.padding * config.zoom))
-                            .gap(config.gap * config.zoom)
+                            .padding(Sides::all(padding))
+                            .gap(gap)
                             .align(config.align)
                             .justify(config.justify),
                     )
@@ -1343,14 +1536,14 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
                     .style(style)
                     .clip(Clip::Bounds)
                     .open();
-                canvas_items(&mut layout, config);
+                canvas_items(&mut layout, config, theme);
             }
             CanvasLayout::Wrap => {
                 let mut layout = ui
                     .layout(
                         Wrap::new(config.axis)
-                            .padding(Sides::all(config.padding * config.zoom))
-                            .gap(config.gap * config.zoom)
+                            .padding(Sides::all(padding))
+                            .gap(gap)
                             .align(config.align)
                             .justify(config.justify),
                     )
@@ -1358,15 +1551,15 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
                     .style(style)
                     .clip(Clip::Bounds)
                     .open();
-                canvas_items(&mut layout, config);
+                canvas_items(&mut layout, config, theme);
             }
             CanvasLayout::Grid => {
                 let mut layout = ui
                     .layout(
                         Grid::columns(5)
                             .spanning()
-                            .padding(Sides::all(config.padding * config.zoom))
-                            .gap(config.gap * config.zoom),
+                            .padding(Sides::all(padding))
+                            .gap(gap),
                     )
                     .grow()
                     .style(style)
@@ -1391,7 +1584,7 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
                     layout.add_span(
                         rows,
                         columns,
-                        canvas_item(index, label, badge_layer, config),
+                        canvas_item(index, label, badge_layer, config, theme),
                     );
                 }
             }
@@ -1399,13 +1592,17 @@ fn canvas(config: CanvasConfig) -> impl Widget<Output = ()> {
     }
 }
 
-fn canvas_items<L: Layout<Item = ()>>(layout: &mut UnitScope<'_, L>, config: CanvasConfig) {
+fn canvas_items<L: Layout<Item = ()>>(
+    layout: &mut UnitScope<'_, L>,
+    config: CanvasConfig,
+    theme: Config,
+) {
     let badge_layer = layout.layer();
     for (index, label) in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
         .into_iter()
         .enumerate()
     {
-        layout.add(canvas_item(index, label, badge_layer, config));
+        layout.add(canvas_item(index, label, badge_layer, config, theme));
     }
 }
 
@@ -1414,14 +1611,15 @@ fn canvas_item(
     label: &'static str,
     badge_layer: LayerId,
     config: CanvasConfig,
+    theme: Config,
 ) -> impl Widget<Output = ()> {
     move |ui: &mut Ui| {
-        let main = (26.0 + (index % 5) as f32 * 5.0) * config.zoom;
-        let cross = (48.0 + (index % 4) as f32 * 13.0) * config.zoom;
+        let main = theme.text_xl + (index % 5) as f32 * theme.space_sm;
+        let cross = theme.space_xxl * 2.0 + (index % 4) as f32 * theme.space_lg;
         let main = match config.sizing {
             ItemSizing::Fixed => Sizing::fixed(main),
-            ItemSizing::Fit => Sizing::fit().min(20.0 * config.zoom).max(main),
-            ItemSizing::Grow => Sizing::grow().min(20.0 * config.zoom),
+            ItemSizing::Fit => Sizing::fit().min(theme.space_xxl).max(main),
+            ItemSizing::Grow => Sizing::grow().min(theme.space_xxl),
         };
         let cross = if config.align == Align::Stretch {
             Sizing::fit()
@@ -1450,13 +1648,13 @@ fn canvas_item(
             .style(
                 Style::new()
                     .background(colors::ITEMS[index])
-                    .uniform_radius(5.0),
+                    .uniform_radius(theme.radius_sm),
             )
             .open();
         rectangle.add(
             Text::new(label)
                 .color(colors::WHITE)
-                .text_size(11.0 * config.zoom)
+                .text_size(theme.text_sm)
                 .align(HorizontalAlign::Center),
         );
         let anchor = match index {
@@ -1469,15 +1667,12 @@ fn canvas_item(
             rectangle.add(|ui: &mut Ui| {
                 let mut badge = ui
                     .layout(Flex::row().align(Align::Center).justify(Justify::Center))
-                    .fixed(
-                        (28.0 * config.zoom).max(20.0),
-                        (14.0 * config.zoom).max(10.0),
-                    )
+                    .fixed(theme.space_xxl, theme.space_lg)
                     .style(
                         Style::new()
                             .background(colors::BACKGROUND)
-                            .solid_border(1.0, colors::WHITE)
-                            .uniform_radius(5.0),
+                            .solid_border(theme.border, colors::WHITE)
+                            .uniform_radius(theme.radius_sm),
                     )
                     .layer(badge_layer)
                     .z_index(1)
@@ -1486,7 +1681,7 @@ fn canvas_item(
                 badge.add(
                     Text::new("ABS")
                         .color(colors::WHITE)
-                        .text_size((8.0 * config.zoom).max(7.0)),
+                        .text_size(theme.text_sm),
                 );
             });
         }
@@ -1506,29 +1701,30 @@ blit::builder! {
         padding_x: f32 = 8.0,
         padding_y: f32 = 8.0,
         text_size: f32 = 12.0,
-    }
-}
-
-struct ButtonResponse(bool);
-
-impl ButtonResponse {
-    fn clicked(self) -> bool {
-        self.0
+        min_width: f32 = 0.0,
+        min_height: f32 = 0.0,
     }
 }
 
 impl Widget for Button<'_> {
-    type Output = ButtonResponse;
+    type Output = bool;
 
-    fn render(self, ui: &mut Ui) -> ButtonResponse {
+    fn render(self, ui: &mut Ui) -> bool {
         let interaction = ui.interact(self.widget_id, Sense::CLICK);
         let mut button = ui
-            .layout(Flex::row().padding(Sides {
-                top: self.padding_y,
-                right: self.padding_x,
-                bottom: self.padding_y,
-                left: self.padding_x,
-            }))
+            .layout(
+                Flex::row()
+                    .align(Align::Center)
+                    .justify(Justify::Center)
+                    .padding(Sides {
+                        top: self.padding_y,
+                        right: self.padding_x,
+                        bottom: self.padding_y,
+                        left: self.padding_x,
+                    }),
+            )
+            .width(Sizing::fit().min(self.min_width))
+            .height(Sizing::fit().min(self.min_height))
             .id(self.widget_id)
             .style(
                 Style::new()
@@ -1546,7 +1742,7 @@ impl Widget for Button<'_> {
                 .color(self.text_color)
                 .text_size(self.text_size),
         );
-        ButtonResponse(interaction.clicked)
+        interaction.clicked
     }
 }
 
@@ -1554,19 +1750,24 @@ fn options<'a, T, I>(
     id: &'a str,
     selected: &'a mut T,
     options: I,
-    gap: f32,
-    padding_x: f32,
+    config: Config,
 ) -> impl Widget<Output = ()> + 'a
 where
     T: Copy + PartialEq + 'a,
     I: IntoIterator<Item = (&'a str, T)> + 'a,
 {
     move |ui: &mut Ui| {
-        let mut row = ui.layout(Flex::row().gap(gap)).width(Sizing::grow()).open();
+        let mut row = ui
+            .layout(
+                Wrap::horizontal()
+                    .item_gap(config.space_md)
+                    .run_gap(config.space_md),
+            )
+            .width(Sizing::grow())
+            .open();
         for (index, (label, value)) in options.into_iter().enumerate() {
             if row
-                .add(choice((id, index), label, *selected == value).padding_x(padding_x))
-                .clicked()
+                .add(choice((id, index), label, *selected == value, config).min_width(config.sz_md))
             {
                 *selected = value;
             }
@@ -1574,7 +1775,12 @@ where
     }
 }
 
-fn choice<'a>(id: impl std::hash::Hash, label: &'a str, selected: bool) -> Button<'a> {
+fn choice<'a>(
+    id: impl std::hash::Hash,
+    label: &'a str,
+    selected: bool,
+    config: Config,
+) -> Button<'a> {
     Button::new(WidgetId::new(id))
         .label(label)
         .background(if selected {
@@ -1584,16 +1790,17 @@ fn choice<'a>(id: impl std::hash::Hash, label: &'a str, selected: bool) -> Butto
         })
         .clicked_background(colors::ACCENT)
         .text_color(colors::TEXT)
-        .border_width(1.0)
+        .border_width(config.border)
         .border_color(if selected {
             colors::ACCENT
         } else {
             colors::BORDER
         })
-        .radius(6.0)
-        .padding_x(10.0)
-        .padding_y(6.0)
-        .text_size(10.0)
+        .radius(config.radius_sm)
+        .padding_x(config.space_md)
+        .padding_y(config.space_sm)
+        .text_size(config.text_sm)
+        .min_height(config.sz_md)
 }
 
 mod colors {
