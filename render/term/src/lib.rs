@@ -1,4 +1,10 @@
-use std::{fmt::Write as _, io};
+use std::{
+    collections::hash_map::DefaultHasher,
+    fmt::Write as _,
+    hash::{Hash, Hasher},
+    io,
+    mem::size_of,
+};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use blit::{
@@ -13,17 +19,24 @@ use blit::{
         TextWrap, VerticalAlign,
     },
 };
+use blit_cache::{DeferredCache, Scale};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 pub const CELL_WIDTH: f32 = 8.0;
 pub const CELL_HEIGHT: f32 = 16.0;
+const TEXT_RUN_CACHE_CAPACITY: usize = 2 * 1024 * 1024;
+const TEXT_LAYOUT_CACHE_CAPACITY: usize = 4 * 1024 * 1024;
 
 pub struct TerminalRenderer {
     columns: usize,
     rows: usize,
     scale_factor: f32,
-    text_runs: Vec<(String, TextStyle)>,
+    text_runs: DeferredCache<RunKey, CachedRun, RunScale>,
+    text_layouts: DeferredCache<LayoutKey, TextLayout, LayoutScale>,
+    next_text_run: u32,
+    layout_lines: Vec<Line>,
+    layout_graphemes: Vec<LayoutGrapheme>,
     images: Vec<StoredImage>,
     kitty_placements: Vec<KittyPlacement>,
     presented_kitty_placements: Vec<KittyPlacement>,
@@ -33,6 +46,7 @@ pub struct TerminalRenderer {
     cells: Vec<Cell>,
     previous: Vec<Cell>,
     damaged: Vec<bool>,
+    output: String,
 }
 
 impl TerminalRenderer {
@@ -43,7 +57,11 @@ impl TerminalRenderer {
             columns,
             rows,
             scale_factor: 1.0,
-            text_runs: Vec::new(),
+            text_runs: DeferredCache::new(RunScale, TEXT_RUN_CACHE_CAPACITY),
+            text_layouts: DeferredCache::new(LayoutScale, TEXT_LAYOUT_CACHE_CAPACITY),
+            next_text_run: 1,
+            layout_lines: Vec::new(),
+            layout_graphemes: Vec::new(),
             images: Vec::new(),
             kitty_placements: Vec::new(),
             presented_kitty_placements: Vec::new(),
@@ -53,6 +71,7 @@ impl TerminalRenderer {
             cells: vec![Cell::default(); columns * rows],
             previous: vec![Cell::invalid(); columns * rows],
             damaged: vec![true; columns * rows],
+            output: String::new(),
         }
     }
 
@@ -118,95 +137,8 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn present(&mut self, output: &mut impl io::Write) -> io::Result<()> {
-        let mut ansi = String::new();
-        let mut style = None;
-        for y in 0..self.rows {
-            let mut x = 0;
-            while x < self.columns {
-                let index = y * self.columns + x;
-                if !self.damaged[index] || self.previous[index] == self.cells[index] {
-                    x += 1;
-                    continue;
-                }
-                write!(ansi, "\x1b[{};{}H", y + 1, x + 1).unwrap();
-                while x < self.columns {
-                    let index = y * self.columns + x;
-                    let cell = &self.cells[index];
-                    if !self.damaged[index] || self.previous[index] == *cell {
-                        break;
-                    }
-                    let next_style = (cell.foreground, cell.background, cell.bold);
-                    if style != Some(next_style) {
-                        write!(
-                            ansi,
-                            "\x1b[0;{};38;2;{};{};{};48;2;{};{};{}m",
-                            if cell.bold { 1 } else { 22 },
-                            cell.foreground.red,
-                            cell.foreground.green,
-                            cell.foreground.blue,
-                            cell.background.red,
-                            cell.background.green,
-                            cell.background.blue,
-                        )
-                        .unwrap();
-                        style = Some(next_style);
-                    }
-                    ansi.push_str(&cell.text);
-                    self.previous[index] = cell.clone();
-                    x += 1;
-                }
-            }
-        }
-        ansi.push_str("\x1b[0m");
-        for placement in &self.presented_kitty_placements {
-            if !self.kitty_placements.contains(placement) {
-                write!(
-                    ansi,
-                    "\x1b_Ga=d,d=i,i={},p={},q=2\x1b\\",
-                    placement.image, placement.id
-                )
-                .unwrap();
-            }
-        }
-        for placement in &self.kitty_placements {
-            let image = &mut self.images[placement.image as usize - 1];
-            if !image.transmitted {
-                for (index, chunk) in image.rgba.chunks(3072).enumerate() {
-                    let more = usize::from((index + 1) * 3072 < image.rgba.len());
-                    if index == 0 {
-                        write!(
-                            ansi,
-                            "\x1b_Ga=t,f=32,s={},v={},i={},m={more},q=2;",
-                            image.width, image.height, placement.image
-                        )
-                        .unwrap();
-                    } else {
-                        write!(ansi, "\x1b_Gm={more},q=2;").unwrap();
-                    }
-                    BASE64.encode_string(chunk, &mut ansi);
-                    ansi.push_str("\x1b\\");
-                }
-                image.transmitted = true;
-            }
-            if !self.presented_kitty_placements.contains(placement) {
-                write!(
-                    ansi,
-                    "\x1b[{};{}H\x1b_Ga=p,i={},p={},c={},r={},C=1,z=1,q=2\x1b\\",
-                    placement.y + 1,
-                    placement.x + 1,
-                    placement.image,
-                    placement.id,
-                    placement.width,
-                    placement.height,
-                )
-                .unwrap();
-            }
-        }
-        self.presented_kitty_placements
-            .clone_from(&self.kitty_placements);
-        output.write_all(ansi.as_bytes())?;
-        output.flush()
+    pub fn output(&self) -> &[u8] {
+        self.output.as_bytes()
     }
 
     pub fn clear_kitty_graphics(&mut self, output: &mut impl io::Write) -> io::Result<()> {
@@ -225,7 +157,7 @@ impl TerminalRenderer {
         let mut output = String::with_capacity((self.columns + 1) * self.rows);
         for row in self.cells.chunks(self.columns) {
             for cell in row {
-                output.push_str(&cell.text);
+                output.push_str(cell.text.as_str());
             }
             while output.ends_with(' ') {
                 output.pop();
@@ -276,9 +208,10 @@ impl TerminalRenderer {
         for (index, cell) in self.cells.iter().enumerate() {
             let x = index % self.columns * 9;
             let y = index / self.columns * 18;
-            if cell.text != " " {
+            if cell.text.as_str() != " " {
                 let text = cell
                     .text
+                    .as_str()
                     .replace('&', "&amp;")
                     .replace('<', "&lt;")
                     .replace('>', "&gt;")
@@ -301,110 +234,149 @@ impl TerminalRenderer {
         output.write_all(b"</svg>\n")
     }
 
-    fn layout_text(&self, request: &TextLayoutRequest) -> TextLayout {
-        fn start_line(lines: &mut Vec<Line>, limit: usize) -> bool {
+    fn text_run_index(&self, id: TextRunId) -> usize {
+        let index = (id.0 as u32)
+            .checked_sub(1)
+            .expect("invalid terminal text run") as usize;
+        assert_eq!(self.text_runs.get_index(index).id, id, "expired text run");
+        index
+    }
+
+    fn layout_text(&mut self, request: &TextLayoutRequest) -> usize {
+        fn start_line(lines: &mut Vec<Line>, grapheme: usize, limit: usize) -> bool {
             if lines.len() >= limit {
                 return false;
             }
-            lines.push(Line::default());
+            lines.push(Line {
+                start: grapheme,
+                end: grapheme,
+                width: 0,
+            });
             true
         }
 
-        let text = &self.text_runs[request.text.0 as usize - 1].0;
         let cell_width = CELL_WIDTH / self.scale_factor;
-        let line_height = CELL_HEIGHT / self.scale_factor;
         let max_columns = request
             .max_width
             .map(|width| (width / cell_width).floor().max(0.0) as usize);
         let max_lines = usize::from(request.max_lines.unwrap_or(u16::MAX)).max(1);
-        let mut lines = vec![Line::default()];
-        let mut truncated = false;
-        match request.wrap {
-            TextWrap::Word => {
-                'tokens: for token in text.split_word_bounds() {
-                    let whitespace = token.chars().all(char::is_whitespace);
-                    let token_width = UnicodeWidthStr::width(token);
-                    if !whitespace
-                        && lines.last().unwrap().width != 0
-                        && max_columns.is_some_and(|maximum| {
-                            lines.last().unwrap().width + token_width > maximum
-                        })
-                    {
-                        let current = lines.last_mut().unwrap();
-                        while current
-                            .graphemes
-                            .last()
-                            .is_some_and(|grapheme| grapheme.chars().all(char::is_whitespace))
+        let key = LayoutKey {
+            text: request.text,
+            max_columns,
+            max_lines,
+            wrap: request.wrap,
+        };
+        let run = self.text_run_index(request.text);
+        let text = &self.text_runs.get_index(run).text;
+        let lines = &mut self.layout_lines;
+        let graphemes = &mut self.layout_graphemes;
+        let (_, index) = self.text_layouts.get_or_insert(key, || {
+            lines.clear();
+            graphemes.clear();
+            start_line(lines, 0, max_lines);
+            let mut truncated = false;
+            match request.wrap {
+                TextWrap::Word => {
+                    'tokens: for (token_offset, token) in text.split_word_bound_indices() {
+                        let whitespace = token.chars().all(char::is_whitespace);
+                        let token_width = UnicodeWidthStr::width(token);
+                        if !whitespace
+                            && lines.last().unwrap().width != 0
+                            && max_columns.is_some_and(|maximum| {
+                                lines.last().unwrap().width + token_width > maximum
+                            })
                         {
-                            let grapheme = current.graphemes.pop().unwrap();
-                            current.width -= UnicodeWidthStr::width(grapheme.as_str()).max(1);
+                            let current = lines.last_mut().unwrap();
+                            while current.end != current.start
+                                && text
+                                    [graphemes.last().unwrap().start..graphemes.last().unwrap().end]
+                                    .chars()
+                                    .all(char::is_whitespace)
+                            {
+                                let grapheme = graphemes.pop().unwrap();
+                                current.end -= 1;
+                                current.width -= grapheme.width;
+                            }
+                            if !start_line(lines, graphemes.len(), max_lines) {
+                                truncated = true;
+                                break;
+                            }
                         }
-                        if !start_line(&mut lines, max_lines) {
-                            truncated = true;
-                            break;
+                        for (offset, grapheme) in token.grapheme_indices(true) {
+                            if grapheme == "\n" || grapheme == "\r\n" {
+                                if !start_line(lines, graphemes.len(), max_lines) {
+                                    truncated = true;
+                                    break 'tokens;
+                                }
+                                continue;
+                            }
+                            let width = UnicodeWidthStr::width(grapheme).max(1);
+                            if max_columns.is_some_and(|maximum| {
+                                lines.last().unwrap().width + width > maximum
+                            }) && lines.last().unwrap().width != 0
+                            {
+                                if !start_line(lines, graphemes.len(), max_lines) {
+                                    truncated = true;
+                                    break 'tokens;
+                                }
+                                if whitespace {
+                                    continue;
+                                }
+                            }
+                            if whitespace && lines.last().unwrap().width == 0 {
+                                continue;
+                            }
+                            let start = token_offset + offset;
+                            graphemes.push(LayoutGrapheme {
+                                start,
+                                end: start + grapheme.len(),
+                                width,
+                            });
+                            let current = lines.last_mut().unwrap();
+                            current.end += 1;
+                            current.width += width;
                         }
                     }
-                    for grapheme in token.graphemes(true) {
+                }
+                TextWrap::None | TextWrap::Character => {
+                    'graphemes: for (start, grapheme) in text.grapheme_indices(true) {
                         if grapheme == "\n" || grapheme == "\r\n" {
-                            if !start_line(&mut lines, max_lines) {
+                            if !start_line(lines, graphemes.len(), max_lines) {
                                 truncated = true;
-                                break 'tokens;
+                                break;
                             }
                             continue;
                         }
                         let width = UnicodeWidthStr::width(grapheme).max(1);
-                        if max_columns
-                            .is_some_and(|maximum| lines.last().unwrap().width + width > maximum)
+                        if request.wrap == TextWrap::Character
+                            && max_columns.is_some_and(|maximum| {
+                                lines.last().unwrap().width + width > maximum
+                            })
                             && lines.last().unwrap().width != 0
+                            && !start_line(lines, graphemes.len(), max_lines)
                         {
-                            if !start_line(&mut lines, max_lines) {
-                                truncated = true;
-                                break 'tokens;
-                            }
-                            if whitespace {
-                                continue;
-                            }
+                            truncated = true;
+                            break 'graphemes;
                         }
-                        if whitespace && lines.last().unwrap().width == 0 {
-                            continue;
-                        }
+                        graphemes.push(LayoutGrapheme {
+                            start,
+                            end: start + grapheme.len(),
+                            width,
+                        });
                         let current = lines.last_mut().unwrap();
-                        current.graphemes.push(grapheme.to_owned());
+                        current.end += 1;
                         current.width += width;
                     }
                 }
             }
-            TextWrap::None | TextWrap::Character => {
-                'graphemes: for grapheme in text.graphemes(true) {
-                    if grapheme == "\n" || grapheme == "\r\n" {
-                        if !start_line(&mut lines, max_lines) {
-                            truncated = true;
-                            break;
-                        }
-                        continue;
-                    }
-                    let width = UnicodeWidthStr::width(grapheme).max(1);
-                    if request.wrap == TextWrap::Character
-                        && max_columns
-                            .is_some_and(|maximum| lines.last().unwrap().width + width > maximum)
-                        && lines.last().unwrap().width != 0
-                        && !start_line(&mut lines, max_lines)
-                    {
-                        truncated = true;
-                        break 'graphemes;
-                    }
-                    let current = lines.last_mut().unwrap();
-                    current.graphemes.push(grapheme.to_owned());
-                    current.width += width;
-                }
+            TextLayout {
+                width: lines.iter().map(|line| line.width).max().unwrap_or(0),
+                lines: lines.as_slice().into(),
+                graphemes: graphemes.as_slice().into(),
+                truncated,
             }
-        }
-        TextLayout {
-            width: lines.iter().map(|line| line.width).max().unwrap_or(0) as f32 * cell_width,
-            height: lines.len() as f32 * line_height,
-            lines,
-            truncated,
-        }
+        });
+        index
     }
 }
 
@@ -455,6 +427,7 @@ impl Renderer for TerminalRenderer {
     }
 
     fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
+        self.output.clear();
         self.damaged.fill(false);
         let screen = self.screen();
         let mut damage_bounds = (self.columns, self.rows, 0, 0);
@@ -481,6 +454,8 @@ impl Renderer for TerminalRenderer {
             }
         }
         if damage_bounds.2 == 0 || damage_bounds.3 == 0 {
+            self.text_layouts.trim_to_weight();
+            self.text_runs.trim_to_weight();
             return;
         }
         self.clear_damaged(damage_bounds);
@@ -633,22 +608,15 @@ impl Renderer for TerminalRenderer {
                         max_width: Some(request.area.width),
                         max_lines: request.options.max_lines,
                     };
-                    let mut layout = self.layout_text(&layout_request);
-                    if request.options.overflow == TextOverflow::Ellipsis
-                        && (layout.truncated || layout.width > request.area.width)
-                    {
-                        let maximum = (request.area.width / (CELL_WIDTH / self.scale_factor))
-                            .floor()
-                            .max(1.0) as usize;
-                        if let Some(line) = layout.lines.first_mut() {
-                            while line.width >= maximum && !line.graphemes.is_empty() {
-                                let removed = line.graphemes.pop().unwrap();
-                                line.width -= UnicodeWidthStr::width(removed.as_str()).max(1);
-                            }
-                            line.graphemes.push("…".into());
-                            line.width += 1;
-                        }
-                    }
+                    let layout = self.layout_text(&layout_request);
+                    let layout = self.text_layouts.get_index(layout);
+                    let ellipsis = request.options.overflow == TextOverflow::Ellipsis
+                        && (layout.truncated
+                            || layout.width as f32 * CELL_WIDTH / self.scale_factor
+                                > request.area.width);
+                    let maximum = (request.area.width / (CELL_WIDTH / self.scale_factor))
+                        .floor()
+                        .max(1.0) as usize;
                     let area_width = area_right as isize - area_left as isize;
                     let area_height = area_bottom as isize - area_top as isize;
                     let line_count = layout.lines.len() as isize;
@@ -660,6 +628,16 @@ impl Renderer for TerminalRenderer {
                         VerticalAlign::Bottom => area_bottom as isize - line_count,
                     };
                     for (line_index, line) in layout.lines.iter().enumerate() {
+                        let mut line_end = line.end;
+                        let mut line_width = line.width;
+                        let line_ellipsis = ellipsis && line_index == 0;
+                        if line_ellipsis {
+                            while line_width >= maximum && line_end != line.start {
+                                line_end -= 1;
+                                line_width -= layout.graphemes[line_end].width;
+                            }
+                            line_width += 1;
+                        }
                         let start_x = match request.options.horizontal_align {
                             HorizontalAlign::Left => {
                                 area_left as isize
@@ -668,13 +646,25 @@ impl Renderer for TerminalRenderer {
                             }
                             HorizontalAlign::Center => {
                                 area_left as isize
-                                    + (area_width - line.width as isize).div_euclid(2)
+                                    + (area_width - line_width as isize).div_euclid(2)
                             }
-                            HorizontalAlign::Right => area_right as isize - line.width as isize,
+                            HorizontalAlign::Right => area_right as isize - line_width as isize,
                         };
                         let mut column = 0;
-                        for grapheme in &line.graphemes {
-                            let width = UnicodeWidthStr::width(grapheme.as_str()).max(1);
+                        let graphemes = layout.graphemes[line.start..line_end]
+                            .iter()
+                            .map(|grapheme| {
+                                (
+                                    GlyphText::Run {
+                                        text: request.text,
+                                        start: grapheme.start,
+                                        end: grapheme.end,
+                                    },
+                                    grapheme.width,
+                                )
+                            })
+                            .chain(line_ellipsis.then_some((GlyphText::Static("…"), 1)));
+                        for (grapheme, width) in graphemes {
                             let x = start_x + column as isize;
                             let y = start_y + line_index as isize;
                             if x >= 0
@@ -687,7 +677,7 @@ impl Renderer for TerminalRenderer {
                                 let index = y as usize * self.columns + x as usize;
                                 if self.damaged[index] {
                                     self.glyphs[index] = Some(Glyph {
-                                        text: grapheme.clone(),
+                                        text: grapheme,
                                         color: request.color,
                                         bold: request.style.weight >= 600,
                                         z,
@@ -698,7 +688,7 @@ impl Renderer for TerminalRenderer {
                                     let index = y as usize * self.columns + continuation_x;
                                     if self.damaged[index] {
                                         self.glyphs[index] = Some(Glyph {
-                                            text: String::new(),
+                                            text: GlyphText::Static(""),
                                             color: request.color,
                                             bold: request.style.weight >= 600,
                                             z,
@@ -781,32 +771,39 @@ impl Renderer for TerminalRenderer {
                     && pixel_z <= glyph.z
                     && box_cell.z <= glyph.z
                 {
-                    self.cells[index] = Cell {
-                        text: glyph.text.clone(),
-                        foreground: glyph.color,
-                        background,
-                        bold: glyph.bold,
+                    let text = match glyph.text {
+                        GlyphText::Static(text) => text,
+                        GlyphText::Run { text, start, end } => {
+                            let run = self.text_run_index(text);
+                            &self.text_runs.get_index(run).text[start..end]
+                        }
                     };
+                    let cell = &mut self.cells[index];
+                    cell.text.clear();
+                    cell.text.push_str(text);
+                    cell.foreground = glyph.color;
+                    cell.background = background;
+                    cell.bold = glyph.bold;
                     continue;
                 }
                 if box_cell.edges != 0 && pixel_z <= box_cell.z {
-                    self.cells[index] = Cell {
-                        text: if box_cell.rounded {
-                            match box_cell.edges {
-                                3 => "╰",
-                                6 => "╭",
-                                9 => "╯",
-                                12 => "╮",
-                                _ => BOXES[box_cell.edges as usize],
-                            }
-                        } else {
-                            BOXES[box_cell.edges as usize]
+                    let text = if box_cell.rounded {
+                        match box_cell.edges {
+                            3 => "╰",
+                            6 => "╭",
+                            9 => "╯",
+                            12 => "╮",
+                            _ => BOXES[box_cell.edges as usize],
                         }
-                        .into(),
-                        foreground: box_cell.color,
-                        background,
-                        bold: false,
+                    } else {
+                        BOXES[box_cell.edges as usize]
                     };
+                    let cell = &mut self.cells[index];
+                    cell.text.clear();
+                    cell.text.push_str(text);
+                    cell.foreground = box_cell.color;
+                    cell.background = background;
+                    cell.bold = false;
                     continue;
                 }
                 let mut background = pixels[0].color;
@@ -832,14 +829,101 @@ impl Renderer for TerminalRenderer {
                         mask |= 1 << bit;
                     }
                 }
-                self.cells[index] = Cell {
-                    text: QUADRANTS[mask].into(),
-                    foreground,
-                    background,
-                    bold: false,
-                };
+                let cell = &mut self.cells[index];
+                cell.text.clear();
+                cell.text.push_str(QUADRANTS[mask]);
+                cell.foreground = foreground;
+                cell.background = background;
+                cell.bold = false;
             }
         }
+        let mut style = None;
+        for y in 0..self.rows {
+            let mut x = 0;
+            while x < self.columns {
+                let index = y * self.columns + x;
+                if !self.damaged[index] || self.previous[index] == self.cells[index] {
+                    x += 1;
+                    continue;
+                }
+                write!(self.output, "\x1b[{};{}H", y + 1, x + 1).unwrap();
+                while x < self.columns {
+                    let index = y * self.columns + x;
+                    let cell = &self.cells[index];
+                    if !self.damaged[index] || self.previous[index] == *cell {
+                        break;
+                    }
+                    let next_style = (cell.foreground, cell.background, cell.bold);
+                    if style != Some(next_style) {
+                        write!(
+                            self.output,
+                            "\x1b[0;{};38;2;{};{};{};48;2;{};{};{}m",
+                            if cell.bold { 1 } else { 22 },
+                            cell.foreground.red,
+                            cell.foreground.green,
+                            cell.foreground.blue,
+                            cell.background.red,
+                            cell.background.green,
+                            cell.background.blue,
+                        )
+                        .unwrap();
+                        style = Some(next_style);
+                    }
+                    self.output.push_str(&cell.text);
+                    self.previous[index].clone_from(cell);
+                    x += 1;
+                }
+            }
+        }
+        self.output.push_str("\x1b[0m");
+        for placement in &self.presented_kitty_placements {
+            if !self.kitty_placements.contains(placement) {
+                write!(
+                    self.output,
+                    "\x1b_Ga=d,d=i,i={},p={},q=2\x1b\\",
+                    placement.image, placement.id
+                )
+                .unwrap();
+            }
+        }
+        for placement in &self.kitty_placements {
+            let image = &mut self.images[placement.image as usize - 1];
+            if !image.transmitted {
+                for (index, chunk) in image.rgba.chunks(3072).enumerate() {
+                    let more = usize::from((index + 1) * 3072 < image.rgba.len());
+                    if index == 0 {
+                        write!(
+                            self.output,
+                            "\x1b_Ga=t,f=32,s={},v={},i={},m={more},q=2;",
+                            image.width, image.height, placement.image
+                        )
+                        .unwrap();
+                    } else {
+                        write!(self.output, "\x1b_Gm={more},q=2;").unwrap();
+                    }
+                    BASE64.encode_string(chunk, &mut self.output);
+                    self.output.push_str("\x1b\\");
+                }
+                image.transmitted = true;
+            }
+            if !self.presented_kitty_placements.contains(placement) {
+                write!(
+                    self.output,
+                    "\x1b[{};{}H\x1b_Ga=p,i={},p={},c={},r={},C=1,z=1,q=2\x1b\\",
+                    placement.y + 1,
+                    placement.x + 1,
+                    placement.image,
+                    placement.id,
+                    placement.width,
+                    placement.height,
+                )
+                .unwrap();
+            }
+        }
+        self.presented_kitty_placements
+            .clone_from(&self.kitty_placements);
+        self.text_layouts.trim_to_weight();
+        self.text_runs.trim_to_weight();
     }
 
     fn create_image(&mut self, data: ImageData) -> ImageHandle {
@@ -896,19 +980,59 @@ impl Renderer for TerminalRenderer {
     }
 
     fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        if let Some(index) = self
-            .text_runs
-            .iter()
-            .position(|(stored, stored_style)| stored == text && *stored_style == style)
-        {
-            return TextRunId(index as u64 + 1);
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        let query = RunQuery {
+            digest: hasher.finish(),
+            len: text.len(),
+            font: style.font,
+            size: style.size.to_bits(),
+            weight: style.weight,
+        };
+        let next = self.next_text_run;
+        let (_, index) = self.text_runs.get_or_insert_by(
+            &query,
+            |key, run| {
+                key.digest == query.digest
+                    && key.len == query.len
+                    && key.font == query.font
+                    && key.size == query.size
+                    && key.weight == query.weight
+                    && run.text.as_ref() == text
+            },
+            || {
+                (
+                    RunKey {
+                        digest: query.digest,
+                        len: query.len,
+                        font: query.font,
+                        size: query.size,
+                        weight: query.weight,
+                    },
+                    CachedRun {
+                        id: TextRunId(u64::from(next) << 32),
+                        text: text.into(),
+                    },
+                )
+            },
+        );
+        if self.text_runs.get_index(index).id.0 as u32 == 0 {
+            let slot = u32::try_from(index + 1).expect("too many terminal text runs");
+            self.text_runs
+                .update_index(index, |run| run.id.0 |= u64::from(slot));
+            self.next_text_run = self
+                .next_text_run
+                .checked_add(1)
+                .expect("too many terminal text runs");
         }
-        self.text_runs.push((text.to_owned(), style));
-        TextRunId(self.text_runs.len() as u64)
+        self.text_runs.get_index(index).id
     }
 
     fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
-        let text = &self.text_runs[request.text.0 as usize - 1].0;
+        let text = &self
+            .text_runs
+            .get_index(self.text_run_index(request.text))
+            .text;
         let target = ((position.x - request.area.x + request.offset_x)
             / (CELL_WIDTH / self.scale_factor))
             .round()
@@ -926,14 +1050,18 @@ impl Renderer for TerminalRenderer {
 
     fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
         let layout = self.layout_text(request);
+        let layout = self.text_layouts.get_index(layout);
         LogicalSize {
-            width: layout.width,
-            height: layout.height,
+            width: layout.width as f32 * CELL_WIDTH / self.scale_factor,
+            height: layout.lines.len() as f32 * CELL_HEIGHT / self.scale_factor,
         }
     }
 
     fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        let text = &self.text_runs[request.text.0 as usize - 1].0;
+        let text = &self
+            .text_runs
+            .get_index(self.text_run_index(request.text))
+            .text;
         let before = &text[..text.floor_char_boundary(byte_offset.min(text.len()))];
         let line = before.rsplit_once('\n').map_or(before, |(_, line)| line);
         LogicalRect {
@@ -994,9 +1122,19 @@ impl BoxCell {
     }
 }
 
+#[derive(Clone, Copy)]
+enum GlyphText {
+    Static(&'static str),
+    Run {
+        text: TextRunId,
+        start: usize,
+        end: usize,
+    },
+}
+
 #[derive(Clone)]
 struct Glyph {
-    text: String,
+    text: GlyphText,
     color: Color,
     bold: bool,
     z: usize,
@@ -1032,16 +1170,73 @@ impl Default for Cell {
     }
 }
 
-#[derive(Default)]
+struct RunScale;
+
+impl Scale<RunKey, CachedRun> for RunScale {
+    fn weight(&self, _key: &RunKey, run: &CachedRun) -> usize {
+        size_of::<CachedRun>() + run.text.len()
+    }
+}
+
+struct LayoutScale;
+
+impl Scale<LayoutKey, TextLayout> for LayoutScale {
+    fn weight(&self, _key: &LayoutKey, layout: &TextLayout) -> usize {
+        size_of::<TextLayout>()
+            + layout.lines.len() * size_of::<Line>()
+            + layout.graphemes.len() * size_of::<LayoutGrapheme>()
+    }
+}
+
+struct CachedRun {
+    id: TextRunId,
+    text: Box<str>,
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct RunKey {
+    digest: u64,
+    len: usize,
+    font: blit::text::FontId,
+    size: u32,
+    weight: u16,
+}
+
+#[derive(Clone, Copy, Hash)]
+struct RunQuery {
+    digest: u64,
+    len: usize,
+    font: blit::text::FontId,
+    size: u32,
+    weight: u16,
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct LayoutKey {
+    text: TextRunId,
+    max_columns: Option<usize>,
+    max_lines: usize,
+    wrap: TextWrap,
+}
+
+#[derive(Clone, Copy, Default)]
 struct Line {
-    graphemes: Vec<String>,
+    start: usize,
+    end: usize,
+    width: usize,
+}
+
+#[derive(Clone, Copy)]
+struct LayoutGrapheme {
+    start: usize,
+    end: usize,
     width: usize,
 }
 
 struct TextLayout {
-    lines: Vec<Line>,
-    width: f32,
-    height: f32,
+    lines: Box<[Line]>,
+    graphemes: Box<[LayoutGrapheme]>,
+    width: usize,
     truncated: bool,
 }
 
@@ -1294,9 +1489,27 @@ mod tests {
             max_width: Some(CELL_WIDTH * 7.0),
             max_lines: None,
         });
+        let layout = renderer.text_layouts.get_index(layout);
         assert_eq!(layout.lines.len(), 2);
         assert_eq!(layout.lines[0].width, 5);
         assert_eq!(layout.lines[1].width, 5);
+    }
+
+    #[test]
+    fn text_runs_and_layouts_are_reused() {
+        let mut renderer = TerminalRenderer::new(20, 4);
+        let style = TextStyle::default();
+        let text = renderer.text_run("cached text", style);
+        assert_eq!(renderer.text_run("cached text", style), text);
+        let request = TextLayoutRequest {
+            text,
+            style,
+            wrap: TextWrap::Word,
+            max_width: Some(CELL_WIDTH * 8.0),
+            max_lines: None,
+        };
+        let layout = renderer.layout_text(&request);
+        assert_eq!(renderer.layout_text(&request), layout);
     }
 
     #[test]
@@ -1474,9 +1687,7 @@ mod tests {
             },
         );
         assert!(renderer.plain_text().contains('┌'));
-        let mut output = Vec::new();
-        renderer.present(&mut output).unwrap();
-        let output = String::from_utf8(output).unwrap();
+        let output = std::str::from_utf8(renderer.output()).unwrap();
         assert!(output.contains("\x1b_Ga=t,f=32"));
         assert!(output.contains("\x1b_Ga=p"));
     }

@@ -51,7 +51,8 @@ pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
                 }
             },
         );
-        renderer.present(&mut terminal)?;
+        terminal.write_all(renderer.output())?;
+        terminal.flush()?;
         while control == ControlFlow::Continue {
             let now = start.elapsed();
             let timeout = if state.has_pending_redraw() {
@@ -84,7 +85,8 @@ pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
                         }
                     },
                 );
-                renderer.present(&mut terminal)?;
+                terminal.write_all(renderer.output())?;
+                terminal.flush()?;
             }
         }
         Ok(())

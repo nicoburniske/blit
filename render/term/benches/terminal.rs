@@ -1,4 +1,4 @@
-use std::{hint::black_box, io, time::Duration};
+use std::{hint::black_box, time::Duration};
 
 use blit::{
     UiState,
@@ -60,15 +60,6 @@ fn render_one_cell(bencher: divan::Bencher) {
 }
 
 #[divan::bench]
-fn present_unchanged(bencher: divan::Bencher) {
-    let commands = commands(false);
-    let mut renderer = TerminalRenderer::new(MICRO_COLUMNS, MICRO_ROWS);
-    renderer.render(&commands, &[screen(MICRO_COLUMNS, MICRO_ROWS)]);
-    renderer.present(&mut io::sink()).unwrap();
-    bencher.bench_local(|| renderer.present(black_box(&mut io::sink())).unwrap());
-}
-
-#[divan::bench]
 fn update_one_cell(bencher: divan::Bencher) {
     let old = commands(false);
     let new = commands(true);
@@ -80,14 +71,13 @@ fn update_one_cell(bencher: divan::Bencher) {
     }];
     let mut renderer = TerminalRenderer::new(MICRO_COLUMNS, MICRO_ROWS);
     renderer.render(&old, &[screen(MICRO_COLUMNS, MICRO_ROWS)]);
-    renderer.present(&mut io::sink()).unwrap();
     let mut changed = true;
     bencher.bench_local(|| {
         renderer.render(
             black_box(if changed { &new } else { &old }),
             black_box(&damage),
         );
-        renderer.present(black_box(&mut io::sink())).unwrap();
+        black_box(renderer.output());
         changed = !changed;
     });
 }
@@ -109,7 +99,7 @@ fn showcase_incremental(bencher: divan::Bencher, update: ShowcaseUpdate) {
         [],
         |ui| showcase.render(ui),
     );
-    renderer.present(&mut io::sink()).unwrap();
+    black_box(renderer.output());
 
     let mut alternate = false;
     bencher.bench_local(|| {
@@ -131,7 +121,7 @@ fn showcase_incremental(bencher: divan::Bencher, update: ShowcaseUpdate) {
             [black_box(input)],
             |ui| showcase.render(ui),
         );
-        renderer.present(black_box(&mut io::sink())).unwrap();
+        black_box(renderer.output());
         alternate = !alternate;
     });
 }
@@ -157,7 +147,7 @@ fn showcase_full(bencher: divan::Bencher, page: Page) {
         [],
         |ui| showcase.render(ui),
     );
-    renderer.present(&mut io::sink()).unwrap();
+    black_box(renderer.output());
 
     bencher.bench_local(|| {
         state.invalidate_all();
@@ -169,7 +159,7 @@ fn showcase_full(bencher: divan::Bencher, page: Page) {
             [Input::None],
             |ui| showcase.render(ui),
         );
-        renderer.present(black_box(&mut io::sink())).unwrap();
+        black_box(renderer.output());
     });
 }
 
