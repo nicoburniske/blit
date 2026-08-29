@@ -114,6 +114,7 @@ dependencies = [
  "blit",
  "blit-cpu",
  "blit-executor",
+ "blit-showcase",
  "softbuffer",
  "winit",
 ]
@@ -135,15 +136,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "blit-terminal-poc"
+name = "blit-showcase"
+version = "0.1.0"
+dependencies = [
+ "blit",
+]
+
+[[package]]
+name = "blit-term"
 version = "0.1.0"
 dependencies = [
  "base64",
  "blit",
+ "blit-showcase",
  "divan",
- "termina",
  "unicode-segmentation",
  "unicode-width",
+]
+
+[[package]]
+name = "blit-terminal"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-showcase",
+ "blit-term",
+ "termina",
 ]
 
 [[package]]

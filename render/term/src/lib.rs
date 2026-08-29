@@ -437,7 +437,7 @@ impl Renderer for TerminalRenderer {
                 .ceil()
                 .clamp(0.0, self.rows as f32) as usize,
         );
-        (right > left && bottom > top).then_some(LogicalRect {
+        (right > left && bottom > top).then(|| LogicalRect {
             x: left as f32 * cell_width,
             y: top as f32 * cell_height,
             width: (right - left) as f32 * cell_width,
@@ -1252,6 +1252,28 @@ mod tests {
         }
 
         assert!(clicked);
+    }
+
+    #[test]
+    fn disjoint_interaction_clip_is_empty() {
+        let renderer = TerminalRenderer::new(4, 3);
+        assert_eq!(
+            renderer.interaction_area(
+                LogicalRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: CELL_WIDTH,
+                    height: CELL_HEIGHT,
+                },
+                LogicalRect {
+                    x: CELL_WIDTH * 3.0,
+                    y: 0.0,
+                    width: CELL_WIDTH,
+                    height: CELL_HEIGHT,
+                },
+            ),
+            None
+        );
     }
 
     #[test]

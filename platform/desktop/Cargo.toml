@@ -4,11 +4,15 @@ version = "0.1.0"
 edition = "2024"
 license.workspace = true
 publish = false
+autoexamples = false
 
 [dependencies]
 blit.workspace = true
-blit-cpu = { path = "../cpu" }
+blit-cpu = { path = "../../render/cpu" }
 blit-executor.workspace = true
+
+[dev-dependencies]
+blit-showcase.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 softbuffer = { version = "0.4.8", default-features = false, features = ["wayland", "wayland-dlopen"] }
@@ -17,3 +21,7 @@ winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "
 [target.'cfg(target_os = "macos")'.dependencies]
 softbuffer = { version = "0.4.8", default-features = false }
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
+
+[[example]]
+name = "desktop-showcase"
+path = "examples/showcase.rs"

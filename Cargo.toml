@@ -1,6 +1,16 @@
 [workspace]
 resolver = "2"
-members = ["cache", "core", "cpu", "desktop", "executor", "font", "terminal-poc"]
+members = [
+    "cache",
+    "core",
+    "examples/showcase",
+    "executor",
+    "font",
+    "platform/desktop",
+    "platform/terminal",
+    "render/cpu",
+    "render/term",
+]
 
 [workspace.package]
 license = "MIT"
@@ -9,3 +19,4 @@ license = "MIT"
 blit = { path = "core" }
 blit-executor = { path = "executor" }
 blit-font = { path = "font" }
+blit-showcase = { path = "examples/showcase" }

@@ -14,33 +14,11 @@ use blit::{
         Align, Axis, Constraints, Flex, Grid, ItemScope, Justify, Layout, LayoutCx, UnitScope, Wrap,
     },
     style::{Clip, Style},
-    text::{FontId, HorizontalAlign, TextWrap},
+    text::{HorizontalAlign, TextWrap},
     widget::{Image, Rectangle, ScrollArea, ScrollState, Text, TextInput, TextInputState, Widget},
 };
-use blit_cpu::{Font, FontFace, RendererConfig};
-use blit_desktop::{Application, Config, EventLoopProxy, Root};
 
-fn main() {
-    blit_desktop::run::<State>(Config {
-        title: "Blit showcase".into(),
-        width: 1120,
-        height: 800,
-        renderer: RendererConfig {
-            fonts: vec![FontFace {
-                id: FontId::default(),
-                weight: 400,
-                font: Font::from_static(include_bytes!(env!("BLIT_TEST_FONT"))).unwrap(),
-            }],
-            font_metric_cache_capacity: 256,
-            glyph_cache_capacity: 1024 * 1024,
-            paragraph_cache_capacity: 2 * 1024 * 1024,
-            shadow_cache_capacity: 64 * 1024,
-        },
-    })
-    .unwrap();
-}
-
-struct State {
+pub struct Showcase {
     canvas: CanvasConfig,
     transition_easing: Easing,
     transition_target: bool,
@@ -69,8 +47,8 @@ struct CanvasConfig {
     transition_duration: f32,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Page {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
     Layout,
     Scrolling,
     Input,
@@ -109,10 +87,8 @@ impl Default for CanvasConfig {
     }
 }
 
-impl Application for State {
-    type Input = ();
-
-    fn new(_: EventLoopProxy<Self::Input>, _: Root<Self>) -> Self {
+impl Default for Showcase {
+    fn default() -> Self {
         Self {
             canvas: CanvasConfig::default(),
             transition_easing: Easing::EaseInOutQuad,
@@ -128,10 +104,14 @@ impl Application for State {
             fps_label: "FPS --".into(),
         }
     }
+}
 
-    fn input(&mut self, _: Self::Input) {}
+impl Showcase {
+    pub fn set_page(&mut self, page: Page) {
+        self.page = page;
+    }
 
-    fn render(&mut self, ui: &mut Ui) {
+    pub fn render(&mut self, ui: &mut Ui) {
         let scale_factor = match ui.input() {
             Input::Key(key) if key.pressed && key.modifiers.control() => match key.key {
                 Key::Character('+') | Key::Character('=') => Some(ui.scale_factor() + 0.25),
@@ -175,7 +155,7 @@ impl Application for State {
     }
 }
 
-impl State {
+impl Showcase {
     fn header(&mut self, ui: &mut Ui) {
         let mut header = ui
             .layout(
