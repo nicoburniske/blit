@@ -9,7 +9,7 @@ use blit::{
         ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageSampling, ImageTiling,
     },
     input::{Input, Key},
-    interact::{Interaction, Sense, WidgetId},
+    interact::{Sense, WidgetId},
     layout::{
         Align, Axis, Constraints, Flex, Grid, ItemScope, Justify, Layout, LayoutCx, UnitScope, Wrap,
     },
@@ -1173,6 +1173,7 @@ impl<W: Widget> Widget for ResizableWidget<'_, W> {
         let right = ui.interact(right_id, Sense::DRAG);
         let bottom = ui.interact(bottom_id, Sense::DRAG);
         let corner = ui.interact(corner_id, Sense::DRAG);
+        let dragging = right.dragging || bottom.dragging || corner.dragging;
         let delta = LogicalPoint {
             x: right.drag_delta.x + corner.drag_delta.x,
             y: bottom.drag_delta.y + corner.drag_delta.y,
@@ -1208,17 +1209,17 @@ impl<W: Widget> Widget for ResizableWidget<'_, W> {
         shell.add(self.content);
         shell.add(ResizeGrip {
             id: right_id,
-            interaction: right,
+            highlighted: right.dragging || right.hovered && !dragging,
             edge: ResizeEdge::Right,
         });
         shell.add(ResizeGrip {
             id: bottom_id,
-            interaction: bottom,
+            highlighted: bottom.dragging || bottom.hovered && !dragging,
             edge: ResizeEdge::Bottom,
         });
         shell.add(ResizeGrip {
             id: corner_id,
-            interaction: corner,
+            highlighted: corner.dragging || corner.hovered && !dragging,
             edge: ResizeEdge::Corner,
         });
     }
@@ -1226,7 +1227,7 @@ impl<W: Widget> Widget for ResizableWidget<'_, W> {
 
 struct ResizeGrip {
     id: WidgetId,
-    interaction: Interaction,
+    highlighted: bool,
     edge: ResizeEdge,
 }
 
@@ -1241,37 +1242,37 @@ impl Widget for ResizeGrip {
     type Output = ();
 
     fn render(self, ui: &mut Ui) {
-        let (layout, width, height, absolute, z_index, marker_width, marker_height, color) =
+        let (layout, width, height, absolute, z_index, marker_width, marker_height, radius) =
             match self.edge {
                 ResizeEdge::Right => (
                     Flex::column().align(Align::Center).justify(Justify::Center),
                     Sizing::fixed(12.0),
                     Sizing::percent(1.0),
-                    Absolute::attach(Anchor::Right, Anchor::Left),
+                    Absolute::attach(Anchor::Right, Anchor::Left).offset(-7.0, 0.0),
                     1,
-                    3.0,
+                    6.0,
                     48.0,
-                    colors::GRIP,
+                    2.0,
                 ),
                 ResizeEdge::Bottom => (
                     Flex::row().align(Align::Center).justify(Justify::Center),
                     Sizing::percent(1.0),
                     Sizing::fixed(12.0),
-                    Absolute::attach(Anchor::Bottom, Anchor::Top),
+                    Absolute::attach(Anchor::Bottom, Anchor::Top).offset(0.0, -7.0),
                     1,
                     48.0,
-                    3.0,
-                    colors::GRIP,
+                    6.0,
+                    2.0,
                 ),
                 ResizeEdge::Corner => (
                     Flex::row().align(Align::Center).justify(Justify::Center),
                     Sizing::fixed(12.0),
                     Sizing::fixed(12.0),
-                    Absolute::attach(Anchor::BottomRight, Anchor::TopLeft),
+                    Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).offset(-7.0, -7.0),
                     2,
                     6.0,
                     6.0,
-                    colors::GRIP_CORNER,
+                    3.0,
                 ),
             };
         let mut grip = ui
@@ -1279,6 +1280,7 @@ impl Widget for ResizeGrip {
             .width(width)
             .height(height)
             .id(self.id)
+            .hit(Sides::all(8.0))
             .z_index(z_index)
             .absolute(absolute)
             .open();
@@ -1287,37 +1289,14 @@ impl Widget for ResizeGrip {
                 .slot(Slot::new().fixed(marker_width, marker_height))
                 .style(
                     Style::new()
-                        .background(if self.interaction.hovered || self.interaction.dragging {
+                        .background(if self.highlighted {
                             colors::ACCENT
                         } else {
-                            color
+                            colors::GRIP
                         })
-                        .uniform_radius(marker_width.min(marker_height) / 2.0),
+                        .uniform_radius(radius),
                 ),
         );
-        if matches!(self.edge, ResizeEdge::Right)
-            && (self.interaction.hovered || self.interaction.dragging)
-        {
-            grip.add(|ui: &mut Ui| {
-                let mut readout = ui
-                    .layout(Flex::row().padding(Sides {
-                        top: 4.0,
-                        right: 7.0,
-                        bottom: 4.0,
-                        left: 7.0,
-                    }))
-                    .style(
-                        Style::new()
-                            .background(colors::BACKGROUND)
-                            .solid_border(1.0, colors::ACCENT)
-                            .uniform_radius(5.0),
-                    )
-                    .z_index(10)
-                    .absolute(Absolute::attach(Anchor::Left, Anchor::Right).offset(-8.0, 0.0))
-                    .open();
-                readout.add(Text::new("DRAG X").color(colors::TEXT).text_size(9.0));
-            });
-        }
     }
 }
 
@@ -1604,7 +1583,6 @@ mod colors {
     pub const CANVAS: Color = Color::from_rgba8(25, 36, 54, 255);
     pub const CANVAS_BORDER: Color = Color::from_rgba8(68, 91, 123, 255);
     pub const GRIP: Color = Color::from_rgba8(46, 77, 101, 255);
-    pub const GRIP_CORNER: Color = Color::from_rgba8(63, 103, 128, 255);
     pub const BORDER: Color = Color::from_rgba8(55, 72, 99, 255);
     pub const TEXT: Color = Color::from_rgba8(235, 242, 250, 255);
     pub const TEXT_MUTED: Color = Color::from_rgba8(157, 173, 194, 255);
