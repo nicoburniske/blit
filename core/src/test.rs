@@ -1337,6 +1337,39 @@ fn interaction_reports_active_lifecycle() {
 }
 
 #[test]
+fn pure_drag_starts_immediately() {
+    let mut harness = Harness::new(TestRenderer::default());
+    let id = WidgetId::new("immediate drag");
+    let render = |ui: &mut Ui| {
+        let interaction = ui.interact(id, Sense::DRAG);
+        ui.layout(Flex::column()).fixed(10.0, 10.0).id(id).open();
+        interaction
+    };
+
+    harness.render(Duration::ZERO, Input::None, render);
+    let down = harness.render(
+        Duration::ZERO,
+        Input::PointerDown {
+            position: LogicalPoint { x: 5.0, y: 5.0 },
+            button: PointerButton::Primary,
+            modifiers: Modifiers::NONE,
+        },
+        render,
+    );
+    assert!(down.dragging);
+
+    let moved = harness.render(
+        Duration::ZERO,
+        Input::PointerMove {
+            position: LogicalPoint { x: 6.0, y: 5.0 },
+            modifiers: Modifiers::NONE,
+        },
+        render,
+    );
+    assert_eq!(moved.drag_delta, LogicalPoint { x: 1.0, y: 0.0 });
+}
+
+#[test]
 fn renderer_projects_interaction_geometry() {
     let mut harness = Harness::new(TestRenderer {
         interaction_offset: 5.0,

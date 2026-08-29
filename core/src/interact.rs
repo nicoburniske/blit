@@ -92,7 +92,7 @@ pub struct Interaction {
     pub hovered: bool,
     /// primary pointer released inside hit area without dragging
     pub clicked: bool,
-    /// owns drag beyond movement threshold while pointer is down
+    /// owns an active drag while the pointer is down
     pub dragging: bool,
     /// pointer movement since previous input during a drag, otherwise zero
     pub drag_delta: LogicalPoint,
@@ -252,18 +252,23 @@ impl InteractionState {
         if matches!(self.pointer.event, PointerEvent::Down) {
             let previous = self.active;
             self.active = hovered.filter(|item| item.sense.click).map(|item| item.id);
-            if self.active != previous {
-                self.deactivated = previous;
-                self.activated = self.active;
-            }
             self.focused = hovered.filter(|item| item.sense.focus).map(|item| item.id);
-            self.drag_owner = position.and_then(|position| {
+            let drag_owner = position.and_then(|position| {
                 self.previous_hits
                     .iter()
                     .rev()
                     .find(|item| item.sense.drag && item.area.contains(position.x, position.y))
-                    .map(|item| item.id)
+                    .copied()
             });
+            self.drag_owner = drag_owner.map(|item| item.id);
+            if drag_owner.is_some_and(|item| item.sense == Sense::DRAG) {
+                self.pointer.dragging = true;
+                self.active = self.drag_owner;
+            }
+            if self.active != previous {
+                self.deactivated = previous;
+                self.activated = self.active;
+            }
         }
     }
 
