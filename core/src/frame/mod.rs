@@ -297,18 +297,10 @@ impl FrameGraph {
             (Some(layout), Some(absolute)) => {
                 let (target, uses_target_content_origin) = match absolute.target {
                     PositionTarget::Parent => (parent, true),
-                    PositionTarget::Widget(id) => {
-                        let mut targets = self
-                            .geometry
-                            .iter()
-                            .filter(|record| record.id == id)
-                            .map(|record| record.node);
-                        let target = targets.next().unwrap_or_else(|| {
-                            panic!("absolute target {id:?} must be declared first")
-                        });
+                    PositionTarget::Node(target) => {
                         assert!(
-                            targets.next().is_none(),
-                            "absolute target {id:?} is duplicate"
+                            target.index() < self.nodes.len(),
+                            "absolute target must be declared first"
                         );
                         (target, false)
                     }

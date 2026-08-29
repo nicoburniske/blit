@@ -5,7 +5,7 @@ use crate::{
     animation::{Easing, Transition},
     color::Color,
     command_list::{ClipId, Command, CommandList},
-    container::{Absolute, Anchor, PositionTarget, Sizing, Slot},
+    container::{Absolute, Anchor, Sizing, Slot},
     geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Sides},
     image,
     input::{Input, Key, KeyInput, Modifiers, PointerButton},
@@ -738,26 +738,23 @@ fn local_layer_inherits_its_declaration_clip() {
 }
 
 #[test]
-fn absolute_can_target_an_earlier_widget() {
+fn absolute_can_target_an_earlier_node() {
     let mut harness = Harness::new(TestRenderer::default());
-    let target = WidgetId::new("absolute target");
     harness.render(Duration::ZERO, Input::None, |ui| {
         let mut parent = ui.layout(Flex::column()).fixed(10.0, 10.0).open();
-        parent.add(|ui: &mut Ui| {
-            ui.layout(Flex::column())
+        let target = parent.add(|ui: &mut Ui| {
+            let target = ui
+                .layout(Flex::column())
                 .fixed(4.0, 3.0)
-                .id(target)
                 .absolute(Absolute::at(2.0, 1.0))
                 .open();
+            target.node()
         });
         parent.close();
         ui.layout(Flex::column())
             .fixed(1.0, 1.0)
             .style(Style::new().background(Color::BLACK))
-            .absolute(
-                Absolute::attach(Anchor::BottomRight, Anchor::TopLeft)
-                    .relative_to(PositionTarget::Widget(target)),
-            )
+            .absolute(Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target))
             .open();
     });
 

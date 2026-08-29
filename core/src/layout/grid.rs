@@ -1,6 +1,7 @@
 use crate::{
     container::LayerId,
     geometry::{LogicalPoint, LogicalSize, Sides},
+    node::NodeId,
     widget::Widget,
 };
 
@@ -91,6 +92,10 @@ impl<'ui> From<RawScope<'ui, Grid>> for GridScope<'ui> {
 }
 
 impl GridScope<'_> {
+    pub fn node(&self) -> NodeId {
+        self.raw.node
+    }
+
     pub fn layer(&mut self) -> LayerId {
         self.raw.ui.layer()
     }
