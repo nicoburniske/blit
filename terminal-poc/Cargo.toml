@@ -5,6 +5,7 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
+base64 = "0.22"
 blit.workspace = true
 crossterm = "0.29"
 unicode-segmentation = "1.12"

@@ -1,5 +1,6 @@
 use std::{fmt::Write as _, io};
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use blit::{
     color::Color,
     command_list::{Command, CommandList},
@@ -23,9 +24,12 @@ pub struct TerminalRenderer {
     rows: usize,
     scale_factor: f32,
     text_runs: Vec<(String, TextStyle)>,
-    images: Vec<ImageData>,
+    images: Vec<StoredImage>,
+    kitty_placements: Vec<KittyPlacement>,
+    presented_kitty_placements: Vec<KittyPlacement>,
     pixels: Vec<Pixel>,
     glyphs: Vec<Option<Glyph>>,
+    boxes: Vec<BoxCell>,
     cells: Vec<Cell>,
     previous: Vec<Cell>,
 }
@@ -40,8 +44,11 @@ impl TerminalRenderer {
             scale_factor: 1.0,
             text_runs: Vec::new(),
             images: Vec::new(),
+            kitty_placements: Vec::new(),
+            presented_kitty_placements: Vec::new(),
             pixels: vec![Pixel::default(); columns * 2 * rows * 2],
             glyphs: vec![None; columns * rows],
+            boxes: vec![BoxCell::default(); columns * rows],
             cells: vec![Cell::default(); columns * rows],
             previous: vec![Cell::invalid(); columns * rows],
         }
@@ -66,6 +73,7 @@ impl TerminalRenderer {
         self.rows = rows;
         self.pixels.resize(columns * 2 * rows * 2, Pixel::default());
         self.glyphs.resize(columns * rows, None);
+        self.boxes.resize(columns * rows, BoxCell::default());
         self.cells.resize(columns * rows, Cell::default());
         self.previous = vec![Cell::invalid(); columns * rows];
     }
@@ -111,8 +119,66 @@ impl TerminalRenderer {
             }
         }
         ansi.push_str("\x1b[0m");
+        for placement in &self.presented_kitty_placements {
+            if !self.kitty_placements.contains(placement) {
+                write!(
+                    ansi,
+                    "\x1b_Ga=d,d=i,i={},p={},q=2\x1b\\",
+                    placement.image, placement.id
+                )
+                .unwrap();
+            }
+        }
+        for placement in &self.kitty_placements {
+            let image = &mut self.images[placement.image as usize - 1];
+            if !image.transmitted {
+                for (index, chunk) in image.rgba.chunks(3072).enumerate() {
+                    let more = usize::from((index + 1) * 3072 < image.rgba.len());
+                    if index == 0 {
+                        write!(
+                            ansi,
+                            "\x1b_Ga=t,f=32,s={},v={},i={},m={more},q=2;",
+                            image.width, image.height, placement.image
+                        )
+                        .unwrap();
+                    } else {
+                        write!(ansi, "\x1b_Gm={more},q=2;").unwrap();
+                    }
+                    BASE64.encode_string(chunk, &mut ansi);
+                    ansi.push_str("\x1b\\");
+                }
+                image.transmitted = true;
+            }
+            if !self.presented_kitty_placements.contains(placement) {
+                write!(
+                    ansi,
+                    "\x1b[{};{}H\x1b_Ga=p,i={},p={},c={},r={},C=1,z=1,q=2\x1b\\",
+                    placement.y + 1,
+                    placement.x + 1,
+                    placement.image,
+                    placement.id,
+                    placement.width,
+                    placement.height,
+                )
+                .unwrap();
+            }
+        }
+        self.presented_kitty_placements
+            .clone_from(&self.kitty_placements);
         output.write_all(ansi.as_bytes())?;
         output.flush()
+    }
+
+    pub fn clear_kitty_graphics(&mut self, output: &mut impl io::Write) -> io::Result<()> {
+        for (index, image) in self.images.iter_mut().enumerate() {
+            if image.transmitted {
+                write!(output, "\x1b_Ga=d,d=I,i={},q=2\x1b\\", index + 1)?;
+                image.transmitted = false;
+            }
+        }
+        self.presented_kitty_placements.clear();
+        output.flush()?;
+        Ok(())
     }
 
     pub fn plain_text(&self) -> String {
@@ -144,6 +210,28 @@ impl TerminalRenderer {
                 "<rect x=\"{x}\" y=\"{y}\" width=\"9\" height=\"18\" fill=\"#{:02x}{:02x}{:02x}\"/>",
                 cell.background.red, cell.background.green, cell.background.blue
             )?;
+        }
+        for placement in &self.kitty_placements {
+            let image = &self.images[placement.image as usize - 1];
+            let left = placement.x as f32 * 9.0;
+            let top = placement.y as f32 * 18.0;
+            let pixel_width = placement.width as f32 * 9.0 / image.width as f32;
+            let pixel_height = placement.height as f32 * 18.0 / image.height as f32;
+            for y in 0..image.height {
+                for x in 0..image.width {
+                    let offset = (y * image.width + x) * 4;
+                    writeln!(
+                        output,
+                        "<rect x=\"{}\" y=\"{}\" width=\"{pixel_width}\" height=\"{pixel_height}\" fill=\"#{:02x}{:02x}{:02x}\" fill-opacity=\"{}\"/>",
+                        left + x as f32 * pixel_width,
+                        top + y as f32 * pixel_height,
+                        image.rgba[offset],
+                        image.rgba[offset + 1],
+                        image.rgba[offset + 2],
+                        image.rgba[offset + 3] as f32 / 255.0,
+                    )?;
+                }
+            }
         }
         for (index, cell) in self.cells.iter().enumerate() {
             let x = index % self.columns * 9;
@@ -278,43 +366,6 @@ impl TerminalRenderer {
             truncated,
         }
     }
-
-    fn paint_rect(
-        &mut self,
-        area: LogicalRect,
-        color: Color,
-        opacity: f32,
-        z: usize,
-        clip: LogicalRect,
-    ) {
-        if color.alpha == 0 || opacity <= 0.0 {
-            return;
-        }
-        let sub_width = CELL_WIDTH / 2.0 / self.scale_factor;
-        let sub_height = CELL_HEIGHT / 2.0 / self.scale_factor;
-        let left = (area.x / sub_width).floor().max(0.0) as usize;
-        let top = (area.y / sub_height).floor().max(0.0) as usize;
-        let right = ((area.x + area.width) / sub_width)
-            .ceil()
-            .min((self.columns * 2) as f32) as usize;
-        let bottom = ((area.y + area.height) / sub_height)
-            .ceil()
-            .min((self.rows * 2) as f32) as usize;
-        for y in top..bottom {
-            for x in left..right {
-                let logical = LogicalPoint {
-                    x: (x as f32 + 0.5) * sub_width,
-                    y: (y as f32 + 0.5) * sub_height,
-                };
-                if !area.contains(logical.x, logical.y) || !clip.contains(logical.x, logical.y) {
-                    continue;
-                }
-                let pixel = &mut self.pixels[y * self.columns * 2 + x];
-                pixel.color = blend(color, pixel.color, opacity);
-                pixel.z = z;
-            }
-        }
-    }
 }
 
 impl Renderer for TerminalRenderer {
@@ -325,6 +376,8 @@ impl Renderer for TerminalRenderer {
     fn render(&mut self, commands: &CommandList, _: &[PhysicalRect]) {
         self.pixels.fill(Pixel::default());
         self.glyphs.fill(None);
+        self.boxes.fill(BoxCell::default());
+        self.kitty_placements.clear();
         let screen = self.screen().to_logical(self.scale_factor);
         for (z, record) in commands.iter().enumerate() {
             let mut clip = screen;
@@ -341,71 +394,113 @@ impl Renderer for TerminalRenderer {
                 Command::Clear => {
                     self.pixels.fill(Pixel::default());
                     self.glyphs.fill(None);
+                    self.boxes.fill(BoxCell::default());
+                    self.kitty_placements.clear();
                 }
                 Command::Rectangle(rectangle) => {
-                    self.paint_rect(
-                        rectangle.area,
-                        rectangle.background,
-                        rectangle.opacity,
-                        z,
-                        clip,
-                    );
-                    let border = match rectangle.border {
-                        Border::None => None,
-                        Border::Solid { width, color } => Some((width, color)),
-                        Border::Gradient { width, gradient } => gradient
-                            .stops
-                            .get(gradient.stops.len() / 2)
-                            .map(|stop| (width, stop.color)),
-                    };
-                    if let Some((width, color)) = border {
-                        self.paint_rect(
-                            LogicalRect {
-                                height: width,
-                                ..rectangle.area
-                            },
-                            color,
-                            rectangle.opacity,
-                            z,
-                            clip,
-                        );
-                        self.paint_rect(
-                            LogicalRect {
-                                y: rectangle.area.y + rectangle.area.height - width,
-                                height: width,
-                                ..rectangle.area
-                            },
-                            color,
-                            rectangle.opacity,
-                            z,
-                            clip,
-                        );
-                        self.paint_rect(
-                            LogicalRect {
-                                width,
-                                ..rectangle.area
-                            },
-                            color,
-                            rectangle.opacity,
-                            z,
-                            clip,
-                        );
-                        self.paint_rect(
-                            LogicalRect {
-                                x: rectangle.area.x + rectangle.area.width - width,
-                                width,
-                                ..rectangle.area
-                            },
-                            color,
-                            rectangle.opacity,
-                            z,
-                            clip,
-                        );
+                    let cell_width = CELL_WIDTH / self.scale_factor;
+                    let cell_height = CELL_HEIGHT / self.scale_factor;
+                    let left = (rectangle.area.x / cell_width).round().max(0.0) as usize;
+                    let top = (rectangle.area.y / cell_height).round().max(0.0) as usize;
+                    let right = ((rectangle.area.x + rectangle.area.width) / cell_width)
+                        .round()
+                        .min(self.columns as f32) as usize;
+                    let bottom = ((rectangle.area.y + rectangle.area.height) / cell_height)
+                        .round()
+                        .min(self.rows as f32) as usize;
+                    if rectangle.background.alpha != 0 && rectangle.opacity > 0.0 {
+                        let stride = self.columns * 2;
+                        for y in top..bottom {
+                            for x in left..right {
+                                let center_x = (x as f32 + 0.5) * cell_width;
+                                let center_y = (y as f32 + 0.5) * cell_height;
+                                if !clip.contains(center_x, center_y) {
+                                    continue;
+                                }
+                                for sub_y in y * 2..y * 2 + 2 {
+                                    for sub_x in x * 2..x * 2 + 2 {
+                                        let pixel = &mut self.pixels[sub_y * stride + sub_x];
+                                        pixel.color = blend(
+                                            rectangle.background,
+                                            pixel.color,
+                                            rectangle.opacity,
+                                        );
+                                        pixel.z = z;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Border::Solid { color, .. } = rectangle.border
+                        && right > left + 1
+                        && bottom > top + 1
+                    {
+                        let right = right - 1;
+                        let bottom = bottom - 1;
+                        for x in left..=right {
+                            for (y, edges, rounded) in [
+                                (
+                                    top,
+                                    if x == left {
+                                        2 | 4
+                                    } else if x == right {
+                                        4 | 8
+                                    } else {
+                                        2 | 8
+                                    },
+                                    if x == left {
+                                        rectangle.radius.top_left != 0.0
+                                    } else if x == right {
+                                        rectangle.radius.top_right != 0.0
+                                    } else {
+                                        false
+                                    },
+                                ),
+                                (
+                                    bottom,
+                                    if x == left {
+                                        1 | 2
+                                    } else if x == right {
+                                        1 | 8
+                                    } else {
+                                        2 | 8
+                                    },
+                                    if x == left {
+                                        rectangle.radius.bottom_left != 0.0
+                                    } else if x == right {
+                                        rectangle.radius.bottom_right != 0.0
+                                    } else {
+                                        false
+                                    },
+                                ),
+                            ] {
+                                let center_x = (x as f32 + 0.5) * cell_width;
+                                let center_y = (y as f32 + 0.5) * cell_height;
+                                if clip.contains(center_x, center_y) {
+                                    let cell = &mut self.boxes[y * self.columns + x];
+                                    cell.rounded = cell.edges == 0 && rounded;
+                                    cell.edges |= edges;
+                                    cell.color = color;
+                                    cell.z = cell.z.max(z);
+                                }
+                            }
+                        }
+                        for y in top + 1..bottom {
+                            for x in [left, right] {
+                                let center_x = (x as f32 + 0.5) * cell_width;
+                                let center_y = (y as f32 + 0.5) * cell_height;
+                                if clip.contains(center_x, center_y) {
+                                    let cell = &mut self.boxes[y * self.columns + x];
+                                    cell.rounded = false;
+                                    cell.edges |= 1 | 4;
+                                    cell.color = color;
+                                    cell.z = cell.z.max(z);
+                                }
+                            }
+                        }
                     }
                 }
-                Command::BoxShadow(shadow) => {
-                    self.paint_rect(shadow.bounds(), shadow.color, 0.45, z, clip);
-                }
+                Command::BoxShadow(_) => {}
                 Command::Text(request) => {
                     let layout_request = TextLayoutRequest {
                         text: request.text,
@@ -498,77 +593,26 @@ impl Renderer for TerminalRenderer {
                     }
                 }
                 Command::Image(request) => {
-                    let Some(image) = self.images.get(request.image.0 as usize - 1) else {
-                        continue;
-                    };
-                    let sub_width = CELL_WIDTH / 2.0 / self.scale_factor;
-                    let sub_height = CELL_HEIGHT / 2.0 / self.scale_factor;
-                    let left = (request.area.x / sub_width).floor().max(0.0) as usize;
-                    let top = (request.area.y / sub_height).floor().max(0.0) as usize;
-                    let right = ((request.area.x + request.area.width) / sub_width)
-                        .ceil()
-                        .min((self.columns * 2) as f32) as usize;
-                    let bottom = ((request.area.y + request.area.height) / sub_height)
-                        .ceil()
-                        .min((self.rows * 2) as f32) as usize;
-                    for y in top..bottom {
-                        for x in left..right {
-                            let logical_x = (x as f32 + 0.5) * sub_width;
-                            let logical_y = (y as f32 + 0.5) * sub_height;
-                            if !request.area.contains(logical_x, logical_y)
-                                || !clip.contains(logical_x, logical_y)
-                            {
-                                continue;
-                            }
-                            let source_x = (((logical_x - request.area.x) / request.area.width)
-                                * image.texture_rect.width as f32)
-                                .floor()
-                                .clamp(0.0, image.texture_rect.width.saturating_sub(1) as f32)
-                                as usize
-                                + image.texture_rect.x as usize;
-                            let source_y = (((logical_y - request.area.y) / request.area.height)
-                                * image.texture_rect.height as f32)
-                                .floor()
-                                .clamp(0.0, image.texture_rect.height.saturating_sub(1) as f32)
-                                as usize
-                                + image.texture_rect.y as usize;
-                            let offset = source_y * image.stride_bytes
-                                + source_x * image.format.bytes_per_pixel();
-                            let bytes = image.pixels.bytes();
-                            let color = match image.format {
-                                blit::image::ImageFormat::Rgb8 => Color::from_rgba8(
-                                    bytes[offset],
-                                    bytes[offset + 1],
-                                    bytes[offset + 2],
-                                    255,
-                                ),
-                                blit::image::ImageFormat::Rgba8
-                                | blit::image::ImageFormat::Rgba8Premultiplied => {
-                                    Color::from_rgba8(
-                                        bytes[offset],
-                                        bytes[offset + 1],
-                                        bytes[offset + 2],
-                                        bytes[offset + 3],
-                                    )
-                                }
-                                blit::image::ImageFormat::Luma8 => Color::from_rgba8(
-                                    bytes[offset],
-                                    bytes[offset],
-                                    bytes[offset],
-                                    255,
-                                ),
-                                blit::image::ImageFormat::Alpha8(color) => Color {
-                                    alpha: bytes[offset],
-                                    ..color
-                                },
-                            };
-                            let pixel = &mut self.pixels[y * self.columns * 2 + x];
-                            pixel.color = blend(
-                                request.colorize.unwrap_or(color),
-                                pixel.color,
-                                request.opacity,
-                            );
-                            pixel.z = z;
+                    if let Some(area) = request.area.intersection(clip) {
+                        let cell_width = CELL_WIDTH / self.scale_factor;
+                        let cell_height = CELL_HEIGHT / self.scale_factor;
+                        let x = (area.x / cell_width).floor().max(0.0) as usize;
+                        let y = (area.y / cell_height).floor().max(0.0) as usize;
+                        let right = ((area.x + area.width) / cell_width)
+                            .ceil()
+                            .min(self.columns as f32) as usize;
+                        let bottom = ((area.y + area.height) / cell_height)
+                            .ceil()
+                            .min(self.rows as f32) as usize;
+                        if right > x && bottom > y {
+                            self.kitty_placements.push(KittyPlacement {
+                                id: z as u32 + 1,
+                                image: request.image.0 as u32,
+                                x,
+                                y,
+                                width: right - x,
+                                height: bottom - y,
+                            });
                         }
                     }
                 }
@@ -576,6 +620,9 @@ impl Renderer for TerminalRenderer {
         }
         const QUADRANTS: [&str; 16] = [
             " ", "▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█",
+        ];
+        const BOXES: [&str; 16] = [
+            " ", "╵", "╴", "└", "╷", "│", "┌", "├", "╶", "┘", "─", "┴", "┐", "┤", "┬", "┼",
         ];
         for cell_y in 0..self.rows {
             for cell_x in 0..self.columns {
@@ -590,31 +637,54 @@ impl Renderer for TerminalRenderer {
                 ];
                 let index = cell_y * self.columns + cell_x;
                 let glyph = self.glyphs[index].as_ref();
+                let box_cell = self.boxes[index];
+                let pixel_z = pixels.iter().map(|pixel| pixel.z).max().unwrap_or(0);
+                let background = {
+                    let colors = pixels.map(|pixel| pixel.color);
+                    Color::from_rgba8(
+                        (colors.iter().map(|color| u16::from(color.red)).sum::<u16>() / 4) as u8,
+                        (colors
+                            .iter()
+                            .map(|color| u16::from(color.green))
+                            .sum::<u16>()
+                            / 4) as u8,
+                        (colors
+                            .iter()
+                            .map(|color| u16::from(color.blue))
+                            .sum::<u16>()
+                            / 4) as u8,
+                        255,
+                    )
+                };
                 if let Some(glyph) = glyph
-                    && pixels.iter().map(|pixel| pixel.z).max().unwrap_or(0) <= glyph.z
+                    && pixel_z <= glyph.z
+                    && box_cell.z <= glyph.z
                 {
                     self.cells[index] = Cell {
                         text: glyph.text.clone(),
                         foreground: glyph.color,
-                        background: {
-                            let colors = pixels.map(|pixel| pixel.color);
-                            Color::from_rgba8(
-                                (colors.iter().map(|color| u16::from(color.red)).sum::<u16>() / 4)
-                                    as u8,
-                                (colors
-                                    .iter()
-                                    .map(|color| u16::from(color.green))
-                                    .sum::<u16>()
-                                    / 4) as u8,
-                                (colors
-                                    .iter()
-                                    .map(|color| u16::from(color.blue))
-                                    .sum::<u16>()
-                                    / 4) as u8,
-                                255,
-                            )
-                        },
+                        background,
                         bold: glyph.bold,
+                    };
+                    continue;
+                }
+                if box_cell.edges != 0 && pixel_z <= box_cell.z {
+                    self.cells[index] = Cell {
+                        text: if box_cell.rounded {
+                            match box_cell.edges {
+                                3 => "╰",
+                                6 => "╭",
+                                9 => "╯",
+                                12 => "╮",
+                                _ => BOXES[box_cell.edges as usize],
+                            }
+                        } else {
+                            BOXES[box_cell.edges as usize]
+                        }
+                        .into(),
+                        foreground: box_cell.color,
+                        background,
+                        bold: false,
                     };
                     continue;
                 }
@@ -655,7 +725,52 @@ impl Renderer for TerminalRenderer {
         data.validate();
         let id = self.images.len() as u64 + 1;
         let size = data.size;
-        self.images.push(data);
+        let width = data.texture_rect.width as usize;
+        let height = data.texture_rect.height as usize;
+        let bytes = data.pixels.bytes();
+        let mut rgba = Vec::with_capacity(width * height * 4);
+        for y in 0..height {
+            for x in 0..width {
+                let offset = y * data.stride_bytes + x * data.format.bytes_per_pixel();
+                match data.format {
+                    blit::image::ImageFormat::Rgb8 => {
+                        rgba.extend_from_slice(&bytes[offset..offset + 3]);
+                        rgba.push(255);
+                    }
+                    blit::image::ImageFormat::Rgba8 => {
+                        rgba.extend_from_slice(&bytes[offset..offset + 4]);
+                    }
+                    blit::image::ImageFormat::Rgba8Premultiplied => {
+                        let alpha = bytes[offset + 3];
+                        for channel in &bytes[offset..offset + 3] {
+                            rgba.push(if alpha == 0 {
+                                0
+                            } else {
+                                ((*channel as u16 * 255) / u16::from(alpha)).min(255) as u8
+                            });
+                        }
+                        rgba.push(alpha);
+                    }
+                    blit::image::ImageFormat::Luma8 => {
+                        rgba.extend_from_slice(&[bytes[offset], bytes[offset], bytes[offset], 255]);
+                    }
+                    blit::image::ImageFormat::Alpha8(color) => {
+                        rgba.extend_from_slice(&[
+                            color.red,
+                            color.green,
+                            color.blue,
+                            ((u16::from(color.alpha) * u16::from(bytes[offset])) / 255) as u8,
+                        ]);
+                    }
+                }
+            }
+        }
+        self.images.push(StoredImage {
+            rgba: rgba.into_boxed_slice(),
+            width,
+            height,
+            transmitted: false,
+        });
         ImageHandle::new(ImageId(id), size)
     }
 
@@ -716,6 +831,31 @@ impl Renderer for TerminalRenderer {
 struct Pixel {
     color: Color,
     z: usize,
+}
+
+struct StoredImage {
+    rgba: Box<[u8]>,
+    width: usize,
+    height: usize,
+    transmitted: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct KittyPlacement {
+    id: u32,
+    image: u32,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+}
+
+#[derive(Clone, Copy, Default)]
+struct BoxCell {
+    edges: u8,
+    color: Color,
+    z: usize,
+    rounded: bool,
 }
 
 #[derive(Clone)]
@@ -825,5 +965,96 @@ mod tests {
         assert_eq!(layout.lines.len(), 2);
         assert_eq!(layout.lines[0].width, 5);
         assert_eq!(layout.lines[1].width, 5);
+    }
+
+    #[test]
+    fn rounded_rectangle_background_uses_its_border_cells() {
+        use blit::{
+            container::{Sizing, Slot},
+            geometry::Sides,
+            layout::Flex,
+            style::Style,
+            widget::Rectangle,
+        };
+
+        let background = Color::from_rgba8(80, 120, 160, 255);
+        let mut renderer = TerminalRenderer::new(8, 4);
+        let mut state = UiState::new(renderer.screen(), 1.0);
+        state.set_scale_factor(1.25);
+        blit::render(
+            &mut renderer,
+            &mut state,
+            &mut FullRepaint,
+            Duration::ZERO,
+            [],
+            |ui| {
+                ui.clear();
+                let mut root = ui
+                    .layout(Flex::column().padding(Sides::all(3.0)))
+                    .grow()
+                    .open();
+                root.add(
+                    Rectangle::new()
+                        .slot(Slot::new().width(Sizing::grow()).height(Sizing::grow()))
+                        .style(
+                            Style::new()
+                                .background(background)
+                                .solid_border(1.0, Color::WHITE)
+                                .uniform_radius(1.0),
+                        ),
+                );
+            },
+        );
+
+        assert_eq!(renderer.cells[0].text, "╭");
+        assert_eq!(renderer.cells[0].background, background);
+    }
+
+    #[test]
+    fn boxes_and_kitty_images_use_terminal_protocols() {
+        use blit::{
+            container::{Sizing, Slot},
+            image::{ImageData, ImageFormat, ImagePixels},
+            layout::Flex,
+            style::Style,
+            widget::Image,
+        };
+
+        let mut renderer = TerminalRenderer::new(8, 4);
+        let image = renderer.create_image(ImageData::new(
+            ImagePixels::Static(&[255, 0, 0, 255]),
+            ImageFormat::Rgba8,
+            1,
+            1,
+        ));
+        let mut state = UiState::new(renderer.screen(), 1.0);
+        blit::render(
+            &mut renderer,
+            &mut state,
+            &mut FullRepaint,
+            Duration::ZERO,
+            [],
+            |ui| {
+                ui.clear();
+                let mut root = ui
+                    .layout(Flex::column())
+                    .grow()
+                    .style(Style::new().solid_border(1.0, Color::WHITE))
+                    .open();
+                root.add(
+                    Image::new(&image).slot(
+                        Slot::new()
+                            .width(Sizing::fixed(CELL_WIDTH))
+                            .height(Sizing::fixed(CELL_HEIGHT)),
+                    ),
+                );
+            },
+        );
+        assert!(renderer.plain_text().contains('┌'));
+        let mut output = Vec::new();
+        renderer.present(&mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("\x1b_Ga=t,f=32"));
+        assert!(output.contains("\x1b_Ga=p"));
     }
 }
