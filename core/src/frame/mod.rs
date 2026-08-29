@@ -41,6 +41,7 @@ pub struct FrameGraph {
     layout_nodes: Vec<NodeId>,
     layout_data: DataArena,
     layers: Vec<PaintLayer>,
+    layer_order: Vec<LayerId>,
     // empty when declaration order is paint order
     paint_order: Vec<NodeId>,
     styles: Vec<StoredStyle>,
@@ -63,6 +64,7 @@ impl FrameGraph {
         self.layout_nodes.clear();
         self.layout_data.clear();
         self.layers.clear();
+        self.layer_order.clear();
         self.paint_order.clear();
         self.styles.clear();
         self.shadows.clear();
@@ -203,6 +205,7 @@ impl FrameGraph {
             clip: ClipId::default(),
             clip_bounds: LogicalRect::default(),
         });
+        self.layer_order.push(id);
         id
     }
 
@@ -261,6 +264,7 @@ impl FrameGraph {
                 + self.layout_nodes.capacity() * size_of::<NodeId>()
                 + self.layout_data.heap_bytes()
                 + self.layers.capacity() * size_of::<PaintLayer>()
+                + self.layer_order.capacity() * size_of::<LayerId>()
                 + self.paint_order.capacity() * size_of::<NodeId>()
                 + self.styles.capacity() * size_of::<StoredStyle>()
                 + self.shadows.capacity() * size_of::<Shadow>()
@@ -700,6 +704,9 @@ impl FrameGraph {
 
     fn resolve_clips(&mut self, commands: &mut CommandList) {
         self.nodes[0].clip = ClipId::default();
+        self.layer_order
+            .sort_unstable_by_key(|layer| self.layers[layer.0.get() as usize - 1].owner.index());
+        let mut next_layer = 0;
         for index in 0..self.nodes.len() {
             let clip = self.nodes[index]
                 .clip_spec
@@ -723,14 +730,16 @@ impl FrameGraph {
                     .intersection(self.nodes[index].area)
                     .unwrap_or_default(),
             };
-            // todo: index layers by owner. current resolution is O(nodes * layers)
-            for layer in self
-                .layers
-                .iter_mut()
-                .filter(|layer| layer.owner.index() == index)
-            {
+            // resolve this owner's layers until the next owner is reached
+            while next_layer < self.layer_order.len() {
+                let layer = self.layer_order[next_layer].0.get() as usize - 1;
+                if self.layers[layer].owner.index() != index {
+                    break;
+                }
+                let layer = &mut self.layers[layer];
                 layer.clip = child_clip;
                 layer.clip_bounds = child_clip_bounds;
+                next_layer += 1;
             }
             let mut child = index + 1;
             let end = self.nodes[index].subtree_end as usize;
