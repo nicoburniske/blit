@@ -186,9 +186,7 @@ mod tests {
     use super::*;
     use crate::draw::Rectangle;
     use blit::{Frame, Sides, Size, Slot};
-    use blit_cpu::{
-        Font, FontFace, RendererConfig, color::Color, style::Style, text_types::FontId,
-    };
+    use blit_cpu::{Font, FontFace, RendererConfig, color::Color, text_types::FontId};
     use blit_layout::Flex;
 
     #[test]
@@ -218,13 +216,11 @@ mod tests {
             FrameInfo::new(Size::new(8.0, 8.0)),
             |mut ui| {
                 let mut root = ui.layout_with(
-                    Rectangle::new(Style::new().background(Color::from_rgba8(20, 24, 32, 255))),
+                    Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)),
                     Flex::column().padding(Sides::all(3.0)),
                 );
                 root.add(Slot::new().fixed(2.0, 2.0), (), |mut ui| {
-                    ui.add(Rectangle::new(
-                        Style::new().background(Color::from_rgba8(70, 110, 220, 255)),
-                    ));
+                    ui.add(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
                 });
             },
         );

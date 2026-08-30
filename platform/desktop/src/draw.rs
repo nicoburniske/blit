@@ -3,26 +3,46 @@ use blit_cpu::{
     color::Color,
     command_list::{BoxShadow, Rectangle as DrawRectangle},
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
-    style::{Border, Shadow, Style},
+    style::{Border, BorderRadius, LinearGradient, Shadow},
     text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle},
 };
 
 use crate::DesktopPlatform;
 
-#[derive(Clone, Copy)]
-pub struct Rectangle {
-    pub style: Style<'static>,
-}
-
-impl Rectangle {
-    pub const fn new(style: Style<'static>) -> Self {
-        Self { style }
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Rectangle {
+        new(),
+        @optional {
+            shadow: Shadow,
+            inset_shadow: Shadow,
+        },
+        background: Color = Color::TRANSPARENT,
+        border: Border<'static> = Border::None,
+        radius: BorderRadius = BorderRadius::default(),
+        opacity: f32 = 1.0,
     }
 }
 
-impl Default for Rectangle {
-    fn default() -> Self {
-        Self::new(Style::new())
+impl Rectangle {
+    pub const fn uniform_radius(mut self, radius: f32) -> Self {
+        self.radius = BorderRadius {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        };
+        self
+    }
+
+    pub const fn solid_border(mut self, width: f32, color: Color) -> Self {
+        self.border = Border::Solid { width, color };
+        self
+    }
+
+    pub const fn gradient_border(mut self, width: f32, gradient: LinearGradient<'static>) -> Self {
+        self.border = Border::Gradient { width, gradient };
+        self
     }
 }
 
@@ -33,26 +53,25 @@ impl Leaf<DesktopPlatform> for Rectangle {
 
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
         let (commands, clip, scale) = platform.commands();
-        if let Some(shadow) = self.style.shadow {
-            let shadow = box_shadow(area, self.style.radius, shadow, false);
+        if let Some(shadow) = self.shadow {
+            let shadow = box_shadow(area, self.radius, shadow, false);
             commands.push_box_shadow(shadow, shadow.bounds().to_physical(scale), clip);
         }
-        if self.style.background != Color::TRANSPARENT || !matches!(self.style.border, Border::None)
-        {
+        if self.background != Color::TRANSPARENT || !matches!(self.border, Border::None) {
             commands.push_rectangle(
                 DrawRectangle {
                     area,
-                    background: self.style.background,
-                    border: self.style.border,
-                    radius: self.style.radius,
-                    opacity: self.style.opacity,
+                    background: self.background,
+                    border: self.border,
+                    radius: self.radius,
+                    opacity: self.opacity,
                 },
                 area.to_physical(scale),
                 clip,
             );
         }
-        if let Some(shadow) = self.style.inset_shadow {
-            let shadow = box_shadow(area, self.style.radius, shadow, true);
+        if let Some(shadow) = self.inset_shadow {
+            let shadow = box_shadow(area, self.radius, shadow, true);
             commands.push_box_shadow(shadow, area.to_physical(scale), clip);
         }
     }

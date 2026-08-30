@@ -21,32 +21,6 @@ pub struct TextLayoutRequest {
     pub max_lines: Option<u16>,
 }
 
-/// frame-local text content resolved after its node width is known
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextContent {
-    pub text: TextRunId,
-    pub color: Color,
-    pub style: TextStyle,
-    pub options: TextOptions,
-    pub offset_x: f32,
-    pub selection: Option<TextSelection>,
-    pub caret: Option<TextCaret>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextSelection {
-    pub start: usize,
-    pub end: usize,
-    pub color: Color,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextCaret {
-    pub offset: usize,
-    pub width: f32,
-    pub color: Color,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextStyle {
     pub font: FontId,

@@ -4,7 +4,6 @@ use blit_desktop::{
     Application, Config, DesktopPlatform, EventLoopProxy, Root,
     draw::{Rectangle, Text},
     layout::Flex,
-    style::Style,
     text::{FontId, TextStyle},
 };
 use blit_showcase::Showcase;
@@ -51,9 +50,7 @@ impl Application for App {
         let body = ui.platform().text_run(self.0.body(), body_style);
         let button_label = ui.platform().text_run("toggle platform state", body_style);
         let mut root = ui.layout_with(
-            Rectangle::new(
-                Style::new().background(blit_desktop::color::Color::from_rgba8(20, 24, 32, 255)),
-            ),
+            Rectangle::new().background(blit_desktop::color::Color::from_rgba8(20, 24, 32, 255)),
             Flex::column().padding(Sides::all(24.0)).gap(16.0),
         );
         root.add(Slot::new().height(Sizing::fixed(40.0)), (), |mut ui| {
@@ -78,7 +75,7 @@ impl Application for App {
             };
             let mut button = ui
                 .layout_with(
-                    Rectangle::new(Style::new().background(color).uniform_radius(8.0)),
+                    Rectangle::new().background(color).uniform_radius(8.0),
                     Flex::row().padding(Sides::all(12.0)),
                 )
                 .id(id);
