@@ -148,17 +148,15 @@ impl TerminalRenderer {
     }
 
     fn cell_bounds(&self, area: LogicalRect) -> (usize, usize, usize, usize) {
+        let x = area.x * self.scale.x;
+        let y = area.y * self.scale.y;
+        let width = area.width * self.scale.x;
+        let height = area.height * self.scale.y;
         (
-            (area.x * self.scale.x)
-                .round()
-                .clamp(0.0, self.columns as f32) as usize,
-            (area.y * self.scale.y).round().clamp(0.0, self.rows as f32) as usize,
-            ((area.x + area.width) * self.scale.x)
-                .round()
-                .clamp(0.0, self.columns as f32) as usize,
-            ((area.y + area.height) * self.scale.y)
-                .round()
-                .clamp(0.0, self.rows as f32) as usize,
+            x.round().clamp(0.0, self.columns as f32) as usize,
+            y.round().clamp(0.0, self.rows as f32) as usize,
+            (x + width).round().clamp(0.0, self.columns as f32) as usize,
+            (y + height).round().clamp(0.0, self.rows as f32) as usize,
         )
     }
 
