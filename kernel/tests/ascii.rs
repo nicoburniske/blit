@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use blit::{
     Absolute, Anchor, Atom, Axis, Clip, Constraints, Easing, Frame, FrameInfo, Input, Interaction,
-    Layout, LayoutCx, LayoutResolution, Modifiers, NodeId, Platform, Point, PointerButton, Rect,
-    Sense, Size, Sizing, Slot, Transition, Widget, WidgetId,
+    Layout, LayoutCx, LayoutResolution, Modifiers, NodeId, Place, Platform, Point, PointerButton,
+    Rect, Sense, Size, Sizing, Transition, Widget, WidgetId,
 };
 
 type Ui = blit::Ui<AsciiPlatform>;
@@ -114,11 +114,11 @@ fn resolves_absolute_targets_and_layer_order() {
         let layer = overlay.new_layer();
         overlay
             .child()
-            .slot(Slot::new().layer(layer))
+            .place(Place::new().layer(layer))
             .add(Fill::new('A', Size::new(3.0, 1.0)));
         overlay
             .child()
-            .slot(Slot::new().z_index(100))
+            .place(Place::new().z_index(100))
             .add(Fill::new('B', Size::new(3.0, 1.0)));
     });
 
@@ -134,7 +134,7 @@ fn resolves_absolute_targets_and_layer_order() {
                 .clip(DiamondClip);
             panel
                 .child()
-                .slot(Slot::new().layer(layer))
+                .place(Place::new().layer(layer))
                 .add(Fill::new('L', Size::new(3.0, 3.0)));
         });
     });
@@ -150,7 +150,7 @@ fn resolves_absolute_targets_and_layer_order() {
             let layer = panel.new_layer();
             panel
                 .child()
-                .slot(Slot::new().layer(layer))
+                .place(Place::new().layer(layer))
                 .add(Fill::new('L', Size::new(3.0, 3.0)));
         });
     });
@@ -249,7 +249,7 @@ fn transitions_resolved_positions() {
 }
 
 #[test]
-fn resolves_slots_and_content_offsets() {
+fn resolves_places_and_content_offsets() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
     let fixed = WidgetId::new("fixed");
@@ -266,18 +266,22 @@ fn resolves_slots_and_content_offsets() {
             let mut overlay = ui.node(Overlay).offset(Point::new(1.0, 0.0));
             overlay
                 .child()
-                .slot(Slot::new().fixed(3.0, 1.0))
+                .place(Place::new().fixed(3.0, 1.0))
                 .widget_id(fixed)
                 .add(Fill::new('F', Size::new(1.0, 1.0)));
             overlay
                 .child()
-                .slot(Slot::new().width(Sizing::grow()).height(Sizing::fixed(1.0)))
+                .place(
+                    Place::new()
+                        .width(Sizing::grow())
+                        .height(Sizing::fixed(1.0)),
+                )
                 .widget_id(grow)
                 .add(Fill::new('G', Size::new(1.0, 1.0)));
             overlay
                 .child()
-                .slot(
-                    Slot::new()
+                .place(
+                    Place::new()
                         .width(Sizing::percent(0.25))
                         .height(Sizing::fixed(1.0)),
                 )
@@ -285,8 +289,8 @@ fn resolves_slots_and_content_offsets() {
                 .add(Fill::new('P', Size::new(1.0, 1.0)));
             overlay
                 .child()
-                .slot(
-                    Slot::new()
+                .place(
+                    Place::new()
                         .width(Sizing::fit().max(3.0))
                         .height(Sizing::fixed(1.0)),
                 )
@@ -302,7 +306,7 @@ fn resolves_slots_and_content_offsets() {
 }
 
 #[test]
-fn absolute_slots_resolve_against_the_target() {
+fn absolute_places_resolve_against_the_target() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
     let id = WidgetId::new("absolute");
@@ -312,8 +316,8 @@ fn absolute_slots_resolve_against_the_target() {
         let target = overlay.add(Fill::new('T', Size::new(6.0, 2.0)));
         overlay
             .child()
-            .slot(
-                Slot::new()
+            .place(
+                Place::new()
                     .width(Sizing::percent(0.5))
                     .height(Sizing::grow()),
             )
@@ -374,7 +378,7 @@ fn frame_ids_reject_cross_frame_use() {
             frame.render(&mut platform, FrameInfo::new(Size::new(1.0, 1.0)), |ui| {
                 let mut root = ui.node(Overlay);
                 root.child()
-                    .slot(Slot::new().layer(layer))
+                    .place(Place::new().layer(layer))
                     .add(Fill::new('X', Size::new(1.0, 1.0)));
             });
         }))
@@ -433,7 +437,7 @@ fn buttons(ui: &mut Ui, bottom: WidgetId, top: WidgetId) -> [Interaction; 2] {
         .add(Fill::new('B', Size::new(3.0, 1.0)));
     overlay
         .child()
-        .slot(Slot::new().z_index(1))
+        .place(Place::new().z_index(1))
         .widget_id(top)
         .add(Fill::new('T', Size::new(3.0, 1.0)));
     responses

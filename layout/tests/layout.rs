@@ -1,5 +1,5 @@
 use blit::{
-    Atom, Constraints, Cx, Frame, FrameInfo, NodeId, Platform, Rect, Size, Sizing, Slot, Widget,
+    Atom, Constraints, Cx, Frame, FrameInfo, NodeId, Place, Platform, Rect, Size, Sizing, Widget,
     WidgetId,
 };
 use blit_layout::{Flex, Grid, RectLayout, Wrap};
@@ -47,11 +47,11 @@ fn flex_distributes_growing_space() {
         |ui| {
             let mut row = ui.node(Flex::row().gap(4.0));
             row.child()
-                .slot(Slot::new().width(Sizing::fixed(20.0)))
+                .place(Place::new().width(Sizing::fixed(20.0)))
                 .widget_id(fixed)
                 .add(BoxWidget(Size::new(1.0, 10.0)));
             row.child()
-                .slot(Slot::new().width(Sizing::grow()))
+                .place(Place::new().width(Sizing::grow()))
                 .widget_id(grow)
                 .add(BoxWidget(Size::new(1.0, 10.0)));
         },
@@ -103,7 +103,7 @@ fn rect_and_wrap_resolve_positions() {
         let mut wrap = ui.node(Wrap::horizontal().gap(1.0));
         for _ in 0..3 {
             wrap.child()
-                .slot(Slot::new().fixed(6.0, 2.0))
+                .place(Place::new().fixed(6.0, 2.0))
                 .add(BoxWidget(Size::ZERO));
         }
     });

@@ -189,7 +189,7 @@ impl Clip<DesktopPlatform> for BoundsClip {
 mod tests {
     use super::*;
     use crate::draw::Rectangle;
-    use blit::{Frame, Sides, Size, Slot};
+    use blit::{Frame, Place, Sides, Size};
     use blit_cpu::{Font, FontFace, RendererConfig, color::Color, text_types::FontId};
     use blit_layout::Flex;
 
@@ -220,7 +220,7 @@ mod tests {
                 .node(Flex::column().padding(Sides::all(3.0)))
                 .surface(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
             root.child()
-                .slot(Slot::new().fixed(2.0, 2.0))
+                .place(Place::new().fixed(2.0, 2.0))
                 .add(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
         });
         assert_eq!(platform.previous.len(), 2);

@@ -1,7 +1,7 @@
 use std::{fmt::Write as _, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Axis, Easing, NodeId, Sense, Sides, Size, Sizing, Slot, Transition, Widget,
+    Absolute, Anchor, Axis, Easing, NodeId, Place, Sense, Sides, Size, Sizing, Transition, Widget,
     WidgetId,
 };
 use blit_cpu::{Font, FontFace, RendererConfig};
@@ -65,14 +65,14 @@ impl Application for App {
             .node(Flex::column().padding(Sides::all(20.0)).gap(14.0))
             .surface(Rectangle::new().background(colors::BACKGROUND));
         root.child()
-            .slot(Slot::new().height(Sizing::fixed(52.0)))
+            .place(Place::new().height(Sizing::fixed(52.0)))
             .add(|ui: Cx<'_>| {
                 let mut header = ui.node(
                     Flex::row()
                         .align(Align::Center)
                         .justify(blit_desktop::layout::Justify::SpaceBetween),
                 );
-                header.child().slot(Slot::new().grow()).add(|ui: Cx<'_>| {
+                header.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
                     let mut title = ui.node(Flex::column().gap(2.0));
                     title.add(
                         Text::new("BLIT / LAYOUT PLAYGROUND")
@@ -102,11 +102,11 @@ impl Application for App {
                     self.resize.reset();
                 }
             });
-        root.child().slot(Slot::new().grow()).add(|ui: Cx<'_>| {
+        root.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
             let mut body = ui.node(Flex::row().gap(14.0));
             body.child()
-                .slot(
-                    Slot::new()
+                .place(
+                    Place::new()
                         .width(Sizing::fixed(330.0))
                         .height(Sizing::grow()),
                 )
@@ -233,7 +233,7 @@ impl Application for App {
                             &[("On", true), ("Off", false)],
                         );
                     });
-                    controls.child().slot(Slot::new().grow()).add(
+                    controls.child().place(Place::new().grow()).add(
                         Text::new("Drag the highlighted right edge, bottom edge, or corner. Layout changes preserve item identity and animate geometry.")
                             .style(TextStyle {
                                 size: 11.0,
@@ -246,12 +246,12 @@ impl Application for App {
                             }),
                     );
                 });
-            body.child().slot(Slot::new().grow()).add(|ui: Cx<'_>| {
+            body.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
                 let mut preview = ui
                     .node(Flex::column().padding(Sides::all(12.0)).gap(8.0))
                     .surface(panel(colors::SURFACE));
                 preview.child()
-                    .slot(Slot::new().height(Sizing::fixed(22.0)))
+                    .place(Place::new().height(Sizing::fixed(22.0)))
                     .add(
                         Text::new("LIVE PREVIEW")
                             .style(TextStyle {
@@ -260,7 +260,7 @@ impl Application for App {
                             })
                             .color(colors::ACCENT),
                     );
-                preview.child().slot(Slot::new().grow()).add(|ui: Cx<'_>| {
+                preview.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
                     let mut viewport = ui
                         .node(Flex::row().padding(Sides::all(10.0)).align(Align::Start))
                         .surface(
@@ -336,7 +336,7 @@ impl Widget<DesktopPlatform> for &mut FpsBadge {
                     .anchors(Anchor::BottomRight, Anchor::BottomRight)
                     .offset(-16.0, -16.0),
             );
-        badge.child().slot(Slot::new().fixed(6.0, 6.0)).add(
+        badge.child().place(Place::new().fixed(6.0, 6.0)).add(
             Rectangle::new()
                 .background(colors::ACCENT)
                 .radius(BorderRadius::uniform(3.0)),
@@ -387,7 +387,7 @@ impl Widget<DesktopPlatform> for DesktopGrip {
         );
         let node = grip.id();
         grip.child()
-            .slot(Slot::new().fixed(marker.width, marker.height))
+            .place(Place::new().fixed(marker.width, marker.height))
             .add(
                 Rectangle::new()
                     .background(color)
@@ -462,7 +462,7 @@ fn choices<T: Copy + PartialEq>(
 ) {
     let mut line = ui.node(Flex::row().align(Align::Center).gap(6.0));
     line.child()
-        .slot(Slot::new().width(Sizing::fixed(66.0)))
+        .place(Place::new().width(Sizing::fixed(66.0)))
         .add(
             Text::new(label)
                 .style(TextStyle {
@@ -471,7 +471,7 @@ fn choices<T: Copy + PartialEq>(
                 })
                 .color(colors::TEXT_MUTED),
         );
-    line.child().slot(Slot::new().grow()).add(|ui: Cx<'_>| {
+    line.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
         let mut values = ui.node(Flex::row().gap(4.0));
         for (index, &(option, value)) in options.iter().enumerate() {
             let clicked = values.add(Button::new(
@@ -516,7 +516,7 @@ impl Widget<DesktopPlatform> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child()
-                        .slot(self.config.item_slot(index, self.unit))
+                        .place(self.config.item_place(index, self.unit))
                         .add(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
@@ -542,7 +542,7 @@ impl Widget<DesktopPlatform> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child()
-                        .slot(self.config.item_slot(index, self.unit))
+                        .place(self.config.item_place(index, self.unit))
                         .add(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
@@ -562,8 +562,8 @@ impl Widget<DesktopPlatform> for Canvas {
                     canvas
                         .child()
                         .item(item)
-                        .slot(
-                            Slot::new()
+                        .place(
+                            Place::new()
                                 .height(Sizing::fixed(5.0 * self.unit.height * self.config.zoom)),
                         )
                         .add(|ui: Cx<'_>| {
@@ -613,8 +613,8 @@ fn canvas_item(
     );
     if let Some(anchor) = spec.badge {
         item.child()
-            .slot(
-                Slot::new()
+            .place(
+                Place::new()
                     .fixed(28.0 * config.zoom, 14.0 * config.zoom)
                     .layer(badges)
                     .z_index(1),

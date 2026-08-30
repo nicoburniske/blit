@@ -15,14 +15,14 @@ pub fn resolve_order<R: Platform>(frame: &mut Frame<R>) {
         let mut child = parent.index() + 1;
         let end = frame.nodes[parent.index()].subtree_end as usize;
         while child <= end {
-            if frame.nodes[child].slot.layer.is_none() {
+            if frame.nodes[child].place.layer.is_none() {
                 frame.order_stack.push(frame.node_id(child));
             }
             child = frame.nodes[child].subtree_end as usize + 1;
         }
         if parent.index() == 0 && !frame.layers.is_empty() {
             for index in 1..frame.nodes.len() {
-                if frame.nodes[index].slot.layer.is_some() {
+                if frame.nodes[index].place.layer.is_some() {
                     frame.order_stack.push(frame.node_id(index));
                 }
             }
@@ -33,16 +33,16 @@ pub fn resolve_order<R: Platform>(frame: &mut Frame<R>) {
         let children = &mut frame.order_stack[start..];
         if children.iter().any(|node| {
             let node = &frame.nodes[node.index()];
-            node.slot.layer.is_some() || node.slot.z_index != 0
+            node.place.layer.is_some() || node.place.z_index != 0
         }) {
             children.sort_unstable_by(|a, b| {
                 let a = a.index();
                 let b = b.index();
-                let a_layer = frame.nodes[a].slot.layer.map_or(0, container::layer_order);
-                let b_layer = frame.nodes[b].slot.layer.map_or(0, container::layer_order);
-                (b_layer, frame.nodes[b].slot.z_index, b).cmp(&(
+                let a_layer = frame.nodes[a].place.layer.map_or(0, container::layer_order);
+                let b_layer = frame.nodes[b].place.layer.map_or(0, container::layer_order);
+                (b_layer, frame.nodes[b].place.z_index, b).cmp(&(
                     a_layer,
-                    frame.nodes[a].slot.z_index,
+                    frame.nodes[a].place.z_index,
                     a,
                 ))
             });
@@ -58,7 +58,7 @@ pub fn resolve_clips<R: Platform>(frame: &mut Frame<R>) {
     for index in 0..frame.nodes.len() {
         let parent = if index == 0 {
             ResolvedClipId::NONE
-        } else if let Some(layer) = frame.nodes[index].slot.layer {
+        } else if let Some(layer) = frame.nodes[index].place.layer {
             let owner = frame.layers[container::layer_index(layer)].owner.index();
             frame.nodes[owner].resolved_clip
         } else {

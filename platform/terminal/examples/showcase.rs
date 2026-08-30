@@ -1,7 +1,7 @@
 use std::{fmt::Write as _, io, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Axis, Easing, Input, Key, NodeId, Sense, Sides, Size, Sizing, Slot,
+    Absolute, Anchor, Axis, Easing, Input, Key, NodeId, Place, Sense, Sides, Size, Sizing,
     Transition, Widget, WidgetId,
 };
 use blit_showcase::{
@@ -48,7 +48,7 @@ fn main() -> io::Result<()> {
             .node(Flex::column().padding(Sides::all(1.0)).gap(1.0))
             .surface(Block::new().background(colors::BACKGROUND));
         root.child()
-            .slot(Slot::new().height(Sizing::fixed(1.0)))
+            .place(Place::new().height(Sizing::fixed(1.0)))
             .node(Flex::row().align(Align::Center).gap(1.0), |mut header| {
                 header = header.surface(Block::new().background(colors::SURFACE));
                 header.add(Text::new(" BLIT ").attributes(TextAttributes::BOLD));
@@ -96,11 +96,11 @@ fn main() -> io::Result<()> {
             });
         if page == Page::Layout {
             root.child()
-                .slot(Slot::new().grow())
+                .place(Place::new().grow())
                 .node(Flex::row().gap(1.0), |mut body| {
                     body.child()
-                        .slot(
-                            Slot::new()
+                        .place(
+                            Place::new()
                                 .width(Sizing::fixed(40.0))
                                 .height(Sizing::grow()),
                         )
@@ -235,7 +235,7 @@ fn main() -> io::Result<()> {
                                         &[(" On ", true), (" Off ", false)],
                                     );
                                 });
-                                controls.child().slot(Slot::new().grow()).node(
+                                controls.child().place(Place::new().grow()).node(
                                     Flex::column().justify(Justify::End),
                                     |mut help| {
                                         help.add(
@@ -255,7 +255,7 @@ fn main() -> io::Result<()> {
                                 );
                             },
                         );
-                    body.child().slot(Slot::new().grow()).node(
+                    body.child().place(Place::new().grow()).node(
                         Flex::column().padding(Sides::all(1.0)),
                         |mut preview| {
                             preview = preview.surface(
@@ -278,7 +278,7 @@ fn main() -> io::Result<()> {
                                     .position(TitlePosition::TopRight),
                                 ),
                             );
-                            preview.child().slot(Slot::new().grow()).node(
+                            preview.child().place(Place::new().grow()).node(
                                 Flex::row().padding(Sides::all(1.0)).align(Align::Start),
                                 |mut viewport| {
                                     viewport =
@@ -305,7 +305,7 @@ fn main() -> io::Result<()> {
                 });
         } else if page == Page::Text {
             root.child()
-                .slot(Slot::new().grow())
+                .place(Place::new().grow())
                 .node(Flex::column().gap(1.0), |mut body| {
                     body.add(|ui: Cx<'_>| {
                         let mut controls = ui
@@ -412,7 +412,7 @@ fn main() -> io::Result<()> {
                             );
                         });
                     });
-                    body.child().slot(Slot::new().grow()).node(
+                    body.child().place(Place::new().grow()).node(
                         Flex::column().padding(Sides::all(1.0)).gap(1.0),
                         |mut preview| {
                             preview = preview.surface(panel(colors::SURFACE, " RESIZABLE TEXT ").title(
@@ -420,7 +420,7 @@ fn main() -> io::Result<()> {
                                     .color(colors::TEXT_DIM)
                                     .position(TitlePosition::BottomRight),
                             ));
-                            preview.child().slot(Slot::new().grow()).node(
+                            preview.child().place(Place::new().grow()).node(
                                 Flex::row().padding(Sides::all(1.0)).align(Align::Start),
                                 |mut viewport| {
                                     viewport = viewport.surface(Block::new().background(colors::TRACK));
@@ -469,7 +469,7 @@ fn main() -> io::Result<()> {
                                                         " retain their own emphasis and the words continue flowing through the same layout.",
                                                     ),
                                                 ];
-                                                paragraph.child().slot(Slot::new().grow()).add(
+                                                paragraph.child().place(Place::new().grow()).add(
                                                     Text::rich(&sample)
                                                         .color(colors::TEXT)
                                                         .attributes(text_attributes)
@@ -492,11 +492,11 @@ fn main() -> io::Result<()> {
                 });
         } else {
             root.child()
-                .slot(Slot::new().grow())
+                .place(Place::new().grow())
                 .node(Flex::row().gap(1.0), |mut body| {
                     body.child()
-                        .slot(
-                            Slot::new()
+                        .place(
+                            Place::new()
                                 .width(Sizing::fixed(40.0))
                                 .height(Sizing::grow()),
                         )
@@ -556,41 +556,44 @@ fn main() -> io::Result<()> {
                                 });
                             },
                         );
-                    body.child().slot(Slot::new().grow()).node(
+                    body.child().place(Place::new().grow()).node(
                         Flex::column().padding(Sides::all(1.0)).gap(1.0),
                         |mut preview| {
                             preview = preview.surface(panel(colors::SURFACE, " BLOCK PREVIEW "));
-                            preview.child().slot(Slot::new().grow()).add(|ui: Cx<'_>| {
-                                let mut block = Block::new()
-                                    .border(
-                                        Border::new(colors::CANVAS_BORDER)
-                                            .style(block_style)
-                                            .sides(block_sides),
-                                    )
-                                    .title(
-                                        Title::new(" CONFIGURED BLOCK ")
-                                            .color(colors::ACCENT)
-                                            .attributes(TextAttributes::BOLD),
+                            preview
+                                .child()
+                                .place(Place::new().grow())
+                                .add(|ui: Cx<'_>| {
+                                    let mut block = Block::new()
+                                        .border(
+                                            Border::new(colors::CANVAS_BORDER)
+                                                .style(block_style)
+                                                .sides(block_sides),
+                                        )
+                                        .title(
+                                            Title::new(" CONFIGURED BLOCK ")
+                                                .color(colors::ACCENT)
+                                                .attributes(TextAttributes::BOLD),
+                                        );
+                                    if block_background {
+                                        block = block.background(colors::SURFACE_HIGH);
+                                    }
+                                    if block_shadow {
+                                        block = block.shadow(Shadow::new(colors::SHADOW));
+                                    }
+                                    let mut configured = ui
+                                        .node(
+                                            Flex::column()
+                                                .padding(Sides::all(1.0))
+                                                .align(Align::Center)
+                                                .justify(Justify::Center),
+                                        )
+                                        .surface(block);
+                                    configured.add(
+                                        Text::new("change the options on the left")
+                                            .color(colors::TEXT_MUTED),
                                     );
-                                if block_background {
-                                    block = block.background(colors::SURFACE_HIGH);
-                                }
-                                if block_shadow {
-                                    block = block.shadow(Shadow::new(colors::SHADOW));
-                                }
-                                let mut configured = ui
-                                    .node(
-                                        Flex::column()
-                                            .padding(Sides::all(1.0))
-                                            .align(Align::Center)
-                                            .justify(Justify::Center),
-                                    )
-                                    .surface(block);
-                                configured.add(
-                                    Text::new("change the options on the left")
-                                        .color(colors::TEXT_MUTED),
-                                );
-                            });
+                                });
                         },
                     );
                 });
@@ -649,7 +652,7 @@ impl Widget<TerminalPlatform> for &mut FpsBadge {
             );
         badge
             .child()
-            .slot(Slot::new().fixed(1.0, 1.0))
+            .place(Place::new().fixed(1.0, 1.0))
             .add(Block::new().background(colors::ACCENT));
         badge.add(
             Text::new(&self.label)
@@ -683,7 +686,7 @@ impl Widget<TerminalPlatform> for TerminalGrip {
         let mut grip = ui.node(Flex::row().align(Align::Center).justify(Justify::Center));
         let node = grip.id();
         grip.child()
-            .slot(Slot::new().fixed(marker.width, marker.height))
+            .place(Place::new().fixed(marker.width, marker.height))
             .add(Block::new().background(color));
         node
     }
@@ -783,7 +786,7 @@ impl Widget<TerminalPlatform> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child()
-                        .slot(self.config.item_slot(index, unit))
+                        .place(self.config.item_place(index, unit))
                         .add(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });
@@ -809,7 +812,7 @@ impl Widget<TerminalPlatform> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child()
-                        .slot(self.config.item_slot(index, unit))
+                        .place(self.config.item_place(index, unit))
                         .add(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });
@@ -829,7 +832,7 @@ impl Widget<TerminalPlatform> for Canvas {
                     canvas
                         .child()
                         .item(item)
-                        .slot(Slot::new().height(Sizing::fixed(3.0 * self.config.zoom)))
+                        .place(Place::new().height(Sizing::fixed(3.0 * self.config.zoom)))
                         .add(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });
@@ -867,8 +870,8 @@ fn canvas_item(
     );
     if let Some(anchor) = spec.badge {
         item.child()
-            .slot(
-                Slot::new()
+            .place(
+                Place::new()
                     .fixed(unit.width * 2.0, unit.height)
                     .layer(badges)
                     .z_index(1),

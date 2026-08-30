@@ -45,12 +45,12 @@ pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &mut R, size: Size) 
         for state in frame.transitions.iter().filter(|state| state.seen) {
             let node = &mut frame.nodes[state.node.index()];
             if state.active.intersects(TransitionProperties::WIDTH) {
-                node.slot.width = frame
+                node.place.width = frame
                     .layout_resolution
                     .sizing(Axis::Horizontal, Sizing::fixed(state.current.width));
             }
             if state.active.intersects(TransitionProperties::HEIGHT) {
-                node.slot.height = frame
+                node.place.height = frame
                     .layout_resolution
                     .sizing(Axis::Vertical, Sizing::fixed(state.current.height));
             }

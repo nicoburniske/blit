@@ -32,8 +32,8 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, platform: &mut R, size: Size) {
                 (size, size)
             }
         };
-        let width = range(frame.nodes[index].slot.width, target.width);
-        let height = range(frame.nodes[index].slot.height, target.height);
+        let width = range(frame.nodes[index].place.width, target.width);
+        let height = range(frame.nodes[index].place.height, target.height);
         let size = frame.layout_node(
             node,
             platform,
