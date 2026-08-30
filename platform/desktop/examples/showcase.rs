@@ -4,6 +4,7 @@ use blit_desktop::{
     Application, Config, DesktopPlatform, EventLoopProxy, Root,
     draw::{Rectangle, Text},
     layout::Flex,
+    style::BorderRadius,
     text::{FontId, TextStyle},
 };
 use blit_showcase::Showcase;
@@ -75,7 +76,9 @@ impl Application for App {
             };
             let mut button = ui
                 .layout_with(
-                    Rectangle::new().background(color).uniform_radius(8.0),
+                    Rectangle::new()
+                        .background(color)
+                        .radius(BorderRadius::uniform(8.0)),
                     Flex::row().padding(Sides::all(12.0)),
                 )
                 .id(id);

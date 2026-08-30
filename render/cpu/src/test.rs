@@ -6,7 +6,7 @@ use crate::{
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
-    style::{BorderRadius, GradientStop, LinearGradient},
+    style::{Border, BorderRadius, GradientStop, LinearGradient},
     text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
 };
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
@@ -208,8 +208,8 @@ fn clear_resets_stale_pixels_before_drawing() {
             ..LogicalRect::default()
         })
         .background(Color::from_rgba8(40, 120, 220, 144))
-        .solid_border(2.0, Color::from_rgba8(240, 80, 30, 192))
-        .uniform_radius(5.0);
+        .border(Border::solid(2.0, Color::from_rgba8(240, 80, 30, 192)))
+        .radius(BorderRadius::uniform(5.0));
         let mut paint = CommandList::default();
         if clear {
             paint.push_clear(screen);
@@ -840,7 +840,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     paint.push_rectangle(
         Rectangle::new(area)
             .background(Color::from_rgba8(0, 255, 0, 255))
-            .uniform_radius(3.0),
+            .radius(BorderRadius::uniform(3.0)),
         screen,
         ClipId::default(),
     );
@@ -1215,8 +1215,11 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
                     height: 30.0,
                 })
                 .background(Color::from_rgba8(20, 24, 32, 210))
-                .gradient_border(3.0, LinearGradient::new(&stops).angle(135.0))
-                .uniform_radius(9.0),
+                .border(Border::gradient(
+                    3.0,
+                    LinearGradient::new(&stops).angle(135.0),
+                ))
+                .radius(BorderRadius::uniform(9.0)),
                 screen,
                 clip,
             );

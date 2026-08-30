@@ -9,7 +9,7 @@ use blit_cpu::{
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
-    style::{GradientStop, LinearGradient},
+    style::{Border, BorderRadius, GradientStop, LinearGradient},
     text_types::{FontId, TextOptions, TextRequest, TextStyle, TextWrap},
 };
 use divan::counter::ItemsCount;
@@ -206,8 +206,11 @@ fn gradient_border(bencher: divan::Bencher) {
     commands.push_rectangle(
         Rectangle::new(area)
             .background(Color::from_rgba8(16, 24, 40, 255))
-            .gradient_border(2.0, LinearGradient::new(&stops).angle(35.0))
-            .uniform_radius(24.0),
+            .border(Border::gradient(
+                2.0,
+                LinearGradient::new(&stops).angle(35.0),
+            ))
+            .radius(BorderRadius::uniform(24.0)),
         area.to_physical(SCALE),
         ClipId::default(),
     );
@@ -229,7 +232,7 @@ fn shadow(bencher: divan::Bencher, cached: bool) {
         height: 448.0,
     };
     let shadow = BoxShadow::new(area, Color::from_rgba8(0, 0, 0, 128))
-        .uniform_radius(24.0)
+        .radius(BorderRadius::uniform(24.0))
         .blur(16.0);
     let mut commands = CommandList::default();
     commands.push_box_shadow(
@@ -306,7 +309,7 @@ where
         commands.push_rectangle(
             Rectangle::new(area)
                 .background(Color::from_rgba8(40, 72, 112, 255))
-                .uniform_radius(8.0),
+                .radius(BorderRadius::uniform(8.0)),
             area.to_physical(SCALE),
             ClipId::default(),
         );

@@ -3,7 +3,7 @@ use blit_cpu::{
     color::Color,
     command_list::{BoxShadow, Rectangle as DrawRectangle},
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
-    style::{Border, BorderRadius, LinearGradient, Shadow},
+    style::{Border, BorderRadius, Shadow},
     text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle},
 };
 
@@ -21,28 +21,6 @@ blit::builder! {
         border: Border<'static> = Border::None,
         radius: BorderRadius = BorderRadius::default(),
         opacity: f32 = 1.0,
-    }
-}
-
-impl Rectangle {
-    pub const fn uniform_radius(mut self, radius: f32) -> Self {
-        self.radius = BorderRadius {
-            top_left: radius,
-            top_right: radius,
-            bottom_right: radius,
-            bottom_left: radius,
-        };
-        self
-    }
-
-    pub const fn solid_border(mut self, width: f32, color: Color) -> Self {
-        self.border = Border::Solid { width, color };
-        self
-    }
-
-    pub const fn gradient_border(mut self, width: f32, gradient: LinearGradient<'static>) -> Self {
-        self.border = Border::Gradient { width, gradient };
-        self
     }
 }
 
