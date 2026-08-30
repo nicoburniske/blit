@@ -1,5 +1,6 @@
-use super::{Frame, NodeId, container};
+use super::{ClipKind, Frame, ResolvedClip, ResolvedClipId, StoredClip, container};
 use crate::{
+    arena::DataArena,
     geometry::Rect,
     renderer::{FrameInfo, Renderer},
 };
@@ -35,7 +36,7 @@ pub fn resolve_order<R: Renderer>(frame: &mut Frame<R>) {
         }
         let children = &mut frame.order_stack[start..];
         if children.iter().any(|node| {
-            let node = frame.nodes[node.index()];
+            let node = &frame.nodes[node.index()];
             node.slot.layer.is_some() || node.slot.z_index != 0
         }) {
             children.sort_unstable_by(|a, b| {
@@ -60,7 +61,7 @@ pub fn resolve_clips<R: Renderer>(frame: &mut Frame<R>, screen: Rect) {
     frame.resolved_clips.clear();
     for index in 0..frame.nodes.len() {
         let (parent, bounds) = if index == 0 {
-            (None, screen)
+            (ResolvedClipId::NONE, screen)
         } else if let Some(layer) = frame.nodes[index].slot.layer {
             let owner = frame.layers[container::layer_index(layer)].owner.index();
             (
@@ -68,23 +69,27 @@ pub fn resolve_clips<R: Renderer>(frame: &mut Frame<R>, screen: Rect) {
                 frame.nodes[owner].clip_bounds,
             )
         } else {
-            let parent = frame.nodes[index].parent.unwrap().index();
+            let parent = frame.nodes[index].parent.index();
             (
                 frame.nodes[parent].resolved_clip,
                 frame.nodes[parent].clip_bounds,
             )
         };
-        if let Some(clip) = frame.nodes[index].clip {
+        if frame.nodes[index].clip.index().is_some() {
             let bounds = bounds
                 .intersection(frame.nodes[index].area)
                 .unwrap_or_default();
-            let id = frame.resolved_clips.len();
-            frame.resolved_clips.push(super::ResolvedClip {
+            let id = ResolvedClipId::new(frame.resolved_clips.len());
+            let depth = parent
+                .index()
+                .map_or(1, |parent| frame.resolved_clips[parent].depth + 1);
+            frame.resolved_clips.push(ResolvedClip {
                 parent,
-                clip,
+                depth,
+                clip: frame.nodes[index].clip,
                 area: frame.nodes[index].area,
             });
-            frame.nodes[index].resolved_clip = Some(id);
+            frame.nodes[index].resolved_clip = id;
             frame.nodes[index].clip_bounds = bounds;
         } else {
             frame.nodes[index].resolved_clip = parent;
@@ -93,44 +98,121 @@ pub fn resolve_clips<R: Renderer>(frame: &mut Frame<R>, screen: Rect) {
     }
 }
 
-pub fn render<R: Renderer>(frame: &Frame<R>, renderer: &mut R, info: FrameInfo) {
-    fn push<R: Renderer>(frame: &Frame<R>, renderer: &mut R, clip: usize) {
-        let resolved = frame.resolved_clips[clip];
-        if let Some(parent) = resolved.parent {
-            push(frame, renderer, parent);
+pub fn render<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, info: FrameInfo) {
+    #[allow(clippy::too_many_arguments)]
+    fn push<R: Renderer>(
+        data: &DataArena,
+        clips: &[StoredClip],
+        kinds: &[ClipKind<R>],
+        resolved: &[ResolvedClip],
+        active: &mut Vec<ResolvedClipId>,
+        renderer: &mut R,
+        clip: ResolvedClipId,
+        common: u32,
+    ) {
+        if clip.0 == common {
+            return;
         }
-        let call = frame.clip_kinds[resolved.clip.kind as usize].push;
-        call(&frame.data, resolved.clip.data, renderer, resolved.area);
+        let stored = resolved[clip.index().unwrap()];
+        push(
+            data,
+            clips,
+            kinds,
+            resolved,
+            active,
+            renderer,
+            stored.parent,
+            common,
+        );
+        let clip_data = clips[stored.clip.index().unwrap()];
+        (kinds[clip_data.kind as usize].push)(data, clip_data.data, renderer, stored.area);
+        active.push(clip);
     }
 
-    fn paint<R: Renderer>(frame: &Frame<R>, renderer: &mut R, node: NodeId) {
-        let stored = frame.nodes[node.index()];
-        let Some(base) = stored.base else {
-            return;
-        };
-        if let Some(clip) = stored.resolved_clip {
-            push(frame, renderer, clip);
+    fn set<R: Renderer>(
+        data: &DataArena,
+        clips: &[StoredClip],
+        kinds: &[ClipKind<R>],
+        resolved: &[ResolvedClip],
+        active: &mut Vec<ResolvedClipId>,
+        renderer: &mut R,
+        target: ResolvedClipId,
+    ) {
+        let mut common = target;
+        while let Some(index) = common.index() {
+            let depth = resolved[index].depth as usize;
+            if depth <= active.len() && active[depth - 1].0 == common.0 {
+                break;
+            }
+            common = resolved[index].parent;
         }
-        let call = frame.leaf_kinds[base.kind as usize].paint;
-        call(&frame.data, base.data, renderer, stored.area);
-        let mut clip = stored.resolved_clip;
-        while let Some(id) = clip {
-            let resolved = frame.resolved_clips[id];
-            let call = frame.clip_kinds[resolved.clip.kind as usize].pop;
-            call(&frame.data, resolved.clip.data, renderer);
-            clip = resolved.parent;
+        while active.last().map_or(u32::MAX, |clip| clip.0) != common.0 {
+            let clip = active.pop().unwrap();
+            let stored = resolved[clip.index().unwrap()];
+            let clip_data = clips[stored.clip.index().unwrap()];
+            (kinds[clip_data.kind as usize].pop)(data, clip_data.data, renderer);
         }
+        push(
+            data, clips, kinds, resolved, active, renderer, target, common.0,
+        );
     }
 
     renderer.begin(info);
+    frame.active_clips.clear();
     if frame.paint_order.is_empty() {
         for index in 0..frame.nodes.len() {
-            paint(frame, renderer, frame.node_id(index));
+            let Some(base) = frame.nodes[index].base.index() else {
+                continue;
+            };
+            set(
+                &frame.data,
+                &frame.clips,
+                &frame.clip_kinds,
+                &frame.resolved_clips,
+                &mut frame.active_clips,
+                renderer,
+                frame.nodes[index].resolved_clip,
+            );
+            let base = frame.leaves[base];
+            (frame.leaf_kinds[base.kind as usize].paint)(
+                &frame.data,
+                base.data,
+                renderer,
+                frame.nodes[index].area,
+            );
         }
     } else {
-        for node in frame.paint_order.iter().copied() {
-            paint(frame, renderer, node);
+        for index in 0..frame.paint_order.len() {
+            let node = frame.paint_order[index].index();
+            let Some(base) = frame.nodes[node].base.index() else {
+                continue;
+            };
+            set(
+                &frame.data,
+                &frame.clips,
+                &frame.clip_kinds,
+                &frame.resolved_clips,
+                &mut frame.active_clips,
+                renderer,
+                frame.nodes[node].resolved_clip,
+            );
+            let base = frame.leaves[base];
+            (frame.leaf_kinds[base.kind as usize].paint)(
+                &frame.data,
+                base.data,
+                renderer,
+                frame.nodes[node].area,
+            );
         }
     }
+    set(
+        &frame.data,
+        &frame.clips,
+        &frame.clip_kinds,
+        &frame.resolved_clips,
+        &mut frame.active_clips,
+        renderer,
+        ResolvedClipId::NONE,
+    );
     renderer.end();
 }

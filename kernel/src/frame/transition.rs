@@ -10,22 +10,19 @@ use crate::{
 };
 
 pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, size: Size) {
-    for index in 0..frame.nodes.len() {
-        let Some(config) = frame.nodes[index].transition else {
+    for index in 0..frame.geometry.len() {
+        let record = frame.geometry[index];
+        let (Some(id), Some(config)) = (record.id, record.transition) else {
             continue;
         };
-        let Some(id) = frame.nodes[index].id else {
-            continue;
-        };
-        let node = frame.node_id(index);
         match frame
             .transitions
             .binary_search_by_key(&id, |state| state.id)
         {
-            Ok(index) => frame.transitions[index].begin(node, config),
+            Ok(index) => frame.transitions[index].begin(record.node, config),
             Err(index) => frame
                 .transitions
-                .insert(index, TransitionState::new(id, node, config)),
+                .insert(index, TransitionState::new(id, record.node, config)),
         }
     }
 

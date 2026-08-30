@@ -8,9 +8,10 @@ pub fn layout<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, size: Size) {
     let root = frame.node_id(0);
     frame.layout_node(root, renderer, Constraints::tight(size));
     for index in 1..frame.nodes.len() {
-        let Some(positioned) = frame.nodes[index].positioned else {
+        let Some(positioned) = frame.nodes[index].positioned.index() else {
             continue;
         };
+        let positioned = frame.positioned[positioned];
         let node = frame.node_id(index);
         let target = frame.nodes[positioned.target.index()].area;
         let range = |sizing: Sizing, available: f32| match sizing {
@@ -54,26 +55,30 @@ pub fn layout<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, size: Size) {
 }
 
 pub fn offset<R: Renderer>(frame: &Frame<R>, node: NodeId) -> Point {
-    if let Some(positioned) = frame.nodes[node.index()].positioned {
+    if let Some(positioned) = frame.nodes[node.index()].positioned.index() {
+        let positioned = frame.positioned[positioned];
         return if positioned.uses_target_content_origin {
             frame.nodes[positioned.target.index()].content_offset
         } else {
             Point::ZERO
         };
     }
-    frame.nodes[node.index()]
-        .parent
-        .map_or(Point::ZERO, |parent| {
-            frame.nodes[parent.index()].content_offset
-        })
+    let parent = frame.nodes[node.index()].parent;
+    if parent == node {
+        Point::ZERO
+    } else {
+        frame.nodes[parent.index()].content_offset
+    }
 }
 
 pub fn resolve<R: Renderer>(frame: &mut Frame<R>) {
     for index in 1..frame.nodes.len() {
-        let reference = frame.nodes[index].positioned.map_or_else(
-            || frame.nodes[index].parent.unwrap(),
-            |positioned| positioned.target,
-        );
+        let reference = frame.nodes[index]
+            .positioned
+            .index()
+            .map_or(frame.nodes[index].parent, |positioned| {
+                frame.positioned[positioned].target
+            });
         frame.nodes[index].area.x += frame.nodes[reference.index()].area.x;
         frame.nodes[index].area.y += frame.nodes[reference.index()].area.y;
     }

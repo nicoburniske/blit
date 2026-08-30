@@ -1,4 +1,4 @@
-use std::{any::TypeId, time::Duration};
+use std::{any::TypeId, mem::size_of, time::Duration};
 
 pub mod container;
 pub mod interaction;
@@ -10,6 +10,14 @@ pub mod ui;
 
 pub use container::{Absolute, Anchor, Container, LayerId, PositionTarget, Sizing, Slot};
 pub use ui::Ui;
+
+/// retained memory used by a frame after its buffers have grown
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameMemory {
+    pub node_size: usize,
+    pub node_capacity: usize,
+    pub heap_bytes: usize,
+}
 
 use crate::{
     animation::Transition,
@@ -25,6 +33,11 @@ use crate::{
 
 pub struct Frame<R: Renderer> {
     nodes: Vec<Node>,
+    leaves: Vec<StoredLeaf>,
+    layouts: Vec<StoredLayout>,
+    clips: Vec<StoredClip>,
+    positioned: Vec<Positioned>,
+    geometry: Vec<GeometryRecord>,
     leaf_kinds: Vec<LeafKind<R>>,
     layout_kinds: Vec<LayoutKind<R>>,
     clip_kinds: Vec<ClipKind<R>>,
@@ -33,6 +46,7 @@ pub struct Frame<R: Renderer> {
     paint_order: Vec<NodeId>,
     order_stack: Vec<NodeId>,
     resolved_clips: Vec<ResolvedClip>,
+    active_clips: Vec<ResolvedClipId>,
     interaction: interaction::InteractionState,
     geometry_previous: Vec<(WidgetId, Rect)>,
     geometry_current: Vec<(WidgetId, Rect)>,
@@ -49,6 +63,11 @@ impl<R: Renderer> Default for Frame<R> {
     fn default() -> Self {
         Self {
             nodes: Vec::new(),
+            leaves: Vec::new(),
+            layouts: Vec::new(),
+            clips: Vec::new(),
+            positioned: Vec::new(),
+            geometry: Vec::new(),
             leaf_kinds: Vec::new(),
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
@@ -57,6 +76,7 @@ impl<R: Renderer> Default for Frame<R> {
             paint_order: Vec::new(),
             order_stack: Vec::new(),
             resolved_clips: Vec::new(),
+            active_clips: Vec::new(),
             interaction: interaction::InteractionState::default(),
             geometry_previous: Vec::new(),
             geometry_current: Vec::new(),
@@ -120,6 +140,31 @@ impl<R: Renderer> Frame<R> {
             .find_map(|(candidate, area)| (*candidate == id).then_some(*area))
     }
 
+    pub fn memory(&self) -> FrameMemory {
+        FrameMemory {
+            node_size: size_of::<Node>(),
+            node_capacity: self.nodes.capacity(),
+            heap_bytes: self.nodes.capacity() * size_of::<Node>()
+                + self.leaves.capacity() * size_of::<StoredLeaf>()
+                + self.layouts.capacity() * size_of::<StoredLayout>()
+                + self.clips.capacity() * size_of::<StoredClip>()
+                + self.positioned.capacity() * size_of::<Positioned>()
+                + self.geometry.capacity() * size_of::<GeometryRecord>()
+                + self.leaf_kinds.capacity() * size_of::<LeafKind<R>>()
+                + self.layout_kinds.capacity() * size_of::<LayoutKind<R>>()
+                + self.clip_kinds.capacity() * size_of::<ClipKind<R>>()
+                + self.data.heap_bytes()
+                + self.layers.capacity() * size_of::<Layer>()
+                + self.paint_order.capacity() * size_of::<NodeId>()
+                + self.order_stack.capacity() * size_of::<NodeId>()
+                + self.resolved_clips.capacity() * size_of::<ResolvedClip>()
+                + self.active_clips.capacity() * size_of::<ResolvedClipId>()
+                + self.geometry_previous.capacity() * size_of::<(WidgetId, Rect)>()
+                + self.geometry_current.capacity() * size_of::<(WidgetId, Rect)>()
+                + self.transitions.capacity() * size_of::<transition::TransitionState>(),
+        }
+    }
+
     fn record(
         &mut self,
         renderer: &mut R,
@@ -132,10 +177,16 @@ impl<R: Renderer> Frame<R> {
         #[cfg(debug_assertions)]
         generation::begin();
         self.nodes.clear();
+        self.leaves.clear();
+        self.layouts.clear();
+        self.clips.clear();
+        self.positioned.clear();
+        self.geometry.clear();
         self.data.clear();
         self.layers.clear();
         self.paint_order.clear();
         self.resolved_clips.clear();
+        self.active_clips.clear();
         self.needs_paint_order = false;
         self.input = input;
         self.time = time;
@@ -168,32 +219,34 @@ impl<R: Renderer> Frame<R> {
     }
 
     fn layout_node(&mut self, node: NodeId, renderer: &mut R, constraints: Constraints) -> Size {
-        let stored = self.nodes[node.index()];
-        let size = if let Some(stored) = stored.layout {
+        let index = node.index();
+        let size = if let Some(layout) = self.nodes[index].layout.index() {
+            let stored = self.layouts[layout];
             let run = self.layout_kinds[stored.kind as usize].layout;
             run(self, node, renderer, stored.data, constraints)
         } else {
             assert!(
-                stored.base.is_some(),
+                self.nodes[index].base.index().is_some(),
                 "node has neither a base nor a layout"
             );
             self.measure_base(node, renderer, constraints)
         };
         let size = constraints.constrain(size);
-        self.nodes[node.index()].area.width = size.width;
-        self.nodes[node.index()].area.height = size.height;
+        self.nodes[index].area.width = size.width;
+        self.nodes[index].area.height = size.height;
         size
     }
 
     fn measure_base(&mut self, node: NodeId, renderer: &mut R, constraints: Constraints) -> Size {
-        let Some(base) = self.nodes[node.index()].base else {
+        let Some(base) = self.nodes[node.index()].base.index() else {
             return Size::ZERO;
         };
+        let base = self.leaves[base];
         let measure = self.leaf_kinds[base.kind as usize].measure;
         measure(&self.data, base.data, renderer, constraints)
     }
 
-    fn store_leaf<L: Leaf<R>>(&mut self, leaf: L) -> StoredLeaf {
+    fn store_leaf<L: Leaf<R>>(&mut self, leaf: L) -> StoredLeafId {
         let type_id = TypeId::of::<L>();
         let kind = self
             .leaf_kinds
@@ -207,13 +260,15 @@ impl<R: Renderer> Frame<R> {
                 });
                 self.leaf_kinds.len() - 1
             });
-        StoredLeaf {
+        let id = StoredLeafId::new(self.leaves.len());
+        self.leaves.push(StoredLeaf {
             kind: u16::try_from(kind).expect("too many leaf types"),
             data: self.data.store(leaf),
-        }
+        });
+        id
     }
 
-    fn store_layout<L: Layout<R>>(&mut self, value: L) -> StoredLayout {
+    fn store_layout<L: Layout<R>>(&mut self, value: L) -> StoredLayoutId {
         let type_id = TypeId::of::<L>();
         let kind = self
             .layout_kinds
@@ -226,13 +281,15 @@ impl<R: Renderer> Frame<R> {
                 });
                 self.layout_kinds.len() - 1
             });
-        StoredLayout {
+        let id = StoredLayoutId::new(self.layouts.len());
+        self.layouts.push(StoredLayout {
             kind: u16::try_from(kind).expect("too many layout types"),
             data: self.data.store(value),
-        }
+        });
+        id
     }
 
-    fn store_clip<C: Clip<R>>(&mut self, clip: C) -> StoredClip {
+    fn store_clip<C: Clip<R>>(&mut self, clip: C) -> StoredClipId {
         let type_id = TypeId::of::<C>();
         let kind = self
             .clip_kinds
@@ -246,34 +303,34 @@ impl<R: Renderer> Frame<R> {
                 });
                 self.clip_kinds.len() - 1
             });
-        StoredClip {
+        let id = StoredClipId::new(self.clips.len());
+        self.clips.push(StoredClip {
             kind: u16::try_from(kind).expect("too many clip types"),
             data: self.data.store(clip),
-        }
+        });
+        id
     }
 
     fn push_node(
         &mut self,
         parent: Option<NodeId>,
-        base: Option<StoredLeaf>,
-        layout: Option<StoredLayout>,
+        base: Option<StoredLeafId>,
+        layout: Option<StoredLayoutId>,
     ) -> NodeId {
         let id = self.node_id(self.nodes.len());
         self.nodes.push(Node {
-            parent,
+            parent: parent.unwrap_or(id),
             subtree_end: id.value,
-            base,
-            layout,
-            clip: None,
-            item: None,
+            base: base.unwrap_or(StoredLeafId::NONE),
+            layout: layout.unwrap_or(StoredLayoutId::NONE),
+            clip: StoredClipId::NONE,
+            item: DataId::NONE,
             area: Rect::default(),
-            positioned: None,
+            positioned: PositionedId::NONE,
             slot: Slot::new(),
             content_offset: Point::ZERO,
-            id: None,
-            hit: Sides::all(0.0),
-            transition: None,
-            resolved_clip: None,
+            geometry: GeometryId::NONE,
+            resolved_clip: ResolvedClipId::NONE,
             clip_bounds: Rect::default(),
         });
         id
@@ -286,9 +343,8 @@ impl<R: Renderer> Frame<R> {
     }
 
     fn set_absolute(&mut self, node: NodeId, absolute: Absolute) {
-        let parent = self.nodes[node.index()]
-            .parent
-            .expect("the root cannot be absolutely positioned");
+        let parent = self.nodes[node.index()].parent;
+        assert_ne!(parent, node, "the root cannot be absolutely positioned");
         let target = match absolute.target {
             PositionTarget::Parent => parent,
             PositionTarget::Node(target) => {
@@ -300,13 +356,44 @@ impl<R: Renderer> Frame<R> {
             }
             PositionTarget::Screen => self.node_id(0),
         };
-        self.nodes[node.index()].positioned = Some(Positioned {
+        let positioned = PositionedId::new(self.positioned.len());
+        self.positioned.push(Positioned {
             target,
             uses_target_content_origin: matches!(absolute.target, PositionTarget::Parent),
             target_anchor: absolute.target_anchor,
             child_anchor: absolute.child_anchor,
             offset: absolute.offset,
         });
+        self.nodes[node.index()].positioned = positioned;
+    }
+
+    fn geometry_mut(&mut self, node: NodeId) -> &mut GeometryRecord {
+        let index = if let Some(index) = self.nodes[node.index()].geometry.index() {
+            index
+        } else {
+            let id = GeometryId::new(self.geometry.len());
+            self.nodes[node.index()].geometry = id;
+            self.geometry.push(GeometryRecord {
+                node,
+                id: None,
+                hit: Sides::all(0.0),
+                transition: None,
+            });
+            id.index().unwrap()
+        };
+        &mut self.geometry[index]
+    }
+
+    fn set_id(&mut self, node: NodeId, id: WidgetId) {
+        self.geometry_mut(node).id = Some(id);
+    }
+
+    fn set_hit(&mut self, node: NodeId, hit: Sides) {
+        self.geometry_mut(node).hit = hit;
+    }
+
+    fn set_transition(&mut self, node: NodeId, transition: Transition) {
+        self.geometry_mut(node).transition = Some(transition);
     }
 
     fn set_slot(&mut self, node: NodeId, mut slot: Slot) {
@@ -384,20 +471,18 @@ mod generation {
 
 #[derive(Clone, Copy)]
 struct Node {
-    parent: Option<NodeId>,
+    parent: NodeId,
     subtree_end: u32,
-    base: Option<StoredLeaf>,
-    layout: Option<StoredLayout>,
-    clip: Option<StoredClip>,
-    item: Option<DataId>,
+    base: StoredLeafId,
+    layout: StoredLayoutId,
+    clip: StoredClipId,
+    item: DataId,
     area: Rect,
-    positioned: Option<Positioned>,
+    positioned: PositionedId,
     slot: Slot,
     content_offset: Point,
-    id: Option<WidgetId>,
-    hit: Sides,
-    transition: Option<Transition>,
-    resolved_clip: Option<usize>,
+    geometry: GeometryId,
+    resolved_clip: ResolvedClipId,
     clip_bounds: Rect,
 }
 
@@ -411,14 +496,23 @@ struct Positioned {
 }
 
 #[derive(Clone, Copy)]
+struct GeometryRecord {
+    node: NodeId,
+    id: Option<WidgetId>,
+    hit: Sides,
+    transition: Option<Transition>,
+}
+
+#[derive(Clone, Copy)]
 struct Layer {
     owner: NodeId,
 }
 
 #[derive(Clone, Copy)]
 struct ResolvedClip {
-    parent: Option<usize>,
-    clip: StoredClip,
+    parent: ResolvedClipId,
+    depth: u32,
+    clip: StoredClipId,
     area: Rect,
 }
 
@@ -439,6 +533,31 @@ struct StoredClip {
     kind: u16,
     data: DataId,
 }
+
+#[derive(Clone, Copy)]
+struct Index<T>(u32, std::marker::PhantomData<fn() -> T>);
+
+impl<T> Index<T> {
+    const NONE: Self = Self(u32::MAX, std::marker::PhantomData);
+
+    fn new(index: usize) -> Self {
+        Self(
+            u32::try_from(index).expect("too many frame values"),
+            std::marker::PhantomData,
+        )
+    }
+
+    fn index(self) -> Option<usize> {
+        (self.0 != u32::MAX).then_some(self.0 as usize)
+    }
+}
+
+type StoredLeafId = Index<StoredLeaf>;
+type StoredLayoutId = Index<StoredLayout>;
+type StoredClipId = Index<StoredClip>;
+type PositionedId = Index<Positioned>;
+type GeometryId = Index<GeometryRecord>;
+type ResolvedClipId = Index<ResolvedClip>;
 
 struct LeafKind<R: Renderer> {
     type_id: TypeId,

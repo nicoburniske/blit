@@ -45,15 +45,15 @@ impl<R: Renderer> Ui<'_, R> {
     }
 
     pub fn set_id(&mut self, node: NodeId, id: WidgetId) {
-        self.frame.nodes[node.index()].id = Some(id);
+        self.frame.set_id(node, id);
     }
 
     pub fn set_hit(&mut self, node: NodeId, hit: Sides) {
-        self.frame.nodes[node.index()].hit = hit;
+        self.frame.set_hit(node, hit);
     }
 
     pub fn set_transition(&mut self, node: NodeId, transition: Transition) {
-        self.frame.nodes[node.index()].transition = Some(transition);
+        self.frame.set_transition(node, transition);
     }
 
     pub fn geometry(&self, id: WidgetId) -> Option<Rect> {
