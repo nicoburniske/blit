@@ -1,11 +1,12 @@
-use std::{io, time::Duration};
+use std::{fmt::Write as _, io, time::Duration};
 
 use blit::{
     Absolute, Anchor, Axis, Easing, Input, Key, NodeId, Sense, Sides, Size, Sizing, Slot,
     Transition, Widget, WidgetId,
 };
 use blit_showcase::{
-    CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip, ResizeState,
+    CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip,
+    ResizeState,
 };
 use blit_terminal::{
     BoundsClip, ControlFlow, TerminalPlatform, Ui,
@@ -18,6 +19,7 @@ use blit_terminal::{
 fn main() -> io::Result<()> {
     let mut canvas = CanvasConfig::default();
     let mut resize = ResizeState::default();
+    let mut fps = FpsBadge::default();
     blit_terminal::run(|ui: &mut Ui| {
         let control = if matches!(ui.input(), Input::Text('q'))
             || matches!(ui.input(), Input::Key(key) if key.key == Key::Escape)
@@ -307,8 +309,61 @@ fn main() -> io::Result<()> {
                     },
                 );
             });
+        root.add(&mut fps);
         control
     })
+}
+
+struct FpsBadge {
+    counter: FpsCounter,
+    label: String,
+}
+
+impl Default for FpsBadge {
+    fn default() -> Self {
+        Self {
+            counter: FpsCounter::default(),
+            label: "FPS --".into(),
+        }
+    }
+}
+
+impl Widget<TerminalPlatform> for &mut FpsBadge {
+    type Response = ();
+
+    fn build(self, ui: &mut Ui) {
+        if let Some(fps) = self.counter.update(ui.time()) {
+            self.label.clear();
+            let _ = write!(self.label, "FPS {fps:03.0}");
+        }
+        let cell = ui.platform().renderer().cell_size();
+        let mut badge = ui
+            .layout_with(
+                Block::new()
+                    .background(colors::SURFACE_HIGH)
+                    .border(Border::new(colors::ACCENT).rounded(true)),
+                Flex::row()
+                    .padding(Sides {
+                        top: cell.height,
+                        right: cell.width,
+                        bottom: cell.height,
+                        left: cell.width,
+                    })
+                    .gap(cell.width)
+                    .align(Align::Center),
+            )
+            .absolute(
+                Absolute::screen(0.0, 0.0)
+                    .anchors(Anchor::BottomRight, Anchor::BottomRight)
+                    .offset(-cell.width, -cell.height),
+            );
+        badge
+            .child()
+            .slot(Slot::new().fixed(cell.width, cell.height))
+            .add(Block::new().background(colors::ACCENT));
+        badge.add(Text::new(&self.label).color(colors::TEXT).bold(true));
+        badge.add(Text::new("SCREEN ABSOLUTE").color(colors::TEXT_DIM));
+    }
 }
 
 struct TerminalGrip {

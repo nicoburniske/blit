@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{fmt::Write as _, time::Duration};
 
 use blit::{
     Absolute, Anchor, Axis, Easing, NodeId, Sense, Sides, Size, Sizing, Slot, Transition, Widget,
@@ -15,7 +15,8 @@ use blit_desktop::{
     widget::Text,
 };
 use blit_showcase::{
-    CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip, ResizeState,
+    CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip,
+    ResizeState,
 };
 
 fn main() {
@@ -41,6 +42,7 @@ fn main() {
 struct App {
     canvas: CanvasConfig,
     resize: ResizeState,
+    fps: FpsBadge,
 }
 
 impl Application for App {
@@ -50,6 +52,7 @@ impl Application for App {
         Self {
             canvas: CanvasConfig::default(),
             resize: ResizeState::default(),
+            fps: FpsBadge::default(),
         }
     }
 
@@ -291,6 +294,69 @@ impl Application for App {
                 });
             });
         });
+        root.add(&mut self.fps);
+    }
+}
+
+struct FpsBadge {
+    counter: FpsCounter,
+    label: String,
+}
+
+impl Default for FpsBadge {
+    fn default() -> Self {
+        Self {
+            counter: FpsCounter::default(),
+            label: "FPS --".into(),
+        }
+    }
+}
+
+impl Widget<DesktopPlatform> for &mut FpsBadge {
+    type Response = ();
+
+    fn build(self, ui: &mut Ui) {
+        if let Some(fps) = self.counter.update(ui.time()) {
+            self.label.clear();
+            let _ = write!(self.label, "FPS {fps:03.0}");
+        }
+        let mut badge = ui
+            .layout_with(
+                Rectangle::new()
+                    .background(colors::SURFACE_HIGH)
+                    .border(Border::solid(1.0, colors::ACCENT))
+                    .radius(BorderRadius::uniform(7.0)),
+                Flex::row()
+                    .padding(Sides::new().top(6.0).right(10.0).bottom(6.0).left(10.0))
+                    .gap(6.0)
+                    .align(Align::Center),
+            )
+            .absolute(
+                Absolute::screen(0.0, 0.0)
+                    .anchors(Anchor::BottomRight, Anchor::BottomRight)
+                    .offset(-16.0, -16.0),
+            );
+        badge.child().slot(Slot::new().fixed(6.0, 6.0)).add(
+            Rectangle::new()
+                .background(colors::ACCENT)
+                .radius(BorderRadius::uniform(3.0)),
+        );
+        badge.add(
+            Text::new(&self.label)
+                .style(TextStyle {
+                    size: 10.0,
+                    ..TextStyle::default()
+                })
+                .color(colors::TEXT),
+        );
+        badge.add(
+            Text::new("SCREEN ABSOLUTE")
+                .style(TextStyle {
+                    size: 10.0,
+                    ..TextStyle::default()
+                })
+                .color(colors::TEXT_DIM),
+        );
     }
 }
 

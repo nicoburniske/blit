@@ -1,8 +1,46 @@
+use std::{collections::VecDeque, time::Duration};
+
 use blit::{
     Anchor, Axis, Constraints, Interaction, Layout, LayoutCx, NodeId, Platform, Point, Rect, Sense,
     Sides, Size, Sizing, Slot, Ui, Widget, WidgetId,
 };
 pub use blit_layout::{Align, Justify};
+
+#[derive(Debug, Default)]
+pub struct FpsCounter {
+    frame_at: Option<Duration>,
+    updated_at: Option<Duration>,
+    frames: VecDeque<Duration>,
+}
+
+impl FpsCounter {
+    pub fn update(&mut self, now: Duration) -> Option<f32> {
+        if self.frame_at.replace(now) == Some(now) {
+            return None;
+        }
+        self.frames.push_back(now);
+        while self
+            .frames
+            .front()
+            .is_some_and(|frame| now.saturating_sub(*frame) > Duration::from_secs(1))
+        {
+            self.frames.pop_front();
+        }
+        if self
+            .updated_at
+            .is_none_or(|updated| now.saturating_sub(updated) >= Duration::from_millis(250))
+        {
+            self.updated_at = Some(now);
+            if let (Some(first), Some(last)) = (self.frames.front(), self.frames.back())
+                && self.frames.len() > 1
+            {
+                let elapsed = last.saturating_sub(*first).as_secs_f32();
+                return Some(self.frames.len().saturating_sub(1) as f32 / elapsed);
+            }
+        }
+        None
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CanvasLayout {
