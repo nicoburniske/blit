@@ -23,6 +23,37 @@ pub struct DesktopPlatform {
 }
 
 impl DesktopPlatform {
+    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
+        self.renderer.create_image(data)
+    }
+
+    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.renderer.text_run(text, style)
+    }
+
+    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> Size {
+        self.renderer.measure_text(request)
+    }
+
+    pub fn text_offset_at_position(
+        &mut self,
+        request: &TextRequest,
+        position: LogicalPoint,
+    ) -> usize {
+        self.renderer.text_offset_at_position(request, position)
+    }
+
+    pub fn text_cursor_rect(&mut self, request: &TextRequest, offset: usize) -> LogicalRect {
+        self.renderer.text_cursor_rect(request, offset)
+    }
+
+    pub fn invalidate_all(&mut self) {
+        self.invalidated = true;
+        self.previous_damage.clear();
+    }
+}
+
+impl DesktopPlatform {
     pub(crate) fn new(renderer: Renderer<DesktopBuffer, Scanline>) -> Self {
         Self {
             renderer,
@@ -46,35 +77,6 @@ impl DesktopPlatform {
         let scale = Scale2::uniform(scale);
         self.renderer.set_scale(scale);
         self.scale = scale;
-    }
-
-    pub(crate) fn invalidate_all(&mut self) {
-        self.invalidated = true;
-        self.previous_damage.clear();
-    }
-
-    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        self.renderer.create_image(data)
-    }
-
-    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.renderer.text_run(text, style)
-    }
-
-    pub fn text_offset_at_position(
-        &mut self,
-        request: &TextRequest,
-        position: LogicalPoint,
-    ) -> usize {
-        self.renderer.text_offset_at_position(request, position)
-    }
-
-    pub fn text_cursor_rect(&mut self, request: &TextRequest, offset: usize) -> LogicalRect {
-        self.renderer.text_cursor_rect(request, offset)
-    }
-
-    pub(crate) fn measure_text(&mut self, request: &TextLayoutRequest) -> Size {
-        self.renderer.measure_text(request)
     }
 
     pub(crate) fn commands(&mut self) -> (&mut CommandList, ClipId, Scale2) {

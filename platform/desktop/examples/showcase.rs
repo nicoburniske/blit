@@ -2,7 +2,7 @@ use blit::{Sense, Sides, Sizing, Slot, Ui, WidgetId};
 use blit_cpu::{Font, FontFace, RendererConfig};
 use blit_desktop::{
     Application, Config, DesktopPlatform, EventLoopProxy, Root,
-    draw::{Rectangle, Text},
+    draw::{Rectangle, TextRun},
     layout::Flex,
     style::BorderRadius,
     text::{FontId, TextStyle},
@@ -55,11 +55,11 @@ impl Application for App {
             Flex::column().padding(Sides::all(24.0)).gap(16.0),
         );
         root.add(Slot::new().height(Sizing::fixed(40.0)), (), |mut ui| {
-            ui.add(Text::new(title, title_style).color(blit_desktop::color::Color::WHITE));
+            ui.add(TextRun::new(title, title_style).color(blit_desktop::color::Color::WHITE));
         });
         root.add(Slot::new().height(Sizing::fixed(32.0)), (), |mut ui| {
             ui.add(
-                Text::new(body, body_style)
+                TextRun::new(body, body_style)
                     .color(blit_desktop::color::Color::from_rgba8(190, 198, 215, 255)),
             );
         });
@@ -84,7 +84,7 @@ impl Application for App {
                 .id(id);
             button.add(Slot::new(), (), |mut ui| {
                 ui.add(
-                    Text::new(button_label, body_style).color(blit_desktop::color::Color::WHITE),
+                    TextRun::new(button_label, body_style).color(blit_desktop::color::Color::WHITE),
                 );
             });
         });

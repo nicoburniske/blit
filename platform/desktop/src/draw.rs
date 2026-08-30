@@ -55,37 +55,17 @@ impl Leaf<DesktopPlatform> for Rectangle {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Text {
-    pub text: TextRunId,
-    pub color: Color,
-    pub style: TextStyle,
-    pub options: TextOptions,
-}
-
-impl Text {
-    pub const fn new(text: TextRunId, style: TextStyle) -> Self {
-        Self {
-            text,
-            color: Color::BLACK,
-            style,
-            options: TextOptions {
-                wrap: blit_cpu::text_types::TextWrap::None,
-                overflow: blit_cpu::text_types::TextOverflow::Clip,
-                horizontal_align: blit_cpu::text_types::HorizontalAlign::Left,
-                vertical_align: blit_cpu::text_types::VerticalAlign::Top,
-                max_lines: None,
-            },
-        }
-    }
-
-    pub const fn color(mut self, color: Color) -> Self {
-        self.color = color;
-        self
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct TextRun {
+        new(text: TextRunId, style: TextStyle),
+        color: Color = Color::BLACK,
+        offset_x: f32 = 0.0,
+        options: TextOptions = TextOptions::default(),
     }
 }
 
-impl Leaf<DesktopPlatform> for Text {
+impl Leaf<DesktopPlatform> for TextRun {
     fn measure(&self, platform: &mut DesktopPlatform, constraints: Constraints) -> Size {
         let measured = platform.measure_text(&TextLayoutRequest {
             text: self.text,
@@ -103,7 +83,7 @@ impl Leaf<DesktopPlatform> for Text {
         let request = TextRequest {
             text: self.text,
             area,
-            offset_x: 0.0,
+            offset_x: self.offset_x,
             color: self.color,
             style: self.style,
             options: self.options,
