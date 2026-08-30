@@ -7,7 +7,7 @@ use blit_cpu::{
     text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle},
 };
 
-use crate::DesktopPlatform;
+use super::DesktopPlatform;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -30,13 +30,16 @@ impl Leaf<DesktopPlatform> for Rectangle {
     }
 
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
-        let (commands, clip, scale) = platform.commands();
+        let scale = platform.scale;
+        let clip = platform.clip;
         if let Some(shadow) = self.shadow {
             let shadow = box_shadow(area, self.radius, shadow, false);
-            commands.push_box_shadow(shadow, shadow.bounds().to_physical(scale), clip);
+            platform
+                .current
+                .push_box_shadow(shadow, shadow.bounds().to_physical(scale), clip);
         }
         if self.background != Color::TRANSPARENT || !matches!(self.border, Border::None) {
-            commands.push_rectangle(
+            platform.current.push_rectangle(
                 DrawRectangle {
                     area,
                     background: self.background,
@@ -50,7 +53,9 @@ impl Leaf<DesktopPlatform> for Rectangle {
         }
         if let Some(shadow) = self.inset_shadow {
             let shadow = box_shadow(area, self.radius, shadow, true);
-            commands.push_box_shadow(shadow, area.to_physical(scale), clip);
+            platform
+                .current
+                .push_box_shadow(shadow, area.to_physical(scale), clip);
         }
     }
 }
@@ -88,8 +93,9 @@ impl Leaf<DesktopPlatform> for TextRun {
             style: self.style,
             options: self.options,
         };
-        let (commands, clip, scale) = platform.commands();
-        commands.push_text(request, area.to_physical(scale), clip);
+        let bounds = area.to_physical(platform.scale);
+        let clip = platform.clip;
+        platform.current.push_text(request, bounds, clip);
     }
 }
 
@@ -123,8 +129,9 @@ impl Leaf<DesktopPlatform> for Image {
             horizontal_tiling: self.horizontal_tiling,
             vertical_tiling: self.vertical_tiling,
         };
-        let (commands, clip, scale) = platform.commands();
-        commands.push_image(request, area.to_physical(scale), clip);
+        let bounds = area.to_physical(platform.scale);
+        let clip = platform.clip;
+        platform.current.push_image(request, bounds, clip);
     }
 }
 

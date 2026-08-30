@@ -8,7 +8,7 @@ use blit_term::{
 
 pub use blit_term::command_list::Border;
 
-use crate::TerminalPlatform;
+use super::TerminalPlatform;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -34,8 +34,9 @@ impl Leaf<TerminalPlatform> for Block {
         if let Some(border) = self.border {
             block = block.border(border);
         }
-        let (commands, clip, scale) = platform.commands();
-        commands.push_block(block, area.to_physical(scale), clip);
+        let bounds = area.to_physical(platform.renderer.scale());
+        let clip = platform.clip;
+        platform.current.push_block(block, bounds, clip);
     }
 }
 
@@ -66,8 +67,9 @@ impl Leaf<TerminalPlatform> for Text {
             .color(self.color)
             .bold(self.bold)
             .options(self.options);
-        let (commands, clip, scale) = platform.commands();
-        commands.push_text(request, area.to_physical(scale), clip);
+        let bounds = area.to_physical(platform.renderer.scale());
+        let clip = platform.clip;
+        platform.current.push_text(request, bounds, clip);
     }
 }
 
@@ -84,11 +86,10 @@ impl Leaf<TerminalPlatform> for Image {
     }
 
     fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
-        let (commands, clip, scale) = platform.commands();
-        commands.push_image(
-            ImagePlacement::new(self.image, area),
-            area.to_physical(scale),
-            clip,
-        );
+        let bounds = area.to_physical(platform.renderer.scale());
+        let clip = platform.clip;
+        platform
+            .current
+            .push_image(ImagePlacement::new(self.image, area), bounds, clip);
     }
 }
