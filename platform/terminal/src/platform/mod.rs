@@ -173,7 +173,7 @@ fn push_damage(damage: &mut Vec<PhysicalRect>, bounds: PhysicalRect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::{Block, Border, Title};
+    use crate::draw::{Block, Border, Shadow, Title};
     use blit::{Frame, Size};
     use blit_layout::Flex;
     use blit_term::{RendererConfig, color::Color};
@@ -203,11 +203,13 @@ mod tests {
             ui.layout_with(
                 Block::new()
                     .border(Border::new(Color::WHITE))
+                    .shadow(Shadow::new(Color::BLACK))
                     .title(Title::new(&title)),
                 Flex::column(),
             );
         });
 
         assert!(platform.renderer().plain_text().starts_with("┌Settings──┐"));
+        assert_eq!(platform.previous.len(), 2);
     }
 }

@@ -1,7 +1,7 @@
 use blit::{Constraints, Leaf, LogicalRect, NodeId, Scale2, Size, Widget};
 use blit_term::{
     color::Color,
-    command_list::{Block as DrawBlock, BlockTitle},
+    command_list::{Block as DrawBlock, BlockTitle, BoxShadow as DrawShadow},
     image::{ImageId, ImagePlacement},
     text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextWrap},
 };
@@ -18,6 +18,7 @@ blit::builder! {
         @optional {
             border: Border,
             background: Color,
+            shadow: Shadow,
         },
         titles: [Option<Title<'a>>; 6] = [None; 6],
     }
@@ -59,13 +60,59 @@ impl Widget<TerminalPlatform> for Block<'_> {
                     .position(title.position)
             })
         });
-        ui.leaves()
-            .add(ResolvedBlock {
-                border: self.border,
-                background: self.background,
-                titles,
-            })
-            .node()
+        let mut leaves = ui.leaves();
+        if let Some(shadow) = self.shadow {
+            leaves.add(shadow);
+        }
+        leaves.add(ResolvedBlock {
+            border: self.border,
+            background: self.background,
+            titles,
+        });
+        leaves.node()
+    }
+}
+
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Shadow {
+        new(color: Color),
+        offset_x: f32 = 1.0,
+        offset_y: f32 = 1.0,
+    }
+}
+
+impl Shadow {
+    pub const fn offset(mut self, x: f32, y: f32) -> Self {
+        self.offset_x = x;
+        self.offset_y = y;
+        self
+    }
+}
+
+impl Widget<TerminalPlatform> for Shadow {
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui) -> Self::Response {
+        ui.leaves().add(self).node()
+    }
+}
+
+impl Leaf<TerminalPlatform> for Shadow {
+    fn measure(&self, _: &mut TerminalPlatform, _: Constraints) -> Size {
+        Size::ZERO
+    }
+
+    fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
+        let shifted = LogicalRect {
+            x: area.x + self.offset_x,
+            y: area.y + self.offset_y,
+            ..area
+        };
+        let shadow = DrawShadow::new(area, self.color).offset(self.offset_x, self.offset_y);
+        let bounds = shifted.to_physical(Scale2::IDENTITY);
+        let clip = platform.clip;
+        platform.current.push_shadow(shadow, bounds, clip);
     }
 }
 

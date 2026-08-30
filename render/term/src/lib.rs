@@ -585,6 +585,32 @@ impl TerminalRenderer {
                         );
                     }
                 }
+                Command::Shadow(shadow) => {
+                    let area = self.cell_bounds(shadow.area);
+                    let shifted = LogicalRect {
+                        x: shadow.area.x + shadow.offset_x,
+                        y: shadow.area.y + shadow.offset_y,
+                        ..shadow.area
+                    };
+                    let (left, top, right, bottom) = self.cell_bounds(shifted);
+                    for y in top.max(damage_bounds.1)..bottom.min(damage_bounds.3) {
+                        for x in left.max(damage_bounds.0)..right.min(damage_bounds.2) {
+                            if (area.0..area.2).contains(&x) && (area.1..area.3).contains(&y) {
+                                continue;
+                            }
+                            let index = y * self.columns + x;
+                            if !self.damaged[index]
+                                || !clip.contains(LogicalPoint::new(x as f32 + 0.5, y as f32 + 0.5))
+                            {
+                                continue;
+                            }
+                            self.backgrounds[index] = Background {
+                                color: shadow.color,
+                                z,
+                            };
+                        }
+                    }
+                }
                 Command::Text(request) => {
                     let (area_left, area_top, area_right, area_bottom) =
                         self.cell_bounds(request.area);
@@ -1383,6 +1409,30 @@ mod tests {
 
         assert_eq!(renderer.cells[renderer.columns + 2].text, "╭");
         assert_eq!(renderer.cells[renderer.columns + 3].text, "─");
+    }
+
+    #[test]
+    fn shadow_fills_exposed_cells() {
+        use crate::command_list::{BoxShadow, ClipId};
+
+        let mut renderer = renderer(6, 4);
+        let area = LogicalRect::new(1.0, 0.0, 3.0, 2.0);
+        let shifted = LogicalRect::new(2.0, 1.0, 3.0, 2.0);
+        let mut commands = CommandList::default();
+        commands.push_clear(renderer.screen());
+        commands.push_shadow(
+            BoxShadow::new(area, Color::WHITE),
+            shifted.to_physical(SCALE),
+            ClipId::default(),
+        );
+        renderer.render(&commands, &[renderer.screen()]);
+
+        for (x, y) in [(4, 1), (2, 2), (3, 2), (4, 2)] {
+            assert_eq!(
+                renderer.cells[y * renderer.columns + x].background,
+                Color::WHITE
+            );
+        }
     }
 
     #[test]
