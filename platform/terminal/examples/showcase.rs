@@ -11,7 +11,7 @@ use blit_showcase::{
 use blit_terminal::{
     BoundsClip, ControlFlow, TerminalPlatform, Ui,
     color::Color,
-    draw::{Block, Border},
+    draw::{Block, Border, BorderStyle, Title, TitlePosition},
     layout::{Align, Flex, Grid, Justify, Wrap},
     text::{HorizontalAlign, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
     widget::Text,
@@ -88,17 +88,9 @@ fn main() -> io::Result<()> {
                                 .height(Sizing::grow()),
                         )
                         .layout_with(
-                            panel(colors::SURFACE),
+                            panel(colors::SURFACE, " LAYOUT PARAMETERS "),
                             Flex::column().padding(Sides::all(1.0)).gap(1.0),
                             |mut controls| {
-                                controls
-                                    .child()
-                                    .slot(Slot::new().height(Sizing::fixed(1.0)))
-                                    .add(
-                                        Text::new("LAYOUT PARAMETERS")
-                                            .color(colors::ACCENT)
-                                            .attributes(TextAttributes::BOLD),
-                                    );
                                 controls.add(
                                     Text::new("FLOW")
                                         .color(colors::SECTION)
@@ -246,35 +238,20 @@ fn main() -> io::Result<()> {
                             },
                         );
                     body.child().slot(Slot::new().grow()).layout_with(
-                        panel(colors::SURFACE),
+                        panel(colors::SURFACE, " LIVE PREVIEW ").title(
+                            Title::new(match (canvas.layout, canvas.axis) {
+                                (CanvasLayout::Flex, Axis::Horizontal) => " FLEX / HORIZONTAL ",
+                                (CanvasLayout::Flex, Axis::Vertical) => " FLEX / VERTICAL ",
+                                (CanvasLayout::Wrap, Axis::Horizontal) => " WRAP / HORIZONTAL ",
+                                (CanvasLayout::Wrap, Axis::Vertical) => " WRAP / VERTICAL ",
+                                (CanvasLayout::Grid, Axis::Horizontal) => " GRID / HORIZONTAL ",
+                                (CanvasLayout::Grid, Axis::Vertical) => " GRID / VERTICAL ",
+                            })
+                            .color(colors::TEXT_MUTED)
+                            .position(TitlePosition::TopRight),
+                        ),
                         Flex::column().padding(Sides::all(1.0)),
                         |mut preview| {
-                            preview
-                                .child()
-                                .slot(Slot::new().height(Sizing::fixed(1.0)))
-                                .layout(Flex::row().gap(1.0), |mut status| {
-                                    status.add(
-                                        Text::new("LIVE PREVIEW")
-                                            .color(colors::ACCENT)
-                                            .attributes(TextAttributes::BOLD),
-                                    );
-                                    status.add(Text::new("/").color(colors::TEXT_DIM));
-                                    status.add(
-                                        Text::new(match canvas.layout {
-                                            CanvasLayout::Flex => "flex",
-                                            CanvasLayout::Wrap => "wrap",
-                                            CanvasLayout::Grid => "grid",
-                                        })
-                                        .color(colors::TEXT_MUTED),
-                                    );
-                                    status.add(
-                                        Text::new(match canvas.axis {
-                                            Axis::Horizontal => "horizontal",
-                                            Axis::Vertical => "vertical",
-                                        })
-                                        .color(colors::TEXT_MUTED),
-                                    );
-                                });
                             preview.child().slot(Slot::new().grow()).layout_with(
                                 Block::new().background(colors::TRACK),
                                 Flex::row().padding(Sides::all(1.0)).align(Align::Start),
@@ -296,13 +273,6 @@ fn main() -> io::Result<()> {
                                     );
                                 },
                             );
-                            preview
-                                .child()
-                                .slot(Slot::new().height(Sizing::fixed(1.0)))
-                                .add(
-                                    Text::new("drag the teal edge or corner to resize")
-                                        .color(colors::TEXT_DIM),
-                                );
                         },
                     );
                 });
@@ -312,7 +282,7 @@ fn main() -> io::Result<()> {
                 .layout(Flex::column().gap(1.0), |mut body| {
                     body.add(|ui: &mut Ui| {
                         let mut controls = ui.layout_with(
-                            panel(colors::SURFACE),
+                            panel(colors::SURFACE, " TEXT CONTROLS "),
                             Flex::column().padding(Sides::all(1.0)).gap(1.0),
                         );
                         controls.add(
@@ -417,14 +387,13 @@ fn main() -> io::Result<()> {
                         });
                     });
                     body.child().slot(Slot::new().grow()).layout_with(
-                        panel(colors::SURFACE),
+                        panel(colors::SURFACE, " RESIZABLE TEXT ").title(
+                            Title::new(" DRAG TO REFLOW ")
+                                .color(colors::TEXT_DIM)
+                                .position(TitlePosition::BottomRight),
+                        ),
                         Flex::column().padding(Sides::all(1.0)).gap(1.0),
                         |mut preview| {
-                            preview.add(
-                                Text::new("RESIZABLE TEXT")
-                                    .color(colors::SECTION)
-                                    .attributes(TextAttributes::BOLD | TextAttributes::UNDERLINE),
-                            );
                             preview.child().slot(Slot::new().grow()).layout_with(
                                 Block::new().background(colors::TRACK),
                                 Flex::row().padding(Sides::all(1.0)).align(Align::Start),
@@ -452,7 +421,7 @@ fn main() -> io::Result<()> {
                                                             .background(colors::CANVAS)
                                                             .border(
                                                                 Border::new(colors::CANVAS_BORDER)
-                                                                    .rounded(true),
+                                                                    .style(BorderStyle::Rounded),
                                                             ),
                                                         Flex::column().padding(Sides::all(1.0)),
                                                     )
@@ -474,10 +443,6 @@ fn main() -> io::Result<()> {
                                         .grip_size(Size::new(1.0, 1.0)),
                                     );
                                 },
-                            );
-                            preview.add(
-                                Text::new("drag the handles to change text flow")
-                                    .color(colors::TEXT_DIM),
                             );
                         },
                     );
@@ -528,7 +493,7 @@ impl Widget<TerminalPlatform> for &mut FpsBadge {
             .layout_with(
                 Block::new()
                     .background(colors::SURFACE_HIGH)
-                    .border(Border::new(colors::ACCENT).rounded(true)),
+                    .border(Border::new(colors::ACCENT).style(BorderStyle::Rounded)),
                 Flex::row()
                     .padding(Sides::all(1.0))
                     .gap(1.0)
@@ -658,7 +623,7 @@ impl Widget<TerminalPlatform> for Canvas {
         let unit = Size::new(1.0, 1.0);
         let background = Block::new()
             .background(colors::CANVAS)
-            .border(Border::new(colors::CANVAS_BORDER).rounded(true));
+            .border(Border::new(colors::CANVAS_BORDER).style(BorderStyle::Rounded));
         match self.config.layout {
             CanvasLayout::Flex => {
                 let mut canvas = ui
@@ -777,10 +742,15 @@ fn canvas_item(
     }
 }
 
-fn panel(background: Color) -> Block {
+fn panel<'a>(background: Color, title: &'a str) -> Block<'a> {
     Block::new()
         .background(background)
-        .border(Border::new(colors::BORDER).rounded(true))
+        .border(Border::new(colors::BORDER).style(BorderStyle::Rounded))
+        .title(
+            Title::new(title)
+                .color(colors::ACCENT)
+                .attributes(TextAttributes::BOLD),
+        )
 }
 
 mod colors {

@@ -173,8 +173,9 @@ fn push_damage(damage: &mut Vec<PhysicalRect>, bounds: PhysicalRect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::Block;
+    use crate::draw::{Block, Border, Title};
     use blit::{Frame, Size};
+    use blit_layout::Flex;
     use blit_term::{RendererConfig, color::Color};
 
     #[test]
@@ -190,5 +191,23 @@ mod tests {
             ui.add(Block::new().background(Color::WHITE));
         });
         assert!(platform.renderer().output().is_empty());
+    }
+
+    #[test]
+    fn layout_surface_resolves_borrowed_titles() {
+        let renderer = TerminalRenderer::new(RendererConfig::new().columns(12).rows(3));
+        let mut platform = TerminalPlatform::new(renderer);
+        let mut frame = Frame::default();
+        let title = String::from("Settings");
+        frame.render(&mut platform, FrameInfo::new(Size::new(12.0, 3.0)), |ui| {
+            ui.layout_with(
+                Block::new()
+                    .border(Border::new(Color::WHITE))
+                    .title(Title::new(&title)),
+                Flex::column(),
+            );
+        });
+
+        assert!(platform.renderer().plain_text().starts_with("┌Settings──┐"));
     }
 }

@@ -13,7 +13,7 @@ pub mod text;
 
 use crate::{
     color::Color,
-    command_list::{Command, CommandList},
+    command_list::{BlockTitle, Border, BorderSides, BorderStyle, Command, CommandList},
     image::{ImageData, ImageHandle, ImageId},
     text::{
         HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest, TextRunId,
@@ -337,6 +337,113 @@ impl TerminalRenderer {
         })
     }
 
+    fn paint_border_cell(
+        &mut self,
+        x: usize,
+        y: usize,
+        edges: u8,
+        border: Border,
+        z: usize,
+        clip: LogicalRect,
+    ) {
+        if edges == 0 || !self.damaged[y * self.columns + x] {
+            return;
+        }
+        if clip.contains(LogicalPoint::new(x as f32 + 0.5, y as f32 + 0.5)) {
+            self.boxes[y * self.columns + x].paint(edges, border.style, border.color, z);
+        }
+    }
+
+    fn block_title_width(&mut self, title: BlockTitle) -> usize {
+        let layout = self.layout_text(&TextLayoutRequest::new(title.text));
+        self.text_layouts.get_index(layout).lines[0].width
+    }
+
+    fn paint_block_title(
+        &mut self,
+        title: BlockTitle,
+        x: usize,
+        y: usize,
+        width: usize,
+        z: usize,
+        clip: LogicalRect,
+    ) {
+        if width == 0 {
+            return;
+        }
+        let (clip_left, clip_top, clip_right, clip_bottom) = self.cell_bounds(clip);
+        let layout = self.layout_text(&TextLayoutRequest::new(title.text));
+        let layout = self.text_layouts.get_index(layout);
+        let line = layout.lines[0];
+        let mut column = 0;
+        for grapheme in &layout.graphemes[line.start..line.end] {
+            if column + grapheme.width > width {
+                break;
+            }
+            let x = x + column;
+            if x >= clip_left
+                && x + grapheme.width <= clip_right
+                && y >= clip_top
+                && y < clip_bottom
+            {
+                for continuation in 0..grapheme.width {
+                    let index = y * self.columns + x + continuation;
+                    if self.damaged[index] {
+                        self.glyphs[index] = Some(Glyph {
+                            text: if continuation == 0 {
+                                GlyphText::Run {
+                                    text: title.text,
+                                    start: grapheme.start,
+                                    end: grapheme.end,
+                                }
+                            } else {
+                                GlyphText::Static("")
+                            },
+                            color: title.color,
+                            attributes: title.attributes,
+                            z,
+                        });
+                    }
+                }
+            }
+            column += grapheme.width;
+        }
+    }
+
+    fn paint_block_title_row(
+        &mut self,
+        titles: [Option<BlockTitle>; 3],
+        y: usize,
+        left: usize,
+        right: usize,
+        z: usize,
+        clip: LogicalRect,
+    ) {
+        let available = right.saturating_sub(left);
+        if available == 0 {
+            return;
+        }
+        let left_width = titles[0].map_or(0, |title| self.block_title_width(title));
+        let right_width = titles[2].map_or(0, |title| self.block_title_width(title));
+        let left_width = left_width.min(available.saturating_sub(right_width.min(available / 2)));
+        let right_width = right_width.min(available - left_width);
+        let right_start = right - right_width;
+        if let Some(title) = titles[0] {
+            self.paint_block_title(title, left, y, left_width, z, clip);
+        }
+        if let Some(title) = titles[2] {
+            self.paint_block_title(title, right_start, y, right_width, z, clip);
+        }
+        if let Some(title) = titles[1] {
+            let width = self
+                .block_title_width(title)
+                .min(right_start.saturating_sub(left + left_width));
+            let centered = left + (available - width) / 2;
+            let start = centered.clamp(left + left_width, right_start - width);
+            self.paint_block_title(title, start, y, width, z, clip);
+        }
+    }
+
     pub fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
         self.output.clear();
         self.damaged.fill(false);
@@ -424,59 +531,58 @@ impl TerminalRenderer {
                             }
                         }
                     }
+                    let mut title_left = left;
+                    let mut title_right = right;
                     if let Some(border) = block.border
-                        && right > left + 1
-                        && bottom > top + 1
+                        && right > left
+                        && bottom > top
                     {
                         let right = right - 1;
                         let bottom = bottom - 1;
-                        for x in left..=right {
-                            for (y, edges, rounded) in [
-                                (
-                                    top,
-                                    if x == left {
-                                        2 | 4
-                                    } else if x == right {
-                                        4 | 8
-                                    } else {
-                                        2 | 8
-                                    },
-                                    border.rounded && (x == left || x == right),
-                                ),
-                                (
-                                    bottom,
-                                    if x == left {
-                                        1 | 2
-                                    } else if x == right {
-                                        1 | 8
-                                    } else {
-                                        2 | 8
-                                    },
-                                    border.rounded && (x == left || x == right),
-                                ),
-                            ] {
-                                let center_x = x as f32 + 0.5;
-                                let center_y = y as f32 + 0.5;
-                                if self.damaged[y * self.columns + x]
-                                    && clip.contains(LogicalPoint::new(center_x, center_y))
-                                {
-                                    let cell = &mut self.boxes[y * self.columns + x];
-                                    cell.paint(edges, rounded, border.color, z);
-                                }
+                        if border.sides.contains(BorderSides::TOP) {
+                            for x in left..=right {
+                                let edges = u8::from(x != left) * 8 | u8::from(x != right) * 2;
+                                self.paint_border_cell(x, top, edges, border, z, clip);
                             }
                         }
-                        for y in top + 1..bottom {
-                            for x in [left, right] {
-                                let center_x = x as f32 + 0.5;
-                                let center_y = y as f32 + 0.5;
-                                if self.damaged[y * self.columns + x]
-                                    && clip.contains(LogicalPoint::new(center_x, center_y))
-                                {
-                                    let cell = &mut self.boxes[y * self.columns + x];
-                                    cell.paint(1 | 4, false, border.color, z);
-                                }
+                        if border.sides.contains(BorderSides::BOTTOM) {
+                            for x in left..=right {
+                                let edges = u8::from(x != left) * 8 | u8::from(x != right) * 2;
+                                self.paint_border_cell(x, bottom, edges, border, z, clip);
                             }
                         }
+                        if border.sides.contains(BorderSides::LEFT) {
+                            for y in top..=bottom {
+                                let edges = u8::from(y != top) | u8::from(y != bottom) * 4;
+                                self.paint_border_cell(left, y, edges, border, z, clip);
+                            }
+                            title_left = title_left.saturating_add(1);
+                        }
+                        if border.sides.contains(BorderSides::RIGHT) {
+                            for y in top..=bottom {
+                                let edges = u8::from(y != top) | u8::from(y != bottom) * 4;
+                                self.paint_border_cell(right, y, edges, border, z, clip);
+                            }
+                            title_right = title_right.saturating_sub(1);
+                        }
+                    }
+                    if top < bottom {
+                        self.paint_block_title_row(
+                            [block.titles[0], block.titles[1], block.titles[2]],
+                            top,
+                            title_left,
+                            title_right,
+                            z,
+                            clip,
+                        );
+                        self.paint_block_title_row(
+                            [block.titles[3], block.titles[4], block.titles[5]],
+                            bottom - 1,
+                            title_left,
+                            title_right,
+                            z,
+                            clip,
+                        );
                     }
                 }
                 Command::Text(request) => {
@@ -599,8 +705,14 @@ impl TerminalRenderer {
                 }
             }
         }
-        const BOXES: [&str; 16] = [
+        const SINGLE_BOXES: [&str; 16] = [
             " ", "╵", "╴", "└", "╷", "│", "┌", "├", "╶", "┘", "─", "┴", "┐", "┤", "┬", "┼",
+        ];
+        const DOUBLE_BOXES: [&str; 16] = [
+            " ", "╵", "╴", "╚", "╷", "║", "╔", "╠", "╶", "╝", "═", "╩", "╗", "╣", "╦", "╬",
+        ];
+        const HEAVY_BOXES: [&str; 16] = [
+            " ", "╹", "╺", "┗", "╻", "┃", "┏", "┣", "╸", "┛", "━", "┻", "┓", "┫", "┳", "╋",
         ];
         for cell_y in damage_bounds.1..damage_bounds.3 {
             for cell_x in damage_bounds.0..damage_bounds.2 {
@@ -631,16 +743,17 @@ impl TerminalRenderer {
                     continue;
                 }
                 if box_cell.edges != 0 && background.z <= box_cell.z {
-                    let text = if box_cell.rounded {
-                        match box_cell.edges {
+                    let text = match box_cell.style {
+                        BorderStyle::Rounded => match box_cell.edges {
                             3 => "╰",
                             6 => "╭",
                             9 => "╯",
                             12 => "╮",
-                            _ => BOXES[box_cell.edges as usize],
-                        }
-                    } else {
-                        BOXES[box_cell.edges as usize]
+                            _ => SINGLE_BOXES[box_cell.edges as usize],
+                        },
+                        BorderStyle::Single => SINGLE_BOXES[box_cell.edges as usize],
+                        BorderStyle::Double => DOUBLE_BOXES[box_cell.edges as usize],
+                        BorderStyle::Heavy => HEAVY_BOXES[box_cell.edges as usize],
                     };
                     let cell = &mut self.cells[index];
                     cell.text.clear();
@@ -958,18 +1071,20 @@ struct BoxCell {
     edges: u8,
     color: Color,
     z: usize,
-    rounded: bool,
+    style: BorderStyle,
 }
 
 impl BoxCell {
-    fn paint(&mut self, edges: u8, rounded: bool, color: Color, z: usize) {
+    fn paint(&mut self, edges: u8, style: BorderStyle, color: Color, z: usize) {
         if z > self.z {
             self.edges = edges;
-            self.rounded = rounded;
+            self.style = style;
             self.color = color;
             self.z = z;
         } else if z == self.z {
-            self.rounded = self.edges == 0 && rounded;
+            if self.edges == 0 {
+                self.style = style;
+            }
             self.edges |= edges;
             self.color = color;
         }
@@ -1260,7 +1375,7 @@ mod tests {
         commands.push_block(
             Block::new(upper)
                 .background(Color::BLACK)
-                .border(Border::new(Color::WHITE).rounded(true)),
+                .border(Border::new(Color::WHITE).style(BorderStyle::Rounded)),
             upper.to_physical(SCALE),
             ClipId::default(),
         );
@@ -1268,6 +1383,42 @@ mod tests {
 
         assert_eq!(renderer.cells[renderer.columns + 2].text, "╭");
         assert_eq!(renderer.cells[renderer.columns + 3].text, "─");
+    }
+
+    #[test]
+    fn block_renders_aligned_titles_and_border_styles() {
+        use crate::command_list::{Block, BlockTitle, Border, ClipId, TitlePosition};
+
+        let mut renderer = renderer(20, 4);
+        let replaced = renderer.text_run("X");
+        let top_left = renderer.text_run("L");
+        let top_center = renderer.text_run("C");
+        let top_right = renderer.text_run("R");
+        let bottom_left = renderer.text_run("l");
+        let bottom_center = renderer.text_run("c");
+        let bottom_right = renderer.text_run("r");
+        let area = renderer.screen().to_logical(SCALE);
+        let mut commands = CommandList::default();
+        commands.push_clear(renderer.screen());
+        commands.push_block(
+            Block::new(area)
+                .border(Border::new(Color::WHITE).style(BorderStyle::Double))
+                .title(BlockTitle::new(replaced))
+                .title(BlockTitle::new(top_left))
+                .title(BlockTitle::new(top_center).position(TitlePosition::TopCenter))
+                .title(BlockTitle::new(top_right).position(TitlePosition::TopRight))
+                .title(BlockTitle::new(bottom_left).position(TitlePosition::BottomLeft))
+                .title(BlockTitle::new(bottom_center).position(TitlePosition::BottomCenter))
+                .title(BlockTitle::new(bottom_right).position(TitlePosition::BottomRight)),
+            renderer.screen(),
+            ClipId::default(),
+        );
+        renderer.render(&commands, &[renderer.screen()]);
+
+        assert_eq!(
+            renderer.plain_text(),
+            "╔L═══════C════════R╗\n║                  ║\n║                  ║\n╚l═══════c════════r╝\n"
+        );
     }
 
     #[test]

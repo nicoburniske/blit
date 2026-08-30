@@ -2,7 +2,7 @@ use std::{marker::PhantomData, num::NonZeroU16};
 
 use super::{NodeId, Ui};
 use crate::{
-    Clip, Leaf, Platform, Widget,
+    Clip, Platform, Widget,
     animation::Transition,
     geometry::{Point, Sides},
     interact::WidgetId,
@@ -310,7 +310,7 @@ where
         children: impl FnOnce(Container<'_, R, N>) -> O,
     ) -> O
     where
-        B: Leaf<R>,
+        B: Widget<R, Response = NodeId>,
         N: Layout<R>,
     {
         self.child().layout_with(base, layout, children)
@@ -357,7 +357,7 @@ impl<R: Platform, L: Layout<R>> ChildCx<'_, '_, R, L> {
         children: impl FnOnce(Container<'_, R, N>) -> O,
     ) -> O
     where
-        B: Leaf<R>,
+        B: Widget<R, Response = NodeId>,
         N: Layout<R>,
     {
         self.add(|ui: &mut Ui<R>| children(ui.layout_with(base, layout)))

@@ -1,6 +1,12 @@
 //! fully resolved terminal commands
 
-use crate::{color::Color, image::ImagePlacement, text::TextRequest};
+use std::ops::{BitOr, BitOrAssign};
+
+use crate::{
+    color::Color,
+    image::ImagePlacement,
+    text::{TextAttributes, TextRequest, TextRunId},
+};
 use blit::{LogicalRect, PhysicalRect};
 
 #[derive(Default)]
@@ -34,6 +40,14 @@ blit::builder! {
             border: Border,
             background: Color,
         },
+        titles: [Option<BlockTitle>; 6] = [None; 6],
+    }
+}
+
+impl Block {
+    pub const fn title(mut self, title: BlockTitle) -> Self {
+        self.titles[title.position.index()] = Some(title);
+        self
     }
 }
 
@@ -41,7 +55,75 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct Border {
         new(color: Color),
-        rounded: bool = false,
+        style: BorderStyle = BorderStyle::Single,
+        sides: BorderSides = BorderSides::ALL,
+    }
+}
+
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct BlockTitle {
+        new(text: TextRunId),
+        color: Color = Color::Reset,
+        attributes: TextAttributes = TextAttributes::NONE,
+        position: TitlePosition = TitlePosition::TopLeft,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BorderStyle {
+    #[default]
+    Single,
+    Rounded,
+    Double,
+    Heavy,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TitlePosition {
+    #[default]
+    TopLeft,
+    TopCenter,
+    TopRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
+impl TitlePosition {
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BorderSides(u8);
+
+impl BorderSides {
+    pub const NONE: Self = Self(0);
+    pub const TOP: Self = Self(1 << 0);
+    pub const RIGHT: Self = Self(1 << 1);
+    pub const BOTTOM: Self = Self(1 << 2);
+    pub const LEFT: Self = Self(1 << 3);
+    pub const ALL: Self = Self(Self::TOP.0 | Self::RIGHT.0 | Self::BOTTOM.0 | Self::LEFT.0);
+
+    pub const fn contains(self, sides: Self) -> bool {
+        self.0 & sides.0 == sides.0
+    }
+}
+
+impl BitOr for BorderSides {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl BitOrAssign for BorderSides {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
     }
 }
 
