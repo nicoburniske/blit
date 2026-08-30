@@ -18,7 +18,7 @@ pub struct LayerId(NonZeroU16, #[cfg(debug_assertions)] u16);
 
 crate::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Slot {
+    pub struct Place {
         new(),
         @optional {
             layer: LayerId,
@@ -37,7 +37,7 @@ pub enum Sizing {
     Percent(f32),
 }
 
-impl Slot {
+impl Place {
     pub const fn fixed(mut self, width: f32, height: f32) -> Self {
         self.width = Sizing::fixed(width);
         self.height = Sizing::fixed(height);
@@ -254,7 +254,7 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
     pub fn child(&mut self) -> Child<'_, 'ui, R, L> {
         Child {
             node: self,
-            slot: Slot::new(),
+            place: Place::new(),
             item: (),
             id: None,
         }
@@ -267,7 +267,7 @@ where
     L: Layout<R, Item = ()>,
 {
     pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
-        insert(self, Slot::new(), (), None, widget)
+        insert(self, Place::new(), (), None, widget)
     }
 }
 
@@ -277,7 +277,7 @@ where
     L: Layout<R>,
 {
     node: &'child mut Node<'ui, R, L>,
-    slot: Slot,
+    place: Place,
     item: I,
     id: Option<WidgetId>,
 }
@@ -286,14 +286,14 @@ impl<'child, 'ui, R: Platform, L: Layout<R>, I> Child<'child, 'ui, R, L, I> {
     pub fn item(self, item: L::Item) -> Child<'child, 'ui, R, L, L::Item> {
         Child {
             node: self.node,
-            slot: self.slot,
+            place: self.place,
             item,
             id: self.id,
         }
     }
 
-    pub fn slot(mut self, slot: Slot) -> Self {
-        self.slot = slot;
+    pub fn place(mut self, place: Place) -> Self {
+        self.place = place;
         self
     }
 
@@ -306,7 +306,7 @@ impl<'child, 'ui, R: Platform, L: Layout<R>, I> Child<'child, 'ui, R, L, I> {
 impl<R: Platform, L: Layout<R>> Child<'_, '_, R, L, L::Item> {
     #[allow(clippy::should_implement_trait)]
     pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
-        insert(self.node, self.slot, self.item, self.id, widget)
+        insert(self.node, self.place, self.item, self.id, widget)
     }
 
     pub fn node<N, O>(self, layout: N, children: impl FnOnce(Node<'_, R, N>) -> O) -> O
@@ -359,7 +359,7 @@ pub fn layer_order(id: LayerId) -> u16 {
 
 fn insert<R, L, W>(
     node: &mut Node<'_, R, L>,
-    slot: Slot,
+    place: Place,
     item: L::Item,
     id: Option<WidgetId>,
     widget: W,
@@ -386,7 +386,7 @@ where
         end,
         "a layout item must contain exactly one root"
     );
-    frame.set_slot(child, slot);
+    frame.set_place(child, place);
     let data = frame.data.store(item);
     frame.nodes[child.index()].item = data;
     if let Some(id) = id {

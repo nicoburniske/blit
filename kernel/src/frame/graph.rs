@@ -345,7 +345,7 @@ impl<R: Platform> Frame<R> {
             item: DataId::NONE,
             area: Rect::default(),
             positioned: PositionedId::NONE,
-            slot: Slot::new(),
+            place: Place::new(),
             geometry: GeometryId::NONE,
             resolved_clip: ResolvedClipId::NONE,
         });
@@ -427,10 +427,10 @@ impl<R: Platform> Frame<R> {
             .map_or(self.screen, |clip| self.resolved_clips[clip].bounds)
     }
 
-    fn set_slot(&mut self, node: NodeId, mut slot: Slot) {
-        slot.width = self.layout_resolution.sizing(Axis::Horizontal, slot.width);
-        slot.height = self.layout_resolution.sizing(Axis::Vertical, slot.height);
-        if let Some(layer) = slot.layer {
+    fn set_place(&mut self, node: NodeId, mut place: Place) {
+        place.width = self.layout_resolution.sizing(Axis::Horizontal, place.width);
+        place.height = self.layout_resolution.sizing(Axis::Vertical, place.height);
+        if let Some(layer) = place.layer {
             let layer = container::layer_index(layer);
             assert!(
                 layer < self.layers.len(),
@@ -441,8 +441,8 @@ impl<R: Platform> Frame<R> {
                 "a layer can only contain nodes declared after its owner"
             );
         }
-        self.needs_paint_order |= slot.z_index != 0 || slot.layer.is_some();
-        self.nodes[node.index()].slot = slot;
+        self.needs_paint_order |= place.z_index != 0 || place.layer.is_some();
+        self.nodes[node.index()].place = place;
     }
 
     fn node_id(&self, index: usize) -> NodeId {
@@ -511,7 +511,7 @@ struct StoredNode {
     item: DataId,
     area: Rect,
     positioned: PositionedId,
-    slot: Slot,
+    place: Place,
     geometry: GeometryId,
     resolved_clip: ResolvedClipId,
 }

@@ -66,8 +66,8 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
     pub fn sizing(&self, child: NodeId, axis: Axis) -> Sizing {
         self.assert_child(child);
         match axis {
-            Axis::Horizontal => self.frame.nodes[child.index()].slot.width,
-            Axis::Vertical => self.frame.nodes[child.index()].slot.height,
+            Axis::Horizontal => self.frame.nodes[child.index()].place.width,
+            Axis::Vertical => self.frame.nodes[child.index()].place.height,
         }
     }
 
@@ -104,7 +104,7 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
 
     pub fn set_z_index(&mut self, child: NodeId, z_index: i16) {
         self.assert_child(child);
-        self.frame.nodes[child.index()].slot.z_index = z_index;
+        self.frame.nodes[child.index()].place.z_index = z_index;
         self.frame.needs_paint_order |= z_index != 0;
     }
 
