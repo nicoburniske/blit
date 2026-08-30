@@ -182,21 +182,13 @@ mod tests {
         let renderer = TerminalRenderer::new(RendererConfig::new().columns(4).rows(2));
         let mut platform = TerminalPlatform::new(renderer);
         let mut frame = Frame::default();
-        frame.render(
-            &mut platform,
-            FrameInfo::new(Size::new(4.0, 2.0)),
-            |mut ui| {
-                ui.add(Block::new().background(Color::WHITE));
-            },
-        );
+        frame.render(&mut platform, FrameInfo::new(Size::new(4.0, 2.0)), |ui| {
+            ui.add(Block::new().background(Color::WHITE));
+        });
         assert!(!platform.renderer().output().is_empty());
-        frame.render(
-            &mut platform,
-            FrameInfo::new(Size::new(4.0, 2.0)),
-            |mut ui| {
-                ui.add(Block::new().background(Color::WHITE));
-            },
-        );
+        frame.render(&mut platform, FrameInfo::new(Size::new(4.0, 2.0)), |ui| {
+            ui.add(Block::new().background(Color::WHITE));
+        });
         assert!(platform.renderer().output().is_empty());
     }
 }

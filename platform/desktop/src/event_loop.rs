@@ -173,7 +173,7 @@ impl<A: Application> Runner<A> {
             )),
             time,
             self.inputs.drain(..),
-            |mut ui| active.app.render(&mut ui),
+            |ui| active.app.render(ui),
         );
         active.window.pre_present_notify();
         if let Err(error) = buffer.present() {

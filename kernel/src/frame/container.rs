@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, num::NonZeroU16};
 
-use super::{Frame, NodeId, Ui, ui};
+use super::{NodeId, Ui};
 use crate::{
     Clip, Leaf, Platform, Widget,
     animation::Transition,
@@ -183,63 +183,64 @@ impl Absolute {
     }
 }
 
-pub struct Container<'a, R, L>
+pub struct Container<'ui, R, L>
 where
     R: Platform,
     L: Layout<R>,
 {
-    frame: &'a mut Frame<R>,
-    platform: &'a mut R,
+    ui: &'ui mut Ui<R>,
     node: NodeId,
     marker: PhantomData<L>,
 }
 
-impl<'frame, R: Platform, L: Layout<R>> Container<'frame, R, L> {
+impl<'ui, R: Platform, L: Layout<R>> Container<'ui, R, L> {
     pub fn node(&self) -> NodeId {
         self.node
     }
 
     pub fn clip<C: Clip<R>>(self, clip: C) -> Self {
+        let frame = self.ui.frame_mut();
         assert!(
-            self.frame.nodes[self.node.index()].clip.index().is_none(),
+            frame.nodes[self.node.index()].clip.index().is_none(),
             "layout already has a clip"
         );
-        let clip = self.frame.store_clip(clip);
-        self.frame.nodes[self.node.index()].clip = clip;
+        let clip = frame.store_clip(clip);
+        frame.nodes[self.node.index()].clip = clip;
         self
     }
 
     pub fn absolute(self, absolute: Absolute) -> Self {
-        self.frame.set_absolute(self.node, absolute);
+        self.ui.frame_mut().set_absolute(self.node, absolute);
         self
     }
 
     pub fn offset(self, offset: Point) -> Self {
-        let layout = self.frame.nodes[self.node.index()].layout.index().unwrap();
-        self.frame.layouts[layout].offset = offset;
+        let frame = self.ui.frame_mut();
+        let layout = frame.nodes[self.node.index()].layout.index().unwrap();
+        frame.layouts[layout].offset = offset;
         self
     }
 
     pub fn id(self, id: WidgetId) -> Self {
-        self.frame.set_id(self.node, id);
+        self.ui.frame_mut().set_id(self.node, id);
         self
     }
 
     pub fn hit(self, hit: Sides) -> Self {
-        self.frame.set_hit(self.node, hit);
+        self.ui.frame_mut().set_hit(self.node, hit);
         self
     }
 
     pub fn transition(self, transition: Transition) -> Self {
-        self.frame.set_transition(self.node, transition);
+        self.ui.frame_mut().set_transition(self.node, transition);
         self
     }
 
     pub fn new_layer(&mut self) -> LayerId {
-        self.frame.add_layer(self.node)
+        self.ui.frame_mut().add_layer()
     }
 
-    pub fn item(&mut self, item: L::Item) -> ChildCx<'_, 'frame, R, L> {
+    pub fn item(&mut self, item: L::Item) -> ChildCx<'_, 'ui, R, L> {
         ChildCx {
             container: self,
             slot: Slot::new(),
@@ -248,49 +249,50 @@ impl<'frame, R: Platform, L: Layout<R>> Container<'frame, R, L> {
         }
     }
 
-    fn insert<O>(
+    fn insert<W: Widget<R>>(
         &mut self,
         slot: Slot,
         item: L::Item,
         id: Option<WidgetId>,
-        child: impl FnOnce(&mut Ui<'_, R>) -> O,
-    ) -> O {
-        let start = self.frame.nodes.len();
-        let output = child(&mut ui::new(self.frame, self.platform, Some(self.node)));
-        let end = self.frame.nodes.len();
+        widget: W,
+    ) -> W::Response {
+        let start = self.ui.frame().nodes.len();
+        let output = self.ui.add(widget);
+        let frame = self.ui.frame_mut();
+        let end = frame.nodes.len();
         assert!(end > start, "layout child did not add a node");
 
-        let child = self.frame.node_id(start);
+        let child = frame.node_id(start);
         assert_eq!(
-            self.frame.nodes[child.index()].parent,
+            frame.nodes[child.index()].parent,
             self.node,
             "layout child was added outside its parent"
         );
         assert_eq!(
-            self.frame.nodes[child.index()].subtree_end as usize + 1,
+            frame.nodes[child.index()].subtree_end as usize + 1,
             end,
             "a layout item must contain exactly one root"
         );
-        self.frame.set_slot(child, slot);
-        let data = self.frame.data.store(item);
-        self.frame.nodes[child.index()].item = data;
+        frame.set_slot(child, slot);
+        let data = frame.data.store(item);
+        frame.nodes[child.index()].item = data;
         if let Some(id) = id {
-            self.frame.set_id(child, id);
+            frame.set_id(child, id);
         }
         output
     }
 }
 
-impl<'frame, R, L> Container<'frame, R, L>
+impl<'ui, R, L> Container<'ui, R, L>
 where
     R: Platform,
     L: Layout<R, Item = ()>,
 {
     pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
-        self.insert(Slot::new(), (), None, |ui| ui.add(widget))
+        self.insert(Slot::new(), (), None, widget)
     }
 
-    pub fn child(&mut self) -> ChildCx<'_, 'frame, R, L> {
+    pub fn child(&mut self) -> ChildCx<'_, 'ui, R, L> {
         self.item(())
     }
 
@@ -315,12 +317,12 @@ where
     }
 }
 
-pub struct ChildCx<'child, 'frame, R, L>
+pub struct ChildCx<'child, 'ui, R, L>
 where
     R: Platform,
     L: Layout<R>,
 {
-    container: &'child mut Container<'frame, R, L>,
+    container: &'child mut Container<'ui, R, L>,
     slot: Slot,
     item: L::Item,
     id: Option<WidgetId>,
@@ -338,15 +340,14 @@ impl<R: Platform, L: Layout<R>> ChildCx<'_, '_, R, L> {
 
     #[allow(clippy::should_implement_trait)]
     pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
-        self.container
-            .insert(self.slot, self.item, self.id, |ui| ui.add(widget))
+        self.container.insert(self.slot, self.item, self.id, widget)
     }
 
     pub fn layout<N, O>(self, layout: N, children: impl FnOnce(Container<'_, R, N>) -> O) -> O
     where
         N: Layout<R>,
     {
-        self.add(|ui: &mut Ui<'_, R>| children(ui.layout(layout)))
+        self.add(|ui: &mut Ui<R>| children(ui.layout(layout)))
     }
 
     pub fn layout_with<B, N, O>(
@@ -359,25 +360,24 @@ impl<R: Platform, L: Layout<R>> ChildCx<'_, '_, R, L> {
         B: Leaf<R>,
         N: Layout<R>,
     {
-        self.add(|ui: &mut Ui<'_, R>| children(ui.layout_with(base, layout)))
+        self.add(|ui: &mut Ui<R>| children(ui.layout_with(base, layout)))
     }
 }
 
 impl<R: Platform, L: Layout<R>> Drop for Container<'_, R, L> {
     fn drop(&mut self) {
-        self.frame.nodes[self.node.index()].subtree_end =
-            u32::try_from(self.frame.nodes.len() - 1).expect("too many frame nodes");
+        let frame = self.ui.frame_mut();
+        frame.nodes[self.node.index()].subtree_end =
+            u32::try_from(frame.nodes.len() - 1).expect("too many frame nodes");
+        let parent = frame.nodes[self.node.index()].parent;
+        frame.current_parent = (parent != self.node).then_some(parent);
     }
 }
 
-pub fn new<'a, R: Platform, L: Layout<R>>(
-    frame: &'a mut Frame<R>,
-    platform: &'a mut R,
-    node: NodeId,
-) -> Container<'a, R, L> {
+pub(super) fn new<R: Platform, L: Layout<R>>(ui: &mut Ui<R>, node: NodeId) -> Container<'_, R, L> {
+    ui.frame_mut().current_parent = Some(node);
     Container {
-        frame,
-        platform,
+        ui,
         node,
         marker: PhantomData,
     }

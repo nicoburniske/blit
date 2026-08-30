@@ -4,7 +4,7 @@ use blit::{
 };
 use blit_layout::{Flex, Grid, RectLayout, Wrap};
 
-type Ui<'a> = blit::Ui<'a, TestPlatform>;
+type Ui = blit::Ui<TestPlatform>;
 
 #[derive(Default)]
 struct TestPlatform;
@@ -20,7 +20,7 @@ struct BoxLeaf(Size);
 impl Widget<TestPlatform> for BoxLeaf {
     type Response = NodeId;
 
-    fn build(self, ui: &mut Ui<'_>) -> Self::Response {
+    fn build(self, ui: &mut Ui) -> Self::Response {
         ui.add_leaf(self)
     }
 }
@@ -42,7 +42,7 @@ fn flex_distributes_growing_space() {
     frame.render(
         &mut platform,
         FrameInfo::new(Size::new(100.0, 20.0)),
-        |mut ui| {
+        |ui| {
             let mut row = ui.layout(Flex::row().gap(4.0));
             row.child()
                 .slot(Slot::new().width(Sizing::fixed(20.0)))
@@ -67,7 +67,7 @@ fn spanning_grid_places_items_in_equal_cells() {
     frame.render(
         &mut platform,
         FrameInfo::new(Size::new(100.0, 40.0)),
-        |mut ui| {
+        |ui| {
             let mut placer = layout.placer();
             let mut grid = ui.layout(layout);
             grid.item(placer.place(1, 2))
@@ -85,29 +85,21 @@ fn rect_and_wrap_resolve_positions() {
     let mut frame = Frame::default();
     let mut platform = TestPlatform;
     let rect = WidgetId::new("rect");
-    frame.render(
-        &mut platform,
-        FrameInfo::new(Size::new(30.0, 20.0)),
-        |mut ui| {
-            let mut fixed = ui.layout(RectLayout);
-            fixed
-                .item(Rect::new(3.0, 4.0, 10.0, 5.0))
-                .id(rect)
-                .add(BoxLeaf(Size::ZERO));
-        },
-    );
+    frame.render(&mut platform, FrameInfo::new(Size::new(30.0, 20.0)), |ui| {
+        let mut fixed = ui.layout(RectLayout);
+        fixed
+            .item(Rect::new(3.0, 4.0, 10.0, 5.0))
+            .id(rect)
+            .add(BoxLeaf(Size::ZERO));
+    });
     assert_eq!(frame.geometry(rect), Some(Rect::new(3.0, 4.0, 10.0, 5.0)));
 
-    frame.render(
-        &mut platform,
-        FrameInfo::new(Size::new(12.0, 20.0)),
-        |mut ui| {
-            let mut wrap = ui.layout(Wrap::horizontal().gap(1.0));
-            for _ in 0..3 {
-                wrap.child()
-                    .slot(Slot::new().fixed(6.0, 2.0))
-                    .add(BoxLeaf(Size::ZERO));
-            }
-        },
-    );
+    frame.render(&mut platform, FrameInfo::new(Size::new(12.0, 20.0)), |ui| {
+        let mut wrap = ui.layout(Wrap::horizontal().gap(1.0));
+        for _ in 0..3 {
+            wrap.child()
+                .slot(Slot::new().fixed(6.0, 2.0))
+                .add(BoxLeaf(Size::ZERO));
+        }
+    });
 }

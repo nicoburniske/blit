@@ -4,7 +4,7 @@ pub use blit_layout as layout;
 pub use blit_term::{color, image, text};
 pub use platform::{BoundsClip, TerminalPlatform, draw, widget};
 
-pub type Ui<'a> = blit::Ui<'a, TerminalPlatform>;
+pub type Ui = blit::Ui<TerminalPlatform>;
 
 use std::{io, io::Write as _, time::Duration, time::Instant};
 
@@ -30,13 +30,13 @@ pub enum ControlFlow {
     Exit,
 }
 
-pub fn run(mut render: impl FnMut(&mut Ui<'_>) -> ControlFlow) -> io::Result<()> {
+pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
     run_with(|_| (), move |_, ui| render(ui))
 }
 
 pub fn run_with<S>(
     initialize: impl FnOnce(&mut TerminalPlatform) -> S,
-    mut render: impl FnMut(&mut S, &mut Ui<'_>) -> ControlFlow,
+    mut render: impl FnMut(&mut S, &mut Ui) -> ControlFlow,
 ) -> io::Result<()> {
     let mut session = Session::new()?;
     let mut state = initialize(session.platform_mut());
@@ -45,17 +45,11 @@ pub fn run_with<S>(
         let start = Instant::now();
         let mut control = ControlFlow::Continue;
         let info = session.frame_info();
-        frame.render_inputs(
-            session.platform_mut(),
-            info,
-            Duration::ZERO,
-            [],
-            |mut ui| {
-                if render(&mut state, &mut ui) == ControlFlow::Exit {
-                    control = ControlFlow::Exit;
-                }
-            },
-        );
+        frame.render_inputs(session.platform_mut(), info, Duration::ZERO, [], |ui| {
+            if render(&mut state, ui) == ControlFlow::Exit {
+                control = ControlFlow::Exit;
+            }
+        });
         session.present()?;
         while control == ControlFlow::Continue {
             let now = start.elapsed();
@@ -82,8 +76,8 @@ pub fn run_with<S>(
                     info,
                     now,
                     inputs[..poll.input_count].iter().copied(),
-                    |mut ui| {
-                        if render(&mut state, &mut ui) == ControlFlow::Exit {
+                    |ui| {
+                        if render(&mut state, ui) == ControlFlow::Exit {
                             control = ControlFlow::Exit;
                         }
                     },

@@ -43,17 +43,17 @@ crate::builder! {
 pub trait Widget<R: Platform> {
     type Response;
 
-    fn build(self, ui: &mut Ui<'_, R>) -> Self::Response;
+    fn build(self, ui: &mut Ui<R>) -> Self::Response;
 }
 
 impl<R, F, O> Widget<R> for F
 where
     R: Platform,
-    F: FnOnce(&mut Ui<'_, R>) -> O,
+    F: FnOnce(&mut Ui<R>) -> O,
 {
     type Response = O;
 
-    fn build(self, ui: &mut Ui<'_, R>) -> Self::Response {
+    fn build(self, ui: &mut Ui<R>) -> Self::Response {
         self(ui)
     }
 }
