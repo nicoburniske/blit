@@ -16,8 +16,8 @@ use crate::{
     command_list::{BlockTitle, Border, BorderSides, BorderStyle, Command, CommandList},
     image::{ImageData, ImageHandle, ImageId},
     text::{
-        HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest, TextRunId,
-        TextWrap, VerticalAlign,
+        HorizontalAlign, Span, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest,
+        TextRunId, TextWrap, VerticalAlign,
     },
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -625,8 +625,11 @@ impl TerminalRenderer {
                         max_width: Some(request.area.width),
                         max_lines: request.options.max_lines,
                     };
+                    let run = self.text_run_index(request.text);
                     let layout = self.layout_text(&layout_request);
                     let layout = self.text_layouts.get_index(layout);
+                    let spans = &self.text_runs.get_index(run).spans;
+                    let mut span_index = 0;
                     let ellipsis = request.options.overflow == TextOverflow::Ellipsis
                         && (layout.truncated || layout.width as f32 > request.area.width);
                     let maximum = request.area.width.floor().max(1.0) as usize;
@@ -672,10 +675,23 @@ impl TerminalRenderer {
                                         end: grapheme.end,
                                     },
                                     grapheme.width,
+                                    Some(grapheme.start),
                                 )
                             })
-                            .chain(line_ellipsis.then_some((GlyphText::Static("…"), 1)));
-                        for (grapheme, width) in graphemes {
+                            .chain(line_ellipsis.then_some((GlyphText::Static("…"), 1, None)));
+                        for (grapheme, width, byte_offset) in graphemes {
+                            if let Some(byte_offset) = byte_offset {
+                                while span_index + 1 < spans.len()
+                                    && byte_offset >= spans[span_index].end
+                                {
+                                    span_index += 1;
+                                }
+                            }
+                            let span = byte_offset.and_then(|_| spans.get(span_index));
+                            let color = span.and_then(|span| span.color).unwrap_or(request.color);
+                            let attributes = span.map_or(request.attributes, |span| {
+                                request.attributes | span.attributes
+                            });
                             let x = start_x + column as isize;
                             let y = start_y + line_index as isize;
                             if x >= 0
@@ -689,8 +705,8 @@ impl TerminalRenderer {
                                 if self.damaged[index] {
                                     self.glyphs[index] = Some(Glyph {
                                         text: grapheme,
-                                        color: request.color,
-                                        attributes: request.attributes,
+                                        color,
+                                        attributes,
                                         z,
                                     });
                                 }
@@ -700,8 +716,8 @@ impl TerminalRenderer {
                                     if self.damaged[index] {
                                         self.glyphs[index] = Some(Glyph {
                                             text: GlyphText::Static(""),
-                                            color: request.color,
-                                            attributes: request.attributes,
+                                            color,
+                                            attributes,
                                             z,
                                         });
                                     }
@@ -988,22 +1004,47 @@ impl TerminalRenderer {
     }
 
     pub fn text_run(&mut self, text: &str) -> TextRunId {
+        self.rich_text(&[Span::new(text)])
+    }
+
+    pub fn rich_text(&mut self, spans: &[Span<'_>]) -> TextRunId {
         let mut hasher = DefaultHasher::new();
-        text.hash(&mut hasher);
+        spans.hash(&mut hasher);
         let query = RunKey {
             digest: hasher.finish(),
-            len: text.len(),
+            len: spans.iter().map(|span| span.text.len()).sum(),
+            spans: spans.len(),
         };
         let next = self.next_text_run;
         let (_, index) = self.text_runs.get_or_insert_by(
             &query,
-            |key, run| *key == query && run.text.as_ref() == text,
+            |key, run| {
+                *key == query
+                    && run.spans.iter().zip(spans).all(|(resolved, span)| {
+                        run.text[resolved.start..resolved.end] == *span.text
+                            && resolved.color == span.color
+                            && resolved.attributes == span.attributes
+                    })
+            },
             || {
+                let mut text = String::with_capacity(query.len);
+                let mut resolved = Vec::with_capacity(spans.len());
+                for span in spans {
+                    let start = text.len();
+                    text.push_str(span.text);
+                    resolved.push(ResolvedSpan {
+                        start,
+                        end: text.len(),
+                        color: span.color,
+                        attributes: span.attributes,
+                    });
+                }
                 (
                     query,
                     CachedRun {
                         id: TextRunId(u64::from(next) << 32),
-                        text: text.into(),
+                        text: text.into_boxed_str(),
+                        spans: resolved.into_boxed_slice(),
                     },
                 )
             },
@@ -1169,7 +1210,7 @@ struct RunScale;
 
 impl Scale<RunKey, CachedRun> for RunScale {
     fn weight(&self, _key: &RunKey, run: &CachedRun) -> usize {
-        size_of::<CachedRun>() + run.text.len()
+        size_of::<CachedRun>() + run.text.len() + run.spans.len() * size_of::<ResolvedSpan>()
     }
 }
 
@@ -1186,12 +1227,22 @@ impl Scale<LayoutKey, TextLayout> for LayoutScale {
 struct CachedRun {
     id: TextRunId,
     text: Box<str>,
+    spans: Box<[ResolvedSpan]>,
+}
+
+#[derive(Clone, Copy)]
+struct ResolvedSpan {
+    start: usize,
+    end: usize,
+    color: Option<Color>,
+    attributes: TextAttributes,
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct RunKey {
     digest: u64,
     len: usize,
+    spans: usize,
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -1285,6 +1336,42 @@ mod tests {
         assert_eq!(
             renderer.cells[renderer.columns + 1].attributes,
             TextAttributes::BOLD | TextAttributes::STRIKETHROUGH
+        );
+    }
+
+    #[test]
+    fn rich_text_applies_span_styles_and_reuses_runs() {
+        use crate::command_list::ClipId;
+
+        let mut renderer = renderer(5, 1);
+        let spans = [
+            Span::new("err")
+                .color(Color::RED)
+                .attributes(TextAttributes::BOLD),
+            Span::new("or"),
+        ];
+        let text = renderer.rich_text(&spans);
+        assert_eq!(renderer.rich_text(&spans), text);
+        let area = renderer.screen().to_logical(SCALE);
+        let mut commands = CommandList::default();
+        commands.push_clear(renderer.screen());
+        commands.push_text(
+            TextRequest::new(text, area).color(Color::WHITE),
+            renderer.screen(),
+            ClipId::default(),
+        );
+        renderer.render(&commands, &[renderer.screen()]);
+
+        assert!(
+            renderer.cells[..3].iter().all(
+                |cell| cell.foreground == Color::RED && cell.attributes == TextAttributes::BOLD
+            )
+        );
+        assert!(
+            renderer.cells[3..]
+                .iter()
+                .all(|cell| cell.foreground == Color::WHITE
+                    && cell.attributes == TextAttributes::NONE)
         );
     }
 

@@ -1,7 +1,7 @@
 use blit::Widget;
 use blit_term::{
     color::Color,
-    text::{TextAttributes, TextOptions},
+    text::{Span, TextAttributes, TextOptions},
 };
 
 use super::{TerminalPlatform, draw::TextRun};
@@ -14,6 +14,19 @@ blit::builder! {
         color: Color = Color::Reset,
         attributes: TextAttributes = TextAttributes::NONE,
         options: TextOptions = TextOptions::new(),
+        spans: Option<&'a [Span<'a>]> = None,
+    }
+}
+
+impl<'a> Text<'a> {
+    pub fn rich(spans: &'a [Span<'a>]) -> Self {
+        Self {
+            text: "",
+            color: Color::Reset,
+            attributes: TextAttributes::NONE,
+            options: TextOptions::new(),
+            spans: Some(spans),
+        }
     }
 }
 
@@ -21,7 +34,11 @@ impl Widget<TerminalPlatform> for Text<'_> {
     type Response = ();
 
     fn build(self, ui: &mut Ui) {
-        let run = ui.platform().text_run(self.text);
+        let run = if let Some(spans) = self.spans {
+            ui.platform().rich_text(spans)
+        } else {
+            ui.platform().text_run(self.text)
+        };
         ui.add(
             TextRun::new(run)
                 .color(self.color)
