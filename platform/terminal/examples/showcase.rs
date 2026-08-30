@@ -5,8 +5,9 @@ use blit_showcase::Showcase;
 use blit_terminal::{
     ControlFlow, TerminalPlatform,
     color::Color,
-    draw::{Block, Border, Text},
+    draw::{Block, Border},
     layout::Flex,
+    widget::Text,
 };
 
 fn main() -> io::Result<()> {
@@ -20,9 +21,8 @@ fn main() -> io::Result<()> {
             ControlFlow::Continue
         };
         showcase.input(ui.input());
-        let title = ui.platform().text_run(showcase.title());
-        let body = ui.platform().text_run(showcase.body());
-        let button_label = ui.platform().text_run("toggle terminal state");
+        let title = showcase.title();
+        let body = showcase.body();
         let mut root = ui.layout_with(
             Block::new().background(Color::from_rgba8(0, 0, 0, 255)),
             Flex::column().padding(Sides::all(1.0)).gap(1.0),
@@ -53,7 +53,7 @@ fn main() -> io::Result<()> {
                 )
                 .id(id);
             button.add(Slot::new(), (), |mut ui| {
-                ui.add(Text::new(button_label));
+                ui.add(Text::new("toggle terminal state"));
             });
         });
         control

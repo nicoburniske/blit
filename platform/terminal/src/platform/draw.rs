@@ -42,7 +42,7 @@ impl Leaf<TerminalPlatform> for Block {
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Text {
+    pub struct TextRun {
         new(text: TextRunId),
         color: Color = Color::WHITE,
         bold: bool = false,
@@ -50,7 +50,7 @@ blit::builder! {
     }
 }
 
-impl Leaf<TerminalPlatform> for Text {
+impl Leaf<TerminalPlatform> for TextRun {
     fn measure(&self, platform: &mut TerminalPlatform, constraints: Constraints) -> Size {
         let mut request = TextLayoutRequest::new(self.text).wrap(self.options.wrap);
         if self.options.wrap != TextWrap::None && constraints.max.width.is_finite() {

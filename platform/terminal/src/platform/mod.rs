@@ -1,4 +1,5 @@
 pub mod draw;
+pub mod widget;
 
 use blit::{Clip, FrameInfo, LogicalPoint, LogicalRect, PhysicalRect, Platform, Size};
 use blit_diff::{Change, Myers, Reconciliation};
