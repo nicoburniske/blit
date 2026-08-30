@@ -1,8 +1,5 @@
 use super::{ClipKind, Frame, ResolvedClip, ResolvedClipId, StoredClip, container};
-use crate::{
-    arena::DataArena,
-    platform::{FrameInfo, Platform},
-};
+use crate::{FrameInfo, Platform, arena::DataArena};
 
 pub fn resolve_order<R: Platform>(frame: &mut Frame<R>) {
     frame.paint_order.clear();

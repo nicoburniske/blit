@@ -2,11 +2,11 @@ use std::time::Duration;
 
 use super::{Frame, NodeId, Sizing, position};
 use crate::{
+    Platform,
     animation::{Transition, TransitionProperties},
     geometry::{Rect, Size},
     interact::WidgetId,
     layout::Axis,
-    platform::Platform,
 };
 
 pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &mut R, size: Size) {

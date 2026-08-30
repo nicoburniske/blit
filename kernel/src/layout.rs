@@ -1,9 +1,9 @@
 pub use crate::frame::layout::{Children, LayoutCx};
 
 use crate::{
+    Platform,
     frame::container::Sizing,
     geometry::{Constraints, Size},
-    platform::Platform,
 };
 
 pub trait Layout<R: Platform>: Copy + 'static {

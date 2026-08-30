@@ -1,7 +1,7 @@
 use super::{Frame, NodeId, Sizing};
 use crate::{
+    Platform,
     geometry::{Constraints, Point, Size},
-    platform::Platform,
 };
 
 pub fn layout<R: Platform>(frame: &mut Frame<R>, platform: &mut R, size: Size) {

@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use blit::{
     Absolute, Anchor, Axis, Clip, Constraints, Easing, Frame, FrameInfo, Input, Interaction,
-    Layout, LayoutCx, LayoutResolution, Leaf, Modifiers, NodeId, Paint, Platform, Point,
-    PointerButton, Rect, Sense, Size, Sizing, Slot, Transition, Ui, WidgetId,
+    Layout, LayoutCx, LayoutResolution, Leaf, Modifiers, NodeId, Platform, Point, PointerButton,
+    Rect, Sense, Size, Sizing, Slot, Transition, Ui, WidgetId,
 };
 
 #[test]
@@ -565,26 +565,10 @@ impl Leaf<AsciiPlatform> for Fill {
     }
 
     fn paint(&self, platform: &mut AsciiPlatform, area: Rect) {
-        FillCommand {
-            area,
-            glyph: self.glyph,
-        }
-        .paint(platform);
-    }
-}
-
-#[derive(Clone, Copy)]
-struct FillCommand {
-    area: Rect,
-    glyph: char,
-}
-
-impl Paint<AsciiPlatform> for FillCommand {
-    fn paint(self, platform: &mut AsciiPlatform) {
-        let left = self.area.x.max(0.0) as usize;
-        let top = self.area.y.max(0.0) as usize;
-        let right = (self.area.x + self.area.width).min(platform.width as f32) as usize;
-        let bottom = (self.area.y + self.area.height).min(platform.height as f32) as usize;
+        let left = area.x.max(0.0) as usize;
+        let top = area.y.max(0.0) as usize;
+        let right = (area.x + area.width).min(platform.width as f32) as usize;
+        let bottom = (area.y + area.height).min(platform.height as f32) as usize;
         for y in top..bottom {
             for x in left..right {
                 let point = Point::new(x as f32 + 0.5, y as f32 + 0.5);
