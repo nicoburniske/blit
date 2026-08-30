@@ -11,6 +11,7 @@ pub mod interact;
 pub mod layout;
 pub mod leaf;
 pub mod platform;
+pub mod widget;
 
 pub use animation::{Easing, Transition, TransitionProperties};
 pub use clip::Clip;
@@ -27,3 +28,4 @@ pub use interact::{Interaction, ScrollInteraction, Sense, WidgetId};
 pub use layout::{Axis, Children, Layout, LayoutCx, LayoutResolution};
 pub use leaf::Leaf;
 pub use platform::{FrameInfo, Measure, Paint, Platform};
+pub use widget::Widget;

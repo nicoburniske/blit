@@ -1,4 +1,5 @@
 pub mod draw;
+pub mod widget;
 
 use blit::{Clip, FrameInfo, LogicalPoint, LogicalRect, PhysicalRect, Platform, Scale2, Size};
 use blit_cpu::{
