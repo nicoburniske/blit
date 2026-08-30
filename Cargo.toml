@@ -6,6 +6,7 @@ members = [
     "examples/showcase",
     "executor",
     "font",
+    "kernel",
     "platform/desktop",
     "platform/terminal",
     "render/cpu",
@@ -19,4 +20,5 @@ license = "MIT"
 blit = { path = "core" }
 blit-executor = { path = "executor" }
 blit-font = { path = "font" }
+blit-kernel = { path = "kernel" }
 blit-showcase = { path = "examples/showcase" }
