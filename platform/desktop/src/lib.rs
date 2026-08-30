@@ -4,14 +4,13 @@ compile_error!("blit-desktop currently supports Linux and macOS only");
 pub use blit_executor::{AppMut, Project, Root, Scope, ScopeRef, TaskId};
 pub use winit::event_loop::EventLoopClosed;
 
-pub mod draw;
 mod event_loop;
 mod pixel;
 mod platform;
 
 pub use blit_cpu::{color, image, style, text_types as text};
 pub use blit_layout as layout;
-pub use platform::{BoundsClip, DesktopPlatform};
+pub use platform::{BoundsClip, DesktopPlatform, draw};
 
 use std::{error::Error, fmt};
 

@@ -1,3 +1,5 @@
+pub mod draw;
+
 use blit::{Clip, FrameInfo, LogicalPoint, LogicalRect, PhysicalRect, Platform, Scale2, Size};
 use blit_cpu::{
     Renderer, Scanline,
@@ -77,10 +79,6 @@ impl DesktopPlatform {
         let scale = Scale2::uniform(scale);
         self.renderer.set_scale(scale);
         self.scale = scale;
-    }
-
-    pub(crate) fn commands(&mut self) -> (&mut CommandList, ClipId, Scale2) {
-        (&mut self.current, self.clip, self.scale)
     }
 
     fn reconcile(&mut self) {

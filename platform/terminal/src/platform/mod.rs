@@ -1,3 +1,5 @@
+pub mod draw;
+
 use blit::{Clip, FrameInfo, LogicalPoint, LogicalRect, PhysicalRect, Platform, Size};
 use blit_diff::{Change, Myers, Reconciliation};
 use blit_term::{
@@ -70,10 +72,6 @@ impl TerminalPlatform {
 }
 
 impl TerminalPlatform {
-    pub(crate) fn commands(&mut self) -> (&mut CommandList, ClipId, blit::Scale2) {
-        (&mut self.current, self.clip, self.renderer.scale())
-    }
-
     fn reconcile(&mut self) {
         self.damage.clear();
         if std::mem::take(&mut self.invalidated) {
