@@ -121,6 +121,7 @@ impl Rgba8 {
     }
 }
 
+// todo: we should only have two image formats, rgb8 and rbga8
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageFormat {
     Rgb8,
