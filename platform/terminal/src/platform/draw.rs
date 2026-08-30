@@ -9,7 +9,7 @@ use blit_term::{
 pub use blit_term::command_list::{Border, BorderSides, BorderStyle, TitlePosition};
 
 use super::TerminalPlatform;
-use crate::NodeCx;
+use crate::Cx;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -46,7 +46,7 @@ blit::builder! {
 impl Widget<TerminalPlatform> for Block<'_> {
     type Response = NodeId;
 
-    fn build(self, mut cx: NodeCx<'_>) -> Self::Response {
+    fn build(self, mut cx: Cx<'_>) -> Self::Response {
         let color = self
             .border
             .map(|border| border.color)
@@ -68,7 +68,7 @@ impl Widget<TerminalPlatform> for Block<'_> {
             background: self.background,
             titles,
         });
-        cx.node()
+        cx.id()
     }
 }
 
@@ -92,9 +92,9 @@ impl Shadow {
 impl Widget<TerminalPlatform> for Shadow {
     type Response = NodeId;
 
-    fn build(self, mut cx: NodeCx<'_>) -> Self::Response {
+    fn build(self, mut cx: Cx<'_>) -> Self::Response {
         cx.atom(ShadowAtom(self));
-        cx.node()
+        cx.id()
     }
 }
 
@@ -189,9 +189,9 @@ blit::builder! {
 impl Widget<TerminalPlatform> for Image {
     type Response = NodeId;
 
-    fn build(self, mut cx: NodeCx<'_>) -> Self::Response {
+    fn build(self, mut cx: Cx<'_>) -> Self::Response {
         cx.atom(ImageAtom(self));
-        cx.node()
+        cx.id()
     }
 }
 

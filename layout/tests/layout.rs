@@ -1,6 +1,6 @@
 use blit::{
-    Atom, Constraints, Frame, FrameInfo, NodeCx, NodeId, Platform, Rect, Size, Sizing, Slot,
-    Widget, WidgetId,
+    Atom, Constraints, Cx, Frame, FrameInfo, NodeId, Platform, Rect, Size, Sizing, Slot, Widget,
+    WidgetId,
 };
 use blit_layout::{Flex, Grid, RectLayout, Wrap};
 
@@ -18,9 +18,9 @@ struct BoxWidget(Size);
 impl Widget<TestPlatform> for BoxWidget {
     type Response = NodeId;
 
-    fn build(self, mut cx: NodeCx<'_, TestPlatform>) -> Self::Response {
+    fn build(self, mut cx: Cx<'_, TestPlatform>) -> Self::Response {
         cx.atom(BoxAtom(self.0));
-        cx.node()
+        cx.id()
     }
 }
 
@@ -45,14 +45,14 @@ fn flex_distributes_growing_space() {
         &mut platform,
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui| {
-            let mut row = ui.layout(Flex::row().gap(4.0));
+            let mut row = ui.node(Flex::row().gap(4.0));
             row.child()
                 .slot(Slot::new().width(Sizing::fixed(20.0)))
-                .id(fixed)
+                .widget_id(fixed)
                 .add(BoxWidget(Size::new(1.0, 10.0)));
             row.child()
                 .slot(Slot::new().width(Sizing::grow()))
-                .id(grow)
+                .widget_id(grow)
                 .add(BoxWidget(Size::new(1.0, 10.0)));
         },
     );
@@ -71,9 +71,9 @@ fn spanning_grid_places_items_in_equal_cells() {
         FrameInfo::new(Size::new(100.0, 40.0)),
         |ui| {
             let mut placer = layout.placer();
-            let mut grid = ui.layout(layout);
+            let mut grid = ui.node(layout);
             grid.item(placer.place(1, 2))
-                .id(wide)
+                .widget_id(wide)
                 .add(BoxWidget(Size::new(20.0, 10.0)));
             grid.item(placer.place(1, 1))
                 .add(BoxWidget(Size::new(10.0, 10.0)));
@@ -88,16 +88,16 @@ fn rect_and_wrap_resolve_positions() {
     let mut platform = TestPlatform;
     let rect = WidgetId::new("rect");
     frame.render(&mut platform, FrameInfo::new(Size::new(30.0, 20.0)), |ui| {
-        let mut fixed = ui.layout(RectLayout);
+        let mut fixed = ui.node(RectLayout);
         fixed
             .item(Rect::new(3.0, 4.0, 10.0, 5.0))
-            .id(rect)
+            .widget_id(rect)
             .add(BoxWidget(Size::ZERO));
     });
     assert_eq!(frame.geometry(rect), Some(Rect::new(3.0, 4.0, 10.0, 5.0)));
 
     frame.render(&mut platform, FrameInfo::new(Size::new(12.0, 20.0)), |ui| {
-        let mut wrap = ui.layout(Wrap::horizontal().gap(1.0));
+        let mut wrap = ui.node(Wrap::horizontal().gap(1.0));
         for _ in 0..3 {
             wrap.child()
                 .slot(Slot::new().fixed(6.0, 2.0))

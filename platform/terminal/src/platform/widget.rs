@@ -5,7 +5,7 @@ use blit_term::{
 };
 
 use super::{TerminalPlatform, draw::TextAtom};
-use crate::NodeCx;
+use crate::Cx;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -33,7 +33,7 @@ impl<'a> Text<'a> {
 impl Widget<TerminalPlatform> for Text<'_> {
     type Response = ();
 
-    fn build(self, mut cx: NodeCx<'_>) {
+    fn build(self, mut cx: Cx<'_>) {
         let run = if let Some(spans) = self.spans {
             cx.platform().rich_text(spans)
         } else {

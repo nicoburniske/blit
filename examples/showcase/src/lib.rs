@@ -1,8 +1,8 @@
 use std::{collections::VecDeque, time::Duration};
 
 use blit::{
-    Anchor, Axis, Constraints, Interaction, Layout, LayoutCx, NodeCx, NodeId, Platform, Point,
-    Rect, Sense, Sides, Size, Sizing, Slot, Widget, WidgetId,
+    Anchor, Axis, Constraints, Cx, Interaction, Layout, LayoutCx, NodeId, Platform, Point, Rect,
+    Sense, Sides, Size, Sizing, Slot, Widget, WidgetId,
 };
 pub use blit_layout::{Align, Justify};
 
@@ -310,7 +310,7 @@ where
 {
     type Response = ();
 
-    fn build(self, mut ui: NodeCx<'_, P>) {
+    fn build(self, mut ui: Cx<'_, P>) {
         let Self {
             state,
             id,
@@ -339,13 +339,13 @@ where
         );
         let size = state.size.unwrap_or(initial);
         let mut shell = ui
-            .layout(ResizeLayout {
+            .node(ResizeLayout {
                 size,
                 minimum,
                 maximum,
                 grip_size,
             })
-            .id(id);
+            .widget_id(id);
         shell.item(ResizeItem::Content).add(content);
         for (item, edge, grip_id, interaction) in [
             (ResizeItem::Right, ResizeEdge::Right, right_id, right),
@@ -353,7 +353,7 @@ where
             (ResizeItem::Corner, ResizeEdge::Corner, corner_id, corner),
         ] {
             let widget = grip(ResizeGrip { edge, interaction });
-            shell.item(item).id(grip_id).add(widget);
+            shell.item(item).widget_id(grip_id).add(widget);
         }
     }
 }

@@ -7,7 +7,7 @@ pub struct FrameMemory {
 }
 
 pub struct Frame<R: Platform> {
-    nodes: Vec<Node>,
+    nodes: Vec<StoredNode>,
     current_parent: Option<NodeId>,
     atoms: Vec<StoredAtom>,
     layouts: Vec<StoredLayout>,
@@ -134,9 +134,9 @@ impl<R: Platform> Frame<R> {
 
     pub fn memory(&self) -> FrameMemory {
         FrameMemory {
-            node_size: size_of::<Node>(),
+            node_size: size_of::<StoredNode>(),
             node_capacity: self.nodes.capacity(),
-            heap_bytes: self.nodes.capacity() * size_of::<Node>()
+            heap_bytes: self.nodes.capacity() * size_of::<StoredNode>()
                 + self.atoms.capacity() * size_of::<StoredAtom>()
                 + self.layouts.capacity() * size_of::<StoredLayout>()
                 + self.clips.capacity() * size_of::<StoredClip>()
@@ -335,7 +335,7 @@ impl<R: Platform> Frame<R> {
 
     fn push_node(&mut self, layout: Option<StoredLayoutId>) -> NodeId {
         let id = self.node_id(self.nodes.len());
-        self.nodes.push(Node {
+        self.nodes.push(StoredNode {
             parent: self.current_parent.unwrap_or(id),
             subtree_end: id.value,
             first_atom: StoredAtomId::NONE,
@@ -501,7 +501,7 @@ mod generation {
 }
 
 #[derive(Clone, Copy)]
-struct Node {
+struct StoredNode {
     parent: NodeId,
     subtree_end: u32,
     first_atom: StoredAtomId,
