@@ -3,7 +3,7 @@ use std::time::Duration;
 use blit::{
     Absolute, Anchor, Atom, Axis, Clip, Constraints, Easing, Frame, FrameInfo, Input, Interaction,
     Layout, LayoutCx, LayoutResolution, Modifiers, NodeId, Place, Platform, Point, PointerButton,
-    Rect, Sense, Size, Sizing, Transition, Widget, WidgetId,
+    Rect, Sense, Size, Sizing, Transition, WidgetId,
 };
 
 type Ui = blit::Ui<AsciiPlatform>;
@@ -31,8 +31,7 @@ fn animations_and_timers_schedule_frames() {
             |ui| {
                 value = ui.animate(animation, target, Duration::from_secs(1), Easing::Linear);
                 fired = ui.timer(timer, Duration::from_millis(500));
-                ui.node(BaseOnly)
-                    .surface(Fill::new('X', Size::new(1.0, 1.0)));
+                ui.node(BaseOnly).atom(Fill::new('X', Size::new(1.0, 1.0)));
             },
         );
     }
@@ -63,7 +62,7 @@ fn lays_out_and_paints_external_atoms() {
 }
 
 #[test]
-fn layout_surfaces_measure_and_paint_in_order() {
+fn layout_atoms_measure_and_paint_in_order() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
 
@@ -71,8 +70,8 @@ fn layout_surfaces_measure_and_paint_in_order() {
         let mut root = ui.node(Overlay);
         root.add(|ui: Cx<'_>| {
             ui.node(BaseOnly)
-                .surface(Fill::new('A', Size::new(3.0, 1.0)))
-                .surface(Fill::new('B', Size::new(1.0, 2.0)))
+                .atom(Fill::new('A', Size::new(3.0, 1.0)))
+                .atom(Fill::new('B', Size::new(1.0, 2.0)))
                 .id()
         });
     });
@@ -87,11 +86,11 @@ fn resolves_absolute_targets_and_layer_order() {
 
     frame.render(&mut platform, FrameInfo::new(Size::new(8.0, 5.0)), |ui| {
         let mut overlay = ui.node(Overlay);
-        let target = overlay.add(Fill::new('T', Size::new(2.0, 2.0)));
+        let target = overlay.child().atom(Fill::new('T', Size::new(2.0, 2.0)));
         overlay.add(|ui: Cx<'_>| {
             let _absolute = ui
                 .node(Overlay)
-                .surface(Fill::new('A', Size::new(1.0, 1.0)))
+                .atom(Fill::new('A', Size::new(1.0, 1.0)))
                 .absolute(
                     Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target),
                 );
@@ -115,11 +114,11 @@ fn resolves_absolute_targets_and_layer_order() {
         overlay
             .child()
             .place(Place::new().layer(layer))
-            .add(Fill::new('A', Size::new(3.0, 1.0)));
+            .atom(Fill::new('A', Size::new(3.0, 1.0)));
         overlay
             .child()
             .place(Place::new().z_index(100))
-            .add(Fill::new('B', Size::new(3.0, 1.0)));
+            .atom(Fill::new('B', Size::new(3.0, 1.0)));
     });
 
     assert_eq!(platform.contents(), "AAA");
@@ -130,12 +129,12 @@ fn resolves_absolute_targets_and_layer_order() {
         root.add(|ui: Cx<'_>| {
             let mut panel = ui
                 .node(BaseOnly)
-                .surface(Fill::new('p', Size::new(3.0, 3.0)))
+                .atom(Fill::new('p', Size::new(3.0, 3.0)))
                 .clip(DiamondClip);
             panel
                 .child()
                 .place(Place::new().layer(layer))
-                .add(Fill::new('L', Size::new(3.0, 3.0)));
+                .atom(Fill::new('L', Size::new(3.0, 3.0)));
         });
     });
     assert_eq!(platform.contents(), "LLL\nLLL\nLLL");
@@ -145,13 +144,13 @@ fn resolves_absolute_targets_and_layer_order() {
         root.add(|ui: Cx<'_>| {
             let mut panel = ui
                 .node(BaseOnly)
-                .surface(Fill::new('p', Size::new(3.0, 3.0)))
+                .atom(Fill::new('p', Size::new(3.0, 3.0)))
                 .clip(DiamondClip);
             let layer = panel.new_layer();
             panel
                 .child()
                 .place(Place::new().layer(layer))
-                .add(Fill::new('L', Size::new(3.0, 3.0)));
+                .atom(Fill::new('L', Size::new(3.0, 3.0)));
         });
     });
     assert_eq!(platform.contents(), " L \nLLL\n L ");
@@ -268,7 +267,7 @@ fn resolves_places_and_content_offsets() {
                 .child()
                 .place(Place::new().fixed(3.0, 1.0))
                 .widget_id(fixed)
-                .add(Fill::new('F', Size::new(1.0, 1.0)));
+                .atom(Fill::new('F', Size::new(1.0, 1.0)));
             overlay
                 .child()
                 .place(
@@ -277,7 +276,7 @@ fn resolves_places_and_content_offsets() {
                         .height(Sizing::fixed(1.0)),
                 )
                 .widget_id(grow)
-                .add(Fill::new('G', Size::new(1.0, 1.0)));
+                .atom(Fill::new('G', Size::new(1.0, 1.0)));
             overlay
                 .child()
                 .place(
@@ -286,7 +285,7 @@ fn resolves_places_and_content_offsets() {
                         .height(Sizing::fixed(1.0)),
                 )
                 .widget_id(percent)
-                .add(Fill::new('P', Size::new(1.0, 1.0)));
+                .atom(Fill::new('P', Size::new(1.0, 1.0)));
             overlay
                 .child()
                 .place(
@@ -295,7 +294,7 @@ fn resolves_places_and_content_offsets() {
                         .height(Sizing::fixed(1.0)),
                 )
                 .widget_id(fit)
-                .add(Fill::new('M', Size::new(6.0, 1.0)));
+                .atom(Fill::new('M', Size::new(6.0, 1.0)));
         },
     );
 
@@ -313,7 +312,7 @@ fn absolute_places_resolve_against_the_target() {
 
     frame.render(&mut platform, FrameInfo::new(Size::new(10.0, 4.0)), |ui| {
         let mut overlay = ui.node(Overlay);
-        let target = overlay.add(Fill::new('T', Size::new(6.0, 2.0)));
+        let target = overlay.child().atom(Fill::new('T', Size::new(6.0, 2.0)));
         overlay
             .child()
             .place(
@@ -324,7 +323,7 @@ fn absolute_places_resolve_against_the_target() {
             .add(|ui: Cx<'_>| {
                 let _absolute = ui
                     .node(Overlay)
-                    .surface(Fill::new('A', Size::new(1.0, 1.0)))
+                    .atom(Fill::new('A', Size::new(1.0, 1.0)))
                     .absolute(
                         Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target),
                     )
@@ -359,7 +358,7 @@ fn frame_ids_reject_cross_frame_use() {
     frame.render(&mut platform, FrameInfo::new(Size::new(1.0, 1.0)), |ui| {
         let mut root = ui.node(Overlay);
         layer = Some(root.new_layer());
-        node = Some(root.add(Fill::new('X', Size::new(1.0, 1.0))));
+        node = Some(root.child().atom(Fill::new('X', Size::new(1.0, 1.0))));
     });
 
     let node = node.unwrap();
@@ -379,7 +378,7 @@ fn frame_ids_reject_cross_frame_use() {
                 let mut root = ui.node(Overlay);
                 root.child()
                     .place(Place::new().layer(layer))
-                    .add(Fill::new('X', Size::new(1.0, 1.0)));
+                    .atom(Fill::new('X', Size::new(1.0, 1.0)));
             });
         }))
         .is_err()
@@ -434,12 +433,12 @@ fn buttons(ui: &mut Ui, bottom: WidgetId, top: WidgetId) -> [Interaction; 2] {
     overlay
         .child()
         .widget_id(bottom)
-        .add(Fill::new('B', Size::new(3.0, 1.0)));
+        .atom(Fill::new('B', Size::new(3.0, 1.0)));
     overlay
         .child()
         .place(Place::new().z_index(1))
         .widget_id(top)
-        .add(Fill::new('T', Size::new(3.0, 1.0)));
+        .atom(Fill::new('T', Size::new(3.0, 1.0)));
     responses
 }
 
@@ -463,7 +462,7 @@ fn transition_scene(
                 .add(|ui: Cx<'_>| {
                     let _child = ui
                         .node(Overlay)
-                        .surface(Fill::new('X', Size::new(width, 1.0)))
+                        .atom(Fill::new('X', Size::new(width, 1.0)))
                         .widget_id(id)
                         .transition(Transition::new(Duration::from_secs(1)).width());
                 });
@@ -486,7 +485,7 @@ fn unidentified_transition_scene(
             overlay.add(|ui: Cx<'_>| {
                 let _child = ui
                     .node(Overlay)
-                    .surface(Fill::new('X', Size::new(width, 1.0)))
+                    .atom(Fill::new('X', Size::new(width, 1.0)))
                     .transition(Transition::new(Duration::from_secs(1)).width());
             });
         },
@@ -513,7 +512,7 @@ fn position_transition_scene(
                 .add(|ui: Cx<'_>| {
                     let _child = ui
                         .node(Overlay)
-                        .surface(Fill::new('X', Size::new(1.0, 1.0)))
+                        .atom(Fill::new('X', Size::new(1.0, 1.0)))
                         .widget_id(id)
                         .transition(Transition::new(Duration::from_secs(1)).y());
                 });
@@ -527,12 +526,12 @@ fn clipped_button(ui: &mut Ui, id: WidgetId) -> Interaction {
     root.add(|ui: Cx<'_>| {
         let mut panel = ui
             .node(BaseOnly)
-            .surface(Fill::new('P', Size::new(3.0, 1.0)))
+            .atom(Fill::new('P', Size::new(3.0, 1.0)))
             .clip(DiamondClip);
         panel
             .child()
             .widget_id(id)
-            .add(Fill::new('C', Size::new(5.0, 1.0)));
+            .atom(Fill::new('C', Size::new(5.0, 1.0)));
     });
     interaction
 }
@@ -542,16 +541,16 @@ fn scene(ui: &mut Ui) {
     column
         .child()
         .item(ColumnItem { gap_before: 0.0 })
-        .add(Fill::new('A', Size::new(3.0, 1.0)));
+        .atom(Fill::new('A', Size::new(3.0, 1.0)));
     column
         .child()
         .item(ColumnItem { gap_before: 1.0 })
         .add(|ui: Cx<'_>| {
             let mut panel = ui
                 .node(Overlay)
-                .surface(Fill::new('b', Size::new(5.0, 3.0)))
+                .atom(Fill::new('b', Size::new(5.0, 3.0)))
                 .clip(DiamondClip);
-            panel.add(Fill::new('C', Size::new(1.0, 1.0)));
+            panel.child().atom(Fill::new('C', Size::new(1.0, 1.0)));
         });
 }
 
@@ -567,21 +566,9 @@ impl Fill {
     }
 }
 
-impl Widget<AsciiPlatform> for Fill {
-    type Response = NodeId;
-
-    fn build(self, mut cx: Cx<'_>) -> Self::Response {
-        cx.atom(FillAtom(self));
-        cx.id()
-    }
-}
-
-#[derive(Clone, Copy)]
-struct FillAtom(Fill);
-
-impl Atom<AsciiPlatform> for FillAtom {
+impl Atom<AsciiPlatform> for Fill {
     fn measure(&self, _: &mut AsciiPlatform, constraints: Constraints) -> Size {
-        constraints.constrain(self.0.size)
+        constraints.constrain(self.size)
     }
 
     fn paint(&self, platform: &mut AsciiPlatform, area: Rect) {
@@ -599,7 +586,7 @@ impl Atom<AsciiPlatform> for FillAtom {
                 {
                     continue;
                 }
-                platform.cells[y * platform.width + x] = self.0.glyph;
+                platform.cells[y * platform.width + x] = self.glyph;
             }
         }
     }

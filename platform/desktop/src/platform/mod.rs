@@ -1,4 +1,4 @@
-pub mod draw;
+pub mod atom;
 pub mod widget;
 
 use blit::{Clip, FrameInfo, LogicalPoint, LogicalRect, PhysicalRect, Platform, Scale2, Size};
@@ -188,7 +188,7 @@ impl Clip<DesktopPlatform> for BoundsClip {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::Rectangle;
+    use crate::atom::Rectangle;
     use blit::{Frame, Place, Sides, Size};
     use blit_cpu::{Font, FontFace, RendererConfig, color::Color, text_types::FontId};
     use blit_layout::Flex;
@@ -218,10 +218,10 @@ mod tests {
         frame.render(&mut platform, FrameInfo::new(Size::new(8.0, 8.0)), |ui| {
             let mut root = ui
                 .node(Flex::column().padding(Sides::all(3.0)))
-                .surface(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
+                .atom(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
             root.child()
                 .place(Place::new().fixed(2.0, 2.0))
-                .add(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
+                .atom(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
         });
         assert_eq!(platform.previous.len(), 2);
         assert_eq!(pixels[7 * 16 + 7], 0x0046_6edc);

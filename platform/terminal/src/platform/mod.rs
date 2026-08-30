@@ -1,4 +1,4 @@
-pub mod draw;
+pub mod atom;
 pub mod widget;
 
 use blit::{Clip, FrameInfo, LogicalPoint, LogicalRect, PhysicalRect, Platform, Size};
@@ -177,7 +177,7 @@ fn push_damage(damage: &mut Vec<PhysicalRect>, bounds: PhysicalRect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::{Block, Border, Shadow, Title};
+    use crate::atom::{Block, Border, Shadow, Title};
     use blit::{Frame, Size};
     use blit_layout::Flex;
     use blit_term::{RendererConfig, color::Color};

@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, NodeId, Size, Widget};
+use blit::{Atom, Constraints, LogicalRect, Size};
 use blit_cpu::{
     color::Color,
     command_list::{BoxShadow, Rectangle as DrawRectangle},
@@ -8,7 +8,6 @@ use blit_cpu::{
 };
 
 use super::DesktopPlatform;
-use crate::Cx;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -25,19 +24,7 @@ blit::builder! {
     }
 }
 
-impl Widget<DesktopPlatform> for Rectangle {
-    type Response = NodeId;
-
-    fn build(self, mut cx: Cx<'_>) -> Self::Response {
-        cx.atom(RectangleAtom(self));
-        cx.id()
-    }
-}
-
-#[derive(Clone, Copy)]
-struct RectangleAtom(Rectangle);
-
-impl Atom<DesktopPlatform> for RectangleAtom {
+impl Atom<DesktopPlatform> for Rectangle {
     fn measure(&self, _: &mut DesktopPlatform, constraints: Constraints) -> Size {
         constraints.constrain(Size::ZERO)
     }
@@ -45,27 +32,27 @@ impl Atom<DesktopPlatform> for RectangleAtom {
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
         let scale = platform.scale;
         let clip = platform.clip;
-        if let Some(shadow) = self.0.shadow {
-            let shadow = box_shadow(area, self.0.radius, shadow, false);
+        if let Some(shadow) = self.shadow {
+            let shadow = box_shadow(area, self.radius, shadow, false);
             platform
                 .current
                 .push_box_shadow(shadow, shadow.bounds().to_physical(scale), clip);
         }
-        if self.0.background != Color::TRANSPARENT || !matches!(self.0.border, Border::None) {
+        if self.background != Color::TRANSPARENT || !matches!(self.border, Border::None) {
             platform.current.push_rectangle(
                 DrawRectangle {
                     area,
-                    background: self.0.background,
-                    border: self.0.border,
-                    radius: self.0.radius,
-                    opacity: self.0.opacity,
+                    background: self.background,
+                    border: self.border,
+                    radius: self.radius,
+                    opacity: self.opacity,
                 },
                 area.to_physical(scale),
                 clip,
             );
         }
-        if let Some(shadow) = self.0.inset_shadow {
-            let shadow = box_shadow(area, self.0.radius, shadow, true);
+        if let Some(shadow) = self.inset_shadow {
+            let shadow = box_shadow(area, self.radius, shadow, true);
             platform
                 .current
                 .push_box_shadow(shadow, area.to_physical(scale), clip);
@@ -125,34 +112,22 @@ pub struct Image {
     pub vertical_tiling: ImageTiling,
 }
 
-impl Widget<DesktopPlatform> for Image {
-    type Response = NodeId;
-
-    fn build(self, mut cx: Cx<'_>) -> Self::Response {
-        cx.atom(ImageAtom(self));
-        cx.id()
-    }
-}
-
-#[derive(Clone, Copy)]
-struct ImageAtom(Image);
-
-impl Atom<DesktopPlatform> for ImageAtom {
+impl Atom<DesktopPlatform> for Image {
     fn measure(&self, _: &mut DesktopPlatform, constraints: Constraints) -> Size {
-        constraints.constrain(self.0.intrinsic)
+        constraints.constrain(self.intrinsic)
     }
 
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
         let request = ImageRequest {
-            image: self.0.image,
+            image: self.image,
             area,
-            fit: self.0.fit,
-            sampling: self.0.sampling,
-            opacity: self.0.opacity,
-            colorize: self.0.colorize,
-            nine_slice: self.0.nine_slice,
-            horizontal_tiling: self.0.horizontal_tiling,
-            vertical_tiling: self.0.vertical_tiling,
+            fit: self.fit,
+            sampling: self.sampling,
+            opacity: self.opacity,
+            colorize: self.colorize,
+            nine_slice: self.nine_slice,
+            horizontal_tiling: self.horizontal_tiling,
+            vertical_tiling: self.vertical_tiling,
         };
         let bounds = area.to_physical(platform.scale);
         let clip = platform.clip;
