@@ -4,7 +4,7 @@ use blit_term::{
     TerminalRenderer,
     command_list::{ClipId, CommandList},
     image::{ImageData, ImageHandle},
-    text::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    text::{TextLayoutRequest, TextRequest, TextRunId},
 };
 
 pub struct TerminalPlatform {
@@ -19,7 +19,7 @@ pub struct TerminalPlatform {
 }
 
 impl TerminalPlatform {
-    pub(crate) fn new(renderer: TerminalRenderer) -> Self {
+    pub fn new(renderer: TerminalRenderer) -> Self {
         Self {
             renderer,
             current: CommandList::default(),
@@ -48,8 +48,8 @@ impl TerminalPlatform {
         self.renderer.create_image(data)
     }
 
-    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.renderer.text_run(text, style)
+    pub fn text_run(&mut self, text: &str) -> TextRunId {
+        self.renderer.text_run(text)
     }
 
     pub fn text_offset_at_position(
@@ -64,10 +64,12 @@ impl TerminalPlatform {
         self.renderer.text_cursor_rect(request, offset)
     }
 
-    pub(crate) fn measure_text(&mut self, request: &TextLayoutRequest) -> Size {
+    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> Size {
         self.renderer.measure_text(request)
     }
+}
 
+impl TerminalPlatform {
     pub(crate) fn commands(&mut self) -> (&mut CommandList, ClipId, blit::Scale2) {
         (&mut self.current, self.clip, self.renderer.scale())
     }
@@ -140,9 +142,7 @@ pub struct BoundsClip;
 impl Clip<TerminalPlatform> for BoundsClip {
     fn push(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
         let previous = platform.clip;
-        platform.clip = platform
-            .current
-            .push_clip(previous, area, Default::default());
+        platform.clip = platform.current.push_clip(previous, area);
         platform.clips.push(previous);
     }
 
@@ -187,7 +187,7 @@ mod tests {
             &mut platform,
             FrameInfo::new(Size::new(4.0, 2.0)),
             |mut ui| {
-                ui.add(Block::new(Color::WHITE));
+                ui.add(Block::new().background(Color::WHITE));
             },
         );
         assert!(!platform.renderer().output().is_empty());
@@ -195,7 +195,7 @@ mod tests {
             &mut platform,
             FrameInfo::new(Size::new(4.0, 2.0)),
             |mut ui| {
-                ui.add(Block::new(Color::WHITE));
+                ui.add(Block::new().background(Color::WHITE));
             },
         );
         assert!(platform.renderer().output().is_empty());
