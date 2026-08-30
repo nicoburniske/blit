@@ -1,19 +1,26 @@
-use std::any::TypeId;
+use std::{any::TypeId, time::Duration};
 
 pub mod container;
+pub mod interaction;
 pub mod layout;
+pub mod paint;
+pub mod position;
+pub mod transition;
 pub mod ui;
 
-pub use container::Container;
+pub use container::{Absolute, Anchor, Container, LayerId, PositionTarget};
 pub use ui::Ui;
 
 use crate::{
+    animation::Transition,
     arena::{DataArena, DataId},
     clip::Clip,
-    geometry::{Constraints, Point, Rect, Size},
+    geometry::{Constraints, Point, Rect, Sides, Size},
+    input::Input,
+    interact::WidgetId,
     layout::Layout,
     leaf::Leaf,
-    renderer::{FrameInfo, Renderer},
+    renderer::Renderer,
 };
 
 pub struct Frame<R: Renderer> {
@@ -22,6 +29,19 @@ pub struct Frame<R: Renderer> {
     layout_kinds: Vec<LayoutKind<R>>,
     clip_kinds: Vec<ClipKind<R>>,
     data: DataArena,
+    layers: Vec<Layer>,
+    paint_order: Vec<NodeId>,
+    order_stack: Vec<NodeId>,
+    resolved_clips: Vec<ResolvedClip>,
+    interaction: interaction::InteractionState,
+    geometry_previous: Vec<(WidgetId, Rect)>,
+    geometry_current: Vec<(WidgetId, Rect)>,
+    transitions: Vec<transition::TransitionState>,
+    input: Input,
+    time: Duration,
+    screen: Rect,
+    needs_paint_order: bool,
+    frame_requested: bool,
 }
 
 impl<R: Renderer> Default for Frame<R> {
@@ -32,14 +52,94 @@ impl<R: Renderer> Default for Frame<R> {
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
             data: DataArena::default(),
+            layers: Vec::new(),
+            paint_order: Vec::new(),
+            order_stack: Vec::new(),
+            resolved_clips: Vec::new(),
+            interaction: interaction::InteractionState::default(),
+            geometry_previous: Vec::new(),
+            geometry_current: Vec::new(),
+            transitions: Vec::new(),
+            input: Input::None,
+            time: Duration::ZERO,
+            screen: Rect::default(),
+            needs_paint_order: false,
+            frame_requested: true,
         }
     }
 }
 
 impl<R: Renderer> Frame<R> {
     pub fn render(&mut self, renderer: &mut R, size: Size, build: impl FnOnce(Ui<'_, R>)) {
+        self.frame_requested = false;
+        self.record(renderer, size, Duration::ZERO, Input::None, true, build);
+    }
+
+    pub fn render_inputs(
+        &mut self,
+        renderer: &mut R,
+        size: Size,
+        time: Duration,
+        inputs: impl IntoIterator<Item = Input>,
+        mut build: impl FnMut(Ui<'_, R>),
+    ) {
+        self.frame_requested = false;
+        let mut inputs = inputs.into_iter();
+        let Some(first) = inputs.next() else {
+            self.record(renderer, size, time, Input::None, true, &mut build);
+            return;
+        };
+        let mut input = first;
+        loop {
+            let next = inputs.next();
+            self.record(renderer, size, time, input, next.is_none(), &mut build);
+            let Some(next) = next else {
+                break;
+            };
+            input = next;
+        }
+    }
+
+    pub fn has_pending_redraw(&self) -> bool {
+        self.frame_requested
+            || self
+                .transitions
+                .iter()
+                .any(transition::TransitionState::is_active)
+    }
+
+    pub fn request_frame(&mut self) {
+        self.frame_requested = true;
+    }
+
+    pub fn geometry(&self, id: WidgetId) -> Option<Rect> {
+        self.geometry_previous
+            .iter()
+            .find_map(|(candidate, area)| (*candidate == id).then_some(*area))
+    }
+
+    fn record(
+        &mut self,
+        renderer: &mut R,
+        size: Size,
+        time: Duration,
+        input: Input,
+        render: bool,
+        build: impl FnOnce(Ui<'_, R>),
+    ) {
         self.nodes.clear();
         self.data.clear();
+        self.layers.clear();
+        self.paint_order.clear();
+        self.resolved_clips.clear();
+        self.needs_paint_order = false;
+        self.input = input;
+        self.time = time;
+        self.screen = Rect::new(0.0, 0.0, size.width, size.height);
+        for state in &mut self.transitions {
+            state.seen = false;
+        }
+        self.interaction.begin(&input);
 
         build(ui::new(self, None));
         assert!(!self.nodes.is_empty(), "frame is empty");
@@ -49,38 +149,17 @@ impl<R: Renderer> Frame<R> {
             "a frame must have exactly one root"
         );
 
-        self.layout_node(NodeId(0), renderer, Constraints::tight(size));
-        renderer.begin(FrameInfo { size });
-        fn paint<R: Renderer>(frame: &Frame<R>, renderer: &mut R, node: NodeId, origin: Point) {
-            let stored = frame.nodes[node.index()];
-            let area = Rect::new(
-                origin.x + stored.area.x,
-                origin.y + stored.area.y,
-                stored.area.width,
-                stored.area.height,
-            );
-            if let Some(clip) = stored.clip {
-                let push = frame.clip_kinds[clip.kind as usize].push;
-                push(&frame.data, clip.data, renderer, area);
-            }
-            if let Some(base) = stored.base {
-                let paint = frame.leaf_kinds[base.kind as usize].paint;
-                paint(&frame.data, base.data, renderer, area);
-            }
-
-            let mut next = node.index() + 1;
-            while next <= stored.subtree_end as usize {
-                let child = NodeId(next as u32);
-                paint(frame, renderer, child, Point::new(area.x, area.y));
-                next = frame.nodes[next].subtree_end as usize + 1;
-            }
-            if let Some(clip) = stored.clip {
-                let pop = frame.clip_kinds[clip.kind as usize].pop;
-                pop(&frame.data, clip.data, renderer);
-            }
+        transition::resolve(self, renderer, size);
+        position::resolve(self);
+        paint::resolve_order(self);
+        paint::resolve_clips(self, self.screen);
+        interaction::resolve(self, renderer);
+        std::mem::swap(&mut self.geometry_previous, &mut self.geometry_current);
+        self.geometry_current.clear();
+        self.transitions.retain(|state| state.seen);
+        if render {
+            paint::render(self, renderer, size);
         }
-        paint(self, renderer, NodeId(0), Point::ZERO);
-        renderer.end();
     }
 
     fn layout_node(&mut self, node: NodeId, renderer: &mut R, constraints: Constraints) -> Size {
@@ -95,7 +174,13 @@ impl<R: Renderer> Frame<R> {
             );
             self.measure_base(node, renderer, constraints)
         };
-        let size = constraints.constrain(size);
+        let mut size = constraints.constrain(size);
+        if let Some(width) = stored.transition_width {
+            size.width = width.clamp(constraints.min.width, constraints.max.width);
+        }
+        if let Some(height) = stored.transition_height {
+            size.height = height.clamp(constraints.min.height, constraints.max.height);
+        }
         self.nodes[node.index()].area.width = size.width;
         self.nodes[node.index()].area.height = size.height;
         size
@@ -183,8 +268,47 @@ impl<R: Renderer> Frame<R> {
             clip: None,
             item: None,
             area: Rect::default(),
+            positioned: None,
+            layer: None,
+            z_index: 0,
+            id: None,
+            hit: Sides::all(0.0),
+            transition: None,
+            transition_width: None,
+            transition_height: None,
+            resolved_clip: None,
+            clip_bounds: Rect::default(),
         });
         id
+    }
+
+    fn add_layer(&mut self, owner: NodeId) -> LayerId {
+        let id = container::layer_id(self.layers.len());
+        self.layers.push(Layer { owner });
+        id
+    }
+
+    fn set_absolute(&mut self, node: NodeId, absolute: Absolute) {
+        let parent = self.nodes[node.index()]
+            .parent
+            .expect("the root cannot be absolutely positioned");
+        let target = match absolute.target {
+            PositionTarget::Parent => parent,
+            PositionTarget::Node(target) => {
+                assert!(
+                    target.index() < node.index(),
+                    "absolute target must be declared first"
+                );
+                target
+            }
+            PositionTarget::Screen => NodeId(0),
+        };
+        self.nodes[node.index()].positioned = Some(Positioned {
+            target,
+            target_anchor: absolute.target_anchor,
+            child_anchor: absolute.child_anchor,
+            offset: absolute.offset,
+        });
     }
 }
 
@@ -206,6 +330,36 @@ struct Node {
     layout: Option<StoredLayout>,
     clip: Option<StoredClip>,
     item: Option<DataId>,
+    area: Rect,
+    positioned: Option<Positioned>,
+    layer: Option<LayerId>,
+    z_index: i16,
+    id: Option<WidgetId>,
+    hit: Sides,
+    transition: Option<Transition>,
+    transition_width: Option<f32>,
+    transition_height: Option<f32>,
+    resolved_clip: Option<usize>,
+    clip_bounds: Rect,
+}
+
+#[derive(Clone, Copy)]
+struct Positioned {
+    target: NodeId,
+    target_anchor: Anchor,
+    child_anchor: Anchor,
+    offset: Point,
+}
+
+#[derive(Clone, Copy)]
+struct Layer {
+    owner: NodeId,
+}
+
+#[derive(Clone, Copy)]
+struct ResolvedClip {
+    parent: Option<usize>,
+    clip: StoredClip,
     area: Rect,
 }
 

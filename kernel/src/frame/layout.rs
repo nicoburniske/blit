@@ -57,6 +57,12 @@ impl<'a, R: Renderer, I: Copy + 'static> LayoutCx<'a, R, I> {
         area.y = position.y;
     }
 
+    pub fn set_z_index(&mut self, child: NodeId, z_index: i16) {
+        self.assert_child(child);
+        self.frame.nodes[child.index()].z_index = z_index;
+        self.frame.needs_paint_order |= z_index != 0;
+    }
+
     #[track_caller]
     fn assert_child(&self, child: NodeId) {
         assert_eq!(
@@ -79,14 +85,16 @@ impl Iterator for Children<'_> {
     type Item = NodeId;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.next > self.end {
-            return None;
+        while self.next <= self.end {
+            let node = NodeId(self.next as u32);
+            // safety: node storage is frozen while layout runs
+            let stored = unsafe { &*self.nodes.add(self.next) };
+            self.next = stored.subtree_end as usize + 1;
+            if stored.positioned.is_none() {
+                return Some(node);
+            }
         }
-        let node = NodeId(self.next as u32);
-        // safety: node storage is frozen while layout runs
-        let stored = unsafe { &*self.nodes.add(self.next) };
-        self.next = stored.subtree_end as usize + 1;
-        Some(node)
+        None
     }
 }
 

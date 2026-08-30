@@ -1,9 +1,13 @@
-use crate::geometry::Size;
+use crate::geometry::{Rect, Size};
 
 pub trait Renderer {
     fn begin(&mut self, frame: FrameInfo);
 
     fn end(&mut self);
+
+    fn interaction_area(&self, area: Rect, clip: Rect) -> Option<Rect> {
+        area.intersection(clip)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
