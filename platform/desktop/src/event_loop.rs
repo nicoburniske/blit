@@ -69,11 +69,12 @@ struct Active<A: Application> {
     frame: Frame<DesktopPlatform>,
     surface: Surface<OwnedDisplayHandle, Rc<Window>>,
     window: Rc<Window>,
+    ui_scale: f32,
 }
 
 impl<A: Application> Active<A> {
     fn scale(&self) -> f32 {
-        self.window.scale_factor() as f32
+        self.window.scale_factor() as f32 * self.ui_scale
     }
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), RunError> {
@@ -209,7 +210,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
         )
         .strategy(Scanline::default());
         let mut platform = DesktopPlatform::new(renderer);
-        platform.set_device_scale(window.scale_factor() as f32);
+        platform.set_scale(window.scale_factor() as f32);
         let frame = Frame::default();
         let wake = input.inner.clone();
         let executor = Box::pin(LocalExecutor::new(move |task| {
@@ -225,6 +226,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             frame,
             surface,
             window,
+            ui_scale: 1.0,
         });
         if let Err(error) = active.resize(size) {
             return self.fail(event_loop, error);
@@ -272,7 +274,9 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                active.platform.set_device_scale(scale_factor as f32);
+                active
+                    .platform
+                    .set_scale(scale_factor as f32 * active.ui_scale);
                 if let Err(error) = active.resize(active.window.inner_size()) {
                     self.fail(event_loop, error);
                 } else {
@@ -402,6 +406,20 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                     _ => None,
                 };
                 if let Some(key) = key {
+                    if event.state == ElementState::Pressed && self.modifiers.control() {
+                        let scale = match key {
+                            Key::Character('+') | Key::Character('=') => {
+                                Some(active.ui_scale + 0.25)
+                            }
+                            Key::Character('-') => Some(active.ui_scale - 0.25),
+                            _ => None,
+                        };
+                        if let Some(scale) = scale {
+                            active.ui_scale = scale.clamp(0.5, 4.0);
+                            let scale = active.scale();
+                            active.platform.set_scale(scale);
+                        }
+                    }
                     self.push_input(Input::Key(KeyInput {
                         key,
                         modifiers: self.modifiers,
