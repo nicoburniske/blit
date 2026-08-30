@@ -13,12 +13,21 @@ use blit_terminal::{
     color::Color,
     draw::{Block, Border},
     layout::{Align, Flex, Grid, Justify, Wrap},
+    text::{HorizontalAlign, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
     widget::Text,
 };
 
 fn main() -> io::Result<()> {
+    let mut page = Page::default();
     let mut canvas = CanvasConfig::default();
     let mut resize = ResizeState::default();
+    let mut text_resize = ResizeState::default();
+    let mut text_attributes = TextAttributes::NONE;
+    let mut text_wrap = TextWrap::Word;
+    let mut text_overflow = TextOverflow::Clip;
+    let mut text_horizontal = HorizontalAlign::Left;
+    let mut text_vertical = VerticalAlign::Top;
+    let mut text_max_lines = None;
     let mut fps = FpsBadge::default();
     blit_terminal::run(|ui: &mut Ui| {
         let control = if matches!(ui.input(), Input::Text('q'))
@@ -35,238 +44,462 @@ fn main() -> io::Result<()> {
         );
         root.child()
             .slot(Slot::new().height(Sizing::fixed(1.0)))
-            .layout(Flex::row().align(Align::Center).gap(2.0), |mut header| {
-                header.add(Text::new("BLIT / LAYOUT PLAYGROUND").bold(true));
+            .layout(Flex::row().align(Align::Center).gap(1.0), |mut header| {
+                header.add(Text::new("BLIT").attributes(TextAttributes::BOLD));
                 if header.add(Button::new(
-                    WidgetId::new("terminal reset layout playground"),
+                    WidgetId::new("terminal layout page"),
+                    " Layout ",
+                    page == Page::Layout,
+                )) {
+                    page = Page::Layout;
+                }
+                if header.add(Button::new(
+                    WidgetId::new("terminal text page"),
+                    " Text ",
+                    page == Page::Text,
+                )) {
+                    page = Page::Text;
+                }
+                if header.add(Button::new(
+                    WidgetId::new("terminal reset showcase"),
                     " Reset ",
                     false,
                 )) {
                     canvas = CanvasConfig::default();
                     resize.reset();
+                    text_resize.reset();
+                    text_attributes = TextAttributes::NONE;
+                    text_wrap = TextWrap::Word;
+                    text_overflow = TextOverflow::Clip;
+                    text_horizontal = HorizontalAlign::Left;
+                    text_vertical = VerticalAlign::Top;
+                    text_max_lines = None;
                 }
                 header.add(Text::new("q quit").color(colors::TEXT_MUTED));
             });
-        root.child()
-            .slot(Slot::new().grow())
-            .layout(Flex::row().gap(1.0), |mut body| {
-                body.child()
-                    .slot(
-                        Slot::new()
-                            .width(Sizing::fixed(40.0))
-                            .height(Sizing::grow()),
-                    )
-                    .layout_with(
-                        panel(colors::SURFACE),
-                        Flex::column().padding(Sides::all(1.0)).gap(1.0),
-                        |mut controls| {
-                            controls
-                                .child()
-                                .slot(Slot::new().height(Sizing::fixed(1.0)))
-                                .add(
-                                    Text::new("LAYOUT PARAMETERS")
-                                        .color(colors::ACCENT)
-                                        .bold(true),
-                                );
-                            controls.add(Text::new("FLOW").color(colors::SECTION).bold(true));
-                            controls.add(|ui: &mut Ui| {
-                                choices(
-                                    ui,
-                                    "layout",
-                                    "terminal layout",
-                                    &mut canvas.layout,
-                                    &[
-                                        (" Flex ", CanvasLayout::Flex),
-                                        (" Wrap ", CanvasLayout::Wrap),
-                                        (" Grid ", CanvasLayout::Grid),
-                                    ],
-                                );
-                            });
-                            controls.add(|ui: &mut Ui| {
-                                choices(
-                                    ui,
-                                    "axis",
-                                    "terminal axis",
-                                    &mut canvas.axis,
-                                    &[(" Horz ", Axis::Horizontal), (" Vert ", Axis::Vertical)],
-                                );
-                            });
-                            controls
-                                .add(Text::new("DISTRIBUTION").color(colors::SECTION).bold(true));
-                            controls.add(|ui: &mut Ui| {
-                                choices(
-                                    ui,
-                                    "justify",
-                                    "terminal justify position",
-                                    &mut canvas.justify,
-                                    &[
-                                        (" Start ", Justify::Start),
-                                        (" Center ", Justify::Center),
-                                        (" End ", Justify::End),
-                                    ],
-                                );
-                            });
-                            controls.add(|ui: &mut Ui| {
-                                choices(
-                                    ui,
-                                    "distribute",
-                                    "terminal justify distribution",
-                                    &mut canvas.justify,
-                                    &[
-                                        (" Between ", Justify::SpaceBetween),
-                                        (" Around ", Justify::SpaceAround),
-                                        (" Even ", Justify::SpaceEvenly),
-                                    ],
-                                );
-                            });
-                            controls.add(|ui: &mut Ui| {
-                                choices(
-                                    ui,
-                                    "align",
-                                    "terminal align",
-                                    &mut canvas.align,
-                                    &[
-                                        (" Start ", Align::Start),
-                                        (" Center ", Align::Center),
-                                        (" End ", Align::End),
-                                        (" Stretch ", Align::Stretch),
-                                    ],
-                                );
-                            });
-                            controls.add(
-                                Text::new("SCALE, SPACE & MOTION")
-                                    .color(colors::SECTION)
-                                    .bold(true),
-                            );
-                            controls.add(|ui: &mut Ui| {
-                                choices(
-                                    ui,
-                                    "sizing",
-                                    "terminal sizing",
-                                    &mut canvas.sizing,
-                                    &[
-                                        (" Fixed ", ItemSizing::Fixed),
-                                        (" Fit ", ItemSizing::Fit),
-                                        (" Grow ", ItemSizing::Grow),
-                                    ],
-                                );
-                            });
-                            controls.add(|ui: &mut Ui| {
-                                choices(
-                                    ui,
-                                    "zoom",
-                                    "terminal zoom",
-                                    &mut canvas.zoom,
-                                    &[(" 75% ", 0.75), (" 100% ", 1.0), (" 125% ", 1.25)],
-                                );
-                            });
-                            controls.add(|ui: &mut Ui| {
-                                choices(
-                                    ui,
-                                    "gap",
-                                    "terminal gap",
-                                    &mut canvas.gap_steps,
-                                    &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
-                                );
-                            });
-                            controls.add(|ui: &mut Ui| {
-                                choices(
-                                    ui,
-                                    "padding",
-                                    "terminal padding",
-                                    &mut canvas.padding_steps,
-                                    &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
-                                );
-                            });
-                            controls.add(|ui: &mut Ui| {
-                                choices(
-                                    ui,
-                                    "transitions",
-                                    "terminal transitions",
-                                    &mut canvas.transitions,
-                                    &[(" On ", true), (" Off ", false)],
-                                );
-                            });
-                            controls.child().slot(Slot::new().grow()).layout(
-                                Flex::column().justify(Justify::End),
-                                |mut help| {
-                                    help.add(
-                                        Text::new("POINTER").color(colors::SECTION).bold(true),
+        if page == Page::Layout {
+            root.child()
+                .slot(Slot::new().grow())
+                .layout(Flex::row().gap(1.0), |mut body| {
+                    body.child()
+                        .slot(
+                            Slot::new()
+                                .width(Sizing::fixed(40.0))
+                                .height(Sizing::grow()),
+                        )
+                        .layout_with(
+                            panel(colors::SURFACE),
+                            Flex::column().padding(Sides::all(1.0)).gap(1.0),
+                            |mut controls| {
+                                controls
+                                    .child()
+                                    .slot(Slot::new().height(Sizing::fixed(1.0)))
+                                    .add(
+                                        Text::new("LAYOUT PARAMETERS")
+                                            .color(colors::ACCENT)
+                                            .attributes(TextAttributes::BOLD),
                                     );
-                                    help.add(
-                                        Text::new("click a value to select it")
-                                            .color(colors::TEXT_MUTED),
+                                controls.add(
+                                    Text::new("FLOW")
+                                        .color(colors::SECTION)
+                                        .attributes(TextAttributes::BOLD),
+                                );
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "layout",
+                                        "terminal layout",
+                                        &mut canvas.layout,
+                                        &[
+                                            (" Flex ", CanvasLayout::Flex),
+                                            (" Wrap ", CanvasLayout::Wrap),
+                                            (" Grid ", CanvasLayout::Grid),
+                                        ],
                                     );
-                                    help.add(
-                                        Text::new("drag the preview handles to resize")
-                                            .color(colors::TEXT_MUTED),
+                                });
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "axis",
+                                        "terminal axis",
+                                        &mut canvas.axis,
+                                        &[(" Horz ", Axis::Horizontal), (" Vert ", Axis::Vertical)],
                                     );
-                                },
-                            );
-                        },
-                    );
-                body.child().slot(Slot::new().grow()).layout_with(
-                    panel(colors::SURFACE),
-                    Flex::column().padding(Sides::all(1.0)),
-                    |mut preview| {
-                        preview
-                            .child()
-                            .slot(Slot::new().height(Sizing::fixed(1.0)))
-                            .layout(Flex::row().gap(1.0), |mut status| {
-                                status.add(
-                                    Text::new("LIVE PREVIEW").color(colors::ACCENT).bold(true),
+                                });
+                                controls.add(
+                                    Text::new("DISTRIBUTION")
+                                        .color(colors::SECTION)
+                                        .attributes(TextAttributes::BOLD),
                                 );
-                                status.add(Text::new("/").color(colors::TEXT_DIM));
-                                status.add(
-                                    Text::new(match canvas.layout {
-                                        CanvasLayout::Flex => "flex",
-                                        CanvasLayout::Wrap => "wrap",
-                                        CanvasLayout::Grid => "grid",
-                                    })
-                                    .color(colors::TEXT_MUTED),
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "justify",
+                                        "terminal justify position",
+                                        &mut canvas.justify,
+                                        &[
+                                            (" Start ", Justify::Start),
+                                            (" Center ", Justify::Center),
+                                            (" End ", Justify::End),
+                                        ],
+                                    );
+                                });
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "distribute",
+                                        "terminal justify distribution",
+                                        &mut canvas.justify,
+                                        &[
+                                            (" Between ", Justify::SpaceBetween),
+                                            (" Around ", Justify::SpaceAround),
+                                            (" Even ", Justify::SpaceEvenly),
+                                        ],
+                                    );
+                                });
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "align",
+                                        "terminal align",
+                                        &mut canvas.align,
+                                        &[
+                                            (" Start ", Align::Start),
+                                            (" Center ", Align::Center),
+                                            (" End ", Align::End),
+                                            (" Stretch ", Align::Stretch),
+                                        ],
+                                    );
+                                });
+                                controls.add(
+                                    Text::new("SCALE, SPACE & MOTION")
+                                        .color(colors::SECTION)
+                                        .attributes(TextAttributes::BOLD),
                                 );
-                                status.add(
-                                    Text::new(match canvas.axis {
-                                        Axis::Horizontal => "horizontal",
-                                        Axis::Vertical => "vertical",
-                                    })
-                                    .color(colors::TEXT_MUTED),
-                                );
-                            });
-                        preview.child().slot(Slot::new().grow()).layout_with(
-                            Block::new().background(colors::TRACK),
-                            Flex::row().padding(Sides::all(1.0)).align(Align::Start),
-                            |mut viewport| {
-                                viewport.add(
-                                    Resizable::new(
-                                        &mut resize,
-                                        WidgetId::new("terminal layout canvas"),
-                                        Size::new(
-                                            ((screen.width - 48.0) * 0.8).max(18.0),
-                                            ((screen.height - 8.0) * 0.72).max(9.0),
-                                        ),
-                                        Canvas { config: canvas },
-                                        TerminalGrip,
-                                    )
-                                    .minimum(Size::new(18.0, 9.0))
-                                    .maximum(screen.size())
-                                    .grip_size(Size::new(1.0, 1.0)),
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "sizing",
+                                        "terminal sizing",
+                                        &mut canvas.sizing,
+                                        &[
+                                            (" Fixed ", ItemSizing::Fixed),
+                                            (" Fit ", ItemSizing::Fit),
+                                            (" Grow ", ItemSizing::Grow),
+                                        ],
+                                    );
+                                });
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "zoom",
+                                        "terminal zoom",
+                                        &mut canvas.zoom,
+                                        &[(" 75% ", 0.75), (" 100% ", 1.0), (" 125% ", 1.25)],
+                                    );
+                                });
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "gap",
+                                        "terminal gap",
+                                        &mut canvas.gap_steps,
+                                        &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
+                                    );
+                                });
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "padding",
+                                        "terminal padding",
+                                        &mut canvas.padding_steps,
+                                        &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
+                                    );
+                                });
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "transitions",
+                                        "terminal transitions",
+                                        &mut canvas.transitions,
+                                        &[(" On ", true), (" Off ", false)],
+                                    );
+                                });
+                                controls.child().slot(Slot::new().grow()).layout(
+                                    Flex::column().justify(Justify::End),
+                                    |mut help| {
+                                        help.add(
+                                            Text::new("POINTER")
+                                                .color(colors::SECTION)
+                                                .attributes(TextAttributes::BOLD),
+                                        );
+                                        help.add(
+                                            Text::new("click a value to select it")
+                                                .color(colors::TEXT_MUTED),
+                                        );
+                                        help.add(
+                                            Text::new("drag the preview handles to resize")
+                                                .color(colors::TEXT_MUTED),
+                                        );
+                                    },
                                 );
                             },
                         );
-                        preview
-                            .child()
-                            .slot(Slot::new().height(Sizing::fixed(1.0)))
-                            .add(
-                                Text::new("drag the teal edge or corner to resize")
+                    body.child().slot(Slot::new().grow()).layout_with(
+                        panel(colors::SURFACE),
+                        Flex::column().padding(Sides::all(1.0)),
+                        |mut preview| {
+                            preview
+                                .child()
+                                .slot(Slot::new().height(Sizing::fixed(1.0)))
+                                .layout(Flex::row().gap(1.0), |mut status| {
+                                    status.add(
+                                        Text::new("LIVE PREVIEW")
+                                            .color(colors::ACCENT)
+                                            .attributes(TextAttributes::BOLD),
+                                    );
+                                    status.add(Text::new("/").color(colors::TEXT_DIM));
+                                    status.add(
+                                        Text::new(match canvas.layout {
+                                            CanvasLayout::Flex => "flex",
+                                            CanvasLayout::Wrap => "wrap",
+                                            CanvasLayout::Grid => "grid",
+                                        })
+                                        .color(colors::TEXT_MUTED),
+                                    );
+                                    status.add(
+                                        Text::new(match canvas.axis {
+                                            Axis::Horizontal => "horizontal",
+                                            Axis::Vertical => "vertical",
+                                        })
+                                        .color(colors::TEXT_MUTED),
+                                    );
+                                });
+                            preview.child().slot(Slot::new().grow()).layout_with(
+                                Block::new().background(colors::TRACK),
+                                Flex::row().padding(Sides::all(1.0)).align(Align::Start),
+                                |mut viewport| {
+                                    viewport.add(
+                                        Resizable::new(
+                                            &mut resize,
+                                            WidgetId::new("terminal layout canvas"),
+                                            Size::new(
+                                                ((screen.width - 48.0) * 0.8).max(18.0),
+                                                ((screen.height - 8.0) * 0.72).max(9.0),
+                                            ),
+                                            Canvas { config: canvas },
+                                            TerminalGrip,
+                                        )
+                                        .minimum(Size::new(18.0, 9.0))
+                                        .maximum(screen.size())
+                                        .grip_size(Size::new(1.0, 1.0)),
+                                    );
+                                },
+                            );
+                            preview
+                                .child()
+                                .slot(Slot::new().height(Sizing::fixed(1.0)))
+                                .add(
+                                    Text::new("drag the teal edge or corner to resize")
+                                        .color(colors::TEXT_DIM),
+                                );
+                        },
+                    );
+                });
+        } else {
+            root.child()
+                .slot(Slot::new().grow())
+                .layout(Flex::column().gap(1.0), |mut body| {
+                    body.add(|ui: &mut Ui| {
+                        let mut controls = ui.layout_with(
+                            panel(colors::SURFACE),
+                            Flex::column().padding(Sides::all(1.0)).gap(1.0),
+                        );
+                        controls.add(
+                            Text::new("TEXT ATTRIBUTES")
+                                .color(colors::ACCENT)
+                                .attributes(TextAttributes::BOLD),
+                        );
+                        controls.add(|ui: &mut Ui| {
+                            let mut toggles = ui.layout(
+                                Wrap::new(Axis::Horizontal)
+                                    .item_gap(1.0)
+                                    .run_gap(1.0)
+                                    .align(Align::Center),
+                            );
+                            for (index, (label, attribute)) in [
+                                (" Bold ", TextAttributes::BOLD),
+                                (" Dim ", TextAttributes::DIM),
+                                (" Italic ", TextAttributes::ITALIC),
+                                (" Underline ", TextAttributes::UNDERLINE),
+                                (" Blink ", TextAttributes::BLINK),
+                                (" Inverse ", TextAttributes::INVERSE),
+                                (" Hidden ", TextAttributes::HIDDEN),
+                                (" Strikethrough ", TextAttributes::STRIKETHROUGH),
+                            ]
+                            .into_iter()
+                            .enumerate()
+                            {
+                                let selected = text_attributes.contains(attribute);
+                                if toggles.add(Button::new(
+                                    WidgetId::new(("terminal text attribute", index)),
+                                    label,
+                                    selected,
+                                )) {
+                                    text_attributes.set(attribute, !selected);
+                                }
+                            }
+                        });
+                        controls.add(
+                            Text::new("TEXT OPTIONS")
+                                .color(colors::SECTION)
+                                .attributes(TextAttributes::BOLD),
+                        );
+                        controls.add(|ui: &mut Ui| {
+                            choices(
+                                ui,
+                                "wrap",
+                                "terminal text wrap",
+                                &mut text_wrap,
+                                &[
+                                    (" None ", TextWrap::None),
+                                    (" Word ", TextWrap::Word),
+                                    (" Character ", TextWrap::Character),
+                                ],
+                            );
+                        });
+                        controls.add(|ui: &mut Ui| {
+                            choices(
+                                ui,
+                                "overflow",
+                                "terminal text overflow",
+                                &mut text_overflow,
+                                &[
+                                    (" Clip ", TextOverflow::Clip),
+                                    (" Ellipsis ", TextOverflow::Ellipsis),
+                                ],
+                            );
+                        });
+                        controls.add(|ui: &mut Ui| {
+                            choices(
+                                ui,
+                                "horizontal",
+                                "terminal text horizontal align",
+                                &mut text_horizontal,
+                                &[
+                                    (" Left ", HorizontalAlign::Left),
+                                    (" Center ", HorizontalAlign::Center),
+                                    (" Right ", HorizontalAlign::Right),
+                                ],
+                            );
+                        });
+                        controls.add(|ui: &mut Ui| {
+                            choices(
+                                ui,
+                                "vertical",
+                                "terminal text vertical align",
+                                &mut text_vertical,
+                                &[
+                                    (" Top ", VerticalAlign::Top),
+                                    (" Center ", VerticalAlign::Center),
+                                    (" Bottom ", VerticalAlign::Bottom),
+                                ],
+                            );
+                        });
+                        controls.add(|ui: &mut Ui| {
+                            choices(
+                                ui,
+                                "maximum lines",
+                                "terminal text maximum lines",
+                                &mut text_max_lines,
+                                &[(" All ", None), (" 3 ", Some(3)), (" 6 ", Some(6))],
+                            );
+                        });
+                    });
+                    body.child().slot(Slot::new().grow()).layout_with(
+                        panel(colors::SURFACE),
+                        Flex::column().padding(Sides::all(1.0)).gap(1.0),
+                        |mut preview| {
+                            preview.add(
+                                Text::new("RESIZABLE TEXT")
+                                    .color(colors::SECTION)
+                                    .attributes(TextAttributes::BOLD | TextAttributes::UNDERLINE),
+                            );
+                            preview.child().slot(Slot::new().grow()).layout_with(
+                                Block::new().background(colors::TRACK),
+                                Flex::row().padding(Sides::all(1.0)).align(Align::Start),
+                                |mut viewport| {
+                                    let mut options = TextOptions::new()
+                                        .wrap(text_wrap)
+                                        .overflow(text_overflow)
+                                        .horizontal_align(text_horizontal)
+                                        .vertical_align(text_vertical);
+                                    if let Some(max_lines) = text_max_lines {
+                                        options = options.max_lines(max_lines);
+                                    }
+                                    viewport.add(
+                                        Resizable::new(
+                                            &mut text_resize,
+                                            WidgetId::new("terminal text preview"),
+                                            Size::new(
+                                                (screen.width * 0.7).max(12.0),
+                                                (screen.height * 0.35).max(6.0),
+                                            ),
+                                            |ui: &mut Ui| {
+                                                let mut paragraph = ui
+                                                    .layout_with(
+                                                        Block::new()
+                                                            .background(colors::CANVAS)
+                                                            .border(
+                                                                Border::new(colors::CANVAS_BORDER)
+                                                                    .rounded(true),
+                                                            ),
+                                                        Flex::column().padding(Sides::all(1.0)),
+                                                    )
+                                                    .clip(BoundsClip);
+                                                paragraph.child().slot(Slot::new().grow()).add(
+                                                    Text::new(TEXT_SAMPLE)
+                                                        .color(colors::TEXT)
+                                                        .attributes(text_attributes)
+                                                        .options(options),
+                                                );
+                                            },
+                                            TerminalGrip,
+                                        )
+                                        .minimum(Size::new(12.0, 6.0))
+                                        .maximum(Size::new(
+                                            (screen.width - 4.0).max(12.0),
+                                            (screen.height - 8.0).max(6.0),
+                                        ))
+                                        .grip_size(Size::new(1.0, 1.0)),
+                                    );
+                                },
+                            );
+                            preview.add(
+                                Text::new("drag the handles to change text flow")
                                     .color(colors::TEXT_DIM),
                             );
-                    },
-                );
-            });
+                        },
+                    );
+                });
+        }
         root.add(&mut fps);
         control
     })
+}
+
+const TEXT_SAMPLE: &str = concat!(
+    "The terminal renderer applies one resolved attribute mask to every cell in this paragraph. ",
+    "Toggle the controls to combine bold, dim, italic, underline, blink, inverse, hidden, and ",
+    "strikethrough without changing wrapping or measurement. The words keep flowing through the ",
+    "same layout while the terminal handles their visual presentation."
+);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Page {
+    #[default]
+    Layout,
+    Text,
 }
 
 struct FpsBadge {
@@ -310,7 +543,11 @@ impl Widget<TerminalPlatform> for &mut FpsBadge {
             .child()
             .slot(Slot::new().fixed(1.0, 1.0))
             .add(Block::new().background(colors::ACCENT));
-        badge.add(Text::new(&self.label).color(colors::TEXT).bold(true));
+        badge.add(
+            Text::new(&self.label)
+                .color(colors::TEXT)
+                .attributes(TextAttributes::BOLD),
+        );
         badge.add(Text::new("SCREEN ABSOLUTE").color(colors::TEXT_DIM));
     }
 }
@@ -515,7 +752,11 @@ fn canvas_item(
     } else {
         item
     };
-    item.add(Text::new(spec.label).color(colors::TEXT).bold(true));
+    item.add(
+        Text::new(spec.label)
+            .color(colors::TEXT)
+            .attributes(TextAttributes::BOLD),
+    );
     if let Some(anchor) = spec.badge {
         item.child()
             .slot(
