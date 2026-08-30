@@ -3,8 +3,10 @@ use std::time::Duration;
 use blit::{
     Absolute, Anchor, Axis, Clip, Constraints, Easing, Frame, FrameInfo, Input, Interaction,
     Layout, LayoutCx, LayoutResolution, Leaf, Modifiers, NodeId, Platform, Point, PointerButton,
-    Rect, Sense, Size, Sizing, Slot, Transition, Ui, WidgetId,
+    Rect, Sense, Size, Sizing, Slot, Transition, Widget, WidgetId,
 };
+
+type Ui<'a> = blit::Ui<'a, AsciiPlatform>;
 
 #[test]
 fn animations_and_timers_schedule_frames() {
@@ -69,7 +71,7 @@ fn resolves_absolute_targets_and_layer_order() {
         |mut ui| {
             let mut overlay = ui.layout(Overlay);
             let target = overlay.add(Fill::new('T', Size::new(2.0, 2.0)));
-            overlay.scope(|ui| {
+            overlay.add(|ui: &mut Ui<'_>| {
                 let _absolute = ui
                     .layout_with(Fill::new('A', Size::new(1.0, 1.0)), Overlay)
                     .absolute(
@@ -115,7 +117,7 @@ fn resolves_absolute_targets_and_layer_order() {
         |mut ui| {
             let mut root = ui.layout(Overlay);
             let layer = root.new_layer();
-            root.scope(|ui| {
+            root.add(|ui: &mut Ui<'_>| {
                 let mut panel = ui
                     .layout_with(Fill::new('p', Size::new(3.0, 3.0)), BaseOnly)
                     .clip(DiamondClip);
@@ -133,7 +135,7 @@ fn resolves_absolute_targets_and_layer_order() {
         FrameInfo::new(Size::new(3.0, 3.0)),
         |mut ui| {
             let mut root = ui.layout(Overlay);
-            root.scope(|ui| {
+            root.add(|ui: &mut Ui<'_>| {
                 let mut panel = ui
                     .layout_with(Fill::new('p', Size::new(3.0, 3.0)), BaseOnly)
                     .clip(DiamondClip);
@@ -311,7 +313,7 @@ fn absolute_slots_resolve_against_the_target() {
                         .width(Sizing::percent(0.5))
                         .height(Sizing::grow()),
                 )
-                .scope(|ui| {
+                .add(|ui: &mut Ui<'_>| {
                     let _absolute = ui
                         .layout_with(Fill::new('A', Size::new(1.0, 1.0)), Overlay)
                         .absolute(
@@ -426,7 +428,7 @@ fn interaction_is_bounded_by_clip_rectangles() {
     assert_eq!(active, [false, false, true]);
 }
 
-fn buttons(mut ui: Ui<'_, AsciiPlatform>, bottom: WidgetId, top: WidgetId) -> [Interaction; 2] {
+fn buttons(mut ui: Ui<'_>, bottom: WidgetId, top: WidgetId) -> [Interaction; 2] {
     let responses = [
         ui.interact(bottom, Sense::CLICK),
         ui.interact(top, Sense::CLICK),
@@ -458,12 +460,14 @@ fn transition_scene(
         [Input::None],
         |mut ui| {
             let mut column = ui.layout(Column);
-            column.item(ColumnItem { gap_before: 0.0 }).scope(|ui| {
-                let _child = ui
-                    .layout_with(Fill::new('X', Size::new(width, 1.0)), Overlay)
-                    .id(id)
-                    .transition(Transition::new(Duration::from_secs(1)).width());
-            });
+            column
+                .item(ColumnItem { gap_before: 0.0 })
+                .add(|ui: &mut Ui<'_>| {
+                    let _child = ui
+                        .layout_with(Fill::new('X', Size::new(width, 1.0)), Overlay)
+                        .id(id)
+                        .transition(Transition::new(Duration::from_secs(1)).width());
+                });
         },
     );
 }
@@ -480,7 +484,7 @@ fn unidentified_transition_scene(
         [Input::None],
         |mut ui| {
             let mut overlay = ui.layout(Overlay);
-            overlay.scope(|ui| {
+            overlay.add(|ui: &mut Ui<'_>| {
                 let _child = ui
                     .layout_with(Fill::new('X', Size::new(width, 1.0)), Overlay)
                     .transition(Transition::new(Duration::from_secs(1)).width());
@@ -503,20 +507,22 @@ fn position_transition_scene(
         [Input::None],
         |mut ui| {
             let mut column = ui.layout(Column).offset(Point::new(0.0, 1.0));
-            column.item(ColumnItem { gap_before: gap }).scope(|ui| {
-                let _child = ui
-                    .layout_with(Fill::new('X', Size::new(1.0, 1.0)), Overlay)
-                    .id(id)
-                    .transition(Transition::new(Duration::from_secs(1)).y());
-            });
+            column
+                .item(ColumnItem { gap_before: gap })
+                .add(|ui: &mut Ui<'_>| {
+                    let _child = ui
+                        .layout_with(Fill::new('X', Size::new(1.0, 1.0)), Overlay)
+                        .id(id)
+                        .transition(Transition::new(Duration::from_secs(1)).y());
+                });
         },
     );
 }
 
-fn clipped_button(mut ui: Ui<'_, AsciiPlatform>, id: WidgetId) -> Interaction {
+fn clipped_button(mut ui: Ui<'_>, id: WidgetId) -> Interaction {
     let interaction = ui.interact(id, Sense::CLICK);
     let mut root = ui.layout(Overlay);
-    root.scope(|ui| {
+    root.add(|ui: &mut Ui<'_>| {
         let mut panel = ui
             .layout_with(Fill::new('P', Size::new(3.0, 1.0)), BaseOnly)
             .clip(DiamondClip);
@@ -528,17 +534,19 @@ fn clipped_button(mut ui: Ui<'_, AsciiPlatform>, id: WidgetId) -> Interaction {
     interaction
 }
 
-fn scene(mut ui: Ui<'_, AsciiPlatform>) {
+fn scene(mut ui: Ui<'_>) {
     let mut column = ui.layout(Column);
     column
         .item(ColumnItem { gap_before: 0.0 })
         .add(Fill::new('A', Size::new(3.0, 1.0)));
-    column.item(ColumnItem { gap_before: 1.0 }).scope(|ui| {
-        let mut panel = ui
-            .layout_with(Fill::new('b', Size::new(5.0, 3.0)), Overlay)
-            .clip(DiamondClip);
-        panel.add(Fill::new('C', Size::new(1.0, 1.0)));
-    });
+    column
+        .item(ColumnItem { gap_before: 1.0 })
+        .add(|ui: &mut Ui<'_>| {
+            let mut panel = ui
+                .layout_with(Fill::new('b', Size::new(5.0, 3.0)), Overlay)
+                .clip(DiamondClip);
+            panel.add(Fill::new('C', Size::new(1.0, 1.0)));
+        });
 }
 
 #[derive(Clone, Copy)]
@@ -550,6 +558,14 @@ struct Fill {
 impl Fill {
     const fn new(glyph: char, size: Size) -> Self {
         Self { glyph, size }
+    }
+}
+
+impl Widget<AsciiPlatform> for Fill {
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui<'_>) -> Self::Response {
+        ui.add_leaf(self)
     }
 }
 

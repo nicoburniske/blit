@@ -12,9 +12,10 @@ pub use blit_cpu::{color, image, style, text_types as text};
 pub use blit_layout as layout;
 pub use platform::{BoundsClip, DesktopPlatform, draw, widget};
 
+pub type Ui<'a> = blit::Ui<'a, DesktopPlatform>;
+
 use std::{error::Error, fmt};
 
-use blit::Ui;
 use blit_cpu::RendererConfig;
 use winit::event_loop::EventLoopProxy as WinitEventLoopProxy;
 
@@ -60,7 +61,7 @@ pub trait Application: Sized + 'static {
 
     fn input(&mut self, input: Self::Input);
 
-    fn render(&mut self, ui: &mut Ui<'_, DesktopPlatform>);
+    fn render(&mut self, ui: &mut Ui<'_>);
 }
 
 pub fn run<A: Application>(config: Config) -> Result<(), RunError> {

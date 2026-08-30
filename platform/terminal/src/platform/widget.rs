@@ -1,7 +1,8 @@
-use blit::{Ui, Widget};
+use blit::Widget;
 use blit_term::{color::Color, text::TextOptions};
 
 use super::{TerminalPlatform, draw::TextRun};
+use crate::Ui;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -16,7 +17,7 @@ blit::builder! {
 impl Widget<TerminalPlatform> for Text<'_> {
     type Response = ();
 
-    fn build(self, ui: &mut Ui<'_, TerminalPlatform>) {
+    fn build(self, ui: &mut Ui<'_>) {
         let run = ui.platform().text_run(self.text);
         ui.add(
             TextRun::new(run)

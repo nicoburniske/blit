@@ -1,4 +1,4 @@
-use blit::{Constraints, Leaf, LogicalRect, Size};
+use blit::{Constraints, Leaf, LogicalRect, NodeId, Size, Widget};
 use blit_term::{
     color::Color,
     command_list::Block as DrawBlock,
@@ -9,6 +9,7 @@ use blit_term::{
 pub use blit_term::command_list::Border;
 
 use super::TerminalPlatform;
+use crate::Ui;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -19,6 +20,14 @@ blit::builder! {
         },
         background: Color = Color::TRANSPARENT,
         opacity: f32 = 1.0,
+    }
+}
+
+impl Widget<TerminalPlatform> for Block {
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui<'_>) -> Self::Response {
+        ui.add_leaf(self)
     }
 }
 
@@ -50,6 +59,14 @@ blit::builder! {
     }
 }
 
+impl Widget<TerminalPlatform> for TextRun {
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui<'_>) -> Self::Response {
+        ui.add_leaf(self)
+    }
+}
+
 impl Leaf<TerminalPlatform> for TextRun {
     fn measure(&self, platform: &mut TerminalPlatform, constraints: Constraints) -> Size {
         let mut request = TextLayoutRequest::new(self.text).wrap(self.options.wrap);
@@ -77,6 +94,14 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Image {
         new(image: ImageId, intrinsic: Size),
+    }
+}
+
+impl Widget<TerminalPlatform> for Image {
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui<'_>) -> Self::Response {
+        ui.add_leaf(self)
     }
 }
 

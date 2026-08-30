@@ -4,10 +4,12 @@ pub use blit_layout as layout;
 pub use blit_term::{color, image, text};
 pub use platform::{BoundsClip, TerminalPlatform, draw, widget};
 
+pub type Ui<'a> = blit::Ui<'a, TerminalPlatform>;
+
 use std::{io, io::Write as _, time::Duration, time::Instant};
 
 use blit::{
-    Frame, FrameInfo, LayoutResolution, LogicalPoint, LogicalSize, Ui,
+    Frame, FrameInfo, LayoutResolution, LogicalPoint, LogicalSize,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use blit_term::{RendererConfig, TerminalRenderer};
@@ -28,13 +30,13 @@ pub enum ControlFlow {
     Exit,
 }
 
-pub fn run(mut render: impl FnMut(&mut Ui<'_, TerminalPlatform>) -> ControlFlow) -> io::Result<()> {
+pub fn run(mut render: impl FnMut(&mut Ui<'_>) -> ControlFlow) -> io::Result<()> {
     run_with(|_| (), move |_, ui| render(ui))
 }
 
 pub fn run_with<S>(
     initialize: impl FnOnce(&mut TerminalPlatform) -> S,
-    mut render: impl FnMut(&mut S, &mut Ui<'_, TerminalPlatform>) -> ControlFlow,
+    mut render: impl FnMut(&mut S, &mut Ui<'_>) -> ControlFlow,
 ) -> io::Result<()> {
     let mut session = Session::new()?;
     let mut state = initialize(session.platform_mut());
