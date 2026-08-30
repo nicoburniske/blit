@@ -1,5 +1,10 @@
-use blit::{Constraints, Frame, FrameInfo, Leaf, Platform, Rect, Size, Sizing, Slot, WidgetId};
+use blit::{
+    Constraints, Frame, FrameInfo, Leaf, NodeId, Platform, Rect, Size, Sizing, Slot, Widget,
+    WidgetId,
+};
 use blit_layout::{Flex, Grid, RectLayout, Wrap};
+
+type Ui<'a> = blit::Ui<'a, TestPlatform>;
 
 #[derive(Default)]
 struct TestPlatform;
@@ -11,6 +16,14 @@ impl Platform for TestPlatform {
 
 #[derive(Clone, Copy)]
 struct BoxLeaf(Size);
+
+impl Widget<TestPlatform> for BoxLeaf {
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui<'_>) -> Self::Response {
+        ui.add_leaf(self)
+    }
+}
 
 impl Leaf<TestPlatform> for BoxLeaf {
     fn measure(&self, _: &mut TestPlatform, constraints: Constraints) -> Size {

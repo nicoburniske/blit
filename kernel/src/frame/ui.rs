@@ -21,6 +21,11 @@ impl<R: Platform> Ui<'_, R> {
         widget.build(self)
     }
 
+    pub fn add_leaf<L: Leaf<R>>(&mut self, leaf: L) -> NodeId {
+        let base = self.frame.store_leaf(leaf);
+        self.frame.push_node(self.parent, Some(base), None)
+    }
+
     pub fn layout<L: Layout<R>>(&mut self, layout: L) -> Container<'_, R, L> {
         let layout = self.frame.store_layout(layout);
         let node = self.frame.push_node(self.parent, None, Some(layout));
@@ -155,19 +160,6 @@ impl<R: Platform> Ui<'_, R> {
 
     pub fn request_frame(&mut self) {
         self.frame.request_frame();
-    }
-}
-
-impl<R, L> Widget<R> for L
-where
-    R: Platform,
-    L: Leaf<R>,
-{
-    type Response = NodeId;
-
-    fn build(self, ui: &mut Ui<'_, R>) -> Self::Response {
-        let base = ui.frame.store_leaf(self);
-        ui.frame.push_node(ui.parent, Some(base), None)
     }
 }
 

@@ -46,7 +46,19 @@ pub trait Widget<R: Platform> {
     fn build(self, ui: &mut Ui<'_, R>) -> Self::Response;
 }
 
-pub trait Leaf<R: Platform>: Copy + 'static {
+impl<R, F, O> Widget<R> for F
+where
+    R: Platform,
+    F: FnOnce(&mut Ui<'_, R>) -> O,
+{
+    type Response = O;
+
+    fn build(self, ui: &mut Ui<'_, R>) -> Self::Response {
+        self(ui)
+    }
+}
+
+pub trait Leaf<R: Platform>: Widget<R, Response = NodeId> + Copy + 'static {
     fn measure(&self, platform: &mut R, constraints: Constraints) -> Size;
 
     fn paint(&self, platform: &mut R, area: Rect);

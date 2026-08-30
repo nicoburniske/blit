@@ -1,10 +1,11 @@
-use blit::{Ui, Widget};
+use blit::Widget;
 use blit_cpu::{
     color::Color,
     text_types::{TextOptions, TextStyle},
 };
 
 use super::{DesktopPlatform, draw::TextRun};
+use crate::Ui;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -20,7 +21,7 @@ blit::builder! {
 impl Widget<DesktopPlatform> for Text<'_> {
     type Response = ();
 
-    fn build(self, ui: &mut Ui<'_, DesktopPlatform>) {
+    fn build(self, ui: &mut Ui<'_>) {
         let run = ui.platform().text_run(self.text, self.style);
         ui.add(
             TextRun::new(run, self.style)

@@ -1,4 +1,4 @@
-use blit::{Constraints, Leaf, LogicalRect, Size};
+use blit::{Constraints, Leaf, LogicalRect, NodeId, Size, Widget};
 use blit_cpu::{
     color::Color,
     command_list::{BoxShadow, Rectangle as DrawRectangle},
@@ -8,6 +8,7 @@ use blit_cpu::{
 };
 
 use super::DesktopPlatform;
+use crate::Ui;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -21,6 +22,14 @@ blit::builder! {
         border: Border<'static> = Border::None,
         radius: BorderRadius = BorderRadius::default(),
         opacity: f32 = 1.0,
+    }
+}
+
+impl Widget<DesktopPlatform> for Rectangle {
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui<'_>) -> Self::Response {
+        ui.add_leaf(self)
     }
 }
 
@@ -70,6 +79,14 @@ blit::builder! {
     }
 }
 
+impl Widget<DesktopPlatform> for TextRun {
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui<'_>) -> Self::Response {
+        ui.add_leaf(self)
+    }
+}
+
 impl Leaf<DesktopPlatform> for TextRun {
     fn measure(&self, platform: &mut DesktopPlatform, constraints: Constraints) -> Size {
         let measured = platform.measure_text(&TextLayoutRequest {
@@ -110,6 +127,14 @@ pub struct Image {
     pub nine_slice: Option<NineSlice>,
     pub horizontal_tiling: ImageTiling,
     pub vertical_tiling: ImageTiling,
+}
+
+impl Widget<DesktopPlatform> for Image {
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui<'_>) -> Self::Response {
+        ui.add_leaf(self)
+    }
 }
 
 impl Leaf<DesktopPlatform> for Image {

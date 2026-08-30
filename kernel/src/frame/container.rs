@@ -290,10 +290,6 @@ where
         self.insert(Slot::new(), (), None, |ui| ui.add(widget))
     }
 
-    pub fn scope<O>(&mut self, child: impl FnOnce(&mut Ui<'_, R>) -> O) -> O {
-        self.insert(Slot::new(), (), None, child)
-    }
-
     pub fn child(&mut self) -> ChildCx<'_, 'frame, R, L> {
         self.item(())
     }
@@ -346,15 +342,11 @@ impl<R: Platform, L: Layout<R>> ChildCx<'_, '_, R, L> {
             .insert(self.slot, self.item, self.id, |ui| ui.add(widget))
     }
 
-    pub fn scope<O>(self, child: impl FnOnce(&mut Ui<'_, R>) -> O) -> O {
-        self.container.insert(self.slot, self.item, self.id, child)
-    }
-
     pub fn layout<N, O>(self, layout: N, children: impl FnOnce(Container<'_, R, N>) -> O) -> O
     where
         N: Layout<R>,
     {
-        self.scope(|ui| children(ui.layout(layout)))
+        self.add(|ui: &mut Ui<'_, R>| children(ui.layout(layout)))
     }
 
     pub fn layout_with<B, N, O>(
@@ -367,7 +359,7 @@ impl<R: Platform, L: Layout<R>> ChildCx<'_, '_, R, L> {
         B: Leaf<R>,
         N: Layout<R>,
     {
-        self.scope(|ui| children(ui.layout_with(base, layout)))
+        self.add(|ui: &mut Ui<'_, R>| children(ui.layout_with(base, layout)))
     }
 }
 

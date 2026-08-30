@@ -1,14 +1,14 @@
 use std::{io, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Axis, Easing, Input, Key, Sense, Sides, Size, Sizing, Slot, Transition, Ui,
+    Absolute, Anchor, Axis, Easing, Input, Key, Sense, Sides, Size, Sizing, Slot, Transition,
     Widget, WidgetId,
 };
 use blit_showcase::{
     CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip, ResizeState,
 };
 use blit_terminal::{
-    BoundsClip, ControlFlow, TerminalPlatform,
+    BoundsClip, ControlFlow, TerminalPlatform, Ui,
     color::Color,
     draw::{Block, Border},
     layout::{Align, Flex, Grid, Justify, Wrap},
@@ -18,7 +18,7 @@ use blit_terminal::{
 fn main() -> io::Result<()> {
     let mut canvas = CanvasConfig::default();
     let mut resize = ResizeState::default();
-    blit_terminal::run(|ui: &mut Ui<'_, TerminalPlatform>| {
+    blit_terminal::run(|ui: &mut Ui<'_>| {
         let control = if matches!(ui.input(), Input::Text('q'))
             || matches!(ui.input(), Input::Key(key) if key.key == Key::Escape)
         {
@@ -85,7 +85,7 @@ fn main() -> io::Result<()> {
                                         .bold(true),
                                 );
                             controls.add(Text::new("FLOW").color(colors::TEXT_DIM).bold(true));
-                            controls.scope(|ui| {
+                            controls.add(|ui: &mut Ui<'_>| {
                                 choices(
                                     ui,
                                     cell,
@@ -99,7 +99,7 @@ fn main() -> io::Result<()> {
                                     ],
                                 );
                             });
-                            controls.scope(|ui| {
+                            controls.add(|ui: &mut Ui<'_>| {
                                 choices(
                                     ui,
                                     cell,
@@ -111,7 +111,7 @@ fn main() -> io::Result<()> {
                             });
                             controls
                                 .add(Text::new("DISTRIBUTION").color(colors::TEXT_DIM).bold(true));
-                            controls.scope(|ui| {
+                            controls.add(|ui: &mut Ui<'_>| {
                                 choices(
                                     ui,
                                     cell,
@@ -125,7 +125,7 @@ fn main() -> io::Result<()> {
                                     ],
                                 );
                             });
-                            controls.scope(|ui| {
+                            controls.add(|ui: &mut Ui<'_>| {
                                 choices(
                                     ui,
                                     cell,
@@ -139,7 +139,7 @@ fn main() -> io::Result<()> {
                                     ],
                                 );
                             });
-                            controls.scope(|ui| {
+                            controls.add(|ui: &mut Ui<'_>| {
                                 choices(
                                     ui,
                                     cell,
@@ -159,7 +159,7 @@ fn main() -> io::Result<()> {
                                     .color(colors::TEXT_DIM)
                                     .bold(true),
                             );
-                            controls.scope(|ui| {
+                            controls.add(|ui: &mut Ui<'_>| {
                                 choices(
                                     ui,
                                     cell,
@@ -173,7 +173,7 @@ fn main() -> io::Result<()> {
                                     ],
                                 );
                             });
-                            controls.scope(|ui| {
+                            controls.add(|ui: &mut Ui<'_>| {
                                 choices(
                                     ui,
                                     cell,
@@ -183,7 +183,7 @@ fn main() -> io::Result<()> {
                                     &[(" 75% ", 0.75), (" 100% ", 1.0), (" 125% ", 1.25)],
                                 );
                             });
-                            controls.scope(|ui| {
+                            controls.add(|ui: &mut Ui<'_>| {
                                 choices(
                                     ui,
                                     cell,
@@ -193,7 +193,7 @@ fn main() -> io::Result<()> {
                                     &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
                                 );
                             });
-                            controls.scope(|ui| {
+                            controls.add(|ui: &mut Ui<'_>| {
                                 choices(
                                     ui,
                                     cell,
@@ -203,7 +203,7 @@ fn main() -> io::Result<()> {
                                     &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
                                 );
                             });
-                            controls.scope(|ui| {
+                            controls.add(|ui: &mut Ui<'_>| {
                                 choices(
                                     ui,
                                     cell,
@@ -341,7 +341,7 @@ impl<'a> Button<'a> {
 impl Widget<TerminalPlatform> for Button<'_> {
     type Response = bool;
 
-    fn build(self, ui: &mut Ui<'_, TerminalPlatform>) -> bool {
+    fn build(self, ui: &mut Ui<'_>) -> bool {
         let interaction = ui.interact(self.id, Sense::CLICK);
         let block = if interaction.active {
             Block::new().background(colors::ACCENT_DARK)
@@ -359,7 +359,7 @@ impl Widget<TerminalPlatform> for Button<'_> {
 }
 
 fn choices<T: Copy + PartialEq>(
-    ui: &mut Ui<'_, TerminalPlatform>,
+    ui: &mut Ui<'_>,
     cell: Size,
     label: &str,
     id: &str,
@@ -368,7 +368,7 @@ fn choices<T: Copy + PartialEq>(
 ) {
     let mut group = ui.layout(Flex::column());
     group.add(Text::new(label).color(colors::TEXT_MUTED));
-    group.scope(|ui| {
+    group.add(|ui: &mut Ui<'_>| {
         let mut values = ui.layout(
             Wrap::new(Axis::Horizontal)
                 .item_gap(cell.width * 2.0)
@@ -397,7 +397,7 @@ struct Canvas {
 impl Widget<TerminalPlatform> for Canvas {
     type Response = ();
 
-    fn build(self, ui: &mut Ui<'_, TerminalPlatform>) {
+    fn build(self, ui: &mut Ui<'_>) {
         let background = Block::new()
             .background(colors::CANVAS)
             .border(Border::new(colors::CANVAS_BORDER).rounded(true));
@@ -418,7 +418,7 @@ impl Widget<TerminalPlatform> for Canvas {
                     canvas
                         .child()
                         .slot(self.config.item_slot(index, self.unit))
-                        .scope(|ui| {
+                        .add(|ui: &mut Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, self.unit);
                         });
                 }
@@ -444,7 +444,7 @@ impl Widget<TerminalPlatform> for Canvas {
                     canvas
                         .child()
                         .slot(self.config.item_slot(index, self.unit))
-                        .scope(|ui| {
+                        .add(|ui: &mut Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, self.unit);
                         });
                 }
@@ -466,7 +466,7 @@ impl Widget<TerminalPlatform> for Canvas {
                             Slot::new()
                                 .height(Sizing::fixed(3.0 * self.unit.height * self.config.zoom)),
                         )
-                        .scope(|ui| {
+                        .add(|ui: &mut Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, self.unit);
                         });
                 }
@@ -476,7 +476,7 @@ impl Widget<TerminalPlatform> for Canvas {
 }
 
 fn canvas_item(
-    ui: &mut Ui<'_, TerminalPlatform>,
+    ui: &mut Ui<'_>,
     index: usize,
     spec: blit_showcase::ItemSpec,
     badges: blit::LayerId,
@@ -506,7 +506,7 @@ fn canvas_item(
                     .layer(badges)
                     .z_index(1),
             )
-            .scope(|ui| {
+            .add(|ui: &mut Ui<'_>| {
                 let mut badge = ui
                     .layout_with(
                         Block::new().background(colors::ACCENT_DARK),
