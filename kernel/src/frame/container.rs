@@ -2,7 +2,7 @@ use std::{marker::PhantomData, num::NonZeroU16};
 
 use super::{Frame, NodeId, Ui, ui};
 use crate::{
-    Clip, Platform,
+    Clip, Leaf, Platform, Widget,
     animation::Transition,
     geometry::{Point, Sides},
     interact::WidgetId,
@@ -194,7 +194,7 @@ where
     marker: PhantomData<L>,
 }
 
-impl<R: Platform, L: Layout<R>> Container<'_, R, L> {
+impl<'frame, R: Platform, L: Layout<R>> Container<'frame, R, L> {
     pub fn node(&self) -> NodeId {
         self.node
     }
@@ -239,9 +239,24 @@ impl<R: Platform, L: Layout<R>> Container<'_, R, L> {
         self.frame.add_layer(self.node)
     }
 
-    pub fn add<O>(&mut self, slot: Slot, item: L::Item, child: impl FnOnce(Ui<'_, R>) -> O) -> O {
+    pub fn item(&mut self, item: L::Item) -> ChildCx<'_, 'frame, R, L> {
+        ChildCx {
+            container: self,
+            slot: Slot::new(),
+            item,
+            id: None,
+        }
+    }
+
+    fn insert<O>(
+        &mut self,
+        slot: Slot,
+        item: L::Item,
+        id: Option<WidgetId>,
+        child: impl FnOnce(&mut Ui<'_, R>) -> O,
+    ) -> O {
         let start = self.frame.nodes.len();
-        let output = child(ui::new(self.frame, self.platform, Some(self.node)));
+        let output = child(&mut ui::new(self.frame, self.platform, Some(self.node)));
         let end = self.frame.nodes.len();
         assert!(end > start, "layout child did not add a node");
 
@@ -259,7 +274,100 @@ impl<R: Platform, L: Layout<R>> Container<'_, R, L> {
         self.frame.set_slot(child, slot);
         let data = self.frame.data.store(item);
         self.frame.nodes[child.index()].item = data;
+        if let Some(id) = id {
+            self.frame.set_id(child, id);
+        }
         output
+    }
+}
+
+impl<'frame, R, L> Container<'frame, R, L>
+where
+    R: Platform,
+    L: Layout<R, Item = ()>,
+{
+    pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
+        self.insert(Slot::new(), (), None, |ui| ui.add(widget))
+    }
+
+    pub fn scope<O>(&mut self, child: impl FnOnce(&mut Ui<'_, R>) -> O) -> O {
+        self.insert(Slot::new(), (), None, child)
+    }
+
+    pub fn child(&mut self) -> ChildCx<'_, 'frame, R, L> {
+        self.item(())
+    }
+
+    pub fn layout<N, O>(&mut self, layout: N, children: impl FnOnce(Container<'_, R, N>) -> O) -> O
+    where
+        N: Layout<R>,
+    {
+        self.child().layout(layout, children)
+    }
+
+    pub fn layout_with<B, N, O>(
+        &mut self,
+        base: B,
+        layout: N,
+        children: impl FnOnce(Container<'_, R, N>) -> O,
+    ) -> O
+    where
+        B: Leaf<R>,
+        N: Layout<R>,
+    {
+        self.child().layout_with(base, layout, children)
+    }
+}
+
+pub struct ChildCx<'child, 'frame, R, L>
+where
+    R: Platform,
+    L: Layout<R>,
+{
+    container: &'child mut Container<'frame, R, L>,
+    slot: Slot,
+    item: L::Item,
+    id: Option<WidgetId>,
+}
+impl<R: Platform, L: Layout<R>> ChildCx<'_, '_, R, L> {
+    pub fn slot(mut self, slot: Slot) -> Self {
+        self.slot = slot;
+        self
+    }
+
+    pub fn id(mut self, id: WidgetId) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
+        self.container
+            .insert(self.slot, self.item, self.id, |ui| ui.add(widget))
+    }
+
+    pub fn scope<O>(self, child: impl FnOnce(&mut Ui<'_, R>) -> O) -> O {
+        self.container.insert(self.slot, self.item, self.id, child)
+    }
+
+    pub fn layout<N, O>(self, layout: N, children: impl FnOnce(Container<'_, R, N>) -> O) -> O
+    where
+        N: Layout<R>,
+    {
+        self.scope(|ui| children(ui.layout(layout)))
+    }
+
+    pub fn layout_with<B, N, O>(
+        self,
+        base: B,
+        layout: N,
+        children: impl FnOnce(Container<'_, R, N>) -> O,
+    ) -> O
+    where
+        B: Leaf<R>,
+        N: Layout<R>,
+    {
+        self.scope(|ui| children(ui.layout_with(base, layout)))
     }
 }
 

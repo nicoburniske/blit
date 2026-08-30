@@ -223,9 +223,9 @@ mod tests {
                     Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)),
                     Flex::column().padding(Sides::all(3.0)),
                 );
-                root.add(Slot::new().fixed(2.0, 2.0), (), |mut ui| {
-                    ui.add(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
-                });
+                root.child()
+                    .slot(Slot::new().fixed(2.0, 2.0))
+                    .add(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
             },
         );
         assert_eq!(platform.previous.len(), 2);

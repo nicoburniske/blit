@@ -308,19 +308,14 @@ where
                 grip_size,
             })
             .id(id);
-        shell.add(Slot::new(), ResizeItem::Content, |mut ui| {
-            ui.add(content);
-        });
+        shell.item(ResizeItem::Content).add(content);
         for (item, edge, grip_id, interaction) in [
             (ResizeItem::Right, ResizeEdge::Right, right_id, right),
             (ResizeItem::Bottom, ResizeEdge::Bottom, bottom_id, bottom),
             (ResizeItem::Corner, ResizeEdge::Corner, corner_id, corner),
         ] {
             let widget = grip(ResizeGrip { edge, interaction });
-            shell.add(Slot::new(), item, |mut ui| {
-                let node = ui.add(widget);
-                ui.set_id(node, grip_id);
-            });
+            shell.item(item).id(grip_id).add(widget);
         }
     }
 }

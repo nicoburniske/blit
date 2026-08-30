@@ -8,7 +8,7 @@ pub mod position;
 pub mod transition;
 pub mod ui;
 
-pub use container::{Absolute, Anchor, Container, LayerId, PositionTarget, Sizing, Slot};
+pub use container::{Absolute, Anchor, ChildCx, Container, LayerId, PositionTarget, Sizing, Slot};
 pub use ui::Ui;
 
 /// retained memory used by a frame after its buffers have grown

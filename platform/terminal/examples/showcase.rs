@@ -39,38 +39,33 @@ fn main() -> io::Result<()> {
                 })
                 .gap(cell.height),
         );
-        root.add(
-            Slot::new().height(Sizing::fixed(cell.height)),
-            (),
-            |mut ui| {
-                let mut header = ui.layout(Flex::row().align(Align::Center).gap(cell.width * 2.0));
-                header.add(Slot::new(), (), |mut ui| {
-                    ui.add(Text::new("BLIT / LAYOUT PLAYGROUND").bold(true));
-                });
-                if header.add(Slot::new(), (), |mut ui| {
-                    ui.add(Button::new(
+        root.child()
+            .slot(Slot::new().height(Sizing::fixed(cell.height)))
+            .layout(
+                Flex::row().align(Align::Center).gap(cell.width * 2.0),
+                |mut header| {
+                    header.add(Text::new("BLIT / LAYOUT PLAYGROUND").bold(true));
+                    if header.add(Button::new(
                         WidgetId::new("terminal reset layout playground"),
                         " Reset ",
                         false,
-                    ))
-                }) {
-                    canvas = CanvasConfig::default();
-                    resize.reset();
-                }
-                header.add(Slot::new(), (), |mut ui| {
-                    ui.add(Text::new("q quit").color(colors::TEXT_MUTED));
-                });
-            },
-        );
-        root.add(Slot::new().grow(), (), |mut ui| {
-            let mut body = ui.layout(Flex::row().gap(cell.width));
-            body.add(
-                Slot::new()
-                    .width(Sizing::fixed(cell.width * 40.0))
-                    .height(Sizing::grow()),
-                (),
-                |mut ui| {
-                    let mut controls = ui.layout_with(
+                    )) {
+                        canvas = CanvasConfig::default();
+                        resize.reset();
+                    }
+                    header.add(Text::new("q quit").color(colors::TEXT_MUTED));
+                },
+            );
+        root.child()
+            .slot(Slot::new().grow())
+            .layout(Flex::row().gap(cell.width), |mut body| {
+                body.child()
+                    .slot(
+                        Slot::new()
+                            .width(Sizing::fixed(cell.width * 40.0))
+                            .height(Sizing::grow()),
+                    )
+                    .layout_with(
                         panel(colors::SURFACE),
                         Flex::column()
                             .padding(Sides {
@@ -80,173 +75,163 @@ fn main() -> io::Result<()> {
                                 left: cell.width,
                             })
                             .gap(cell.height),
-                    );
-                    controls.add(
-                        Slot::new().height(Sizing::fixed(cell.height)),
-                        (),
-                        |mut ui| {
-                            ui.add(
-                                Text::new("LAYOUT PARAMETERS")
-                                    .color(colors::ACCENT)
+                        |mut controls| {
+                            controls
+                                .child()
+                                .slot(Slot::new().height(Sizing::fixed(cell.height)))
+                                .add(
+                                    Text::new("LAYOUT PARAMETERS")
+                                        .color(colors::ACCENT)
+                                        .bold(true),
+                                );
+                            controls.add(Text::new("FLOW").color(colors::TEXT_DIM).bold(true));
+                            controls.scope(|ui| {
+                                choices(
+                                    ui,
+                                    cell,
+                                    "layout",
+                                    "terminal layout",
+                                    &mut canvas.layout,
+                                    &[
+                                        (" Flex ", CanvasLayout::Flex),
+                                        (" Wrap ", CanvasLayout::Wrap),
+                                        (" Grid ", CanvasLayout::Grid),
+                                    ],
+                                );
+                            });
+                            controls.scope(|ui| {
+                                choices(
+                                    ui,
+                                    cell,
+                                    "axis",
+                                    "terminal axis",
+                                    &mut canvas.axis,
+                                    &[(" Horz ", Axis::Horizontal), (" Vert ", Axis::Vertical)],
+                                );
+                            });
+                            controls
+                                .add(Text::new("DISTRIBUTION").color(colors::TEXT_DIM).bold(true));
+                            controls.scope(|ui| {
+                                choices(
+                                    ui,
+                                    cell,
+                                    "justify",
+                                    "terminal justify position",
+                                    &mut canvas.justify,
+                                    &[
+                                        (" Start ", Justify::Start),
+                                        (" Center ", Justify::Center),
+                                        (" End ", Justify::End),
+                                    ],
+                                );
+                            });
+                            controls.scope(|ui| {
+                                choices(
+                                    ui,
+                                    cell,
+                                    "distribute",
+                                    "terminal justify distribution",
+                                    &mut canvas.justify,
+                                    &[
+                                        (" Between ", Justify::SpaceBetween),
+                                        (" Around ", Justify::SpaceAround),
+                                        (" Even ", Justify::SpaceEvenly),
+                                    ],
+                                );
+                            });
+                            controls.scope(|ui| {
+                                choices(
+                                    ui,
+                                    cell,
+                                    "align",
+                                    "terminal align",
+                                    &mut canvas.align,
+                                    &[
+                                        (" Start ", Align::Start),
+                                        (" Center ", Align::Center),
+                                        (" End ", Align::End),
+                                        (" Stretch ", Align::Stretch),
+                                    ],
+                                );
+                            });
+                            controls.add(
+                                Text::new("SCALE, SPACE & MOTION")
+                                    .color(colors::TEXT_DIM)
                                     .bold(true),
+                            );
+                            controls.scope(|ui| {
+                                choices(
+                                    ui,
+                                    cell,
+                                    "sizing",
+                                    "terminal sizing",
+                                    &mut canvas.sizing,
+                                    &[
+                                        (" Fixed ", ItemSizing::Fixed),
+                                        (" Fit ", ItemSizing::Fit),
+                                        (" Grow ", ItemSizing::Grow),
+                                    ],
+                                );
+                            });
+                            controls.scope(|ui| {
+                                choices(
+                                    ui,
+                                    cell,
+                                    "zoom",
+                                    "terminal zoom",
+                                    &mut canvas.zoom,
+                                    &[(" 75% ", 0.75), (" 100% ", 1.0), (" 125% ", 1.25)],
+                                );
+                            });
+                            controls.scope(|ui| {
+                                choices(
+                                    ui,
+                                    cell,
+                                    "gap",
+                                    "terminal gap",
+                                    &mut canvas.gap_steps,
+                                    &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
+                                );
+                            });
+                            controls.scope(|ui| {
+                                choices(
+                                    ui,
+                                    cell,
+                                    "padding",
+                                    "terminal padding",
+                                    &mut canvas.padding_steps,
+                                    &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
+                                );
+                            });
+                            controls.scope(|ui| {
+                                choices(
+                                    ui,
+                                    cell,
+                                    "transitions",
+                                    "terminal transitions",
+                                    &mut canvas.transitions,
+                                    &[(" On ", true), (" Off ", false)],
+                                );
+                            });
+                            controls.child().slot(Slot::new().grow()).layout(
+                                Flex::column().justify(Justify::End),
+                                |mut help| {
+                                    help.add(
+                                        Text::new("POINTER").color(colors::TEXT_DIM).bold(true),
+                                    );
+                                    help.add(
+                                        Text::new("click a value to select it")
+                                            .color(colors::TEXT_MUTED),
+                                    );
+                                    help.add(
+                                        Text::new("drag the preview handles to resize")
+                                            .color(colors::TEXT_MUTED),
+                                    );
+                                },
                             );
                         },
                     );
-                    controls.add(Slot::new(), (), |mut ui| {
-                        ui.add(Text::new("FLOW").color(colors::TEXT_DIM).bold(true));
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        choices(
-                            &mut ui,
-                            cell,
-                            "layout",
-                            "terminal layout",
-                            &mut canvas.layout,
-                            &[
-                                (" Flex ", CanvasLayout::Flex),
-                                (" Wrap ", CanvasLayout::Wrap),
-                                (" Grid ", CanvasLayout::Grid),
-                            ],
-                        );
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        choices(
-                            &mut ui,
-                            cell,
-                            "axis",
-                            "terminal axis",
-                            &mut canvas.axis,
-                            &[(" Horz ", Axis::Horizontal), (" Vert ", Axis::Vertical)],
-                        );
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        ui.add(Text::new("DISTRIBUTION").color(colors::TEXT_DIM).bold(true));
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        choices(
-                            &mut ui,
-                            cell,
-                            "justify",
-                            "terminal justify position",
-                            &mut canvas.justify,
-                            &[
-                                (" Start ", Justify::Start),
-                                (" Center ", Justify::Center),
-                                (" End ", Justify::End),
-                            ],
-                        );
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        choices(
-                            &mut ui,
-                            cell,
-                            "distribute",
-                            "terminal justify distribution",
-                            &mut canvas.justify,
-                            &[
-                                (" Between ", Justify::SpaceBetween),
-                                (" Around ", Justify::SpaceAround),
-                                (" Even ", Justify::SpaceEvenly),
-                            ],
-                        );
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        choices(
-                            &mut ui,
-                            cell,
-                            "align",
-                            "terminal align",
-                            &mut canvas.align,
-                            &[
-                                (" Start ", Align::Start),
-                                (" Center ", Align::Center),
-                                (" End ", Align::End),
-                                (" Stretch ", Align::Stretch),
-                            ],
-                        );
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        ui.add(
-                            Text::new("SCALE, SPACE & MOTION")
-                                .color(colors::TEXT_DIM)
-                                .bold(true),
-                        );
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        choices(
-                            &mut ui,
-                            cell,
-                            "sizing",
-                            "terminal sizing",
-                            &mut canvas.sizing,
-                            &[
-                                (" Fixed ", ItemSizing::Fixed),
-                                (" Fit ", ItemSizing::Fit),
-                                (" Grow ", ItemSizing::Grow),
-                            ],
-                        );
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        choices(
-                            &mut ui,
-                            cell,
-                            "zoom",
-                            "terminal zoom",
-                            &mut canvas.zoom,
-                            &[(" 75% ", 0.75), (" 100% ", 1.0), (" 125% ", 1.25)],
-                        );
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        choices(
-                            &mut ui,
-                            cell,
-                            "gap",
-                            "terminal gap",
-                            &mut canvas.gap_steps,
-                            &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
-                        );
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        choices(
-                            &mut ui,
-                            cell,
-                            "padding",
-                            "terminal padding",
-                            &mut canvas.padding_steps,
-                            &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
-                        );
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
-                        choices(
-                            &mut ui,
-                            cell,
-                            "transitions",
-                            "terminal transitions",
-                            &mut canvas.transitions,
-                            &[(" On ", true), (" Off ", false)],
-                        );
-                    });
-                    controls.add(Slot::new().grow(), (), |mut ui| {
-                        let mut help = ui.layout(Flex::column().justify(Justify::End));
-                        help.add(Slot::new(), (), |mut ui| {
-                            ui.add(Text::new("POINTER").color(colors::TEXT_DIM).bold(true));
-                        });
-                        help.add(Slot::new(), (), |mut ui| {
-                            ui.add(
-                                Text::new("click a value to select it").color(colors::TEXT_MUTED),
-                            );
-                        });
-                        help.add(Slot::new(), (), |mut ui| {
-                            ui.add(
-                                Text::new("drag the preview handles to resize")
-                                    .color(colors::TEXT_MUTED),
-                            );
-                        });
-                    });
-                },
-            );
-            body.add(Slot::new().grow(), (), |mut ui| {
-                let mut preview = ui.layout_with(
+                body.child().slot(Slot::new().grow()).layout_with(
                     panel(colors::SURFACE),
                     Flex::column().padding(Sides {
                         top: cell.height,
@@ -254,97 +239,85 @@ fn main() -> io::Result<()> {
                         bottom: cell.height,
                         left: cell.width,
                     }),
-                );
-                preview.add(
-                    Slot::new().height(Sizing::fixed(cell.height)),
-                    (),
-                    |mut ui| {
-                        let mut status = ui.layout(Flex::row().gap(cell.width));
-                        status.add(Slot::new(), (), |mut ui| {
-                            ui.add(Text::new("LIVE PREVIEW").color(colors::ACCENT).bold(true));
-                        });
-                        status.add(Slot::new(), (), |mut ui| {
-                            ui.add(Text::new("/").color(colors::TEXT_DIM));
-                        });
-                        status.add(Slot::new(), (), |mut ui| {
-                            ui.add(
-                                Text::new(match canvas.layout {
-                                    CanvasLayout::Flex => "flex",
-                                    CanvasLayout::Wrap => "wrap",
-                                    CanvasLayout::Grid => "grid",
-                                })
-                                .color(colors::TEXT_MUTED),
-                            );
-                        });
-                        status.add(Slot::new(), (), |mut ui| {
-                            ui.add(
-                                Text::new(match canvas.axis {
-                                    Axis::Horizontal => "horizontal",
-                                    Axis::Vertical => "vertical",
-                                })
-                                .color(colors::TEXT_MUTED),
-                            );
-                        });
-                    },
-                );
-                preview.add(Slot::new().grow(), (), |mut ui| {
-                    let mut viewport = ui.layout_with(
-                        Block::new().background(colors::TRACK),
-                        Flex::row()
-                            .padding(Sides {
-                                top: cell.height,
-                                right: cell.width,
-                                bottom: cell.height,
-                                left: cell.width,
-                            })
-                            .align(Align::Start),
-                    );
-                    viewport.add(Slot::new(), (), |mut ui| {
-                        ui.add(
-                            Resizable::new(
-                                &mut resize,
-                                WidgetId::new("terminal layout canvas"),
-                                Size::new(
-                                    ((screen.width - cell.width * 48.0) * 0.8)
-                                        .max(cell.width * 18.0),
-                                    ((screen.height - cell.height * 8.0) * 0.72)
-                                        .max(cell.height * 9.0),
-                                ),
-                                Canvas {
-                                    config: canvas,
-                                    unit: cell,
-                                },
-                                |grip: ResizeGrip| {
-                                    let active = grip.interaction.hovered
-                                        || grip.interaction.active
-                                        || grip.interaction.dragging;
-                                    Block::new().background(if active {
-                                        colors::ACCENT
-                                    } else if grip.edge == ResizeEdge::Corner {
-                                        colors::GRIP_CORNER
-                                    } else {
-                                        colors::GRIP
+                    |mut preview| {
+                        preview
+                            .child()
+                            .slot(Slot::new().height(Sizing::fixed(cell.height)))
+                            .layout(Flex::row().gap(cell.width), |mut status| {
+                                status.add(
+                                    Text::new("LIVE PREVIEW").color(colors::ACCENT).bold(true),
+                                );
+                                status.add(Text::new("/").color(colors::TEXT_DIM));
+                                status.add(
+                                    Text::new(match canvas.layout {
+                                        CanvasLayout::Flex => "flex",
+                                        CanvasLayout::Wrap => "wrap",
+                                        CanvasLayout::Grid => "grid",
                                     })
-                                },
-                            )
-                            .minimum(Size::new(cell.width * 18.0, cell.height * 9.0))
-                            .maximum(screen.size())
-                            .grip_size(cell),
+                                    .color(colors::TEXT_MUTED),
+                                );
+                                status.add(
+                                    Text::new(match canvas.axis {
+                                        Axis::Horizontal => "horizontal",
+                                        Axis::Vertical => "vertical",
+                                    })
+                                    .color(colors::TEXT_MUTED),
+                                );
+                            });
+                        preview.child().slot(Slot::new().grow()).layout_with(
+                            Block::new().background(colors::TRACK),
+                            Flex::row()
+                                .padding(Sides {
+                                    top: cell.height,
+                                    right: cell.width,
+                                    bottom: cell.height,
+                                    left: cell.width,
+                                })
+                                .align(Align::Start),
+                            |mut viewport| {
+                                viewport.add(
+                                    Resizable::new(
+                                        &mut resize,
+                                        WidgetId::new("terminal layout canvas"),
+                                        Size::new(
+                                            ((screen.width - cell.width * 48.0) * 0.8)
+                                                .max(cell.width * 18.0),
+                                            ((screen.height - cell.height * 8.0) * 0.72)
+                                                .max(cell.height * 9.0),
+                                        ),
+                                        Canvas {
+                                            config: canvas,
+                                            unit: cell,
+                                        },
+                                        |grip: ResizeGrip| {
+                                            let active = grip.interaction.hovered
+                                                || grip.interaction.active
+                                                || grip.interaction.dragging;
+                                            Block::new().background(if active {
+                                                colors::ACCENT
+                                            } else if grip.edge == ResizeEdge::Corner {
+                                                colors::GRIP_CORNER
+                                            } else {
+                                                colors::GRIP
+                                            })
+                                        },
+                                    )
+                                    .minimum(Size::new(cell.width * 18.0, cell.height * 9.0))
+                                    .maximum(screen.size())
+                                    .grip_size(cell),
+                                );
+                            },
                         );
-                    });
-                });
-                preview.add(
-                    Slot::new().height(Sizing::fixed(cell.height)),
-                    (),
-                    |mut ui| {
-                        ui.add(
-                            Text::new("drag the teal edge or corner to resize")
-                                .color(colors::TEXT_DIM),
-                        );
+                        preview
+                            .child()
+                            .slot(Slot::new().height(Sizing::fixed(cell.height)))
+                            .add(
+                                Text::new("drag the teal edge or corner to resize")
+                                    .color(colors::TEXT_DIM),
+                            );
                     },
                 );
             });
-        });
         control
     })
 }
@@ -380,9 +353,7 @@ impl Widget<TerminalPlatform> for Button<'_> {
             Block::new()
         };
         let mut button = ui.layout_with(block, Flex::row()).id(self.id);
-        button.add(Slot::new(), (), |mut ui| {
-            ui.add(Text::new(self.label).color(colors::TEXT));
-        });
+        button.add(Text::new(self.label).color(colors::TEXT));
         interaction.clicked
     }
 }
@@ -396,10 +367,8 @@ fn choices<T: Copy + PartialEq>(
     options: &[(&str, T)],
 ) {
     let mut group = ui.layout(Flex::column());
-    group.add(Slot::new(), (), |mut ui| {
-        ui.add(Text::new(label).color(colors::TEXT_MUTED));
-    });
-    group.add(Slot::new(), (), |mut ui| {
+    group.add(Text::new(label).color(colors::TEXT_MUTED));
+    group.scope(|ui| {
         let mut values = ui.layout(
             Wrap::new(Axis::Horizontal)
                 .item_gap(cell.width * 2.0)
@@ -407,13 +376,11 @@ fn choices<T: Copy + PartialEq>(
                 .align(Align::Center),
         );
         for (index, &(option, value)) in options.iter().enumerate() {
-            let clicked = values.add(Slot::new(), (), |mut ui| {
-                ui.add(Button::new(
-                    WidgetId::new((id, index)),
-                    option,
-                    *selected == value,
-                ))
-            });
+            let clicked = values.add(Button::new(
+                WidgetId::new((id, index)),
+                option,
+                *selected == value,
+            ));
             if clicked {
                 *selected = value;
             }
@@ -448,9 +415,12 @@ impl Widget<TerminalPlatform> for Canvas {
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
-                    canvas.add(self.config.item_slot(index, self.unit), (), |mut ui| {
-                        canvas_item(&mut ui, index, spec, badges, self.config, self.unit);
-                    });
+                    canvas
+                        .child()
+                        .slot(self.config.item_slot(index, self.unit))
+                        .scope(|ui| {
+                            canvas_item(ui, index, spec, badges, self.config, self.unit);
+                        });
                 }
             }
             CanvasLayout::Wrap => {
@@ -471,9 +441,12 @@ impl Widget<TerminalPlatform> for Canvas {
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
-                    canvas.add(self.config.item_slot(index, self.unit), (), |mut ui| {
-                        canvas_item(&mut ui, index, spec, badges, self.config, self.unit);
-                    });
+                    canvas
+                        .child()
+                        .slot(self.config.item_slot(index, self.unit))
+                        .scope(|ui| {
+                            canvas_item(ui, index, spec, badges, self.config, self.unit);
+                        });
                 }
             }
             CanvasLayout::Grid => {
@@ -487,14 +460,15 @@ impl Widget<TerminalPlatform> for Canvas {
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
-                    canvas.add(
-                        Slot::new()
-                            .height(Sizing::fixed(3.0 * self.unit.height * self.config.zoom)),
-                        item,
-                        |mut ui| {
-                            canvas_item(&mut ui, index, spec, badges, self.config, self.unit);
-                        },
-                    );
+                    canvas
+                        .item(item)
+                        .slot(
+                            Slot::new()
+                                .height(Sizing::fixed(3.0 * self.unit.height * self.config.zoom)),
+                        )
+                        .scope(|ui| {
+                            canvas_item(ui, index, spec, badges, self.config, self.unit);
+                        });
                 }
             }
         }
@@ -523,28 +497,24 @@ fn canvas_item(
     } else {
         item
     };
-    item.add(Slot::new(), (), |mut ui| {
-        ui.add(Text::new(spec.label).color(colors::TEXT).bold(true));
-    });
+    item.add(Text::new(spec.label).color(colors::TEXT).bold(true));
     if let Some(anchor) = spec.badge {
-        item.add(
-            Slot::new()
-                .fixed(unit.width * 2.0, unit.height)
-                .layer(badges)
-                .z_index(1),
-            (),
-            |mut ui| {
+        item.child()
+            .slot(
+                Slot::new()
+                    .fixed(unit.width * 2.0, unit.height)
+                    .layer(badges)
+                    .z_index(1),
+            )
+            .scope(|ui| {
                 let mut badge = ui
                     .layout_with(
                         Block::new().background(colors::ACCENT_DARK),
                         Flex::row().align(Align::Center).justify(Justify::Center),
                     )
                     .absolute(Absolute::attach(anchor, Anchor::Center));
-                badge.add(Slot::new(), (), |mut ui| {
-                    ui.add(Text::new("A").color(colors::TEXT));
-                });
-            },
-        );
+                badge.add(Text::new("A").color(colors::TEXT));
+            });
     }
 }
 
