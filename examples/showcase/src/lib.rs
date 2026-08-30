@@ -272,7 +272,7 @@ where
 {
     type Response = ();
 
-    fn build(self, ui: &mut Ui<'_, P>) {
+    fn build(self, ui: &mut Ui<P>) {
         let Self {
             state,
             id,

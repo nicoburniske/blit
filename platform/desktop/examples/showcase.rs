@@ -54,7 +54,7 @@ impl Application for App {
 
     fn input(&mut self, _: Self::Input) {}
 
-    fn render(&mut self, ui: &mut Ui<'_>) {
+    fn render(&mut self, ui: &mut Ui) {
         let screen = ui.screen();
         let unit = Size::new(8.0, 8.0);
         let mut root = ui.layout_with(
@@ -63,36 +63,33 @@ impl Application for App {
         );
         root.child()
             .slot(Slot::new().height(Sizing::fixed(52.0)))
-            .add(|ui: &mut Ui<'_>| {
+            .add(|ui: &mut Ui| {
                 let mut header = ui.layout(
                     Flex::row()
                         .align(Align::Center)
                         .justify(blit_desktop::layout::Justify::SpaceBetween),
                 );
-                header
-                    .child()
-                    .slot(Slot::new().grow())
-                    .add(|ui: &mut Ui<'_>| {
-                        let mut title = ui.layout(Flex::column().gap(2.0));
-                        title.add(
-                            Text::new("BLIT / LAYOUT PLAYGROUND")
-                                .style(TextStyle {
-                                    size: 22.0,
-                                    ..TextStyle::default()
-                                })
-                                .color(colors::TEXT),
-                        );
-                        title.add(
-                            Text::new(
-                                "shared layout and resize mechanics, native desktop presentation",
-                            )
+                header.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
+                    let mut title = ui.layout(Flex::column().gap(2.0));
+                    title.add(
+                        Text::new("BLIT / LAYOUT PLAYGROUND")
                             .style(TextStyle {
-                                size: 11.0,
+                                size: 22.0,
                                 ..TextStyle::default()
                             })
-                            .color(colors::TEXT_MUTED),
-                        );
-                    });
+                            .color(colors::TEXT),
+                    );
+                    title.add(
+                        Text::new(
+                            "shared layout and resize mechanics, native desktop presentation",
+                        )
+                        .style(TextStyle {
+                            size: 11.0,
+                            ..TextStyle::default()
+                        })
+                        .color(colors::TEXT_MUTED),
+                    );
+                });
                 if header.add(Button::new(
                     WidgetId::new("reset layout playground"),
                     "RESET",
@@ -102,7 +99,7 @@ impl Application for App {
                     self.resize.reset();
                 }
             });
-        root.child().slot(Slot::new().grow()).add(|ui: &mut Ui<'_>| {
+        root.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
             let mut body = ui.layout(Flex::row().gap(14.0));
             body.child()
                 .slot(
@@ -110,7 +107,7 @@ impl Application for App {
                         .width(Sizing::fixed(330.0))
                         .height(Sizing::grow()),
                 )
-                .add(|ui: &mut Ui<'_>| {
+                .add(|ui: &mut Ui| {
                     let mut controls = ui.layout_with(
                         panel(colors::SURFACE),
                         Flex::column().padding(Sides::all(14.0)).gap(7.0),
@@ -123,7 +120,7 @@ impl Application for App {
                             })
                             .color(colors::ACCENT),
                     );
-                    controls.add(|ui: &mut Ui<'_>| {
+                    controls.add(|ui: &mut Ui| {
                         choices(
                             ui,
                             "layout",
@@ -136,7 +133,7 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: &mut Ui<'_>| {
+                    controls.add(|ui: &mut Ui| {
                         choices(
                             ui,
                             "axis",
@@ -145,7 +142,7 @@ impl Application for App {
                             &[("Horizontal", Axis::Horizontal), ("Vertical", Axis::Vertical)],
                         );
                     });
-                    controls.add(|ui: &mut Ui<'_>| {
+                    controls.add(|ui: &mut Ui| {
                         choices(
                             ui,
                             "justify",
@@ -158,7 +155,7 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: &mut Ui<'_>| {
+                    controls.add(|ui: &mut Ui| {
                         choices(
                             ui,
                             "space",
@@ -171,7 +168,7 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: &mut Ui<'_>| {
+                    controls.add(|ui: &mut Ui| {
                         choices(
                             ui,
                             "align",
@@ -185,7 +182,7 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: &mut Ui<'_>| {
+                    controls.add(|ui: &mut Ui| {
                         choices(
                             ui,
                             "sizing",
@@ -198,7 +195,7 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: &mut Ui<'_>| {
+                    controls.add(|ui: &mut Ui| {
                         choices(
                             ui,
                             "zoom",
@@ -207,7 +204,7 @@ impl Application for App {
                             &[("75%", 0.75), ("100%", 1.0), ("125%", 1.25)],
                         );
                     });
-                    controls.add(|ui: &mut Ui<'_>| {
+                    controls.add(|ui: &mut Ui| {
                         choices(
                             ui,
                             "gap",
@@ -216,7 +213,7 @@ impl Application for App {
                             &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
                         );
                     });
-                    controls.add(|ui: &mut Ui<'_>| {
+                    controls.add(|ui: &mut Ui| {
                         choices(
                             ui,
                             "padding",
@@ -225,7 +222,7 @@ impl Application for App {
                             &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
                         );
                     });
-                    controls.add(|ui: &mut Ui<'_>| {
+                    controls.add(|ui: &mut Ui| {
                         choices(
                             ui,
                             "transition",
@@ -247,7 +244,7 @@ impl Application for App {
                             }),
                     );
                 });
-            body.child().slot(Slot::new().grow()).add(|ui: &mut Ui<'_>| {
+            body.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
                 let mut preview = ui.layout_with(
                     panel(colors::SURFACE),
                     Flex::column().padding(Sides::all(12.0)).gap(8.0),
@@ -262,7 +259,7 @@ impl Application for App {
                             })
                             .color(colors::ACCENT),
                     );
-                preview.child().slot(Slot::new().grow()).add(|ui: &mut Ui<'_>| {
+                preview.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
                     let mut viewport = ui.layout_with(
                         Rectangle::new()
                             .background(colors::TRACK)
@@ -326,7 +323,7 @@ impl<'a> Button<'a> {
 impl Widget<DesktopPlatform> for Button<'_> {
     type Response = bool;
 
-    fn build(self, ui: &mut Ui<'_>) -> bool {
+    fn build(self, ui: &mut Ui) -> bool {
         let interaction = ui.interact(self.id, Sense::CLICK);
         let background = if interaction.active {
             colors::ACCENT_DARK
@@ -364,7 +361,7 @@ impl Widget<DesktopPlatform> for Button<'_> {
 }
 
 fn choices<T: Copy + PartialEq>(
-    ui: &mut Ui<'_>,
+    ui: &mut Ui,
     label: &str,
     id: &str,
     selected: &mut T,
@@ -381,21 +378,19 @@ fn choices<T: Copy + PartialEq>(
                 })
                 .color(colors::TEXT_MUTED),
         );
-    line.child()
-        .slot(Slot::new().grow())
-        .add(|ui: &mut Ui<'_>| {
-            let mut values = ui.layout(Flex::row().gap(4.0));
-            for (index, &(option, value)) in options.iter().enumerate() {
-                let clicked = values.add(Button::new(
-                    WidgetId::new((id, index)),
-                    option,
-                    *selected == value,
-                ));
-                if clicked {
-                    *selected = value;
-                }
+    line.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
+        let mut values = ui.layout(Flex::row().gap(4.0));
+        for (index, &(option, value)) in options.iter().enumerate() {
+            let clicked = values.add(Button::new(
+                WidgetId::new((id, index)),
+                option,
+                *selected == value,
+            ));
+            if clicked {
+                *selected = value;
             }
-        });
+        }
+    });
 }
 
 #[derive(Clone, Copy)]
@@ -407,7 +402,7 @@ struct Canvas {
 impl Widget<DesktopPlatform> for Canvas {
     type Response = ();
 
-    fn build(self, ui: &mut Ui<'_>) {
+    fn build(self, ui: &mut Ui) {
         let background = Rectangle::new()
             .background(colors::CANVAS)
             .border(Border::solid(2.0, colors::CANVAS_BORDER))
@@ -429,7 +424,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     canvas
                         .child()
                         .slot(self.config.item_slot(index, self.unit))
-                        .add(|ui: &mut Ui<'_>| {
+                        .add(|ui: &mut Ui| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -455,7 +450,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     canvas
                         .child()
                         .slot(self.config.item_slot(index, self.unit))
-                        .add(|ui: &mut Ui<'_>| {
+                        .add(|ui: &mut Ui| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -477,7 +472,7 @@ impl Widget<DesktopPlatform> for Canvas {
                             Slot::new()
                                 .height(Sizing::fixed(5.0 * self.unit.height * self.config.zoom)),
                         )
-                        .add(|ui: &mut Ui<'_>| {
+                        .add(|ui: &mut Ui| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -487,7 +482,7 @@ impl Widget<DesktopPlatform> for Canvas {
 }
 
 fn canvas_item(
-    ui: &mut Ui<'_>,
+    ui: &mut Ui,
     index: usize,
     spec: blit_showcase::ItemSpec,
     badges: blit::LayerId,
@@ -526,7 +521,7 @@ fn canvas_item(
                     .layer(badges)
                     .z_index(1),
             )
-            .add(|ui: &mut Ui<'_>| {
+            .add(|ui: &mut Ui| {
                 let mut badge = ui
                     .layout_with(
                         Rectangle::new()

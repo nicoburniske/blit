@@ -21,7 +21,7 @@ blit::builder! {
 impl Widget<DesktopPlatform> for Text<'_> {
     type Response = ();
 
-    fn build(self, ui: &mut Ui<'_>) {
+    fn build(self, ui: &mut Ui) {
         let run = ui.platform().text_run(self.text, self.style);
         ui.add(
             TextRun::new(run, self.style)
