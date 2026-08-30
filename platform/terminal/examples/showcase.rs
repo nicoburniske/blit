@@ -1,8 +1,8 @@
 use std::{io, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Axis, Easing, Input, Key, Sense, Sides, Size, Sizing, Slot, Transition,
-    Widget, WidgetId,
+    Absolute, Anchor, Axis, Easing, Input, Key, NodeId, Sense, Sides, Size, Sizing, Slot,
+    Transition, Widget, WidgetId,
 };
 use blit_showcase::{
     CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip, ResizeState,
@@ -289,18 +289,7 @@ fn main() -> io::Result<()> {
                                             config: canvas,
                                             unit: cell,
                                         },
-                                        |grip: ResizeGrip| {
-                                            let active = grip.interaction.hovered
-                                                || grip.interaction.active
-                                                || grip.interaction.dragging;
-                                            Block::new().background(if active {
-                                                colors::ACCENT
-                                            } else if grip.edge == ResizeEdge::Corner {
-                                                colors::GRIP_CORNER
-                                            } else {
-                                                colors::GRIP
-                                            })
-                                        },
+                                        |grip| TerminalGrip { grip, cell },
                                     )
                                     .minimum(Size::new(cell.width * 18.0, cell.height * 9.0))
                                     .maximum(screen.size())
@@ -320,6 +309,39 @@ fn main() -> io::Result<()> {
             });
         control
     })
+}
+
+struct TerminalGrip {
+    grip: ResizeGrip,
+    cell: Size,
+}
+
+impl Widget<TerminalPlatform> for TerminalGrip {
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui) -> NodeId {
+        let marker = match self.grip.edge {
+            ResizeEdge::Right => Size::new(self.cell.width, self.cell.height * 3.0),
+            ResizeEdge::Bottom => Size::new(self.cell.width * 5.0, self.cell.height),
+            ResizeEdge::Corner => self.cell,
+        };
+        let active = self.grip.interaction.hovered
+            || self.grip.interaction.active
+            || self.grip.interaction.dragging;
+        let color = if active {
+            colors::ACCENT
+        } else if self.grip.edge == ResizeEdge::Corner {
+            colors::GRIP_CORNER
+        } else {
+            colors::GRIP
+        };
+        let mut grip = ui.layout(Flex::row().align(Align::Center).justify(Justify::Center));
+        let node = grip.node();
+        grip.child()
+            .slot(Slot::new().fixed(marker.width, marker.height))
+            .add(Block::new().background(color));
+        node
+    }
 }
 
 struct Button<'a> {
