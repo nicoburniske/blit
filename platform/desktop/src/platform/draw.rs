@@ -8,7 +8,7 @@ use blit_cpu::{
 };
 
 use super::DesktopPlatform;
-use crate::NodeCx;
+use crate::Cx;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,9 +28,9 @@ blit::builder! {
 impl Widget<DesktopPlatform> for Rectangle {
     type Response = NodeId;
 
-    fn build(self, mut cx: NodeCx<'_>) -> Self::Response {
+    fn build(self, mut cx: Cx<'_>) -> Self::Response {
         cx.atom(RectangleAtom(self));
-        cx.node()
+        cx.id()
     }
 }
 
@@ -128,9 +128,9 @@ pub struct Image {
 impl Widget<DesktopPlatform> for Image {
     type Response = NodeId;
 
-    fn build(self, mut cx: NodeCx<'_>) -> Self::Response {
+    fn build(self, mut cx: Cx<'_>) -> Self::Response {
         cx.atom(ImageAtom(self));
-        cx.node()
+        cx.id()
     }
 }
 

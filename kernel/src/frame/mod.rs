@@ -13,7 +13,7 @@ pub mod paint;
 pub mod position;
 pub mod transition;
 
-pub use container::{Absolute, Anchor, ChildCx, Container, LayerId, PositionTarget, Sizing, Slot};
+pub use container::{Absolute, Anchor, ChildCx, LayerId, Node, PositionTarget, Sizing, Slot};
 
 use crate::{
     Atom, Clip, FrameInfo, Platform, Widget,
@@ -31,24 +31,7 @@ pub struct Ui<R: Platform> {
 }
 
 impl<R: Platform> Ui<R> {
-    pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
-        let parent = self.frame().current_parent;
-        let node = self.frame_mut().push_node(None);
-        self.frame_mut().current_parent = Some(node);
-        let output = widget.build(NodeCx { ui: self, node });
-        let frame = self.frame_mut();
-        frame.nodes[node.index()].subtree_end =
-            u32::try_from(frame.nodes.len() - 1).expect("too many frame nodes");
-        frame.current_parent = parent;
-        assert!(
-            frame.nodes[node.index()].first_atom.index().is_some()
-                || frame.nodes[node.index()].layout.index().is_some(),
-            "widget did not populate its node"
-        );
-        output
-    }
-
-    pub fn layout<L: Layout<R>>(&mut self, layout: L) -> Container<'_, R, L> {
+    pub fn node<L: Layout<R>>(&mut self, layout: L) -> Node<'_, R, L> {
         let frame = self.frame_mut();
         let layout = frame.store_layout(layout);
         let node = frame.push_node(Some(layout));
@@ -172,13 +155,13 @@ impl<R: Platform> Ui<R> {
     }
 }
 
-pub struct NodeCx<'ui, R: Platform> {
+pub struct Cx<'ui, R: Platform> {
     ui: &'ui mut Ui<R>,
     node: NodeId,
 }
 
-impl<'ui, R: Platform> NodeCx<'ui, R> {
-    pub fn node(&self) -> NodeId {
+impl<'ui, R: Platform> Cx<'ui, R> {
+    pub fn id(&self) -> NodeId {
         self.node
     }
 
@@ -187,7 +170,7 @@ impl<'ui, R: Platform> NodeCx<'ui, R> {
         self
     }
 
-    pub fn layout<L: Layout<R>>(self, layout: L) -> Container<'ui, R, L> {
+    pub fn node<L: Layout<R>>(self, layout: L) -> Node<'ui, R, L> {
         let frame = self.ui.frame_mut();
         assert!(
             frame.nodes[self.node.index()].layout.index().is_none(),
@@ -199,7 +182,7 @@ impl<'ui, R: Platform> NodeCx<'ui, R> {
     }
 }
 
-impl<R: Platform> Deref for NodeCx<'_, R> {
+impl<R: Platform> Deref for Cx<'_, R> {
     type Target = Ui<R>;
 
     fn deref(&self) -> &Self::Target {
@@ -207,7 +190,7 @@ impl<R: Platform> Deref for NodeCx<'_, R> {
     }
 }
 
-impl<R: Platform> DerefMut for NodeCx<'_, R> {
+impl<R: Platform> DerefMut for Cx<'_, R> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.ui
     }
@@ -218,6 +201,23 @@ impl<R: Platform> DerefMut for NodeCx<'_, R> {
 // Ui must remain non-Copy and non-Clone
 // NonNull is dereferenced only through Ui borrows
 impl<R: Platform> Ui<R> {
+    fn build_node<W: Widget<R>>(&mut self, widget: W) -> W::Response {
+        let parent = self.frame().current_parent;
+        let node = self.frame_mut().push_node(None);
+        self.frame_mut().current_parent = Some(node);
+        let output = widget.build(Cx { ui: self, node });
+        let frame = self.frame_mut();
+        frame.nodes[node.index()].subtree_end =
+            u32::try_from(frame.nodes.len() - 1).expect("too many frame nodes");
+        frame.current_parent = parent;
+        assert!(
+            frame.nodes[node.index()].first_atom.index().is_some()
+                || frame.nodes[node.index()].layout.index().is_some(),
+            "widget did not populate its node"
+        );
+        output
+    }
+
     fn frame(&self) -> &Frame<R> {
         // safety: see above
         unsafe { self.frame.as_ref() }

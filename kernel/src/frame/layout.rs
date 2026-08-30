@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use super::{Frame, Node, NodeId};
+use super::{Frame, NodeId, StoredNode};
 use crate::{
     Platform,
     arena::DataId,
@@ -13,7 +13,7 @@ pub struct LayoutCx<'a, R: Platform, I> {
     frame: &'a mut Frame<R>,
     platform: &'a mut R,
     node: NodeId,
-    nodes: *const Node,
+    nodes: *const StoredNode,
     item: PhantomData<fn() -> I>,
 }
 
@@ -120,10 +120,10 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
 
 #[derive(Clone, Copy)]
 pub struct Children<'a> {
-    nodes: *const Node,
+    nodes: *const StoredNode,
     next: NodeId,
     end: usize,
-    marker: PhantomData<&'a Node>,
+    marker: PhantomData<&'a StoredNode>,
 }
 
 impl Iterator for Children<'_> {

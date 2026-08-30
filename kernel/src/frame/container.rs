@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, num::NonZeroU16};
 
-use super::{NodeCx, NodeId, Ui};
+use super::{Cx, NodeId, Ui};
 use crate::{
     Clip, Platform, Widget,
     animation::Transition,
@@ -183,7 +183,7 @@ impl Absolute {
     }
 }
 
-pub struct Container<'ui, R, L>
+pub struct Node<'ui, R, L>
 where
     R: Platform,
     L: Layout<R>,
@@ -193,8 +193,8 @@ where
     marker: PhantomData<L>,
 }
 
-impl<'ui, R: Platform, L: Layout<R>> Container<'ui, R, L> {
-    pub fn node(&self) -> NodeId {
+impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
+    pub fn id(&self) -> NodeId {
         self.node
     }
 
@@ -221,7 +221,7 @@ impl<'ui, R: Platform, L: Layout<R>> Container<'ui, R, L> {
         self
     }
 
-    pub fn id(self, id: WidgetId) -> Self {
+    pub fn widget_id(self, id: WidgetId) -> Self {
         self.ui.frame_mut().set_id(self.node, id);
         self
     }
@@ -235,7 +235,7 @@ impl<'ui, R: Platform, L: Layout<R>> Container<'ui, R, L> {
     where
         W: Widget<R, Response = NodeId>,
     {
-        surface.build(NodeCx {
+        surface.build(Cx {
             ui: self.ui,
             node: self.node,
         });
@@ -253,65 +253,25 @@ impl<'ui, R: Platform, L: Layout<R>> Container<'ui, R, L> {
 
     pub fn item(&mut self, item: L::Item) -> ChildCx<'_, 'ui, R, L> {
         ChildCx {
-            container: self,
+            node: self,
             slot: Slot::new(),
             item,
             id: None,
         }
     }
-
-    fn insert<W: Widget<R>>(
-        &mut self,
-        slot: Slot,
-        item: L::Item,
-        id: Option<WidgetId>,
-        widget: W,
-    ) -> W::Response {
-        let start = self.ui.frame().nodes.len();
-        let output = self.ui.add(widget);
-        let frame = self.ui.frame_mut();
-        let end = frame.nodes.len();
-        assert!(end > start, "layout child did not add a node");
-
-        let child = frame.node_id(start);
-        assert_eq!(
-            frame.nodes[child.index()].parent,
-            self.node,
-            "layout child was added outside its parent"
-        );
-        assert_eq!(
-            frame.nodes[child.index()].subtree_end as usize + 1,
-            end,
-            "a layout item must contain exactly one root"
-        );
-        frame.set_slot(child, slot);
-        let data = frame.data.store(item);
-        frame.nodes[child.index()].item = data;
-        if let Some(id) = id {
-            frame.set_id(child, id);
-        }
-        output
-    }
 }
 
-impl<'ui, R, L> Container<'ui, R, L>
+impl<'ui, R, L> Node<'ui, R, L>
 where
     R: Platform,
     L: Layout<R, Item = ()>,
 {
     pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
-        self.insert(Slot::new(), (), None, widget)
+        insert(self, Slot::new(), (), None, widget)
     }
 
     pub fn child(&mut self) -> ChildCx<'_, 'ui, R, L> {
         self.item(())
-    }
-
-    pub fn layout<N, O>(&mut self, layout: N, children: impl FnOnce(Container<'_, R, N>) -> O) -> O
-    where
-        N: Layout<R>,
-    {
-        self.child().layout(layout, children)
     }
 }
 
@@ -320,36 +280,37 @@ where
     R: Platform,
     L: Layout<R>,
 {
-    container: &'child mut Container<'ui, R, L>,
+    node: &'child mut Node<'ui, R, L>,
     slot: Slot,
     item: L::Item,
     id: Option<WidgetId>,
 }
+
 impl<R: Platform, L: Layout<R>> ChildCx<'_, '_, R, L> {
     pub fn slot(mut self, slot: Slot) -> Self {
         self.slot = slot;
         self
     }
 
-    pub fn id(mut self, id: WidgetId) -> Self {
+    pub fn widget_id(mut self, id: WidgetId) -> Self {
         self.id = Some(id);
         self
     }
 
     #[allow(clippy::should_implement_trait)]
     pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
-        self.container.insert(self.slot, self.item, self.id, widget)
+        insert(self.node, self.slot, self.item, self.id, widget)
     }
 
-    pub fn layout<N, O>(self, layout: N, children: impl FnOnce(Container<'_, R, N>) -> O) -> O
+    pub fn node<N, O>(self, layout: N, children: impl FnOnce(Node<'_, R, N>) -> O) -> O
     where
         N: Layout<R>,
     {
-        self.add(|cx: NodeCx<'_, R>| children(cx.layout(layout)))
+        self.add(|cx: Cx<'_, R>| children(cx.node(layout)))
     }
 }
 
-impl<R: Platform, L: Layout<R>> Drop for Container<'_, R, L> {
+impl<R: Platform, L: Layout<R>> Drop for Node<'_, R, L> {
     fn drop(&mut self) {
         let frame = self.ui.frame_mut();
         frame.nodes[self.node.index()].subtree_end =
@@ -359,9 +320,9 @@ impl<R: Platform, L: Layout<R>> Drop for Container<'_, R, L> {
     }
 }
 
-pub(super) fn new<R: Platform, L: Layout<R>>(ui: &mut Ui<R>, node: NodeId) -> Container<'_, R, L> {
+pub(super) fn new<R: Platform, L: Layout<R>>(ui: &mut Ui<R>, node: NodeId) -> Node<'_, R, L> {
     ui.frame_mut().current_parent = Some(node);
-    Container {
+    Node {
         ui,
         node,
         marker: PhantomData,
@@ -387,4 +348,42 @@ pub fn layer_order(id: LayerId) -> u16 {
     #[cfg(debug_assertions)]
     super::generation::assert(id.1);
     id.0.get()
+}
+
+fn insert<R, L, W>(
+    node: &mut Node<'_, R, L>,
+    slot: Slot,
+    item: L::Item,
+    id: Option<WidgetId>,
+    widget: W,
+) -> W::Response
+where
+    R: Platform,
+    L: Layout<R>,
+    W: Widget<R>,
+{
+    let start = node.ui.frame().nodes.len();
+    let output = node.ui.build_node(widget);
+    let frame = node.ui.frame_mut();
+    let end = frame.nodes.len();
+    assert!(end > start, "layout child did not add a node");
+
+    let child = frame.node_id(start);
+    assert_eq!(
+        frame.nodes[child.index()].parent,
+        node.node,
+        "layout child was added outside its parent"
+    );
+    assert_eq!(
+        frame.nodes[child.index()].subtree_end as usize + 1,
+        end,
+        "a layout item must contain exactly one root"
+    );
+    frame.set_slot(child, slot);
+    let data = frame.data.store(item);
+    frame.nodes[child.index()].item = data;
+    if let Some(id) = id {
+        frame.set_id(child, id);
+    }
+    output
 }

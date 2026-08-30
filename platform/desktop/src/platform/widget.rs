@@ -5,7 +5,7 @@ use blit_cpu::{
 };
 
 use super::{DesktopPlatform, draw::TextAtom};
-use crate::NodeCx;
+use crate::Cx;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -21,7 +21,7 @@ blit::builder! {
 impl Widget<DesktopPlatform> for Text<'_> {
     type Response = ();
 
-    fn build(self, mut cx: NodeCx<'_>) {
+    fn build(self, mut cx: Cx<'_>) {
         let run = cx.platform().text_run(self.text, self.style);
         cx.atom(
             TextAtom::new(run, self.style)

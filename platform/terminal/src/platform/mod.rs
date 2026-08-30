@@ -188,11 +188,13 @@ mod tests {
         let mut platform = TerminalPlatform::new(renderer);
         let mut frame = Frame::default();
         frame.render(&mut platform, FrameInfo::new(Size::new(4.0, 2.0)), |ui| {
-            ui.add(Block::new().background(Color::WHITE));
+            ui.node(Flex::column())
+                .surface(Block::new().background(Color::WHITE));
         });
         assert!(!platform.renderer().output().is_empty());
         frame.render(&mut platform, FrameInfo::new(Size::new(4.0, 2.0)), |ui| {
-            ui.add(Block::new().background(Color::WHITE));
+            ui.node(Flex::column())
+                .surface(Block::new().background(Color::WHITE));
         });
         assert!(platform.renderer().output().is_empty());
     }
@@ -204,7 +206,7 @@ mod tests {
         let mut frame = Frame::default();
         let title = String::from("Settings");
         frame.render(&mut platform, FrameInfo::new(Size::new(12.0, 3.0)), |ui| {
-            ui.layout(Flex::column()).surface(
+            ui.node(Flex::column()).surface(
                 Block::new()
                     .border(Border::new(Color::WHITE))
                     .shadow(Shadow::new(Color::BLACK))

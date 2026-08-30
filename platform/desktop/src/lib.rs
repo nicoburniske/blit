@@ -13,7 +13,7 @@ pub use blit_layout as layout;
 pub use platform::{BoundsClip, DesktopPlatform, draw, widget};
 
 pub type Ui = blit::Ui<DesktopPlatform>;
-pub type NodeCx<'a> = blit::NodeCx<'a, DesktopPlatform>;
+pub type Cx<'a> = blit::Cx<'a, DesktopPlatform>;
 
 use std::{error::Error, fmt};
 
