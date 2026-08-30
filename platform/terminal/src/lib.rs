@@ -2,7 +2,7 @@ mod platform;
 
 pub use blit_layout as layout;
 pub use blit_term::{color, image, text};
-pub use platform::{BoundsClip, TerminalPlatform, draw, widget};
+pub use platform::{BoundsClip, TerminalPlatform, atom, widget};
 
 pub type Ui = blit::Ui<TerminalPlatform>;
 pub type Cx<'a> = blit::Cx<'a, TerminalPlatform>;

@@ -4,7 +4,7 @@ use blit_term::{
     text::{Span, TextAttributes, TextOptions},
 };
 
-use super::{TerminalPlatform, draw::TextAtom};
+use super::{TerminalPlatform, atom::TextAtom};
 use crate::Cx;
 
 blit::builder! {

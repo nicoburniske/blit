@@ -7,8 +7,8 @@ use blit::{
 use blit_cpu::{Font, FontFace, RendererConfig};
 use blit_desktop::{
     Application, BoundsClip, Config, Cx, DesktopPlatform, EventLoopProxy, Root, Ui,
+    atom::Rectangle,
     color::Color,
-    draw::Rectangle,
     layout::{Align, Flex, Grid, Wrap},
     style::{Border, BorderRadius},
     text::{FontId, TextStyle},
@@ -63,7 +63,7 @@ impl Application for App {
         let unit = Size::new(8.0, 8.0);
         let mut root = ui
             .node(Flex::column().padding(Sides::all(20.0)).gap(14.0))
-            .surface(Rectangle::new().background(colors::BACKGROUND));
+            .atom(Rectangle::new().background(colors::BACKGROUND));
         root.child()
             .place(Place::new().height(Sizing::fixed(52.0)))
             .add(|ui: Cx<'_>| {
@@ -113,7 +113,7 @@ impl Application for App {
                 .add(|ui: Cx<'_>| {
                     let mut controls = ui
                         .node(Flex::column().padding(Sides::all(14.0)).gap(7.0))
-                        .surface(panel(colors::SURFACE));
+                        .atom(panel(colors::SURFACE));
                     controls.add(
                         Text::new("LAYOUT PARAMETERS")
                             .style(TextStyle {
@@ -249,7 +249,7 @@ impl Application for App {
             body.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
                 let mut preview = ui
                     .node(Flex::column().padding(Sides::all(12.0)).gap(8.0))
-                    .surface(panel(colors::SURFACE));
+                    .atom(panel(colors::SURFACE));
                 preview.child()
                     .place(Place::new().height(Sizing::fixed(22.0)))
                     .add(
@@ -263,7 +263,7 @@ impl Application for App {
                 preview.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
                     let mut viewport = ui
                         .node(Flex::row().padding(Sides::all(10.0)).align(Align::Start))
-                        .surface(
+                        .atom(
                             Rectangle::new()
                                 .background(colors::TRACK)
                                 .radius(BorderRadius::uniform(8.0)),
@@ -325,7 +325,7 @@ impl Widget<DesktopPlatform> for &mut FpsBadge {
                     .gap(6.0)
                     .align(Align::Center),
             )
-            .surface(
+            .atom(
                 Rectangle::new()
                     .background(colors::SURFACE_HIGH)
                     .border(Border::solid(1.0, colors::ACCENT))
@@ -336,7 +336,7 @@ impl Widget<DesktopPlatform> for &mut FpsBadge {
                     .anchors(Anchor::BottomRight, Anchor::BottomRight)
                     .offset(-16.0, -16.0),
             );
-        badge.child().place(Place::new().fixed(6.0, 6.0)).add(
+        badge.child().place(Place::new().fixed(6.0, 6.0)).atom(
             Rectangle::new()
                 .background(colors::ACCENT)
                 .radius(BorderRadius::uniform(3.0)),
@@ -388,7 +388,7 @@ impl Widget<DesktopPlatform> for DesktopGrip {
         let node = grip.id();
         grip.child()
             .place(Place::new().fixed(marker.width, marker.height))
-            .add(
+            .atom(
                 Rectangle::new()
                     .background(color)
                     .radius(BorderRadius::uniform(marker.width.min(marker.height) / 2.0)),
@@ -434,7 +434,7 @@ impl Widget<DesktopPlatform> for Button<'_> {
         };
         let mut button = ui
             .node(Flex::row().padding(Sides::new().top(5.0).right(8.0).bottom(5.0).left(8.0)))
-            .surface(
+            .atom(
                 Rectangle::new()
                     .background(background)
                     .border(Border::solid(1.0, border))
@@ -510,7 +510,7 @@ impl Widget<DesktopPlatform> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .surface(background)
+                    .atom(background)
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
@@ -536,7 +536,7 @@ impl Widget<DesktopPlatform> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .surface(background)
+                    .atom(background)
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
@@ -555,7 +555,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     .column_gap(self.config.gap(Axis::Horizontal, self.unit))
                     .row_gap(self.config.gap(Axis::Vertical, self.unit));
                 let mut placer = grid.placer();
-                let mut canvas = ui.node(grid).surface(background).clip(BoundsClip);
+                let mut canvas = ui.node(grid).atom(background).clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
@@ -588,7 +588,7 @@ fn canvas_item(
                 .align(Align::Center)
                 .justify(blit_desktop::layout::Justify::Center),
         )
-        .surface(
+        .atom(
             Rectangle::new()
                 .background(colors::ITEMS[index])
                 .radius(BorderRadius::uniform(5.0)),
@@ -626,7 +626,7 @@ fn canvas_item(
                             .align(Align::Center)
                             .justify(blit_desktop::layout::Justify::Center),
                     )
-                    .surface(
+                    .atom(
                         Rectangle::new()
                             .background(colors::BACKGROUND)
                             .border(Border::solid(1.0, Color::WHITE))

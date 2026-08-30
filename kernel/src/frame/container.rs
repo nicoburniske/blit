@@ -2,7 +2,7 @@ use std::{marker::PhantomData, num::NonZeroU16};
 
 use super::{Cx, NodeId, Ui};
 use crate::{
-    Clip, Platform, Widget,
+    Atom, Clip, Platform, Widget,
     animation::Transition,
     geometry::{Point, Sides},
     interact::WidgetId,
@@ -231,6 +231,11 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
         self
     }
 
+    pub fn atom<A: Atom<R>>(self, atom: A) -> Self {
+        self.ui.frame_mut().push_atom(self.node, atom);
+        self
+    }
+
     pub fn surface<W>(self, surface: W) -> Self
     where
         W: Widget<R, Response = NodeId>,
@@ -304,6 +309,13 @@ impl<'child, 'ui, R: Platform, L: Layout<R>, I> Child<'child, 'ui, R, L, I> {
 }
 
 impl<R: Platform, L: Layout<R>> Child<'_, '_, R, L, L::Item> {
+    pub fn atom<A: Atom<R>>(self, atom: A) -> NodeId {
+        self.add(|mut cx: Cx<'_, R>| {
+            cx.atom(atom);
+            cx.id()
+        })
+    }
+
     #[allow(clippy::should_implement_trait)]
     pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
         insert(self.node, self.place, self.item, self.id, widget)

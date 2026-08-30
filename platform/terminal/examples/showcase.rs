@@ -10,8 +10,8 @@ use blit_showcase::{
 };
 use blit_terminal::{
     BoundsClip, ControlFlow, Cx, TerminalPlatform, Ui,
+    atom::{Block, Border, BorderSides, BorderStyle, Shadow, Title, TitlePosition},
     color::Color,
-    draw::{Block, Border, BorderSides, BorderStyle, Shadow, Title, TitlePosition},
     layout::{Align, Flex, Grid, Justify, Wrap},
     text::{
         HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign,

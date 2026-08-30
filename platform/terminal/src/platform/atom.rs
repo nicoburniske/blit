@@ -61,7 +61,7 @@ impl Widget<TerminalPlatform> for Block<'_> {
             })
         });
         if let Some(shadow) = self.shadow {
-            cx.atom(ShadowAtom(shadow));
+            cx.atom(shadow);
         }
         cx.atom(ResolvedBlock {
             border: self.border,
@@ -89,30 +89,18 @@ impl Shadow {
     }
 }
 
-impl Widget<TerminalPlatform> for Shadow {
-    type Response = NodeId;
-
-    fn build(self, mut cx: Cx<'_>) -> Self::Response {
-        cx.atom(ShadowAtom(self));
-        cx.id()
-    }
-}
-
-#[derive(Clone, Copy)]
-struct ShadowAtom(Shadow);
-
-impl Atom<TerminalPlatform> for ShadowAtom {
+impl Atom<TerminalPlatform> for Shadow {
     fn measure(&self, _: &mut TerminalPlatform, _: Constraints) -> Size {
         Size::ZERO
     }
 
     fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
         let shifted = LogicalRect {
-            x: area.x + self.0.offset_x,
-            y: area.y + self.0.offset_y,
+            x: area.x + self.offset_x,
+            y: area.y + self.offset_y,
             ..area
         };
-        let shadow = DrawShadow::new(area, self.0.color).offset(self.0.offset_x, self.0.offset_y);
+        let shadow = DrawShadow::new(area, self.color).offset(self.offset_x, self.offset_y);
         let bounds = shifted.to_physical(Scale2::IDENTITY);
         let clip = platform.clip;
         platform.current.push_shadow(shadow, bounds, clip);
@@ -186,21 +174,9 @@ blit::builder! {
     }
 }
 
-impl Widget<TerminalPlatform> for Image {
-    type Response = NodeId;
-
-    fn build(self, mut cx: Cx<'_>) -> Self::Response {
-        cx.atom(ImageAtom(self));
-        cx.id()
-    }
-}
-
-#[derive(Clone, Copy)]
-struct ImageAtom(Image);
-
-impl Atom<TerminalPlatform> for ImageAtom {
+impl Atom<TerminalPlatform> for Image {
     fn measure(&self, _: &mut TerminalPlatform, constraints: Constraints) -> Size {
-        constraints.constrain(self.0.intrinsic)
+        constraints.constrain(self.intrinsic)
     }
 
     fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
@@ -208,6 +184,6 @@ impl Atom<TerminalPlatform> for ImageAtom {
         let clip = platform.clip;
         platform
             .current
-            .push_image(ImagePlacement::new(self.0.image, area), bounds, clip);
+            .push_image(ImagePlacement::new(self.image, area), bounds, clip);
     }
 }

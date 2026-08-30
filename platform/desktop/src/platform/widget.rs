@@ -4,7 +4,7 @@ use blit_cpu::{
     text_types::{TextOptions, TextStyle},
 };
 
-use super::{DesktopPlatform, draw::TextAtom};
+use super::{DesktopPlatform, atom::TextAtom};
 use crate::Cx;
 
 blit::builder! {
