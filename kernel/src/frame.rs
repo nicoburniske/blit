@@ -30,25 +30,22 @@ impl<R: Renderer> Default for Frame<R> {
 }
 
 impl<R: Renderer> Frame<R> {
-    pub fn render(&mut self, renderer: &mut R, size: Size, build: impl FnOnce(&mut Ui<'_, R>)) {
+    pub fn render(&mut self, renderer: &mut R, size: Size, build: impl FnOnce(Ui<'_, R>)) {
         self.nodes.clear();
         self.data.clear();
 
-        let mut ui = Ui {
+        build(Ui {
             frame: self,
             parent: None,
-        };
-        build(&mut ui);
-        assert!(ui.parent.is_none(), "layout scope was not closed");
-        assert!(!ui.frame.nodes.is_empty(), "frame is empty");
+        });
+        assert!(!self.nodes.is_empty(), "frame is empty");
         assert_eq!(
-            ui.frame.nodes[0].subtree_end as usize,
-            ui.frame.nodes.len() - 1,
+            self.nodes[0].subtree_end as usize,
+            self.nodes.len() - 1,
             "a frame must have exactly one root"
         );
 
-        ui.frame
-            .layout_node(NodeId(0), renderer, Constraints::tight(size));
+        self.layout_node(NodeId(0), renderer, Constraints::tight(size));
         renderer.begin(FrameInfo { size });
         fn paint<R: Renderer>(frame: &Frame<R>, renderer: &mut R, node: NodeId, origin: Point) {
             let stored = frame.nodes[node.index()];
@@ -78,7 +75,7 @@ impl<R: Renderer> Frame<R> {
                 pop(&frame.data, clip.data, renderer);
             }
         }
-        paint(ui.frame, renderer, NodeId(0), Point::ZERO);
+        paint(self, renderer, NodeId(0), Point::ZERO);
         renderer.end();
     }
 
@@ -192,21 +189,18 @@ pub struct Ui<'a, R: Renderer> {
     parent: Option<NodeId>,
 }
 
-impl<'frame, R: Renderer> Ui<'frame, R> {
+impl<R: Renderer> Ui<'_, R> {
     pub fn add<L: Leaf<R>>(&mut self, leaf: L) -> NodeId {
         let base = self.frame.store_leaf(leaf);
         self.frame.push_node(self.parent, Some(base), None)
     }
 
-    pub fn layout<L: Layout<R>>(&mut self, layout: L) -> Container<'_, 'frame, R, L> {
+    pub fn layout<L: Layout<R>>(&mut self, layout: L) -> Container<'_, R, L> {
         let layout = self.frame.store_layout(layout);
         let node = self.frame.push_node(self.parent, None, Some(layout));
-        let parent = self.parent;
-        self.parent = Some(node);
         Container {
-            ui: self,
+            frame: self.frame,
             node,
-            parent,
             marker: PhantomData,
         }
     }
@@ -215,80 +209,73 @@ impl<'frame, R: Renderer> Ui<'frame, R> {
         &mut self,
         base: B,
         layout: L,
-    ) -> Container<'_, 'frame, R, L> {
+    ) -> Container<'_, R, L> {
         let base = self.frame.store_leaf(base);
         let layout = self.frame.store_layout(layout);
         let node = self.frame.push_node(self.parent, Some(base), Some(layout));
-        let parent = self.parent;
-        self.parent = Some(node);
         Container {
-            ui: self,
+            frame: self.frame,
             node,
-            parent,
             marker: PhantomData,
         }
     }
 }
 
-pub struct Container<'ui, 'frame, R, L>
+pub struct Container<'a, R, L>
 where
     R: Renderer,
     L: Layout<R>,
 {
-    ui: &'ui mut Ui<'frame, R>,
+    frame: &'a mut Frame<R>,
     node: NodeId,
-    parent: Option<NodeId>,
     marker: PhantomData<L>,
 }
 
-impl<R: Renderer, L: Layout<R>> Container<'_, '_, R, L> {
+impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
     pub fn node(&self) -> NodeId {
         self.node
     }
 
     pub fn clip<C: Clip<R>>(self, clip: C) -> Self {
         assert!(
-            self.ui.frame.nodes[self.node.index()].clip.is_none(),
+            self.frame.nodes[self.node.index()].clip.is_none(),
             "layout already has a clip"
         );
-        let clip = self.ui.frame.store_clip(clip);
-        self.ui.frame.nodes[self.node.index()].clip = Some(clip);
+        let clip = self.frame.store_clip(clip);
+        self.frame.nodes[self.node.index()].clip = Some(clip);
         self
     }
 
-    pub fn add<O>(&mut self, item: L::Item, child: impl FnOnce(&mut Ui<'_, R>) -> O) -> O {
-        let start = self.ui.frame.nodes.len();
-        let output = child(self.ui);
-        let end = self.ui.frame.nodes.len();
+    pub fn add<O>(&mut self, item: L::Item, child: impl FnOnce(Ui<'_, R>) -> O) -> O {
+        let start = self.frame.nodes.len();
+        let output = child(Ui {
+            frame: self.frame,
+            parent: Some(self.node),
+        });
+        let end = self.frame.nodes.len();
         assert!(end > start, "layout child did not add a node");
 
         let child = NodeId(start as u32);
         assert_eq!(
-            self.ui.frame.nodes[child.index()].parent,
+            self.frame.nodes[child.index()].parent,
             Some(self.node),
             "layout child was added outside its parent"
         );
         assert_eq!(
-            self.ui.frame.nodes[child.index()].subtree_end as usize + 1,
+            self.frame.nodes[child.index()].subtree_end as usize + 1,
             end,
             "a layout item must contain exactly one root"
         );
-        let data = self.ui.frame.data.store(item);
-        self.ui.frame.nodes[child.index()].item = Some(data);
+        let data = self.frame.data.store(item);
+        self.frame.nodes[child.index()].item = Some(data);
         output
     }
 }
 
-impl<R: Renderer, L: Layout<R>> Drop for Container<'_, '_, R, L> {
+impl<R: Renderer, L: Layout<R>> Drop for Container<'_, R, L> {
     fn drop(&mut self) {
-        assert_eq!(
-            self.ui.parent,
-            Some(self.node),
-            "layout scopes closed out of order"
-        );
-        self.ui.frame.nodes[self.node.index()].subtree_end =
-            u32::try_from(self.ui.frame.nodes.len() - 1).expect("too many frame nodes");
-        self.ui.parent = self.parent;
+        self.frame.nodes[self.node.index()].subtree_end =
+            u32::try_from(self.frame.nodes.len() - 1).expect("too many frame nodes");
     }
 }
 
@@ -471,11 +458,11 @@ fn measure_leaf<R: Renderer, L: Leaf<R>>(
     constraints: Constraints,
 ) -> Size {
     data.load::<L>(id)
-        .measure(&mut MeasureCx { renderer }, constraints)
+        .measure(MeasureCx { renderer }, constraints)
 }
 
 fn paint_leaf<R: Renderer, L: Leaf<R>>(data: &DataArena, id: DataId, renderer: &mut R, area: Rect) {
-    data.load::<L>(id).paint(&mut PaintCx { renderer }, area)
+    data.load::<L>(id).paint(PaintCx { renderer }, area)
 }
 
 fn run_layout<R: Renderer, L: Layout<R>>(
@@ -488,7 +475,7 @@ fn run_layout<R: Renderer, L: Layout<R>>(
     let layout = frame.data.load::<L>(id);
     let nodes = frame.nodes.as_ptr();
     layout.layout(
-        &mut LayoutCx {
+        LayoutCx {
             frame,
             renderer,
             node,
@@ -500,9 +487,9 @@ fn run_layout<R: Renderer, L: Layout<R>>(
 }
 
 fn push_clip<R: Renderer, C: Clip<R>>(data: &DataArena, id: DataId, renderer: &mut R, area: Rect) {
-    data.load::<C>(id).push(&mut ClipCx { renderer }, area)
+    data.load::<C>(id).push(ClipCx { renderer }, area)
 }
 
 fn pop_clip<R: Renderer, C: Clip<R>>(data: &DataArena, id: DataId, renderer: &mut R) {
-    data.load::<C>(id).pop(&mut ClipCx { renderer })
+    data.load::<C>(id).pop(ClipCx { renderer })
 }
