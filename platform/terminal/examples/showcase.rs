@@ -827,6 +827,7 @@ impl Widget<TerminalPlatform> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
                     canvas
+                        .child()
                         .item(item)
                         .slot(Slot::new().height(Sizing::fixed(3.0 * self.config.zoom)))
                         .add(|ui: Cx<'_>| {

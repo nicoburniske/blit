@@ -11,8 +11,8 @@ pub mod layout;
 
 pub use animation::{Easing, Transition, TransitionProperties};
 pub use frame::{
-    Absolute, Anchor, ChildCx, Cx, Frame, FrameMemory, LayerId, Node, NodeId, PositionTarget,
-    Sizing, Slot, Ui,
+    Absolute, Anchor, Child, Cx, Frame, FrameMemory, LayerId, Node, NodeId, PositionTarget, Sizing,
+    Slot, Ui,
 };
 pub use geometry::{
     Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize,

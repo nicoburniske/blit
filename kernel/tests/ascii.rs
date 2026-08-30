@@ -454,6 +454,7 @@ fn transition_scene(
         |ui| {
             let mut column = ui.node(Column);
             column
+                .child()
                 .item(ColumnItem { gap_before: 0.0 })
                 .add(|ui: Cx<'_>| {
                     let _child = ui
@@ -503,6 +504,7 @@ fn position_transition_scene(
         |ui| {
             let mut column = ui.node(Column).offset(Point::new(0.0, 1.0));
             column
+                .child()
                 .item(ColumnItem { gap_before: gap })
                 .add(|ui: Cx<'_>| {
                     let _child = ui
@@ -534,9 +536,11 @@ fn clipped_button(ui: &mut Ui, id: WidgetId) -> Interaction {
 fn scene(ui: &mut Ui) {
     let mut column = ui.node(Column);
     column
+        .child()
         .item(ColumnItem { gap_before: 0.0 })
         .add(Fill::new('A', Size::new(3.0, 1.0)));
     column
+        .child()
         .item(ColumnItem { gap_before: 1.0 })
         .add(|ui: Cx<'_>| {
             let mut panel = ui
