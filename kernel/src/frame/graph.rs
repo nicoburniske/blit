@@ -235,8 +235,8 @@ impl<R: Platform> Frame<R> {
             run(self, node, platform, stored.data, constraints)
         } else {
             assert!(
-                self.nodes[index].base.index().is_some(),
-                "node has neither a base nor a layout"
+                self.nodes[index].first_leaf.index().is_some(),
+                "node has neither a leaf nor a layout"
             );
             self.measure_base(node, platform, constraints)
         };
@@ -247,12 +247,17 @@ impl<R: Platform> Frame<R> {
     }
 
     fn measure_base(&mut self, node: NodeId, platform: &mut R, constraints: Constraints) -> Size {
-        let Some(base) = self.nodes[node.index()].base.index() else {
-            return Size::ZERO;
-        };
-        let base = self.leaves[base];
-        let measure = self.leaf_kinds[base.kind as usize].measure;
-        measure(&self.data, base.data, platform, constraints)
+        let mut size = Size::ZERO;
+        let mut leaf = self.nodes[node.index()].first_leaf;
+        while let Some(index) = leaf.index() {
+            let stored = self.leaves[index];
+            let measure = self.leaf_kinds[stored.kind as usize].measure;
+            let measured = measure(&self.data, stored.data, platform, constraints);
+            size.width = size.width.max(measured.width);
+            size.height = size.height.max(measured.height);
+            leaf = stored.next;
+        }
+        size
     }
 
     fn store_leaf<L: Leaf<R>>(&mut self, leaf: L) -> StoredLeafId {
@@ -273,6 +278,7 @@ impl<R: Platform> Frame<R> {
         self.leaves.push(StoredLeaf {
             kind: u16::try_from(kind).expect("too many leaf types"),
             data: self.data.store(leaf),
+            next: StoredLeafId::NONE,
         });
         id
     }
@@ -321,12 +327,13 @@ impl<R: Platform> Frame<R> {
         id
     }
 
-    fn push_node(&mut self, base: Option<StoredLeafId>, layout: Option<StoredLayoutId>) -> NodeId {
+    fn push_node(&mut self, layout: Option<StoredLayoutId>) -> NodeId {
         let id = self.node_id(self.nodes.len());
         self.nodes.push(Node {
             parent: self.current_parent.unwrap_or(id),
             subtree_end: id.value,
-            base: base.unwrap_or(StoredLeafId::NONE),
+            first_leaf: StoredLeafId::NONE,
+            last_leaf: StoredLeafId::NONE,
             layout: layout.unwrap_or(StoredLayoutId::NONE),
             clip: StoredClipId::NONE,
             item: DataId::NONE,
@@ -337,6 +344,16 @@ impl<R: Platform> Frame<R> {
             resolved_clip: ResolvedClipId::NONE,
         });
         id
+    }
+
+    fn append_leaf(&mut self, node: NodeId, leaf: StoredLeafId) {
+        let node = node.index();
+        if let Some(last) = self.nodes[node].last_leaf.index() {
+            self.leaves[last].next = leaf;
+        } else {
+            self.nodes[node].first_leaf = leaf;
+        }
+        self.nodes[node].last_leaf = leaf;
     }
 
     fn add_layer(&mut self) -> LayerId {
@@ -491,7 +508,8 @@ mod generation {
 struct Node {
     parent: NodeId,
     subtree_end: u32,
-    base: StoredLeafId,
+    first_leaf: StoredLeafId,
+    last_leaf: StoredLeafId,
     layout: StoredLayoutId,
     clip: StoredClipId,
     item: DataId,
@@ -537,6 +555,7 @@ struct ResolvedClip {
 struct StoredLeaf {
     kind: u16,
     data: DataId,
+    next: StoredLeafId,
 }
 
 #[derive(Clone, Copy)]

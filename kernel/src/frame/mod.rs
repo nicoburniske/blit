@@ -7,7 +7,9 @@ pub mod paint;
 pub mod position;
 pub mod transition;
 
-pub use container::{Absolute, Anchor, ChildCx, Container, LayerId, PositionTarget, Sizing, Slot};
+pub use container::{
+    Absolute, Anchor, ChildCx, Container, LayerId, Leaves, PositionTarget, Sizing, Slot,
+};
 
 use crate::{
     Clip, FrameInfo, Leaf, Platform, Widget,
@@ -29,16 +31,15 @@ impl<R: Platform> Ui<R> {
         widget.build(self)
     }
 
-    pub fn add_leaf<L: Leaf<R>>(&mut self, leaf: L) -> NodeId {
-        let frame = self.frame_mut();
-        let base = frame.store_leaf(leaf);
-        frame.push_node(Some(base), None)
+    pub fn leaves(&mut self) -> Leaves<'_, R> {
+        let node = self.frame_mut().push_node(None);
+        Leaves { ui: self, node }
     }
 
     pub fn layout<L: Layout<R>>(&mut self, layout: L) -> Container<'_, R, L> {
         let frame = self.frame_mut();
         let layout = frame.store_layout(layout);
-        let node = frame.push_node(None, Some(layout));
+        let node = frame.push_node(Some(layout));
         container::new(self, node)
     }
 
@@ -57,7 +58,7 @@ impl<R: Platform> Ui<R> {
             "layout base must add exactly one node"
         );
         assert!(
-            frame.nodes[start].base.index().is_some(),
+            frame.nodes[start].first_leaf.index().is_some(),
             "layout base did not add a leaf"
         );
         assert!(

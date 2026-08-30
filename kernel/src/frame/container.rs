@@ -2,7 +2,7 @@ use std::{marker::PhantomData, num::NonZeroU16};
 
 use super::{NodeId, Ui};
 use crate::{
-    Clip, Platform, Widget,
+    Clip, Leaf, Platform, Widget,
     animation::Transition,
     geometry::{Point, Sides},
     interact::WidgetId,
@@ -180,6 +180,31 @@ impl Absolute {
     pub const fn offset(mut self, x: f32, y: f32) -> Self {
         self.offset = Point::new(x, y);
         self
+    }
+}
+
+pub struct Leaves<'ui, R: Platform> {
+    pub(super) ui: &'ui mut Ui<R>,
+    pub(super) node: NodeId,
+}
+
+impl<R: Platform> Leaves<'_, R> {
+    pub fn add<L: Leaf<R>>(&mut self, leaf: L) -> &mut Self {
+        let frame = self.ui.frame_mut();
+        let leaf = frame.store_leaf(leaf);
+        frame.append_leaf(self.node, leaf);
+        self
+    }
+
+    pub fn node(&self) -> NodeId {
+        assert!(
+            self.ui.frame().nodes[self.node.index()]
+                .first_leaf
+                .index()
+                .is_some(),
+            "leaf scope is empty"
+        );
+        self.node
     }
 }
 

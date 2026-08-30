@@ -21,7 +21,7 @@ impl Widget<TestPlatform> for BoxLeaf {
     type Response = NodeId;
 
     fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.add_leaf(self)
+        ui.leaves().add(self).node()
     }
 }
 

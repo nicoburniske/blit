@@ -59,11 +59,13 @@ impl Widget<TerminalPlatform> for Block<'_> {
                     .position(title.position)
             })
         });
-        ui.add_leaf(ResolvedBlock {
-            border: self.border,
-            background: self.background,
-            titles,
-        })
+        ui.leaves()
+            .add(ResolvedBlock {
+                border: self.border,
+                background: self.background,
+                titles,
+            })
+            .node()
     }
 }
 
@@ -78,7 +80,7 @@ impl Widget<TerminalPlatform> for ResolvedBlock {
     type Response = NodeId;
 
     fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.add_leaf(self)
+        ui.leaves().add(self).node()
     }
 }
 
@@ -116,7 +118,7 @@ impl Widget<TerminalPlatform> for TextRun {
     type Response = NodeId;
 
     fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.add_leaf(self)
+        ui.leaves().add(self).node()
     }
 }
 
@@ -154,7 +156,7 @@ impl Widget<TerminalPlatform> for Image {
     type Response = NodeId;
 
     fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.add_leaf(self)
+        ui.leaves().add(self).node()
     }
 }
 
