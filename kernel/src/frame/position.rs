@@ -58,7 +58,7 @@ pub fn offset<R: Renderer>(frame: &Frame<R>, node: NodeId) -> Point {
     if let Some(positioned) = frame.nodes[node.index()].positioned.index() {
         let positioned = frame.positioned[positioned];
         return if positioned.uses_target_content_origin {
-            frame.nodes[positioned.target.index()].content_offset
+            frame.layout_offset(positioned.target)
         } else {
             Point::ZERO
         };
@@ -67,7 +67,7 @@ pub fn offset<R: Renderer>(frame: &Frame<R>, node: NodeId) -> Point {
     if parent == node {
         Point::ZERO
     } else {
-        frame.nodes[parent.index()].content_offset
+        frame.layout_offset(parent)
     }
 }
 

@@ -215,7 +215,8 @@ impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
     }
 
     pub fn offset(self, offset: Point) -> Self {
-        self.frame.nodes[self.node.index()].content_offset = offset;
+        let layout = self.frame.nodes[self.node.index()].layout.index().unwrap();
+        self.frame.layouts[layout].offset = offset;
         self
     }
 
