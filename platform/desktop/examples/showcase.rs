@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use blit::{
-    Absolute, Anchor, Axis, Easing, Sense, Sides, Size, Sizing, Slot, Transition, Widget, WidgetId,
+    Absolute, Anchor, Axis, Easing, NodeId, Sense, Sides, Size, Sizing, Slot, Transition, Widget,
+    WidgetId,
 };
 use blit_cpu::{Font, FontFace, RendererConfig};
 use blit_desktop::{
@@ -278,29 +279,55 @@ impl Application for App {
                                     config: self.canvas,
                                     unit,
                                 },
-                                |grip: ResizeGrip| {
-                                    let active = grip.interaction.hovered
-                                        || grip.interaction.active
-                                        || grip.interaction.dragging;
-                                    Rectangle::new().background(if active {
-                                        colors::ACCENT
-                                    } else if grip.edge == ResizeEdge::Corner {
-                                        colors::GRIP_CORNER
-                                    } else {
-                                        colors::GRIP
-                                    })
-                                },
+                                DesktopGrip,
                             )
                             .minimum(Size::new(240.0, 180.0))
                             .maximum(Size::new(
                                 (screen.width - 390.0).max(240.0),
                                 (screen.height - 120.0).max(180.0),
                             ))
-                            .grip_size(Size::new(10.0, 10.0)),
+                            .grip_size(Size::new(12.0, 12.0)),
                     );
                 });
             });
         });
+    }
+}
+
+struct DesktopGrip(ResizeGrip);
+
+impl Widget<DesktopPlatform> for DesktopGrip {
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui) -> NodeId {
+        let marker = match self.0.edge {
+            ResizeEdge::Right => Size::new(3.0, 48.0),
+            ResizeEdge::Bottom => Size::new(48.0, 3.0),
+            ResizeEdge::Corner => Size::new(6.0, 6.0),
+        };
+        let active =
+            self.0.interaction.hovered || self.0.interaction.active || self.0.interaction.dragging;
+        let color = if active {
+            colors::ACCENT
+        } else if self.0.edge == ResizeEdge::Corner {
+            colors::GRIP_CORNER
+        } else {
+            colors::GRIP
+        };
+        let mut grip = ui.layout(
+            Flex::row()
+                .align(Align::Center)
+                .justify(blit_desktop::layout::Justify::Center),
+        );
+        let node = grip.node();
+        grip.child()
+            .slot(Slot::new().fixed(marker.width, marker.height))
+            .add(
+                Rectangle::new()
+                    .background(color)
+                    .radius(BorderRadius::uniform(marker.width.min(marker.height) / 2.0)),
+            );
+        node
     }
 }
 
