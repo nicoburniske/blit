@@ -62,16 +62,17 @@ impl Application for App {
             Rectangle::new().background(colors::BACKGROUND),
             Flex::column().padding(Sides::all(20.0)).gap(14.0),
         );
-        root.add(Slot::new().height(Sizing::fixed(52.0)), (), |mut ui| {
-            let mut header = ui.layout(
-                Flex::row()
-                    .align(Align::Center)
-                    .justify(blit_desktop::layout::Justify::SpaceBetween),
-            );
-            header.add(Slot::new().grow(), (), |mut ui| {
-                let mut title = ui.layout(Flex::column().gap(2.0));
-                title.add(Slot::new(), (), |mut ui| {
-                    ui.add(
+        root.child()
+            .slot(Slot::new().height(Sizing::fixed(52.0)))
+            .scope(|ui| {
+                let mut header = ui.layout(
+                    Flex::row()
+                        .align(Align::Center)
+                        .justify(blit_desktop::layout::Justify::SpaceBetween),
+                );
+                header.child().slot(Slot::new().grow()).scope(|ui| {
+                    let mut title = ui.layout(Flex::column().gap(2.0));
+                    title.add(
                         Text::new("BLIT / LAYOUT PLAYGROUND")
                             .style(TextStyle {
                                 size: 22.0,
@@ -79,9 +80,7 @@ impl Application for App {
                             })
                             .color(colors::TEXT),
                     );
-                });
-                title.add(Slot::new(), (), |mut ui| {
-                    ui.add(
+                    title.add(
                         Text::new(
                             "shared layout and resize mechanics, native desktop presentation",
                         )
@@ -92,43 +91,39 @@ impl Application for App {
                         .color(colors::TEXT_MUTED),
                     );
                 });
-            });
-            if header.add(Slot::new(), (), |mut ui| {
-                ui.add(Button::new(
+                if header.add(Button::new(
                     WidgetId::new("reset layout playground"),
                     "RESET",
                     false,
-                ))
-            }) {
-                self.canvas = CanvasConfig::default();
-                self.resize.reset();
-            }
-        });
-        root.add(Slot::new().grow(), (), |mut ui| {
+                )) {
+                    self.canvas = CanvasConfig::default();
+                    self.resize.reset();
+                }
+            });
+        root.child().slot(Slot::new().grow()).scope(|ui| {
             let mut body = ui.layout(Flex::row().gap(14.0));
-            body.add(
-                Slot::new()
-                    .width(Sizing::fixed(330.0))
-                    .height(Sizing::grow()),
-                (),
-                |mut ui| {
+            body.child()
+                .slot(
+                    Slot::new()
+                        .width(Sizing::fixed(330.0))
+                        .height(Sizing::grow()),
+                )
+                .scope(|ui| {
                     let mut controls = ui.layout_with(
                         panel(colors::SURFACE),
                         Flex::column().padding(Sides::all(14.0)).gap(7.0),
                     );
-                    controls.add(Slot::new(), (), |mut ui| {
-                        ui.add(
-                            Text::new("LAYOUT PARAMETERS")
-                                .style(TextStyle {
-                                    size: 12.0,
-                                    ..TextStyle::default()
-                                })
-                                .color(colors::ACCENT),
-                        );
-                    });
-                    controls.add(Slot::new(), (), |mut ui| {
+                    controls.add(
+                        Text::new("LAYOUT PARAMETERS")
+                            .style(TextStyle {
+                                size: 12.0,
+                                ..TextStyle::default()
+                            })
+                            .color(colors::ACCENT),
+                    );
+                    controls.scope(|ui| {
                         choices(
-                            &mut ui,
+                            ui,
                             "layout",
                             "layout",
                             &mut self.canvas.layout,
@@ -139,18 +134,18 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(Slot::new(), (), |mut ui| {
+                    controls.scope(|ui| {
                         choices(
-                            &mut ui,
+                            ui,
                             "axis",
                             "axis",
                             &mut self.canvas.axis,
                             &[("Horizontal", Axis::Horizontal), ("Vertical", Axis::Vertical)],
                         );
                     });
-                    controls.add(Slot::new(), (), |mut ui| {
+                    controls.scope(|ui| {
                         choices(
-                            &mut ui,
+                            ui,
                             "justify",
                             "justify position",
                             &mut self.canvas.justify,
@@ -161,9 +156,9 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(Slot::new(), (), |mut ui| {
+                    controls.scope(|ui| {
                         choices(
-                            &mut ui,
+                            ui,
                             "space",
                             "justify distribution",
                             &mut self.canvas.justify,
@@ -174,9 +169,9 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(Slot::new(), (), |mut ui| {
+                    controls.scope(|ui| {
                         choices(
-                            &mut ui,
+                            ui,
                             "align",
                             "align",
                             &mut self.canvas.align,
@@ -188,9 +183,9 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(Slot::new(), (), |mut ui| {
+                    controls.scope(|ui| {
                         choices(
-                            &mut ui,
+                            ui,
                             "sizing",
                             "sizing",
                             &mut self.canvas.sizing,
@@ -201,87 +196,79 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(Slot::new(), (), |mut ui| {
+                    controls.scope(|ui| {
                         choices(
-                            &mut ui,
+                            ui,
                             "zoom",
                             "zoom",
                             &mut self.canvas.zoom,
                             &[("75%", 0.75), ("100%", 1.0), ("125%", 1.25)],
                         );
                     });
-                    controls.add(Slot::new(), (), |mut ui| {
+                    controls.scope(|ui| {
                         choices(
-                            &mut ui,
+                            ui,
                             "gap",
                             "gap",
                             &mut self.canvas.gap_steps,
                             &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
                         );
                     });
-                    controls.add(Slot::new(), (), |mut ui| {
+                    controls.scope(|ui| {
                         choices(
-                            &mut ui,
+                            ui,
                             "padding",
                             "padding",
                             &mut self.canvas.padding_steps,
                             &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
                         );
                     });
-                    controls.add(Slot::new(), (), |mut ui| {
+                    controls.scope(|ui| {
                         choices(
-                            &mut ui,
+                            ui,
                             "transition",
                             "transitions",
                             &mut self.canvas.transitions,
                             &[("On", true), ("Off", false)],
                         );
                     });
-                    controls.add(Slot::new().grow(), (), |mut ui| {
-                        ui.add(
-                            Text::new("Drag the highlighted right edge, bottom edge, or corner. Layout changes preserve item identity and animate geometry.")
-                                .style(TextStyle {
-                                    size: 11.0,
-                                    ..TextStyle::default()
-                                })
-                                .color(colors::TEXT_DIM)
-                                .options(blit_desktop::text::TextOptions {
-                                    wrap: blit_desktop::text::TextWrap::Word,
-                                    ..Default::default()
-                                }),
-                        );
-                    });
-                },
-            );
-            body.add(Slot::new().grow(), (), |mut ui| {
+                    controls.child().slot(Slot::new().grow()).add(
+                        Text::new("Drag the highlighted right edge, bottom edge, or corner. Layout changes preserve item identity and animate geometry.")
+                            .style(TextStyle {
+                                size: 11.0,
+                                ..TextStyle::default()
+                            })
+                            .color(colors::TEXT_DIM)
+                            .options(blit_desktop::text::TextOptions {
+                                wrap: blit_desktop::text::TextWrap::Word,
+                                ..Default::default()
+                            }),
+                    );
+                });
+            body.child().slot(Slot::new().grow()).scope(|ui| {
                 let mut preview = ui.layout_with(
                     panel(colors::SURFACE),
                     Flex::column().padding(Sides::all(12.0)).gap(8.0),
                 );
-                preview.add(
-                    Slot::new().height(Sizing::fixed(22.0)),
-                    (),
-                    |mut ui| {
-                        ui.add(
-                            Text::new("LIVE PREVIEW")
-                                .style(TextStyle {
-                                    size: 11.0,
-                                    ..TextStyle::default()
-                                })
-                                .color(colors::ACCENT),
-                        );
-                    },
-                );
-                preview.add(Slot::new().grow(), (), |mut ui| {
+                preview.child()
+                    .slot(Slot::new().height(Sizing::fixed(22.0)))
+                    .add(
+                        Text::new("LIVE PREVIEW")
+                            .style(TextStyle {
+                                size: 11.0,
+                                ..TextStyle::default()
+                            })
+                            .color(colors::ACCENT),
+                    );
+                preview.child().slot(Slot::new().grow()).scope(|ui| {
                     let mut viewport = ui.layout_with(
                         Rectangle::new()
                             .background(colors::TRACK)
                             .radius(BorderRadius::uniform(8.0)),
                         Flex::row().padding(Sides::all(10.0)).align(Align::Start),
                     );
-                    viewport.add(Slot::new(), (), |mut ui| {
-                        ui.add(
-                            Resizable::new(
+                    viewport.add(
+                        Resizable::new(
                                 &mut self.resize,
                                 WidgetId::new("layout canvas"),
                                 Size::new(
@@ -311,8 +298,7 @@ impl Application for App {
                                 (screen.height - 120.0).max(180.0),
                             ))
                             .grip_size(Size::new(10.0, 10.0)),
-                        );
-                    });
+                    );
                 });
             });
         });
@@ -363,16 +349,14 @@ impl Widget<DesktopPlatform> for Button<'_> {
                 Flex::row().padding(Sides::new().top(5.0).right(8.0).bottom(5.0).left(8.0)),
             )
             .id(self.id);
-        button.add(Slot::new(), (), |mut ui| {
-            ui.add(
-                Text::new(self.label)
-                    .style(TextStyle {
-                        size: 10.0,
-                        ..TextStyle::default()
-                    })
-                    .color(colors::TEXT),
-            );
-        });
+        button.add(
+            Text::new(self.label)
+                .style(TextStyle {
+                    size: 10.0,
+                    ..TextStyle::default()
+                })
+                .color(colors::TEXT),
+        );
         interaction.clicked
     }
 }
@@ -385,8 +369,9 @@ fn choices<T: Copy + PartialEq>(
     options: &[(&str, T)],
 ) {
     let mut line = ui.layout(Flex::row().align(Align::Center).gap(6.0));
-    line.add(Slot::new().width(Sizing::fixed(66.0)), (), |mut ui| {
-        ui.add(
+    line.child()
+        .slot(Slot::new().width(Sizing::fixed(66.0)))
+        .add(
             Text::new(label)
                 .style(TextStyle {
                     size: 10.0,
@@ -394,17 +379,14 @@ fn choices<T: Copy + PartialEq>(
                 })
                 .color(colors::TEXT_MUTED),
         );
-    });
-    line.add(Slot::new().grow(), (), |mut ui| {
+    line.child().slot(Slot::new().grow()).scope(|ui| {
         let mut values = ui.layout(Flex::row().gap(4.0));
         for (index, &(option, value)) in options.iter().enumerate() {
-            let clicked = values.add(Slot::new(), (), |mut ui| {
-                ui.add(Button::new(
-                    WidgetId::new((id, index)),
-                    option,
-                    *selected == value,
-                ))
-            });
+            let clicked = values.add(Button::new(
+                WidgetId::new((id, index)),
+                option,
+                *selected == value,
+            ));
             if clicked {
                 *selected = value;
             }
@@ -440,9 +422,12 @@ impl Widget<DesktopPlatform> for Canvas {
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
-                    canvas.add(self.config.item_slot(index, self.unit), (), |mut ui| {
-                        canvas_item(&mut ui, index, spec, badges, self.config);
-                    });
+                    canvas
+                        .child()
+                        .slot(self.config.item_slot(index, self.unit))
+                        .scope(|ui| {
+                            canvas_item(ui, index, spec, badges, self.config);
+                        });
                 }
             }
             CanvasLayout::Wrap => {
@@ -463,9 +448,12 @@ impl Widget<DesktopPlatform> for Canvas {
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
-                    canvas.add(self.config.item_slot(index, self.unit), (), |mut ui| {
-                        canvas_item(&mut ui, index, spec, badges, self.config);
-                    });
+                    canvas
+                        .child()
+                        .slot(self.config.item_slot(index, self.unit))
+                        .scope(|ui| {
+                            canvas_item(ui, index, spec, badges, self.config);
+                        });
                 }
             }
             CanvasLayout::Grid => {
@@ -479,14 +467,15 @@ impl Widget<DesktopPlatform> for Canvas {
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
-                    canvas.add(
-                        Slot::new()
-                            .height(Sizing::fixed(5.0 * self.unit.height * self.config.zoom)),
-                        item,
-                        |mut ui| {
-                            canvas_item(&mut ui, index, spec, badges, self.config);
-                        },
-                    );
+                    canvas
+                        .item(item)
+                        .slot(
+                            Slot::new()
+                                .height(Sizing::fixed(5.0 * self.unit.height * self.config.zoom)),
+                        )
+                        .scope(|ui| {
+                            canvas_item(ui, index, spec, badges, self.config);
+                        });
                 }
             }
         }
@@ -517,24 +506,23 @@ fn canvas_item(
     } else {
         item
     };
-    item.add(Slot::new(), (), |mut ui| {
-        ui.add(
-            Text::new(spec.label)
-                .style(TextStyle {
-                    size: 11.0 * config.zoom,
-                    ..TextStyle::default()
-                })
-                .color(Color::WHITE),
-        );
-    });
+    item.add(
+        Text::new(spec.label)
+            .style(TextStyle {
+                size: 11.0 * config.zoom,
+                ..TextStyle::default()
+            })
+            .color(Color::WHITE),
+    );
     if let Some(anchor) = spec.badge {
-        item.add(
-            Slot::new()
-                .fixed(28.0 * config.zoom, 14.0 * config.zoom)
-                .layer(badges)
-                .z_index(1),
-            (),
-            |mut ui| {
+        item.child()
+            .slot(
+                Slot::new()
+                    .fixed(28.0 * config.zoom, 14.0 * config.zoom)
+                    .layer(badges)
+                    .z_index(1),
+            )
+            .scope(|ui| {
                 let mut badge = ui
                     .layout_with(
                         Rectangle::new()
@@ -546,18 +534,15 @@ fn canvas_item(
                             .justify(blit_desktop::layout::Justify::Center),
                     )
                     .absolute(Absolute::attach(anchor, Anchor::Center));
-                badge.add(Slot::new(), (), |mut ui| {
-                    ui.add(
-                        Text::new("ABS")
-                            .style(TextStyle {
-                                size: (7.0 * config.zoom).max(7.0),
-                                ..TextStyle::default()
-                            })
-                            .color(Color::WHITE),
-                    );
-                });
-            },
-        );
+                badge.add(
+                    Text::new("ABS")
+                        .style(TextStyle {
+                            size: (7.0 * config.zoom).max(7.0),
+                            ..TextStyle::default()
+                        })
+                        .color(Color::WHITE),
+                );
+            });
     }
 }
 

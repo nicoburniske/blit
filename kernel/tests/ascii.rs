@@ -68,10 +68,8 @@ fn resolves_absolute_targets_and_layer_order() {
         FrameInfo::new(Size::new(8.0, 5.0)),
         |mut ui| {
             let mut overlay = ui.layout(Overlay);
-            let target = overlay.add(Slot::new(), (), |mut ui| {
-                ui.add(Fill::new('T', Size::new(2.0, 2.0)))
-            });
-            overlay.add(Slot::new(), (), |mut ui| {
+            let target = overlay.add(Fill::new('T', Size::new(2.0, 2.0)));
+            overlay.scope(|ui| {
                 let _absolute = ui
                     .layout_with(Fill::new('A', Size::new(1.0, 1.0)), Overlay)
                     .absolute(
@@ -98,12 +96,14 @@ fn resolves_absolute_targets_and_layer_order() {
         |mut ui| {
             let mut overlay = ui.layout(Overlay);
             let layer = overlay.new_layer();
-            overlay.add(Slot::new().layer(layer), (), |mut ui| {
-                ui.add(Fill::new('A', Size::new(3.0, 1.0)));
-            });
-            overlay.add(Slot::new().z_index(100), (), |mut ui| {
-                ui.add(Fill::new('B', Size::new(3.0, 1.0)));
-            });
+            overlay
+                .child()
+                .slot(Slot::new().layer(layer))
+                .add(Fill::new('A', Size::new(3.0, 1.0)));
+            overlay
+                .child()
+                .slot(Slot::new().z_index(100))
+                .add(Fill::new('B', Size::new(3.0, 1.0)));
         },
     );
 
@@ -115,13 +115,14 @@ fn resolves_absolute_targets_and_layer_order() {
         |mut ui| {
             let mut root = ui.layout(Overlay);
             let layer = root.new_layer();
-            root.add(Slot::new(), (), |mut ui| {
+            root.scope(|ui| {
                 let mut panel = ui
                     .layout_with(Fill::new('p', Size::new(3.0, 3.0)), BaseOnly)
                     .clip(DiamondClip);
-                panel.add(Slot::new().layer(layer), (), |mut ui| {
-                    ui.add(Fill::new('L', Size::new(3.0, 3.0)));
-                });
+                panel
+                    .child()
+                    .slot(Slot::new().layer(layer))
+                    .add(Fill::new('L', Size::new(3.0, 3.0)));
             });
         },
     );
@@ -132,14 +133,15 @@ fn resolves_absolute_targets_and_layer_order() {
         FrameInfo::new(Size::new(3.0, 3.0)),
         |mut ui| {
             let mut root = ui.layout(Overlay);
-            root.add(Slot::new(), (), |mut ui| {
+            root.scope(|ui| {
                 let mut panel = ui
                     .layout_with(Fill::new('p', Size::new(3.0, 3.0)), BaseOnly)
                     .clip(DiamondClip);
                 let layer = panel.new_layer();
-                panel.add(Slot::new().layer(layer), (), |mut ui| {
-                    ui.add(Fill::new('L', Size::new(3.0, 3.0)));
-                });
+                panel
+                    .child()
+                    .slot(Slot::new().layer(layer))
+                    .add(Fill::new('L', Size::new(3.0, 3.0)));
             });
         },
     );
@@ -253,38 +255,34 @@ fn resolves_slots_and_content_offsets() {
         }),
         |mut ui| {
             let mut overlay = ui.layout(Overlay).offset(Point::new(1.0, 0.0));
-            overlay.add(Slot::new().fixed(3.0, 1.0), (), |mut ui| {
-                let node = ui.add(Fill::new('F', Size::new(1.0, 1.0)));
-                ui.set_id(node, fixed);
-            });
-            overlay.add(
-                Slot::new().width(Sizing::grow()).height(Sizing::fixed(1.0)),
-                (),
-                |mut ui| {
-                    let node = ui.add(Fill::new('G', Size::new(1.0, 1.0)));
-                    ui.set_id(node, grow);
-                },
-            );
-            overlay.add(
-                Slot::new()
-                    .width(Sizing::percent(0.25))
-                    .height(Sizing::fixed(1.0)),
-                (),
-                |mut ui| {
-                    let node = ui.add(Fill::new('P', Size::new(1.0, 1.0)));
-                    ui.set_id(node, percent);
-                },
-            );
-            overlay.add(
-                Slot::new()
-                    .width(Sizing::fit().max(3.0))
-                    .height(Sizing::fixed(1.0)),
-                (),
-                |mut ui| {
-                    let node = ui.add(Fill::new('M', Size::new(6.0, 1.0)));
-                    ui.set_id(node, fit);
-                },
-            );
+            overlay
+                .child()
+                .slot(Slot::new().fixed(3.0, 1.0))
+                .id(fixed)
+                .add(Fill::new('F', Size::new(1.0, 1.0)));
+            overlay
+                .child()
+                .slot(Slot::new().width(Sizing::grow()).height(Sizing::fixed(1.0)))
+                .id(grow)
+                .add(Fill::new('G', Size::new(1.0, 1.0)));
+            overlay
+                .child()
+                .slot(
+                    Slot::new()
+                        .width(Sizing::percent(0.25))
+                        .height(Sizing::fixed(1.0)),
+                )
+                .id(percent)
+                .add(Fill::new('P', Size::new(1.0, 1.0)));
+            overlay
+                .child()
+                .slot(
+                    Slot::new()
+                        .width(Sizing::fit().max(3.0))
+                        .height(Sizing::fixed(1.0)),
+                )
+                .id(fit)
+                .add(Fill::new('M', Size::new(6.0, 1.0)));
         },
     );
 
@@ -305,15 +303,15 @@ fn absolute_slots_resolve_against_the_target() {
         FrameInfo::new(Size::new(10.0, 4.0)),
         |mut ui| {
             let mut overlay = ui.layout(Overlay);
-            let target = overlay.add(Slot::new(), (), |mut ui| {
-                ui.add(Fill::new('T', Size::new(6.0, 2.0)))
-            });
-            overlay.add(
-                Slot::new()
-                    .width(Sizing::percent(0.5))
-                    .height(Sizing::grow()),
-                (),
-                |mut ui| {
+            let target = overlay.add(Fill::new('T', Size::new(6.0, 2.0)));
+            overlay
+                .child()
+                .slot(
+                    Slot::new()
+                        .width(Sizing::percent(0.5))
+                        .height(Sizing::grow()),
+                )
+                .scope(|ui| {
                     let _absolute = ui
                         .layout_with(Fill::new('A', Size::new(1.0, 1.0)), Overlay)
                         .absolute(
@@ -321,8 +319,7 @@ fn absolute_slots_resolve_against_the_target() {
                                 .relative_to(target),
                         )
                         .id(id);
-                },
-            );
+                });
         },
     );
 
@@ -356,9 +353,7 @@ fn frame_ids_reject_cross_frame_use() {
         |mut ui| {
             let mut root = ui.layout(Overlay);
             layer = Some(root.new_layer());
-            node = Some(root.add(Slot::new(), (), |mut ui| {
-                ui.add(Fill::new('X', Size::new(1.0, 1.0)))
-            }));
+            node = Some(root.add(Fill::new('X', Size::new(1.0, 1.0))));
         },
     );
 
@@ -382,9 +377,9 @@ fn frame_ids_reject_cross_frame_use() {
                 FrameInfo::new(Size::new(1.0, 1.0)),
                 |mut ui| {
                     let mut root = ui.layout(Overlay);
-                    root.add(Slot::new().layer(layer), (), |mut ui| {
-                        ui.add(Fill::new('X', Size::new(1.0, 1.0)));
-                    });
+                    root.child()
+                        .slot(Slot::new().layer(layer))
+                        .add(Fill::new('X', Size::new(1.0, 1.0)));
                 },
             );
         }))
@@ -437,14 +432,15 @@ fn buttons(mut ui: Ui<'_, AsciiPlatform>, bottom: WidgetId, top: WidgetId) -> [I
         ui.interact(top, Sense::CLICK),
     ];
     let mut overlay = ui.layout(Overlay);
-    overlay.add(Slot::new(), (), |mut ui| {
-        let node = ui.add(Fill::new('B', Size::new(3.0, 1.0)));
-        ui.set_id(node, bottom);
-    });
-    overlay.add(Slot::new().z_index(1), (), |mut ui| {
-        let node = ui.add(Fill::new('T', Size::new(3.0, 1.0)));
-        ui.set_id(node, top);
-    });
+    overlay
+        .child()
+        .id(bottom)
+        .add(Fill::new('B', Size::new(3.0, 1.0)));
+    overlay
+        .child()
+        .slot(Slot::new().z_index(1))
+        .id(top)
+        .add(Fill::new('T', Size::new(3.0, 1.0)));
     responses
 }
 
@@ -462,7 +458,7 @@ fn transition_scene(
         [Input::None],
         |mut ui| {
             let mut column = ui.layout(Column);
-            column.add(Slot::new(), ColumnItem { gap_before: 0.0 }, |mut ui| {
+            column.item(ColumnItem { gap_before: 0.0 }).scope(|ui| {
                 let _child = ui
                     .layout_with(Fill::new('X', Size::new(width, 1.0)), Overlay)
                     .id(id)
@@ -484,7 +480,7 @@ fn unidentified_transition_scene(
         [Input::None],
         |mut ui| {
             let mut overlay = ui.layout(Overlay);
-            overlay.add(Slot::new(), (), |mut ui| {
+            overlay.scope(|ui| {
                 let _child = ui
                     .layout_with(Fill::new('X', Size::new(width, 1.0)), Overlay)
                     .transition(Transition::new(Duration::from_secs(1)).width());
@@ -507,7 +503,7 @@ fn position_transition_scene(
         [Input::None],
         |mut ui| {
             let mut column = ui.layout(Column).offset(Point::new(0.0, 1.0));
-            column.add(Slot::new(), ColumnItem { gap_before: gap }, |mut ui| {
+            column.item(ColumnItem { gap_before: gap }).scope(|ui| {
                 let _child = ui
                     .layout_with(Fill::new('X', Size::new(1.0, 1.0)), Overlay)
                     .id(id)
@@ -520,30 +516,28 @@ fn position_transition_scene(
 fn clipped_button(mut ui: Ui<'_, AsciiPlatform>, id: WidgetId) -> Interaction {
     let interaction = ui.interact(id, Sense::CLICK);
     let mut root = ui.layout(Overlay);
-    root.add(Slot::new(), (), |mut ui| {
+    root.scope(|ui| {
         let mut panel = ui
             .layout_with(Fill::new('P', Size::new(3.0, 1.0)), BaseOnly)
             .clip(DiamondClip);
-        panel.add(Slot::new(), (), |mut ui| {
-            let node = ui.add(Fill::new('C', Size::new(5.0, 1.0)));
-            ui.set_id(node, id);
-        });
+        panel
+            .child()
+            .id(id)
+            .add(Fill::new('C', Size::new(5.0, 1.0)));
     });
     interaction
 }
 
 fn scene(mut ui: Ui<'_, AsciiPlatform>) {
     let mut column = ui.layout(Column);
-    column.add(Slot::new(), ColumnItem { gap_before: 0.0 }, |mut ui| {
-        ui.add(Fill::new('A', Size::new(3.0, 1.0)));
-    });
-    column.add(Slot::new(), ColumnItem { gap_before: 1.0 }, |mut ui| {
+    column
+        .item(ColumnItem { gap_before: 0.0 })
+        .add(Fill::new('A', Size::new(3.0, 1.0)));
+    column.item(ColumnItem { gap_before: 1.0 }).scope(|ui| {
         let mut panel = ui
             .layout_with(Fill::new('b', Size::new(5.0, 3.0)), Overlay)
             .clip(DiamondClip);
-        panel.add(Slot::new(), (), |mut ui| {
-            ui.add(Fill::new('C', Size::new(1.0, 1.0)));
-        });
+        panel.add(Fill::new('C', Size::new(1.0, 1.0)));
     });
 }
 

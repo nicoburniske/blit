@@ -31,14 +31,14 @@ fn flex_distributes_growing_space() {
         FrameInfo::new(Size::new(100.0, 20.0)),
         |mut ui| {
             let mut row = ui.layout(Flex::row().gap(4.0));
-            row.add(Slot::new().width(Sizing::fixed(20.0)), (), |mut ui| {
-                let node = ui.add(BoxLeaf(Size::new(1.0, 10.0)));
-                ui.set_id(node, fixed);
-            });
-            row.add(Slot::new().width(Sizing::grow()), (), |mut ui| {
-                let node = ui.add(BoxLeaf(Size::new(1.0, 10.0)));
-                ui.set_id(node, grow);
-            });
+            row.child()
+                .slot(Slot::new().width(Sizing::fixed(20.0)))
+                .id(fixed)
+                .add(BoxLeaf(Size::new(1.0, 10.0)));
+            row.child()
+                .slot(Slot::new().width(Sizing::grow()))
+                .id(grow)
+                .add(BoxLeaf(Size::new(1.0, 10.0)));
         },
     );
     assert_eq!(frame.geometry(fixed).unwrap().width, 20.0);
@@ -57,13 +57,11 @@ fn spanning_grid_places_items_in_equal_cells() {
         |mut ui| {
             let mut placer = layout.placer();
             let mut grid = ui.layout(layout);
-            grid.add(Slot::new(), placer.place(1, 2), |mut ui| {
-                let node = ui.add(BoxLeaf(Size::new(20.0, 10.0)));
-                ui.set_id(node, wide);
-            });
-            grid.add(Slot::new(), placer.place(1, 1), |mut ui| {
-                ui.add(BoxLeaf(Size::new(10.0, 10.0)));
-            });
+            grid.item(placer.place(1, 2))
+                .id(wide)
+                .add(BoxLeaf(Size::new(20.0, 10.0)));
+            grid.item(placer.place(1, 1))
+                .add(BoxLeaf(Size::new(10.0, 10.0)));
         },
     );
     assert_eq!(frame.geometry(wide).unwrap().width, 66.0);
@@ -79,10 +77,10 @@ fn rect_and_wrap_resolve_positions() {
         FrameInfo::new(Size::new(30.0, 20.0)),
         |mut ui| {
             let mut fixed = ui.layout(RectLayout);
-            fixed.add(Slot::new(), Rect::new(3.0, 4.0, 10.0, 5.0), |mut ui| {
-                let node = ui.add(BoxLeaf(Size::ZERO));
-                ui.set_id(node, rect);
-            });
+            fixed
+                .item(Rect::new(3.0, 4.0, 10.0, 5.0))
+                .id(rect)
+                .add(BoxLeaf(Size::ZERO));
         },
     );
     assert_eq!(frame.geometry(rect), Some(Rect::new(3.0, 4.0, 10.0, 5.0)));
@@ -93,9 +91,9 @@ fn rect_and_wrap_resolve_positions() {
         |mut ui| {
             let mut wrap = ui.layout(Wrap::horizontal().gap(1.0));
             for _ in 0..3 {
-                wrap.add(Slot::new().fixed(6.0, 2.0), (), |mut ui| {
-                    ui.add(BoxLeaf(Size::ZERO));
-                });
+                wrap.child()
+                    .slot(Slot::new().fixed(6.0, 2.0))
+                    .add(BoxLeaf(Size::ZERO));
             }
         },
     );
