@@ -203,13 +203,13 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Ok(surface) => surface,
             Err(error) => return self.fail(event_loop, error),
         };
-        let mut renderer = Renderer::new(
+        let renderer = Renderer::new(
             DesktopBuffer::new(size.width as usize, size.height as usize),
             config.renderer,
         )
         .strategy(Scanline::default());
-        renderer.set_device_scale(window.scale_factor() as f32);
         let mut platform = DesktopPlatform::new(renderer);
+        platform.set_device_scale(window.scale_factor() as f32);
         let frame = Frame::default();
         let wake = input.inner.clone();
         let executor = Box::pin(LocalExecutor::new(move |task| {

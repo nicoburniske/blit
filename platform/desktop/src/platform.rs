@@ -11,6 +11,7 @@ use crate::pixel::DesktopBuffer;
 
 pub struct DesktopPlatform {
     renderer: Renderer<DesktopBuffer, Scanline>,
+    scale: Scale2,
     current: CommandList,
     previous: CommandList,
     diff: Myers,
@@ -25,6 +26,7 @@ impl DesktopPlatform {
     pub(crate) fn new(renderer: Renderer<DesktopBuffer, Scanline>) -> Self {
         Self {
             renderer,
+            scale: Scale2::IDENTITY,
             current: CommandList::default(),
             previous: CommandList::default(),
             diff: Myers::default(),
@@ -41,7 +43,9 @@ impl DesktopPlatform {
     }
 
     pub(crate) fn set_device_scale(&mut self, scale: f32) {
-        self.renderer.set_device_scale(scale);
+        let scale = Scale2::uniform(scale);
+        self.renderer.set_scale(scale);
+        self.scale = scale;
     }
 
     pub(crate) fn invalidate_all(&mut self) {
@@ -74,11 +78,7 @@ impl DesktopPlatform {
     }
 
     pub(crate) fn commands(&mut self) -> (&mut CommandList, ClipId, Scale2) {
-        (
-            &mut self.current,
-            self.clip,
-            Scale2::uniform(self.renderer.device_scale()),
-        )
+        (&mut self.current, self.clip, self.scale)
     }
 
     fn reconcile(&mut self) {
@@ -185,16 +185,17 @@ impl Clip<DesktopPlatform> for BoundsClip {
 mod tests {
     use super::*;
     use crate::draw::Rectangle;
-    use blit::{Frame, Size};
+    use blit::{Frame, Sides, Size, Slot};
     use blit_cpu::{
         Font, FontFace, RendererConfig, color::Color, style::Style, text_types::FontId,
     };
+    use blit_layout::Flex;
 
     #[test]
-    fn frame_records_and_renders_platform_leaves() {
-        let mut pixels = vec![0; 16];
+    fn nested_content_renders_at_device_scale() {
+        let mut pixels = vec![0; 16 * 16];
         let mut renderer = Renderer::new(
-            DesktopBuffer::new(4, 4),
+            DesktopBuffer::new(16, 16),
             RendererConfig {
                 fonts: vec![FontFace {
                     id: FontId::default(),
@@ -210,14 +211,25 @@ mod tests {
         .strategy(Scanline::default());
         renderer.buffer_mut().set(&mut pixels);
         let mut platform = DesktopPlatform::new(renderer);
+        platform.set_device_scale(2.0);
         let mut frame = Frame::default();
         frame.render(
             &mut platform,
-            FrameInfo::new(Size::new(4.0, 4.0)),
+            FrameInfo::new(Size::new(8.0, 8.0)),
             |mut ui| {
-                ui.add(Rectangle::new(Style::new().background(Color::WHITE)));
+                let mut root = ui.layout_with(
+                    Rectangle::new(Style::new().background(Color::from_rgba8(20, 24, 32, 255))),
+                    Flex::column().padding(Sides::all(3.0)),
+                );
+                root.add(Slot::new().fixed(2.0, 2.0), (), |mut ui| {
+                    ui.add(Rectangle::new(
+                        Style::new().background(Color::from_rgba8(70, 110, 220, 255)),
+                    ));
+                });
             },
         );
-        assert!(pixels.iter().all(|pixel| *pixel != 0));
+        assert_eq!(platform.previous.len(), 2);
+        assert_eq!(pixels[7 * 16 + 7], 0x0046_6edc);
+        assert_eq!(pixels[14 * 16 + 14], 0x0014_1820);
     }
 }
