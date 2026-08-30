@@ -28,7 +28,7 @@ pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &R) {
         let Some(id) = record.id else {
             continue;
         };
-        let stored = &frame.nodes[record.node.index()];
+        let stored = frame.nodes[record.node.index()];
         frame.geometry_current.push((id, stored.area));
         let area = Rect::new(
             stored.area.x - record.hit.left,
@@ -36,10 +36,11 @@ pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &R) {
             stored.area.width + record.hit.left + record.hit.right,
             stored.area.height + record.hit.top + record.hit.bottom,
         );
+        let clip_bounds = frame.clip_bounds(stored.resolved_clip);
         // todo: test interaction against the actual custom clip chain
         frame
             .interaction
-            .register(id, renderer.interaction_area(area, stored.clip_bounds));
+            .register(id, renderer.interaction_area(area, clip_bounds));
     }
     if frame.interaction.end() {
         frame.frame_requested = true;

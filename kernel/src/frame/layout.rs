@@ -45,6 +45,7 @@ impl<'a, R: Renderer, I: Copy + 'static> LayoutCx<'a, R, I> {
     }
 
     pub fn constrain_child(&mut self, child: NodeId, constraints: Constraints) -> Size {
+        // todo: reuse measured sizes for constraint-independent leaves
         self.assert_child(child);
         self.frame.layout_node(child, self.renderer, constraints)
     }
@@ -56,7 +57,7 @@ impl<'a, R: Renderer, I: Copy + 'static> LayoutCx<'a, R, I> {
 
     pub fn set_position(&mut self, child: NodeId, position: Point) {
         self.assert_child(child);
-        let offset = self.frame.nodes[self.node.index()].content_offset;
+        let offset = self.frame.layout_offset(self.node);
         let area = &mut self.frame.nodes[child.index()].area;
         area.x = position.x + offset.x;
         area.y = position.y + offset.y;

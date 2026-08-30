@@ -208,7 +208,7 @@ impl<R: Renderer> Frame<R> {
         transition::resolve(self, renderer, frame.size);
         position::resolve(self);
         paint::resolve_order(self);
-        paint::resolve_clips(self, self.screen);
+        paint::resolve_clips(self);
         interaction::resolve(self, renderer);
         std::mem::swap(&mut self.geometry_previous, &mut self.geometry_current);
         self.geometry_current.clear();
@@ -285,6 +285,7 @@ impl<R: Renderer> Frame<R> {
         self.layouts.push(StoredLayout {
             kind: u16::try_from(kind).expect("too many layout types"),
             data: self.data.store(value),
+            offset: Point::ZERO,
         });
         id
     }
@@ -328,10 +329,8 @@ impl<R: Renderer> Frame<R> {
             area: Rect::default(),
             positioned: PositionedId::NONE,
             slot: Slot::new(),
-            content_offset: Point::ZERO,
             geometry: GeometryId::NONE,
             resolved_clip: ResolvedClipId::NONE,
-            clip_bounds: Rect::default(),
         });
         id
     }
@@ -394,6 +393,18 @@ impl<R: Renderer> Frame<R> {
 
     fn set_transition(&mut self, node: NodeId, transition: Transition) {
         self.geometry_mut(node).transition = Some(transition);
+    }
+
+    fn layout_offset(&self, node: NodeId) -> Point {
+        self.nodes[node.index()]
+            .layout
+            .index()
+            .map_or(Point::ZERO, |layout| self.layouts[layout].offset)
+    }
+
+    fn clip_bounds(&self, clip: ResolvedClipId) -> Rect {
+        clip.index()
+            .map_or(self.screen, |clip| self.resolved_clips[clip].bounds)
     }
 
     fn set_slot(&mut self, node: NodeId, mut slot: Slot) {
@@ -480,10 +491,8 @@ struct Node {
     area: Rect,
     positioned: PositionedId,
     slot: Slot,
-    content_offset: Point,
     geometry: GeometryId,
     resolved_clip: ResolvedClipId,
-    clip_bounds: Rect,
 }
 
 #[derive(Clone, Copy)]
@@ -514,6 +523,7 @@ struct ResolvedClip {
     depth: u32,
     clip: StoredClipId,
     area: Rect,
+    bounds: Rect,
 }
 
 #[derive(Clone, Copy)]
@@ -526,6 +536,7 @@ struct StoredLeaf {
 struct StoredLayout {
     kind: u16,
     data: DataId,
+    offset: Point,
 }
 
 #[derive(Clone, Copy)]

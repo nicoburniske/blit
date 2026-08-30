@@ -1,7 +1,6 @@
 use super::{ClipKind, Frame, ResolvedClip, ResolvedClipId, StoredClip, container};
 use crate::{
     arena::DataArena,
-    geometry::Rect,
     renderer::{FrameInfo, Renderer},
 };
 
@@ -57,26 +56,20 @@ pub fn resolve_order<R: Renderer>(frame: &mut Frame<R>) {
     debug_assert_eq!(frame.paint_order.len(), frame.nodes.len());
 }
 
-pub fn resolve_clips<R: Renderer>(frame: &mut Frame<R>, screen: Rect) {
+pub fn resolve_clips<R: Renderer>(frame: &mut Frame<R>) {
     frame.resolved_clips.clear();
     for index in 0..frame.nodes.len() {
-        let (parent, bounds) = if index == 0 {
-            (ResolvedClipId::NONE, screen)
+        let parent = if index == 0 {
+            ResolvedClipId::NONE
         } else if let Some(layer) = frame.nodes[index].slot.layer {
             let owner = frame.layers[container::layer_index(layer)].owner.index();
-            (
-                frame.nodes[owner].resolved_clip,
-                frame.nodes[owner].clip_bounds,
-            )
+            frame.nodes[owner].resolved_clip
         } else {
-            let parent = frame.nodes[index].parent.index();
-            (
-                frame.nodes[parent].resolved_clip,
-                frame.nodes[parent].clip_bounds,
-            )
+            frame.nodes[frame.nodes[index].parent.index()].resolved_clip
         };
         if frame.nodes[index].clip.index().is_some() {
-            let bounds = bounds
+            let bounds = frame
+                .clip_bounds(parent)
                 .intersection(frame.nodes[index].area)
                 .unwrap_or_default();
             let id = ResolvedClipId::new(frame.resolved_clips.len());
@@ -88,17 +81,17 @@ pub fn resolve_clips<R: Renderer>(frame: &mut Frame<R>, screen: Rect) {
                 depth,
                 clip: frame.nodes[index].clip,
                 area: frame.nodes[index].area,
+                bounds,
             });
             frame.nodes[index].resolved_clip = id;
-            frame.nodes[index].clip_bounds = bounds;
         } else {
             frame.nodes[index].resolved_clip = parent;
-            frame.nodes[index].clip_bounds = bounds;
         }
     }
 }
 
 pub fn render<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, info: FrameInfo) {
+    // todo: skip leaves outside their conservative paint bounds
     #[allow(clippy::too_many_arguments)]
     fn push<R: Renderer>(
         data: &DataArena,
