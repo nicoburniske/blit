@@ -1,6 +1,7 @@
 use std::ops::Range;
 
-use blit::{color::Color, geometry::PhysicalRect, style::GradientStop};
+use crate::{color::Color, style::GradientStop};
+use blit::PhysicalRect;
 
 use super::clip::ClipId;
 use crate::{

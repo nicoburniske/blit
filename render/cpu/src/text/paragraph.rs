@@ -1,12 +1,10 @@
 use std::mem::size_of;
 
-use blit::{
-    geometry::Scale2,
-    text::{
-        HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextRunId, TextWrap,
-        VerticalAlign,
-    },
+use crate::text_types::{
+    HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextRunId, TextWrap,
+    VerticalAlign,
 };
+use blit::Scale2;
 use blit_cache::{DeferredCache, Scale};
 use blit_font::{GlyphRasterConfig, Layout, LayoutSettings, LinePosition, TextRun};
 

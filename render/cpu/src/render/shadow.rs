@@ -1,12 +1,12 @@
-use blit::{
+use crate::{
     command_list::{BoxShadow, Rectangle},
-    geometry::{LogicalRect, PhysicalRect, Scale2},
     image::{
         ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageRequest, ImageSampling,
         ImageTiling, NineSlice,
     },
     style::BorderRadius,
 };
+use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use slotmap::SlotMap;
 
@@ -252,7 +252,7 @@ impl Cache {
             let bytes = image_width.checked_mul(image_height)?;
             let data = ImageData::new(
                 ImagePixels::Owned(alpha.into_boxed_slice()),
-                ImageFormat::Alpha8(blit::color::Color::WHITE),
+                ImageFormat::Alpha8(crate::color::Color::WHITE),
                 image_width,
                 image_height,
             );

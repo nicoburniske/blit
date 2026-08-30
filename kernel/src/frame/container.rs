@@ -7,7 +7,7 @@ use crate::{
     geometry::{Point, Sides},
     interact::WidgetId,
     layout::Layout,
-    renderer::Renderer,
+    platform::Platform,
 };
 
 /// frame-local paint layer
@@ -186,15 +186,16 @@ impl Absolute {
 
 pub struct Container<'a, R, L>
 where
-    R: Renderer,
+    R: Platform,
     L: Layout<R>,
 {
     frame: &'a mut Frame<R>,
+    platform: &'a mut R,
     node: NodeId,
     marker: PhantomData<L>,
 }
 
-impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
+impl<R: Platform, L: Layout<R>> Container<'_, R, L> {
     pub fn node(&self) -> NodeId {
         self.node
     }
@@ -241,7 +242,7 @@ impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
 
     pub fn add<O>(&mut self, slot: Slot, item: L::Item, child: impl FnOnce(Ui<'_, R>) -> O) -> O {
         let start = self.frame.nodes.len();
-        let output = child(ui::new(self.frame, Some(self.node)));
+        let output = child(ui::new(self.frame, self.platform, Some(self.node)));
         let end = self.frame.nodes.len();
         assert!(end > start, "layout child did not add a node");
 
@@ -263,16 +264,21 @@ impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
     }
 }
 
-impl<R: Renderer, L: Layout<R>> Drop for Container<'_, R, L> {
+impl<R: Platform, L: Layout<R>> Drop for Container<'_, R, L> {
     fn drop(&mut self) {
         self.frame.nodes[self.node.index()].subtree_end =
             u32::try_from(self.frame.nodes.len() - 1).expect("too many frame nodes");
     }
 }
 
-pub fn new<R: Renderer, L: Layout<R>>(frame: &mut Frame<R>, node: NodeId) -> Container<'_, R, L> {
+pub fn new<'a, R: Platform, L: Layout<R>>(
+    frame: &'a mut Frame<R>,
+    platform: &'a mut R,
+    node: NodeId,
+) -> Container<'a, R, L> {
     Container {
         frame,
+        platform,
         node,
         marker: PhantomData,
     }

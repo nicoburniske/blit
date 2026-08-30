@@ -1,9 +1,7 @@
 use std::ops::Range;
 
-use blit::{
-    geometry::{LogicalRect, PhysicalRect, Scale2},
-    style::BorderRadius,
-};
+use crate::style::BorderRadius;
+use blit::{LogicalRect, PhysicalRect, Scale2};
 
 use crate::render::rounded::{Radii, RoundedLine};
 

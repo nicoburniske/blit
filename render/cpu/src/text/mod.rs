@@ -8,11 +8,11 @@ use std::{
     ptr::NonNull,
 };
 
-use blit::{
+use crate::{
     color::Color,
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2},
-    text::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    text_types::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
+use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use blit_font::{Layout, TextRun};
 use font::FontCache;
@@ -50,7 +50,7 @@ impl Scale<RunKey, CachedRun> for RunScale {
 struct RunKey {
     digest: u64,
     len: usize,
-    font: blit::text::FontId,
+    font: crate::text_types::FontId,
     size: u32,
     weight: u16,
 }
@@ -59,7 +59,7 @@ struct RunKey {
 struct RunQuery {
     digest: u64,
     len: usize,
-    font: blit::text::FontId,
+    font: crate::text_types::FontId,
     size: u32,
     weight: u16,
 }

@@ -1,11 +1,15 @@
+pub mod draw;
+mod platform;
+
+pub use blit_layout as layout;
+pub use blit_term::{color, image, style, text};
+pub use platform::{BoundsClip, TerminalPlatform};
+
 use std::{io, io::Write as _, time::Duration, time::Instant};
 
 use blit::{
-    Ui, UiState,
-    geometry::{LogicalPoint, LogicalSize},
+    Frame, FrameInfo, LayoutResolution, LogicalPoint, LogicalSize, Ui,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
-    renderer::Renderer as _,
-    repaint::{IncrementalRepaint, MyersTracker},
 };
 use blit_term::{RendererConfig, TerminalRenderer};
 use termina::{
@@ -25,21 +29,28 @@ pub enum ControlFlow {
     Exit,
 }
 
-pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
+pub fn run(mut render: impl FnMut(&mut Ui<'_, TerminalPlatform>) -> ControlFlow) -> io::Result<()> {
+    run_with(|_| (), move |_, ui| render(ui))
+}
+
+pub fn run_with<S>(
+    initialize: impl FnOnce(&mut TerminalPlatform) -> S,
+    mut render: impl FnMut(&mut S, &mut Ui<'_, TerminalPlatform>) -> ControlFlow,
+) -> io::Result<()> {
     let mut session = Session::new()?;
-    let mut state = UiState::default();
-    let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
+    let mut state = initialize(session.platform_mut());
+    let mut frame = Frame::default();
     let result = (|| -> io::Result<()> {
         let start = Instant::now();
         let mut control = ControlFlow::Continue;
-        blit::render(
-            session.renderer_mut(),
-            &mut state,
-            &mut repaint,
+        let info = session.frame_info();
+        frame.render_inputs(
+            session.platform_mut(),
+            info,
             Duration::ZERO,
             [],
-            |ui| {
-                if render(ui) == ControlFlow::Exit {
+            |mut ui| {
+                if render(&mut state, &mut ui) == ControlFlow::Exit {
                     control = ControlFlow::Exit;
                 }
             },
@@ -47,31 +58,31 @@ pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
         session.present()?;
         while control == ControlFlow::Continue {
             let now = start.elapsed();
-            let timeout = if state.has_pending_redraw() {
+            let timeout = if frame.has_pending_redraw() {
                 Some(Duration::ZERO)
             } else {
-                state
+                frame
                     .next_timer_deadline()
                     .map(|deadline| deadline.saturating_sub(now))
             };
             let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
             let poll = session.poll(timeout, &mut inputs)?;
             if poll.resized {
-                state.invalidate_render_geometry();
+                session.platform_mut().invalidate_all();
             }
             let now = start.elapsed();
-            let timer_due = state
+            let timer_due = frame
                 .next_timer_deadline()
                 .is_some_and(|deadline| deadline <= now);
-            if poll.resized || poll.input_count != 0 || state.has_pending_redraw() || timer_due {
-                blit::render(
-                    session.renderer_mut(),
-                    &mut state,
-                    &mut repaint,
+            if poll.resized || poll.input_count != 0 || frame.has_pending_redraw() || timer_due {
+                let info = session.frame_info();
+                frame.render_inputs(
+                    session.platform_mut(),
+                    info,
                     now,
                     inputs[..poll.input_count].iter().copied(),
-                    |ui| {
-                        if render(ui) == ControlFlow::Exit {
+                    |mut ui| {
+                        if render(&mut state, &mut ui) == ControlFlow::Exit {
                             control = ControlFlow::Exit;
                         }
                     },
@@ -87,7 +98,7 @@ pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
 
 pub struct Session {
     terminal: PlatformTerminal,
-    renderer: TerminalRenderer,
+    platform: TerminalPlatform,
     active: bool,
 }
 
@@ -100,10 +111,11 @@ impl Session {
     pub fn new() -> io::Result<Self> {
         let mut terminal = PlatformTerminal::new()?;
         let renderer = TerminalRenderer::new(renderer_config(terminal.get_dimensions()?)?);
+        let platform = TerminalPlatform::new(renderer);
         terminal.enter_raw_mode()?;
         let mut session = Self {
             terminal,
-            renderer,
+            platform,
             active: true,
         };
         session.terminal.write_all(Self::ENTER.as_bytes())?;
@@ -111,12 +123,21 @@ impl Session {
         Ok(session)
     }
 
-    pub fn renderer(&self) -> &TerminalRenderer {
-        &self.renderer
+    pub fn platform(&self) -> &TerminalPlatform {
+        &self.platform
     }
 
-    pub fn renderer_mut(&mut self) -> &mut TerminalRenderer {
-        &mut self.renderer
+    pub fn platform_mut(&mut self) -> &mut TerminalPlatform {
+        &mut self.platform
+    }
+
+    pub fn frame_info(&self) -> FrameInfo {
+        let renderer = self.platform.renderer();
+        let scale = renderer.scale();
+        let screen = renderer.screen().to_logical(scale);
+        FrameInfo::new(screen.size()).layout_resolution(LayoutResolution::Discrete {
+            step: renderer.cell_size(),
+        })
     }
 
     pub fn poll(&mut self, timeout: Option<Duration>, inputs: &mut [Input]) -> io::Result<Poll> {
@@ -124,7 +145,7 @@ impl Session {
             return Ok(Poll::default());
         }
 
-        let scale = self.renderer.geometry().physical_per_logical;
+        let scale = self.platform.renderer().scale();
         let mut input_count = 0;
         let mut event_count = 0;
         loop {
@@ -132,7 +153,7 @@ impl Session {
             event_count += 1;
             let input = match terminal_event {
                 TerminalEvent::WindowResized(size) => {
-                    self.renderer.resize(renderer_config(size)?);
+                    self.platform.renderer_mut().resize(renderer_config(size)?);
                     return Ok(Poll {
                         input_count,
                         resized: true,
@@ -264,7 +285,7 @@ impl Session {
     }
 
     pub fn present(&mut self) -> io::Result<()> {
-        self.terminal.write_all(self.renderer.output())?;
+        self.terminal.write_all(self.platform.renderer().output())?;
         self.terminal.flush()
     }
 
@@ -273,7 +294,10 @@ impl Session {
             return Ok(());
         }
         self.active = false;
-        let clear = self.renderer.clear_kitty_graphics(&mut self.terminal);
+        let clear = self
+            .platform
+            .renderer_mut()
+            .clear_kitty_graphics(&mut self.terminal);
         let leave = self.terminal.write_all(Self::LEAVE.as_bytes());
         let flush = self.terminal.flush();
         let cooked = self.terminal.enter_cooked_mode();

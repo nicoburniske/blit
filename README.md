@@ -1,23 +1,30 @@
 # blit
 
-blit is a lightweight immediate-mode rust UI toolkit
+blit is a small immediate-mode UI kernel for building platform-specific interfaces.
 
 philosophy:
 
-- blit is not in the business of "hiding" things from the programmer and does not optimize for "one-line setups"
-- builtins get no privileged widget or layout apis unavailable to user code
-- use the high-level pieces when they fit, or drop down to low-level primitives when they do not
-- different runtimes bring different constraints, and blit aims to make it reasonably easy to build a great experience around them
-- you own the render loop, choose the renderer, and call `blit::render` yourself
+- the kernel shares mechanics rather than presentation policy
+- platforms choose their own leaves, widgets, commands, resources, and repaint middleware
+- unsupported presentation features should be absent instead of approximated through a lowest-common-denominator API
+- layouts are shared because their behavior is independent of the output medium
+- raw render backends expose mechanisms and do not implement the UI platform
+
+workspace layers:
+
+- `blit` in `kernel/` provides frame construction, layout execution, interaction, transitions, animations, timers, and platform extension traits
+- `blit-layout` provides flex, grid, wrap, and rectangle layout policies
+- `blit-diff` provides reusable bounded Myers sequence reconciliation
+- `blit-cpu` and `blit-term` provide backend-specific draw data, command lists, resources, and rendering mechanisms
+- `blit-desktop` and `blit-terminal` compose platforms, implement leaves, and own command reconciliation policy
 
 features:
 
-- immediate-mode UI with deferred whole-frame layout
-- user-defined layout policies running through the same pipeline as flex
-- content-sized, flexible, percentage, anchored, overlapping, and z-ordered layout
-- automatic position and size transitions integrated with layout
-- keyed value animations with easing and looping
-- frame-on-demand rendering with command-level damage tracking
-- custom renderers and a SIMD-accelerated CPU renderer
-- rounded clipping, gradient borders, and blurred shadows entirely on the CPU
-- desktop integration
+- flat immediate-mode frame graphs with deferred whole-frame layout
+- custom leaves, clips, and layout policies
+- content-sized, flexible, percentage, anchored, layered, and z-ordered layout
+- automatic position and size transitions
+- keyed value animations, looping animations, and timers
+- platform-specific command recording and damage tracking
+- SIMD-accelerated CPU rendering and terminal rendering
+- desktop and terminal integrations

@@ -1,6 +1,6 @@
 use std::{cmp::Reverse, mem::size_of};
 
-use blit::text::FontId;
+use crate::text_types::FontId;
 use blit_cache::{DeferredCache, Scale};
 use blit_font::{GlyphRasterConfig, Metrics, Rasterizer};
 

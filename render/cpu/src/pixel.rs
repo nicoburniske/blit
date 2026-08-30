@@ -3,7 +3,7 @@ use std::{
     simd::{Simd, num::SimdUint},
 };
 
-use blit::color::Color;
+use crate::color::Color;
 
 type U16x8 = Simd<u16, 8>;
 type U32x8 = Simd<u32, 8>;

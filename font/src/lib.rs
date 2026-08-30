@@ -12,8 +12,8 @@ use std::{
 };
 
 pub use layout::{
-    CharacterData, GlyphPosition, GlyphRasterConfig, Layout, LayoutSettings, LineBreak,
-    LinePosition, RunGlyph, TextRun,
+    CharacterData, GlyphPosition, GlyphRasterConfig, HorizontalAlign, Layout, LayoutSettings,
+    LineBreak, LinePosition, RunGlyph, TextRun, TextWrap, VerticalAlign,
 };
 pub use raster::Rasterizer;
 use ttf_parser::{Face, FaceParsingError, Rect};

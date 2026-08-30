@@ -8,6 +8,8 @@ autoexamples = false
 
 [dependencies]
 blit.workspace = true
+blit-diff.workspace = true
+blit-layout.workspace = true
 blit-term = { path = "../../render/term" }
 termina = "0.3.3"
 

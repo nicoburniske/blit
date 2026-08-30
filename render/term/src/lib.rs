@@ -6,19 +6,24 @@ use std::{
     mem::size_of,
 };
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use blit::{
+pub mod color;
+pub mod command_list;
+pub mod image;
+pub mod style;
+pub mod text;
+
+use crate::{
     color::Color,
     command_list::{Command, CommandList},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2},
     image::{ImageData, ImageHandle, ImageId},
-    renderer::{RenderGeometry, Renderer},
     style::Border,
     text::{
         HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextRunId, TextStyle,
         TextWrap, VerticalAlign,
     },
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -38,12 +43,6 @@ blit::builder! {
         columns: u16 = 80,
         rows: u16 = 24,
         cell_size: LogicalSize = CELL_NATIVE,
-    }
-}
-
-impl Default for RendererConfig {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -360,19 +359,16 @@ impl TerminalRenderer {
     }
 }
 
-impl Renderer for TerminalRenderer {
-    fn geometry(&self) -> RenderGeometry {
-        RenderGeometry {
-            physical_bounds: self.screen(),
-            physical_per_logical: self.scale,
-            layout_resolution: blit::layout::LayoutResolution::Discrete {
-                step: self.cell_size,
-            },
-            supports_zoom: false,
-        }
+impl TerminalRenderer {
+    pub fn scale(&self) -> Scale2 {
+        self.scale
     }
 
-    fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
+    pub fn cell_size(&self) -> LogicalSize {
+        self.cell_size
+    }
+
+    pub fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
         let cell_width = self.cell_size.width;
         let cell_height = self.cell_size.height;
         let (mut left, mut top, mut right, mut bottom) = self.cell_bounds(area);
@@ -404,7 +400,7 @@ impl Renderer for TerminalRenderer {
         })
     }
 
-    fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
+    pub fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
         self.output.clear();
         self.damaged.fill(false);
         let screen = self.screen();
@@ -480,7 +476,7 @@ impl Renderer for TerminalRenderer {
                                 }
                                 let center_x = (x as f32 + 0.5) * cell_width;
                                 let center_y = (y as f32 + 0.5) * cell_height;
-                                if !clip.contains(center_x, center_y) {
+                                if !clip.contains(LogicalPoint::new(center_x, center_y)) {
                                     continue;
                                 }
                                 for sub_y in y * 2..y * 2 + 2 {
@@ -543,7 +539,7 @@ impl Renderer for TerminalRenderer {
                                 let center_x = (x as f32 + 0.5) * cell_width;
                                 let center_y = (y as f32 + 0.5) * cell_height;
                                 if self.damaged[y * self.columns + x]
-                                    && clip.contains(center_x, center_y)
+                                    && clip.contains(LogicalPoint::new(center_x, center_y))
                                 {
                                     let cell = &mut self.boxes[y * self.columns + x];
                                     cell.paint(edges, rounded, color, z);
@@ -555,7 +551,7 @@ impl Renderer for TerminalRenderer {
                                 let center_x = (x as f32 + 0.5) * cell_width;
                                 let center_y = (y as f32 + 0.5) * cell_height;
                                 if self.damaged[y * self.columns + x]
-                                    && clip.contains(center_x, center_y)
+                                    && clip.contains(LogicalPoint::new(center_x, center_y))
                                 {
                                     let cell = &mut self.boxes[y * self.columns + x];
                                     cell.paint(1 | 4, false, color, z);
@@ -915,7 +911,7 @@ impl Renderer for TerminalRenderer {
         self.text_runs.trim_to_weight();
     }
 
-    fn create_image(&mut self, data: ImageData) -> ImageHandle {
+    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
         data.validate();
         let id = self.next_image;
         self.next_image = self
@@ -934,14 +930,14 @@ impl Renderer for TerminalRenderer {
                 let offset = (texture_y + y) * data.stride_bytes
                     + (texture_x + x) * data.format.bytes_per_pixel();
                 match data.format {
-                    blit::image::ImageFormat::Rgb8 => {
+                    crate::image::ImageFormat::Rgb8 => {
                         rgba.extend_from_slice(&bytes[offset..offset + 3]);
                         rgba.push(255);
                     }
-                    blit::image::ImageFormat::Rgba8 => {
+                    crate::image::ImageFormat::Rgba8 => {
                         rgba.extend_from_slice(&bytes[offset..offset + 4]);
                     }
-                    blit::image::ImageFormat::Rgba8Premultiplied => {
+                    crate::image::ImageFormat::Rgba8Premultiplied => {
                         let alpha = bytes[offset + 3];
                         for channel in &bytes[offset..offset + 3] {
                             rgba.push(if alpha == 0 {
@@ -952,10 +948,10 @@ impl Renderer for TerminalRenderer {
                         }
                         rgba.push(alpha);
                     }
-                    blit::image::ImageFormat::Luma8 => {
+                    crate::image::ImageFormat::Luma8 => {
                         rgba.extend_from_slice(&[bytes[offset], bytes[offset], bytes[offset], 255]);
                     }
-                    blit::image::ImageFormat::Alpha8(color) => {
+                    crate::image::ImageFormat::Alpha8(color) => {
                         rgba.extend_from_slice(&[
                             color.red,
                             color.green,
@@ -977,7 +973,7 @@ impl Renderer for TerminalRenderer {
         handle
     }
 
-    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
         let query = RunQuery {
@@ -1026,7 +1022,11 @@ impl Renderer for TerminalRenderer {
         self.text_runs.get_index(index).id
     }
 
-    fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
+    pub fn text_offset_at_position(
+        &mut self,
+        request: &TextRequest,
+        position: LogicalPoint,
+    ) -> usize {
         let text = &self
             .text_runs
             .get_index(self.text_run_index(request.text))
@@ -1045,7 +1045,7 @@ impl Renderer for TerminalRenderer {
         text.len()
     }
 
-    fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
+    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
         let layout = self.layout_text(request);
         let layout = self.text_layouts.get_index(layout);
         LogicalSize {
@@ -1054,7 +1054,7 @@ impl Renderer for TerminalRenderer {
         }
     }
 
-    fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
+    pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
         let text = &self
             .text_runs
             .get_index(self.text_run_index(request.text))
@@ -1193,7 +1193,7 @@ struct CachedRun {
 struct RunKey {
     digest: u64,
     len: usize,
-    font: blit::text::FontId,
+    font: crate::text::FontId,
     size: u32,
     weight: u16,
 }
@@ -1202,7 +1202,7 @@ struct RunKey {
 struct RunQuery {
     digest: u64,
     len: usize,
-    font: blit::text::FontId,
+    font: crate::text::FontId,
     size: u32,
     weight: u16,
 }
@@ -1256,8 +1256,6 @@ fn distance(left: Color, right: Color) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use blit::{UiState, repaint::FullRepaint};
-    use std::time::Duration;
 
     const PIXEL_LIKE: LogicalSize = LogicalSize {
         width: 8.0,
@@ -1280,82 +1278,8 @@ mod tests {
     }
 
     #[test]
-    fn real_blit_text_reaches_terminal_cells() {
-        let mut renderer = pixel_renderer(20, 4);
-        let mut state = UiState::default();
-        blit::render(
-            &mut renderer,
-            &mut state,
-            &mut FullRepaint,
-            Duration::ZERO,
-            [],
-            |ui| {
-                use blit::widget::{Text, Widget};
-                ui.clear();
-                Text::new("hello terminal").render(ui);
-            },
-        );
-        assert!(renderer.plain_text().contains("hello terminal"));
-    }
-
-    #[test]
-    fn default_geometry_uses_cells() {
-        let mut renderer = TerminalRenderer::new(RendererConfig::new().columns(4).rows(3));
-        let mut state = UiState::default();
-        let mut screen = LogicalRect::default();
-        blit::render(
-            &mut renderer,
-            &mut state,
-            &mut FullRepaint,
-            Duration::ZERO,
-            [],
-            |ui| screen = ui.screen(),
-        );
-        assert_eq!(screen, renderer.screen().to_logical(Scale2::IDENTITY));
-    }
-
-    #[test]
-    fn absolute_slots_use_terminal_resolution() {
-        use blit::{container::Absolute, interact::WidgetId, layout::Flex};
-
-        let mut renderer = pixel_renderer(4, 3);
-        let mut state = UiState::default();
-        let id = WidgetId::new("absolute resolution");
-        blit::render(
-            &mut renderer,
-            &mut state,
-            &mut FullRepaint,
-            Duration::ZERO,
-            [],
-            |ui| {
-                let mut root = ui.layout(Flex::column()).grow().open();
-                root.add(|ui: &mut blit::Ui| {
-                    ui.layout(Flex::column())
-                        .fixed(3.0, 4.0)
-                        .id(id)
-                        .absolute(Absolute::at(0.0, 0.0))
-                        .open();
-                });
-            },
-        );
-
-        let mut area = None;
-        blit::render(
-            &mut renderer,
-            &mut state,
-            &mut FullRepaint,
-            Duration::ZERO,
-            [],
-            |ui| area = ui.geometry(id),
-        );
-        let area = area.unwrap();
-        assert_eq!(area.width, CELL_WIDTH);
-        assert_eq!(area.height, CELL_HEIGHT);
-    }
-
-    #[test]
     fn text_at_half_cell_offset_reaches_quantized_cell() {
-        use blit::{command_list::ClipId, text::TextOptions};
+        use crate::{command_list::ClipId, text::TextOptions};
 
         let mut renderer = pixel_renderer(4, 3);
         let text = renderer.text_run("x", TextStyle::default());
@@ -1386,7 +1310,7 @@ mod tests {
 
     #[test]
     fn text_alignment_uses_quantized_area() {
-        use blit::{command_list::ClipId, text::TextOptions};
+        use crate::{command_list::ClipId, text::TextOptions};
 
         let mut renderer = pixel_renderer(5, 5);
         let text = renderer.text_run("x", TextStyle::default());
@@ -1421,7 +1345,7 @@ mod tests {
 
     #[test]
     fn damaged_render_matches_full_render() {
-        use blit::command_list::{ClipId, Rectangle};
+        use crate::command_list::{ClipId, Rectangle};
 
         let screen = pixel_renderer(8, 4).screen();
         let frame = |x: f32| {
@@ -1476,7 +1400,7 @@ mod tests {
 
     #[test]
     fn higher_borders_replace_lower_edges() {
-        use blit::command_list::{ClipId, Rectangle};
+        use crate::command_list::{ClipId, Rectangle};
 
         let mut renderer = pixel_renderer(7, 5);
         let mut commands = CommandList::default();
@@ -1545,117 +1469,6 @@ mod tests {
     }
 
     #[test]
-    fn rounded_rectangle_background_uses_its_border_cells() {
-        use blit::{
-            container::{Sizing, Slot},
-            geometry::Sides,
-            layout::Flex,
-            style::Style,
-            widget::Rectangle,
-        };
-
-        let background = Color::from_rgba8(80, 120, 160, 255);
-        let mut renderer = pixel_renderer(8, 4);
-        let mut state = UiState::default();
-        blit::render(
-            &mut renderer,
-            &mut state,
-            &mut FullRepaint,
-            Duration::ZERO,
-            [],
-            |ui| {
-                ui.clear();
-                let mut root = ui
-                    .layout(Flex::column().padding(Sides::all(3.0)))
-                    .grow()
-                    .open();
-                root.add(
-                    Rectangle::new()
-                        .slot(Slot::new().width(Sizing::grow()).height(Sizing::grow()))
-                        .style(
-                            Style::new()
-                                .background(background)
-                                .solid_border(1.0, Color::WHITE)
-                                .uniform_radius(1.0),
-                        ),
-                );
-            },
-        );
-
-        assert_eq!(renderer.cells[renderer.columns + 1].text, "╭");
-        assert_eq!(renderer.cells[renderer.columns + 1].background, background);
-    }
-
-    #[test]
-    fn border_cells_are_interactive() {
-        use blit::{
-            geometry::{LogicalPoint, Sides},
-            input::{Input, Modifiers, PointerButton},
-            interact::{Sense, WidgetId},
-            layout::Flex,
-            style::Style,
-        };
-
-        let mut renderer = pixel_renderer(4, 3);
-        let mut state = UiState::default();
-        let id = WidgetId::new("cell border interaction");
-        let mut clicked = false;
-        {
-            let mut render = |ui: &mut blit::Ui| {
-                clicked |= ui.interact(id, Sense::CLICK).clicked;
-                ui.clear();
-                let mut root = ui
-                    .layout(Flex::column().padding(Sides::x(CELL_WIDTH / 2.0)))
-                    .grow()
-                    .open();
-                root.add(|ui: &mut blit::Ui| {
-                    ui.layout(Flex::column())
-                        .id(id)
-                        .grow()
-                        .style(Style::new().solid_border(1.0, Color::WHITE))
-                        .open();
-                });
-            };
-            blit::render(
-                &mut renderer,
-                &mut state,
-                &mut FullRepaint,
-                Duration::ZERO,
-                [],
-                &mut render,
-            );
-            assert_eq!(renderer.cells[2].text, "┐");
-
-            let position = LogicalPoint {
-                x: CELL_WIDTH * 2.5,
-                y: CELL_HEIGHT / 2.0,
-            };
-            blit::render(
-                &mut renderer,
-                &mut state,
-                &mut FullRepaint,
-                Duration::ZERO,
-                [
-                    Input::PointerDown {
-                        position,
-                        button: PointerButton::Primary,
-                        modifiers: Modifiers::NONE,
-                    },
-                    Input::PointerUp {
-                        position,
-                        button: PointerButton::Primary,
-                        modifiers: Modifiers::NONE,
-                        leave: false,
-                    },
-                ],
-                &mut render,
-            );
-        }
-
-        assert!(clicked);
-    }
-
-    #[test]
     fn disjoint_interaction_clip_is_empty() {
         let renderer = pixel_renderer(4, 3);
         assert_eq!(
@@ -1675,51 +1488,5 @@ mod tests {
             ),
             None
         );
-    }
-
-    #[test]
-    fn boxes_and_kitty_images_use_terminal_protocols() {
-        use blit::{
-            container::{Sizing, Slot},
-            image::{ImageData, ImageFormat, ImagePixels},
-            layout::Flex,
-            style::Style,
-            widget::Image,
-        };
-
-        let mut renderer = pixel_renderer(8, 4);
-        let image = renderer.create_image(ImageData::new(
-            ImagePixels::Static(&[255, 0, 0, 255]),
-            ImageFormat::Rgba8,
-            1,
-            1,
-        ));
-        let mut state = UiState::default();
-        blit::render(
-            &mut renderer,
-            &mut state,
-            &mut FullRepaint,
-            Duration::ZERO,
-            [],
-            |ui| {
-                ui.clear();
-                let mut root = ui
-                    .layout(Flex::column())
-                    .grow()
-                    .style(Style::new().solid_border(1.0, Color::WHITE))
-                    .open();
-                root.add(
-                    Image::new(&image).slot(
-                        Slot::new()
-                            .width(Sizing::fixed(CELL_WIDTH))
-                            .height(Sizing::fixed(CELL_HEIGHT)),
-                    ),
-                );
-            },
-        );
-        assert!(renderer.plain_text().contains('┌'));
-        let output = std::str::from_utf8(renderer.output()).unwrap();
-        assert!(output.contains("\x1b_Ga=t,f=32"));
-        assert!(output.contains("\x1b_Ga=p"));
     }
 }

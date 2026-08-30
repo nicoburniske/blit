@@ -2,21 +2,22 @@ use std::time::Duration;
 
 use super::{Container, Frame, LayerId, NodeId, container};
 use crate::{
-    animation::Transition,
+    animation::{Easing, Transition},
     geometry::{Point, Rect, Sides},
     input::Input,
     interact::{Interaction, Sense, WidgetId},
     layout::Layout,
     leaf::Leaf,
-    renderer::Renderer,
+    platform::Platform,
 };
 
-pub struct Ui<'a, R: Renderer> {
+pub struct Ui<'a, R: Platform> {
     frame: &'a mut Frame<R>,
+    platform: &'a mut R,
     parent: Option<NodeId>,
 }
 
-impl<R: Renderer> Ui<'_, R> {
+impl<R: Platform> Ui<'_, R> {
     pub fn add<L: Leaf<R>>(&mut self, leaf: L) -> NodeId {
         let base = self.frame.store_leaf(leaf);
         self.frame.push_node(self.parent, Some(base), None)
@@ -25,7 +26,7 @@ impl<R: Renderer> Ui<'_, R> {
     pub fn layout<L: Layout<R>>(&mut self, layout: L) -> Container<'_, R, L> {
         let layout = self.frame.store_layout(layout);
         let node = self.frame.push_node(self.parent, None, Some(layout));
-        container::new(self.frame, node)
+        container::new(self.frame, self.platform, node)
     }
 
     pub fn layout_with<B: Leaf<R>, L: Layout<R>>(
@@ -36,7 +37,7 @@ impl<R: Renderer> Ui<'_, R> {
         let base = self.frame.store_leaf(base);
         let layout = self.frame.store_layout(layout);
         let node = self.frame.push_node(self.parent, Some(base), Some(layout));
-        container::new(self.frame, node)
+        container::new(self.frame, self.platform, node)
     }
 
     pub fn layer(&mut self) -> LayerId {
@@ -72,6 +73,13 @@ impl<R: Renderer> Ui<'_, R> {
         &self.frame.input
     }
 
+    /// accesses platform resources during frame construction
+    ///
+    /// drawing remains deferred to [`Leaf`](crate::Leaf) implementations
+    pub fn platform(&mut self) -> &mut R {
+        self.platform
+    }
+
     pub fn is_focused(&self, id: WidgetId) -> bool {
         self.frame.interaction.is_focused(id)
     }
@@ -100,11 +108,66 @@ impl<R: Renderer> Ui<'_, R> {
         self.frame.time
     }
 
+    pub fn animate(
+        &mut self,
+        id: WidgetId,
+        target: f32,
+        duration: Duration,
+        easing: Easing,
+    ) -> f32 {
+        let time = self.frame.time;
+        crate::animation::AnimationState::update(
+            &mut self.frame.animations,
+            id,
+            target,
+            |animation| animation.advance(target, duration, easing, time),
+        )
+    }
+
+    pub fn animate_loop(&mut self, id: WidgetId, duration: Duration, easing: Easing) -> f32 {
+        let time = self.frame.time;
+        crate::animation::AnimationState::update(&mut self.frame.animations, id, 0.0, |animation| {
+            animation.advance_loop(duration, easing, time)
+        })
+    }
+
+    pub fn timer(&mut self, id: WidgetId, duration: Duration) -> bool {
+        crate::timer::TimerState::update(
+            &mut self.frame.timers,
+            id,
+            duration,
+            None,
+            self.frame.time,
+        )
+    }
+
+    pub fn timer_loop(&mut self, id: WidgetId, duration: Duration) -> bool {
+        assert!(
+            !duration.is_zero(),
+            "looping timer duration must be nonzero"
+        );
+        crate::timer::TimerState::update(
+            &mut self.frame.timers,
+            id,
+            duration,
+            Some(duration),
+            self.frame.time,
+        )
+    }
+
     pub fn request_frame(&mut self) {
         self.frame.request_frame();
     }
 }
 
-pub fn new<R: Renderer>(frame: &mut Frame<R>, parent: Option<NodeId>) -> Ui<'_, R> {
-    Ui { frame, parent }
+pub fn new<'a, R: Platform>(
+    frame: &'a mut Frame<R>,
+    platform: &'a mut R,
+    parent: Option<NodeId>,
+) -> Ui<'a, R> {
+    Ui {
+        frame,
+        platform,
+        parent,
+    }
 }

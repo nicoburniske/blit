@@ -3,13 +3,13 @@ pub use crate::frame::layout::{Children, LayoutCx};
 use crate::{
     frame::container::Sizing,
     geometry::{Constraints, Size},
-    renderer::Renderer,
+    platform::Platform,
 };
 
-pub trait Layout<R: Renderer>: Copy + 'static {
+pub trait Layout<R: Platform>: Copy + 'static {
     type Item: Copy + 'static;
 
-    fn layout(&self, cx: LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size;
+    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size;
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
