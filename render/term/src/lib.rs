@@ -9,17 +9,15 @@ use std::{
 pub mod color;
 pub mod command_list;
 pub mod image;
-pub mod style;
 pub mod text;
 
 use crate::{
     color::Color,
     command_list::{Command, CommandList},
     image::{ImageData, ImageHandle, ImageId},
-    style::Border,
     text::{
-        HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextRunId, TextStyle,
-        TextWrap, VerticalAlign,
+        HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextRunId, TextWrap,
+        VerticalAlign,
     },
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -463,11 +461,11 @@ impl TerminalRenderer {
                     self.clear_damaged(damage_bounds);
                     self.kitty_placements.clear();
                 }
-                Command::Rectangle(rectangle) => {
+                Command::Block(block) => {
                     let cell_width = self.cell_size.width;
                     let cell_height = self.cell_size.height;
-                    let (left, top, right, bottom) = self.cell_bounds(rectangle.area);
-                    if rectangle.background.alpha != 0 && rectangle.opacity > 0.0 {
+                    let (left, top, right, bottom) = self.cell_bounds(block.area);
+                    if block.background.alpha != 0 && block.opacity > 0.0 {
                         let stride = self.columns * 2;
                         for y in top.max(damage_bounds.1)..bottom.min(damage_bounds.3) {
                             for x in left.max(damage_bounds.0)..right.min(damage_bounds.2) {
@@ -482,18 +480,15 @@ impl TerminalRenderer {
                                 for sub_y in y * 2..y * 2 + 2 {
                                     for sub_x in x * 2..x * 2 + 2 {
                                         let pixel = &mut self.pixels[sub_y * stride + sub_x];
-                                        pixel.color = blend(
-                                            rectangle.background,
-                                            pixel.color,
-                                            rectangle.opacity,
-                                        );
+                                        pixel.color =
+                                            blend(block.background, pixel.color, block.opacity);
                                         pixel.z = z;
                                     }
                                 }
                             }
                         }
                     }
-                    if let Border::Solid { color, .. } = rectangle.border
+                    if let Some(border) = block.border
                         && right > left + 1
                         && bottom > top + 1
                     {
@@ -510,13 +505,7 @@ impl TerminalRenderer {
                                     } else {
                                         2 | 8
                                     },
-                                    if x == left {
-                                        rectangle.radius.top_left != 0.0
-                                    } else if x == right {
-                                        rectangle.radius.top_right != 0.0
-                                    } else {
-                                        false
-                                    },
+                                    border.rounded && (x == left || x == right),
                                 ),
                                 (
                                     bottom,
@@ -527,13 +516,7 @@ impl TerminalRenderer {
                                     } else {
                                         2 | 8
                                     },
-                                    if x == left {
-                                        rectangle.radius.bottom_left != 0.0
-                                    } else if x == right {
-                                        rectangle.radius.bottom_right != 0.0
-                                    } else {
-                                        false
-                                    },
+                                    border.rounded && (x == left || x == right),
                                 ),
                             ] {
                                 let center_x = (x as f32 + 0.5) * cell_width;
@@ -542,7 +525,7 @@ impl TerminalRenderer {
                                     && clip.contains(LogicalPoint::new(center_x, center_y))
                                 {
                                     let cell = &mut self.boxes[y * self.columns + x];
-                                    cell.paint(edges, rounded, color, z);
+                                    cell.paint(edges, rounded, border.color, z);
                                 }
                             }
                         }
@@ -554,13 +537,12 @@ impl TerminalRenderer {
                                     && clip.contains(LogicalPoint::new(center_x, center_y))
                                 {
                                     let cell = &mut self.boxes[y * self.columns + x];
-                                    cell.paint(1 | 4, false, color, z);
+                                    cell.paint(1 | 4, false, border.color, z);
                                 }
                             }
                         }
                     }
                 }
-                Command::BoxShadow(_) => {}
                 Command::Text(request) => {
                     let (area_left, area_top, area_right, area_bottom) =
                         self.cell_bounds(request.area);
@@ -571,7 +553,6 @@ impl TerminalRenderer {
                     let bottom = area_bottom.min(clip_bottom);
                     let layout_request = TextLayoutRequest {
                         text: request.text,
-                        style: request.style,
                         wrap: request.options.wrap,
                         max_width: Some(request.area.width),
                         max_lines: request.options.max_lines,
@@ -643,7 +624,7 @@ impl TerminalRenderer {
                                     self.glyphs[index] = Some(Glyph {
                                         text: grapheme,
                                         color: request.color,
-                                        bold: request.style.weight >= 600,
+                                        bold: request.bold,
                                         z,
                                     });
                                 }
@@ -654,7 +635,7 @@ impl TerminalRenderer {
                                         self.glyphs[index] = Some(Glyph {
                                             text: GlyphText::Static(""),
                                             color: request.color,
-                                            bold: request.style.weight >= 600,
+                                            bold: request.bold,
                                             z,
                                         });
                                     }
@@ -973,36 +954,20 @@ impl TerminalRenderer {
         handle
     }
 
-    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+    pub fn text_run(&mut self, text: &str) -> TextRunId {
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
-        let query = RunQuery {
+        let query = RunKey {
             digest: hasher.finish(),
             len: text.len(),
-            font: style.font,
-            size: style.size.to_bits(),
-            weight: style.weight,
         };
         let next = self.next_text_run;
         let (_, index) = self.text_runs.get_or_insert_by(
             &query,
-            |key, run| {
-                key.digest == query.digest
-                    && key.len == query.len
-                    && key.font == query.font
-                    && key.size == query.size
-                    && key.weight == query.weight
-                    && run.text.as_ref() == text
-            },
+            |key, run| *key == query && run.text.as_ref() == text,
             || {
                 (
-                    RunKey {
-                        digest: query.digest,
-                        len: query.len,
-                        font: query.font,
-                        size: query.size,
-                        weight: query.weight,
-                    },
+                    query,
                     CachedRun {
                         id: TextRunId(u64::from(next) << 32),
                         text: text.into(),
@@ -1193,18 +1158,6 @@ struct CachedRun {
 struct RunKey {
     digest: u64,
     len: usize,
-    font: crate::text::FontId,
-    size: u32,
-    weight: u16,
-}
-
-#[derive(Clone, Copy, Hash)]
-struct RunQuery {
-    digest: u64,
-    len: usize,
-    font: crate::text::FontId,
-    size: u32,
-    weight: u16,
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -1279,10 +1232,10 @@ mod tests {
 
     #[test]
     fn text_at_half_cell_offset_reaches_quantized_cell() {
-        use crate::{command_list::ClipId, text::TextOptions};
+        use crate::command_list::ClipId;
 
         let mut renderer = pixel_renderer(4, 3);
-        let text = renderer.text_run("x", TextStyle::default());
+        let text = renderer.text_run("x");
         let area = LogicalRect {
             x: CELL_WIDTH / 2.0,
             y: CELL_HEIGHT / 2.0,
@@ -1292,28 +1245,25 @@ mod tests {
         let mut commands = CommandList::default();
         commands.push_clear(renderer.screen());
         commands.push_text(
-            TextRequest {
-                text,
-                area,
-                offset_x: 0.0,
-                color: Color::WHITE,
-                style: TextStyle::default(),
-                options: TextOptions::default(),
-            },
+            TextRequest::new(text, area).bold(true),
             area.to_physical(SCALE),
             ClipId::default(),
         );
         renderer.render(&commands, &[renderer.screen()]);
 
         assert_eq!(renderer.cells[renderer.columns + 1].text, "x");
+        assert!(renderer.cells[renderer.columns + 1].bold);
     }
 
     #[test]
     fn text_alignment_uses_quantized_area() {
-        use crate::{command_list::ClipId, text::TextOptions};
+        use crate::{
+            command_list::ClipId,
+            text::{HorizontalAlign, TextOptions, VerticalAlign},
+        };
 
         let mut renderer = pixel_renderer(5, 5);
-        let text = renderer.text_run("x", TextStyle::default());
+        let text = renderer.text_run("x");
         let area = LogicalRect {
             x: CELL_WIDTH * 0.4,
             y: CELL_HEIGHT * 0.4,
@@ -1323,18 +1273,11 @@ mod tests {
         let mut commands = CommandList::default();
         commands.push_clear(renderer.screen());
         commands.push_text(
-            TextRequest {
-                text,
-                area,
-                offset_x: 0.0,
-                color: Color::WHITE,
-                style: TextStyle::default(),
-                options: TextOptions {
-                    horizontal_align: HorizontalAlign::Center,
-                    vertical_align: VerticalAlign::Center,
-                    ..TextOptions::default()
-                },
-            },
+            TextRequest::new(text, area).options(
+                TextOptions::new()
+                    .horizontal_align(HorizontalAlign::Center)
+                    .vertical_align(VerticalAlign::Center),
+            ),
             area.to_physical(SCALE),
             ClipId::default(),
         );
@@ -1345,15 +1288,15 @@ mod tests {
 
     #[test]
     fn damaged_render_matches_full_render() {
-        use crate::command_list::{ClipId, Rectangle};
+        use crate::command_list::{Block, ClipId};
 
         let screen = pixel_renderer(8, 4).screen();
         let frame = |x: f32| {
             let mut commands = CommandList::default();
             commands.push_clear(screen);
             let background = screen.to_logical(SCALE);
-            commands.push_rectangle(
-                Rectangle::new(background).background(Color::from_rgba8(20, 30, 40, 255)),
+            commands.push_block(
+                Block::new(background).background(Color::from_rgba8(20, 30, 40, 255)),
                 screen,
                 ClipId::default(),
             );
@@ -1363,8 +1306,8 @@ mod tests {
                 width: CELL_WIDTH,
                 height: CELL_HEIGHT,
             };
-            commands.push_rectangle(
-                Rectangle::new(accent).background(Color::from_rgba8(80, 220, 180, 128)),
+            commands.push_block(
+                Block::new(accent).background(Color::from_rgba8(80, 220, 180, 128)),
                 accent.to_physical(SCALE),
                 ClipId::default(),
             );
@@ -1400,7 +1343,7 @@ mod tests {
 
     #[test]
     fn higher_borders_replace_lower_edges() {
-        use crate::command_list::{ClipId, Rectangle};
+        use crate::command_list::{Block, Border, ClipId};
 
         let mut renderer = pixel_renderer(7, 5);
         let mut commands = CommandList::default();
@@ -1411,8 +1354,8 @@ mod tests {
             width: CELL_WIDTH * 4.0,
             height: CELL_HEIGHT * 5.0,
         };
-        commands.push_rectangle(
-            Rectangle::new(lower).solid_border(1.0, Color::WHITE),
+        commands.push_block(
+            Block::new(lower).border(Border::new(Color::WHITE)),
             lower.to_physical(SCALE),
             ClipId::default(),
         );
@@ -1422,29 +1365,28 @@ mod tests {
             width: CELL_WIDTH * 3.0,
             height: CELL_HEIGHT * 3.0,
         };
-        commands.push_rectangle(
-            Rectangle::new(upper)
+        commands.push_block(
+            Block::new(upper)
                 .background(Color::BLACK)
-                .solid_border(1.0, Color::WHITE),
+                .border(Border::new(Color::WHITE).rounded(true)),
             upper.to_physical(SCALE),
             ClipId::default(),
         );
         renderer.render(&commands, &[renderer.screen()]);
 
+        assert_eq!(renderer.cells[renderer.columns + 2].text, "╭");
         assert_eq!(renderer.cells[renderer.columns + 3].text, "─");
     }
 
     #[test]
     fn word_wrap_keeps_words_intact() {
         let mut renderer = pixel_renderer(20, 4);
-        let text = renderer.text_run("hello world", TextStyle::default());
-        let layout = renderer.layout_text(&TextLayoutRequest {
-            text,
-            style: TextStyle::default(),
-            wrap: TextWrap::Word,
-            max_width: Some(CELL_WIDTH * 7.0),
-            max_lines: None,
-        });
+        let text = renderer.text_run("hello world");
+        let layout = renderer.layout_text(
+            &TextLayoutRequest::new(text)
+                .wrap(TextWrap::Word)
+                .max_width(CELL_WIDTH * 7.0),
+        );
         let layout = renderer.text_layouts.get_index(layout);
         assert_eq!(layout.lines.len(), 2);
         assert_eq!(layout.lines[0].width, 5);
@@ -1454,16 +1396,11 @@ mod tests {
     #[test]
     fn text_runs_and_layouts_are_reused() {
         let mut renderer = pixel_renderer(20, 4);
-        let style = TextStyle::default();
-        let text = renderer.text_run("cached text", style);
-        assert_eq!(renderer.text_run("cached text", style), text);
-        let request = TextLayoutRequest {
-            text,
-            style,
-            wrap: TextWrap::Word,
-            max_width: Some(CELL_WIDTH * 8.0),
-            max_lines: None,
-        };
+        let text = renderer.text_run("cached text");
+        assert_eq!(renderer.text_run("cached text"), text);
+        let request = TextLayoutRequest::new(text)
+            .wrap(TextWrap::Word)
+            .max_width(CELL_WIDTH * 8.0);
         let layout = renderer.layout_text(&request);
         assert_eq!(renderer.layout_text(&request), layout);
     }

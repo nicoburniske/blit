@@ -2,7 +2,7 @@ pub mod draw;
 mod platform;
 
 pub use blit_layout as layout;
-pub use blit_term::{color, image, style, text};
+pub use blit_term::{color, image, text};
 pub use platform::{BoundsClip, TerminalPlatform};
 
 use std::{io, io::Write as _, time::Duration, time::Instant};

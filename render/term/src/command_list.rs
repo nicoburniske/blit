@@ -1,112 +1,48 @@
-//! fully resolved renderer commands
+//! fully resolved terminal commands
 
-use crate::{
-    color::Color,
-    image::ImageRequest,
-    style::{Border, BorderRadius, GradientStop, LinearGradient},
-    text::TextRequest,
-};
-use blit::geometry::{LogicalRect, PhysicalRect};
+use crate::{color::Color, image::ImagePlacement, text::TextRequest};
+use blit::{LogicalRect, PhysicalRect};
 
 #[derive(Default)]
 pub struct CommandList {
     commands: Vec<StoredCommand>,
     clips: Vec<ClipNode>,
-    gradient_stops: Vec<GradientStop>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Record<'a> {
+pub struct Record {
     pub bounds: PhysicalRect,
     pub clip: ClipId,
-    pub command: Command<'a>,
+    pub command: Command,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Command<'a> {
-    /// restores target pixels to the renderer's default value
+pub enum Command {
+    /// restores cells to their default value
     Clear,
-    Rectangle(Rectangle<'a>),
-    Image(ImageRequest),
+    Block(Block),
+    Image(ImagePlacement),
     Text(TextRequest),
-    BoxShadow(BoxShadow),
 }
 
 blit::builder! {
+    /// terminal cell background and optional box-drawing border
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Rectangle<'a> {
+    pub struct Block {
         new(area: LogicalRect),
+        @optional {
+            border: Border,
+        },
         background: Color = Color::TRANSPARENT,
-        border: Border<'a> = Border::None,
-        radius: BorderRadius = BorderRadius::default(),
         opacity: f32 = 1.0,
     }
 }
 
-impl<'a> Rectangle<'a> {
-    pub const fn uniform_radius(mut self, radius: f32) -> Self {
-        self.radius = BorderRadius {
-            top_left: radius,
-            top_right: radius,
-            bottom_right: radius,
-            bottom_left: radius,
-        };
-        self
-    }
-
-    pub const fn solid_border(mut self, width: f32, color: Color) -> Self {
-        self.border = Border::Solid { width, color };
-        self
-    }
-
-    pub const fn gradient_border(mut self, width: f32, gradient: LinearGradient<'a>) -> Self {
-        self.border = Border::Gradient { width, gradient };
-        self
-    }
-}
-
 blit::builder! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct BoxShadow {
-        new(area: LogicalRect, color: Color),
-        radius: BorderRadius = BorderRadius::default(),
-        offset_x: f32 = 0.0,
-        offset_y: f32 = 0.0,
-        blur: f32 = 0.0,
-        spread: f32 = 0.0,
-        inset: bool = false,
-    }
-}
-
-impl BoxShadow {
-    pub const fn uniform_radius(mut self, radius: f32) -> Self {
-        self.radius = BorderRadius {
-            top_left: radius,
-            top_right: radius,
-            bottom_right: radius,
-            bottom_left: radius,
-        };
-        self
-    }
-
-    pub const fn offset(mut self, x: f32, y: f32) -> Self {
-        self.offset_x = x;
-        self.offset_y = y;
-        self
-    }
-
-    pub fn bounds(self) -> LogicalRect {
-        if self.inset {
-            return self.area;
-        }
-        let blur = self.blur.max(0.0);
-        let outset = self.spread + blur;
-        LogicalRect {
-            x: self.area.x + self.offset_x - outset,
-            y: self.area.y + self.offset_y - outset,
-            width: self.area.width + outset * 2.0,
-            height: self.area.height + outset * 2.0,
-        }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Border {
+        new(color: Color),
+        rounded: bool = false,
     }
 }
 
@@ -118,7 +54,6 @@ pub struct ClipId(pub u32);
 pub struct ClipNode {
     pub parent: ClipId,
     pub area: LogicalRect,
-    pub radius: BorderRadius,
 }
 
 impl CommandList {
@@ -130,14 +65,10 @@ impl CommandList {
         self.commands.is_empty()
     }
 
-    pub fn push_clip(&mut self, parent: ClipId, area: LogicalRect, radius: BorderRadius) -> ClipId {
+    pub fn push_clip(&mut self, parent: ClipId, area: LogicalRect) -> ClipId {
         self.assert_clip(parent);
         let id = u32::try_from(self.clips.len() + 1).expect("too many command list clips");
-        self.clips.push(ClipNode {
-            parent,
-            area,
-            radius,
-        });
+        self.clips.push(ClipNode { parent, area });
         ClipId(id)
     }
 
@@ -151,91 +82,27 @@ impl CommandList {
     }
 
     pub fn push_clear(&mut self, bounds: PhysicalRect) {
-        self.push(bounds, ClipId::default(), CommandKind::Clear)
+        self.push(bounds, ClipId::default(), Command::Clear)
     }
 
-    pub fn push_rectangle(&mut self, rectangle: Rectangle<'_>, bounds: PhysicalRect, clip: ClipId) {
-        self.assert_clip(clip);
-        let border = match rectangle.border {
-            Border::None => StoredBorder::None,
-            Border::Solid { width, color } => StoredBorder::Solid { width, color },
-            Border::Gradient { width, gradient } => {
-                let start = u32::try_from(self.gradient_stops.len())
-                    .expect("too many command list gradient stops");
-                let len = u32::try_from(gradient.stops.len())
-                    .expect("too many command list gradient stops");
-                self.gradient_stops.extend_from_slice(gradient.stops);
-                StoredBorder::Gradient {
-                    width,
-                    angle_degrees: gradient.angle_degrees,
-                    start,
-                    len,
-                }
-            }
-        };
-        self.commands.push(StoredCommand {
-            bounds,
-            clip,
-            kind: CommandKind::Rectangle(StoredRectangle {
-                area: rectangle.area,
-                background: rectangle.background,
-                border,
-                radius: rectangle.radius,
-                opacity: rectangle.opacity,
-            }),
-        });
+    pub fn push_block(&mut self, block: Block, bounds: PhysicalRect, clip: ClipId) {
+        self.push(bounds, clip, Command::Block(block))
     }
 
-    pub fn push_image(&mut self, image: ImageRequest, bounds: PhysicalRect, clip: ClipId) {
-        self.push(bounds, clip, CommandKind::Image(image))
+    pub fn push_image(&mut self, image: ImagePlacement, bounds: PhysicalRect, clip: ClipId) {
+        self.push(bounds, clip, Command::Image(image))
     }
 
     pub fn push_text(&mut self, text: TextRequest, bounds: PhysicalRect, clip: ClipId) {
-        self.push(bounds, clip, CommandKind::Text(text))
+        self.push(bounds, clip, Command::Text(text))
     }
 
-    pub fn push_box_shadow(&mut self, shadow: BoxShadow, bounds: PhysicalRect, clip: ClipId) {
-        self.push(bounds, clip, CommandKind::BoxShadow(shadow))
-    }
-
-    pub fn get(&self, index: usize) -> Record<'_> {
-        let stored = &self.commands[index];
-        let command = match &stored.kind {
-            CommandKind::Clear => Command::Clear,
-            CommandKind::Rectangle(rectangle) => {
-                let border = match rectangle.border {
-                    StoredBorder::None => Border::None,
-                    StoredBorder::Solid { width, color } => Border::Solid { width, color },
-                    StoredBorder::Gradient {
-                        width,
-                        angle_degrees,
-                        start,
-                        len,
-                    } => {
-                        let start = start as usize;
-                        let stops = &self.gradient_stops[start..start + len as usize];
-                        Border::Gradient {
-                            width,
-                            gradient: LinearGradient::new(stops).angle(angle_degrees),
-                        }
-                    }
-                };
-                Command::Rectangle(Rectangle {
-                    area: rectangle.area,
-                    background: rectangle.background,
-                    border,
-                    radius: rectangle.radius,
-                    opacity: rectangle.opacity,
-                })
-            }
-            CommandKind::Image(image) => Command::Image(*image),
-            CommandKind::Text(text) => Command::Text(*text),
-            CommandKind::BoxShadow(shadow) => Command::BoxShadow(*shadow),
-        };
+    pub fn get(&self, index: usize) -> Record {
+        let command = self.commands[index];
         Record {
-            bounds: stored.bounds,
-            clip: stored.clip,
-            command,
+            bounds: command.bounds,
+            clip: command.clip,
+            command: command.command,
         }
     }
 
@@ -250,69 +117,23 @@ impl CommandList {
     pub fn clear(&mut self) {
         self.commands.clear();
         self.clips.clear();
-        self.gradient_stops.clear();
-    }
-
-    fn push(&mut self, bounds: PhysicalRect, clip: ClipId, kind: CommandKind) {
-        self.assert_clip(clip);
-        self.commands.push(StoredCommand { bounds, clip, kind });
     }
 
     pub fn equivalent(&self, index: usize, other: &Self, other_index: usize) -> bool {
-        let left = &self.commands[index];
-        let right = &other.commands[other_index];
-        if left.bounds != right.bounds || !self.clips_equal(left.clip, other, right.clip) {
-            return false;
-        }
-        match (&left.kind, &right.kind) {
-            (CommandKind::Clear, CommandKind::Clear) => true,
-            (CommandKind::Rectangle(left), CommandKind::Rectangle(right)) => {
-                left.area == right.area
-                    && left.background == right.background
-                    && left.radius == right.radius
-                    && left.opacity == right.opacity
-                    && match (left.border, right.border) {
-                        (StoredBorder::None, StoredBorder::None) => true,
-                        (
-                            StoredBorder::Solid {
-                                width: left_width,
-                                color: left_color,
-                            },
-                            StoredBorder::Solid {
-                                width: right_width,
-                                color: right_color,
-                            },
-                        ) => left_width == right_width && left_color == right_color,
-                        (
-                            StoredBorder::Gradient {
-                                width: left_width,
-                                angle_degrees: left_angle,
-                                start: left_start,
-                                len: left_len,
-                            },
-                            StoredBorder::Gradient {
-                                width: right_width,
-                                angle_degrees: right_angle,
-                                start: right_start,
-                                len: right_len,
-                            },
-                        ) => {
-                            let left_start = left_start as usize;
-                            let right_start = right_start as usize;
-                            left_width == right_width
-                                && left_angle == right_angle
-                                && self.gradient_stops[left_start..left_start + left_len as usize]
-                                    == other.gradient_stops
-                                        [right_start..right_start + right_len as usize]
-                        }
-                        _ => false,
-                    }
-            }
-            (CommandKind::Image(left), CommandKind::Image(right)) => left == right,
-            (CommandKind::Text(left), CommandKind::Text(right)) => left == right,
-            (CommandKind::BoxShadow(left), CommandKind::BoxShadow(right)) => left == right,
-            _ => false,
-        }
+        let left = self.commands[index];
+        let right = other.commands[other_index];
+        left.bounds == right.bounds
+            && left.command == right.command
+            && self.clips_equal(left.clip, other, right.clip)
+    }
+
+    fn push(&mut self, bounds: PhysicalRect, clip: ClipId, command: Command) {
+        self.assert_clip(clip);
+        self.commands.push(StoredCommand {
+            bounds,
+            clip,
+            command,
+        });
     }
 
     fn clips_equal(&self, mut clip: ClipId, other: &Self, mut other_clip: ClipId) -> bool {
@@ -324,7 +145,7 @@ impl CommandList {
             }
             let left = self.clip(clip).unwrap();
             let right = other.clip(other_clip).unwrap();
-            if left.area != right.area || left.radius != right.radius {
+            if left.area != right.area {
                 return false;
             }
             clip = left.parent;
@@ -340,41 +161,11 @@ impl CommandList {
     }
 }
 
+#[derive(Clone, Copy)]
 struct StoredCommand {
     bounds: PhysicalRect,
     clip: ClipId,
-    kind: CommandKind,
-}
-
-enum CommandKind {
-    Clear,
-    Rectangle(StoredRectangle),
-    Image(ImageRequest),
-    Text(TextRequest),
-    BoxShadow(BoxShadow),
-}
-
-struct StoredRectangle {
-    area: LogicalRect,
-    background: Color,
-    border: StoredBorder,
-    radius: BorderRadius,
-    opacity: f32,
-}
-
-#[derive(Clone, Copy)]
-enum StoredBorder {
-    None,
-    Solid {
-        width: f32,
-        color: Color,
-    },
-    Gradient {
-        width: f32,
-        angle_degrees: f32,
-        start: u32,
-        len: u32,
-    },
+    command: Command,
 }
 
 pub struct Iter<'a> {
@@ -383,8 +174,8 @@ pub struct Iter<'a> {
     back: usize,
 }
 
-impl<'a> Iterator for Iter<'a> {
-    type Item = Record<'a>;
+impl Iterator for Iter<'_> {
+    type Item = Record;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.front == self.back {

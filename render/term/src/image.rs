@@ -1,9 +1,9 @@
-//! image data, display options, and renderer resources
+//! image data and Kitty graphics resources
 
 use std::rc::Rc;
 
 use crate::color::Color;
-use blit::geometry::{LogicalRect, LogicalSize, PhysicalRect, PhysicalSize};
+use blit::{LogicalRect, PhysicalRect, PhysicalSize};
 
 #[derive(Clone, Debug)]
 pub struct ImageHandle(Rc<ImageInner>);
@@ -44,7 +44,7 @@ impl ImageData {
         let stride_bytes = (width as usize)
             .checked_mul(format.bytes_per_pixel())
             .expect("image width is too large");
-        let texture = Self {
+        let image = Self {
             pixels,
             size: PhysicalSize { width, height },
             texture_rect: PhysicalRect {
@@ -56,8 +56,8 @@ impl ImageData {
             stride_bytes,
             format,
         };
-        texture.validate();
-        texture
+        image.validate();
+        image
     }
 
     pub fn validate(&self) {
@@ -122,73 +122,12 @@ impl ImageFormat {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ImageRequest {
-    pub image: ImageId,
-    pub area: LogicalRect,
-    pub fit: ImageFit,
-    pub sampling: ImageSampling,
-    pub opacity: f32,
-    pub colorize: Option<Color>,
-    pub nine_slice: Option<NineSlice>,
-    pub horizontal_tiling: ImageTiling,
-    pub vertical_tiling: ImageTiling,
-}
-
-/// frame-local image content and its intrinsic size
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ImageContent {
-    pub image: ImageId,
-    pub intrinsic: LogicalSize,
-    pub fit: ImageFit,
-    pub sampling: ImageSampling,
-    pub opacity: f32,
-    pub colorize: Option<Color>,
-    pub nine_slice: Option<NineSlice>,
-    pub horizontal_tiling: ImageTiling,
-    pub vertical_tiling: ImageTiling,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct NineSlice {
-    pub top: u16,
-    pub right: u16,
-    pub bottom: u16,
-    pub left: u16,
-}
-
-impl NineSlice {
-    pub const fn uniform(value: u16) -> Self {
-        Self {
-            top: value,
-            right: value,
-            bottom: value,
-            left: value,
-        }
+blit::builder! {
+    /// Kitty image placement for a resolved logical area
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct ImagePlacement {
+        new(image: ImageId, area: LogicalRect),
     }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ImageFit {
-    #[default]
-    Fill,
-    Contain,
-    Cover,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ImageSampling {
-    #[default]
-    Nearest,
-    Bilinear,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ImageTiling {
-    #[default]
-    None,
-    Repeat,
-    Round,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

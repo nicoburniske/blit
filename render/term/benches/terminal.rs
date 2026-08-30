@@ -4,7 +4,7 @@ use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_term::{
     RendererConfig, TerminalRenderer,
     color::Color,
-    command_list::{ClipId, CommandList, Rectangle},
+    command_list::{Block, ClipId, CommandList},
 };
 use divan::counter::ItemsCount;
 
@@ -73,8 +73,8 @@ fn commands(screen: PhysicalRect, changed: bool) -> CommandList {
                 width: 8.0,
                 height: 4.0,
             };
-            commands.push_rectangle(
-                Rectangle::new(area).background(Color::from_rgba8(
+            commands.push_block(
+                Block::new(area).background(Color::from_rgba8(
                     (column * 19) as u8,
                     (row * 31) as u8,
                     ((row + column) * 13) as u8,
@@ -87,8 +87,8 @@ fn commands(screen: PhysicalRect, changed: bool) -> CommandList {
     }
     if changed {
         let area = CHANGED_CELL.to_logical(Scale2::IDENTITY);
-        commands.push_rectangle(
-            Rectangle::new(area).background(Color::from_rgba8(86, 211, 194, 255)),
+        commands.push_block(
+            Block::new(area).background(Color::from_rgba8(86, 211, 194, 255)),
             area.to_physical(Scale2::IDENTITY),
             ClipId::default(),
         );

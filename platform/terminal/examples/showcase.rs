@@ -5,9 +5,8 @@ use blit_showcase::Showcase;
 use blit_terminal::{
     ControlFlow, TerminalPlatform,
     color::Color,
-    draw::{Block, Text},
+    draw::{Block, Border, Text},
     layout::Flex,
-    text::TextStyle,
 };
 
 fn main() -> io::Result<()> {
@@ -21,19 +20,18 @@ fn main() -> io::Result<()> {
             ControlFlow::Continue
         };
         showcase.input(ui.input());
-        let style = TextStyle::default();
-        let title = ui.platform().text_run(showcase.title(), style);
-        let body = ui.platform().text_run(showcase.body(), style);
-        let button_label = ui.platform().text_run("toggle terminal state", style);
+        let title = ui.platform().text_run(showcase.title());
+        let body = ui.platform().text_run(showcase.body());
+        let button_label = ui.platform().text_run("toggle terminal state");
         let mut root = ui.layout_with(
-            Block::new(Color::from_rgba8(0, 0, 0, 255)),
+            Block::new().background(Color::from_rgba8(0, 0, 0, 255)),
             Flex::column().padding(Sides::all(1.0)).gap(1.0),
         );
         root.add(Slot::new().height(Sizing::fixed(1.0)), (), |mut ui| {
-            ui.add(Text::new(title, style));
+            ui.add(Text::new(title));
         });
         root.add(Slot::new().height(Sizing::fixed(2.0)), (), |mut ui| {
-            ui.add(Text::new(body, style).color(Color::from_rgba8(180, 180, 180, 255)));
+            ui.add(Text::new(body).color(Color::from_rgba8(180, 180, 180, 255)));
         });
         root.add(Slot::new().fixed(24.0, 3.0), (), |mut ui| {
             let id = WidgetId::new("terminal showcase button");
@@ -48,12 +46,14 @@ fn main() -> io::Result<()> {
             };
             let mut button = ui
                 .layout_with(
-                    Block::new(background).border(1.0, Color::WHITE),
+                    Block::new()
+                        .background(background)
+                        .border(Border::new(Color::WHITE).rounded(true)),
                     Flex::row().padding(Sides::all(1.0)),
                 )
                 .id(id);
             button.add(Slot::new(), (), |mut ui| {
-                ui.add(Text::new(button_label, style));
+                ui.add(Text::new(button_label));
             });
         });
         control

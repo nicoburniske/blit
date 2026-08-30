@@ -1,31 +1,24 @@
 use blit::{Constraints, Leaf, LogicalRect, Size};
 use blit_term::{
     color::Color,
-    command_list::Rectangle,
-    image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
-    style::{Border, BorderRadius},
-    text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
+    command_list::Block as DrawBlock,
+    image::{ImageId, ImagePlacement},
+    text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextWrap},
 };
+
+pub use blit_term::command_list::Border;
 
 use crate::TerminalPlatform;
 
-#[derive(Clone, Copy)]
-pub struct Block {
-    pub background: Color,
-    pub border: Option<(f32, Color)>,
-}
-
-impl Block {
-    pub const fn new(background: Color) -> Self {
-        Self {
-            background,
-            border: None,
-        }
-    }
-
-    pub const fn border(mut self, width: f32, color: Color) -> Self {
-        self.border = Some((width, color));
-        self
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Block {
+        new(),
+        @optional {
+            border: Border,
+        },
+        background: Color = Color::TRANSPARENT,
+        opacity: f32 = 1.0,
     }
 }
 
@@ -35,95 +28,54 @@ impl Leaf<TerminalPlatform> for Block {
     }
 
     fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
-        let border = self
-            .border
-            .map_or(Border::None, |(width, color)| Border::Solid {
-                width,
-                color,
-            });
-        let (commands, clip, scale) = platform.commands();
-        commands.push_rectangle(
-            Rectangle {
-                area,
-                background: self.background,
-                border,
-                radius: BorderRadius::default(),
-                opacity: 1.0,
-            },
-            area.to_physical(scale),
-            clip,
-        );
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct Text {
-    pub text: TextRunId,
-    pub color: Color,
-    pub style: TextStyle,
-    pub options: TextOptions,
-}
-
-impl Text {
-    pub const fn new(text: TextRunId, style: TextStyle) -> Self {
-        Self {
-            text,
-            color: Color::WHITE,
-            style,
-            options: TextOptions {
-                wrap: TextWrap::None,
-                overflow: blit_term::text::TextOverflow::Clip,
-                horizontal_align: blit_term::text::HorizontalAlign::Left,
-                vertical_align: blit_term::text::VerticalAlign::Top,
-                max_lines: None,
-            },
+        let mut block = DrawBlock::new(area)
+            .background(self.background)
+            .opacity(self.opacity);
+        if let Some(border) = self.border {
+            block = block.border(border);
         }
+        let (commands, clip, scale) = platform.commands();
+        commands.push_block(block, area.to_physical(scale), clip);
     }
+}
 
-    pub const fn color(mut self, color: Color) -> Self {
-        self.color = color;
-        self
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Text {
+        new(text: TextRunId),
+        color: Color = Color::WHITE,
+        bold: bool = false,
+        options: TextOptions = TextOptions::new(),
     }
 }
 
 impl Leaf<TerminalPlatform> for Text {
     fn measure(&self, platform: &mut TerminalPlatform, constraints: Constraints) -> Size {
-        let measured = platform.measure_text(&TextLayoutRequest {
-            text: self.text,
-            style: self.style,
-            wrap: self.options.wrap,
-            max_width: (self.options.wrap != TextWrap::None && constraints.max.width.is_finite())
-                .then_some(constraints.max.width),
-            max_lines: self.options.max_lines,
-        });
-        constraints.constrain(measured)
+        let mut request = TextLayoutRequest::new(self.text).wrap(self.options.wrap);
+        if self.options.wrap != TextWrap::None && constraints.max.width.is_finite() {
+            request = request.max_width(constraints.max.width);
+        }
+        if let Some(max_lines) = self.options.max_lines {
+            request = request.max_lines(max_lines);
+        }
+        constraints.constrain(platform.measure_text(&request))
     }
 
     fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
-        let request = TextRequest {
-            text: self.text,
-            area,
-            offset_x: 0.0,
-            color: self.color,
-            style: self.style,
-            options: self.options,
-        };
+        let request = TextRequest::new(self.text, area)
+            .color(self.color)
+            .bold(self.bold)
+            .options(self.options);
         let (commands, clip, scale) = platform.commands();
         commands.push_text(request, area.to_physical(scale), clip);
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Image {
-    pub image: ImageId,
-    pub intrinsic: Size,
-    pub fit: ImageFit,
-    pub sampling: ImageSampling,
-    pub opacity: f32,
-    pub colorize: Option<Color>,
-    pub nine_slice: Option<NineSlice>,
-    pub horizontal_tiling: ImageTiling,
-    pub vertical_tiling: ImageTiling,
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Image {
+        new(image: ImageId, intrinsic: Size),
+    }
 }
 
 impl Leaf<TerminalPlatform> for Image {
@@ -132,18 +84,11 @@ impl Leaf<TerminalPlatform> for Image {
     }
 
     fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
-        let request = ImageRequest {
-            image: self.image,
-            area,
-            fit: self.fit,
-            sampling: self.sampling,
-            opacity: self.opacity,
-            colorize: self.colorize,
-            nine_slice: self.nine_slice,
-            horizontal_tiling: self.horizontal_tiling,
-            vertical_tiling: self.vertical_tiling,
-        };
         let (commands, clip, scale) = platform.commands();
-        commands.push_image(request, area.to_physical(scale), clip);
+        commands.push_image(
+            ImagePlacement::new(self.image, area),
+            area.to_physical(scale),
+            clip,
+        );
     }
 }
