@@ -9,6 +9,7 @@ use crate::{
     layout::Layout,
     leaf::Leaf,
     platform::Platform,
+    widget::Widget,
 };
 
 pub struct Ui<'a, R: Platform> {
@@ -18,9 +19,8 @@ pub struct Ui<'a, R: Platform> {
 }
 
 impl<R: Platform> Ui<'_, R> {
-    pub fn add<L: Leaf<R>>(&mut self, leaf: L) -> NodeId {
-        let base = self.frame.store_leaf(leaf);
-        self.frame.push_node(self.parent, Some(base), None)
+    pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
+        widget.build(self)
     }
 
     pub fn layout<L: Layout<R>>(&mut self, layout: L) -> Container<'_, R, L> {
@@ -157,6 +157,19 @@ impl<R: Platform> Ui<'_, R> {
 
     pub fn request_frame(&mut self) {
         self.frame.request_frame();
+    }
+}
+
+impl<R, L> Widget<R> for L
+where
+    R: Platform,
+    L: Leaf<R>,
+{
+    type Response = NodeId;
+
+    fn build(self, ui: &mut Ui<'_, R>) -> Self::Response {
+        let base = ui.frame.store_leaf(self);
+        ui.frame.push_node(ui.parent, Some(base), None)
     }
 }
 

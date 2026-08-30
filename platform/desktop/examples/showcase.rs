@@ -2,10 +2,11 @@ use blit::{Sense, Sides, Sizing, Slot, Ui, WidgetId};
 use blit_cpu::{Font, FontFace, RendererConfig};
 use blit_desktop::{
     Application, Config, DesktopPlatform, EventLoopProxy, Root,
-    draw::{Rectangle, TextRun},
+    draw::Rectangle,
     layout::Flex,
     style::BorderRadius,
     text::{FontId, TextStyle},
+    widget::Text,
 };
 use blit_showcase::Showcase;
 
@@ -46,21 +47,22 @@ impl Application for App {
             size: 24.0,
             ..TextStyle::default()
         };
-        let body_style = TextStyle::default();
-        let title = ui.platform().text_run(self.0.title(), title_style);
-        let body = ui.platform().text_run(self.0.body(), body_style);
-        let button_label = ui.platform().text_run("toggle platform state", body_style);
+        let title = self.0.title();
+        let body = self.0.body();
         let mut root = ui.layout_with(
             Rectangle::new().background(blit_desktop::color::Color::from_rgba8(20, 24, 32, 255)),
             Flex::column().padding(Sides::all(24.0)).gap(16.0),
         );
         root.add(Slot::new().height(Sizing::fixed(40.0)), (), |mut ui| {
-            ui.add(TextRun::new(title, title_style).color(blit_desktop::color::Color::WHITE));
+            ui.add(
+                Text::new(title)
+                    .style(title_style)
+                    .color(blit_desktop::color::Color::WHITE),
+            );
         });
         root.add(Slot::new().height(Sizing::fixed(32.0)), (), |mut ui| {
             ui.add(
-                TextRun::new(body, body_style)
-                    .color(blit_desktop::color::Color::from_rgba8(190, 198, 215, 255)),
+                Text::new(body).color(blit_desktop::color::Color::from_rgba8(190, 198, 215, 255)),
             );
         });
         root.add(Slot::new().fixed(180.0, 44.0), (), |mut ui| {
@@ -83,9 +85,7 @@ impl Application for App {
                 )
                 .id(id);
             button.add(Slot::new(), (), |mut ui| {
-                ui.add(
-                    TextRun::new(button_label, body_style).color(blit_desktop::color::Color::WHITE),
-                );
+                ui.add(Text::new("toggle platform state").color(blit_desktop::color::Color::WHITE));
             });
         });
     }
