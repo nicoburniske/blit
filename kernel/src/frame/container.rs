@@ -251,11 +251,11 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
         self.ui.frame_mut().add_layer()
     }
 
-    pub fn item(&mut self, item: L::Item) -> ChildCx<'_, 'ui, R, L> {
-        ChildCx {
+    pub fn child(&mut self) -> Child<'_, 'ui, R, L> {
+        Child {
             node: self,
             slot: Slot::new(),
-            item,
+            item: (),
             id: None,
         }
     }
@@ -269,24 +269,29 @@ where
     pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
         insert(self, Slot::new(), (), None, widget)
     }
-
-    pub fn child(&mut self) -> ChildCx<'_, 'ui, R, L> {
-        self.item(())
-    }
 }
 
-pub struct ChildCx<'child, 'ui, R, L>
+pub struct Child<'child, 'ui, R, L, I = ()>
 where
     R: Platform,
     L: Layout<R>,
 {
     node: &'child mut Node<'ui, R, L>,
     slot: Slot,
-    item: L::Item,
+    item: I,
     id: Option<WidgetId>,
 }
 
-impl<R: Platform, L: Layout<R>> ChildCx<'_, '_, R, L> {
+impl<'child, 'ui, R: Platform, L: Layout<R>, I> Child<'child, 'ui, R, L, I> {
+    pub fn item(self, item: L::Item) -> Child<'child, 'ui, R, L, L::Item> {
+        Child {
+            node: self.node,
+            slot: self.slot,
+            item,
+            id: self.id,
+        }
+    }
+
     pub fn slot(mut self, slot: Slot) -> Self {
         self.slot = slot;
         self
@@ -296,7 +301,9 @@ impl<R: Platform, L: Layout<R>> ChildCx<'_, '_, R, L> {
         self.id = Some(id);
         self
     }
+}
 
+impl<R: Platform, L: Layout<R>> Child<'_, '_, R, L, L::Item> {
     #[allow(clippy::should_implement_trait)]
     pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
         insert(self.node, self.slot, self.item, self.id, widget)
