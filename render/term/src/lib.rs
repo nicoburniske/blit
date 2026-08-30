@@ -65,6 +65,7 @@ pub struct TerminalRenderer {
     layout_lines: Vec<Line>,
     layout_graphemes: Vec<LayoutGrapheme>,
     images: Vec<StoredImage>,
+    next_image: u32,
     kitty_placements: Vec<KittyPlacement>,
     presented_kitty_placements: Vec<KittyPlacement>,
     pixels: Vec<Pixel>,
@@ -100,6 +101,7 @@ impl TerminalRenderer {
             layout_lines: Vec::new(),
             layout_graphemes: Vec::new(),
             images: Vec::new(),
+            next_image: 1,
             kitty_placements: Vec::new(),
             presented_kitty_placements: Vec::new(),
             pixels: vec![Pixel::default(); columns * 2 * rows * 2],
@@ -188,9 +190,9 @@ impl TerminalRenderer {
     }
 
     pub fn clear_kitty_graphics(&mut self, output: &mut impl io::Write) -> io::Result<()> {
-        for (index, image) in self.images.iter_mut().enumerate() {
+        for image in &mut self.images {
             if image.transmitted {
-                write!(output, "\x1b_Ga=d,d=I,i={},q=2\x1b\\", index + 1)?;
+                write!(output, "\x1b_Ga=d,d=I,i={},q=2\x1b\\", image.handle.id().0)?;
                 image.transmitted = false;
             }
         }
@@ -851,7 +853,11 @@ impl Renderer for TerminalRenderer {
             }
         }
         for placement in &self.kitty_placements {
-            let image = &mut self.images[placement.image as usize - 1];
+            let image = self
+                .images
+                .iter_mut()
+                .find(|image| image.handle.id().0 == u64::from(placement.image))
+                .expect("invalid terminal image");
             if !image.transmitted {
                 for (index, chunk) in image.rgba.chunks(3072).enumerate() {
                     let more = usize::from((index + 1) * 3072 < image.rgba.len());
@@ -886,21 +892,47 @@ impl Renderer for TerminalRenderer {
         }
         self.presented_kitty_placements
             .clone_from(&self.kitty_placements);
+        let mut image = 0;
+        while image < self.images.len() {
+            let id = self.images[image].handle.id().0 as u32;
+            if !self.images[image].handle.is_uniquely_owned()
+                || self
+                    .kitty_placements
+                    .iter()
+                    .any(|placement| placement.image == id)
+            {
+                image += 1;
+                continue;
+            }
+            if self.images[image].transmitted {
+                write!(self.output, "\x1b_Ga=d,d=I,i={id},q=2\x1b\\").unwrap();
+            }
+            self.images.swap_remove(image);
+            self.presented_kitty_placements
+                .retain(|placement| placement.image != id);
+        }
         self.text_layouts.trim_to_weight();
         self.text_runs.trim_to_weight();
     }
 
     fn create_image(&mut self, data: ImageData) -> ImageHandle {
         data.validate();
-        let id = self.images.len() as u64 + 1;
+        let id = self.next_image;
+        self.next_image = self
+            .next_image
+            .checked_add(1)
+            .expect("too many terminal images");
         let size = data.size;
         let width = data.texture_rect.width as usize;
         let height = data.texture_rect.height as usize;
+        let texture_x = data.texture_rect.x as usize;
+        let texture_y = data.texture_rect.y as usize;
         let bytes = data.pixels.bytes();
         let mut rgba = Vec::with_capacity(width * height * 4);
         for y in 0..height {
             for x in 0..width {
-                let offset = y * data.stride_bytes + x * data.format.bytes_per_pixel();
+                let offset = (texture_y + y) * data.stride_bytes
+                    + (texture_x + x) * data.format.bytes_per_pixel();
                 match data.format {
                     blit::image::ImageFormat::Rgb8 => {
                         rgba.extend_from_slice(&bytes[offset..offset + 3]);
@@ -934,13 +966,15 @@ impl Renderer for TerminalRenderer {
                 }
             }
         }
+        let handle = ImageHandle::new(ImageId(u64::from(id)), size);
         self.images.push(StoredImage {
+            handle: handle.clone(),
             rgba: rgba.into_boxed_slice(),
             width,
             height,
             transmitted: false,
         });
-        ImageHandle::new(ImageId(id), size)
+        handle
     }
 
     fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
@@ -1044,6 +1078,7 @@ struct Pixel {
 }
 
 struct StoredImage {
+    handle: ImageHandle,
     rgba: Box<[u8]>,
     width: usize,
     height: usize,
