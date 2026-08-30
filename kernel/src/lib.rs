@@ -4,17 +4,12 @@ mod macros;
 mod timer;
 
 pub mod animation;
-pub mod clip;
 pub mod geometry;
 pub mod input;
 pub mod interact;
 pub mod layout;
-pub mod leaf;
-pub mod platform;
-pub mod widget;
 
 pub use animation::{Easing, Transition, TransitionProperties};
-pub use clip::Clip;
 pub use frame::{
     Absolute, Anchor, Container, Frame, FrameMemory, LayerId, NodeId, PositionTarget, Sizing, Slot,
     Ui,
@@ -26,6 +21,39 @@ pub use geometry::{
 pub use input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase};
 pub use interact::{Interaction, ScrollInteraction, Sense, WidgetId};
 pub use layout::{Axis, Children, Layout, LayoutCx, LayoutResolution};
-pub use leaf::Leaf;
-pub use platform::{FrameInfo, Measure, Paint, Platform};
-pub use widget::Widget;
+
+pub trait Platform {
+    fn begin(&mut self, frame: FrameInfo);
+
+    fn end(&mut self);
+
+    fn interaction_area(&self, area: Rect, clip: Rect) -> Option<Rect> {
+        area.intersection(clip)
+    }
+}
+
+crate::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct FrameInfo {
+        new(size: Size),
+        layout_resolution: LayoutResolution = LayoutResolution::Continuous,
+    }
+}
+
+pub trait Widget<R: Platform> {
+    type Response;
+
+    fn build(self, ui: &mut Ui<'_, R>) -> Self::Response;
+}
+
+pub trait Leaf<R: Platform>: Copy + 'static {
+    fn measure(&self, platform: &mut R, constraints: Constraints) -> Size;
+
+    fn paint(&self, platform: &mut R, area: Rect);
+}
+
+pub trait Clip<R: Platform>: Copy + 'static {
+    fn push(&self, platform: &mut R, area: Rect);
+
+    fn pop(&self, platform: &mut R);
+}

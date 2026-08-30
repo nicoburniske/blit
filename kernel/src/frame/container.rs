@@ -2,12 +2,11 @@ use std::{marker::PhantomData, num::NonZeroU16};
 
 use super::{Frame, NodeId, Ui, ui};
 use crate::{
+    Clip, Platform,
     animation::Transition,
-    clip::Clip,
     geometry::{Point, Sides},
     interact::WidgetId,
     layout::Layout,
-    platform::Platform,
 };
 
 /// frame-local paint layer

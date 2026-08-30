@@ -20,15 +20,13 @@ pub struct FrameMemory {
 }
 
 use crate::{
+    Clip, FrameInfo, Leaf, Platform,
     animation::Transition,
     arena::{DataArena, DataId},
-    clip::Clip,
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::Input,
     interact::WidgetId,
     layout::{Axis, Layout, LayoutResolution},
-    leaf::Leaf,
-    platform::{FrameInfo, Platform},
 };
 
 pub struct Frame<R: Platform> {

@@ -2,14 +2,12 @@ use std::time::Duration;
 
 use super::{Container, Frame, LayerId, NodeId, container};
 use crate::{
+    Leaf, Platform, Widget,
     animation::{Easing, Transition},
     geometry::{Point, Rect, Sides},
     input::Input,
     interact::{Interaction, Sense, WidgetId},
     layout::Layout,
-    leaf::Leaf,
-    platform::Platform,
-    widget::Widget,
 };
 
 pub struct Ui<'a, R: Platform> {
