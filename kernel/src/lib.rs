@@ -11,8 +11,8 @@ pub mod layout;
 
 pub use animation::{Easing, Transition, TransitionProperties};
 pub use frame::{
-    Absolute, Anchor, ChildCx, Container, Frame, FrameMemory, LayerId, NodeId, PositionTarget,
-    Sizing, Slot, Ui,
+    Absolute, Anchor, ChildCx, Container, Frame, FrameMemory, LayerId, NodeCx, NodeId,
+    PositionTarget, Sizing, Slot, Ui,
 };
 pub use geometry::{
     Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize,
@@ -43,22 +43,22 @@ crate::builder! {
 pub trait Widget<R: Platform> {
     type Response;
 
-    fn build(self, ui: &mut Ui<R>) -> Self::Response;
+    fn build(self, cx: NodeCx<'_, R>) -> Self::Response;
 }
 
 impl<R, F, O> Widget<R> for F
 where
     R: Platform,
-    F: FnOnce(&mut Ui<R>) -> O,
+    F: FnOnce(NodeCx<'_, R>) -> O,
 {
     type Response = O;
 
-    fn build(self, ui: &mut Ui<R>) -> Self::Response {
-        self(ui)
+    fn build(self, cx: NodeCx<'_, R>) -> Self::Response {
+        self(cx)
     }
 }
 
-pub trait Leaf<R: Platform>: Widget<R, Response = NodeId> + Copy + 'static {
+pub trait Atom<R: Platform>: Copy + 'static {
     fn measure(&self, platform: &mut R, constraints: Constraints) -> Size;
 
     fn paint(&self, platform: &mut R, area: Rect);

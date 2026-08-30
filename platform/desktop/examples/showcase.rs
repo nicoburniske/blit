@@ -6,7 +6,7 @@ use blit::{
 };
 use blit_cpu::{Font, FontFace, RendererConfig};
 use blit_desktop::{
-    Application, BoundsClip, Config, DesktopPlatform, EventLoopProxy, Root, Ui,
+    Application, BoundsClip, Config, DesktopPlatform, EventLoopProxy, NodeCx, Root, Ui,
     color::Color,
     draw::Rectangle,
     layout::{Align, Flex, Grid, Wrap},
@@ -66,33 +66,36 @@ impl Application for App {
             .surface(Rectangle::new().background(colors::BACKGROUND));
         root.child()
             .slot(Slot::new().height(Sizing::fixed(52.0)))
-            .add(|ui: &mut Ui| {
+            .add(|ui: NodeCx<'_>| {
                 let mut header = ui.layout(
                     Flex::row()
                         .align(Align::Center)
                         .justify(blit_desktop::layout::Justify::SpaceBetween),
                 );
-                header.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
-                    let mut title = ui.layout(Flex::column().gap(2.0));
-                    title.add(
-                        Text::new("BLIT / LAYOUT PLAYGROUND")
+                header
+                    .child()
+                    .slot(Slot::new().grow())
+                    .add(|ui: NodeCx<'_>| {
+                        let mut title = ui.layout(Flex::column().gap(2.0));
+                        title.add(
+                            Text::new("BLIT / LAYOUT PLAYGROUND")
+                                .style(TextStyle {
+                                    size: 22.0,
+                                    ..TextStyle::default()
+                                })
+                                .color(colors::TEXT),
+                        );
+                        title.add(
+                            Text::new(
+                                "shared layout and resize mechanics, native desktop presentation",
+                            )
                             .style(TextStyle {
-                                size: 22.0,
+                                size: 11.0,
                                 ..TextStyle::default()
                             })
-                            .color(colors::TEXT),
-                    );
-                    title.add(
-                        Text::new(
-                            "shared layout and resize mechanics, native desktop presentation",
-                        )
-                        .style(TextStyle {
-                            size: 11.0,
-                            ..TextStyle::default()
-                        })
-                        .color(colors::TEXT_MUTED),
-                    );
-                });
+                            .color(colors::TEXT_MUTED),
+                        );
+                    });
                 if header.add(Button::new(
                     WidgetId::new("reset layout playground"),
                     "RESET",
@@ -102,7 +105,7 @@ impl Application for App {
                     self.resize.reset();
                 }
             });
-        root.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
+        root.child().slot(Slot::new().grow()).add(|ui: NodeCx<'_>| {
             let mut body = ui.layout(Flex::row().gap(14.0));
             body.child()
                 .slot(
@@ -110,7 +113,7 @@ impl Application for App {
                         .width(Sizing::fixed(330.0))
                         .height(Sizing::grow()),
                 )
-                .add(|ui: &mut Ui| {
+                .add(|ui: NodeCx<'_>| {
                     let mut controls = ui
                         .layout(Flex::column().padding(Sides::all(14.0)).gap(7.0))
                         .surface(panel(colors::SURFACE));
@@ -122,7 +125,7 @@ impl Application for App {
                             })
                             .color(colors::ACCENT),
                     );
-                    controls.add(|ui: &mut Ui| {
+                    controls.add(|ui: NodeCx<'_>| {
                         choices(
                             ui,
                             "layout",
@@ -135,7 +138,7 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: &mut Ui| {
+                    controls.add(|ui: NodeCx<'_>| {
                         choices(
                             ui,
                             "axis",
@@ -144,7 +147,7 @@ impl Application for App {
                             &[("Horizontal", Axis::Horizontal), ("Vertical", Axis::Vertical)],
                         );
                     });
-                    controls.add(|ui: &mut Ui| {
+                    controls.add(|ui: NodeCx<'_>| {
                         choices(
                             ui,
                             "justify",
@@ -157,7 +160,7 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: &mut Ui| {
+                    controls.add(|ui: NodeCx<'_>| {
                         choices(
                             ui,
                             "space",
@@ -170,7 +173,7 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: &mut Ui| {
+                    controls.add(|ui: NodeCx<'_>| {
                         choices(
                             ui,
                             "align",
@@ -184,7 +187,7 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: &mut Ui| {
+                    controls.add(|ui: NodeCx<'_>| {
                         choices(
                             ui,
                             "sizing",
@@ -197,7 +200,7 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: &mut Ui| {
+                    controls.add(|ui: NodeCx<'_>| {
                         choices(
                             ui,
                             "zoom",
@@ -206,7 +209,7 @@ impl Application for App {
                             &[("75%", 0.75), ("100%", 1.0), ("125%", 1.25)],
                         );
                     });
-                    controls.add(|ui: &mut Ui| {
+                    controls.add(|ui: NodeCx<'_>| {
                         choices(
                             ui,
                             "gap",
@@ -215,7 +218,7 @@ impl Application for App {
                             &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
                         );
                     });
-                    controls.add(|ui: &mut Ui| {
+                    controls.add(|ui: NodeCx<'_>| {
                         choices(
                             ui,
                             "padding",
@@ -224,7 +227,7 @@ impl Application for App {
                             &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
                         );
                     });
-                    controls.add(|ui: &mut Ui| {
+                    controls.add(|ui: NodeCx<'_>| {
                         choices(
                             ui,
                             "transition",
@@ -246,7 +249,7 @@ impl Application for App {
                             }),
                     );
                 });
-            body.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
+            body.child().slot(Slot::new().grow()).add(|ui: NodeCx<'_>| {
                 let mut preview = ui
                     .layout(Flex::column().padding(Sides::all(12.0)).gap(8.0))
                     .surface(panel(colors::SURFACE));
@@ -260,7 +263,7 @@ impl Application for App {
                             })
                             .color(colors::ACCENT),
                     );
-                preview.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
+                preview.child().slot(Slot::new().grow()).add(|ui: NodeCx<'_>| {
                     let mut viewport = ui
                         .layout(Flex::row().padding(Sides::all(10.0)).align(Align::Start))
                         .surface(
@@ -313,7 +316,7 @@ impl Default for FpsBadge {
 impl Widget<DesktopPlatform> for &mut FpsBadge {
     type Response = ();
 
-    fn build(self, ui: &mut Ui) {
+    fn build(self, ui: NodeCx<'_>) {
         if let Some(fps) = self.counter.update(ui.time()) {
             self.label.clear();
             let _ = write!(self.label, "FPS {fps:03.0}");
@@ -365,7 +368,7 @@ struct DesktopGrip(ResizeGrip);
 impl Widget<DesktopPlatform> for DesktopGrip {
     type Response = NodeId;
 
-    fn build(self, ui: &mut Ui) -> NodeId {
+    fn build(self, ui: NodeCx<'_>) -> NodeId {
         let marker = match self.0.edge {
             ResizeEdge::Right => Size::new(3.0, 48.0),
             ResizeEdge::Bottom => Size::new(48.0, 3.0),
@@ -416,7 +419,7 @@ impl<'a> Button<'a> {
 impl Widget<DesktopPlatform> for Button<'_> {
     type Response = bool;
 
-    fn build(self, ui: &mut Ui) -> bool {
+    fn build(self, mut ui: NodeCx<'_>) -> bool {
         let interaction = ui.interact(self.id, Sense::CLICK);
         let background = if interaction.active {
             colors::ACCENT_DARK
@@ -454,7 +457,7 @@ impl Widget<DesktopPlatform> for Button<'_> {
 }
 
 fn choices<T: Copy + PartialEq>(
-    ui: &mut Ui,
+    ui: NodeCx<'_>,
     label: &str,
     id: &str,
     selected: &mut T,
@@ -471,7 +474,7 @@ fn choices<T: Copy + PartialEq>(
                 })
                 .color(colors::TEXT_MUTED),
         );
-    line.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
+    line.child().slot(Slot::new().grow()).add(|ui: NodeCx<'_>| {
         let mut values = ui.layout(Flex::row().gap(4.0));
         for (index, &(option, value)) in options.iter().enumerate() {
             let clicked = values.add(Button::new(
@@ -495,7 +498,7 @@ struct Canvas {
 impl Widget<DesktopPlatform> for Canvas {
     type Response = ();
 
-    fn build(self, ui: &mut Ui) {
+    fn build(self, ui: NodeCx<'_>) {
         let background = Rectangle::new()
             .background(colors::CANVAS)
             .border(Border::solid(2.0, colors::CANVAS_BORDER))
@@ -517,7 +520,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     canvas
                         .child()
                         .slot(self.config.item_slot(index, self.unit))
-                        .add(|ui: &mut Ui| {
+                        .add(|ui: NodeCx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -543,7 +546,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     canvas
                         .child()
                         .slot(self.config.item_slot(index, self.unit))
-                        .add(|ui: &mut Ui| {
+                        .add(|ui: NodeCx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -565,7 +568,7 @@ impl Widget<DesktopPlatform> for Canvas {
                             Slot::new()
                                 .height(Sizing::fixed(5.0 * self.unit.height * self.config.zoom)),
                         )
-                        .add(|ui: &mut Ui| {
+                        .add(|ui: NodeCx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -575,7 +578,7 @@ impl Widget<DesktopPlatform> for Canvas {
 }
 
 fn canvas_item(
-    ui: &mut Ui,
+    ui: NodeCx<'_>,
     index: usize,
     spec: blit_showcase::ItemSpec,
     badges: blit::LayerId,
@@ -617,7 +620,7 @@ fn canvas_item(
                     .layer(badges)
                     .z_index(1),
             )
-            .add(|ui: &mut Ui| {
+            .add(|ui: NodeCx<'_>| {
                 let mut badge = ui
                     .layout(
                         Flex::row()

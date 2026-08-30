@@ -9,7 +9,7 @@ use blit_showcase::{
     ResizeState,
 };
 use blit_terminal::{
-    BoundsClip, ControlFlow, TerminalPlatform, Ui,
+    BoundsClip, ControlFlow, NodeCx, TerminalPlatform, Ui,
     color::Color,
     draw::{Block, Border, BorderSides, BorderStyle, Shadow, Title, TitlePosition},
     layout::{Align, Flex, Grid, Justify, Wrap},
@@ -114,7 +114,7 @@ fn main() -> io::Result<()> {
                                         .color(colors::SECTION)
                                         .attributes(TextAttributes::BOLD),
                                 );
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "layout",
@@ -127,7 +127,7 @@ fn main() -> io::Result<()> {
                                         ],
                                     );
                                 });
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "axis",
@@ -141,7 +141,7 @@ fn main() -> io::Result<()> {
                                         .color(colors::SECTION)
                                         .attributes(TextAttributes::BOLD),
                                 );
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "justify",
@@ -154,7 +154,7 @@ fn main() -> io::Result<()> {
                                         ],
                                     );
                                 });
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "distribute",
@@ -167,7 +167,7 @@ fn main() -> io::Result<()> {
                                         ],
                                     );
                                 });
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "align",
@@ -186,7 +186,7 @@ fn main() -> io::Result<()> {
                                         .color(colors::SECTION)
                                         .attributes(TextAttributes::BOLD),
                                 );
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "sizing",
@@ -199,7 +199,7 @@ fn main() -> io::Result<()> {
                                         ],
                                     );
                                 });
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "zoom",
@@ -208,7 +208,7 @@ fn main() -> io::Result<()> {
                                         &[(" 75% ", 0.75), (" 100% ", 1.0), (" 125% ", 1.25)],
                                     );
                                 });
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "gap",
@@ -217,7 +217,7 @@ fn main() -> io::Result<()> {
                                         &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
                                     );
                                 });
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "padding",
@@ -226,7 +226,7 @@ fn main() -> io::Result<()> {
                                         &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
                                     );
                                 });
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "transitions",
@@ -307,7 +307,7 @@ fn main() -> io::Result<()> {
             root.child()
                 .slot(Slot::new().grow())
                 .layout(Flex::column().gap(1.0), |mut body| {
-                    body.add(|ui: &mut Ui| {
+                    body.add(|ui: NodeCx<'_>| {
                         let mut controls = ui
                             .layout(Flex::column().padding(Sides::all(1.0)).gap(1.0))
                             .surface(panel(colors::SURFACE, " TEXT CONTROLS "));
@@ -316,7 +316,7 @@ fn main() -> io::Result<()> {
                                 .color(colors::ACCENT)
                                 .attributes(TextAttributes::BOLD),
                         );
-                        controls.add(|ui: &mut Ui| {
+                        controls.add(|ui: NodeCx<'_>| {
                             let mut toggles = ui.layout(
                                 Wrap::new(Axis::Horizontal)
                                     .item_gap(1.0)
@@ -351,7 +351,7 @@ fn main() -> io::Result<()> {
                                 .color(colors::SECTION)
                                 .attributes(TextAttributes::BOLD),
                         );
-                        controls.add(|ui: &mut Ui| {
+                        controls.add(|ui: NodeCx<'_>| {
                             choices(
                                 ui,
                                 "wrap",
@@ -364,7 +364,7 @@ fn main() -> io::Result<()> {
                                 ],
                             );
                         });
-                        controls.add(|ui: &mut Ui| {
+                        controls.add(|ui: NodeCx<'_>| {
                             choices(
                                 ui,
                                 "overflow",
@@ -376,7 +376,7 @@ fn main() -> io::Result<()> {
                                 ],
                             );
                         });
-                        controls.add(|ui: &mut Ui| {
+                        controls.add(|ui: NodeCx<'_>| {
                             choices(
                                 ui,
                                 "horizontal",
@@ -389,7 +389,7 @@ fn main() -> io::Result<()> {
                                 ],
                             );
                         });
-                        controls.add(|ui: &mut Ui| {
+                        controls.add(|ui: NodeCx<'_>| {
                             choices(
                                 ui,
                                 "vertical",
@@ -402,7 +402,7 @@ fn main() -> io::Result<()> {
                                 ],
                             );
                         });
-                        controls.add(|ui: &mut Ui| {
+                        controls.add(|ui: NodeCx<'_>| {
                             choices(
                                 ui,
                                 "maximum lines",
@@ -440,7 +440,7 @@ fn main() -> io::Result<()> {
                                                 (screen.width * 0.7).max(12.0),
                                                 (screen.height * 0.35).max(6.0),
                                             ),
-                                            |ui: &mut Ui| {
+                                            |ui: NodeCx<'_>| {
                                                 let mut paragraph = ui
                                                     .layout(
                                                         Flex::column().padding(Sides::all(1.0)),
@@ -505,7 +505,7 @@ fn main() -> io::Result<()> {
                             |mut controls| {
                                 controls =
                                     controls.surface(panel(colors::SURFACE, " BLOCK OPTIONS "));
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "border style",
@@ -519,7 +519,7 @@ fn main() -> io::Result<()> {
                                         ],
                                     );
                                 });
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "border sides",
@@ -536,7 +536,7 @@ fn main() -> io::Result<()> {
                                         ],
                                     );
                                 });
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "shadow",
@@ -545,7 +545,7 @@ fn main() -> io::Result<()> {
                                         &[(" On ", true), (" Off ", false)],
                                     );
                                 });
-                                controls.add(|ui: &mut Ui| {
+                                controls.add(|ui: NodeCx<'_>| {
                                     choices(
                                         ui,
                                         "background",
@@ -560,37 +560,40 @@ fn main() -> io::Result<()> {
                         Flex::column().padding(Sides::all(1.0)).gap(1.0),
                         |mut preview| {
                             preview = preview.surface(panel(colors::SURFACE, " BLOCK PREVIEW "));
-                            preview.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
-                                let mut block = Block::new()
-                                    .border(
-                                        Border::new(colors::CANVAS_BORDER)
-                                            .style(block_style)
-                                            .sides(block_sides),
-                                    )
-                                    .title(
-                                        Title::new(" CONFIGURED BLOCK ")
-                                            .color(colors::ACCENT)
-                                            .attributes(TextAttributes::BOLD),
+                            preview
+                                .child()
+                                .slot(Slot::new().grow())
+                                .add(|ui: NodeCx<'_>| {
+                                    let mut block = Block::new()
+                                        .border(
+                                            Border::new(colors::CANVAS_BORDER)
+                                                .style(block_style)
+                                                .sides(block_sides),
+                                        )
+                                        .title(
+                                            Title::new(" CONFIGURED BLOCK ")
+                                                .color(colors::ACCENT)
+                                                .attributes(TextAttributes::BOLD),
+                                        );
+                                    if block_background {
+                                        block = block.background(colors::SURFACE_HIGH);
+                                    }
+                                    if block_shadow {
+                                        block = block.shadow(Shadow::new(colors::SHADOW));
+                                    }
+                                    let mut configured = ui
+                                        .layout(
+                                            Flex::column()
+                                                .padding(Sides::all(1.0))
+                                                .align(Align::Center)
+                                                .justify(Justify::Center),
+                                        )
+                                        .surface(block);
+                                    configured.add(
+                                        Text::new("change the options on the left")
+                                            .color(colors::TEXT_MUTED),
                                     );
-                                if block_background {
-                                    block = block.background(colors::SURFACE_HIGH);
-                                }
-                                if block_shadow {
-                                    block = block.shadow(Shadow::new(colors::SHADOW));
-                                }
-                                let mut configured = ui
-                                    .layout(
-                                        Flex::column()
-                                            .padding(Sides::all(1.0))
-                                            .align(Align::Center)
-                                            .justify(Justify::Center),
-                                    )
-                                    .surface(block);
-                                configured.add(
-                                    Text::new("change the options on the left")
-                                        .color(colors::TEXT_MUTED),
-                                );
-                            });
+                                });
                         },
                     );
                 });
@@ -625,7 +628,7 @@ impl Default for FpsBadge {
 impl Widget<TerminalPlatform> for &mut FpsBadge {
     type Response = ();
 
-    fn build(self, ui: &mut Ui) {
+    fn build(self, ui: NodeCx<'_>) {
         if let Some(fps) = self.counter.update(ui.time()) {
             self.label.clear();
             let _ = write!(self.label, "FPS {fps:03.0}");
@@ -665,7 +668,7 @@ struct TerminalGrip(ResizeGrip);
 impl Widget<TerminalPlatform> for TerminalGrip {
     type Response = NodeId;
 
-    fn build(self, ui: &mut Ui) -> NodeId {
+    fn build(self, ui: NodeCx<'_>) -> NodeId {
         let marker = match self.0.edge {
             ResizeEdge::Right => Size::new(1.0, 3.0),
             ResizeEdge::Bottom => Size::new(5.0, 1.0),
@@ -708,7 +711,7 @@ impl<'a> Button<'a> {
 impl Widget<TerminalPlatform> for Button<'_> {
     type Response = bool;
 
-    fn build(self, ui: &mut Ui) -> bool {
+    fn build(self, mut ui: NodeCx<'_>) -> bool {
         let interaction = ui.interact(self.id, Sense::CLICK);
         let block = if interaction.active {
             Block::new().background(colors::ACCENT_DARK)
@@ -726,7 +729,7 @@ impl Widget<TerminalPlatform> for Button<'_> {
 }
 
 fn choices<T: Copy + PartialEq>(
-    ui: &mut Ui,
+    ui: NodeCx<'_>,
     label: &str,
     id: &str,
     selected: &mut T,
@@ -734,7 +737,7 @@ fn choices<T: Copy + PartialEq>(
 ) {
     let mut group = ui.layout(Flex::column());
     group.add(Text::new(label).color(colors::TEXT_MUTED));
-    group.add(|ui: &mut Ui| {
+    group.add(|ui: NodeCx<'_>| {
         let mut values = ui.layout(
             Wrap::new(Axis::Horizontal)
                 .item_gap(2.0)
@@ -762,7 +765,7 @@ struct Canvas {
 impl Widget<TerminalPlatform> for Canvas {
     type Response = ();
 
-    fn build(self, ui: &mut Ui) {
+    fn build(self, ui: NodeCx<'_>) {
         let unit = Size::new(1.0, 1.0);
         let background = Block::new()
             .background(colors::CANVAS)
@@ -781,12 +784,11 @@ impl Widget<TerminalPlatform> for Canvas {
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
-                    canvas
-                        .child()
-                        .slot(self.config.item_slot(index, unit))
-                        .add(|ui: &mut Ui| {
+                    canvas.child().slot(self.config.item_slot(index, unit)).add(
+                        |ui: NodeCx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
-                        });
+                        },
+                    );
                 }
             }
             CanvasLayout::Wrap => {
@@ -807,12 +809,11 @@ impl Widget<TerminalPlatform> for Canvas {
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
-                    canvas
-                        .child()
-                        .slot(self.config.item_slot(index, unit))
-                        .add(|ui: &mut Ui| {
+                    canvas.child().slot(self.config.item_slot(index, unit)).add(
+                        |ui: NodeCx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
-                        });
+                        },
+                    );
                 }
             }
             CanvasLayout::Grid => {
@@ -829,7 +830,7 @@ impl Widget<TerminalPlatform> for Canvas {
                     canvas
                         .item(item)
                         .slot(Slot::new().height(Sizing::fixed(3.0 * self.config.zoom)))
-                        .add(|ui: &mut Ui| {
+                        .add(|ui: NodeCx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });
                 }
@@ -839,7 +840,7 @@ impl Widget<TerminalPlatform> for Canvas {
 }
 
 fn canvas_item(
-    ui: &mut Ui,
+    ui: NodeCx<'_>,
     index: usize,
     spec: blit_showcase::ItemSpec,
     badges: blit::LayerId,
@@ -872,7 +873,7 @@ fn canvas_item(
                     .layer(badges)
                     .z_index(1),
             )
-            .add(|ui: &mut Ui| {
+            .add(|ui: NodeCx<'_>| {
                 let mut badge = ui
                     .layout(Flex::row().align(Align::Center).justify(Justify::Center))
                     .surface(Block::new().background(colors::ACCENT_DARK))

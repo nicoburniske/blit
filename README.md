@@ -5,7 +5,7 @@ blit is a small immediate-mode UI kernel for building platform-specific interfac
 philosophy:
 
 - the kernel shares mechanics rather than presentation policy
-- platforms choose their own leaves, widgets, commands, resources, and repaint middleware
+- platforms choose their own atoms, widgets, commands, resources, and repaint middleware
 - unsupported presentation features should be absent instead of approximated through a lowest-common-denominator API
 - layouts are shared because their behavior is independent of the output medium
 - raw render backends expose mechanisms and do not implement the UI platform
@@ -16,12 +16,19 @@ workspace layers:
 - `blit-layout` provides flex, grid, wrap, and rectangle layout policies
 - `blit-diff` provides reusable bounded Myers sequence reconciliation
 - `blit-cpu` and `blit-term` provide backend-specific draw data, command lists, resources, and rendering mechanisms
-- `blit-desktop` and `blit-terminal` compose platforms, implement leaves, and own command reconciliation policy
+- `blit-desktop` and `blit-terminal` compose platforms, implement atoms, and own command reconciliation policy
+
+core model:
+
+- widgets populate one supplied node
+- atoms are immutable resolved rendering payloads
+- layouts determine child geometry
+- nodes own ordered atoms, an optional layout, and children
 
 features:
 
 - flat immediate-mode frame graphs with deferred whole-frame layout
-- custom leaves, clips, and layout policies
+- custom atoms, clips, and layout policies
 - content-sized, flexible, percentage, anchored, layered, and z-ordered layout
 - automatic position and size transitions
 - keyed value animations, looping animations, and timers

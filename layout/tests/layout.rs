@@ -1,10 +1,8 @@
 use blit::{
-    Constraints, Frame, FrameInfo, Leaf, NodeId, Platform, Rect, Size, Sizing, Slot, Widget,
-    WidgetId,
+    Atom, Constraints, Frame, FrameInfo, NodeCx, NodeId, Platform, Rect, Size, Sizing, Slot,
+    Widget, WidgetId,
 };
 use blit_layout::{Flex, Grid, RectLayout, Wrap};
-
-type Ui = blit::Ui<TestPlatform>;
 
 #[derive(Default)]
 struct TestPlatform;
@@ -15,17 +13,21 @@ impl Platform for TestPlatform {
 }
 
 #[derive(Clone, Copy)]
-struct BoxLeaf(Size);
+struct BoxWidget(Size);
 
-impl Widget<TestPlatform> for BoxLeaf {
+impl Widget<TestPlatform> for BoxWidget {
     type Response = NodeId;
 
-    fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.leaves().add(self).node()
+    fn build(self, mut cx: NodeCx<'_, TestPlatform>) -> Self::Response {
+        cx.atom(BoxAtom(self.0));
+        cx.node()
     }
 }
 
-impl Leaf<TestPlatform> for BoxLeaf {
+#[derive(Clone, Copy)]
+struct BoxAtom(Size);
+
+impl Atom<TestPlatform> for BoxAtom {
     fn measure(&self, _: &mut TestPlatform, constraints: Constraints) -> Size {
         constraints.constrain(self.0)
     }
@@ -47,11 +49,11 @@ fn flex_distributes_growing_space() {
             row.child()
                 .slot(Slot::new().width(Sizing::fixed(20.0)))
                 .id(fixed)
-                .add(BoxLeaf(Size::new(1.0, 10.0)));
+                .add(BoxWidget(Size::new(1.0, 10.0)));
             row.child()
                 .slot(Slot::new().width(Sizing::grow()))
                 .id(grow)
-                .add(BoxLeaf(Size::new(1.0, 10.0)));
+                .add(BoxWidget(Size::new(1.0, 10.0)));
         },
     );
     assert_eq!(frame.geometry(fixed).unwrap().width, 20.0);
@@ -72,9 +74,9 @@ fn spanning_grid_places_items_in_equal_cells() {
             let mut grid = ui.layout(layout);
             grid.item(placer.place(1, 2))
                 .id(wide)
-                .add(BoxLeaf(Size::new(20.0, 10.0)));
+                .add(BoxWidget(Size::new(20.0, 10.0)));
             grid.item(placer.place(1, 1))
-                .add(BoxLeaf(Size::new(10.0, 10.0)));
+                .add(BoxWidget(Size::new(10.0, 10.0)));
         },
     );
     assert_eq!(frame.geometry(wide).unwrap().width, 66.0);
@@ -90,7 +92,7 @@ fn rect_and_wrap_resolve_positions() {
         fixed
             .item(Rect::new(3.0, 4.0, 10.0, 5.0))
             .id(rect)
-            .add(BoxLeaf(Size::ZERO));
+            .add(BoxWidget(Size::ZERO));
     });
     assert_eq!(frame.geometry(rect), Some(Rect::new(3.0, 4.0, 10.0, 5.0)));
 
@@ -99,7 +101,7 @@ fn rect_and_wrap_resolve_positions() {
         for _ in 0..3 {
             wrap.child()
                 .slot(Slot::new().fixed(6.0, 2.0))
-                .add(BoxLeaf(Size::ZERO));
+                .add(BoxWidget(Size::ZERO));
         }
     });
 }

@@ -5,6 +5,7 @@ pub use blit_term::{color, image, text};
 pub use platform::{BoundsClip, TerminalPlatform, draw, widget};
 
 pub type Ui = blit::Ui<TerminalPlatform>;
+pub type NodeCx<'a> = blit::NodeCx<'a, TerminalPlatform>;
 
 use std::{io, io::Write as _, time::Duration, time::Instant};
 

@@ -1,4 +1,4 @@
-use blit::{Constraints, Leaf, LogicalRect, NodeId, Size, Widget};
+use blit::{Atom, Constraints, LogicalRect, NodeId, Size, Widget};
 use blit_cpu::{
     color::Color,
     command_list::{BoxShadow, Rectangle as DrawRectangle},
@@ -8,7 +8,7 @@ use blit_cpu::{
 };
 
 use super::DesktopPlatform;
-use crate::Ui;
+use crate::NodeCx;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,12 +28,16 @@ blit::builder! {
 impl Widget<DesktopPlatform> for Rectangle {
     type Response = NodeId;
 
-    fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.leaves().add(self).node()
+    fn build(self, mut cx: NodeCx<'_>) -> Self::Response {
+        cx.atom(RectangleAtom(self));
+        cx.node()
     }
 }
 
-impl Leaf<DesktopPlatform> for Rectangle {
+#[derive(Clone, Copy)]
+struct RectangleAtom(Rectangle);
+
+impl Atom<DesktopPlatform> for RectangleAtom {
     fn measure(&self, _: &mut DesktopPlatform, constraints: Constraints) -> Size {
         constraints.constrain(Size::ZERO)
     }
@@ -41,27 +45,27 @@ impl Leaf<DesktopPlatform> for Rectangle {
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
         let scale = platform.scale;
         let clip = platform.clip;
-        if let Some(shadow) = self.shadow {
-            let shadow = box_shadow(area, self.radius, shadow, false);
+        if let Some(shadow) = self.0.shadow {
+            let shadow = box_shadow(area, self.0.radius, shadow, false);
             platform
                 .current
                 .push_box_shadow(shadow, shadow.bounds().to_physical(scale), clip);
         }
-        if self.background != Color::TRANSPARENT || !matches!(self.border, Border::None) {
+        if self.0.background != Color::TRANSPARENT || !matches!(self.0.border, Border::None) {
             platform.current.push_rectangle(
                 DrawRectangle {
                     area,
-                    background: self.background,
-                    border: self.border,
-                    radius: self.radius,
-                    opacity: self.opacity,
+                    background: self.0.background,
+                    border: self.0.border,
+                    radius: self.0.radius,
+                    opacity: self.0.opacity,
                 },
                 area.to_physical(scale),
                 clip,
             );
         }
-        if let Some(shadow) = self.inset_shadow {
-            let shadow = box_shadow(area, self.radius, shadow, true);
+        if let Some(shadow) = self.0.inset_shadow {
+            let shadow = box_shadow(area, self.0.radius, shadow, true);
             platform
                 .current
                 .push_box_shadow(shadow, area.to_physical(scale), clip);
@@ -71,7 +75,7 @@ impl Leaf<DesktopPlatform> for Rectangle {
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct TextRun {
+    pub(crate) struct TextAtom {
         new(text: TextRunId, style: TextStyle),
         color: Color = Color::BLACK,
         offset_x: f32 = 0.0,
@@ -79,15 +83,7 @@ blit::builder! {
     }
 }
 
-impl Widget<DesktopPlatform> for TextRun {
-    type Response = NodeId;
-
-    fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.leaves().add(self).node()
-    }
-}
-
-impl Leaf<DesktopPlatform> for TextRun {
+impl Atom<DesktopPlatform> for TextAtom {
     fn measure(&self, platform: &mut DesktopPlatform, constraints: Constraints) -> Size {
         let measured = platform.measure_text(&TextLayoutRequest {
             text: self.text,
@@ -132,27 +128,31 @@ pub struct Image {
 impl Widget<DesktopPlatform> for Image {
     type Response = NodeId;
 
-    fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.leaves().add(self).node()
+    fn build(self, mut cx: NodeCx<'_>) -> Self::Response {
+        cx.atom(ImageAtom(self));
+        cx.node()
     }
 }
 
-impl Leaf<DesktopPlatform> for Image {
+#[derive(Clone, Copy)]
+struct ImageAtom(Image);
+
+impl Atom<DesktopPlatform> for ImageAtom {
     fn measure(&self, _: &mut DesktopPlatform, constraints: Constraints) -> Size {
-        constraints.constrain(self.intrinsic)
+        constraints.constrain(self.0.intrinsic)
     }
 
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
         let request = ImageRequest {
-            image: self.image,
+            image: self.0.image,
             area,
-            fit: self.fit,
-            sampling: self.sampling,
-            opacity: self.opacity,
-            colorize: self.colorize,
-            nine_slice: self.nine_slice,
-            horizontal_tiling: self.horizontal_tiling,
-            vertical_tiling: self.vertical_tiling,
+            fit: self.0.fit,
+            sampling: self.0.sampling,
+            opacity: self.0.opacity,
+            colorize: self.0.colorize,
+            nine_slice: self.0.nine_slice,
+            horizontal_tiling: self.0.horizontal_tiling,
+            vertical_tiling: self.0.vertical_tiling,
         };
         let bounds = area.to_physical(platform.scale);
         let clip = platform.clip;
