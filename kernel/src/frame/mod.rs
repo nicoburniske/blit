@@ -8,7 +8,7 @@ pub mod position;
 pub mod transition;
 pub mod ui;
 
-pub use container::{Absolute, Anchor, Container, LayerId, PositionTarget};
+pub use container::{Absolute, Anchor, Container, LayerId, PositionTarget, Sizing, Slot};
 pub use ui::Ui;
 
 use crate::{
@@ -18,9 +18,9 @@ use crate::{
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::Input,
     interact::WidgetId,
-    layout::Layout,
+    layout::{Axis, Layout, LayoutResolution},
     leaf::Leaf,
-    renderer::Renderer,
+    renderer::{FrameInfo, Renderer},
 };
 
 pub struct Frame<R: Renderer> {
@@ -40,6 +40,7 @@ pub struct Frame<R: Renderer> {
     input: Input,
     time: Duration,
     screen: Rect,
+    layout_resolution: LayoutResolution,
     needs_paint_order: bool,
     frame_requested: bool,
 }
@@ -63,6 +64,7 @@ impl<R: Renderer> Default for Frame<R> {
             input: Input::None,
             time: Duration::ZERO,
             screen: Rect::default(),
+            layout_resolution: LayoutResolution::Continuous,
             needs_paint_order: false,
             frame_requested: true,
         }
@@ -70,15 +72,15 @@ impl<R: Renderer> Default for Frame<R> {
 }
 
 impl<R: Renderer> Frame<R> {
-    pub fn render(&mut self, renderer: &mut R, size: Size, build: impl FnOnce(Ui<'_, R>)) {
+    pub fn render(&mut self, renderer: &mut R, frame: FrameInfo, build: impl FnOnce(Ui<'_, R>)) {
         self.frame_requested = false;
-        self.record(renderer, size, Duration::ZERO, Input::None, true, build);
+        self.record(renderer, frame, Duration::ZERO, Input::None, true, build);
     }
 
     pub fn render_inputs(
         &mut self,
         renderer: &mut R,
-        size: Size,
+        frame: FrameInfo,
         time: Duration,
         inputs: impl IntoIterator<Item = Input>,
         mut build: impl FnMut(Ui<'_, R>),
@@ -86,13 +88,13 @@ impl<R: Renderer> Frame<R> {
         self.frame_requested = false;
         let mut inputs = inputs.into_iter();
         let Some(first) = inputs.next() else {
-            self.record(renderer, size, time, Input::None, true, &mut build);
+            self.record(renderer, frame, time, Input::None, true, &mut build);
             return;
         };
         let mut input = first;
         loop {
             let next = inputs.next();
-            self.record(renderer, size, time, input, next.is_none(), &mut build);
+            self.record(renderer, frame, time, input, next.is_none(), &mut build);
             let Some(next) = next else {
                 break;
             };
@@ -121,12 +123,14 @@ impl<R: Renderer> Frame<R> {
     fn record(
         &mut self,
         renderer: &mut R,
-        size: Size,
+        frame: FrameInfo,
         time: Duration,
         input: Input,
         render: bool,
         build: impl FnOnce(Ui<'_, R>),
     ) {
+        #[cfg(debug_assertions)]
+        generation::begin();
         self.nodes.clear();
         self.data.clear();
         self.layers.clear();
@@ -135,7 +139,8 @@ impl<R: Renderer> Frame<R> {
         self.needs_paint_order = false;
         self.input = input;
         self.time = time;
-        self.screen = Rect::new(0.0, 0.0, size.width, size.height);
+        self.screen = Rect::new(0.0, 0.0, frame.size.width, frame.size.height);
+        self.layout_resolution = frame.layout_resolution;
         for state in &mut self.transitions {
             state.seen = false;
         }
@@ -149,7 +154,7 @@ impl<R: Renderer> Frame<R> {
             "a frame must have exactly one root"
         );
 
-        transition::resolve(self, renderer, size);
+        transition::resolve(self, renderer, frame.size);
         position::resolve(self);
         paint::resolve_order(self);
         paint::resolve_clips(self, self.screen);
@@ -158,7 +163,7 @@ impl<R: Renderer> Frame<R> {
         self.geometry_current.clear();
         self.transitions.retain(|state| state.seen);
         if render {
-            paint::render(self, renderer, size);
+            paint::render(self, renderer, frame);
         }
     }
 
@@ -174,13 +179,7 @@ impl<R: Renderer> Frame<R> {
             );
             self.measure_base(node, renderer, constraints)
         };
-        let mut size = constraints.constrain(size);
-        if let Some(width) = stored.transition_width {
-            size.width = width.clamp(constraints.min.width, constraints.max.width);
-        }
-        if let Some(height) = stored.transition_height {
-            size.height = height.clamp(constraints.min.height, constraints.max.height);
-        }
+        let size = constraints.constrain(size);
         self.nodes[node.index()].area.width = size.width;
         self.nodes[node.index()].area.height = size.height;
         size
@@ -259,23 +258,21 @@ impl<R: Renderer> Frame<R> {
         base: Option<StoredLeaf>,
         layout: Option<StoredLayout>,
     ) -> NodeId {
-        let id = NodeId(u32::try_from(self.nodes.len()).expect("too many frame nodes"));
+        let id = self.node_id(self.nodes.len());
         self.nodes.push(Node {
             parent,
-            subtree_end: id.0,
+            subtree_end: id.value,
             base,
             layout,
             clip: None,
             item: None,
             area: Rect::default(),
             positioned: None,
-            layer: None,
-            z_index: 0,
+            slot: Slot::new(),
+            content_offset: Point::ZERO,
             id: None,
             hit: Sides::all(0.0),
             transition: None,
-            transition_width: None,
-            transition_height: None,
             resolved_clip: None,
             clip_bounds: Rect::default(),
         });
@@ -301,24 +298,87 @@ impl<R: Renderer> Frame<R> {
                 );
                 target
             }
-            PositionTarget::Screen => NodeId(0),
+            PositionTarget::Screen => self.node_id(0),
         };
         self.nodes[node.index()].positioned = Some(Positioned {
             target,
+            uses_target_content_origin: matches!(absolute.target, PositionTarget::Parent),
             target_anchor: absolute.target_anchor,
             child_anchor: absolute.child_anchor,
             offset: absolute.offset,
         });
     }
+
+    fn set_slot(&mut self, node: NodeId, mut slot: Slot) {
+        slot.width = self.layout_resolution.sizing(Axis::Horizontal, slot.width);
+        slot.height = self.layout_resolution.sizing(Axis::Vertical, slot.height);
+        if let Some(layer) = slot.layer {
+            let layer = container::layer_index(layer);
+            assert!(
+                layer < self.layers.len(),
+                "layer does not belong to this frame"
+            );
+            assert!(
+                self.layers[layer].owner.index() < node.index(),
+                "a layer can only contain nodes declared after its owner"
+            );
+        }
+        self.needs_paint_order |= slot.z_index != 0 || slot.layer.is_some();
+        self.nodes[node.index()].slot = slot;
+    }
+
+    fn node_id(&self, index: usize) -> NodeId {
+        NodeId {
+            value: u32::try_from(index).expect("too many frame nodes"),
+            #[cfg(debug_assertions)]
+            generation: generation::get(),
+        }
+    }
 }
 
+/// identifies a node only during the current render
+///
+/// do not store this across renders
+#[cfg_attr(not(debug_assertions), repr(transparent))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct NodeId(u32);
+pub struct NodeId {
+    value: u32,
+    #[cfg(debug_assertions)]
+    generation: u16,
+}
 
 impl NodeId {
     fn index(self) -> usize {
-        self.0 as usize
+        #[cfg(debug_assertions)]
+        generation::assert(self.generation);
+        self.value as usize
+    }
+}
+
+#[cfg(debug_assertions)]
+mod generation {
+    use std::{
+        cell::Cell,
+        sync::atomic::{AtomicU16, Ordering},
+    };
+
+    static NEXT: AtomicU16 = AtomicU16::new(1);
+
+    thread_local! {
+        static CURRENT: Cell<u16> = const { Cell::new(0) };
+    }
+
+    pub fn begin() {
+        CURRENT.set(NEXT.fetch_add(1, Ordering::Relaxed));
+    }
+
+    pub fn get() -> u16 {
+        CURRENT.get()
+    }
+
+    #[inline]
+    pub fn assert(id: u16) {
+        assert_eq!(id, get(), "id belongs to another frame");
     }
 }
 
@@ -332,13 +392,11 @@ struct Node {
     item: Option<DataId>,
     area: Rect,
     positioned: Option<Positioned>,
-    layer: Option<LayerId>,
-    z_index: i16,
+    slot: Slot,
+    content_offset: Point,
     id: Option<WidgetId>,
     hit: Sides,
     transition: Option<Transition>,
-    transition_width: Option<f32>,
-    transition_height: Option<f32>,
     resolved_clip: Option<usize>,
     clip_bounds: Rect,
 }
@@ -346,6 +404,7 @@ struct Node {
 #[derive(Clone, Copy)]
 struct Positioned {
     target: NodeId,
+    uses_target_content_origin: bool,
     target_anchor: Anchor,
     child_anchor: Anchor,
     offset: Point,

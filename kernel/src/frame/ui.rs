@@ -44,25 +44,6 @@ impl<R: Renderer> Ui<'_, R> {
         self.frame.add_layer(owner)
     }
 
-    pub fn set_z_index(&mut self, node: NodeId, z_index: i16) {
-        self.frame.nodes[node.index()].z_index = z_index;
-        self.frame.needs_paint_order |= z_index != 0;
-    }
-
-    pub fn set_layer(&mut self, node: NodeId, layer: LayerId) {
-        let layer = container::layer_index(layer);
-        assert!(
-            layer < self.frame.layers.len(),
-            "layer does not belong to this frame"
-        );
-        assert!(
-            self.frame.layers[layer].owner.index() < node.index(),
-            "a layer can only contain nodes declared after its owner"
-        );
-        self.frame.nodes[node.index()].layer = Some(container::layer_id(layer));
-        self.frame.needs_paint_order = true;
-    }
-
     pub fn set_id(&mut self, node: NodeId, id: WidgetId) {
         self.frame.nodes[node.index()].id = Some(id);
     }

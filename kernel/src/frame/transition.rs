@@ -1,10 +1,11 @@
 use std::time::Duration;
 
-use super::{Frame, NodeId, position};
+use super::{Frame, NodeId, Sizing, position};
 use crate::{
     animation::{Transition, TransitionProperties},
     geometry::{Rect, Size},
     interact::WidgetId,
+    layout::Axis,
     renderer::Renderer,
 };
 
@@ -13,10 +14,10 @@ pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, size: Size) 
         let Some(config) = frame.nodes[index].transition else {
             continue;
         };
-        let id = frame.nodes[index]
-            .id
-            .expect("a transition requires a WidgetId");
-        let node = NodeId(index as u32);
+        let Some(id) = frame.nodes[index].id else {
+            continue;
+        };
+        let node = frame.node_id(index);
         match frame
             .transitions
             .binary_search_by_key(&id, |state| state.id)
@@ -35,7 +36,10 @@ pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, size: Size) 
             continue;
         }
         let node = frame.transitions[index].node;
-        let target = frame.nodes[node.index()].area;
+        let mut target = frame.nodes[node.index()].area;
+        let offset = position::offset(frame, node);
+        target.x -= offset.x;
+        target.y -= offset.y;
         frame.transitions[index].advance(target, frame.time);
         active = active.union(frame.transitions[index].active);
     }
@@ -44,10 +48,14 @@ pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, size: Size) 
         for state in frame.transitions.iter().filter(|state| state.seen) {
             let node = &mut frame.nodes[state.node.index()];
             if state.active.intersects(TransitionProperties::WIDTH) {
-                node.transition_width = Some(state.current.width);
+                node.slot.width = frame
+                    .layout_resolution
+                    .sizing(Axis::Horizontal, Sizing::fixed(state.current.width));
             }
             if state.active.intersects(TransitionProperties::HEIGHT) {
-                node.transition_height = Some(state.current.height);
+                node.slot.height = frame
+                    .layout_resolution
+                    .sizing(Axis::Vertical, Sizing::fixed(state.current.height));
             }
         }
         position::layout(frame, renderer, size);
@@ -55,12 +63,13 @@ pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, size: Size) 
 
     if active.intersects(TransitionProperties::POSITION) {
         for state in frame.transitions.iter().filter(|state| state.seen) {
+            let offset = position::offset(frame, state.node);
             let area = &mut frame.nodes[state.node.index()].area;
             if state.active.intersects(TransitionProperties::X) {
-                area.x = state.current.x;
+                area.x = state.current.x + offset.x;
             }
             if state.active.intersects(TransitionProperties::Y) {
-                area.y = state.current.y;
+                area.y = state.current.y + offset.y;
             }
         }
     }

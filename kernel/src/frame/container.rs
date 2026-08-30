@@ -10,8 +10,141 @@ use crate::{
     renderer::Renderer,
 };
 
+/// frame-local paint layer
+///
+/// do not store this across renders
+#[cfg_attr(not(debug_assertions), repr(transparent))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LayerId(NonZeroU16);
+pub struct LayerId(NonZeroU16, #[cfg(debug_assertions)] u16);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Slot {
+    pub width: Sizing,
+    pub height: Sizing,
+    pub layer: Option<LayerId>,
+    pub z_index: i16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Sizing {
+    Fit { min: f32, max: f32 },
+    Grow { min: f32, max: f32 },
+    Fixed(f32),
+    Percent(f32),
+}
+
+impl Default for Slot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Slot {
+    pub const fn new() -> Self {
+        Self {
+            width: Sizing::fit(),
+            height: Sizing::fit(),
+            layer: None,
+            z_index: 0,
+        }
+    }
+
+    pub const fn width(mut self, width: Sizing) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub const fn height(mut self, height: Sizing) -> Self {
+        self.height = height;
+        self
+    }
+
+    pub const fn fixed(mut self, width: f32, height: f32) -> Self {
+        self.width = Sizing::fixed(width);
+        self.height = Sizing::fixed(height);
+        self
+    }
+
+    pub const fn grow(mut self) -> Self {
+        self.width = Sizing::grow();
+        self.height = Sizing::grow();
+        self
+    }
+
+    pub const fn layer(mut self, layer: LayerId) -> Self {
+        self.layer = Some(layer);
+        self
+    }
+
+    pub const fn z_index(mut self, z_index: i16) -> Self {
+        self.z_index = z_index;
+        self
+    }
+}
+
+impl Sizing {
+    pub const fn fit() -> Self {
+        Self::Fit {
+            min: 0.0,
+            max: f32::INFINITY,
+        }
+    }
+
+    pub const fn grow() -> Self {
+        Self::Grow {
+            min: 0.0,
+            max: f32::INFINITY,
+        }
+    }
+
+    pub const fn fixed(size: f32) -> Self {
+        Self::Fixed(size)
+    }
+
+    pub const fn percent(fraction: f32) -> Self {
+        Self::Percent(fraction)
+    }
+
+    pub const fn min(self, value: f32) -> Self {
+        match self {
+            Self::Fit { max, .. } => Self::Fit { min: value, max },
+            Self::Grow { max, .. } => Self::Grow { min: value, max },
+            Self::Fixed(_) | Self::Percent(_) => self,
+        }
+    }
+
+    pub const fn max(self, value: f32) -> Self {
+        match self {
+            Self::Fit { min, .. } => Self::Fit { min, max: value },
+            Self::Grow { min, .. } => Self::Grow { min, max: value },
+            Self::Fixed(_) | Self::Percent(_) => self,
+        }
+    }
+
+    pub fn resolve(self, intrinsic: f32, available: f32, cross: bool) -> f32 {
+        match self {
+            Self::Fit { .. } => self.clamp(intrinsic.min(available)),
+            Self::Grow { .. } if cross => self.clamp(available),
+            Self::Grow { .. } => self.clamp(intrinsic.min(available)),
+            Self::Fixed(size) => size.max(0.0),
+            Self::Percent(fraction) if available.is_finite() => {
+                assert!((0.0..=1.0).contains(&fraction));
+                available * fraction
+            }
+            Self::Percent(_) => 0.0,
+        }
+    }
+
+    pub fn clamp(self, size: f32) -> f32 {
+        match self {
+            Self::Fit { min, max } | Self::Grow { min, max } => {
+                size.clamp(min.max(0.0), max.max(min).max(0.0))
+            }
+            Self::Fixed(fixed) => fixed.max(0.0),
+            Self::Percent(_) => size.max(0.0),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Absolute {
@@ -106,29 +239,13 @@ impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
         self
     }
 
-    pub fn z_index(self, z_index: i16) -> Self {
-        self.frame.nodes[self.node.index()].z_index = z_index;
-        self.frame.needs_paint_order |= z_index != 0;
-        self
-    }
-
-    pub fn layer(self, layer: LayerId) -> Self {
-        let layer = layer_index(layer);
-        assert!(
-            layer < self.frame.layers.len(),
-            "layer does not belong to this frame"
-        );
-        assert!(
-            self.frame.layers[layer].owner.index() < self.node.index(),
-            "a layer can only contain nodes declared after its owner"
-        );
-        self.frame.nodes[self.node.index()].layer = Some(layer_id(layer));
-        self.frame.needs_paint_order = true;
-        self
-    }
-
     pub fn absolute(self, absolute: Absolute) -> Self {
         self.frame.set_absolute(self.node, absolute);
+        self
+    }
+
+    pub fn offset(self, offset: Point) -> Self {
+        self.frame.nodes[self.node.index()].content_offset = offset;
         self
     }
 
@@ -151,13 +268,13 @@ impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
         self.frame.add_layer(self.node)
     }
 
-    pub fn add<O>(&mut self, item: L::Item, child: impl FnOnce(Ui<'_, R>) -> O) -> O {
+    pub fn add<O>(&mut self, slot: Slot, item: L::Item, child: impl FnOnce(Ui<'_, R>) -> O) -> O {
         let start = self.frame.nodes.len();
         let output = child(ui::new(self.frame, Some(self.node)));
         let end = self.frame.nodes.len();
         assert!(end > start, "layout child did not add a node");
 
-        let child = NodeId(start as u32);
+        let child = self.frame.node_id(start);
         assert_eq!(
             self.frame.nodes[child.index()].parent,
             Some(self.node),
@@ -168,6 +285,7 @@ impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
             end,
             "a layout item must contain exactly one root"
         );
+        self.frame.set_slot(child, slot);
         let data = self.frame.data.store(item);
         self.frame.nodes[child.index()].item = Some(data);
         output
@@ -191,13 +309,21 @@ pub fn new<R: Renderer, L: Layout<R>>(frame: &mut Frame<R>, node: NodeId) -> Con
 
 pub fn layer_id(index: usize) -> LayerId {
     let value = u16::try_from(index + 1).expect("too many layers in one frame");
-    LayerId(NonZeroU16::new(value).unwrap())
+    LayerId(
+        NonZeroU16::new(value).unwrap(),
+        #[cfg(debug_assertions)]
+        super::generation::get(),
+    )
 }
 
 pub fn layer_index(id: LayerId) -> usize {
+    #[cfg(debug_assertions)]
+    super::generation::assert(id.1);
     id.0.get() as usize - 1
 }
 
 pub fn layer_order(id: LayerId) -> u16 {
+    #[cfg(debug_assertions)]
+    super::generation::assert(id.1);
     id.0.get()
 }
