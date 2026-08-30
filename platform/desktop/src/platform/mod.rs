@@ -216,10 +216,9 @@ mod tests {
         platform.set_scale(2.0);
         let mut frame = Frame::default();
         frame.render(&mut platform, FrameInfo::new(Size::new(8.0, 8.0)), |ui| {
-            let mut root = ui.layout_with(
-                Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)),
-                Flex::column().padding(Sides::all(3.0)),
-            );
+            let mut root = ui
+                .layout(Flex::column().padding(Sides::all(3.0)))
+                .surface(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
             root.child()
                 .slot(Slot::new().fixed(2.0, 2.0))
                 .add(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));

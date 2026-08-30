@@ -204,12 +204,11 @@ mod tests {
         let mut frame = Frame::default();
         let title = String::from("Settings");
         frame.render(&mut platform, FrameInfo::new(Size::new(12.0, 3.0)), |ui| {
-            ui.layout_with(
+            ui.layout(Flex::column()).surface(
                 Block::new()
                     .border(Border::new(Color::WHITE))
                     .shadow(Shadow::new(Color::BLACK))
                     .title(Title::new(&title)),
-                Flex::column(),
             );
         });
 

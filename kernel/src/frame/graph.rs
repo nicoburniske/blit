@@ -202,6 +202,7 @@ impl<R: Platform> Frame<R> {
             let mut ui = Ui {
                 frame: NonNull::from(&mut *self),
                 platform: NonNull::from(&mut *platform),
+                mount: None,
             };
             build(&mut ui);
         }
