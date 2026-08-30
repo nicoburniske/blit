@@ -1,16 +1,11 @@
-use std::{hint::black_box, time::Duration};
+use std::hint::black_box;
 
-use blit::{
-    UiState,
+use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit_term::{
+    RendererConfig, TerminalRenderer,
     color::Color,
     command_list::{ClipId, CommandList, Rectangle},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2},
-    input::{Input, Modifiers},
-    renderer::Renderer as _,
-    repaint::{IncrementalRepaint, MyersTracker},
 };
-use blit_showcase::{Config, Page, Showcase};
-use blit_term::{RendererConfig, TerminalRenderer};
 use divan::counter::ItemsCount;
 
 const CHANGED_CELL: PhysicalRect = PhysicalRect {
@@ -23,19 +18,13 @@ const CHANGED_CELL: PhysicalRect = PhysicalRect {
 #[global_allocator]
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
 
-#[derive(Clone, Copy, Debug)]
-enum ShowcaseUpdate {
-    Stable,
-    Pointer,
-}
-
 fn main() {
     divan::main()
 }
 
 #[divan::bench]
 fn render_full(bencher: divan::Bencher) {
-    let mut renderer = micro_renderer();
+    let mut renderer = renderer();
     let screen = renderer.screen();
     let commands = commands(screen, false);
     let damage = [screen];
@@ -46,113 +35,30 @@ fn render_full(bencher: divan::Bencher) {
 
 #[divan::bench]
 fn render_one_cell(bencher: divan::Bencher) {
-    let mut renderer = micro_renderer();
+    let mut renderer = renderer();
     let screen = renderer.screen();
     let commands = commands(screen, true);
-    let damage = [CHANGED_CELL];
     renderer.render(&commands, &[screen]);
     bencher
         .counter(ItemsCount::new(1usize))
-        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&[CHANGED_CELL])));
 }
 
 #[divan::bench]
 fn update_one_cell(bencher: divan::Bencher) {
-    let mut renderer = micro_renderer();
+    let mut renderer = renderer();
     let screen = renderer.screen();
     let old = commands(screen, false);
     let new = commands(screen, true);
-    let damage = [CHANGED_CELL];
     renderer.render(&old, &[screen]);
     let mut changed = true;
     bencher.bench_local(|| {
         renderer.render(
             black_box(if changed { &new } else { &old }),
-            black_box(&damage),
+            black_box(&[CHANGED_CELL]),
         );
         black_box(renderer.output());
         changed = !changed;
-    });
-}
-
-#[divan::bench(args = [
-    ShowcaseUpdate::Stable,
-    ShowcaseUpdate::Pointer,
-])]
-fn showcase_incremental(bencher: divan::Bencher, update: ShowcaseUpdate) {
-    let mut renderer = showcase_renderer();
-    let mut state = UiState::default();
-    let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
-    let mut showcase = Showcase::new(Config::terminal());
-    blit::render(
-        &mut renderer,
-        &mut state,
-        &mut repaint,
-        Duration::ZERO,
-        [],
-        |ui| showcase.render(ui),
-    );
-    black_box(renderer.output());
-
-    let mut alternate = false;
-    bencher.bench_local(|| {
-        let input = match update {
-            ShowcaseUpdate::Stable => Input::None,
-            ShowcaseUpdate::Pointer => Input::PointerMove {
-                position: LogicalPoint {
-                    x: if alternate { 620.0 } else { 760.0 },
-                    y: 52.0,
-                },
-                modifiers: Modifiers::NONE,
-            },
-        };
-        blit::render(
-            black_box(&mut renderer),
-            black_box(&mut state),
-            black_box(&mut repaint),
-            Duration::ZERO,
-            [black_box(input)],
-            |ui| showcase.render(ui),
-        );
-        black_box(renderer.output());
-        alternate = !alternate;
-    });
-}
-
-#[divan::bench(args = [
-    Page::Layout,
-    Page::Scrolling,
-    Page::Input,
-    Page::Images,
-    Page::Animation,
-])]
-fn showcase_full(bencher: divan::Bencher, page: Page) {
-    let mut renderer = showcase_renderer();
-    let mut state = UiState::default();
-    let mut repaint = IncrementalRepaint::new(MyersTracker::default(), false);
-    let mut showcase = Showcase::new(Config::terminal());
-    showcase.set_page(page);
-    blit::render(
-        &mut renderer,
-        &mut state,
-        &mut repaint,
-        Duration::ZERO,
-        [],
-        |ui| showcase.render(ui),
-    );
-    black_box(renderer.output());
-
-    bencher.bench_local(|| {
-        state.invalidate_all();
-        blit::render(
-            black_box(&mut renderer),
-            black_box(&mut state),
-            black_box(&mut repaint),
-            Duration::ZERO,
-            [Input::None],
-            |ui| showcase.render(ui),
-        );
-        black_box(renderer.output());
     });
 }
 
@@ -190,18 +96,6 @@ fn commands(screen: PhysicalRect, changed: bool) -> CommandList {
     commands
 }
 
-fn micro_renderer() -> TerminalRenderer {
+fn renderer() -> TerminalRenderer {
     TerminalRenderer::new(RendererConfig::new().columns(96).rows(32))
-}
-
-fn showcase_renderer() -> TerminalRenderer {
-    TerminalRenderer::new(
-        RendererConfig::new()
-            .columns(140)
-            .rows(50)
-            .cell_size(LogicalSize {
-                width: 0.5,
-                height: 1.0,
-            }),
-    )
 }

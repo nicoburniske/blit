@@ -1,19 +1,16 @@
 use std::hint::black_box;
 
-use blit::{
-    color::Color,
-    command_list::{BoxShadow, ClipId, CommandList, Rectangle},
-    geometry::{LogicalRect, PhysicalRect, Scale2},
-    image::{
-        ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
-    },
-    renderer::Renderer as _,
-    style::{GradientStop, LinearGradient},
-    text::{FontId, TextOptions, TextRequest, TextStyle, TextWrap},
-};
+use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
     Direct, Font, FontFace, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
     RendererConfig, Scanline, VecBuffer, Xrgb8888,
+    color::Color,
+    command_list::{BoxShadow, ClipId, CommandList, Rectangle},
+    image::{
+        ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
+    },
+    style::{GradientStop, LinearGradient},
+    text_types::{FontId, TextOptions, TextRequest, TextStyle, TextWrap},
 };
 use divan::counter::ItemsCount;
 
@@ -564,7 +561,7 @@ where
     let clip = commands.push_clip(
         ClipId::default(),
         area,
-        blit::style::BorderRadius {
+        blit_cpu::style::BorderRadius {
             top_left: 48.0,
             top_right: 48.0,
             bottom_right: 48.0,

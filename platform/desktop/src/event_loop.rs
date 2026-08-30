@@ -1,9 +1,8 @@
 use std::{num::NonZeroU32, pin::Pin, rc::Rc, time::Instant};
 
 use blit::{
-    geometry::LogicalPoint,
+    Frame, FrameInfo, LogicalPoint, Size,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
-    repaint::{IncrementalRepaint, MyersTracker},
 };
 use blit_cpu::{Renderer, Scanline};
 use blit_executor::{LocalExecutor, TaskId};
@@ -17,7 +16,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{Application, Config, EventLoopProxy, RunError, pixel::DesktopBuffer};
+use crate::{Application, Config, DesktopPlatform, EventLoopProxy, RunError, pixel::DesktopBuffer};
 
 pub enum Event<T> {
     Input(T),
@@ -66,29 +65,29 @@ enum State<A: Application> {
 struct Active<A: Application> {
     app: A,
     executor: Pin<Box<LocalExecutor<A>>>,
-    renderer: Renderer<DesktopBuffer, Scanline>,
-    ui: blit::UiState,
-    repaint: IncrementalRepaint<MyersTracker>,
+    platform: DesktopPlatform,
+    frame: Frame<DesktopPlatform>,
     surface: Surface<OwnedDisplayHandle, Rc<Window>>,
     window: Rc<Window>,
 }
 
 impl<A: Application> Active<A> {
     fn scale(&self) -> f32 {
-        self.window.scale_factor() as f32 * self.ui.zoom()
+        self.window.scale_factor() as f32
     }
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), RunError> {
-        self.ui.invalidate_render_geometry();
         let (Some(width), Some(height)) =
             (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
         else {
             return Ok(());
         };
         self.surface.resize(width, height)?;
-        self.renderer
+        self.platform
+            .renderer_mut()
             .buffer_mut()
             .resize(size.width as usize, size.height as usize);
+        self.platform.invalidate_all();
         Ok(())
     }
 }
@@ -149,27 +148,31 @@ impl<A: Application> Runner<A> {
         };
         let time = self.started_at.elapsed();
         let timer_due = active
-            .ui
+            .frame
             .next_timer_deadline()
             .is_some_and(|deadline| time >= deadline);
-        if self.inputs.is_empty() && !active.ui.has_pending_redraw() && !timer_due {
+        if self.inputs.is_empty() && !active.frame.has_pending_redraw() && !timer_due {
             return;
         }
+        let scale = active.scale();
+        let size = active.window.inner_size();
         let mut buffer = match active.surface.buffer_mut() {
             Ok(buffer) => buffer,
             Err(error) => return self.fail(event_loop, error),
         };
         if buffer.age() == 0 {
-            active.ui.invalidate_all();
+            active.platform.invalidate_all();
         }
-        active.renderer.buffer_mut().set(&mut buffer);
-        blit::render(
-            &mut active.renderer,
-            &mut active.ui,
-            &mut active.repaint,
+        active.platform.renderer_mut().buffer_mut().set(&mut buffer);
+        active.frame.render_inputs(
+            &mut active.platform,
+            FrameInfo::new(Size::new(
+                size.width as f32 / scale,
+                size.height as f32 / scale,
+            )),
             time,
             self.inputs.drain(..),
-            |ui| active.app.render(ui),
+            |mut ui| active.app.render(&mut ui),
         );
         active.window.pre_present_notify();
         if let Err(error) = buffer.present() {
@@ -206,20 +209,20 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
         )
         .strategy(Scanline::default());
         renderer.set_device_scale(window.scale_factor() as f32);
-        let ui = blit::UiState::default();
+        let mut platform = DesktopPlatform::new(renderer);
+        let frame = Frame::default();
         let wake = input.inner.clone();
         let executor = Box::pin(LocalExecutor::new(move |task| {
             let _ = wake.send_event(Event::TaskReady(task));
         }));
         // safety: executor remains pinned and is dropped after app
         let root = unsafe { executor.as_ref().root() };
-        let app = A::new(input, root);
+        let app = A::new(input, root, &mut platform);
         let mut active = Box::new(Active {
             app,
             executor,
-            renderer,
-            ui,
-            repaint: IncrementalRepaint::new(MyersTracker::default(), true),
+            platform,
+            frame,
             surface,
             window,
         });
@@ -242,7 +245,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Event::TaskReady(task) => active.executor.as_ref().run(&mut active.app, task),
         };
         if request_frame {
-            active.ui.request_frame();
+            active.frame.request_frame();
             active.window.request_redraw();
         }
     }
@@ -269,7 +272,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                active.renderer.set_device_scale(scale_factor as f32);
+                active.platform.set_device_scale(scale_factor as f32);
                 if let Err(error) = active.resize(active.window.inner_size()) {
                     self.fail(event_loop, error);
                 } else {
@@ -450,16 +453,16 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             return;
         };
         let now = self.started_at.elapsed();
-        if active.ui.has_pending_redraw()
+        if active.frame.has_pending_redraw()
             || active
-                .ui
+                .frame
                 .next_timer_deadline()
                 .is_some_and(|deadline| deadline <= now)
             || !self.inputs.is_empty()
         {
             active.window.request_redraw();
             event_loop.set_control_flow(ControlFlow::Wait);
-        } else if let Some(deadline) = active.ui.next_timer_deadline() {
+        } else if let Some(deadline) = active.frame.next_timer_deadline() {
             event_loop.set_control_flow(ControlFlow::WaitUntil(self.started_at + deadline));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);

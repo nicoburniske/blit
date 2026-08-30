@@ -2,11 +2,12 @@
 resolver = "2"
 members = [
     "cache",
-    "core",
+    "diff",
     "examples/showcase",
     "executor",
     "font",
     "kernel",
+    "layout",
     "platform/desktop",
     "platform/terminal",
     "render/cpu",
@@ -17,8 +18,9 @@ members = [
 license = "MIT"
 
 [workspace.dependencies]
-blit = { path = "core" }
+blit = { path = "kernel" }
+blit-diff = { path = "diff" }
 blit-executor = { path = "executor" }
 blit-font = { path = "font" }
-blit-kernel = { path = "kernel" }
+blit-layout = { path = "layout" }
 blit-showcase = { path = "examples/showcase" }

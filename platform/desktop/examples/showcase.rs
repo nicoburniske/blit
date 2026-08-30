@@ -1,6 +1,12 @@
-use blit::{Ui, text::FontId};
+use blit::{Sense, Sides, Sizing, Slot, Ui, WidgetId};
 use blit_cpu::{Font, FontFace, RendererConfig};
-use blit_desktop::{Application, Config, EventLoopProxy, Root};
+use blit_desktop::{
+    Application, Config, DesktopPlatform, EventLoopProxy, Root,
+    draw::{Rectangle, Text},
+    layout::Flex,
+    style::Style,
+    text::{FontId, TextStyle},
+};
 use blit_showcase::Showcase;
 
 fn main() {
@@ -28,13 +34,59 @@ struct App(Showcase);
 impl Application for App {
     type Input = ();
 
-    fn new(_: EventLoopProxy<Self::Input>, _: Root<Self>) -> Self {
+    fn new(_: EventLoopProxy<Self::Input>, _: Root<Self>, _: &mut DesktopPlatform) -> Self {
         Self(Showcase::default())
     }
 
     fn input(&mut self, _: Self::Input) {}
 
-    fn render(&mut self, ui: &mut Ui) {
-        self.0.render(ui);
+    fn render(&mut self, ui: &mut Ui<'_, DesktopPlatform>) {
+        self.0.input(ui.input());
+        let title_style = TextStyle {
+            size: 24.0,
+            ..TextStyle::default()
+        };
+        let body_style = TextStyle::default();
+        let title = ui.platform().text_run(self.0.title(), title_style);
+        let body = ui.platform().text_run(self.0.body(), body_style);
+        let button_label = ui.platform().text_run("toggle platform state", body_style);
+        let mut root = ui.layout_with(
+            Rectangle::new(
+                Style::new().background(blit_desktop::color::Color::from_rgba8(20, 24, 32, 255)),
+            ),
+            Flex::column().padding(Sides::all(24.0)).gap(16.0),
+        );
+        root.add(Slot::new().height(Sizing::fixed(40.0)), (), |mut ui| {
+            ui.add(Text::new(title, title_style).color(blit_desktop::color::Color::WHITE));
+        });
+        root.add(Slot::new().height(Sizing::fixed(32.0)), (), |mut ui| {
+            ui.add(
+                Text::new(body, body_style)
+                    .color(blit_desktop::color::Color::from_rgba8(190, 198, 215, 255)),
+            );
+        });
+        root.add(Slot::new().fixed(180.0, 44.0), (), |mut ui| {
+            let id = WidgetId::new("showcase button");
+            let interaction = ui.interact(id, Sense::CLICK);
+            if interaction.clicked {
+                self.0.click();
+            }
+            let color = if interaction.active || self.0.enabled() {
+                blit_desktop::color::Color::from_rgba8(70, 110, 220, 255)
+            } else {
+                blit_desktop::color::Color::from_rgba8(48, 57, 76, 255)
+            };
+            let mut button = ui
+                .layout_with(
+                    Rectangle::new(Style::new().background(color).uniform_radius(8.0)),
+                    Flex::row().padding(Sides::all(12.0)),
+                )
+                .id(id);
+            button.add(Slot::new(), (), |mut ui| {
+                ui.add(
+                    Text::new(button_label, body_style).color(blit_desktop::color::Color::WHITE),
+                );
+            });
+        });
     }
 }

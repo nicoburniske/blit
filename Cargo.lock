@@ -91,10 +91,6 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 [[package]]
 name = "blit"
 version = "0.1.0"
-dependencies = [
- "divan",
- "unicode-segmentation",
-]
 
 [[package]]
 name = "blit-cpu"
@@ -113,11 +109,17 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "blit-cpu",
+ "blit-diff",
  "blit-executor",
+ "blit-layout",
  "blit-showcase",
  "softbuffer",
  "winit",
 ]
+
+[[package]]
+name = "blit-diff"
+version = "0.1.0"
 
 [[package]]
 name = "blit-executor"
@@ -130,14 +132,16 @@ dependencies = [
 name = "blit-font"
 version = "0.1.0"
 dependencies = [
- "blit",
  "ttf-parser",
  "unicode-linebreak",
 ]
 
 [[package]]
-name = "blit-kernel"
+name = "blit-layout"
 version = "0.1.0"
+dependencies = [
+ "blit",
+]
 
 [[package]]
 name = "blit-showcase"
@@ -152,7 +156,6 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "blit",
- "blit-showcase",
  "blit_cache",
  "divan",
  "unicode-segmentation",
@@ -164,6 +167,8 @@ name = "blit-terminal"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-diff",
+ "blit-layout",
  "blit-showcase",
  "blit-term",
  "termina",

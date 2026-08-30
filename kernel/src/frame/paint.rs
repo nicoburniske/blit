@@ -1,10 +1,10 @@
 use super::{ClipKind, Frame, ResolvedClip, ResolvedClipId, StoredClip, container};
 use crate::{
     arena::DataArena,
-    renderer::{FrameInfo, Renderer},
+    platform::{FrameInfo, Platform},
 };
 
-pub fn resolve_order<R: Renderer>(frame: &mut Frame<R>) {
+pub fn resolve_order<R: Platform>(frame: &mut Frame<R>) {
     frame.paint_order.clear();
     if !frame.needs_paint_order {
         return;
@@ -56,7 +56,7 @@ pub fn resolve_order<R: Renderer>(frame: &mut Frame<R>) {
     debug_assert_eq!(frame.paint_order.len(), frame.nodes.len());
 }
 
-pub fn resolve_clips<R: Renderer>(frame: &mut Frame<R>) {
+pub fn resolve_clips<R: Platform>(frame: &mut Frame<R>) {
     frame.resolved_clips.clear();
     for index in 0..frame.nodes.len() {
         let parent = if index == 0 {
@@ -90,16 +90,16 @@ pub fn resolve_clips<R: Renderer>(frame: &mut Frame<R>) {
     }
 }
 
-pub fn render<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, info: FrameInfo) {
+pub fn render<R: Platform>(frame: &mut Frame<R>, platform: &mut R, info: FrameInfo) {
     // todo: skip leaves outside their conservative paint bounds
     #[allow(clippy::too_many_arguments)]
-    fn push<R: Renderer>(
+    fn push<R: Platform>(
         data: &DataArena,
         clips: &[StoredClip],
         kinds: &[ClipKind<R>],
         resolved: &[ResolvedClip],
         active: &mut Vec<ResolvedClipId>,
-        renderer: &mut R,
+        platform: &mut R,
         clip: ResolvedClipId,
         common: u32,
     ) {
@@ -113,22 +113,22 @@ pub fn render<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, info: FrameIn
             kinds,
             resolved,
             active,
-            renderer,
+            platform,
             stored.parent,
             common,
         );
         let clip_data = clips[stored.clip.index().unwrap()];
-        (kinds[clip_data.kind as usize].push)(data, clip_data.data, renderer, stored.area);
+        (kinds[clip_data.kind as usize].push)(data, clip_data.data, platform, stored.area);
         active.push(clip);
     }
 
-    fn set<R: Renderer>(
+    fn set<R: Platform>(
         data: &DataArena,
         clips: &[StoredClip],
         kinds: &[ClipKind<R>],
         resolved: &[ResolvedClip],
         active: &mut Vec<ResolvedClipId>,
-        renderer: &mut R,
+        platform: &mut R,
         target: ResolvedClipId,
     ) {
         let mut common = target;
@@ -143,14 +143,14 @@ pub fn render<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, info: FrameIn
             let clip = active.pop().unwrap();
             let stored = resolved[clip.index().unwrap()];
             let clip_data = clips[stored.clip.index().unwrap()];
-            (kinds[clip_data.kind as usize].pop)(data, clip_data.data, renderer);
+            (kinds[clip_data.kind as usize].pop)(data, clip_data.data, platform);
         }
         push(
-            data, clips, kinds, resolved, active, renderer, target, common.0,
+            data, clips, kinds, resolved, active, platform, target, common.0,
         );
     }
 
-    renderer.begin(info);
+    platform.begin(info);
     frame.active_clips.clear();
     if frame.paint_order.is_empty() {
         for index in 0..frame.nodes.len() {
@@ -163,14 +163,14 @@ pub fn render<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, info: FrameIn
                 &frame.clip_kinds,
                 &frame.resolved_clips,
                 &mut frame.active_clips,
-                renderer,
+                platform,
                 frame.nodes[index].resolved_clip,
             );
             let base = frame.leaves[base];
             (frame.leaf_kinds[base.kind as usize].paint)(
                 &frame.data,
                 base.data,
-                renderer,
+                platform,
                 frame.nodes[index].area,
             );
         }
@@ -186,14 +186,14 @@ pub fn render<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, info: FrameIn
                 &frame.clip_kinds,
                 &frame.resolved_clips,
                 &mut frame.active_clips,
-                renderer,
+                platform,
                 frame.nodes[node].resolved_clip,
             );
             let base = frame.leaves[base];
             (frame.leaf_kinds[base.kind as usize].paint)(
                 &frame.data,
                 base.data,
-                renderer,
+                platform,
                 frame.nodes[node].area,
             );
         }
@@ -204,8 +204,8 @@ pub fn render<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, info: FrameIn
         &frame.clip_kinds,
         &frame.resolved_clips,
         &mut frame.active_clips,
-        renderer,
+        platform,
         ResolvedClipId::NONE,
     );
-    renderer.end();
+    platform.end();
 }

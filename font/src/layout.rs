@@ -1,11 +1,34 @@
 use std::{hash::Hash, mem::size_of};
 
-use blit::text::{HorizontalAlign, TextWrap, VerticalAlign};
 use unicode_linebreak::{BreakOpportunity as UnicodeBreak, linebreaks};
 
 use crate::{Font, GlyphId, LineMetrics, Metrics, UnscaledMetrics};
 
 const DEFAULT_METRIC_CACHE_CAPACITY: usize = 256;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TextWrap {
+    #[default]
+    None,
+    Word,
+    Character,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum HorizontalAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum VerticalAlign {
+    #[default]
+    Top,
+    Center,
+    Bottom,
+}
 
 pub struct Layout {
     glyphs: Vec<GlyphPosition>,

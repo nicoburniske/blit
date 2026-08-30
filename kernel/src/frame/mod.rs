@@ -28,10 +28,10 @@ use crate::{
     interact::WidgetId,
     layout::{Axis, Layout, LayoutResolution},
     leaf::Leaf,
-    renderer::{FrameInfo, Renderer},
+    platform::{FrameInfo, Platform},
 };
 
-pub struct Frame<R: Renderer> {
+pub struct Frame<R: Platform> {
     nodes: Vec<Node>,
     leaves: Vec<StoredLeaf>,
     layouts: Vec<StoredLayout>,
@@ -50,7 +50,9 @@ pub struct Frame<R: Renderer> {
     interaction: interaction::InteractionState,
     geometry_previous: Vec<(WidgetId, Rect)>,
     geometry_current: Vec<(WidgetId, Rect)>,
+    animations: Vec<crate::animation::AnimationState>,
     transitions: Vec<transition::TransitionState>,
+    timers: Vec<crate::timer::TimerState>,
     input: Input,
     time: Duration,
     screen: Rect,
@@ -59,7 +61,7 @@ pub struct Frame<R: Renderer> {
     frame_requested: bool,
 }
 
-impl<R: Renderer> Default for Frame<R> {
+impl<R: Platform> Default for Frame<R> {
     fn default() -> Self {
         Self {
             nodes: Vec::new(),
@@ -80,7 +82,9 @@ impl<R: Renderer> Default for Frame<R> {
             interaction: interaction::InteractionState::default(),
             geometry_previous: Vec::new(),
             geometry_current: Vec::new(),
+            animations: Vec::new(),
             transitions: Vec::new(),
+            timers: Vec::new(),
             input: Input::None,
             time: Duration::ZERO,
             screen: Rect::default(),
@@ -91,15 +95,15 @@ impl<R: Renderer> Default for Frame<R> {
     }
 }
 
-impl<R: Renderer> Frame<R> {
-    pub fn render(&mut self, renderer: &mut R, frame: FrameInfo, build: impl FnOnce(Ui<'_, R>)) {
+impl<R: Platform> Frame<R> {
+    pub fn render(&mut self, platform: &mut R, frame: FrameInfo, build: impl FnOnce(Ui<'_, R>)) {
         self.frame_requested = false;
-        self.record(renderer, frame, Duration::ZERO, Input::None, true, build);
+        self.record(platform, frame, Duration::ZERO, Input::None, true, build);
     }
 
     pub fn render_inputs(
         &mut self,
-        renderer: &mut R,
+        platform: &mut R,
         frame: FrameInfo,
         time: Duration,
         inputs: impl IntoIterator<Item = Input>,
@@ -108,13 +112,13 @@ impl<R: Renderer> Frame<R> {
         self.frame_requested = false;
         let mut inputs = inputs.into_iter();
         let Some(first) = inputs.next() else {
-            self.record(renderer, frame, time, Input::None, true, &mut build);
+            self.record(platform, frame, time, Input::None, true, &mut build);
             return;
         };
         let mut input = first;
         loop {
             let next = inputs.next();
-            self.record(renderer, frame, time, input, next.is_none(), &mut build);
+            self.record(platform, frame, time, input, next.is_none(), &mut build);
             let Some(next) = next else {
                 break;
             };
@@ -125,9 +129,20 @@ impl<R: Renderer> Frame<R> {
     pub fn has_pending_redraw(&self) -> bool {
         self.frame_requested
             || self
+                .animations
+                .iter()
+                .any(crate::animation::AnimationState::is_active)
+            || self
                 .transitions
                 .iter()
                 .any(transition::TransitionState::is_active)
+    }
+
+    pub fn next_timer_deadline(&self) -> Option<Duration> {
+        self.timers
+            .iter()
+            .filter_map(crate::timer::TimerState::deadline)
+            .min()
     }
 
     pub fn request_frame(&mut self) {
@@ -161,13 +176,15 @@ impl<R: Renderer> Frame<R> {
                 + self.active_clips.capacity() * size_of::<ResolvedClipId>()
                 + self.geometry_previous.capacity() * size_of::<(WidgetId, Rect)>()
                 + self.geometry_current.capacity() * size_of::<(WidgetId, Rect)>()
-                + self.transitions.capacity() * size_of::<transition::TransitionState>(),
+                + self.animations.capacity() * size_of::<crate::animation::AnimationState>()
+                + self.transitions.capacity() * size_of::<transition::TransitionState>()
+                + self.timers.capacity() * size_of::<crate::timer::TimerState>(),
         }
     }
 
     fn record(
         &mut self,
-        renderer: &mut R,
+        platform: &mut R,
         frame: FrameInfo,
         time: Duration,
         input: Input,
@@ -192,12 +209,18 @@ impl<R: Renderer> Frame<R> {
         self.time = time;
         self.screen = Rect::new(0.0, 0.0, frame.size.width, frame.size.height);
         self.layout_resolution = frame.layout_resolution;
+        for animation in &mut self.animations {
+            animation.seen = false;
+        }
         for state in &mut self.transitions {
             state.seen = false;
         }
+        for timer in &mut self.timers {
+            timer.seen = false;
+        }
         self.interaction.begin(&input);
 
-        build(ui::new(self, None));
+        build(ui::new(self, platform, None));
         assert!(!self.nodes.is_empty(), "frame is empty");
         assert_eq!(
             self.nodes[0].subtree_end as usize,
@@ -205,31 +228,33 @@ impl<R: Renderer> Frame<R> {
             "a frame must have exactly one root"
         );
 
-        transition::resolve(self, renderer, frame.size);
+        transition::resolve(self, platform, frame.size);
         position::resolve(self);
         paint::resolve_order(self);
         paint::resolve_clips(self);
-        interaction::resolve(self, renderer);
+        interaction::resolve(self, platform);
         std::mem::swap(&mut self.geometry_previous, &mut self.geometry_current);
         self.geometry_current.clear();
+        self.animations.retain(|animation| animation.seen);
         self.transitions.retain(|state| state.seen);
+        self.timers.retain(|timer| timer.seen);
         if render {
-            paint::render(self, renderer, frame);
+            paint::render(self, platform, frame);
         }
     }
 
-    fn layout_node(&mut self, node: NodeId, renderer: &mut R, constraints: Constraints) -> Size {
+    fn layout_node(&mut self, node: NodeId, platform: &mut R, constraints: Constraints) -> Size {
         let index = node.index();
         let size = if let Some(layout) = self.nodes[index].layout.index() {
             let stored = self.layouts[layout];
             let run = self.layout_kinds[stored.kind as usize].layout;
-            run(self, node, renderer, stored.data, constraints)
+            run(self, node, platform, stored.data, constraints)
         } else {
             assert!(
                 self.nodes[index].base.index().is_some(),
                 "node has neither a base nor a layout"
             );
-            self.measure_base(node, renderer, constraints)
+            self.measure_base(node, platform, constraints)
         };
         let size = constraints.constrain(size);
         self.nodes[index].area.width = size.width;
@@ -237,13 +262,13 @@ impl<R: Renderer> Frame<R> {
         size
     }
 
-    fn measure_base(&mut self, node: NodeId, renderer: &mut R, constraints: Constraints) -> Size {
+    fn measure_base(&mut self, node: NodeId, platform: &mut R, constraints: Constraints) -> Size {
         let Some(base) = self.nodes[node.index()].base.index() else {
             return Size::ZERO;
         };
         let base = self.leaves[base];
         let measure = self.leaf_kinds[base.kind as usize].measure;
-        measure(&self.data, base.data, renderer, constraints)
+        measure(&self.data, base.data, platform, constraints)
     }
 
     fn store_leaf<L: Leaf<R>>(&mut self, leaf: L) -> StoredLeafId {
@@ -570,40 +595,40 @@ type PositionedId = Index<Positioned>;
 type GeometryId = Index<GeometryRecord>;
 type ResolvedClipId = Index<ResolvedClip>;
 
-struct LeafKind<R: Renderer> {
+struct LeafKind<R: Platform> {
     type_id: TypeId,
     measure: fn(&DataArena, DataId, &mut R, Constraints) -> Size,
     paint: fn(&DataArena, DataId, &mut R, Rect),
 }
 
-struct LayoutKind<R: Renderer> {
+struct LayoutKind<R: Platform> {
     type_id: TypeId,
     layout: fn(&mut Frame<R>, NodeId, &mut R, DataId, Constraints) -> Size,
 }
 
-struct ClipKind<R: Renderer> {
+struct ClipKind<R: Platform> {
     type_id: TypeId,
     push: fn(&DataArena, DataId, &mut R, Rect),
     pop: fn(&DataArena, DataId, &mut R),
 }
 
-fn measure_leaf<R: Renderer, L: Leaf<R>>(
+fn measure_leaf<R: Platform, L: Leaf<R>>(
     data: &DataArena,
     id: DataId,
-    renderer: &mut R,
+    platform: &mut R,
     constraints: Constraints,
 ) -> Size {
-    data.load::<L>(id).measure(renderer, constraints)
+    data.load::<L>(id).measure(platform, constraints)
 }
 
-fn paint_leaf<R: Renderer, L: Leaf<R>>(data: &DataArena, id: DataId, renderer: &mut R, area: Rect) {
-    data.load::<L>(id).paint(renderer, area)
+fn paint_leaf<R: Platform, L: Leaf<R>>(data: &DataArena, id: DataId, platform: &mut R, area: Rect) {
+    data.load::<L>(id).paint(platform, area)
 }
 
-fn push_clip<R: Renderer, C: Clip<R>>(data: &DataArena, id: DataId, renderer: &mut R, area: Rect) {
-    data.load::<C>(id).push(renderer, area)
+fn push_clip<R: Platform, C: Clip<R>>(data: &DataArena, id: DataId, platform: &mut R, area: Rect) {
+    data.load::<C>(id).push(platform, area)
 }
 
-fn pop_clip<R: Renderer, C: Clip<R>>(data: &DataArena, id: DataId, renderer: &mut R) {
-    data.load::<C>(id).pop(renderer)
+fn pop_clip<R: Platform, C: Clip<R>>(data: &DataArena, id: DataId, platform: &mut R) {
+    data.load::<C>(id).pop(platform)
 }

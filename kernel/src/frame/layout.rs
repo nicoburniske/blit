@@ -6,18 +6,18 @@ use crate::{
     frame::Sizing,
     geometry::{Constraints, Point, Sides, Size},
     layout::{Axis, Layout},
-    renderer::Renderer,
+    platform::Platform,
 };
 
-pub struct LayoutCx<'a, R: Renderer, I> {
+pub struct LayoutCx<'a, R: Platform, I> {
     frame: &'a mut Frame<R>,
-    renderer: &'a mut R,
+    platform: &'a mut R,
     node: NodeId,
     nodes: *const Node,
     item: PhantomData<fn() -> I>,
 }
 
-impl<'a, R: Renderer, I: Copy + 'static> LayoutCx<'a, R, I> {
+impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
     pub fn children(&self) -> Children<'a> {
         let node = self.frame.nodes[self.node.index()];
         Children {
@@ -36,18 +36,18 @@ impl<'a, R: Renderer, I: Copy + 'static> LayoutCx<'a, R, I> {
 
     pub fn measure_base(&mut self, constraints: Constraints) -> Size {
         self.frame
-            .measure_base(self.node, self.renderer, constraints)
+            .measure_base(self.node, self.platform, constraints)
     }
 
     pub fn layout_child(&mut self, child: NodeId, constraints: Constraints) -> Size {
         self.assert_child(child);
-        self.frame.layout_node(child, self.renderer, constraints)
+        self.frame.layout_node(child, self.platform, constraints)
     }
 
     pub fn constrain_child(&mut self, child: NodeId, constraints: Constraints) -> Size {
         // todo: reuse measured sizes for constraint-independent leaves
         self.assert_child(child);
-        self.frame.layout_node(child, self.renderer, constraints)
+        self.frame.layout_node(child, self.platform, constraints)
     }
 
     pub fn size(&self, child: NodeId) -> Size {
@@ -143,19 +143,19 @@ impl Iterator for Children<'_> {
     }
 }
 
-pub fn run<R: Renderer, L: Layout<R>>(
+pub fn run<R: Platform, L: Layout<R>>(
     frame: &mut Frame<R>,
     node: NodeId,
-    renderer: &mut R,
+    platform: &mut R,
     id: DataId,
     constraints: Constraints,
 ) -> Size {
     let layout = frame.data.load::<L>(id);
     let nodes = frame.nodes.as_ptr();
     layout.layout(
-        LayoutCx {
+        &mut LayoutCx {
             frame,
-            renderer,
+            platform,
             node,
             nodes,
             item: PhantomData,

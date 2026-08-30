@@ -2,14 +2,14 @@ use crate::{
     geometry::{Point, Rect},
     input::{Input, PointerButton},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
-    renderer::Renderer,
+    platform::Platform,
 };
 
 use super::Frame;
 
 const DRAG_THRESHOLD: f32 = 6.0;
 
-pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &R) {
+pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &R) {
     frame.interaction.sort_requests();
     if !frame.paint_order.is_empty() {
         frame
@@ -40,7 +40,7 @@ pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &R) {
         // todo: test interaction against the actual custom clip chain
         frame
             .interaction
-            .register(id, renderer.interaction_area(area, clip_bounds));
+            .register(id, platform.interaction_area(area, clip_bounds));
     }
     if frame.interaction.end() {
         frame.frame_requested = true;

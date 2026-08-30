@@ -1,10 +1,10 @@
 use std::ops::Range;
 
-use blit::{
+use crate::{
     color::Color,
-    geometry::PhysicalRect,
     image::{ImageData, ImageFormat, ImageId, ImageRequest, ImageSampling, ImageTiling},
 };
+use blit::PhysicalRect;
 
 use crate::{Pixel, PremultipliedRgbaColor, Rgb8Pixel};
 

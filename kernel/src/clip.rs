@@ -1,7 +1,7 @@
-use crate::{geometry::Rect, renderer::Renderer};
+use crate::{geometry::Rect, platform::Platform};
 
-pub trait Clip<R: Renderer>: Copy + 'static {
-    fn push(&self, renderer: &mut R, area: Rect);
+pub trait Clip<R: Platform>: Copy + 'static {
+    fn push(&self, platform: &mut R, area: Rect);
 
-    fn pop(&self, renderer: &mut R);
+    fn pop(&self, platform: &mut R);
 }

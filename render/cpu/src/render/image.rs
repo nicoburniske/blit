@@ -1,7 +1,5 @@
-use blit::{
-    geometry::{PhysicalRect, Scale2},
-    image::{ImageData, ImageFit, ImageRequest, ImageTiling},
-};
+use crate::image::{ImageData, ImageFit, ImageRequest, ImageTiling};
+use blit::{PhysicalRect, Scale2};
 
 use super::image_patch::{Patch, Prepared};
 
@@ -168,16 +166,16 @@ fn fit_borders(first: i32, second: i32, available: i32) -> (i32, i32) {
 
 #[cfg(test)]
 mod tests {
-    use blit::{
+    use super::*;
+    use crate::{
+        PixelBuffer, VecBuffer, Xrgb8888,
         color::Color,
-        geometry::LogicalRect,
         image::{
             ImageFit, ImageFormat, ImageId, ImagePixels, ImageSampling, ImageTiling, NineSlice,
         },
+        render::image_patch::AlphaRows,
     };
-
-    use super::*;
-    use crate::{PixelBuffer, VecBuffer, Xrgb8888, render::image_patch::AlphaRows};
+    use blit::LogicalRect;
 
     fn draw<B: PixelBuffer>(
         buffer: &mut B,

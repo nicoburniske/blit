@@ -66,6 +66,7 @@ impl<T: 'static> Root<T> {
 pub struct AppMut<A: 'static> {
     executor: NonNull<ExecutorCore>,
     app: NonNull<A>,
+    #[allow(clippy::type_complexity)]
     local: PhantomData<(Rc<()>, fn(&mut A))>,
 }
 

@@ -3,14 +3,13 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering::Relaxed},
 };
 
-use blit::{
+use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit_cpu::{
+    Font, FontFace, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888,
     color::Color,
     command_list::{ClipId, CommandList, Rectangle},
-    geometry::{LogicalRect, PhysicalRect, Scale2},
-    renderer::Renderer as _,
-    text::FontId,
+    text_types::FontId,
 };
-use blit_cpu::{Font, FontFace, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888};
 
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
 static GROSS: AtomicUsize = AtomicUsize::new(0);

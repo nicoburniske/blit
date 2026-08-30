@@ -1,23 +1,27 @@
 #![feature(portable_simd)]
 
+pub mod color;
+pub mod command_list;
+pub mod image;
 mod pixel;
 pub mod render;
 mod strategy;
+pub mod style;
 mod text;
+pub mod text_types;
 
-use blit::{
+use crate::{
     command_list::{BoxShadow, Command, CommandList as ResolvedCommandList, Rectangle},
-    geometry::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2},
     image::{ImageData, ImageHandle, ImageId, ImageRequest},
-    renderer::RenderGeometry,
     style::Border,
-    text::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    text_types::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
+use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
 pub use blit_font::Font;
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
-use render::{image, image_patch::AlphaRows, rectangle, shadow};
+use render::{image as render_image, image_patch::AlphaRows, rectangle, shadow};
 pub use strategy::{Direct, RenderStrategy, Scanline};
 use strategy::{
     clip::ClipStack,
@@ -129,7 +133,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             shadow::Prepared::Image(request) => {
                 let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
                 if let Some(texture) = self.context.images.get(image) {
-                    image::prepare(&request, &texture.data, bounds, 1.0, |image, bounds| {
+                    render_image::prepare(&request, &texture.data, bounds, 1.0, |image, bounds| {
                         self.context.commands.push_image(
                             image,
                             bounds,
@@ -146,7 +150,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     fn prepare_image(&mut self, request: &ImageRequest, bounds: PhysicalRect, clip: u32) {
         let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
         if let Some(texture) = self.context.images.get(image) {
-            image::prepare(
+            render_image::prepare(
                 request,
                 &texture.data,
                 bounds,
@@ -246,17 +250,17 @@ impl StoredImage {
             })
         };
         let (alpha_rows, opaque) = match data.format {
-            blit::image::ImageFormat::Rgb8 | blit::image::ImageFormat::Luma8 => {
+            crate::image::ImageFormat::Rgb8 | crate::image::ImageFormat::Luma8 => {
                 (AlphaRows::default(), true)
             }
-            blit::image::ImageFormat::Rgba8 => (AlphaRows::default(), rgba_opaque()),
-            blit::image::ImageFormat::Rgba8Premultiplied if rgba_opaque() => {
+            crate::image::ImageFormat::Rgba8 => (AlphaRows::default(), rgba_opaque()),
+            crate::image::ImageFormat::Rgba8Premultiplied if rgba_opaque() => {
                 (AlphaRows::default(), true)
             }
-            blit::image::ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => {
+            crate::image::ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => {
                 (AlphaRows::default(), false)
             }
-            blit::image::ImageFormat::Rgba8Premultiplied => {
+            crate::image::ImageFormat::Rgba8Premultiplied => {
                 let mut rows = Vec::with_capacity(height * 4);
                 for y in 0..height {
                     let row = &bytes[y * data.stride_bytes..][..width * 4];
@@ -295,7 +299,7 @@ impl StoredImage {
                 }
                 (AlphaRows(rows.into_boxed_slice()), false)
             }
-            blit::image::ImageFormat::Alpha8(_)
+            crate::image::ImageFormat::Alpha8(_)
                 if (0..height).all(|line| {
                     bytes[line * data.stride_bytes..][..width]
                         .iter()
@@ -304,10 +308,10 @@ impl StoredImage {
             {
                 (AlphaRows::default(), true)
             }
-            blit::image::ImageFormat::Alpha8(_) if width > u16::MAX as usize => {
+            crate::image::ImageFormat::Alpha8(_) if width > u16::MAX as usize => {
                 (AlphaRows::default(), false)
             }
-            blit::image::ImageFormat::Alpha8(_) => {
+            crate::image::ImageFormat::Alpha8(_) => {
                 let mut rows = Vec::with_capacity(height * 2);
                 for y in 0..height {
                     let row = &bytes[y * data.stride_bytes..][..width];
@@ -344,25 +348,17 @@ impl<B: PixelBuffer> RenderContext<B> {
     }
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>> blit::renderer::Renderer for Renderer<B, S> {
-    fn geometry(&self) -> RenderGeometry {
-        RenderGeometry {
-            physical_bounds: self.screen(),
-            physical_per_logical: Scale2 {
-                x: self.context.device_scale,
-                y: self.context.device_scale,
-            },
-            layout_resolution: blit::layout::LayoutResolution::Continuous,
-            supports_zoom: true,
-        }
+impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
+    pub fn device_scale(&self) -> f32 {
+        self.context.device_scale
     }
 
-    fn set_scale(&mut self, scale: Scale2) {
+    pub fn set_scale(&mut self, scale: Scale2) {
         assert_eq!(scale.x, scale.y, "CPU rendering requires uniform scale");
         self.context.scale_factor = scale.x;
     }
 
-    fn render(&mut self, commands: &ResolvedCommandList, damage: &[PhysicalRect]) {
+    pub fn render(&mut self, commands: &ResolvedCommandList, damage: &[PhysicalRect]) {
         assert!(self.context.commands.is_empty());
         if !damage.is_empty() {
             for clip in commands.clips() {
@@ -403,29 +399,33 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> blit::renderer::Renderer for Renderer
         self.context.finish_frame();
     }
 
-    fn create_image(&mut self, data: ImageData) -> ImageHandle {
+    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
         StoredImage::insert(&mut self.context.images, data)
     }
 
-    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
         self.context
             .text
             .text_run(text, style, self.context.scale_factor)
     }
 
-    fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
+    pub fn text_offset_at_position(
+        &mut self,
+        request: &TextRequest,
+        position: LogicalPoint,
+    ) -> usize {
         self.context
             .text
             .offset_at_position(request, position, self.context.scale_factor)
     }
 
-    fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
+    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
         self.context
             .text
             .measure(request, self.context.scale_factor)
     }
 
-    fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
+    pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
         self.context
             .text
             .cursor_rect(request, byte_offset, self.context.scale_factor)

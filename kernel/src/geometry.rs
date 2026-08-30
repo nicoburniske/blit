@@ -1,3 +1,7 @@
+pub type LogicalPoint = Point;
+pub type LogicalRect = Rect;
+pub type LogicalSize = Size;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Point {
     pub x: f32,
@@ -71,6 +75,120 @@ impl Rect {
         let right = (self.x + self.width).min(other.x + other.width);
         let bottom = (self.y + self.height).min(other.y + other.height);
         (right > x && bottom > y).then_some(Self::new(x, y, right - x, bottom - y))
+    }
+
+    pub fn to_physical(self, scale: Scale2) -> PhysicalRect {
+        let x = (self.x * scale.x).floor() as i32;
+        let y = (self.y * scale.y).floor() as i32;
+        let right = ((self.x + self.width) * scale.x).ceil() as i32;
+        let bottom = ((self.y + self.height) * scale.y).ceil() as i32;
+        PhysicalRect {
+            x,
+            y,
+            width: right.saturating_sub(x),
+            height: bottom.saturating_sub(y),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PhysicalPoint {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PhysicalSize {
+    pub width: i32,
+    pub height: i32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PhysicalRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+impl PhysicalRect {
+    pub fn to_logical(self, scale: Scale2) -> Rect {
+        Rect {
+            x: self.x as f32 / scale.x,
+            y: self.y as f32 / scale.y,
+            width: self.width as f32 / scale.x,
+            height: self.height as f32 / scale.y,
+        }
+    }
+
+    pub fn contains(self, x: i32, y: i32) -> bool {
+        x >= self.x
+            && y >= self.y
+            && x < self.x.saturating_add(self.width)
+            && y < self.y.saturating_add(self.height)
+    }
+
+    pub fn intersection(self, other: Self) -> Option<Self> {
+        let x = self.x.max(other.x);
+        let y = self.y.max(other.y);
+        let right = self
+            .x
+            .saturating_add(self.width)
+            .min(other.x.saturating_add(other.width));
+        let bottom = self
+            .y
+            .saturating_add(self.height)
+            .min(other.y.saturating_add(other.height));
+        (right > x && bottom > y).then_some(Self {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+        })
+    }
+
+    pub fn touches(self, other: Self) -> bool {
+        self.x <= other.x.saturating_add(other.width)
+            && other.x <= self.x.saturating_add(self.width)
+            && self.y <= other.y.saturating_add(other.height)
+            && other.y <= self.y.saturating_add(self.height)
+    }
+
+    pub fn union(self, other: Self) -> Self {
+        let x = self.x.min(other.x);
+        let y = self.y.min(other.y);
+        Self {
+            x,
+            y,
+            width: self
+                .x
+                .saturating_add(self.width)
+                .max(other.x.saturating_add(other.width))
+                - x,
+            height: self
+                .y
+                .saturating_add(self.height)
+                .max(other.y.saturating_add(other.height))
+                - y,
+        }
+    }
+
+    pub fn area(self) -> i64 {
+        self.width as i64 * self.height as i64
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Scale2 {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Scale2 {
+    pub const IDENTITY: Self = Self { x: 1.0, y: 1.0 };
+
+    pub const fn uniform(scale: f32) -> Self {
+        Self { x: scale, y: scale }
     }
 }
 

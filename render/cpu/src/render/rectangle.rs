@@ -1,10 +1,10 @@
 use std::ops::Range;
 
-use blit::{
+use crate::{
     command_list::Rectangle,
-    geometry::{PhysicalRect, Scale2},
     style::{Border, GradientStop, LinearGradient},
 };
+use blit::{PhysicalRect, Scale2};
 
 use super::rounded::{
     Radii, RoundedGradient, RoundedLine, RoundedRectangle, draw_gradient_line, draw_line,
@@ -30,7 +30,7 @@ impl Prepared {
         }
         let (width, color) = match rectangle.border {
             Border::Solid { width, color } => (width, color),
-            Border::None | Border::Gradient { .. } => (0.0, blit::color::Color::TRANSPARENT),
+            Border::None | Border::Gradient { .. } => (0.0, crate::color::Color::TRANSPARENT),
         };
         let mut border_width = (width * scale_factor).round().max(0.0) as i32;
         let opacity = (rectangle.opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -403,7 +403,7 @@ impl<'a> GradientSampler<'a> {
 }
 
 fn prepare_border_color(
-    color: blit::color::Color,
+    color: crate::color::Color,
     opacity: u8,
     inner: PremultipliedRgbaColor,
 ) -> PremultipliedRgbaColor {

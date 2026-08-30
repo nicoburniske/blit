@@ -6,10 +6,10 @@ use crate::{
     geometry::{Rect, Size},
     interact::WidgetId,
     layout::Axis,
-    renderer::Renderer,
+    platform::Platform,
 };
 
-pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, size: Size) {
+pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &mut R, size: Size) {
     for index in 0..frame.geometry.len() {
         let record = frame.geometry[index];
         let (Some(id), Some(config)) = (record.id, record.transition) else {
@@ -26,7 +26,7 @@ pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, size: Size) 
         }
     }
 
-    position::layout(frame, renderer, size);
+    position::layout(frame, platform, size);
     let mut active = TransitionProperties::NONE;
     for index in 0..frame.transitions.len() {
         if !frame.transitions[index].seen {
@@ -55,7 +55,7 @@ pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &mut R, size: Size) 
                     .sizing(Axis::Vertical, Sizing::fixed(state.current.height));
             }
         }
-        position::layout(frame, renderer, size);
+        position::layout(frame, platform, size);
     }
 
     if active.intersects(TransitionProperties::POSITION) {
