@@ -1,22 +1,6 @@
-//! box styling and clipping
+//! CPU rectangle styling
 
 use crate::color::Color;
-
-blit::builder! {
-    /// paint emitted for a node's resolved bounds
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Style<'a> {
-        new(),
-        @optional {
-            shadow: Shadow,
-            inset_shadow: Shadow,
-        },
-        background: Color = Color::TRANSPARENT,
-        border: Border<'a> = Border::None,
-        radius: BorderRadius = BorderRadius::default(),
-        opacity: f32 = 1.0,
-    }
-}
 
 blit::builder! {
     /// box shadow relative to a node's resolved bounds
@@ -28,15 +12,6 @@ blit::builder! {
         blur: f32 = 0.0,
         spread: f32 = 0.0,
     }
-}
-
-/// clipping applied to a node's descendants
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum Clip {
-    #[default]
-    None,
-    Bounds,
-    Rounded(BorderRadius),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -90,28 +65,6 @@ pub struct GradientStop {
 impl GradientStop {
     pub const fn new(position: f32, color: Color) -> Self {
         Self { position, color }
-    }
-}
-
-impl<'a> Style<'a> {
-    pub const fn uniform_radius(mut self, radius: f32) -> Self {
-        self.radius = BorderRadius {
-            top_left: radius,
-            top_right: radius,
-            bottom_right: radius,
-            bottom_left: radius,
-        };
-        self
-    }
-
-    pub const fn solid_border(mut self, width: f32, color: Color) -> Self {
-        self.border = Border::Solid { width, color };
-        self
-    }
-
-    pub const fn gradient_border(mut self, width: f32, gradient: LinearGradient<'a>) -> Self {
-        self.border = Border::Gradient { width, gradient };
-        self
     }
 }
 

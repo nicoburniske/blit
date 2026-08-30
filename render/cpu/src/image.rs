@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use crate::color::Color;
-use blit::geometry::{LogicalRect, LogicalSize, PhysicalRect, PhysicalSize};
+use blit::geometry::{LogicalRect, PhysicalRect, PhysicalSize};
 
 #[derive(Clone, Debug)]
 pub struct ImageHandle(Rc<ImageInner>);
@@ -126,20 +126,6 @@ impl ImageFormat {
 pub struct ImageRequest {
     pub image: ImageId,
     pub area: LogicalRect,
-    pub fit: ImageFit,
-    pub sampling: ImageSampling,
-    pub opacity: f32,
-    pub colorize: Option<Color>,
-    pub nine_slice: Option<NineSlice>,
-    pub horizontal_tiling: ImageTiling,
-    pub vertical_tiling: ImageTiling,
-}
-
-/// frame-local image content and its intrinsic size
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ImageContent {
-    pub image: ImageId,
-    pub intrinsic: LogicalSize,
     pub fit: ImageFit,
     pub sampling: ImageSampling,
     pub opacity: f32,
