@@ -61,17 +61,17 @@ fn lays_out_and_paints_external_leaves() {
 }
 
 #[test]
-fn leaf_scope_measures_and_paints_in_order() {
+fn layout_surfaces_measure_and_paint_in_order() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
 
     frame.render(&mut platform, FrameInfo::new(Size::new(5.0, 4.0)), |ui| {
         let mut root = ui.layout(Overlay);
         root.add(|ui: &mut Ui| {
-            let mut leaves = ui.leaves();
-            leaves.add(Fill::new('A', Size::new(3.0, 1.0)));
-            leaves.add(Fill::new('B', Size::new(1.0, 2.0)));
-            leaves.node()
+            ui.layout(BaseOnly)
+                .surface(Fill::new('A', Size::new(3.0, 1.0)))
+                .surface(Fill::new('B', Size::new(1.0, 2.0)))
+                .node()
         });
     });
 
@@ -88,7 +88,8 @@ fn resolves_absolute_targets_and_layer_order() {
         let target = overlay.add(Fill::new('T', Size::new(2.0, 2.0)));
         overlay.add(|ui: &mut Ui| {
             let _absolute = ui
-                .layout_with(Fill::new('A', Size::new(1.0, 1.0)), Overlay)
+                .layout(Overlay)
+                .surface(Fill::new('A', Size::new(1.0, 1.0)))
                 .absolute(
                     Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target),
                 );
@@ -126,7 +127,8 @@ fn resolves_absolute_targets_and_layer_order() {
         let layer = root.new_layer();
         root.add(|ui: &mut Ui| {
             let mut panel = ui
-                .layout_with(Fill::new('p', Size::new(3.0, 3.0)), BaseOnly)
+                .layout(BaseOnly)
+                .surface(Fill::new('p', Size::new(3.0, 3.0)))
                 .clip(DiamondClip);
             panel
                 .child()
@@ -140,7 +142,8 @@ fn resolves_absolute_targets_and_layer_order() {
         let mut root = ui.layout(Overlay);
         root.add(|ui: &mut Ui| {
             let mut panel = ui
-                .layout_with(Fill::new('p', Size::new(3.0, 3.0)), BaseOnly)
+                .layout(BaseOnly)
+                .surface(Fill::new('p', Size::new(3.0, 3.0)))
                 .clip(DiamondClip);
             let layer = panel.new_layer();
             panel
@@ -314,7 +317,8 @@ fn absolute_slots_resolve_against_the_target() {
             )
             .add(|ui: &mut Ui| {
                 let _absolute = ui
-                    .layout_with(Fill::new('A', Size::new(1.0, 1.0)), Overlay)
+                    .layout(Overlay)
+                    .surface(Fill::new('A', Size::new(1.0, 1.0)))
                     .absolute(
                         Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target),
                     )
@@ -451,7 +455,8 @@ fn transition_scene(
                 .item(ColumnItem { gap_before: 0.0 })
                 .add(|ui: &mut Ui| {
                     let _child = ui
-                        .layout_with(Fill::new('X', Size::new(width, 1.0)), Overlay)
+                        .layout(Overlay)
+                        .surface(Fill::new('X', Size::new(width, 1.0)))
                         .id(id)
                         .transition(Transition::new(Duration::from_secs(1)).width());
                 });
@@ -473,7 +478,8 @@ fn unidentified_transition_scene(
             let mut overlay = ui.layout(Overlay);
             overlay.add(|ui: &mut Ui| {
                 let _child = ui
-                    .layout_with(Fill::new('X', Size::new(width, 1.0)), Overlay)
+                    .layout(Overlay)
+                    .surface(Fill::new('X', Size::new(width, 1.0)))
                     .transition(Transition::new(Duration::from_secs(1)).width());
             });
         },
@@ -498,7 +504,8 @@ fn position_transition_scene(
                 .item(ColumnItem { gap_before: gap })
                 .add(|ui: &mut Ui| {
                     let _child = ui
-                        .layout_with(Fill::new('X', Size::new(1.0, 1.0)), Overlay)
+                        .layout(Overlay)
+                        .surface(Fill::new('X', Size::new(1.0, 1.0)))
                         .id(id)
                         .transition(Transition::new(Duration::from_secs(1)).y());
                 });
@@ -511,7 +518,8 @@ fn clipped_button(ui: &mut Ui, id: WidgetId) -> Interaction {
     let mut root = ui.layout(Overlay);
     root.add(|ui: &mut Ui| {
         let mut panel = ui
-            .layout_with(Fill::new('P', Size::new(3.0, 1.0)), BaseOnly)
+            .layout(BaseOnly)
+            .surface(Fill::new('P', Size::new(3.0, 1.0)))
             .clip(DiamondClip);
         panel
             .child()
@@ -530,7 +538,8 @@ fn scene(ui: &mut Ui) {
         .item(ColumnItem { gap_before: 1.0 })
         .add(|ui: &mut Ui| {
             let mut panel = ui
-                .layout_with(Fill::new('b', Size::new(5.0, 3.0)), Overlay)
+                .layout(Overlay)
+                .surface(Fill::new('b', Size::new(5.0, 3.0)))
                 .clip(DiamondClip);
             panel.add(Fill::new('C', Size::new(1.0, 1.0)));
         });

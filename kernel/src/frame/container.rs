@@ -256,6 +256,14 @@ impl<'ui, R: Platform, L: Layout<R>> Container<'ui, R, L> {
         self
     }
 
+    pub fn surface<W>(self, surface: W) -> Self
+    where
+        W: Widget<R, Response = NodeId>,
+    {
+        self.ui.build_at(self.node, surface);
+        self
+    }
+
     pub fn transition(self, transition: Transition) -> Self {
         self.ui.frame_mut().set_transition(self.node, transition);
         self
@@ -327,19 +335,6 @@ where
     {
         self.child().layout(layout, children)
     }
-
-    pub fn layout_with<B, N, O>(
-        &mut self,
-        base: B,
-        layout: N,
-        children: impl FnOnce(Container<'_, R, N>) -> O,
-    ) -> O
-    where
-        B: Widget<R, Response = NodeId>,
-        N: Layout<R>,
-    {
-        self.child().layout_with(base, layout, children)
-    }
 }
 
 pub struct ChildCx<'child, 'ui, R, L>
@@ -373,19 +368,6 @@ impl<R: Platform, L: Layout<R>> ChildCx<'_, '_, R, L> {
         N: Layout<R>,
     {
         self.add(|ui: &mut Ui<R>| children(ui.layout(layout)))
-    }
-
-    pub fn layout_with<B, N, O>(
-        self,
-        base: B,
-        layout: N,
-        children: impl FnOnce(Container<'_, R, N>) -> O,
-    ) -> O
-    where
-        B: Widget<R, Response = NodeId>,
-        N: Layout<R>,
-    {
-        self.add(|ui: &mut Ui<R>| children(ui.layout_with(base, layout)))
     }
 }
 

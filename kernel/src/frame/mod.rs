@@ -24,6 +24,7 @@ use crate::{
 pub struct Ui<R: Platform> {
     frame: NonNull<Frame<R>>,
     platform: NonNull<R>,
+    mount: Option<NodeId>,
 }
 
 impl<R: Platform> Ui<R> {
@@ -32,7 +33,11 @@ impl<R: Platform> Ui<R> {
     }
 
     pub fn leaves(&mut self) -> Leaves<'_, R> {
-        let node = self.frame_mut().push_node(None);
+        let node = if let Some(node) = self.mount.take() {
+            node
+        } else {
+            self.frame_mut().push_node(None)
+        };
         Leaves { ui: self, node }
     }
 
@@ -40,32 +45,6 @@ impl<R: Platform> Ui<R> {
         let frame = self.frame_mut();
         let layout = frame.store_layout(layout);
         let node = frame.push_node(Some(layout));
-        container::new(self, node)
-    }
-
-    pub fn layout_with<B, L>(&mut self, base: B, layout: L) -> Container<'_, R, L>
-    where
-        B: Widget<R, Response = NodeId>,
-        L: Layout<R>,
-    {
-        let start = self.frame().nodes.len();
-        let node = self.add(base);
-        let frame = self.frame_mut();
-        assert_eq!(node.index(), start, "layout base returned the wrong node");
-        assert_eq!(
-            frame.nodes.len(),
-            start + 1,
-            "layout base must add exactly one node"
-        );
-        assert!(
-            frame.nodes[start].first_leaf.index().is_some(),
-            "layout base did not add a leaf"
-        );
-        assert!(
-            frame.nodes[start].layout.index().is_none(),
-            "layout base already has a layout"
-        );
-        frame.nodes[start].layout = frame.store_layout(layout);
         container::new(self, node)
     }
 
@@ -183,6 +162,20 @@ impl<R: Platform> Ui<R> {
 
     pub fn request_frame(&mut self) {
         self.frame_mut().request_frame();
+    }
+
+    pub(super) fn build_at<W>(&mut self, node: NodeId, widget: W) -> NodeId
+    where
+        W: Widget<R, Response = NodeId>,
+    {
+        assert!(self.mount.is_none(), "already mounting a surface");
+        let nodes = self.frame().nodes.len();
+        self.mount = Some(node);
+        let result = widget.build(self);
+        assert!(self.mount.is_none(), "surface did not add leaves");
+        assert_eq!(self.frame().nodes.len(), nodes, "surface added a node");
+        assert_eq!(result, node, "surface returned the wrong node");
+        result
     }
 }
 

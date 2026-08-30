@@ -61,10 +61,9 @@ impl Application for App {
     fn render(&mut self, ui: &mut Ui) {
         let screen = ui.screen();
         let unit = Size::new(8.0, 8.0);
-        let mut root = ui.layout_with(
-            Rectangle::new().background(colors::BACKGROUND),
-            Flex::column().padding(Sides::all(20.0)).gap(14.0),
-        );
+        let mut root = ui
+            .layout(Flex::column().padding(Sides::all(20.0)).gap(14.0))
+            .surface(Rectangle::new().background(colors::BACKGROUND));
         root.child()
             .slot(Slot::new().height(Sizing::fixed(52.0)))
             .add(|ui: &mut Ui| {
@@ -112,10 +111,9 @@ impl Application for App {
                         .height(Sizing::grow()),
                 )
                 .add(|ui: &mut Ui| {
-                    let mut controls = ui.layout_with(
-                        panel(colors::SURFACE),
-                        Flex::column().padding(Sides::all(14.0)).gap(7.0),
-                    );
+                    let mut controls = ui
+                        .layout(Flex::column().padding(Sides::all(14.0)).gap(7.0))
+                        .surface(panel(colors::SURFACE));
                     controls.add(
                         Text::new("LAYOUT PARAMETERS")
                             .style(TextStyle {
@@ -249,10 +247,9 @@ impl Application for App {
                     );
                 });
             body.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
-                let mut preview = ui.layout_with(
-                    panel(colors::SURFACE),
-                    Flex::column().padding(Sides::all(12.0)).gap(8.0),
-                );
+                let mut preview = ui
+                    .layout(Flex::column().padding(Sides::all(12.0)).gap(8.0))
+                    .surface(panel(colors::SURFACE));
                 preview.child()
                     .slot(Slot::new().height(Sizing::fixed(22.0)))
                     .add(
@@ -264,12 +261,13 @@ impl Application for App {
                             .color(colors::ACCENT),
                     );
                 preview.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
-                    let mut viewport = ui.layout_with(
-                        Rectangle::new()
-                            .background(colors::TRACK)
-                            .radius(BorderRadius::uniform(8.0)),
-                        Flex::row().padding(Sides::all(10.0)).align(Align::Start),
-                    );
+                    let mut viewport = ui
+                        .layout(Flex::row().padding(Sides::all(10.0)).align(Align::Start))
+                        .surface(
+                            Rectangle::new()
+                                .background(colors::TRACK)
+                                .radius(BorderRadius::uniform(8.0)),
+                        );
                     viewport.add(
                         Resizable::new(
                                 &mut self.resize,
@@ -321,15 +319,17 @@ impl Widget<DesktopPlatform> for &mut FpsBadge {
             let _ = write!(self.label, "FPS {fps:03.0}");
         }
         let mut badge = ui
-            .layout_with(
-                Rectangle::new()
-                    .background(colors::SURFACE_HIGH)
-                    .border(Border::solid(1.0, colors::ACCENT))
-                    .radius(BorderRadius::uniform(7.0)),
+            .layout(
                 Flex::row()
                     .padding(Sides::new().top(6.0).right(10.0).bottom(6.0).left(10.0))
                     .gap(6.0)
                     .align(Align::Center),
+            )
+            .surface(
+                Rectangle::new()
+                    .background(colors::SURFACE_HIGH)
+                    .border(Border::solid(1.0, colors::ACCENT))
+                    .radius(BorderRadius::uniform(7.0)),
             )
             .absolute(
                 Absolute::screen(0.0, 0.0)
@@ -433,12 +433,12 @@ impl Widget<DesktopPlatform> for Button<'_> {
             colors::BORDER
         };
         let mut button = ui
-            .layout_with(
+            .layout(Flex::row().padding(Sides::new().top(5.0).right(8.0).bottom(5.0).left(8.0)))
+            .surface(
                 Rectangle::new()
                     .background(background)
                     .border(Border::solid(1.0, border))
                     .radius(BorderRadius::uniform(5.0)),
-                Flex::row().padding(Sides::new().top(5.0).right(8.0).bottom(5.0).left(8.0)),
             )
             .id(self.id);
         button.add(
@@ -503,14 +503,14 @@ impl Widget<DesktopPlatform> for Canvas {
         match self.config.layout {
             CanvasLayout::Flex => {
                 let mut canvas = ui
-                    .layout_with(
-                        background,
+                    .layout(
                         Flex::new(self.config.axis)
                             .padding(self.config.padding(self.unit))
                             .gap(self.config.gap(self.config.axis, self.unit))
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
+                    .surface(background)
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
@@ -528,8 +528,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     Axis::Vertical => Axis::Horizontal,
                 };
                 let mut canvas = ui
-                    .layout_with(
-                        background,
+                    .layout(
                         Wrap::new(self.config.axis)
                             .padding(self.config.padding(self.unit))
                             .item_gap(self.config.gap(self.config.axis, self.unit))
@@ -537,6 +536,7 @@ impl Widget<DesktopPlatform> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
+                    .surface(background)
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
@@ -555,7 +555,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     .column_gap(self.config.gap(Axis::Horizontal, self.unit))
                     .row_gap(self.config.gap(Axis::Vertical, self.unit));
                 let mut placer = grid.placer();
-                let mut canvas = ui.layout_with(background, grid).clip(BoundsClip);
+                let mut canvas = ui.layout(grid).surface(background).clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
@@ -581,14 +581,17 @@ fn canvas_item(
     badges: blit::LayerId,
     config: CanvasConfig,
 ) {
-    let item = ui.layout_with(
-        Rectangle::new()
-            .background(colors::ITEMS[index])
-            .radius(BorderRadius::uniform(5.0)),
-        Flex::column()
-            .align(Align::Center)
-            .justify(blit_desktop::layout::Justify::Center),
-    );
+    let item = ui
+        .layout(
+            Flex::column()
+                .align(Align::Center)
+                .justify(blit_desktop::layout::Justify::Center),
+        )
+        .surface(
+            Rectangle::new()
+                .background(colors::ITEMS[index])
+                .radius(BorderRadius::uniform(5.0)),
+        );
     let mut item = if config.transitions {
         item.id(WidgetId::new(("canvas item", index))).transition(
             Transition::new(Duration::from_millis(320))
@@ -616,14 +619,16 @@ fn canvas_item(
             )
             .add(|ui: &mut Ui| {
                 let mut badge = ui
-                    .layout_with(
+                    .layout(
+                        Flex::row()
+                            .align(Align::Center)
+                            .justify(blit_desktop::layout::Justify::Center),
+                    )
+                    .surface(
                         Rectangle::new()
                             .background(colors::BACKGROUND)
                             .border(Border::solid(1.0, Color::WHITE))
                             .radius(BorderRadius::uniform(4.0)),
-                        Flex::row()
-                            .align(Align::Center)
-                            .justify(blit_desktop::layout::Justify::Center),
                     )
                     .absolute(Absolute::attach(anchor, Anchor::Center));
                 badge.add(
