@@ -136,6 +136,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "blit-kernel"
+version = "0.1.0"
+
+[[package]]
 name = "blit-showcase"
 version = "0.1.0"
 dependencies = [
