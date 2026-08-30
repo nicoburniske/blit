@@ -4,8 +4,8 @@ use blit_term::{
     text::{Span, TextAttributes, TextOptions},
 };
 
-use super::{TerminalPlatform, draw::TextRun};
-use crate::Ui;
+use super::{TerminalPlatform, draw::TextAtom};
+use crate::NodeCx;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -33,14 +33,14 @@ impl<'a> Text<'a> {
 impl Widget<TerminalPlatform> for Text<'_> {
     type Response = ();
 
-    fn build(self, ui: &mut Ui) {
+    fn build(self, mut cx: NodeCx<'_>) {
         let run = if let Some(spans) = self.spans {
-            ui.platform().rich_text(spans)
+            cx.platform().rich_text(spans)
         } else {
-            ui.platform().text_run(self.text)
+            cx.platform().text_run(self.text)
         };
-        ui.add(
-            TextRun::new(run)
+        cx.atom(
+            TextAtom::new(run)
                 .color(self.color)
                 .attributes(self.attributes)
                 .options(self.options),

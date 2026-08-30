@@ -183,7 +183,7 @@ mod tests {
     use blit_term::{RendererConfig, color::Color};
 
     #[test]
-    fn frame_records_and_renders_terminal_leaves() {
+    fn frame_records_and_renders_terminal_atoms() {
         let renderer = TerminalRenderer::new(RendererConfig::new().columns(4).rows(2));
         let mut platform = TerminalPlatform::new(renderer);
         let mut frame = Frame::default();

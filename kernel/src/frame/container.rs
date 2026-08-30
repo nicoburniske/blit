@@ -1,8 +1,8 @@
 use std::{marker::PhantomData, num::NonZeroU16};
 
-use super::{NodeId, Ui};
+use super::{NodeCx, NodeId, Ui};
 use crate::{
-    Clip, Leaf, Platform, Widget,
+    Clip, Platform, Widget,
     animation::Transition,
     geometry::{Point, Sides},
     interact::WidgetId,
@@ -183,31 +183,6 @@ impl Absolute {
     }
 }
 
-pub struct Leaves<'ui, R: Platform> {
-    pub(super) ui: &'ui mut Ui<R>,
-    pub(super) node: NodeId,
-}
-
-impl<R: Platform> Leaves<'_, R> {
-    pub fn add<L: Leaf<R>>(&mut self, leaf: L) -> &mut Self {
-        let frame = self.ui.frame_mut();
-        let leaf = frame.store_leaf(leaf);
-        frame.append_leaf(self.node, leaf);
-        self
-    }
-
-    pub fn node(&self) -> NodeId {
-        assert!(
-            self.ui.frame().nodes[self.node.index()]
-                .first_leaf
-                .index()
-                .is_some(),
-            "leaf scope is empty"
-        );
-        self.node
-    }
-}
-
 pub struct Container<'ui, R, L>
 where
     R: Platform,
@@ -260,7 +235,10 @@ impl<'ui, R: Platform, L: Layout<R>> Container<'ui, R, L> {
     where
         W: Widget<R, Response = NodeId>,
     {
-        self.ui.build_at(self.node, surface);
+        surface.build(NodeCx {
+            ui: self.ui,
+            node: self.node,
+        });
         self
     }
 
@@ -367,7 +345,7 @@ impl<R: Platform, L: Layout<R>> ChildCx<'_, '_, R, L> {
     where
         N: Layout<R>,
     {
-        self.add(|ui: &mut Ui<R>| children(ui.layout(layout)))
+        self.add(|cx: NodeCx<'_, R>| children(cx.layout(layout)))
     }
 }
 

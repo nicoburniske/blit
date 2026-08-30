@@ -1,12 +1,13 @@
 use std::time::Duration;
 
 use blit::{
-    Absolute, Anchor, Axis, Clip, Constraints, Easing, Frame, FrameInfo, Input, Interaction,
-    Layout, LayoutCx, LayoutResolution, Leaf, Modifiers, NodeId, Platform, Point, PointerButton,
-    Rect, Sense, Size, Sizing, Slot, Transition, Widget, WidgetId,
+    Absolute, Anchor, Atom, Axis, Clip, Constraints, Easing, Frame, FrameInfo, Input, Interaction,
+    Layout, LayoutCx, LayoutResolution, Modifiers, NodeId, Platform, Point, PointerButton, Rect,
+    Sense, Size, Sizing, Slot, Transition, Widget, WidgetId,
 };
 
 type Ui = blit::Ui<AsciiPlatform>;
+type NodeCx<'a> = blit::NodeCx<'a, AsciiPlatform>;
 
 #[test]
 fn animations_and_timers_schedule_frames() {
@@ -41,7 +42,7 @@ fn animations_and_timers_schedule_frames() {
 }
 
 #[test]
-fn lays_out_and_paints_external_leaves() {
+fn lays_out_and_paints_external_atoms() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
 
@@ -67,7 +68,7 @@ fn layout_surfaces_measure_and_paint_in_order() {
 
     frame.render(&mut platform, FrameInfo::new(Size::new(5.0, 4.0)), |ui| {
         let mut root = ui.layout(Overlay);
-        root.add(|ui: &mut Ui| {
+        root.add(|ui: NodeCx<'_>| {
             ui.layout(BaseOnly)
                 .surface(Fill::new('A', Size::new(3.0, 1.0)))
                 .surface(Fill::new('B', Size::new(1.0, 2.0)))
@@ -86,7 +87,7 @@ fn resolves_absolute_targets_and_layer_order() {
     frame.render(&mut platform, FrameInfo::new(Size::new(8.0, 5.0)), |ui| {
         let mut overlay = ui.layout(Overlay);
         let target = overlay.add(Fill::new('T', Size::new(2.0, 2.0)));
-        overlay.add(|ui: &mut Ui| {
+        overlay.add(|ui: NodeCx<'_>| {
             let _absolute = ui
                 .layout(Overlay)
                 .surface(Fill::new('A', Size::new(1.0, 1.0)))
@@ -125,7 +126,7 @@ fn resolves_absolute_targets_and_layer_order() {
     frame.render(&mut platform, FrameInfo::new(Size::new(3.0, 3.0)), |ui| {
         let mut root = ui.layout(Overlay);
         let layer = root.new_layer();
-        root.add(|ui: &mut Ui| {
+        root.add(|ui: NodeCx<'_>| {
             let mut panel = ui
                 .layout(BaseOnly)
                 .surface(Fill::new('p', Size::new(3.0, 3.0)))
@@ -140,7 +141,7 @@ fn resolves_absolute_targets_and_layer_order() {
 
     frame.render(&mut platform, FrameInfo::new(Size::new(3.0, 3.0)), |ui| {
         let mut root = ui.layout(Overlay);
-        root.add(|ui: &mut Ui| {
+        root.add(|ui: NodeCx<'_>| {
             let mut panel = ui
                 .layout(BaseOnly)
                 .surface(Fill::new('p', Size::new(3.0, 3.0)))
@@ -315,7 +316,7 @@ fn absolute_slots_resolve_against_the_target() {
                     .width(Sizing::percent(0.5))
                     .height(Sizing::grow()),
             )
-            .add(|ui: &mut Ui| {
+            .add(|ui: NodeCx<'_>| {
                 let _absolute = ui
                     .layout(Overlay)
                     .surface(Fill::new('A', Size::new(1.0, 1.0)))
@@ -453,7 +454,7 @@ fn transition_scene(
             let mut column = ui.layout(Column);
             column
                 .item(ColumnItem { gap_before: 0.0 })
-                .add(|ui: &mut Ui| {
+                .add(|ui: NodeCx<'_>| {
                     let _child = ui
                         .layout(Overlay)
                         .surface(Fill::new('X', Size::new(width, 1.0)))
@@ -476,7 +477,7 @@ fn unidentified_transition_scene(
         [Input::None],
         |ui| {
             let mut overlay = ui.layout(Overlay);
-            overlay.add(|ui: &mut Ui| {
+            overlay.add(|ui: NodeCx<'_>| {
                 let _child = ui
                     .layout(Overlay)
                     .surface(Fill::new('X', Size::new(width, 1.0)))
@@ -502,7 +503,7 @@ fn position_transition_scene(
             let mut column = ui.layout(Column).offset(Point::new(0.0, 1.0));
             column
                 .item(ColumnItem { gap_before: gap })
-                .add(|ui: &mut Ui| {
+                .add(|ui: NodeCx<'_>| {
                     let _child = ui
                         .layout(Overlay)
                         .surface(Fill::new('X', Size::new(1.0, 1.0)))
@@ -516,7 +517,7 @@ fn position_transition_scene(
 fn clipped_button(ui: &mut Ui, id: WidgetId) -> Interaction {
     let interaction = ui.interact(id, Sense::CLICK);
     let mut root = ui.layout(Overlay);
-    root.add(|ui: &mut Ui| {
+    root.add(|ui: NodeCx<'_>| {
         let mut panel = ui
             .layout(BaseOnly)
             .surface(Fill::new('P', Size::new(3.0, 1.0)))
@@ -536,7 +537,7 @@ fn scene(ui: &mut Ui) {
         .add(Fill::new('A', Size::new(3.0, 1.0)));
     column
         .item(ColumnItem { gap_before: 1.0 })
-        .add(|ui: &mut Ui| {
+        .add(|ui: NodeCx<'_>| {
             let mut panel = ui
                 .layout(Overlay)
                 .surface(Fill::new('b', Size::new(5.0, 3.0)))
@@ -560,14 +561,18 @@ impl Fill {
 impl Widget<AsciiPlatform> for Fill {
     type Response = NodeId;
 
-    fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.leaves().add(self).node()
+    fn build(self, mut cx: NodeCx<'_>) -> Self::Response {
+        cx.atom(FillAtom(self));
+        cx.node()
     }
 }
 
-impl Leaf<AsciiPlatform> for Fill {
+#[derive(Clone, Copy)]
+struct FillAtom(Fill);
+
+impl Atom<AsciiPlatform> for FillAtom {
     fn measure(&self, _: &mut AsciiPlatform, constraints: Constraints) -> Size {
-        constraints.constrain(self.size)
+        constraints.constrain(self.0.size)
     }
 
     fn paint(&self, platform: &mut AsciiPlatform, area: Rect) {
@@ -585,7 +590,7 @@ impl Leaf<AsciiPlatform> for Fill {
                 {
                     continue;
                 }
-                platform.cells[y * platform.width + x] = self.glyph;
+                platform.cells[y * platform.width + x] = self.0.glyph;
             }
         }
     }

@@ -1,4 +1,4 @@
-use blit::{Constraints, Leaf, LogicalRect, NodeId, Scale2, Size, Widget};
+use blit::{Atom, Constraints, LogicalRect, NodeId, Scale2, Size, Widget};
 use blit_term::{
     color::Color,
     command_list::{Block as DrawBlock, BlockTitle, BoxShadow as DrawShadow},
@@ -9,7 +9,7 @@ use blit_term::{
 pub use blit_term::command_list::{Border, BorderSides, BorderStyle, TitlePosition};
 
 use super::TerminalPlatform;
-use crate::Ui;
+use crate::NodeCx;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -46,30 +46,29 @@ blit::builder! {
 impl Widget<TerminalPlatform> for Block<'_> {
     type Response = NodeId;
 
-    fn build(self, ui: &mut Ui) -> Self::Response {
+    fn build(self, mut cx: NodeCx<'_>) -> Self::Response {
         let color = self
             .border
             .map(|border| border.color)
             .unwrap_or(Color::Reset);
         let titles = self.titles.map(|title| {
             title.map(|title| {
-                let text = ui.platform().text_run(title.text);
+                let text = cx.platform().text_run(title.text);
                 BlockTitle::new(text)
                     .color(title.color.unwrap_or(color))
                     .attributes(title.attributes)
                     .position(title.position)
             })
         });
-        let mut leaves = ui.leaves();
         if let Some(shadow) = self.shadow {
-            leaves.add(shadow);
+            cx.atom(ShadowAtom(shadow));
         }
-        leaves.add(ResolvedBlock {
+        cx.atom(ResolvedBlock {
             border: self.border,
             background: self.background,
             titles,
         });
-        leaves.node()
+        cx.node()
     }
 }
 
@@ -93,23 +92,27 @@ impl Shadow {
 impl Widget<TerminalPlatform> for Shadow {
     type Response = NodeId;
 
-    fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.leaves().add(self).node()
+    fn build(self, mut cx: NodeCx<'_>) -> Self::Response {
+        cx.atom(ShadowAtom(self));
+        cx.node()
     }
 }
 
-impl Leaf<TerminalPlatform> for Shadow {
+#[derive(Clone, Copy)]
+struct ShadowAtom(Shadow);
+
+impl Atom<TerminalPlatform> for ShadowAtom {
     fn measure(&self, _: &mut TerminalPlatform, _: Constraints) -> Size {
         Size::ZERO
     }
 
     fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
         let shifted = LogicalRect {
-            x: area.x + self.offset_x,
-            y: area.y + self.offset_y,
+            x: area.x + self.0.offset_x,
+            y: area.y + self.0.offset_y,
             ..area
         };
-        let shadow = DrawShadow::new(area, self.color).offset(self.offset_x, self.offset_y);
+        let shadow = DrawShadow::new(area, self.0.color).offset(self.0.offset_x, self.0.offset_y);
         let bounds = shifted.to_physical(Scale2::IDENTITY);
         let clip = platform.clip;
         platform.current.push_shadow(shadow, bounds, clip);
@@ -123,15 +126,7 @@ struct ResolvedBlock {
     titles: [Option<BlockTitle>; 6],
 }
 
-impl Widget<TerminalPlatform> for ResolvedBlock {
-    type Response = NodeId;
-
-    fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.leaves().add(self).node()
-    }
-}
-
-impl Leaf<TerminalPlatform> for ResolvedBlock {
+impl Atom<TerminalPlatform> for ResolvedBlock {
     fn measure(&self, _: &mut TerminalPlatform, constraints: Constraints) -> Size {
         constraints.constrain(Size::ZERO)
     }
@@ -153,7 +148,7 @@ impl Leaf<TerminalPlatform> for ResolvedBlock {
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct TextRun {
+    pub(crate) struct TextAtom {
         new(text: TextRunId),
         color: Color = Color::Reset,
         attributes: TextAttributes = TextAttributes::NONE,
@@ -161,15 +156,7 @@ blit::builder! {
     }
 }
 
-impl Widget<TerminalPlatform> for TextRun {
-    type Response = NodeId;
-
-    fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.leaves().add(self).node()
-    }
-}
-
-impl Leaf<TerminalPlatform> for TextRun {
+impl Atom<TerminalPlatform> for TextAtom {
     fn measure(&self, platform: &mut TerminalPlatform, constraints: Constraints) -> Size {
         let mut request = TextLayoutRequest::new(self.text).wrap(self.options.wrap);
         if self.options.wrap != TextWrap::None && constraints.max.width.is_finite() {
@@ -202,14 +189,18 @@ blit::builder! {
 impl Widget<TerminalPlatform> for Image {
     type Response = NodeId;
 
-    fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.leaves().add(self).node()
+    fn build(self, mut cx: NodeCx<'_>) -> Self::Response {
+        cx.atom(ImageAtom(self));
+        cx.node()
     }
 }
 
-impl Leaf<TerminalPlatform> for Image {
+#[derive(Clone, Copy)]
+struct ImageAtom(Image);
+
+impl Atom<TerminalPlatform> for ImageAtom {
     fn measure(&self, _: &mut TerminalPlatform, constraints: Constraints) -> Size {
-        constraints.constrain(self.intrinsic)
+        constraints.constrain(self.0.intrinsic)
     }
 
     fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
@@ -217,6 +208,6 @@ impl Leaf<TerminalPlatform> for Image {
         let clip = platform.clip;
         platform
             .current
-            .push_image(ImagePlacement::new(self.image, area), bounds, clip);
+            .push_image(ImagePlacement::new(self.0.image, area), bounds, clip);
     }
 }

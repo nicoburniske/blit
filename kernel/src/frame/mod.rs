@@ -1,4 +1,10 @@
-use std::{any::TypeId, mem::size_of, ptr::NonNull, time::Duration};
+use std::{
+    any::TypeId,
+    mem::size_of,
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+    time::Duration,
+};
 
 pub mod container;
 pub mod interaction;
@@ -7,12 +13,10 @@ pub mod paint;
 pub mod position;
 pub mod transition;
 
-pub use container::{
-    Absolute, Anchor, ChildCx, Container, LayerId, Leaves, PositionTarget, Sizing, Slot,
-};
+pub use container::{Absolute, Anchor, ChildCx, Container, LayerId, PositionTarget, Sizing, Slot};
 
 use crate::{
-    Clip, FrameInfo, Leaf, Platform, Widget,
+    Atom, Clip, FrameInfo, Platform, Widget,
     animation::{Easing, Transition},
     arena::{DataArena, DataId},
     geometry::{Constraints, Point, Rect, Sides, Size},
@@ -24,21 +28,24 @@ use crate::{
 pub struct Ui<R: Platform> {
     frame: NonNull<Frame<R>>,
     platform: NonNull<R>,
-    mount: Option<NodeId>,
 }
 
 impl<R: Platform> Ui<R> {
     pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
-        widget.build(self)
-    }
-
-    pub fn leaves(&mut self) -> Leaves<'_, R> {
-        let node = if let Some(node) = self.mount.take() {
-            node
-        } else {
-            self.frame_mut().push_node(None)
-        };
-        Leaves { ui: self, node }
+        let parent = self.frame().current_parent;
+        let node = self.frame_mut().push_node(None);
+        self.frame_mut().current_parent = Some(node);
+        let output = widget.build(NodeCx { ui: self, node });
+        let frame = self.frame_mut();
+        frame.nodes[node.index()].subtree_end =
+            u32::try_from(frame.nodes.len() - 1).expect("too many frame nodes");
+        frame.current_parent = parent;
+        assert!(
+            frame.nodes[node.index()].first_atom.index().is_some()
+                || frame.nodes[node.index()].layout.index().is_some(),
+            "widget did not populate its node"
+        );
+        output
     }
 
     pub fn layout<L: Layout<R>>(&mut self, layout: L) -> Container<'_, R, L> {
@@ -83,7 +90,7 @@ impl<R: Platform> Ui<R> {
 
     /// accesses platform resources during frame construction
     ///
-    /// drawing remains deferred to [`Leaf`](crate::Leaf) implementations
+    /// drawing remains deferred to [`Atom`](crate::Atom) implementations
     pub fn platform(&mut self) -> &mut R {
         self.platform_mut()
     }
@@ -163,19 +170,46 @@ impl<R: Platform> Ui<R> {
     pub fn request_frame(&mut self) {
         self.frame_mut().request_frame();
     }
+}
 
-    pub(super) fn build_at<W>(&mut self, node: NodeId, widget: W) -> NodeId
-    where
-        W: Widget<R, Response = NodeId>,
-    {
-        assert!(self.mount.is_none(), "already mounting a surface");
-        let nodes = self.frame().nodes.len();
-        self.mount = Some(node);
-        let result = widget.build(self);
-        assert!(self.mount.is_none(), "surface did not add leaves");
-        assert_eq!(self.frame().nodes.len(), nodes, "surface added a node");
-        assert_eq!(result, node, "surface returned the wrong node");
-        result
+pub struct NodeCx<'ui, R: Platform> {
+    ui: &'ui mut Ui<R>,
+    node: NodeId,
+}
+
+impl<'ui, R: Platform> NodeCx<'ui, R> {
+    pub fn node(&self) -> NodeId {
+        self.node
+    }
+
+    pub fn atom<A: Atom<R>>(&mut self, atom: A) -> &mut Self {
+        self.ui.frame_mut().push_atom(self.node, atom);
+        self
+    }
+
+    pub fn layout<L: Layout<R>>(self, layout: L) -> Container<'ui, R, L> {
+        let frame = self.ui.frame_mut();
+        assert!(
+            frame.nodes[self.node.index()].layout.index().is_none(),
+            "node already has a layout"
+        );
+        let layout = frame.store_layout(layout);
+        frame.nodes[self.node.index()].layout = layout;
+        container::new(self.ui, self.node)
+    }
+}
+
+impl<R: Platform> Deref for NodeCx<'_, R> {
+    type Target = Ui<R>;
+
+    fn deref(&self) -> &Self::Target {
+        self.ui
+    }
+}
+
+impl<R: Platform> DerefMut for NodeCx<'_, R> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ui
     }
 }
 

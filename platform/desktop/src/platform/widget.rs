@@ -4,8 +4,8 @@ use blit_cpu::{
     text_types::{TextOptions, TextStyle},
 };
 
-use super::{DesktopPlatform, draw::TextRun};
-use crate::Ui;
+use super::{DesktopPlatform, draw::TextAtom};
+use crate::NodeCx;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -21,10 +21,10 @@ blit::builder! {
 impl Widget<DesktopPlatform> for Text<'_> {
     type Response = ();
 
-    fn build(self, ui: &mut Ui) {
-        let run = ui.platform().text_run(self.text, self.style);
-        ui.add(
-            TextRun::new(run, self.style)
+    fn build(self, mut cx: NodeCx<'_>) {
+        let run = cx.platform().text_run(self.text, self.style);
+        cx.atom(
+            TextAtom::new(run, self.style)
                 .color(self.color)
                 .offset_x(self.offset_x)
                 .options(self.options),

@@ -1,8 +1,8 @@
 use std::{collections::VecDeque, time::Duration};
 
 use blit::{
-    Anchor, Axis, Constraints, Interaction, Layout, LayoutCx, NodeId, Platform, Point, Rect, Sense,
-    Sides, Size, Sizing, Slot, Ui, Widget, WidgetId,
+    Anchor, Axis, Constraints, Interaction, Layout, LayoutCx, NodeCx, NodeId, Platform, Point,
+    Rect, Sense, Sides, Size, Sizing, Slot, Widget, WidgetId,
 };
 pub use blit_layout::{Align, Justify};
 
@@ -310,7 +310,7 @@ where
 {
     type Response = ();
 
-    fn build(self, ui: &mut Ui<P>) {
+    fn build(self, mut ui: NodeCx<'_, P>) {
         let Self {
             state,
             id,

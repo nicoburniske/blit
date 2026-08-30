@@ -45,7 +45,7 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
     }
 
     pub fn constrain_child(&mut self, child: NodeId, constraints: Constraints) -> Size {
-        // todo: reuse measured sizes for constraint-independent leaves
+        // todo: reuse measured sizes for constraint-independent atoms
         self.assert_child(child);
         self.frame.layout_node(child, self.platform, constraints)
     }
