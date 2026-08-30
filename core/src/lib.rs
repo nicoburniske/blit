@@ -364,9 +364,13 @@ impl UiState {
         assert!(zoom.is_finite() && zoom > 0.0);
         if self.zoom != zoom {
             self.zoom = zoom;
-            self.render_geometry = None;
-            self.frame_requested = true;
+            self.invalidate_render_geometry();
         }
+    }
+
+    pub fn invalidate_render_geometry(&mut self) {
+        self.render_geometry = None;
+        self.frame_requested = true;
     }
 
     pub fn invalidate_all(&mut self) {
@@ -388,7 +392,8 @@ impl UiState {
 /// an empty input sequence renders once with [`Input::None`]
 ///
 /// the same renderer and repaint policy must be used for the lifetime of the
-/// [`UiState`]
+/// [`UiState`]. call [`UiState::invalidate_render_geometry`] after changing
+/// the renderer's bounds, scale, layout resolution, or zoom support
 pub fn render<P: Renderer, R: Repaint>(
     renderer: &mut P,
     state: &mut UiState,
@@ -397,26 +402,37 @@ pub fn render<P: Renderer, R: Repaint>(
     inputs: impl IntoIterator<Item = Input>,
     mut render: impl FnMut(&mut Ui),
 ) {
-    let geometry = renderer.geometry();
-    let zoom = if geometry.supports_zoom {
-        state.zoom
-    } else {
-        1.0
-    };
-    let scale = geometry.physical_per_logical.zoom(zoom);
-    if state.render_geometry != Some(geometry) {
-        assert!(scale.x.is_finite() && scale.x > 0.0);
-        assert!(scale.y.is_finite() && scale.y > 0.0);
-        renderer.set_scale(scale);
-        state.render_geometry = Some(geometry);
-        state.layout_resolution = geometry.layout_resolution;
-        if let LayoutResolution::Discrete { step } = &mut state.layout_resolution {
-            step.width /= zoom;
-            step.height /= zoom;
+    let (geometry, zoom, scale) = match state.render_geometry {
+        Some(geometry) => {
+            let zoom = if geometry.supports_zoom {
+                state.zoom
+            } else {
+                1.0
+            };
+            (geometry, zoom, geometry.physical_per_logical.zoom(zoom))
         }
-        state.screen = geometry.physical_bounds.to_logical(scale);
-        state.full_repaint = true;
-    }
+        None => {
+            let geometry = renderer.geometry();
+            let zoom = if geometry.supports_zoom {
+                state.zoom
+            } else {
+                1.0
+            };
+            let scale = geometry.physical_per_logical.zoom(zoom);
+            assert!(scale.x.is_finite() && scale.x > 0.0);
+            assert!(scale.y.is_finite() && scale.y > 0.0);
+            renderer.set_scale(scale);
+            state.render_geometry = Some(geometry);
+            state.layout_resolution = geometry.layout_resolution;
+            if let LayoutResolution::Discrete { step } = &mut state.layout_resolution {
+                step.width /= zoom;
+                step.height /= zoom;
+            }
+            state.screen = geometry.physical_bounds.to_logical(scale);
+            state.full_repaint = true;
+            (geometry, zoom, scale)
+        }
+    };
     // record every input against the state produced by the previous one
     let mut inputs = inputs.into_iter();
     state.frame_requested = false;

@@ -79,6 +79,7 @@ impl<A: Application> Active<A> {
     }
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), RunError> {
+        self.ui.invalidate_render_geometry();
         let (Some(width), Some(height)) =
             (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
         else {
