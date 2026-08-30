@@ -31,7 +31,7 @@ pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &R) {
     frame.interaction.sort_requests();
     if frame.paint_order.is_empty() {
         for index in 0..frame.nodes.len() {
-            register(frame, renderer, NodeId(index as u32));
+            register(frame, renderer, frame.node_id(index));
         }
     } else {
         for index in 0..frame.paint_order.len() {

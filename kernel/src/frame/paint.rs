@@ -1,5 +1,8 @@
 use super::{Frame, NodeId, container};
-use crate::{geometry::Rect, renderer::Renderer};
+use crate::{
+    geometry::Rect,
+    renderer::{FrameInfo, Renderer},
+};
 
 pub fn resolve_order<R: Renderer>(frame: &mut Frame<R>) {
     frame.paint_order.clear();
@@ -8,22 +11,22 @@ pub fn resolve_order<R: Renderer>(frame: &mut Frame<R>) {
     }
 
     frame.order_stack.clear();
-    frame.order_stack.push(NodeId(0));
+    frame.order_stack.push(frame.node_id(0));
     while let Some(parent) = frame.order_stack.pop() {
         frame.paint_order.push(parent);
         let start = frame.order_stack.len();
         let mut child = parent.index() + 1;
         let end = frame.nodes[parent.index()].subtree_end as usize;
         while child <= end {
-            if frame.nodes[child].layer.is_none() {
-                frame.order_stack.push(NodeId(child as u32));
+            if frame.nodes[child].slot.layer.is_none() {
+                frame.order_stack.push(frame.node_id(child));
             }
             child = frame.nodes[child].subtree_end as usize + 1;
         }
         if parent.index() == 0 && !frame.layers.is_empty() {
             for index in 1..frame.nodes.len() {
-                if frame.nodes[index].layer.is_some() {
-                    frame.order_stack.push(NodeId(index as u32));
+                if frame.nodes[index].slot.layer.is_some() {
+                    frame.order_stack.push(frame.node_id(index));
                 }
             }
         }
@@ -33,14 +36,18 @@ pub fn resolve_order<R: Renderer>(frame: &mut Frame<R>) {
         let children = &mut frame.order_stack[start..];
         if children.iter().any(|node| {
             let node = frame.nodes[node.index()];
-            node.layer.is_some() || node.z_index != 0
+            node.slot.layer.is_some() || node.slot.z_index != 0
         }) {
             children.sort_unstable_by(|a, b| {
                 let a = a.index();
                 let b = b.index();
-                let a_layer = frame.nodes[a].layer.map_or(0, container::layer_order);
-                let b_layer = frame.nodes[b].layer.map_or(0, container::layer_order);
-                (b_layer, frame.nodes[b].z_index, b).cmp(&(a_layer, frame.nodes[a].z_index, a))
+                let a_layer = frame.nodes[a].slot.layer.map_or(0, container::layer_order);
+                let b_layer = frame.nodes[b].slot.layer.map_or(0, container::layer_order);
+                (b_layer, frame.nodes[b].slot.z_index, b).cmp(&(
+                    a_layer,
+                    frame.nodes[a].slot.z_index,
+                    a,
+                ))
             });
         } else {
             children.reverse();
@@ -54,7 +61,7 @@ pub fn resolve_clips<R: Renderer>(frame: &mut Frame<R>, screen: Rect) {
     for index in 0..frame.nodes.len() {
         let (parent, bounds) = if index == 0 {
             (None, screen)
-        } else if let Some(layer) = frame.nodes[index].layer {
+        } else if let Some(layer) = frame.nodes[index].slot.layer {
             let owner = frame.layers[container::layer_index(layer)].owner.index();
             (
                 frame.nodes[owner].resolved_clip,
@@ -86,7 +93,7 @@ pub fn resolve_clips<R: Renderer>(frame: &mut Frame<R>, screen: Rect) {
     }
 }
 
-pub fn render<R: Renderer>(frame: &Frame<R>, renderer: &mut R, size: crate::geometry::Size) {
+pub fn render<R: Renderer>(frame: &Frame<R>, renderer: &mut R, info: FrameInfo) {
     fn push<R: Renderer>(frame: &Frame<R>, renderer: &mut R, clip: usize) {
         let resolved = frame.resolved_clips[clip];
         if let Some(parent) = resolved.parent {
@@ -115,10 +122,10 @@ pub fn render<R: Renderer>(frame: &Frame<R>, renderer: &mut R, size: crate::geom
         }
     }
 
-    renderer.begin(crate::renderer::FrameInfo { size });
+    renderer.begin(info);
     if frame.paint_order.is_empty() {
         for index in 0..frame.nodes.len() {
-            paint(frame, renderer, NodeId(index as u32));
+            paint(frame, renderer, frame.node_id(index));
         }
     } else {
         for node in frame.paint_order.iter().copied() {
