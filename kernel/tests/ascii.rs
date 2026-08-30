@@ -1,6 +1,6 @@
 use blit_kernel::{
-    Clip, ClipCommand, ClipCx, Constraints, Frame, FrameInfo, Layout, LayoutCx, Leaf, MeasureCx,
-    Paint, PaintCx, Point, Rect, Renderer, Size, Ui,
+    Clip, Constraints, Frame, FrameInfo, Layout, LayoutCx, Leaf, Paint, Point, Rect, Renderer,
+    Size, Ui,
 };
 
 #[test]
@@ -51,15 +51,16 @@ impl Fill {
 }
 
 impl Leaf<AsciiRenderer> for Fill {
-    fn measure(&self, _: MeasureCx<'_, AsciiRenderer>, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut AsciiRenderer, constraints: Constraints) -> Size {
         constraints.constrain(self.size)
     }
 
-    fn paint(&self, mut cx: PaintCx<'_, AsciiRenderer>, area: Rect) {
-        cx.paint(FillCommand {
+    fn paint(&self, renderer: &mut AsciiRenderer, area: Rect) {
+        FillCommand {
             area,
             glyph: self.glyph,
-        });
+        }
+        .paint(renderer);
     }
 }
 
@@ -108,26 +109,11 @@ impl DiamondClip {
 }
 
 impl Clip<AsciiRenderer> for DiamondClip {
-    fn push(&self, mut cx: ClipCx<'_, AsciiRenderer>, area: Rect) {
-        cx.push(DiamondClipCommand { area });
+    fn push(&self, renderer: &mut AsciiRenderer, area: Rect) {
+        renderer.diamond_clips.push(area);
     }
 
-    fn pop(&self, mut cx: ClipCx<'_, AsciiRenderer>) {
-        cx.pop::<DiamondClipCommand>();
-    }
-}
-
-#[derive(Clone, Copy)]
-struct DiamondClipCommand {
-    area: Rect,
-}
-
-impl ClipCommand<AsciiRenderer> for DiamondClipCommand {
-    fn push(self, renderer: &mut AsciiRenderer) {
-        renderer.diamond_clips.push(self.area);
-    }
-
-    fn pop(renderer: &mut AsciiRenderer) {
+    fn pop(&self, renderer: &mut AsciiRenderer) {
         renderer.diamond_clips.pop().expect("clip stack is empty");
     }
 }

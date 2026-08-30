@@ -2,11 +2,11 @@ use std::{any::TypeId, marker::PhantomData};
 
 use crate::{
     arena::{DataArena, DataId},
-    clip::{Clip, ClipCommand},
+    clip::Clip,
     geometry::{Constraints, Point, Rect, Size},
     layout::Layout,
     leaf::Leaf,
-    renderer::{FrameInfo, Measure, Paint, Renderer},
+    renderer::{FrameInfo, Renderer},
 };
 
 pub struct Frame<R: Renderer> {
@@ -279,40 +279,6 @@ impl<R: Renderer, L: Layout<R>> Drop for Container<'_, R, L> {
     }
 }
 
-pub struct MeasureCx<'a, R: Renderer> {
-    renderer: &'a mut R,
-}
-
-impl<R: Renderer> MeasureCx<'_, R> {
-    pub fn measure<M: Measure<R>>(&mut self, request: M) -> M::Output {
-        request.measure(self.renderer)
-    }
-}
-
-pub struct PaintCx<'a, R: Renderer> {
-    renderer: &'a mut R,
-}
-
-impl<R: Renderer> PaintCx<'_, R> {
-    pub fn paint<P: Paint<R>>(&mut self, paint: P) {
-        paint.paint(self.renderer)
-    }
-}
-
-pub struct ClipCx<'a, R: Renderer> {
-    renderer: &'a mut R,
-}
-
-impl<R: Renderer> ClipCx<'_, R> {
-    pub fn push<C: ClipCommand<R>>(&mut self, clip: C) {
-        clip.push(self.renderer)
-    }
-
-    pub fn pop<C: ClipCommand<R>>(&mut self) {
-        C::pop(self.renderer)
-    }
-}
-
 pub struct LayoutCx<'a, R: Renderer, I> {
     frame: &'a mut Frame<R>,
     renderer: &'a mut R,
@@ -457,12 +423,11 @@ fn measure_leaf<R: Renderer, L: Leaf<R>>(
     renderer: &mut R,
     constraints: Constraints,
 ) -> Size {
-    data.load::<L>(id)
-        .measure(MeasureCx { renderer }, constraints)
+    data.load::<L>(id).measure(renderer, constraints)
 }
 
 fn paint_leaf<R: Renderer, L: Leaf<R>>(data: &DataArena, id: DataId, renderer: &mut R, area: Rect) {
-    data.load::<L>(id).paint(PaintCx { renderer }, area)
+    data.load::<L>(id).paint(renderer, area)
 }
 
 fn run_layout<R: Renderer, L: Layout<R>>(
@@ -487,9 +452,9 @@ fn run_layout<R: Renderer, L: Layout<R>>(
 }
 
 fn push_clip<R: Renderer, C: Clip<R>>(data: &DataArena, id: DataId, renderer: &mut R, area: Rect) {
-    data.load::<C>(id).push(ClipCx { renderer }, area)
+    data.load::<C>(id).push(renderer, area)
 }
 
 fn pop_clip<R: Renderer, C: Clip<R>>(data: &DataArena, id: DataId, renderer: &mut R) {
-    data.load::<C>(id).pop(ClipCx { renderer })
+    data.load::<C>(id).pop(renderer)
 }
