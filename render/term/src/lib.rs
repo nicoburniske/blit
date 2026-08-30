@@ -16,8 +16,8 @@ use crate::{
     command_list::{Command, CommandList},
     image::{ImageData, ImageHandle, ImageId},
     text::{
-        HorizontalAlign, TextLayoutRequest, TextOverflow, TextRequest, TextRunId, TextWrap,
-        VerticalAlign,
+        HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest, TextRunId,
+        TextWrap, VerticalAlign,
     },
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -511,7 +511,7 @@ impl TerminalRenderer {
                     for (line_index, line) in layout.lines.iter().enumerate() {
                         let mut line_end = line.end;
                         let mut line_width = line.width;
-                        let line_ellipsis = ellipsis && line_index == 0;
+                        let line_ellipsis = ellipsis && line_index + 1 == layout.lines.len();
                         if line_ellipsis {
                             while line_width >= maximum && line_end != line.start {
                                 line_end -= 1;
@@ -558,7 +558,7 @@ impl TerminalRenderer {
                                     self.glyphs[index] = Some(Glyph {
                                         text: grapheme,
                                         color: request.color,
-                                        bold: request.bold,
+                                        attributes: request.attributes,
                                         z,
                                     });
                                 }
@@ -569,7 +569,7 @@ impl TerminalRenderer {
                                         self.glyphs[index] = Some(Glyph {
                                             text: GlyphText::Static(""),
                                             color: request.color,
-                                            bold: request.bold,
+                                            attributes: request.attributes,
                                             z,
                                         });
                                     }
@@ -627,7 +627,7 @@ impl TerminalRenderer {
                     cell.text.push_str(text);
                     cell.foreground = glyph.color;
                     cell.background = background.color;
-                    cell.bold = glyph.bold;
+                    cell.attributes = glyph.attributes;
                     continue;
                 }
                 if box_cell.edges != 0 && background.z <= box_cell.z {
@@ -647,7 +647,7 @@ impl TerminalRenderer {
                     cell.text.push_str(text);
                     cell.foreground = box_cell.color;
                     cell.background = background.color;
-                    cell.bold = false;
+                    cell.attributes = TextAttributes::NONE;
                     continue;
                 }
                 let cell = &mut self.cells[index];
@@ -655,7 +655,7 @@ impl TerminalRenderer {
                 cell.text.push(' ');
                 cell.foreground = Color::Reset;
                 cell.background = background.color;
-                cell.bold = false;
+                cell.attributes = TextAttributes::NONE;
             }
         }
         let mut style = None;
@@ -674,11 +674,32 @@ impl TerminalRenderer {
                     if !self.damaged[index] || self.previous[index] == *cell {
                         break;
                     }
-                    let next_style = (cell.foreground, cell.background, cell.bold);
+                    let next_style = (cell.foreground, cell.background, cell.attributes);
                     if style != Some(next_style) {
                         self.output.push_str("\x1b[0");
-                        if cell.bold {
+                        if cell.attributes.contains(TextAttributes::BOLD) {
                             self.output.push_str(";1");
+                        }
+                        if cell.attributes.contains(TextAttributes::DIM) {
+                            self.output.push_str(";2");
+                        }
+                        if cell.attributes.contains(TextAttributes::ITALIC) {
+                            self.output.push_str(";3");
+                        }
+                        if cell.attributes.contains(TextAttributes::UNDERLINE) {
+                            self.output.push_str(";4");
+                        }
+                        if cell.attributes.contains(TextAttributes::BLINK) {
+                            self.output.push_str(";5");
+                        }
+                        if cell.attributes.contains(TextAttributes::INVERSE) {
+                            self.output.push_str(";7");
+                        }
+                        if cell.attributes.contains(TextAttributes::HIDDEN) {
+                            self.output.push_str(";8");
+                        }
+                        if cell.attributes.contains(TextAttributes::STRIKETHROUGH) {
+                            self.output.push_str(";9");
                         }
                         write_color(&mut self.output, cell.foreground, true);
                         write_color(&mut self.output, cell.background, false);
@@ -969,7 +990,7 @@ enum GlyphText {
 struct Glyph {
     text: GlyphText,
     color: Color,
-    bold: bool,
+    attributes: TextAttributes,
     z: usize,
 }
 
@@ -978,7 +999,7 @@ struct Cell {
     text: String,
     foreground: Color,
     background: Color,
-    bold: bool,
+    attributes: TextAttributes,
     valid: bool,
 }
 
@@ -997,7 +1018,7 @@ impl Default for Cell {
             text: " ".into(),
             foreground: Color::Reset,
             background: Color::Reset,
-            bold: false,
+            attributes: TextAttributes::NONE,
             valid: true,
         }
     }
@@ -1112,14 +1133,18 @@ mod tests {
         let mut commands = CommandList::default();
         commands.push_clear(renderer.screen());
         commands.push_text(
-            TextRequest::new(text, area).bold(true),
+            TextRequest::new(text, area)
+                .attributes(TextAttributes::BOLD | TextAttributes::STRIKETHROUGH),
             area.to_physical(SCALE),
             ClipId::default(),
         );
         renderer.render(&commands, &[renderer.screen()]);
 
         assert_eq!(renderer.cells[renderer.columns + 1].text, "x");
-        assert!(renderer.cells[renderer.columns + 1].bold);
+        assert_eq!(
+            renderer.cells[renderer.columns + 1].attributes,
+            TextAttributes::BOLD | TextAttributes::STRIKETHROUGH
+        );
     }
 
     #[test]

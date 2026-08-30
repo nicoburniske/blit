@@ -3,7 +3,7 @@ use blit_term::{
     color::Color,
     command_list::Block as DrawBlock,
     image::{ImageId, ImagePlacement},
-    text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextWrap},
+    text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextWrap},
 };
 
 pub use blit_term::command_list::Border;
@@ -54,7 +54,7 @@ blit::builder! {
     pub struct TextRun {
         new(text: TextRunId),
         color: Color = Color::Reset,
-        bold: bool = false,
+        attributes: TextAttributes = TextAttributes::NONE,
         options: TextOptions = TextOptions::new(),
     }
 }
@@ -82,7 +82,7 @@ impl Leaf<TerminalPlatform> for TextRun {
     fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
         let request = TextRequest::new(self.text, area)
             .color(self.color)
-            .bold(self.bold)
+            .attributes(self.attributes)
             .options(self.options);
         let bounds = area.to_physical(Scale2::IDENTITY);
         let clip = platform.clip;

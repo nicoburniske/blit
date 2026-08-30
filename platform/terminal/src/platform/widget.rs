@@ -1,5 +1,8 @@
 use blit::Widget;
-use blit_term::{color::Color, text::TextOptions};
+use blit_term::{
+    color::Color,
+    text::{TextAttributes, TextOptions},
+};
 
 use super::{TerminalPlatform, draw::TextRun};
 use crate::Ui;
@@ -9,7 +12,7 @@ blit::builder! {
     pub struct Text<'a> {
         new(text: &'a str),
         color: Color = Color::Reset,
-        bold: bool = false,
+        attributes: TextAttributes = TextAttributes::NONE,
         options: TextOptions = TextOptions::new(),
     }
 }
@@ -22,7 +25,7 @@ impl Widget<TerminalPlatform> for Text<'_> {
         ui.add(
             TextRun::new(run)
                 .color(self.color)
-                .bold(self.bold)
+                .attributes(self.attributes)
                 .options(self.options),
         );
     }
