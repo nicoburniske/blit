@@ -148,6 +148,7 @@ name = "blit-showcase"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-layout",
 ]
 
 [[package]]
