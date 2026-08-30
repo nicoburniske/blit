@@ -76,10 +76,13 @@ impl DesktopPlatform {
         &mut self.renderer
     }
 
-    pub(crate) fn set_device_scale(&mut self, scale: f32) {
+    pub(crate) fn set_scale(&mut self, scale: f32) {
         let scale = Scale2::uniform(scale);
-        self.renderer.set_scale(scale);
-        self.scale = scale;
+        if self.scale != scale {
+            self.renderer.set_scale(scale);
+            self.scale = scale;
+            self.invalidate_all();
+        }
     }
 
     fn reconcile(&mut self) {
@@ -210,7 +213,7 @@ mod tests {
         .strategy(Scanline::default());
         renderer.buffer_mut().set(&mut pixels);
         let mut platform = DesktopPlatform::new(renderer);
-        platform.set_device_scale(2.0);
+        platform.set_scale(2.0);
         let mut frame = Frame::default();
         frame.render(
             &mut platform,
