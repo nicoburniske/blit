@@ -127,12 +127,11 @@ impl Session {
     }
 
     pub fn frame_info(&self) -> FrameInfo {
-        let renderer = self.platform.renderer();
-        let scale = renderer.scale();
-        let screen = renderer.screen().to_logical(scale);
-        FrameInfo::new(screen.size()).layout_resolution(LayoutResolution::Discrete {
-            step: renderer.cell_size(),
-        })
+        let screen = self.platform.renderer().screen();
+        FrameInfo::new(LogicalSize::new(screen.width as f32, screen.height as f32))
+            .layout_resolution(LayoutResolution::Discrete {
+                step: LogicalSize::new(1.0, 1.0),
+            })
     }
 
     pub fn poll(&mut self, timeout: Option<Duration>, inputs: &mut [Input]) -> io::Result<Poll> {
@@ -140,7 +139,6 @@ impl Session {
             return Ok(Poll::default());
         }
 
-        let scale = self.platform.renderer().scale();
         let mut input_count = 0;
         let mut event_count = 0;
         loop {
@@ -200,8 +198,8 @@ impl Session {
                 }
                 TerminalEvent::Mouse(mouse) => {
                     let position = LogicalPoint {
-                        x: (f32::from(mouse.column) + 0.5) / scale.x,
-                        y: (f32::from(mouse.row) + 0.5) / scale.y,
+                        x: f32::from(mouse.column) + 0.5,
+                        y: f32::from(mouse.row) + 0.5,
                     };
                     let modifiers = Modifiers::new(
                         mouse.modifiers.contains(TerminalModifiers::SHIFT),
@@ -241,13 +239,13 @@ impl Session {
                         | MouseEventKind::ScrollRight => Input::Scroll {
                             position,
                             delta_x: match mouse.kind {
-                                MouseEventKind::ScrollLeft => -3.0 / scale.x,
-                                MouseEventKind::ScrollRight => 3.0 / scale.x,
+                                MouseEventKind::ScrollLeft => -3.0,
+                                MouseEventKind::ScrollRight => 3.0,
                                 _ => 0.0,
                             },
                             delta_y: match mouse.kind {
-                                MouseEventKind::ScrollUp => -3.0 / scale.y,
-                                MouseEventKind::ScrollDown => 3.0 / scale.y,
+                                MouseEventKind::ScrollUp => -3.0,
+                                MouseEventKind::ScrollDown => 3.0,
                                 _ => 0.0,
                             },
                             modifiers,
@@ -316,16 +314,5 @@ fn renderer_config(size: WindowSize) -> io::Result<RendererConfig> {
     if size.cols == 0 || size.rows == 0 {
         return Err(io::Error::other("terminal reported an empty window"));
     }
-    let mut config = RendererConfig::new().columns(size.cols).rows(size.rows);
-    if let (Some(pixel_width), Some(pixel_height)) = (
-        size.pixel_width.filter(|width| *width != 0),
-        size.pixel_height.filter(|height| *height != 0),
-    ) {
-        config = config.cell_size(LogicalSize {
-            width: f32::from(pixel_width) * f32::from(size.rows)
-                / (f32::from(pixel_height) * f32::from(size.cols)),
-            height: 1.0,
-        });
-    }
-    Ok(config)
+    Ok(RendererConfig::new().columns(size.cols).rows(size.rows))
 }
