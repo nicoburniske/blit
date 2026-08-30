@@ -29,7 +29,7 @@ impl Widget<DesktopPlatform> for Rectangle {
     type Response = NodeId;
 
     fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.add_leaf(self)
+        ui.leaves().add(self).node()
     }
 }
 
@@ -83,7 +83,7 @@ impl Widget<DesktopPlatform> for TextRun {
     type Response = NodeId;
 
     fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.add_leaf(self)
+        ui.leaves().add(self).node()
     }
 }
 
@@ -133,7 +133,7 @@ impl Widget<DesktopPlatform> for Image {
     type Response = NodeId;
 
     fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.add_leaf(self)
+        ui.leaves().add(self).node()
     }
 }
 

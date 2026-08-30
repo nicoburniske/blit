@@ -151,9 +151,9 @@ pub fn render<R: Platform>(frame: &mut Frame<R>, platform: &mut R, info: FrameIn
     frame.active_clips.clear();
     if frame.paint_order.is_empty() {
         for index in 0..frame.nodes.len() {
-            let Some(base) = frame.nodes[index].base.index() else {
+            if frame.nodes[index].first_leaf.index().is_none() {
                 continue;
-            };
+            }
             set(
                 &frame.data,
                 &frame.clips,
@@ -163,20 +163,24 @@ pub fn render<R: Platform>(frame: &mut Frame<R>, platform: &mut R, info: FrameIn
                 platform,
                 frame.nodes[index].resolved_clip,
             );
-            let base = frame.leaves[base];
-            (frame.leaf_kinds[base.kind as usize].paint)(
-                &frame.data,
-                base.data,
-                platform,
-                frame.nodes[index].area,
-            );
+            let mut leaf = frame.nodes[index].first_leaf;
+            while let Some(leaf_index) = leaf.index() {
+                let stored = frame.leaves[leaf_index];
+                (frame.leaf_kinds[stored.kind as usize].paint)(
+                    &frame.data,
+                    stored.data,
+                    platform,
+                    frame.nodes[index].area,
+                );
+                leaf = stored.next;
+            }
         }
     } else {
         for index in 0..frame.paint_order.len() {
             let node = frame.paint_order[index].index();
-            let Some(base) = frame.nodes[node].base.index() else {
+            if frame.nodes[node].first_leaf.index().is_none() {
                 continue;
-            };
+            }
             set(
                 &frame.data,
                 &frame.clips,
@@ -186,13 +190,17 @@ pub fn render<R: Platform>(frame: &mut Frame<R>, platform: &mut R, info: FrameIn
                 platform,
                 frame.nodes[node].resolved_clip,
             );
-            let base = frame.leaves[base];
-            (frame.leaf_kinds[base.kind as usize].paint)(
-                &frame.data,
-                base.data,
-                platform,
-                frame.nodes[node].area,
-            );
+            let mut leaf = frame.nodes[node].first_leaf;
+            while let Some(leaf_index) = leaf.index() {
+                let stored = frame.leaves[leaf_index];
+                (frame.leaf_kinds[stored.kind as usize].paint)(
+                    &frame.data,
+                    stored.data,
+                    platform,
+                    frame.nodes[node].area,
+                );
+                leaf = stored.next;
+            }
         }
     }
     set(

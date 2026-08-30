@@ -61,6 +61,24 @@ fn lays_out_and_paints_external_leaves() {
 }
 
 #[test]
+fn leaf_scope_measures_and_paints_in_order() {
+    let mut frame = Frame::<AsciiPlatform>::default();
+    let mut platform = AsciiPlatform::default();
+
+    frame.render(&mut platform, FrameInfo::new(Size::new(5.0, 4.0)), |ui| {
+        let mut root = ui.layout(Overlay);
+        root.add(|ui: &mut Ui| {
+            let mut leaves = ui.leaves();
+            leaves.add(Fill::new('A', Size::new(3.0, 1.0)));
+            leaves.add(Fill::new('B', Size::new(1.0, 2.0)));
+            leaves.node()
+        });
+    });
+
+    assert_eq!(platform.contents(), "     \n BBB \n BBB \n     ");
+}
+
+#[test]
 fn resolves_absolute_targets_and_layer_order() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
@@ -534,7 +552,7 @@ impl Widget<AsciiPlatform> for Fill {
     type Response = NodeId;
 
     fn build(self, ui: &mut Ui) -> Self::Response {
-        ui.add_leaf(self)
+        ui.leaves().add(self).node()
     }
 }
 
