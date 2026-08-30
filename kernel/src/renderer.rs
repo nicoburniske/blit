@@ -13,23 +13,11 @@ pub trait Renderer {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct FrameInfo {
-    pub size: Size,
-    pub layout_resolution: LayoutResolution,
-}
-
-impl FrameInfo {
-    pub const fn new(size: Size) -> Self {
-        Self {
-            size,
-            layout_resolution: LayoutResolution::Continuous,
-        }
-    }
-
-    pub const fn layout_resolution(mut self, layout_resolution: LayoutResolution) -> Self {
-        self.layout_resolution = layout_resolution;
-        self
+crate::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct FrameInfo {
+        new(size: Size),
+        layout_resolution: LayoutResolution = LayoutResolution::Continuous,
     }
 }
 

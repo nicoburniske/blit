@@ -74,12 +74,15 @@ impl Rect {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Sides {
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-    pub left: f32,
+crate::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Sides {
+        new(),
+        top: f32 = 0.0,
+        right: f32 = 0.0,
+        bottom: f32 = 0.0,
+        left: f32 = 0.0,
+    }
 }
 
 impl Sides {
