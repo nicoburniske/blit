@@ -5,7 +5,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct TextRequest {
         new(text: TextRunId, area: LogicalRect),
-        color: Color = Color::WHITE,
+        color: Color = Color::Reset,
         offset_x: f32 = 0.0,
         bold: bool = false,
         options: TextOptions = TextOptions::new(),

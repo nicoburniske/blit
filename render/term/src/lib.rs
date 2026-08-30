@@ -50,7 +50,7 @@ pub struct TerminalRenderer {
     next_image: u32,
     kitty_placements: Vec<KittyPlacement>,
     presented_kitty_placements: Vec<KittyPlacement>,
-    pixels: Vec<Pixel>,
+    backgrounds: Vec<Background>,
     glyphs: Vec<Option<Glyph>>,
     boxes: Vec<BoxCell>,
     cells: Vec<Cell>,
@@ -76,7 +76,7 @@ impl TerminalRenderer {
             next_image: 1,
             kitty_placements: Vec::new(),
             presented_kitty_placements: Vec::new(),
-            pixels: vec![Pixel::default(); columns * 2 * rows * 2],
+            backgrounds: vec![Background::default(); columns * rows],
             glyphs: vec![None; columns * rows],
             boxes: vec![BoxCell::default(); columns * rows],
             cells: vec![Cell::default(); columns * rows],
@@ -104,7 +104,8 @@ impl TerminalRenderer {
         }
         self.columns = columns;
         self.rows = rows;
-        self.pixels.resize(columns * 2 * rows * 2, Pixel::default());
+        self.backgrounds
+            .resize(columns * rows, Background::default());
         self.glyphs.resize(columns * rows, None);
         self.boxes.resize(columns * rows, BoxCell::default());
         self.cells.resize(columns * rows, Cell::default());
@@ -125,20 +126,15 @@ impl TerminalRenderer {
 
     fn clear_damaged(&mut self, bounds: (usize, usize, usize, usize)) {
         let (left, top, right, bottom) = bounds;
-        let stride = self.columns * 2;
         for y in top..bottom {
             for x in left..right {
                 let index = y * self.columns + x;
                 if !self.damaged[index] {
                     continue;
                 }
+                self.backgrounds[index] = Background::default();
                 self.glyphs[index] = None;
                 self.boxes[index] = BoxCell::default();
-                for sub_y in y * 2..y * 2 + 2 {
-                    for sub_x in x * 2..x * 2 + 2 {
-                        self.pixels[sub_y * stride + sub_x] = Pixel::default();
-                    }
-                }
             }
         }
     }
@@ -411,26 +407,20 @@ impl TerminalRenderer {
                 }
                 Command::Block(block) => {
                     let (left, top, right, bottom) = self.cell_bounds(block.area);
-                    if block.background.alpha != 0 && block.opacity > 0.0 {
-                        let stride = self.columns * 2;
+                    if let Some(background) = block.background {
                         for y in top.max(damage_bounds.1)..bottom.min(damage_bounds.3) {
                             for x in left.max(damage_bounds.0)..right.min(damage_bounds.2) {
-                                if !self.damaged[y * self.columns + x] {
+                                let index = y * self.columns + x;
+                                if !self.damaged[index]
+                                    || !clip
+                                        .contains(LogicalPoint::new(x as f32 + 0.5, y as f32 + 0.5))
+                                {
                                     continue;
                                 }
-                                let center_x = x as f32 + 0.5;
-                                let center_y = y as f32 + 0.5;
-                                if !clip.contains(LogicalPoint::new(center_x, center_y)) {
-                                    continue;
-                                }
-                                for sub_y in y * 2..y * 2 + 2 {
-                                    for sub_x in x * 2..x * 2 + 2 {
-                                        let pixel = &mut self.pixels[sub_y * stride + sub_x];
-                                        pixel.color =
-                                            blend(block.background, pixel.color, block.opacity);
-                                        pixel.z = z;
-                                    }
-                                }
+                                self.backgrounds[index] = Background {
+                                    color: background,
+                                    z,
+                                };
                             }
                         }
                     }
@@ -609,49 +599,20 @@ impl TerminalRenderer {
                 }
             }
         }
-        const QUADRANTS: [&str; 16] = [
-            " ", "▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█",
-        ];
         const BOXES: [&str; 16] = [
             " ", "╵", "╴", "└", "╷", "│", "┌", "├", "╶", "┘", "─", "┴", "┐", "┤", "┬", "┼",
         ];
         for cell_y in damage_bounds.1..damage_bounds.3 {
             for cell_x in damage_bounds.0..damage_bounds.2 {
-                if !self.damaged[cell_y * self.columns + cell_x] {
+                let index = cell_y * self.columns + cell_x;
+                if !self.damaged[index] {
                     continue;
                 }
-                let pixel_x = cell_x * 2;
-                let pixel_y = cell_y * 2;
-                let stride = self.columns * 2;
-                let pixels = [
-                    self.pixels[pixel_y * stride + pixel_x],
-                    self.pixels[pixel_y * stride + pixel_x + 1],
-                    self.pixels[(pixel_y + 1) * stride + pixel_x],
-                    self.pixels[(pixel_y + 1) * stride + pixel_x + 1],
-                ];
-                let index = cell_y * self.columns + cell_x;
+                let background = self.backgrounds[index];
                 let glyph = self.glyphs[index].as_ref();
                 let box_cell = self.boxes[index];
-                let pixel_z = pixels.iter().map(|pixel| pixel.z).max().unwrap_or(0);
-                let background = {
-                    let colors = pixels.map(|pixel| pixel.color);
-                    Color::from_rgba8(
-                        (colors.iter().map(|color| u16::from(color.red)).sum::<u16>() / 4) as u8,
-                        (colors
-                            .iter()
-                            .map(|color| u16::from(color.green))
-                            .sum::<u16>()
-                            / 4) as u8,
-                        (colors
-                            .iter()
-                            .map(|color| u16::from(color.blue))
-                            .sum::<u16>()
-                            / 4) as u8,
-                        255,
-                    )
-                };
                 if let Some(glyph) = glyph
-                    && pixel_z <= glyph.z
+                    && background.z <= glyph.z
                     && box_cell.z <= glyph.z
                 {
                     let text = match glyph.text {
@@ -665,11 +626,11 @@ impl TerminalRenderer {
                     cell.text.clear();
                     cell.text.push_str(text);
                     cell.foreground = glyph.color;
-                    cell.background = background;
+                    cell.background = background.color;
                     cell.bold = glyph.bold;
                     continue;
                 }
-                if box_cell.edges != 0 && pixel_z <= box_cell.z {
+                if box_cell.edges != 0 && background.z <= box_cell.z {
                     let text = if box_cell.rounded {
                         match box_cell.edges {
                             3 => "╰",
@@ -685,38 +646,15 @@ impl TerminalRenderer {
                     cell.text.clear();
                     cell.text.push_str(text);
                     cell.foreground = box_cell.color;
-                    cell.background = background;
+                    cell.background = background.color;
                     cell.bold = false;
                     continue;
                 }
-                let mut background = pixels[0].color;
-                let mut background_count = 0;
-                for candidate in pixels.map(|pixel| pixel.color) {
-                    let count = pixels
-                        .iter()
-                        .filter(|pixel| pixel.color == candidate)
-                        .count();
-                    if count > background_count {
-                        background = candidate;
-                        background_count = count;
-                    }
-                }
-                let foreground = pixels
-                    .iter()
-                    .map(|pixel| pixel.color)
-                    .max_by_key(|color| distance(*color, background))
-                    .unwrap_or(background);
-                let mut mask = 0;
-                for (bit, pixel) in pixels.iter().enumerate() {
-                    if distance(pixel.color, foreground) < distance(pixel.color, background) {
-                        mask |= 1 << bit;
-                    }
-                }
                 let cell = &mut self.cells[index];
                 cell.text.clear();
-                cell.text.push_str(QUADRANTS[mask]);
-                cell.foreground = foreground;
-                cell.background = background;
+                cell.text.push(' ');
+                cell.foreground = Color::Reset;
+                cell.background = background.color;
                 cell.bold = false;
             }
         }
@@ -738,18 +676,13 @@ impl TerminalRenderer {
                     }
                     let next_style = (cell.foreground, cell.background, cell.bold);
                     if style != Some(next_style) {
-                        write!(
-                            self.output,
-                            "\x1b[0;{};38;2;{};{};{};48;2;{};{};{}m",
-                            if cell.bold { 1 } else { 22 },
-                            cell.foreground.red,
-                            cell.foreground.green,
-                            cell.foreground.blue,
-                            cell.background.red,
-                            cell.background.green,
-                            cell.background.blue,
-                        )
-                        .unwrap();
+                        self.output.push_str("\x1b[0");
+                        if cell.bold {
+                            self.output.push_str(";1");
+                        }
+                        write_color(&mut self.output, cell.foreground, true);
+                        write_color(&mut self.output, cell.background, false);
+                        self.output.push('m');
                         style = Some(next_style);
                     }
                     self.output.push_str(&cell.text);
@@ -976,7 +909,7 @@ impl TerminalRenderer {
 }
 
 #[derive(Clone, Copy, Default)]
-struct Pixel {
+struct Background {
     color: Color,
     z: usize,
 }
@@ -1046,15 +979,14 @@ struct Cell {
     foreground: Color,
     background: Color,
     bold: bool,
+    valid: bool,
 }
 
 impl Cell {
     fn invalid() -> Self {
         Self {
-            text: String::new(),
-            foreground: Color::TRANSPARENT,
-            background: Color::TRANSPARENT,
-            bold: false,
+            valid: false,
+            ..Self::default()
         }
     }
 }
@@ -1063,9 +995,10 @@ impl Default for Cell {
     fn default() -> Self {
         Self {
             text: " ".into(),
-            foreground: Color::WHITE,
-            background: Color::BLACK,
+            foreground: Color::Reset,
+            background: Color::Reset,
             bold: false,
+            valid: true,
         }
     }
 }
@@ -1128,21 +1061,26 @@ struct TextLayout {
     truncated: bool,
 }
 
-fn blend(source: Color, destination: Color, opacity: f32) -> Color {
-    let alpha = source.alpha as f32 / 255.0 * opacity.clamp(0.0, 1.0);
-    let inverse = 1.0 - alpha;
-    Color::from_rgba8(
-        (source.red as f32 * alpha + destination.red as f32 * inverse).round() as u8,
-        (source.green as f32 * alpha + destination.green as f32 * inverse).round() as u8,
-        (source.blue as f32 * alpha + destination.blue as f32 * inverse).round() as u8,
-        255,
-    )
-}
-
-fn distance(left: Color, right: Color) -> u32 {
-    u32::from(left.red.abs_diff(right.red)).pow(2)
-        + u32::from(left.green.abs_diff(right.green)).pow(2)
-        + u32::from(left.blue.abs_diff(right.blue)).pow(2)
+fn write_color(output: &mut String, color: Color, foreground: bool) {
+    match color {
+        Color::Reset => output.push_str(if foreground { ";39" } else { ";49" }),
+        Color::Indexed(index @ 0..=7) => {
+            let base = if foreground { 30 } else { 40 };
+            write!(output, ";{}", base + index).unwrap();
+        }
+        Color::Indexed(index @ 8..=15) => {
+            let base = if foreground { 90 } else { 100 };
+            write!(output, ";{}", base + index - 8).unwrap();
+        }
+        Color::Indexed(index) => {
+            let prefix = if foreground { 38 } else { 48 };
+            write!(output, ";{prefix};5;{index}").unwrap();
+        }
+        Color::Rgb(red, green, blue) => {
+            let prefix = if foreground { 38 } else { 48 };
+            write!(output, ";{prefix};2;{red};{green};{blue}").unwrap();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1225,7 +1163,7 @@ mod tests {
             commands.push_clear(screen);
             let background = screen.to_logical(SCALE);
             commands.push_block(
-                Block::new(background).background(Color::from_rgba8(20, 30, 40, 255)),
+                Block::new(background).background(Color::Rgb(20, 30, 40)),
                 screen,
                 ClipId::default(),
             );
@@ -1236,7 +1174,7 @@ mod tests {
                 height: CELL_HEIGHT,
             };
             commands.push_block(
-                Block::new(accent).background(Color::from_rgba8(80, 220, 180, 128)),
+                Block::new(accent).background(Color::Rgb(80, 220, 180)),
                 accent.to_physical(SCALE),
                 ClipId::default(),
             );

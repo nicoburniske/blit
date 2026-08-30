@@ -2,7 +2,6 @@
 
 use std::rc::Rc;
 
-use crate::color::Color;
 use blit::{LogicalRect, PhysicalRect, PhysicalSize};
 
 #[derive(Clone, Debug)]
@@ -104,12 +103,31 @@ impl ImagePixels {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rgba8 {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+    pub alpha: u8,
+}
+
+impl Rgba8 {
+    pub const fn new(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
+        Self {
+            red,
+            green,
+            blue,
+            alpha,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageFormat {
     Rgb8,
     Luma8,
     Rgba8,
     Rgba8Premultiplied,
-    Alpha8(Color),
+    Alpha8(Rgba8),
 }
 
 impl ImageFormat {

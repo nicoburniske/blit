@@ -32,9 +32,8 @@ blit::builder! {
         new(area: LogicalRect),
         @optional {
             border: Border,
+            background: Color,
         },
-        background: Color = Color::TRANSPARENT,
-        opacity: f32 = 1.0,
     }
 }
 
