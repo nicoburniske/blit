@@ -57,6 +57,56 @@ impl Rect {
     pub const fn size(self) -> Size {
         Size::new(self.width, self.height)
     }
+
+    pub fn contains(self, point: Point) -> bool {
+        point.x >= self.x
+            && point.y >= self.y
+            && point.x < self.x + self.width
+            && point.y < self.y + self.height
+    }
+
+    pub fn intersection(self, other: Self) -> Option<Self> {
+        let x = self.x.max(other.x);
+        let y = self.y.max(other.y);
+        let right = (self.x + self.width).min(other.x + other.width);
+        let bottom = (self.y + self.height).min(other.y + other.height);
+        (right > x && bottom > y).then_some(Self::new(x, y, right - x, bottom - y))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Sides {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+}
+
+impl Sides {
+    pub const fn all(value: f32) -> Self {
+        Self {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        }
+    }
+
+    pub const fn x(value: f32) -> Self {
+        Self {
+            left: value,
+            right: value,
+            ..Self::all(0.0)
+        }
+    }
+
+    pub const fn y(value: f32) -> Self {
+        Self {
+            top: value,
+            bottom: value,
+            ..Self::all(0.0)
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
