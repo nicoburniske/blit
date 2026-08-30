@@ -6,7 +6,7 @@ use crate::{
 };
 
 pub trait Leaf<R: Renderer>: Copy + 'static {
-    fn measure(&self, cx: &mut MeasureCx<'_, R>, constraints: Constraints) -> Size;
+    fn measure(&self, cx: MeasureCx<'_, R>, constraints: Constraints) -> Size;
 
-    fn paint(&self, cx: &mut PaintCx<'_, R>, area: Rect);
+    fn paint(&self, cx: PaintCx<'_, R>, area: Rect);
 }

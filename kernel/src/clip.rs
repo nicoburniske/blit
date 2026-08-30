@@ -1,9 +1,6 @@
 pub use crate::frame::ClipCx;
 
-use crate::{
-    geometry::{Point, Rect},
-    renderer::Renderer,
-};
+use crate::{geometry::Rect, renderer::Renderer};
 
 pub trait ClipCommand<R: Renderer> {
     fn push(self, renderer: &mut R);
@@ -12,11 +9,7 @@ pub trait ClipCommand<R: Renderer> {
 }
 
 pub trait Clip<R: Renderer>: Copy + 'static {
-    fn bounds(&self, area: Rect) -> Rect;
+    fn push(&self, cx: ClipCx<'_, R>, area: Rect);
 
-    fn contains(&self, area: Rect, point: Point) -> bool;
-
-    fn push(&self, cx: &mut ClipCx<'_, R>, area: Rect);
-
-    fn pop(&self, cx: &mut ClipCx<'_, R>);
+    fn pop(&self, cx: ClipCx<'_, R>);
 }

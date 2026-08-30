@@ -8,5 +8,5 @@ use crate::{
 pub trait Layout<R: Renderer>: Copy + 'static {
     type Item: Copy + 'static;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size;
+    fn layout(&self, cx: LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size;
 }

@@ -23,16 +23,16 @@ fn lays_out_and_paints_external_leaves() {
     );
 }
 
-fn scene(ui: &mut Ui<'_, AsciiRenderer>) {
+fn scene(mut ui: Ui<'_, AsciiRenderer>) {
     let mut column = ui.layout(Column);
-    column.add(ColumnItem { gap_before: 0.0 }, |ui| {
+    column.add(ColumnItem { gap_before: 0.0 }, |mut ui| {
         ui.add(Fill::new('A', Size::new(3.0, 1.0)));
     });
-    column.add(ColumnItem { gap_before: 1.0 }, |ui| {
+    column.add(ColumnItem { gap_before: 1.0 }, |mut ui| {
         let mut panel = ui
             .layout_with(Fill::new('b', Size::new(5.0, 3.0)), Overlay)
             .clip(DiamondClip);
-        panel.add((), |ui| {
+        panel.add((), |mut ui| {
             ui.add(Fill::new('C', Size::new(1.0, 1.0)));
         });
     });
@@ -51,11 +51,11 @@ impl Fill {
 }
 
 impl Leaf<AsciiRenderer> for Fill {
-    fn measure(&self, _: &mut MeasureCx<'_, AsciiRenderer>, constraints: Constraints) -> Size {
+    fn measure(&self, _: MeasureCx<'_, AsciiRenderer>, constraints: Constraints) -> Size {
         constraints.constrain(self.size)
     }
 
-    fn paint(&self, cx: &mut PaintCx<'_, AsciiRenderer>, area: Rect) {
+    fn paint(&self, mut cx: PaintCx<'_, AsciiRenderer>, area: Rect) {
         cx.paint(FillCommand {
             area,
             glyph: self.glyph,
@@ -108,19 +108,11 @@ impl DiamondClip {
 }
 
 impl Clip<AsciiRenderer> for DiamondClip {
-    fn bounds(&self, area: Rect) -> Rect {
-        area
-    }
-
-    fn contains(&self, area: Rect, point: Point) -> bool {
-        Self::contains_point(area, point)
-    }
-
-    fn push(&self, cx: &mut ClipCx<'_, AsciiRenderer>, area: Rect) {
+    fn push(&self, mut cx: ClipCx<'_, AsciiRenderer>, area: Rect) {
         cx.push(DiamondClipCommand { area });
     }
 
-    fn pop(&self, cx: &mut ClipCx<'_, AsciiRenderer>) {
+    fn pop(&self, mut cx: ClipCx<'_, AsciiRenderer>) {
         cx.pop::<DiamondClipCommand>();
     }
 }
@@ -151,7 +143,7 @@ struct Column;
 impl<R: Renderer> Layout<R> for Column {
     type Item = ColumnItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, mut cx: LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let base = cx.measure_base(Constraints::loose(constraints.max));
         let mut children = Size::ZERO;
         for child in cx.children() {
@@ -178,7 +170,7 @@ struct Overlay;
 impl<R: Renderer> Layout<R> for Overlay {
     type Item = ();
 
-    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, mut cx: LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let mut size = cx.measure_base(Constraints::loose(constraints.max));
         for child in cx.children() {
             size = size.max(cx.layout_child(child, Constraints::loose(constraints.max)));
