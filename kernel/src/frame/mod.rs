@@ -42,15 +42,29 @@ impl<R: Platform> Ui<R> {
         container::new(self, node)
     }
 
-    pub fn layout_with<B: Leaf<R>, L: Layout<R>>(
-        &mut self,
-        base: B,
-        layout: L,
-    ) -> Container<'_, R, L> {
+    pub fn layout_with<B, L>(&mut self, base: B, layout: L) -> Container<'_, R, L>
+    where
+        B: Widget<R, Response = NodeId>,
+        L: Layout<R>,
+    {
+        let start = self.frame().nodes.len();
+        let node = self.add(base);
         let frame = self.frame_mut();
-        let base = frame.store_leaf(base);
-        let layout = frame.store_layout(layout);
-        let node = frame.push_node(Some(base), Some(layout));
+        assert_eq!(node.index(), start, "layout base returned the wrong node");
+        assert_eq!(
+            frame.nodes.len(),
+            start + 1,
+            "layout base must add exactly one node"
+        );
+        assert!(
+            frame.nodes[start].base.index().is_some(),
+            "layout base did not add a leaf"
+        );
+        assert!(
+            frame.nodes[start].layout.index().is_none(),
+            "layout base already has a layout"
+        );
+        frame.nodes[start].layout = frame.store_layout(layout);
         container::new(self, node)
     }
 
