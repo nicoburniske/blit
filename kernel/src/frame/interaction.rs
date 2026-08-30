@@ -5,38 +5,41 @@ use crate::{
     renderer::Renderer,
 };
 
-use super::{Frame, NodeId};
+use super::Frame;
 
 const DRAG_THRESHOLD: f32 = 6.0;
 
 pub fn resolve<R: Renderer>(frame: &mut Frame<R>, renderer: &R) {
-    fn register<R: Renderer>(frame: &mut Frame<R>, renderer: &R, node: NodeId) {
-        let stored = frame.nodes[node.index()];
-        let Some(id) = stored.id else {
-            return;
+    frame.interaction.sort_requests();
+    if !frame.paint_order.is_empty() {
+        frame
+            .order_stack
+            .resize(frame.nodes.len(), frame.node_id(0));
+        for (rank, node) in frame.paint_order.iter().copied().enumerate() {
+            frame.order_stack[node.index()] = frame.node_id(rank);
+        }
+        let ranks = &frame.order_stack;
+        frame
+            .geometry
+            .sort_unstable_by_key(|record| ranks[record.node.index()].index());
+    }
+    for index in 0..frame.geometry.len() {
+        let record = frame.geometry[index];
+        let Some(id) = record.id else {
+            continue;
         };
+        let stored = &frame.nodes[record.node.index()];
         frame.geometry_current.push((id, stored.area));
         let area = Rect::new(
-            stored.area.x - stored.hit.left,
-            stored.area.y - stored.hit.top,
-            stored.area.width + stored.hit.left + stored.hit.right,
-            stored.area.height + stored.hit.top + stored.hit.bottom,
+            stored.area.x - record.hit.left,
+            stored.area.y - record.hit.top,
+            stored.area.width + record.hit.left + record.hit.right,
+            stored.area.height + record.hit.top + record.hit.bottom,
         );
         // todo: test interaction against the actual custom clip chain
         frame
             .interaction
             .register(id, renderer.interaction_area(area, stored.clip_bounds));
-    }
-
-    frame.interaction.sort_requests();
-    if frame.paint_order.is_empty() {
-        for index in 0..frame.nodes.len() {
-            register(frame, renderer, frame.node_id(index));
-        }
-    } else {
-        for index in 0..frame.paint_order.len() {
-            register(frame, renderer, frame.paint_order[index]);
-        }
     }
     if frame.interaction.end() {
         frame.frame_requested = true;

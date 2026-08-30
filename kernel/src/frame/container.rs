@@ -201,11 +201,11 @@ impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
 
     pub fn clip<C: Clip<R>>(self, clip: C) -> Self {
         assert!(
-            self.frame.nodes[self.node.index()].clip.is_none(),
+            self.frame.nodes[self.node.index()].clip.index().is_none(),
             "layout already has a clip"
         );
         let clip = self.frame.store_clip(clip);
-        self.frame.nodes[self.node.index()].clip = Some(clip);
+        self.frame.nodes[self.node.index()].clip = clip;
         self
     }
 
@@ -220,17 +220,17 @@ impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
     }
 
     pub fn id(self, id: WidgetId) -> Self {
-        self.frame.nodes[self.node.index()].id = Some(id);
+        self.frame.set_id(self.node, id);
         self
     }
 
     pub fn hit(self, hit: Sides) -> Self {
-        self.frame.nodes[self.node.index()].hit = hit;
+        self.frame.set_hit(self.node, hit);
         self
     }
 
     pub fn transition(self, transition: Transition) -> Self {
-        self.frame.nodes[self.node.index()].transition = Some(transition);
+        self.frame.set_transition(self.node, transition);
         self
     }
 
@@ -247,7 +247,7 @@ impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
         let child = self.frame.node_id(start);
         assert_eq!(
             self.frame.nodes[child.index()].parent,
-            Some(self.node),
+            self.node,
             "layout child was added outside its parent"
         );
         assert_eq!(
@@ -257,7 +257,7 @@ impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
         );
         self.frame.set_slot(child, slot);
         let data = self.frame.data.store(item);
-        self.frame.nodes[child.index()].item = Some(data);
+        self.frame.nodes[child.index()].item = data;
         output
     }
 }

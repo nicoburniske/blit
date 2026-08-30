@@ -30,9 +30,7 @@ impl<'a, R: Renderer, I: Copy + 'static> LayoutCx<'a, R, I> {
 
     pub fn item(&self, child: NodeId) -> I {
         self.assert_child(child);
-        let data = self.frame.nodes[child.index()]
-            .item
-            .expect("layout item is missing");
+        let data = self.frame.nodes[child.index()].item;
         self.frame.data.load(data)
     }
 
@@ -113,7 +111,7 @@ impl<'a, R: Renderer, I: Copy + 'static> LayoutCx<'a, R, I> {
     fn assert_child(&self, child: NodeId) {
         assert_eq!(
             self.frame.nodes[child.index()].parent,
-            Some(self.node),
+            self.node,
             "layout can only access direct children"
         );
     }
@@ -136,7 +134,7 @@ impl Iterator for Children<'_> {
             // safety: node storage is frozen while layout runs
             let stored = unsafe { &*self.nodes.add(node.index()) };
             self.next.value = stored.subtree_end + 1;
-            if stored.positioned.is_none() {
+            if stored.positioned.index().is_none() {
                 return Some(node);
             }
         }
