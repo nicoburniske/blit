@@ -1,5 +1,6 @@
 mod arena;
 mod frame;
+mod macros;
 
 pub mod animation;
 pub mod clip;

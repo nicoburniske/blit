@@ -17,12 +17,17 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LayerId(NonZeroU16, #[cfg(debug_assertions)] u16);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Slot {
-    pub width: Sizing,
-    pub height: Sizing,
-    pub layer: Option<LayerId>,
-    pub z_index: i16,
+crate::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Slot {
+        new(),
+        @optional {
+            layer: LayerId,
+        },
+        width: Sizing = Sizing::fit(),
+        height: Sizing = Sizing::fit(),
+        z_index: i16 = 0,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -33,32 +38,7 @@ pub enum Sizing {
     Percent(f32),
 }
 
-impl Default for Slot {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Slot {
-    pub const fn new() -> Self {
-        Self {
-            width: Sizing::fit(),
-            height: Sizing::fit(),
-            layer: None,
-            z_index: 0,
-        }
-    }
-
-    pub const fn width(mut self, width: Sizing) -> Self {
-        self.width = width;
-        self
-    }
-
-    pub const fn height(mut self, height: Sizing) -> Self {
-        self.height = height;
-        self
-    }
-
     pub const fn fixed(mut self, width: f32, height: f32) -> Self {
         self.width = Sizing::fixed(width);
         self.height = Sizing::fixed(height);
@@ -68,16 +48,6 @@ impl Slot {
     pub const fn grow(mut self) -> Self {
         self.width = Sizing::grow();
         self.height = Sizing::grow();
-        self
-    }
-
-    pub const fn layer(mut self, layer: LayerId) -> Self {
-        self.layer = Some(layer);
-        self
-    }
-
-    pub const fn z_index(mut self, z_index: i16) -> Self {
-        self.z_index = z_index;
         self
     }
 }
