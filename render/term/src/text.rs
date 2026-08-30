@@ -3,6 +3,17 @@ use std::ops::{BitOr, BitOrAssign};
 use crate::color::Color;
 use blit::LogicalRect;
 
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct Span<'a> {
+        new(text: &'a str),
+        @optional {
+            color: Color,
+        },
+        attributes: TextAttributes = TextAttributes::NONE,
+    }
+}
+
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct TextAttributes(u8);

@@ -13,7 +13,9 @@ use blit_terminal::{
     color::Color,
     draw::{Block, Border, BorderSides, BorderStyle, Shadow, Title, TitlePosition},
     layout::{Align, Flex, Grid, Justify, Wrap},
-    text::{HorizontalAlign, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
+    text::{
+        HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign,
+    },
     widget::Text,
 };
 
@@ -445,8 +447,23 @@ fn main() -> io::Result<()> {
                                                         Flex::column().padding(Sides::all(1.0)),
                                                     )
                                                     .clip(BoundsClip);
+                                                let sample = [
+                                                    Span::new("The terminal renderer lays out "),
+                                                    Span::new("rich text")
+                                                        .color(colors::ACCENT)
+                                                        .attributes(TextAttributes::BOLD),
+                                                    Span::new(
+                                                        " as one paragraph. Style boundaries do not change wrapping, alignment, or measurement. Toggle the controls to combine attributes across every span while ",
+                                                    ),
+                                                    Span::new("individual spans")
+                                                        .color(colors::SECTION)
+                                                        .attributes(TextAttributes::UNDERLINE),
+                                                    Span::new(
+                                                        " retain their own emphasis and the words continue flowing through the same layout.",
+                                                    ),
+                                                ];
                                                 paragraph.child().slot(Slot::new().grow()).add(
-                                                    Text::new(TEXT_SAMPLE)
+                                                    Text::rich(&sample)
                                                         .color(colors::TEXT)
                                                         .attributes(text_attributes)
                                                         .options(options),
@@ -573,13 +590,6 @@ fn main() -> io::Result<()> {
         control
     })
 }
-
-const TEXT_SAMPLE: &str = concat!(
-    "The terminal renderer applies one resolved attribute mask to every cell in this paragraph. ",
-    "Toggle the controls to combine bold, dim, italic, underline, blink, inverse, hidden, and ",
-    "strikethrough without changing wrapping or measurement. The words keep flowing through the ",
-    "same layout while the terminal handles their visual presentation."
-);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Page {

@@ -7,7 +7,7 @@ use blit_term::{
     TerminalRenderer,
     command_list::{ClipId, CommandList},
     image::{ImageData, ImageHandle},
-    text::{TextLayoutRequest, TextRequest, TextRunId},
+    text::{Span, TextLayoutRequest, TextRequest, TextRunId},
 };
 
 pub struct TerminalPlatform {
@@ -53,6 +53,10 @@ impl TerminalPlatform {
 
     pub fn text_run(&mut self, text: &str) -> TextRunId {
         self.renderer.text_run(text)
+    }
+
+    pub fn rich_text(&mut self, spans: &[Span<'_>]) -> TextRunId {
+        self.renderer.rich_text(spans)
     }
 
     pub fn text_offset_at_position(
