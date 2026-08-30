@@ -8,7 +8,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Text<'a> {
         new(text: &'a str),
-        color: Color = Color::WHITE,
+        color: Color = Color::Reset,
         bold: bool = false,
         options: TextOptions = TextOptions::new(),
     }

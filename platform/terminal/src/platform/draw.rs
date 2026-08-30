@@ -17,9 +17,8 @@ blit::builder! {
         new(),
         @optional {
             border: Border,
+            background: Color,
         },
-        background: Color = Color::TRANSPARENT,
-        opacity: f32 = 1.0,
     }
 }
 
@@ -37,9 +36,10 @@ impl Leaf<TerminalPlatform> for Block {
     }
 
     fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
-        let mut block = DrawBlock::new(area)
-            .background(self.background)
-            .opacity(self.opacity);
+        let mut block = DrawBlock::new(area);
+        if let Some(background) = self.background {
+            block = block.background(background);
+        }
         if let Some(border) = self.border {
             block = block.border(border);
         }
@@ -53,7 +53,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct TextRun {
         new(text: TextRunId),
-        color: Color = Color::WHITE,
+        color: Color = Color::Reset,
         bold: bool = false,
         options: TextOptions = TextOptions::new(),
     }

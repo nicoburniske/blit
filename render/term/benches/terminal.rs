@@ -74,11 +74,10 @@ fn commands(screen: PhysicalRect, changed: bool) -> CommandList {
                 height: 4.0,
             };
             commands.push_block(
-                Block::new(area).background(Color::from_rgba8(
+                Block::new(area).background(Color::Rgb(
                     (column * 19) as u8,
                     (row * 31) as u8,
                     ((row + column) * 13) as u8,
-                    255,
                 )),
                 area.to_physical(Scale2::IDENTITY),
                 ClipId::default(),
@@ -88,7 +87,7 @@ fn commands(screen: PhysicalRect, changed: bool) -> CommandList {
     if changed {
         let area = CHANGED_CELL.to_logical(Scale2::IDENTITY);
         commands.push_block(
-            Block::new(area).background(Color::from_rgba8(86, 211, 194, 255)),
+            Block::new(area).background(Color::Rgb(86, 211, 194)),
             area.to_physical(Scale2::IDENTITY),
             ClipId::default(),
         );

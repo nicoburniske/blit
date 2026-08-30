@@ -68,7 +68,7 @@ fn main() -> io::Result<()> {
                                         .color(colors::ACCENT)
                                         .bold(true),
                                 );
-                            controls.add(Text::new("FLOW").color(colors::TEXT_DIM).bold(true));
+                            controls.add(Text::new("FLOW").color(colors::SECTION).bold(true));
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
@@ -92,7 +92,7 @@ fn main() -> io::Result<()> {
                                 );
                             });
                             controls
-                                .add(Text::new("DISTRIBUTION").color(colors::TEXT_DIM).bold(true));
+                                .add(Text::new("DISTRIBUTION").color(colors::SECTION).bold(true));
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
@@ -135,7 +135,7 @@ fn main() -> io::Result<()> {
                             });
                             controls.add(
                                 Text::new("SCALE, SPACE & MOTION")
-                                    .color(colors::TEXT_DIM)
+                                    .color(colors::SECTION)
                                     .bold(true),
                             );
                             controls.add(|ui: &mut Ui| {
@@ -191,7 +191,7 @@ fn main() -> io::Result<()> {
                                 Flex::column().justify(Justify::End),
                                 |mut help| {
                                     help.add(
-                                        Text::new("POINTER").color(colors::TEXT_DIM).bold(true),
+                                        Text::new("POINTER").color(colors::SECTION).bold(true),
                                     );
                                     help.add(
                                         Text::new("click a value to select it")
@@ -545,31 +545,32 @@ fn panel(background: Color) -> Block {
 mod colors {
     use blit_terminal::color::Color;
 
-    pub const BACKGROUND: Color = Color::from_rgba8(8, 12, 20, 255);
-    pub const SURFACE: Color = Color::from_rgba8(18, 27, 42, 255);
-    pub const SURFACE_HIGH: Color = Color::from_rgba8(35, 51, 74, 255);
-    pub const TRACK: Color = Color::from_rgba8(5, 9, 16, 255);
-    pub const SELECTED: Color = Color::from_rgba8(24, 84, 78, 255);
-    pub const CANVAS: Color = Color::from_rgba8(24, 35, 52, 255);
-    pub const CANVAS_BORDER: Color = Color::from_rgba8(74, 99, 132, 255);
-    pub const GRIP: Color = Color::from_rgba8(48, 126, 120, 255);
-    pub const GRIP_CORNER: Color = Color::from_rgba8(91, 220, 185, 255);
-    pub const BORDER: Color = Color::from_rgba8(54, 72, 98, 255);
-    pub const TEXT: Color = Color::from_rgba8(235, 242, 250, 255);
-    pub const TEXT_MUTED: Color = Color::from_rgba8(150, 169, 192, 255);
-    pub const TEXT_DIM: Color = Color::from_rgba8(93, 113, 139, 255);
-    pub const ACCENT: Color = Color::from_rgba8(91, 220, 185, 255);
-    pub const ACCENT_DARK: Color = Color::from_rgba8(31, 111, 104, 255);
+    pub const BACKGROUND: Color = Color::Reset;
+    pub const SURFACE: Color = Color::BLACK;
+    pub const SURFACE_HIGH: Color = Color::DARK_GRAY;
+    pub const TRACK: Color = Color::BLACK;
+    pub const SELECTED: Color = Color::BLUE;
+    pub const CANVAS: Color = Color::BLACK;
+    pub const CANVAS_BORDER: Color = Color::GRAY;
+    pub const GRIP: Color = Color::CYAN;
+    pub const GRIP_CORNER: Color = Color::LIGHT_CYAN;
+    pub const BORDER: Color = Color::DARK_GRAY;
+    pub const TEXT: Color = Color::WHITE;
+    pub const TEXT_MUTED: Color = Color::GRAY;
+    pub const TEXT_DIM: Color = Color::DARK_GRAY;
+    pub const SECTION: Color = Color::LIGHT_BLUE;
+    pub const ACCENT: Color = Color::LIGHT_CYAN;
+    pub const ACCENT_DARK: Color = Color::CYAN;
     pub const ITEMS: [Color; 10] = [
-        Color::from_rgba8(73, 135, 218, 255),
-        Color::from_rgba8(53, 174, 126, 255),
-        Color::from_rgba8(224, 142, 62, 255),
-        Color::from_rgba8(146, 92, 220, 255),
-        Color::from_rgba8(218, 89, 143, 255),
-        Color::from_rgba8(47, 162, 184, 255),
-        Color::from_rgba8(111, 148, 68, 255),
-        Color::from_rgba8(205, 103, 73, 255),
-        Color::from_rgba8(112, 103, 209, 255),
-        Color::from_rgba8(191, 79, 119, 255),
+        Color::BLUE,
+        Color::GREEN,
+        Color::YELLOW,
+        Color::MAGENTA,
+        Color::RED,
+        Color::CYAN,
+        Color::LIGHT_BLUE,
+        Color::LIGHT_GREEN,
+        Color::LIGHT_MAGENTA,
+        Color::LIGHT_RED,
     ];
 }
