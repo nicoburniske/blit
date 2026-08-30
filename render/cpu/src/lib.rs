@@ -52,7 +52,6 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
         Self {
             context: RenderContext {
                 buffer,
-                device_scale: 1.0,
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
                 shadows: shadow::Cache::new(config.shadow_cache_capacity),
@@ -73,11 +72,6 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
-    pub fn set_device_scale(&mut self, scale: f32) {
-        assert!(scale.is_finite() && scale > 0.0);
-        self.context.device_scale = scale;
-    }
-
     pub fn screen(&self) -> PhysicalRect {
         PhysicalRect {
             x: 0,
@@ -209,7 +203,6 @@ new_key_type! {
 #[doc(hidden)]
 pub struct RenderContext<B: PixelBuffer> {
     buffer: B,
-    device_scale: f32,
     scale_factor: f32,
     images: SlotMap<RendererImageId, StoredImage>,
     shadows: shadow::Cache,
@@ -349,12 +342,9 @@ impl<B: PixelBuffer> RenderContext<B> {
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
-    pub fn device_scale(&self) -> f32 {
-        self.context.device_scale
-    }
-
     pub fn set_scale(&mut self, scale: Scale2) {
         assert_eq!(scale.x, scale.y, "CPU rendering requires uniform scale");
+        assert!(scale.x.is_finite() && scale.x > 0.0);
         self.context.scale_factor = scale.x;
     }
 
