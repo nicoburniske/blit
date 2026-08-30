@@ -11,7 +11,7 @@ use blit_showcase::{
 use blit_terminal::{
     BoundsClip, ControlFlow, TerminalPlatform, Ui,
     color::Color,
-    draw::{Block, Border, BorderStyle, Title, TitlePosition},
+    draw::{Block, Border, BorderSides, BorderStyle, Shadow, Title, TitlePosition},
     layout::{Align, Flex, Grid, Justify, Wrap},
     text::{HorizontalAlign, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
     widget::Text,
@@ -28,6 +28,10 @@ fn main() -> io::Result<()> {
     let mut text_horizontal = HorizontalAlign::Left;
     let mut text_vertical = VerticalAlign::Top;
     let mut text_max_lines = None;
+    let mut block_style = BorderStyle::Rounded;
+    let mut block_sides = BorderSides::ALL;
+    let mut block_shadow = true;
+    let mut block_background = true;
     let mut fps = FpsBadge::default();
     blit_terminal::run(|ui: &mut Ui| {
         let control = if matches!(ui.input(), Input::Text('q'))
@@ -44,39 +48,54 @@ fn main() -> io::Result<()> {
         );
         root.child()
             .slot(Slot::new().height(Sizing::fixed(1.0)))
-            .layout(Flex::row().align(Align::Center).gap(1.0), |mut header| {
-                header.add(Text::new("BLIT").attributes(TextAttributes::BOLD));
-                if header.add(Button::new(
-                    WidgetId::new("terminal layout page"),
-                    " Layout ",
-                    page == Page::Layout,
-                )) {
-                    page = Page::Layout;
-                }
-                if header.add(Button::new(
-                    WidgetId::new("terminal text page"),
-                    " Text ",
-                    page == Page::Text,
-                )) {
-                    page = Page::Text;
-                }
-                if header.add(Button::new(
-                    WidgetId::new("terminal reset showcase"),
-                    " Reset ",
-                    false,
-                )) {
-                    canvas = CanvasConfig::default();
-                    resize.reset();
-                    text_resize.reset();
-                    text_attributes = TextAttributes::NONE;
-                    text_wrap = TextWrap::Word;
-                    text_overflow = TextOverflow::Clip;
-                    text_horizontal = HorizontalAlign::Left;
-                    text_vertical = VerticalAlign::Top;
-                    text_max_lines = None;
-                }
-                header.add(Text::new("q quit").color(colors::TEXT_MUTED));
-            });
+            .layout_with(
+                Block::new().background(colors::SURFACE),
+                Flex::row().align(Align::Center).gap(1.0),
+                |mut header| {
+                    header.add(Text::new(" BLIT ").attributes(TextAttributes::BOLD));
+                    if header.add(Button::new(
+                        WidgetId::new("terminal layout page"),
+                        " Layout ",
+                        page == Page::Layout,
+                    )) {
+                        page = Page::Layout;
+                    }
+                    if header.add(Button::new(
+                        WidgetId::new("terminal text page"),
+                        " Text ",
+                        page == Page::Text,
+                    )) {
+                        page = Page::Text;
+                    }
+                    if header.add(Button::new(
+                        WidgetId::new("terminal blocks page"),
+                        " Blocks ",
+                        page == Page::Blocks,
+                    )) {
+                        page = Page::Blocks;
+                    }
+                    if header.add(Button::new(
+                        WidgetId::new("terminal reset showcase"),
+                        " Reset ",
+                        false,
+                    )) {
+                        canvas = CanvasConfig::default();
+                        resize.reset();
+                        text_resize.reset();
+                        text_attributes = TextAttributes::NONE;
+                        text_wrap = TextWrap::Word;
+                        text_overflow = TextOverflow::Clip;
+                        text_horizontal = HorizontalAlign::Left;
+                        text_vertical = VerticalAlign::Top;
+                        text_max_lines = None;
+                        block_style = BorderStyle::Rounded;
+                        block_sides = BorderSides::ALL;
+                        block_shadow = true;
+                        block_background = true;
+                    }
+                    header.add(Text::new("q quit").color(colors::TEXT_MUTED));
+                },
+            );
         if page == Page::Layout {
             root.child()
                 .slot(Slot::new().grow())
@@ -276,7 +295,7 @@ fn main() -> io::Result<()> {
                         },
                     );
                 });
-        } else {
+        } else if page == Page::Text {
             root.child()
                 .slot(Slot::new().grow())
                 .layout(Flex::column().gap(1.0), |mut body| {
@@ -447,6 +466,108 @@ fn main() -> io::Result<()> {
                         },
                     );
                 });
+        } else {
+            root.child()
+                .slot(Slot::new().grow())
+                .layout(Flex::row().gap(1.0), |mut body| {
+                    body.child()
+                        .slot(
+                            Slot::new()
+                                .width(Sizing::fixed(40.0))
+                                .height(Sizing::grow()),
+                        )
+                        .layout_with(
+                            panel(colors::SURFACE, " BLOCK OPTIONS "),
+                            Flex::column().padding(Sides::all(1.0)).gap(1.0),
+                            |mut controls| {
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "border style",
+                                        "terminal block border style",
+                                        &mut block_style,
+                                        &[
+                                            (" Single ", BorderStyle::Single),
+                                            (" Rounded ", BorderStyle::Rounded),
+                                            (" Double ", BorderStyle::Double),
+                                            (" Heavy ", BorderStyle::Heavy),
+                                        ],
+                                    );
+                                });
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "border sides",
+                                        "terminal block border sides",
+                                        &mut block_sides,
+                                        &[
+                                            (" All ", BorderSides::ALL),
+                                            (
+                                                " Horizontal ",
+                                                BorderSides::TOP | BorderSides::BOTTOM,
+                                            ),
+                                            (" Vertical ", BorderSides::LEFT | BorderSides::RIGHT),
+                                            (" None ", BorderSides::NONE),
+                                        ],
+                                    );
+                                });
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "shadow",
+                                        "terminal block shadow",
+                                        &mut block_shadow,
+                                        &[(" On ", true), (" Off ", false)],
+                                    );
+                                });
+                                controls.add(|ui: &mut Ui| {
+                                    choices(
+                                        ui,
+                                        "background",
+                                        "terminal block background",
+                                        &mut block_background,
+                                        &[(" On ", true), (" Off ", false)],
+                                    );
+                                });
+                            },
+                        );
+                    body.child().slot(Slot::new().grow()).layout_with(
+                        panel(colors::SURFACE, " BLOCK PREVIEW "),
+                        Flex::column().padding(Sides::all(1.0)).gap(1.0),
+                        |mut preview| {
+                            preview.child().slot(Slot::new().grow()).add(|ui: &mut Ui| {
+                                let mut block = Block::new()
+                                    .border(
+                                        Border::new(colors::CANVAS_BORDER)
+                                            .style(block_style)
+                                            .sides(block_sides),
+                                    )
+                                    .title(
+                                        Title::new(" CONFIGURED BLOCK ")
+                                            .color(colors::ACCENT)
+                                            .attributes(TextAttributes::BOLD),
+                                    );
+                                if block_background {
+                                    block = block.background(colors::SURFACE_HIGH);
+                                }
+                                if block_shadow {
+                                    block = block.shadow(Shadow::new(colors::SHADOW));
+                                }
+                                let mut configured = ui.layout_with(
+                                    block,
+                                    Flex::column()
+                                        .padding(Sides::all(1.0))
+                                        .align(Align::Center)
+                                        .justify(Justify::Center),
+                                );
+                                configured.add(
+                                    Text::new("change the options on the left")
+                                        .color(colors::TEXT_MUTED),
+                                );
+                            });
+                        },
+                    );
+                });
         }
         root.add(&mut fps);
         control
@@ -465,6 +586,7 @@ enum Page {
     #[default]
     Layout,
     Text,
+    Blocks,
 }
 
 struct FpsBadge {
@@ -766,6 +888,7 @@ mod colors {
     pub const GRIP: Color = Color::CYAN;
     pub const GRIP_CORNER: Color = Color::LIGHT_CYAN;
     pub const BORDER: Color = Color::DARK_GRAY;
+    pub const SHADOW: Color = Color::DARK_GRAY;
     pub const TEXT: Color = Color::WHITE;
     pub const TEXT_MUTED: Color = Color::GRAY;
     pub const TEXT_DIM: Color = Color::DARK_GRAY;

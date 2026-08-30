@@ -27,6 +27,7 @@ pub enum Command {
     /// restores cells to their default value
     Clear,
     Block(Block),
+    Shadow(BoxShadow),
     Image(ImagePlacement),
     Text(TextRequest),
 }
@@ -47,6 +48,23 @@ blit::builder! {
 impl Block {
     pub const fn title(mut self, title: BlockTitle) -> Self {
         self.titles[title.position.index()] = Some(title);
+        self
+    }
+}
+
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct BoxShadow {
+        new(area: LogicalRect, color: Color),
+        offset_x: f32 = 1.0,
+        offset_y: f32 = 1.0,
+    }
+}
+
+impl BoxShadow {
+    pub const fn offset(mut self, x: f32, y: f32) -> Self {
+        self.offset_x = x;
+        self.offset_y = y;
         self
     }
 }
@@ -168,6 +186,10 @@ impl CommandList {
 
     pub fn push_block(&mut self, block: Block, bounds: PhysicalRect, clip: ClipId) {
         self.push(bounds, clip, Command::Block(block))
+    }
+
+    pub fn push_shadow(&mut self, shadow: BoxShadow, bounds: PhysicalRect, clip: ClipId) {
+        self.push(bounds, clip, Command::Shadow(shadow))
     }
 
     pub fn push_image(&mut self, image: ImagePlacement, bounds: PhysicalRect, clip: ClipId) {
