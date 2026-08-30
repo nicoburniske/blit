@@ -29,58 +29,40 @@ fn main() -> io::Result<()> {
             ControlFlow::Continue
         };
         let screen = ui.screen();
-        let cell = ui.platform().renderer().cell_size();
         let mut root = ui.layout_with(
             Block::new().background(colors::BACKGROUND),
-            Flex::column()
-                .padding(Sides {
-                    top: cell.height,
-                    right: cell.width,
-                    bottom: cell.height,
-                    left: cell.width,
-                })
-                .gap(cell.height),
+            Flex::column().padding(Sides::all(1.0)).gap(1.0),
         );
         root.child()
-            .slot(Slot::new().height(Sizing::fixed(cell.height)))
-            .layout(
-                Flex::row().align(Align::Center).gap(cell.width * 2.0),
-                |mut header| {
-                    header.add(Text::new("BLIT / LAYOUT PLAYGROUND").bold(true));
-                    if header.add(Button::new(
-                        WidgetId::new("terminal reset layout playground"),
-                        " Reset ",
-                        false,
-                    )) {
-                        canvas = CanvasConfig::default();
-                        resize.reset();
-                    }
-                    header.add(Text::new("q quit").color(colors::TEXT_MUTED));
-                },
-            );
+            .slot(Slot::new().height(Sizing::fixed(1.0)))
+            .layout(Flex::row().align(Align::Center).gap(2.0), |mut header| {
+                header.add(Text::new("BLIT / LAYOUT PLAYGROUND").bold(true));
+                if header.add(Button::new(
+                    WidgetId::new("terminal reset layout playground"),
+                    " Reset ",
+                    false,
+                )) {
+                    canvas = CanvasConfig::default();
+                    resize.reset();
+                }
+                header.add(Text::new("q quit").color(colors::TEXT_MUTED));
+            });
         root.child()
             .slot(Slot::new().grow())
-            .layout(Flex::row().gap(cell.width), |mut body| {
+            .layout(Flex::row().gap(1.0), |mut body| {
                 body.child()
                     .slot(
                         Slot::new()
-                            .width(Sizing::fixed(cell.width * 40.0))
+                            .width(Sizing::fixed(40.0))
                             .height(Sizing::grow()),
                     )
                     .layout_with(
                         panel(colors::SURFACE),
-                        Flex::column()
-                            .padding(Sides {
-                                top: cell.height,
-                                right: cell.width,
-                                bottom: cell.height,
-                                left: cell.width,
-                            })
-                            .gap(cell.height),
+                        Flex::column().padding(Sides::all(1.0)).gap(1.0),
                         |mut controls| {
                             controls
                                 .child()
-                                .slot(Slot::new().height(Sizing::fixed(cell.height)))
+                                .slot(Slot::new().height(Sizing::fixed(1.0)))
                                 .add(
                                     Text::new("LAYOUT PARAMETERS")
                                         .color(colors::ACCENT)
@@ -90,7 +72,6 @@ fn main() -> io::Result<()> {
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
-                                    cell,
                                     "layout",
                                     "terminal layout",
                                     &mut canvas.layout,
@@ -104,7 +85,6 @@ fn main() -> io::Result<()> {
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
-                                    cell,
                                     "axis",
                                     "terminal axis",
                                     &mut canvas.axis,
@@ -116,7 +96,6 @@ fn main() -> io::Result<()> {
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
-                                    cell,
                                     "justify",
                                     "terminal justify position",
                                     &mut canvas.justify,
@@ -130,7 +109,6 @@ fn main() -> io::Result<()> {
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
-                                    cell,
                                     "distribute",
                                     "terminal justify distribution",
                                     &mut canvas.justify,
@@ -144,7 +122,6 @@ fn main() -> io::Result<()> {
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
-                                    cell,
                                     "align",
                                     "terminal align",
                                     &mut canvas.align,
@@ -164,7 +141,6 @@ fn main() -> io::Result<()> {
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
-                                    cell,
                                     "sizing",
                                     "terminal sizing",
                                     &mut canvas.sizing,
@@ -178,7 +154,6 @@ fn main() -> io::Result<()> {
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
-                                    cell,
                                     "zoom",
                                     "terminal zoom",
                                     &mut canvas.zoom,
@@ -188,7 +163,6 @@ fn main() -> io::Result<()> {
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
-                                    cell,
                                     "gap",
                                     "terminal gap",
                                     &mut canvas.gap_steps,
@@ -198,7 +172,6 @@ fn main() -> io::Result<()> {
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
-                                    cell,
                                     "padding",
                                     "terminal padding",
                                     &mut canvas.padding_steps,
@@ -208,7 +181,6 @@ fn main() -> io::Result<()> {
                             controls.add(|ui: &mut Ui| {
                                 choices(
                                     ui,
-                                    cell,
                                     "transitions",
                                     "terminal transitions",
                                     &mut canvas.transitions,
@@ -235,17 +207,12 @@ fn main() -> io::Result<()> {
                     );
                 body.child().slot(Slot::new().grow()).layout_with(
                     panel(colors::SURFACE),
-                    Flex::column().padding(Sides {
-                        top: cell.height,
-                        right: cell.width,
-                        bottom: cell.height,
-                        left: cell.width,
-                    }),
+                    Flex::column().padding(Sides::all(1.0)),
                     |mut preview| {
                         preview
                             .child()
-                            .slot(Slot::new().height(Sizing::fixed(cell.height)))
-                            .layout(Flex::row().gap(cell.width), |mut status| {
+                            .slot(Slot::new().height(Sizing::fixed(1.0)))
+                            .layout(Flex::row().gap(1.0), |mut status| {
                                 status.add(
                                     Text::new("LIVE PREVIEW").color(colors::ACCENT).bold(true),
                                 );
@@ -268,40 +235,28 @@ fn main() -> io::Result<()> {
                             });
                         preview.child().slot(Slot::new().grow()).layout_with(
                             Block::new().background(colors::TRACK),
-                            Flex::row()
-                                .padding(Sides {
-                                    top: cell.height,
-                                    right: cell.width,
-                                    bottom: cell.height,
-                                    left: cell.width,
-                                })
-                                .align(Align::Start),
+                            Flex::row().padding(Sides::all(1.0)).align(Align::Start),
                             |mut viewport| {
                                 viewport.add(
                                     Resizable::new(
                                         &mut resize,
                                         WidgetId::new("terminal layout canvas"),
                                         Size::new(
-                                            ((screen.width - cell.width * 48.0) * 0.8)
-                                                .max(cell.width * 18.0),
-                                            ((screen.height - cell.height * 8.0) * 0.72)
-                                                .max(cell.height * 9.0),
+                                            ((screen.width - 48.0) * 0.8).max(18.0),
+                                            ((screen.height - 8.0) * 0.72).max(9.0),
                                         ),
-                                        Canvas {
-                                            config: canvas,
-                                            unit: cell,
-                                        },
-                                        |grip| TerminalGrip { grip, cell },
+                                        Canvas { config: canvas },
+                                        TerminalGrip,
                                     )
-                                    .minimum(Size::new(cell.width * 18.0, cell.height * 9.0))
+                                    .minimum(Size::new(18.0, 9.0))
                                     .maximum(screen.size())
-                                    .grip_size(cell),
+                                    .grip_size(Size::new(1.0, 1.0)),
                                 );
                             },
                         );
                         preview
                             .child()
-                            .slot(Slot::new().height(Sizing::fixed(cell.height)))
+                            .slot(Slot::new().height(Sizing::fixed(1.0)))
                             .add(
                                 Text::new("drag the teal edge or corner to resize")
                                     .color(colors::TEXT_DIM),
@@ -336,56 +291,46 @@ impl Widget<TerminalPlatform> for &mut FpsBadge {
             self.label.clear();
             let _ = write!(self.label, "FPS {fps:03.0}");
         }
-        let cell = ui.platform().renderer().cell_size();
         let mut badge = ui
             .layout_with(
                 Block::new()
                     .background(colors::SURFACE_HIGH)
                     .border(Border::new(colors::ACCENT).rounded(true)),
                 Flex::row()
-                    .padding(Sides {
-                        top: cell.height,
-                        right: cell.width,
-                        bottom: cell.height,
-                        left: cell.width,
-                    })
-                    .gap(cell.width)
+                    .padding(Sides::all(1.0))
+                    .gap(1.0)
                     .align(Align::Center),
             )
             .absolute(
                 Absolute::screen(0.0, 0.0)
                     .anchors(Anchor::BottomRight, Anchor::BottomRight)
-                    .offset(-cell.width, -cell.height),
+                    .offset(-1.0, -1.0),
             );
         badge
             .child()
-            .slot(Slot::new().fixed(cell.width, cell.height))
+            .slot(Slot::new().fixed(1.0, 1.0))
             .add(Block::new().background(colors::ACCENT));
         badge.add(Text::new(&self.label).color(colors::TEXT).bold(true));
         badge.add(Text::new("SCREEN ABSOLUTE").color(colors::TEXT_DIM));
     }
 }
 
-struct TerminalGrip {
-    grip: ResizeGrip,
-    cell: Size,
-}
+struct TerminalGrip(ResizeGrip);
 
 impl Widget<TerminalPlatform> for TerminalGrip {
     type Response = NodeId;
 
     fn build(self, ui: &mut Ui) -> NodeId {
-        let marker = match self.grip.edge {
-            ResizeEdge::Right => Size::new(self.cell.width, self.cell.height * 3.0),
-            ResizeEdge::Bottom => Size::new(self.cell.width * 5.0, self.cell.height),
-            ResizeEdge::Corner => self.cell,
+        let marker = match self.0.edge {
+            ResizeEdge::Right => Size::new(1.0, 3.0),
+            ResizeEdge::Bottom => Size::new(5.0, 1.0),
+            ResizeEdge::Corner => Size::new(1.0, 1.0),
         };
-        let active = self.grip.interaction.hovered
-            || self.grip.interaction.active
-            || self.grip.interaction.dragging;
+        let active =
+            self.0.interaction.hovered || self.0.interaction.active || self.0.interaction.dragging;
         let color = if active {
             colors::ACCENT
-        } else if self.grip.edge == ResizeEdge::Corner {
+        } else if self.0.edge == ResizeEdge::Corner {
             colors::GRIP_CORNER
         } else {
             colors::GRIP
@@ -437,7 +382,6 @@ impl Widget<TerminalPlatform> for Button<'_> {
 
 fn choices<T: Copy + PartialEq>(
     ui: &mut Ui,
-    cell: Size,
     label: &str,
     id: &str,
     selected: &mut T,
@@ -448,8 +392,8 @@ fn choices<T: Copy + PartialEq>(
     group.add(|ui: &mut Ui| {
         let mut values = ui.layout(
             Wrap::new(Axis::Horizontal)
-                .item_gap(cell.width * 2.0)
-                .run_gap(cell.height)
+                .item_gap(2.0)
+                .run_gap(1.0)
                 .align(Align::Center),
         );
         for (index, &(option, value)) in options.iter().enumerate() {
@@ -468,13 +412,13 @@ fn choices<T: Copy + PartialEq>(
 #[derive(Clone, Copy)]
 struct Canvas {
     config: CanvasConfig,
-    unit: Size,
 }
 
 impl Widget<TerminalPlatform> for Canvas {
     type Response = ();
 
     fn build(self, ui: &mut Ui) {
+        let unit = Size::new(1.0, 1.0);
         let background = Block::new()
             .background(colors::CANVAS)
             .border(Border::new(colors::CANVAS_BORDER).rounded(true));
@@ -484,8 +428,8 @@ impl Widget<TerminalPlatform> for Canvas {
                     .layout_with(
                         background,
                         Flex::new(self.config.axis)
-                            .padding(self.config.padding(self.unit))
-                            .gap(self.config.gap(self.config.axis, self.unit))
+                            .padding(self.config.padding(unit))
+                            .gap(self.config.gap(self.config.axis, unit))
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
@@ -494,9 +438,9 @@ impl Widget<TerminalPlatform> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child()
-                        .slot(self.config.item_slot(index, self.unit))
+                        .slot(self.config.item_slot(index, unit))
                         .add(|ui: &mut Ui| {
-                            canvas_item(ui, index, spec, badges, self.config, self.unit);
+                            canvas_item(ui, index, spec, badges, self.config, unit);
                         });
                 }
             }
@@ -509,9 +453,9 @@ impl Widget<TerminalPlatform> for Canvas {
                     .layout_with(
                         background,
                         Wrap::new(self.config.axis)
-                            .padding(self.config.padding(self.unit))
-                            .item_gap(self.config.gap(self.config.axis, self.unit))
-                            .run_gap(self.config.gap(cross, self.unit))
+                            .padding(self.config.padding(unit))
+                            .item_gap(self.config.gap(self.config.axis, unit))
+                            .run_gap(self.config.gap(cross, unit))
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
@@ -520,18 +464,18 @@ impl Widget<TerminalPlatform> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child()
-                        .slot(self.config.item_slot(index, self.unit))
+                        .slot(self.config.item_slot(index, unit))
                         .add(|ui: &mut Ui| {
-                            canvas_item(ui, index, spec, badges, self.config, self.unit);
+                            canvas_item(ui, index, spec, badges, self.config, unit);
                         });
                 }
             }
             CanvasLayout::Grid => {
                 let grid = Grid::columns(5)
                     .spanning()
-                    .padding(self.config.padding(self.unit))
-                    .column_gap(self.config.gap(Axis::Horizontal, self.unit))
-                    .row_gap(self.config.gap(Axis::Vertical, self.unit));
+                    .padding(self.config.padding(unit))
+                    .column_gap(self.config.gap(Axis::Horizontal, unit))
+                    .row_gap(self.config.gap(Axis::Vertical, unit));
                 let mut placer = grid.placer();
                 let mut canvas = ui.layout_with(background, grid).clip(BoundsClip);
                 let badges = canvas.new_layer();
@@ -539,12 +483,9 @@ impl Widget<TerminalPlatform> for Canvas {
                     let item = placer.place(spec.rows, spec.columns);
                     canvas
                         .item(item)
-                        .slot(
-                            Slot::new()
-                                .height(Sizing::fixed(3.0 * self.unit.height * self.config.zoom)),
-                        )
+                        .slot(Slot::new().height(Sizing::fixed(3.0 * self.config.zoom)))
                         .add(|ui: &mut Ui| {
-                            canvas_item(ui, index, spec, badges, self.config, self.unit);
+                            canvas_item(ui, index, spec, badges, self.config, unit);
                         });
                 }
             }

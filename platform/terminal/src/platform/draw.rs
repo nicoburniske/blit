@@ -1,4 +1,4 @@
-use blit::{Constraints, Leaf, LogicalRect, NodeId, Size, Widget};
+use blit::{Constraints, Leaf, LogicalRect, NodeId, Scale2, Size, Widget};
 use blit_term::{
     color::Color,
     command_list::Block as DrawBlock,
@@ -43,7 +43,7 @@ impl Leaf<TerminalPlatform> for Block {
         if let Some(border) = self.border {
             block = block.border(border);
         }
-        let bounds = area.to_physical(platform.renderer.scale());
+        let bounds = area.to_physical(Scale2::IDENTITY);
         let clip = platform.clip;
         platform.current.push_block(block, bounds, clip);
     }
@@ -84,7 +84,7 @@ impl Leaf<TerminalPlatform> for TextRun {
             .color(self.color)
             .bold(self.bold)
             .options(self.options);
-        let bounds = area.to_physical(platform.renderer.scale());
+        let bounds = area.to_physical(Scale2::IDENTITY);
         let clip = platform.clip;
         platform.current.push_text(request, bounds, clip);
     }
@@ -111,7 +111,7 @@ impl Leaf<TerminalPlatform> for Image {
     }
 
     fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
-        let bounds = area.to_physical(platform.renderer.scale());
+        let bounds = area.to_physical(Scale2::IDENTITY);
         let clip = platform.clip;
         platform
             .current
