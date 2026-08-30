@@ -1,4 +1,11 @@
-use std::{any::TypeId, marker::PhantomData};
+use std::any::TypeId;
+
+pub mod container;
+pub mod layout;
+pub mod ui;
+
+pub use container::Container;
+pub use ui::Ui;
 
 use crate::{
     arena::{DataArena, DataId},
@@ -34,10 +41,7 @@ impl<R: Renderer> Frame<R> {
         self.nodes.clear();
         self.data.clear();
 
-        build(Ui {
-            frame: self,
-            parent: None,
-        });
+        build(ui::new(self, None));
         assert!(!self.nodes.is_empty(), "frame is empty");
         assert_eq!(
             self.nodes[0].subtree_end as usize,
@@ -81,9 +85,9 @@ impl<R: Renderer> Frame<R> {
 
     fn layout_node(&mut self, node: NodeId, renderer: &mut R, constraints: Constraints) -> Size {
         let stored = self.nodes[node.index()];
-        let size = if let Some(layout) = stored.layout {
-            let run = self.layout_kinds[layout.kind as usize].layout;
-            run(self, node, renderer, layout.data, constraints)
+        let size = if let Some(stored) = stored.layout {
+            let run = self.layout_kinds[stored.kind as usize].layout;
+            run(self, node, renderer, stored.data, constraints)
         } else {
             assert!(
                 stored.base.is_some(),
@@ -125,7 +129,7 @@ impl<R: Renderer> Frame<R> {
         }
     }
 
-    fn store_layout<L: Layout<R>>(&mut self, layout: L) -> StoredLayout {
+    fn store_layout<L: Layout<R>>(&mut self, value: L) -> StoredLayout {
         let type_id = TypeId::of::<L>();
         let kind = self
             .layout_kinds
@@ -134,13 +138,13 @@ impl<R: Renderer> Frame<R> {
             .unwrap_or_else(|| {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
-                    layout: run_layout::<R, L>,
+                    layout: layout::run::<R, L>,
                 });
                 self.layout_kinds.len() - 1
             });
         StoredLayout {
             kind: u16::try_from(kind).expect("too many layout types"),
-            data: self.data.store(layout),
+            data: self.data.store(value),
         }
     }
 
@@ -181,183 +185,6 @@ impl<R: Renderer> Frame<R> {
             area: Rect::default(),
         });
         id
-    }
-}
-
-pub struct Ui<'a, R: Renderer> {
-    frame: &'a mut Frame<R>,
-    parent: Option<NodeId>,
-}
-
-impl<R: Renderer> Ui<'_, R> {
-    pub fn add<L: Leaf<R>>(&mut self, leaf: L) -> NodeId {
-        let base = self.frame.store_leaf(leaf);
-        self.frame.push_node(self.parent, Some(base), None)
-    }
-
-    pub fn layout<L: Layout<R>>(&mut self, layout: L) -> Container<'_, R, L> {
-        let layout = self.frame.store_layout(layout);
-        let node = self.frame.push_node(self.parent, None, Some(layout));
-        Container {
-            frame: self.frame,
-            node,
-            marker: PhantomData,
-        }
-    }
-
-    pub fn layout_with<B: Leaf<R>, L: Layout<R>>(
-        &mut self,
-        base: B,
-        layout: L,
-    ) -> Container<'_, R, L> {
-        let base = self.frame.store_leaf(base);
-        let layout = self.frame.store_layout(layout);
-        let node = self.frame.push_node(self.parent, Some(base), Some(layout));
-        Container {
-            frame: self.frame,
-            node,
-            marker: PhantomData,
-        }
-    }
-}
-
-pub struct Container<'a, R, L>
-where
-    R: Renderer,
-    L: Layout<R>,
-{
-    frame: &'a mut Frame<R>,
-    node: NodeId,
-    marker: PhantomData<L>,
-}
-
-impl<R: Renderer, L: Layout<R>> Container<'_, R, L> {
-    pub fn node(&self) -> NodeId {
-        self.node
-    }
-
-    pub fn clip<C: Clip<R>>(self, clip: C) -> Self {
-        assert!(
-            self.frame.nodes[self.node.index()].clip.is_none(),
-            "layout already has a clip"
-        );
-        let clip = self.frame.store_clip(clip);
-        self.frame.nodes[self.node.index()].clip = Some(clip);
-        self
-    }
-
-    pub fn add<O>(&mut self, item: L::Item, child: impl FnOnce(Ui<'_, R>) -> O) -> O {
-        let start = self.frame.nodes.len();
-        let output = child(Ui {
-            frame: self.frame,
-            parent: Some(self.node),
-        });
-        let end = self.frame.nodes.len();
-        assert!(end > start, "layout child did not add a node");
-
-        let child = NodeId(start as u32);
-        assert_eq!(
-            self.frame.nodes[child.index()].parent,
-            Some(self.node),
-            "layout child was added outside its parent"
-        );
-        assert_eq!(
-            self.frame.nodes[child.index()].subtree_end as usize + 1,
-            end,
-            "a layout item must contain exactly one root"
-        );
-        let data = self.frame.data.store(item);
-        self.frame.nodes[child.index()].item = Some(data);
-        output
-    }
-}
-
-impl<R: Renderer, L: Layout<R>> Drop for Container<'_, R, L> {
-    fn drop(&mut self) {
-        self.frame.nodes[self.node.index()].subtree_end =
-            u32::try_from(self.frame.nodes.len() - 1).expect("too many frame nodes");
-    }
-}
-
-pub struct LayoutCx<'a, R: Renderer, I> {
-    frame: &'a mut Frame<R>,
-    renderer: &'a mut R,
-    node: NodeId,
-    nodes: *const Node,
-    item: PhantomData<fn() -> I>,
-}
-
-impl<'a, R: Renderer, I: Copy + 'static> LayoutCx<'a, R, I> {
-    pub fn children(&self) -> Children<'a> {
-        let node = self.frame.nodes[self.node.index()];
-        Children {
-            nodes: self.nodes,
-            next: self.node.index() + 1,
-            end: node.subtree_end as usize,
-            marker: PhantomData,
-        }
-    }
-
-    pub fn item(&self, child: NodeId) -> I {
-        self.assert_child(child);
-        let data = self.frame.nodes[child.index()]
-            .item
-            .expect("layout item is missing");
-        self.frame.data.load(data)
-    }
-
-    pub fn measure_base(&mut self, constraints: Constraints) -> Size {
-        self.frame
-            .measure_base(self.node, self.renderer, constraints)
-    }
-
-    pub fn layout_child(&mut self, child: NodeId, constraints: Constraints) -> Size {
-        self.assert_child(child);
-        self.frame.layout_node(child, self.renderer, constraints)
-    }
-
-    pub fn size(&self, child: NodeId) -> Size {
-        self.assert_child(child);
-        self.frame.nodes[child.index()].area.size()
-    }
-
-    pub fn set_position(&mut self, child: NodeId, position: Point) {
-        self.assert_child(child);
-        let area = &mut self.frame.nodes[child.index()].area;
-        area.x = position.x;
-        area.y = position.y;
-    }
-
-    #[track_caller]
-    fn assert_child(&self, child: NodeId) {
-        assert_eq!(
-            self.frame.nodes[child.index()].parent,
-            Some(self.node),
-            "layout can only access direct children"
-        );
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct Children<'a> {
-    nodes: *const Node,
-    next: usize,
-    end: usize,
-    marker: PhantomData<&'a Node>,
-}
-
-impl Iterator for Children<'_> {
-    type Item = NodeId;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.next > self.end {
-            return None;
-        }
-        let node = NodeId(self.next as u32);
-        // safety: node storage is frozen while layout runs
-        let stored = unsafe { &*self.nodes.add(self.next) };
-        self.next = stored.subtree_end as usize + 1;
-        Some(node)
     }
 }
 
@@ -428,27 +255,6 @@ fn measure_leaf<R: Renderer, L: Leaf<R>>(
 
 fn paint_leaf<R: Renderer, L: Leaf<R>>(data: &DataArena, id: DataId, renderer: &mut R, area: Rect) {
     data.load::<L>(id).paint(renderer, area)
-}
-
-fn run_layout<R: Renderer, L: Layout<R>>(
-    frame: &mut Frame<R>,
-    node: NodeId,
-    renderer: &mut R,
-    id: DataId,
-    constraints: Constraints,
-) -> Size {
-    let layout = frame.data.load::<L>(id);
-    let nodes = frame.nodes.as_ptr();
-    layout.layout(
-        LayoutCx {
-            frame,
-            renderer,
-            node,
-            nodes,
-            item: PhantomData,
-        },
-        constraints,
-    )
 }
 
 fn push_clip<R: Renderer, C: Clip<R>>(data: &DataArena, id: DataId, renderer: &mut R, area: Rect) {
