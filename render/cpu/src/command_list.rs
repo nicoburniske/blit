@@ -43,28 +43,6 @@ blit::builder! {
     }
 }
 
-impl<'a> Rectangle<'a> {
-    pub const fn uniform_radius(mut self, radius: f32) -> Self {
-        self.radius = BorderRadius {
-            top_left: radius,
-            top_right: radius,
-            bottom_right: radius,
-            bottom_left: radius,
-        };
-        self
-    }
-
-    pub const fn solid_border(mut self, width: f32, color: Color) -> Self {
-        self.border = Border::Solid { width, color };
-        self
-    }
-
-    pub const fn gradient_border(mut self, width: f32, gradient: LinearGradient<'a>) -> Self {
-        self.border = Border::Gradient { width, gradient };
-        self
-    }
-}
-
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct BoxShadow {
@@ -79,16 +57,6 @@ blit::builder! {
 }
 
 impl BoxShadow {
-    pub const fn uniform_radius(mut self, radius: f32) -> Self {
-        self.radius = BorderRadius {
-            top_left: radius,
-            top_right: radius,
-            bottom_right: radius,
-            bottom_left: radius,
-        };
-        self
-    }
-
     pub const fn offset(mut self, x: f32, y: f32) -> Self {
         self.offset_x = x;
         self.offset_y = y;
