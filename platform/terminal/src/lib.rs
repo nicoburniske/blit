@@ -56,6 +56,9 @@ pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
             };
             let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
             let poll = session.poll(timeout, &mut inputs)?;
+            if poll.resized {
+                state.invalidate_render_geometry();
+            }
             let now = start.elapsed();
             let timer_due = state
                 .next_timer_deadline()
