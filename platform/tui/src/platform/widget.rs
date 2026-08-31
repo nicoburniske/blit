@@ -1,13 +1,13 @@
 pub use blit_std::widget::scroll;
 
 use blit::{NodeId, Widget};
-use blit_term::{
+use blit_tui_render::{
     color::Color,
     text::{Span, TextAttributes, TextOptions},
 };
 
 use super::{
-    TerminalPlatform,
+    TuiPlatform,
     atom::{self, Border, Shadow, TitlePosition},
 };
 use crate::Cx;
@@ -32,7 +32,7 @@ impl<'a> Block<'a> {
     }
 }
 
-impl Widget<TerminalPlatform> for Block<'_> {
+impl Widget<TuiPlatform> for Block<'_> {
     type Response = NodeId;
 
     fn build(self, mut cx: Cx<'_>) -> Self::Response {
@@ -96,7 +96,7 @@ impl<'a> Text<'a> {
     }
 }
 
-impl Widget<TerminalPlatform> for Text<'_> {
+impl Widget<TuiPlatform> for Text<'_> {
     type Response = ();
 
     fn build(self, mut cx: Cx<'_>) {

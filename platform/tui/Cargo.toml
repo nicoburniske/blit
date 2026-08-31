@@ -1,5 +1,5 @@
 [package]
-name = "blit-terminal"
+name = "blit-tui"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
@@ -10,12 +10,12 @@ autoexamples = false
 blit.workspace = true
 blit-diff.workspace = true
 blit-std.workspace = true
-blit-term = { path = "../../render/term" }
+blit-tui-render = { path = "../../render/tui" }
 termina = "0.3.3"
 
 [dev-dependencies]
 blit-showcase.workspace = true
 
 [[example]]
-name = "terminal-showcase"
+name = "tui-showcase"
 path = "examples/showcase.rs"

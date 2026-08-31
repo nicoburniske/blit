@@ -1,5 +1,5 @@
 [package]
-name = "blit-term"
+name = "blit-tui-render"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
@@ -16,5 +16,5 @@ unicode-width = "0.2"
 divan = "0.1"
 
 [[bench]]
-name = "terminal"
+name = "tui"
 harness = false

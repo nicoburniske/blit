@@ -15,8 +15,8 @@ workspace layers:
 - `blit` in `kernel/` provides frame construction, layout execution, interaction, transitions, animations, timers, and platform extension traits
 - `blit-std` provides standard layouts and render-agnostic widgets such as scrolling
 - `blit-diff` provides reusable bounded Myers sequence reconciliation
-- `blit-cpu` and `blit-term` provide backend-specific draw data, command lists, resources, and rendering mechanisms
-- `blit-desktop` and `blit-terminal` compose platforms, implement atoms, and own command reconciliation policy
+- `blit-cpu` and `blit-tui-render` provide backend-specific draw data, command lists, resources, and rendering mechanisms
+- `blit-desktop` and `blit-tui` compose platforms, implement atoms, and own command reconciliation policy
 
 core model:
 
@@ -34,5 +34,5 @@ features:
 - automatic position and size transitions
 - keyed value animations, looping animations, and timers
 - platform-specific command recording and damage tracking
-- SIMD-accelerated CPU rendering and terminal rendering
-- desktop and terminal integrations
+- SIMD-accelerated CPU rendering and TUI rendering
+- desktop and TUI integrations

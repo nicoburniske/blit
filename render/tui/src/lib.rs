@@ -38,7 +38,7 @@ blit::builder! {
     }
 }
 
-pub struct TerminalRenderer {
+pub struct TuiRenderer {
     columns: usize,
     rows: usize,
     text_runs: DeferredCache<RunKey, CachedRun, RunScale>,
@@ -59,7 +59,7 @@ pub struct TerminalRenderer {
     output: String,
 }
 
-impl TerminalRenderer {
+impl TuiRenderer {
     pub fn new(config: RendererConfig) -> Self {
         let RendererConfig { columns, rows } = config;
         let columns = usize::from(columns.max(1));
@@ -106,7 +106,7 @@ impl TerminalRenderer {
             if let CellText::Run { text, .. } = cell.text {
                 let index = (text.0 as u32)
                     .checked_sub(1)
-                    .expect("invalid terminal text run") as usize;
+                    .expect("invalid tui text run") as usize;
                 self.text_runs.update_index(index, |run| {
                     assert_eq!(run.id, text, "expired text run");
                     run.screen_references -= 1;
@@ -181,9 +181,7 @@ impl TerminalRenderer {
     }
 
     fn text_run_index(&self, id: TextRunId) -> usize {
-        let index = (id.0 as u32)
-            .checked_sub(1)
-            .expect("invalid terminal text run") as usize;
+        let index = (id.0 as u32).checked_sub(1).expect("invalid tui text run") as usize;
         assert_eq!(self.text_runs.get_index(index).id, id, "expired text run");
         index
     }
@@ -224,7 +222,7 @@ impl TerminalRenderer {
             CellText::Run { text, start, end } => {
                 let index = (text.0 as u32)
                     .checked_sub(1)
-                    .expect("invalid terminal text run") as usize;
+                    .expect("invalid tui text run") as usize;
                 let run = text_runs.get_index(index);
                 assert_eq!(run.id, text, "expired text run");
                 output.push_str(&run.text[start as usize..end as usize]);
@@ -369,7 +367,7 @@ impl TerminalRenderer {
     }
 }
 
-impl TerminalRenderer {
+impl TuiRenderer {
     pub fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
         let (mut left, mut top, mut right, mut bottom) = self.cell_bounds(area);
         left = left.max((clip.x - 0.5).ceil().clamp(0.0, self.columns as f32) as usize);
@@ -1077,10 +1075,7 @@ impl TerminalRenderer {
             len: spans.iter().map(|span| span.text.len()).sum(),
             spans: spans.len(),
         };
-        assert!(
-            u32::try_from(query.len).is_ok(),
-            "terminal text run too long"
-        );
+        assert!(u32::try_from(query.len).is_ok(), "tui text run too long");
         let next = self.next_text_run;
         let (_, index) = self.text_runs.get_or_insert_by(
             &query,
@@ -1117,13 +1112,13 @@ impl TerminalRenderer {
             },
         );
         if self.text_runs.get_index(index).id.0 as u32 == 0 {
-            let slot = u32::try_from(index + 1).expect("too many terminal text runs");
+            let slot = u32::try_from(index + 1).expect("too many tui text runs");
             self.text_runs
                 .update_index(index, |run| run.id.0 |= u64::from(slot));
             self.next_text_run = self
                 .next_text_run
                 .checked_add(1)
-                .expect("too many terminal text runs");
+                .expect("too many tui text runs");
         }
         self.text_runs.get_index(index).id
     }
@@ -1375,8 +1370,8 @@ mod tests {
     const CELL_HEIGHT: f32 = 1.0;
     const SCALE: Scale2 = Scale2::IDENTITY;
 
-    fn renderer(columns: u16, rows: u16) -> TerminalRenderer {
-        TerminalRenderer::new(RendererConfig::new().columns(columns).rows(rows))
+    fn renderer(columns: u16, rows: u16) -> TuiRenderer {
+        TuiRenderer::new(RendererConfig::new().columns(columns).rows(rows))
     }
 
     #[test]

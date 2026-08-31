@@ -8,8 +8,8 @@ use blit_showcase::{
     CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip,
     ResizeState,
 };
-use blit_terminal::{
-    BoundsClip, ControlFlow, Cx, TerminalPlatform, Ui,
+use blit_tui::{
+    BoundsClip, ControlFlow, Cx, TuiPlatform, Ui,
     atom::{Border, BorderSides, BorderStyle, Shadow, TitlePosition},
     color::Color,
     layout::{Align, Flex, Grid, Justify, Wrap},
@@ -21,7 +21,7 @@ use blit_terminal::{
 
 fn main() -> io::Result<()> {
     let mut showcase = Showcase::default();
-    blit_terminal::run(|ui| showcase.show(ui))
+    blit_tui::run(|ui| showcase.show(ui))
 }
 
 #[derive(Default)]
@@ -59,7 +59,7 @@ impl Showcase {
                 (Page::Scroll, " Scroll "),
             ] {
                 if header.add(Button::new(
-                    WidgetId::new(("terminal page", label)),
+                    WidgetId::new(("tui page", label)),
                     label,
                     self.page == page,
                 )) {
@@ -67,7 +67,7 @@ impl Showcase {
                 }
             }
             if header.add(Button::new(
-                WidgetId::new("terminal reset showcase"),
+                WidgetId::new("tui reset showcase"),
                 " Reset ",
                 false,
             )) {
@@ -96,7 +96,7 @@ struct LayoutPage {
     scroll: scroll::State,
 }
 
-impl Widget<TerminalPlatform> for &mut LayoutPage {
+impl Widget<TuiPlatform> for &mut LayoutPage {
     type Response = ();
 
     fn build(self, ui: Cx<'_>) {
@@ -273,13 +273,13 @@ impl Widget<TerminalPlatform> for &mut LayoutPage {
                 viewport.add(
                     Resizable::new(
                         resize,
-                        WidgetId::new("terminal layout canvas"),
+                        WidgetId::new("tui layout canvas"),
                         Size::new(
                             ((screen.width - 48.0) * 0.8).max(18.0),
                             ((screen.height - 8.0) * 0.72).max(9.0),
                         ),
                         Canvas { config: *canvas },
-                        TerminalGrip,
+                        TuiGrip,
                     )
                     .minimum(Size::new(18.0, 9.0))
                     .maximum(screen.size())
@@ -314,7 +314,7 @@ impl Default for TextPage {
     }
 }
 
-impl Widget<TerminalPlatform> for &mut TextPage {
+impl Widget<TuiPlatform> for &mut TextPage {
     type Response = ();
 
     fn build(self, ui: Cx<'_>) {
@@ -365,7 +365,7 @@ impl Widget<TerminalPlatform> for &mut TextPage {
                 {
                     let selected = text_attributes.contains(attribute);
                     if toggles.add(Button::new(
-                        WidgetId::new(("terminal text attribute", index)),
+                        WidgetId::new(("tui text attribute", index)),
                         label,
                         selected,
                     )) {
@@ -460,7 +460,7 @@ impl Widget<TerminalPlatform> for &mut TextPage {
             viewport.add(
                 Resizable::new(
                     text_resize,
-                    WidgetId::new("terminal text preview"),
+                    WidgetId::new("tui text preview"),
                     Size::new(64.0, 16.0),
                     |ui: Cx<'_>| {
                         let mut paragraph = ui
@@ -473,7 +473,7 @@ impl Widget<TerminalPlatform> for &mut TextPage {
                             )
                             .clip(BoundsClip);
                         let sample = [
-                            Span::new("The terminal renderer lays out "),
+                            Span::new("The TUI renderer lays out "),
                             Span::new("rich text")
                                 .color(colors::ACCENT)
                                 .attributes(TextAttributes::BOLD),
@@ -494,7 +494,7 @@ impl Widget<TerminalPlatform> for &mut TextPage {
                                 .options(options),
                         );
                     },
-                    TerminalGrip,
+                    TuiGrip,
                 )
                 .minimum(Size::new(12.0, 6.0))
                 .maximum(screen.size())
@@ -522,7 +522,7 @@ impl Default for BlocksPage {
     }
 }
 
-impl Widget<TerminalPlatform> for &mut BlocksPage {
+impl Widget<TuiPlatform> for &mut BlocksPage {
     type Response = ();
 
     fn build(self, ui: Cx<'_>) {
@@ -626,7 +626,7 @@ struct ScrollPage {
     state: scroll::State,
 }
 
-impl Widget<TerminalPlatform> for &mut ScrollPage {
+impl Widget<TuiPlatform> for &mut ScrollPage {
     type Response = ();
 
     fn build(self, ui: Cx<'_>) {
@@ -649,7 +649,7 @@ impl Widget<TerminalPlatform> for &mut ScrollPage {
                 (Axis::Horizontal, " Horizontal "),
             ] {
                 if controls.add(Button::new(
-                    WidgetId::new(("terminal scroll axis", label)),
+                    WidgetId::new(("tui scroll axis", label)),
                     label,
                     *scroll_axis == axis,
                 )) {
@@ -734,7 +734,7 @@ impl Default for FpsBadge {
     }
 }
 
-impl Widget<TerminalPlatform> for &mut FpsBadge {
+impl Widget<TuiPlatform> for &mut FpsBadge {
     type Response = ();
 
     fn build(self, ui: Cx<'_>) {
@@ -771,9 +771,9 @@ impl Widget<TerminalPlatform> for &mut FpsBadge {
     }
 }
 
-struct TerminalGrip(ResizeGrip);
+struct TuiGrip(ResizeGrip);
 
-impl Widget<TerminalPlatform> for TerminalGrip {
+impl Widget<TuiPlatform> for TuiGrip {
     type Response = NodeId;
 
     fn build(self, ui: Cx<'_>) -> NodeId {
@@ -815,7 +815,7 @@ impl<'a> Button<'a> {
     }
 }
 
-impl Widget<TerminalPlatform> for Button<'_> {
+impl Widget<TuiPlatform> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Cx<'_>) -> bool {
@@ -866,7 +866,7 @@ struct Canvas {
     config: CanvasConfig,
 }
 
-impl Widget<TerminalPlatform> for Canvas {
+impl Widget<TuiPlatform> for Canvas {
     type Response = ();
 
     fn build(self, ui: Cx<'_>) {
@@ -955,7 +955,7 @@ fn canvas_item(
         .node(Flex::column().align(Align::Center).justify(Justify::Center))
         .insert(Block::new().background(colors::ITEMS[index]));
     let mut item = if config.transitions {
-        item.widget_id(WidgetId::new(("terminal canvas item", index)))
+        item.widget_id(WidgetId::new(("tui canvas item", index)))
             .transition(
                 Transition::new(Duration::from_millis(320))
                     .easing(Easing::EaseOutQuad)
@@ -998,7 +998,7 @@ fn panel<'a>(background: Color, title: &'a str) -> Block<'a> {
 }
 
 mod colors {
-    use blit_terminal::color::Color;
+    use blit_tui::color::Color;
 
     pub const BACKGROUND: Color = Color::Reset;
     pub const SURFACE: Color = Color::BLACK;
