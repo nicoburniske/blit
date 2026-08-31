@@ -26,9 +26,9 @@ pub struct Frame<R: Platform> {
     interaction: interaction::InteractionState,
     geometry_previous: Vec<(WidgetId, Rect)>,
     geometry_current: Vec<(WidgetId, Rect)>,
-    animations: Vec<crate::animation::AnimationState>,
+    animations: Vec<animation::AnimationState>,
     transitions: Vec<transition::TransitionState>,
-    timers: Vec<crate::timer::TimerState>,
+    timers: Vec<timer::TimerState>,
     input: Input,
     time: Duration,
     screen: Rect,
@@ -108,7 +108,7 @@ impl<R: Platform> Frame<R> {
             || self
                 .animations
                 .iter()
-                .any(crate::animation::AnimationState::is_active)
+                .any(animation::AnimationState::is_active)
             || self
                 .transitions
                 .iter()
@@ -118,7 +118,7 @@ impl<R: Platform> Frame<R> {
     pub fn next_timer_deadline(&self) -> Option<Duration> {
         self.timers
             .iter()
-            .filter_map(crate::timer::TimerState::deadline)
+            .filter_map(timer::TimerState::deadline)
             .min()
     }
 
@@ -153,9 +153,9 @@ impl<R: Platform> Frame<R> {
                 + self.active_clips.capacity() * size_of::<ResolvedClipId>()
                 + self.geometry_previous.capacity() * size_of::<(WidgetId, Rect)>()
                 + self.geometry_current.capacity() * size_of::<(WidgetId, Rect)>()
-                + self.animations.capacity() * size_of::<crate::animation::AnimationState>()
+                + self.animations.capacity() * size_of::<animation::AnimationState>()
                 + self.transitions.capacity() * size_of::<transition::TransitionState>()
-                + self.timers.capacity() * size_of::<crate::timer::TimerState>(),
+                + self.timers.capacity() * size_of::<timer::TimerState>(),
         }
     }
 

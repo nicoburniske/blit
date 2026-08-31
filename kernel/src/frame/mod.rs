@@ -1,7 +1,9 @@
+pub mod animation;
 pub mod interaction;
 pub mod layout;
 pub mod paint;
 pub mod position;
+pub mod timer;
 pub mod transition;
 
 use std::{
@@ -117,7 +119,7 @@ impl<R: Platform> Ui<R> {
     ) -> f32 {
         let frame = self.frame_mut();
         let time = frame.time;
-        crate::animation::AnimationState::update(&mut frame.animations, id, target, |animation| {
+        animation::AnimationState::update(&mut frame.animations, id, target, |animation| {
             animation.advance(target, duration, easing, time)
         })
     }
@@ -125,14 +127,14 @@ impl<R: Platform> Ui<R> {
     pub fn animate_loop(&mut self, id: WidgetId, duration: Duration, easing: Easing) -> f32 {
         let frame = self.frame_mut();
         let time = frame.time;
-        crate::animation::AnimationState::update(&mut frame.animations, id, 0.0, |animation| {
+        animation::AnimationState::update(&mut frame.animations, id, 0.0, |animation| {
             animation.advance_loop(duration, easing, time)
         })
     }
 
     pub fn timer(&mut self, id: WidgetId, duration: Duration) -> bool {
         let frame = self.frame_mut();
-        crate::timer::TimerState::update(&mut frame.timers, id, duration, None, frame.time)
+        timer::TimerState::update(&mut frame.timers, id, duration, None, frame.time)
     }
 
     pub fn timer_loop(&mut self, id: WidgetId, duration: Duration) -> bool {
@@ -141,13 +143,7 @@ impl<R: Platform> Ui<R> {
             "looping timer duration must be nonzero"
         );
         let frame = self.frame_mut();
-        crate::timer::TimerState::update(
-            &mut frame.timers,
-            id,
-            duration,
-            Some(duration),
-            frame.time,
-        )
+        timer::TimerState::update(&mut frame.timers, id, duration, Some(duration), frame.time)
     }
 
     pub fn request_frame(&mut self) {

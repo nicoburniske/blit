@@ -32,6 +32,7 @@ macro_rules! builder {
         }
 
         impl $(<$lifetime>)? $name $(<$lifetime>)? {
+            #[doc = concat!("creates a new [`", stringify!($name), "`]")]
             $visibility fn new($($required: $required_type),*) -> Self {
                 Self {
                     $($required,)*
@@ -41,6 +42,7 @@ macro_rules! builder {
             }
 
             $(
+                #[doc = concat!("sets [`", stringify!($name), "::", stringify!($required), "`]")]
                 $visibility const fn $required(mut self, value: $required_type) -> Self {
                     self.$required = value;
                     self
@@ -48,6 +50,7 @@ macro_rules! builder {
             )*
 
             $($(
+                #[doc = concat!("sets [`", stringify!($name), "::", stringify!($optional_field), "`]")]
                 $visibility const fn $optional_field(mut self, value: $optional_type) -> Self {
                     self.$optional_field = Some(value);
                     self
@@ -55,6 +58,7 @@ macro_rules! builder {
             )*)?
 
             $(
+                #[doc = concat!("sets [`", stringify!($name), "::", stringify!($field), "`]")]
                 $visibility const fn $field(mut self, value: $field_type) -> Self {
                     self.$field = value;
                     self

@@ -1,7 +1,6 @@
 mod arena;
 mod frame;
 mod macros;
-mod timer;
 
 pub mod animation;
 pub mod geometry;
