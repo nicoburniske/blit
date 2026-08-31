@@ -144,8 +144,10 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                 )
                 .node(Flex::column().padding(Sides::all(1.0)));
             sidebar.insert(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
-            sidebar.place(Place::new().grow()).add(
-                scroll::Area::new(layout_scroll, BoundsClip, |ui: Cx<'_>| {
+            sidebar.place(Place::new().grow()).add(ScrollArea::new(
+                layout_scroll,
+                BoundsClip,
+                |ui: Cx<'_>| {
                     let mut controls = ui.node(Flex::column().gap(1.0));
                     controls.add(
                         Text::new("FLOW")
@@ -263,16 +265,8 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                             &[(" On ", true), (" Off ", false)],
                         );
                     });
-                })
-                .scroll_track(|_| Block::new().background(colors::TRACK))
-                .scrollbar(|active| {
-                    Block::new().background(if active {
-                        colors::CANVAS_BORDER
-                    } else {
-                        colors::BORDER
-                    })
-                }),
-            );
+                },
+            ));
         }
         {
             let mut preview = body
@@ -683,7 +677,7 @@ impl Widget<TuiPlatform> for &mut ScrollPage {
         }
         let axis = *scroll_axis;
         body.place(Place::new().grow()).add(
-            scroll::Area::new(scroll, BoundsClip, move |ui: Cx<'_>| {
+            ScrollArea::new(scroll, BoundsClip, move |ui: Cx<'_>| {
                 let mut items = ui.node(Flex::new(axis).gap(1.0));
                 for index in 0..100 {
                     let item = ITEMS[index % ITEMS.len()];
@@ -719,17 +713,7 @@ impl Widget<TuiPlatform> for &mut ScrollPage {
                     });
                 }
             })
-            .axis(axis)
-            .scroll_track(|_| Block::new().background(colors::TRACK))
-            .scrollbar(|active| {
-                Block::new().background(if active {
-                    colors::CANVAS_BORDER
-                } else {
-                    colors::BORDER
-                })
-            })
-            .scrollbar_thickness(1.0)
-            .minimum_scrollbar_extent(4.0),
+            .axis(axis),
         );
     }
 }
@@ -1004,6 +988,34 @@ fn canvas_item(
             badge.insert(Block::new().background(colors::ACCENT_DARK));
             badge.add(Text::new("A").color(colors::TEXT));
         });
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct ShowcaseScrollbar;
+
+type ScrollArea<'a, C> = scroll::Area<'a, C, BoundsClip, ShowcaseScrollbar>;
+
+impl scroll::Scrollbar for ShowcaseScrollbar {
+    const HAS_TRACK: bool = true;
+    const HAS_THUMB: bool = true;
+
+    type Track = Block<'static>;
+    type Thumb = Block<'static>;
+
+    fn config(&self) -> scroll::Config {
+        scroll::Config::new().minimum_thumb_extent(4.0)
+    }
+
+    fn into_widgets(self, active: bool) -> (Self::Track, Self::Thumb) {
+        (
+            Block::new().background(colors::TRACK),
+            Block::new().background(if active {
+                colors::CANVAS_BORDER
+            } else {
+                colors::BORDER
+            }),
+        )
     }
 }
 

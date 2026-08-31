@@ -159,12 +159,18 @@ impl Application for App {
 struct LayoutPage {
     canvas: CanvasConfig,
     resize: ResizeState,
+    scroll: scroll::State,
 }
 
 impl Widget<DesktopPlatform> for &mut LayoutPage {
     type Response = ();
 
     fn build(self, ui: Cx<'_>) {
+        let LayoutPage {
+            canvas,
+            resize,
+            scroll: controls_scroll,
+        } = self;
         let screen = ui.screen().size();
         let unit = Size::uniform(sz::SM);
         let mut body = ui.node(Flex::row().gap(sz::LG));
@@ -174,10 +180,13 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                 .height(Sizing::grow()),
         )
         .add(|ui: Cx<'_>| {
-            let mut controls =
-                ui.node(Flex::column().padding(Sides::all(sz::LG)).gap(sz::XS));
-            controls.insert(panel(colors::SURFACE));
-            controls.add(
+            let mut sidebar = ui.node(
+                Flex::column()
+                    .padding(Sides::all(sz::LG))
+                    .gap(sz::XS),
+            );
+            sidebar.insert(panel(colors::SURFACE));
+            sidebar.add(
                 Text::new("LAYOUT PARAMETERS")
                     .style(TextStyle {
                         size: sz::LG,
@@ -185,118 +194,123 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                     })
                     .color(colors::ACCENT),
             );
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "layout",
-                    &mut self.canvas.layout,
-                    &[
-                        ("Flex", CanvasLayout::Flex),
-                        ("Wrap", CanvasLayout::Wrap),
-                        ("Grid", CanvasLayout::Grid),
-                    ],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "axis",
-                    &mut self.canvas.axis,
-                    &[("Horizontal", Axis::Horizontal), ("Vertical", Axis::Vertical)],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "justify",
-                    &mut self.canvas.justify,
-                    &[
-                        ("Start", blit_desktop::layout::Justify::Start),
-                        ("Center", blit_desktop::layout::Justify::Center),
-                        ("End", blit_desktop::layout::Justify::End),
-                    ],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "space",
-                    &mut self.canvas.justify,
-                    &[
-                        ("Between", blit_desktop::layout::Justify::SpaceBetween),
-                        ("Around", blit_desktop::layout::Justify::SpaceAround),
-                        ("Evenly", blit_desktop::layout::Justify::SpaceEvenly),
-                    ],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "align",
-                    &mut self.canvas.align,
-                    &[
-                        ("Start", Align::Start),
-                        ("Center", Align::Center),
-                        ("End", Align::End),
-                        ("Stretch", Align::Stretch),
-                    ],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "sizing",
-                    &mut self.canvas.sizing,
-                    &[
-                        ("Fixed", ItemSizing::Fixed),
-                        ("Fit", ItemSizing::Fit),
-                        ("Grow", ItemSizing::Grow),
-                    ],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "zoom",
-                    &mut self.canvas.zoom,
-                    &[("75%", 0.75), ("100%", 1.0), ("125%", 1.25)],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "gap",
-                    &mut self.canvas.gap_steps,
-                    &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "padding",
-                    &mut self.canvas.padding_steps,
-                    &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "transition",
-                    &mut self.canvas.transitions,
-                    &[("On", true), ("Off", false)],
-                );
-            });
-            controls.place(Place::new().grow()).add(
-                Text::new("Drag the highlighted right edge, bottom edge, or corner. Layout changes preserve item identity and animate geometry.")
-                    .style(TextStyle {
-                        size: sz::MD,
-                        ..TextStyle::default()
-                    })
-                    .color(colors::TEXT_DIM)
-                    .options(blit_desktop::text::TextOptions {
-                        wrap: blit_desktop::text::TextWrap::Word,
-                        ..Default::default()
-                    }),
+            sidebar.place(Place::new().grow()).add(
+                ScrollArea::new(controls_scroll, BoundsClip, |ui: Cx<'_>| {
+                    let mut controls = ui.node(Flex::column().gap(sz::XS));
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "layout",
+                            &mut canvas.layout,
+                            &[
+                                ("Flex", CanvasLayout::Flex),
+                                ("Wrap", CanvasLayout::Wrap),
+                                ("Grid", CanvasLayout::Grid),
+                            ],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "axis",
+                            &mut canvas.axis,
+                            &[("Horizontal", Axis::Horizontal), ("Vertical", Axis::Vertical)],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "justify",
+                            &mut canvas.justify,
+                            &[
+                                ("Start", blit_desktop::layout::Justify::Start),
+                                ("Center", blit_desktop::layout::Justify::Center),
+                                ("End", blit_desktop::layout::Justify::End),
+                            ],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "space",
+                            &mut canvas.justify,
+                            &[
+                                ("Between", blit_desktop::layout::Justify::SpaceBetween),
+                                ("Around", blit_desktop::layout::Justify::SpaceAround),
+                                ("Evenly", blit_desktop::layout::Justify::SpaceEvenly),
+                            ],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "align",
+                            &mut canvas.align,
+                            &[
+                                ("Start", Align::Start),
+                                ("Center", Align::Center),
+                                ("End", Align::End),
+                                ("Stretch", Align::Stretch),
+                            ],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "sizing",
+                            &mut canvas.sizing,
+                            &[
+                                ("Fixed", ItemSizing::Fixed),
+                                ("Fit", ItemSizing::Fit),
+                                ("Grow", ItemSizing::Grow),
+                            ],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "zoom",
+                            &mut canvas.zoom,
+                            &[("75%", 0.75), ("100%", 1.0), ("125%", 1.25)],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "gap",
+                            &mut canvas.gap_steps,
+                            &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "padding",
+                            &mut canvas.padding_steps,
+                            &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "transition",
+                            &mut canvas.transitions,
+                            &[("On", true), ("Off", false)],
+                        );
+                    });
+                    controls.add(
+                        Text::new("Drag the highlighted right edge, bottom edge, or corner. Layout changes preserve item identity and animate geometry.")
+                            .style(TextStyle {
+                                size: sz::MD,
+                                ..TextStyle::default()
+                            })
+                            .color(colors::TEXT_DIM)
+                            .options(blit_desktop::text::TextOptions {
+                                wrap: blit_desktop::text::TextWrap::Word,
+                                ..Default::default()
+                            }),
+                    );
+                }),
             );
         });
         body.place(Place::new().grow()).add(|ui: Cx<'_>| {
@@ -325,11 +339,11 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                 let maximum = (screen - sz::CANVAS_MAX_OFFSET).max(sz::CANVAS_MIN);
                 viewport.add(
                     Resizable::new(
-                        &mut self.resize,
+                        resize,
                         WidgetId::new("layout canvas"),
                         initial,
                         Canvas {
-                            config: self.canvas,
+                            config: *canvas,
                             unit,
                         },
                         DesktopGrip,
@@ -351,13 +365,13 @@ enum ShadowKind {
     Inset,
 }
 
-#[derive(Clone, Copy)]
 struct StylesPage {
     shadow: ShadowKind,
     radius: f32,
     blur: f32,
     spread: f32,
     offset: (f32, f32),
+    scroll: scroll::State,
 }
 
 impl Default for StylesPage {
@@ -368,6 +382,7 @@ impl Default for StylesPage {
             blur: sz::LG,
             spread: sz::BORDER_STRONG,
             offset: (0.0, sz::SM),
+            scroll: scroll::State::default(),
         }
     }
 }
@@ -376,6 +391,14 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
     type Response = ();
 
     fn build(self, ui: Cx<'_>) {
+        let StylesPage {
+            shadow,
+            radius,
+            blur,
+            spread,
+            offset,
+            scroll: controls_scroll,
+        } = self;
         let mut body = ui.node(Flex::row().gap(sz::LG));
         body.place(
             Place::new()
@@ -383,10 +406,13 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                 .height(Sizing::grow()),
         )
         .add(|ui: Cx<'_>| {
-            let mut controls =
-                ui.node(Flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
-            controls.insert(panel(colors::SURFACE));
-            controls.add(
+            let mut sidebar = ui.node(
+                Flex::column()
+                    .padding(Sides::all(sz::LG))
+                    .gap(sz::SM),
+            );
+            sidebar.insert(panel(colors::SURFACE));
+            sidebar.add(
                 Text::new("SHADOW ATOM")
                     .style(TextStyle {
                         size: sz::LG,
@@ -394,72 +420,81 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                     })
                     .color(colors::ACCENT),
             );
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "shadow",
-                    &mut self.shadow,
-                    &[
-                        ("Outer", ShadowKind::Outer),
-                        ("Inset", ShadowKind::Inset),
-                        ("None", ShadowKind::None),
-                    ],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "radius",
-                    &mut self.radius,
-                    &[("0", 0.0), ("18", sz::LG), ("32", sz::XXL)],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "blur",
-                    &mut self.blur,
-                    &[("0", 0.0), ("8", sz::XS), ("18", sz::LG)],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "spread",
-                    &mut self.spread,
-                    &[
-                        ("0", 0.0),
-                        ("2", sz::BORDER_STRONG),
-                        ("8", sz::XS),
-                    ],
-                );
-            });
-            controls.add(|ui: Cx<'_>| {
-                choices(
-                    ui,
-                    "offset",
-                    &mut self.offset,
-                    &[
-                        ("None", (0.0, 0.0)),
-                        ("Down", (0.0, sz::SM)),
-                        ("Side", (sz::SM, sz::SM)),
-                    ],
-                );
-            });
-            controls.place(Place::new().grow()).add(
-                Text::new("Shadow is an independent atom inserted on the card node. Insert it before the rectangle for an outer shadow or after it for an inset shadow.")
-                    .style(TextStyle {
-                        size: sz::MD,
-                        ..TextStyle::default()
-                    })
-                    .color(colors::TEXT_DIM)
-                    .options(blit_desktop::text::TextOptions {
-                        wrap: blit_desktop::text::TextWrap::Word,
-                        ..Default::default()
-                    }),
+            sidebar.place(Place::new().grow()).add(
+                ScrollArea::new(controls_scroll, BoundsClip, |ui: Cx<'_>| {
+                    let mut controls = ui.node(Flex::column().gap(sz::SM));
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "shadow",
+                            shadow,
+                            &[
+                                ("Outer", ShadowKind::Outer),
+                                ("Inset", ShadowKind::Inset),
+                                ("None", ShadowKind::None),
+                            ],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "radius",
+                            radius,
+                            &[("0", 0.0), ("18", sz::LG), ("32", sz::XXL)],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "blur",
+                            blur,
+                            &[("0", 0.0), ("8", sz::XS), ("18", sz::LG)],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "spread",
+                            spread,
+                            &[
+                                ("0", 0.0),
+                                ("2", sz::BORDER_STRONG),
+                                ("8", sz::XS),
+                            ],
+                        );
+                    });
+                    controls.add(|ui: Cx<'_>| {
+                        choices(
+                            ui,
+                            "offset",
+                            offset,
+                            &[
+                                ("None", (0.0, 0.0)),
+                                ("Down", (0.0, sz::SM)),
+                                ("Side", (sz::SM, sz::SM)),
+                            ],
+                        );
+                    });
+                    controls.add(
+                        Text::new("Shadow is an independent atom inserted on the card node. Insert it before the rectangle for an outer shadow or after it for an inset shadow.")
+                            .style(TextStyle {
+                                size: sz::MD,
+                                ..TextStyle::default()
+                            })
+                            .color(colors::TEXT_DIM)
+                            .options(blit_desktop::text::TextOptions {
+                                wrap: blit_desktop::text::TextWrap::Word,
+                                ..Default::default()
+                            }),
+                    );
+                }),
             );
         });
-        let styles = *self;
+        let shadow_kind = *shadow;
+        let radius = *radius;
+        let blur = *blur;
+        let spread = *spread;
+        let offset = *offset;
         body.place(Place::new().grow()).add(|ui: Cx<'_>| {
             let mut preview = ui.node(Flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
             preview.insert(panel(colors::SURFACE));
@@ -490,23 +525,23 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                                 .align(Align::Center)
                                 .justify(blit_desktop::layout::Justify::Center),
                         );
-                        let radius = BorderRadius::uniform(styles.radius);
+                        let border_radius = BorderRadius::uniform(radius);
                         let shadow = Shadow::new(colors::SHADOW)
-                            .radius(radius)
-                            .offset(styles.offset.0, styles.offset.1)
-                            .blur(styles.blur)
-                            .spread(styles.spread)
-                            .inset(styles.shadow == ShadowKind::Inset);
-                        if styles.shadow == ShadowKind::Outer {
+                            .radius(border_radius)
+                            .offset(offset.0, offset.1)
+                            .blur(blur)
+                            .spread(spread)
+                            .inset(shadow_kind == ShadowKind::Inset);
+                        if shadow_kind == ShadowKind::Outer {
                             card.insert(shadow);
                         }
                         card.insert(
                             Rectangle::new()
                                 .background(colors::SURFACE_HIGH)
                                 .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
-                                .radius(radius),
+                                .radius(border_radius),
                         );
-                        if styles.shadow == ShadowKind::Inset {
+                        if shadow_kind == ShadowKind::Inset {
                             card.insert(shadow);
                         }
                         card.add(
@@ -581,7 +616,7 @@ impl Widget<DesktopPlatform> for &mut ScrollPage {
         }
         let axis = *scroll_axis;
         section.place(Place::new().grow()).add(
-            scroll::Area::new(scroll, BoundsClip, move |ui: Cx<'_>| {
+            ScrollArea::new(scroll, BoundsClip, move |ui: Cx<'_>| {
                 let mut items = ui.node(Flex::new(axis).padding(Sides::all(sz::XS)).gap(sz::XS));
                 for index in 0..100 {
                     let item = ITEMS[index % ITEMS.len()];
@@ -624,19 +659,7 @@ impl Widget<DesktopPlatform> for &mut ScrollPage {
                     });
                 }
             })
-            .axis(axis)
-            .scroll_track(|_| Rectangle::new().background(colors::TRACK))
-            .scrollbar(|active| {
-                Rectangle::new()
-                    .background(if active {
-                        colors::TEXT_DIM
-                    } else {
-                        colors::BORDER
-                    })
-                    .radius(BorderRadius::uniform(sz::XXS))
-            })
-            .scrollbar_thickness(sz::XS)
-            .minimum_scrollbar_extent(sz::XXL),
+            .axis(axis),
         );
     }
 }
@@ -796,18 +819,21 @@ impl Widget<DesktopPlatform> for Button<'_> {
 }
 
 fn choices<T: Copy + PartialEq>(ui: Cx<'_>, label: &str, selected: &mut T, options: &[(&str, T)]) {
-    let mut line = ui.node(Flex::row().align(Align::Center).gap(sz::XS));
-    line.place(Place::new().width(Sizing::fixed(sz::CONTROL_LABEL)))
-        .add(
-            Text::new(label)
-                .style(TextStyle {
-                    size: sz::MD,
-                    ..TextStyle::default()
-                })
-                .color(colors::TEXT_MUTED),
+    let mut group = ui.node(Flex::column().gap(sz::XXS));
+    group.add(
+        Text::new(label)
+            .style(TextStyle {
+                size: sz::MD,
+                ..TextStyle::default()
+            })
+            .color(colors::TEXT_MUTED),
+    );
+    group.add(|ui: Cx<'_>| {
+        let mut values = ui.node(
+            Wrap::new(Axis::Horizontal)
+                .item_gap(sz::XXS)
+                .run_gap(sz::XXS),
         );
-    line.place(Place::new().grow()).add(|ui: Cx<'_>| {
-        let mut values = ui.node(Flex::row().gap(sz::XXS));
         for (index, &(option, value)) in options.iter().enumerate() {
             let clicked = values.add(Button::new(
                 WidgetId::new((label, index)),
@@ -976,6 +1002,42 @@ fn canvas_item(
     }
 }
 
+#[derive(Clone, Copy, Default)]
+struct ShowcaseScrollbar;
+
+type ScrollArea<'a, C> = scroll::Area<'a, C, BoundsClip, ShowcaseScrollbar>;
+
+impl scroll::Scrollbar for ShowcaseScrollbar {
+    const HAS_TRACK: bool = true;
+    const HAS_THUMB: bool = true;
+
+    type Track = Rectangle;
+    type Thumb = Rectangle;
+
+    fn config(&self) -> scroll::Config {
+        scroll::Config::new()
+            .scroll_speed(2.0)
+            .inertia_friction(3.0)
+            .scrollbar_thickness(sz::XXS)
+            .minimum_thumb_extent(sz::XXL)
+    }
+
+    fn into_widgets(self, active: bool) -> (Self::Track, Self::Thumb) {
+        (
+            Rectangle::new()
+                .background(colors::SCROLL_TRACK)
+                .radius(BorderRadius::uniform(sz::XXS)),
+            Rectangle::new()
+                .background(if active {
+                    colors::TEXT_DIM
+                } else {
+                    colors::BORDER
+                })
+                .radius(BorderRadius::uniform(sz::XXS)),
+        )
+    }
+}
+
 fn panel(background: Color) -> Rectangle {
     Rectangle::new()
         .background(background)
@@ -1000,7 +1062,6 @@ mod sz {
     pub const XXXXL: f32 = 64.0;
 
     pub const SIDEBAR: f32 = 360.0;
-    pub const CONTROL_LABEL: f32 = 84.0;
     pub const SCROLL_ITEM_WIDTH: f32 = 110.0;
     pub const SCROLL_ITEM_HEIGHT: f32 = 40.0;
     pub const CARD_WIDTH: f32 = 420.0;
@@ -1021,6 +1082,7 @@ mod colors {
     pub const SURFACE: Color = Color::from_rgba8(20, 29, 45, 255);
     pub const SURFACE_HIGH: Color = Color::from_rgba8(38, 53, 77, 255);
     pub const TRACK: Color = Color::from_rgba8(9, 15, 25, 255);
+    pub const SCROLL_TRACK: Color = Color::from_rgba8(9, 15, 25, 96);
     pub const SELECTED: Color = Color::from_rgba8(27, 87, 82, 255);
     pub const CANVAS: Color = Color::from_rgba8(25, 36, 54, 255);
     pub const CANVAS_BORDER: Color = Color::from_rgba8(68, 91, 123, 255);
