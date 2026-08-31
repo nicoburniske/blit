@@ -87,14 +87,11 @@ fn resolves_absolute_targets_and_layer_order() {
     frame.render(&mut platform, FrameInfo::new(Size::new(8.0, 5.0)), |ui| {
         let mut overlay = ui.node(Overlay);
         let target = overlay.child().atom(Fill::new('T', Size::new(2.0, 2.0)));
-        overlay.add(|ui: Cx<'_>| {
-            let _absolute = ui
-                .node(Overlay)
-                .atom(Fill::new('A', Size::new(1.0, 1.0)))
-                .absolute(
-                    Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target),
-                );
-        });
+        let _absolute = overlay
+            .child()
+            .node(Overlay)
+            .atom(Fill::new('A', Size::new(1.0, 1.0)))
+            .absolute(Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target));
     });
 
     assert_eq!(
