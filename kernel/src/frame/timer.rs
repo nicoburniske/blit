@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::interact::WidgetId;
 
-pub(crate) struct TimerState {
+pub struct TimerState {
     pub id: WidgetId,
     pub deadline: Duration,
     pub interval: Option<Duration>,
