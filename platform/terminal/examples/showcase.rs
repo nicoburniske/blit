@@ -46,13 +46,13 @@ fn main() -> io::Result<()> {
         let screen = ui.screen();
         let mut root = ui
             .node(Flex::column().padding(Sides::all(1.0)).gap(1.0))
-            .surface(Block::new().background(colors::BACKGROUND));
+            .widget(Block::new().background(colors::BACKGROUND));
         {
             let mut header = root
                 .child()
                 .place(Place::new().height(Sizing::fixed(1.0)))
                 .node(Flex::row().align(Align::Center).gap(1.0));
-            header = header.surface(Block::new().background(colors::SURFACE));
+            header = header.widget(Block::new().background(colors::SURFACE));
             header.add(Text::new(" BLIT ").attributes(TextAttributes::BOLD));
             if header.add(Button::new(
                 WidgetId::new("terminal layout page"),
@@ -110,7 +110,7 @@ fn main() -> io::Result<()> {
                             .height(Sizing::grow()),
                     )
                     .node(Flex::column().padding(Sides::all(1.0)).gap(1.0));
-                controls = controls.surface(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
+                controls = controls.widget(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
                 controls.add(
                     Text::new("FLOW")
                         .color(colors::SECTION)
@@ -258,7 +258,7 @@ fn main() -> io::Result<()> {
                     .child()
                     .place(Place::new().grow())
                     .node(Flex::column().padding(Sides::all(1.0)));
-                preview = preview.surface(
+                preview = preview.widget(
                     panel(colors::SURFACE, " LIVE PREVIEW ").title(
                         Title::new(match (canvas.layout, canvas.axis) {
                             (CanvasLayout::Flex, Axis::Horizontal) => " FLEX / HORIZONTAL ",
@@ -277,7 +277,7 @@ fn main() -> io::Result<()> {
                         .child()
                         .place(Place::new().grow())
                         .node(Flex::row().padding(Sides::all(1.0)).align(Align::Start));
-                    viewport = viewport.surface(Block::new().background(colors::TRACK));
+                    viewport = viewport.widget(Block::new().background(colors::TRACK));
                     viewport.add(
                         Resizable::new(
                             &mut resize,
@@ -303,7 +303,7 @@ fn main() -> io::Result<()> {
             body.add(|ui: Cx<'_>| {
                 let mut controls = ui
                     .node(Flex::column().padding(Sides::all(1.0)).gap(1.0))
-                    .surface(panel(colors::SURFACE, " TEXT CONTROLS "));
+                    .widget(panel(colors::SURFACE, " TEXT CONTROLS "));
                 controls.add(
                     Text::new("TEXT ATTRIBUTES")
                         .color(colors::ACCENT)
@@ -409,7 +409,7 @@ fn main() -> io::Result<()> {
                 .child()
                 .place(Place::new().grow())
                 .node(Flex::column().padding(Sides::all(1.0)).gap(1.0));
-            preview = preview.surface(
+            preview = preview.widget(
                 panel(colors::SURFACE, " RESIZABLE TEXT ").title(
                     Title::new(" DRAG TO REFLOW ")
                         .color(colors::TEXT_DIM)
@@ -421,7 +421,7 @@ fn main() -> io::Result<()> {
                     .child()
                     .place(Place::new().grow())
                     .node(Flex::row().padding(Sides::all(1.0)).align(Align::Start));
-                viewport = viewport.surface(Block::new().background(colors::TRACK));
+                viewport = viewport.widget(Block::new().background(colors::TRACK));
                 let mut options = TextOptions::new()
                     .wrap(text_wrap)
                     .overflow(text_overflow)
@@ -441,7 +441,7 @@ fn main() -> io::Result<()> {
                         |ui: Cx<'_>| {
                             let mut paragraph = ui
                                 .node(Flex::column().padding(Sides::all(1.0)))
-                                .surface(
+                                .widget(
                                     Block::new().background(colors::CANVAS).border(
                                         Border::new(colors::CANVAS_BORDER)
                                             .style(BorderStyle::Rounded),
@@ -463,7 +463,7 @@ fn main() -> io::Result<()> {
                                     " retain their own emphasis and the words continue flowing through the same layout.",
                                 ),
                             ];
-                            paragraph.child().place(Place::new().grow()).add(
+                            paragraph.child().place(Place::new().grow()).widget(
                                 Text::rich(&sample)
                                     .color(colors::TEXT)
                                     .attributes(text_attributes)
@@ -494,7 +494,7 @@ fn main() -> io::Result<()> {
                             .height(Sizing::grow()),
                     )
                     .node(Flex::column().padding(Sides::all(1.0)).gap(1.0));
-                controls = controls.surface(panel(colors::SURFACE, " BLOCK OPTIONS "));
+                controls = controls.widget(panel(colors::SURFACE, " BLOCK OPTIONS "));
                 controls.add(|ui: Cx<'_>| {
                     choices(
                         ui,
@@ -546,11 +546,11 @@ fn main() -> io::Result<()> {
                 .child()
                 .place(Place::new().grow())
                 .node(Flex::column().padding(Sides::all(1.0)).gap(1.0));
-            preview = preview.surface(panel(colors::SURFACE, " BLOCK PREVIEW "));
+            preview = preview.widget(panel(colors::SURFACE, " BLOCK PREVIEW "));
             preview
                 .child()
                 .place(Place::new().grow())
-                .add(|ui: Cx<'_>| {
+                .widget(|ui: Cx<'_>| {
                     let mut block = Block::new()
                         .border(
                             Border::new(colors::CANVAS_BORDER)
@@ -575,7 +575,7 @@ fn main() -> io::Result<()> {
                                 .align(Align::Center)
                                 .justify(Justify::Center),
                         )
-                        .surface(block);
+                        .widget(block);
                     configured
                         .add(Text::new("change the options on the left").color(colors::TEXT_MUTED));
                 });
@@ -622,7 +622,7 @@ impl Widget<TerminalPlatform> for &mut FpsBadge {
                     .gap(1.0)
                     .align(Align::Center),
             )
-            .surface(
+            .widget(
                 Block::new()
                     .background(colors::SURFACE_HIGH)
                     .border(Border::new(colors::ACCENT).style(BorderStyle::Rounded)),
@@ -635,7 +635,7 @@ impl Widget<TerminalPlatform> for &mut FpsBadge {
         badge
             .child()
             .place(Place::new().fixed(1.0, 1.0))
-            .add(Block::new().background(colors::ACCENT));
+            .widget(Block::new().background(colors::ACCENT));
         badge.add(
             Text::new(&self.label)
                 .color(colors::TEXT)
@@ -669,7 +669,7 @@ impl Widget<TerminalPlatform> for TerminalGrip {
         let node = grip.id();
         grip.child()
             .place(Place::new().fixed(marker.width, marker.height))
-            .add(Block::new().background(color));
+            .widget(Block::new().background(color));
         node
     }
 }
@@ -704,7 +704,7 @@ impl Widget<TerminalPlatform> for Button<'_> {
         } else {
             Block::new()
         };
-        let mut button = ui.node(Flex::row()).surface(block).widget_id(self.id);
+        let mut button = ui.node(Flex::row()).widget(block).widget_id(self.id);
         button.add(Text::new(self.label).color(colors::TEXT));
         interaction.clicked
     }
@@ -762,14 +762,14 @@ impl Widget<TerminalPlatform> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .surface(background)
+                    .widget(background)
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child()
                         .place(self.config.item_place(index, unit))
-                        .add(|ui: Cx<'_>| {
+                        .widget(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });
                 }
@@ -788,14 +788,14 @@ impl Widget<TerminalPlatform> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .surface(background)
+                    .widget(background)
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child()
                         .place(self.config.item_place(index, unit))
-                        .add(|ui: Cx<'_>| {
+                        .widget(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });
                 }
@@ -807,7 +807,7 @@ impl Widget<TerminalPlatform> for Canvas {
                     .column_gap(self.config.gap(Axis::Horizontal, unit))
                     .row_gap(self.config.gap(Axis::Vertical, unit));
                 let mut placer = grid.placer();
-                let mut canvas = ui.node(grid).surface(background).clip(BoundsClip);
+                let mut canvas = ui.node(grid).widget(background).clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
@@ -815,7 +815,7 @@ impl Widget<TerminalPlatform> for Canvas {
                         .child()
                         .item(item)
                         .place(Place::new().height(Sizing::fixed(3.0 * self.config.zoom)))
-                        .add(|ui: Cx<'_>| {
+                        .widget(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });
                 }
@@ -834,7 +834,7 @@ fn canvas_item(
 ) {
     let item = ui
         .node(Flex::column().align(Align::Center).justify(Justify::Center))
-        .surface(Block::new().background(colors::ITEMS[index]));
+        .widget(Block::new().background(colors::ITEMS[index]));
     let mut item = if config.transitions {
         item.widget_id(WidgetId::new(("terminal canvas item", index)))
             .transition(
@@ -858,10 +858,10 @@ fn canvas_item(
                     .layer(badges)
                     .z_index(1),
             )
-            .add(|ui: Cx<'_>| {
+            .widget(|ui: Cx<'_>| {
                 let mut badge = ui
                     .node(Flex::row().align(Align::Center).justify(Justify::Center))
-                    .surface(Block::new().background(colors::ACCENT_DARK))
+                    .widget(Block::new().background(colors::ACCENT_DARK))
                     .absolute(Absolute::attach(anchor, Anchor::Center));
                 badge.add(Text::new("A").color(colors::TEXT));
             });

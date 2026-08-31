@@ -31,6 +31,7 @@ pub struct Ui<R: Platform> {
 }
 
 impl<R: Platform> Ui<R> {
+    /// creates the frame's root layout node
     pub fn node<L: Layout<R>>(&mut self, layout: L) -> Node<'_, R, L> {
         let frame = self.frame_mut();
         let layout = frame.store_layout(layout);
@@ -165,11 +166,13 @@ impl<'ui, R: Platform> Cx<'ui, R> {
         self.node
     }
 
+    /// appends an atom to the current node
     pub fn atom<A: Atom<R>>(&mut self, atom: A) -> &mut Self {
         self.ui.frame_mut().push_atom(self.node, atom);
         self
     }
 
+    /// establishes the current node's layout
     pub fn node<L: Layout<R>>(self, layout: L) -> Node<'ui, R, L> {
         let frame = self.ui.frame_mut();
         assert!(

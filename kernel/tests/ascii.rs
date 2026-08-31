@@ -317,7 +317,7 @@ fn absolute_places_resolve_against_the_target() {
                     .width(Sizing::percent(0.5))
                     .height(Sizing::grow()),
             )
-            .add(|ui: Cx<'_>| {
+            .widget(|ui: Cx<'_>| {
                 let _absolute = ui
                     .node(Overlay)
                     .atom(Fill::new('A', Size::new(1.0, 1.0)))
@@ -456,7 +456,7 @@ fn transition_scene(
             column
                 .child()
                 .item(ColumnItem { gap_before: 0.0 })
-                .add(|ui: Cx<'_>| {
+                .widget(|ui: Cx<'_>| {
                     let _child = ui
                         .node(Overlay)
                         .atom(Fill::new('X', Size::new(width, 1.0)))
@@ -506,7 +506,7 @@ fn position_transition_scene(
             column
                 .child()
                 .item(ColumnItem { gap_before: gap })
-                .add(|ui: Cx<'_>| {
+                .widget(|ui: Cx<'_>| {
                     let _child = ui
                         .node(Overlay)
                         .atom(Fill::new('X', Size::new(1.0, 1.0)))
@@ -542,7 +542,7 @@ fn scene(ui: &mut Ui) {
     column
         .child()
         .item(ColumnItem { gap_before: 1.0 })
-        .add(|ui: Cx<'_>| {
+        .widget(|ui: Cx<'_>| {
             let mut panel = ui
                 .node(Overlay)
                 .atom(Fill::new('b', Size::new(5.0, 3.0)))
