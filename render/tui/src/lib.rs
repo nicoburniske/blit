@@ -54,7 +54,6 @@ pub struct TuiRenderer {
     glyphs: Vec<Option<Glyph>>,
     boxes: Vec<BoxCell>,
     cells: Vec<Cell>,
-    previous: Vec<Cell>,
     damaged: Vec<bool>,
     output: String,
 }
@@ -79,8 +78,7 @@ impl TuiRenderer {
             backgrounds: vec![Background::default(); columns * rows],
             glyphs: vec![None; columns * rows],
             boxes: vec![BoxCell::default(); columns * rows],
-            cells: vec![Cell::default(); columns * rows],
-            previous: vec![Cell::invalid(); columns * rows],
+            cells: vec![Cell::invalid(); columns * rows],
             damaged: vec![true; columns * rows],
             output: String::new(),
         }
@@ -119,8 +117,7 @@ impl TuiRenderer {
             .resize(columns * rows, Background::default());
         self.glyphs.resize(columns * rows, None);
         self.boxes.resize(columns * rows, BoxCell::default());
-        self.cells = vec![Cell::default(); columns * rows];
-        self.previous = vec![Cell::invalid(); columns * rows];
+        self.cells = vec![Cell::invalid(); columns * rows];
         self.damaged = vec![true; columns * rows];
     }
 
@@ -819,23 +816,18 @@ impl TuiRenderer {
                 let background = self.backgrounds[index];
                 let glyph = self.glyphs[index];
                 let box_cell = self.boxes[index];
-                if let Some(glyph) = glyph
+                let cell = if let Some(glyph) = glyph
                     && background.z <= glyph.z
                     && box_cell.z <= glyph.z
                 {
-                    self.set_cell(
-                        index,
-                        Cell {
-                            text: glyph.text,
-                            foreground: glyph.color,
-                            background: background.color,
-                            attributes: glyph.attributes,
-                            valid: true,
-                        },
-                    );
-                    continue;
-                }
-                if box_cell.edges != 0 && background.z <= box_cell.z {
+                    Cell {
+                        text: glyph.text,
+                        foreground: glyph.color,
+                        background: background.color,
+                        attributes: glyph.attributes,
+                        valid: true,
+                    }
+                } else if box_cell.edges != 0 && background.z <= box_cell.z {
                     let text = match box_cell.style {
                         BorderStyle::Rounded => match box_cell.edges {
                             3 => '╰',
@@ -848,28 +840,24 @@ impl TuiRenderer {
                         BorderStyle::Double => DOUBLE_BOXES[box_cell.edges as usize],
                         BorderStyle::Heavy => HEAVY_BOXES[box_cell.edges as usize],
                     };
-                    self.set_cell(
-                        index,
-                        Cell {
-                            text: CellText::Scalar(text),
-                            foreground: box_cell.color,
-                            background: background.color,
-                            attributes: TextAttributes::NONE,
-                            valid: true,
-                        },
-                    );
-                    continue;
-                }
-                self.set_cell(
-                    index,
+                    Cell {
+                        text: CellText::Scalar(text),
+                        foreground: box_cell.color,
+                        background: background.color,
+                        attributes: TextAttributes::NONE,
+                        valid: true,
+                    }
+                } else {
                     Cell {
                         text: CellText::Scalar(' '),
                         foreground: Color::Reset,
                         background: background.color,
                         attributes: TextAttributes::NONE,
                         valid: true,
-                    },
-                );
+                    }
+                };
+                self.damaged[index] = self.cells[index] != cell;
+                self.set_cell(index, cell);
             }
         }
         let mut style = None;
@@ -877,7 +865,7 @@ impl TuiRenderer {
             let mut x = 0;
             while x < self.columns {
                 let index = y * self.columns + x;
-                if !self.damaged[index] || self.previous[index] == self.cells[index] {
+                if !self.damaged[index] {
                     x += 1;
                     continue;
                 }
@@ -885,7 +873,7 @@ impl TuiRenderer {
                 while x < self.columns {
                     let index = y * self.columns + x;
                     let cell = &self.cells[index];
-                    if !self.damaged[index] || self.previous[index] == *cell {
+                    if !self.damaged[index] {
                         break;
                     }
                     let next_style = (cell.foreground, cell.background, cell.attributes);
@@ -921,7 +909,6 @@ impl TuiRenderer {
                         style = Some(next_style);
                     }
                     Self::push_cell_text(&self.text_runs, cell.text, &mut self.output);
-                    self.previous[index] = *cell;
                     x += 1;
                 }
             }
