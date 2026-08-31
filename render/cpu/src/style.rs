@@ -2,26 +2,6 @@
 
 use crate::color::Color;
 
-blit::builder! {
-    /// box shadow relative to a node's resolved bounds
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Shadow {
-        new(color: Color),
-        offset_x: f32 = 0.0,
-        offset_y: f32 = 0.0,
-        blur: f32 = 0.0,
-        spread: f32 = 0.0,
-    }
-}
-
-impl Shadow {
-    pub const fn offset(mut self, x: f32, y: f32) -> Self {
-        self.offset_x = x;
-        self.offset_y = y;
-        self
-    }
-}
-
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Border<'a> {
     #[default]
