@@ -1,14 +1,3 @@
-use std::{marker::PhantomData, num::NonZeroU16};
-
-use super::{Cx, NodeId, Ui};
-use crate::{
-    Clip, Platform, Widget,
-    animation::Transition,
-    geometry::{Point, Sides},
-    interact::WidgetId,
-    layout::Layout,
-};
-
 /// frame-local paint layer
 ///
 /// do not store this across renders
@@ -342,7 +331,7 @@ impl<'entry, R: Platform, L: Layout<R>> Entry<'entry, '_, R, L, L::Item> {
             }
             child
         };
-        new(self.node.ui, child)
+        new_node(self.node.ui, child)
     }
 }
 
@@ -356,7 +345,7 @@ impl<R: Platform, L: Layout<R>> Drop for Node<'_, R, L> {
     }
 }
 
-pub(super) fn new<R: Platform, L: Layout<R>>(ui: &mut Ui<R>, node: NodeId) -> Node<'_, R, L> {
+fn new_node<R: Platform, L: Layout<R>>(ui: &mut Ui<R>, node: NodeId) -> Node<'_, R, L> {
     ui.frame_mut().current_parent = Some(node);
     Node {
         ui,
@@ -365,24 +354,24 @@ pub(super) fn new<R: Platform, L: Layout<R>>(ui: &mut Ui<R>, node: NodeId) -> No
     }
 }
 
-pub fn layer_id(index: usize) -> LayerId {
+fn layer_id(index: usize) -> LayerId {
     let value = u16::try_from(index + 1).expect("too many layers in one frame");
     LayerId(
         NonZeroU16::new(value).unwrap(),
         #[cfg(debug_assertions)]
-        super::generation::get(),
+        generation::get(),
     )
 }
 
-pub fn layer_index(id: LayerId) -> usize {
+fn layer_index(id: LayerId) -> usize {
     #[cfg(debug_assertions)]
-    super::generation::assert(id.1);
+    generation::assert(id.1);
     id.0.get() as usize - 1
 }
 
-pub fn layer_order(id: LayerId) -> u16 {
+fn layer_order(id: LayerId) -> u16 {
     #[cfg(debug_assertions)]
-    super::generation::assert(id.1);
+    generation::assert(id.1);
     id.0.get()
 }
 

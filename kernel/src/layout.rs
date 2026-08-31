@@ -2,7 +2,7 @@ pub use crate::frame::layout::{Children, LayoutCx};
 
 use crate::{
     Platform,
-    frame::container::Sizing,
+    frame::Sizing,
     geometry::{Constraints, Size},
 };
 
