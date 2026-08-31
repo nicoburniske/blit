@@ -1,4 +1,4 @@
-pub use blit_std::widget::scroll;
+pub use blit_std::widget::{scroll, split};
 
 use blit::Widget;
 use blit_tui_render::{
