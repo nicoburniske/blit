@@ -276,6 +276,11 @@ where
     }
 }
 
+/// pending child insertion
+///
+/// `I` is `()` until `item()` supplies `L::Item`
+///
+/// insertion requires `I = L::Item`
 pub struct Child<'child, 'ui, R, L, I = ()>
 where
     R: Platform,
@@ -288,6 +293,7 @@ where
 }
 
 impl<'child, 'ui, R: Platform, L: Layout<R>, I> Child<'child, 'ui, R, L, I> {
+    /// supplies the parent layout's item and enables insertion
     pub fn item(self, item: L::Item) -> Child<'child, 'ui, R, L, L::Item> {
         Child {
             node: self.node,
