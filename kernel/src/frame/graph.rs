@@ -260,6 +260,18 @@ impl<R: Platform> Frame<R> {
         size
     }
 
+    fn measure_depends_on_constraints(&self, node: NodeId) -> bool {
+        let mut atom = self.nodes[node.index()].first_atom;
+        while let Some(index) = atom.index() {
+            let stored = self.atoms[index];
+            if stored.measure_depends_on_constraints {
+                return true;
+            }
+            atom = stored.next;
+        }
+        false
+    }
+
     fn push_atom<A: Atom<R>>(&mut self, node: NodeId, atom: A) {
         let type_id = TypeId::of::<A>();
         let kind = self
@@ -277,6 +289,7 @@ impl<R: Platform> Frame<R> {
         let id = StoredAtomId::new(self.atoms.len());
         self.atoms.push(StoredAtom {
             kind: u16::try_from(kind).expect("too many atom types"),
+            measure_depends_on_constraints: atom.measure_depends_on_constraints(),
             data: self.data.store(atom),
             next: StoredAtomId::NONE,
         });
@@ -550,6 +563,7 @@ struct ResolvedClip {
 #[derive(Clone, Copy)]
 struct StoredAtom {
     kind: u16,
+    measure_depends_on_constraints: bool,
     data: DataId,
     next: StoredAtomId,
 }

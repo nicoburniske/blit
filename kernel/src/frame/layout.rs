@@ -6,7 +6,7 @@ use crate::{
     arena::DataId,
     frame::Sizing,
     geometry::{Constraints, Point, Sides, Size},
-    layout::{Axis, Layout},
+    layout::{Axis, Layout, LayoutResolution},
 };
 
 pub struct LayoutCx<'a, R: Platform, I> {
@@ -15,15 +15,19 @@ pub struct LayoutCx<'a, R: Platform, I> {
     node: NodeId,
     nodes: *const StoredNode,
     item: PhantomData<fn() -> I>,
+    first_child: NodeId,
+    children_end: usize,
+    offset: Point,
+    resolution: LayoutResolution,
 }
 
 impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
+    #[inline]
     pub fn children(&self) -> Children<'a> {
-        let node = self.frame.nodes[self.node.index()];
         Children {
             nodes: self.nodes,
-            next: self.frame.node_id(self.node.index() + 1),
-            end: node.subtree_end as usize,
+            next: self.first_child,
+            end: self.children_end,
             marker: PhantomData,
         }
     }
@@ -45,24 +49,34 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
     }
 
     pub fn constrain_child(&mut self, child: NodeId, constraints: Constraints) -> Size {
-        // todo: reuse measured sizes for constraint-independent atoms
         self.assert_child(child);
-        self.frame.layout_node(child, self.platform, constraints)
+        if self.frame.nodes[child.index()].layout.index().is_none()
+            && !self.frame.measure_depends_on_constraints(child)
+        {
+            let size = constraints.constrain(self.frame.nodes[child.index()].area.size());
+            self.frame.nodes[child.index()].area.width = size.width;
+            self.frame.nodes[child.index()].area.height = size.height;
+            size
+        } else {
+            self.frame.layout_node(child, self.platform, constraints)
+        }
     }
 
+    #[inline]
     pub fn size(&self, child: NodeId) -> Size {
         self.assert_child(child);
         self.frame.nodes[child.index()].area.size()
     }
 
+    #[inline]
     pub fn set_position(&mut self, child: NodeId, position: Point) {
         self.assert_child(child);
-        let offset = self.frame.layout_offset(self.node);
         let area = &mut self.frame.nodes[child.index()].area;
-        area.x = position.x + offset.x;
-        area.y = position.y + offset.y;
+        area.x = position.x + self.offset.x;
+        area.y = position.y + self.offset.y;
     }
 
+    #[inline]
     pub fn sizing(&self, child: NodeId, axis: Axis) -> Sizing {
         self.assert_child(child);
         match axis {
@@ -71,10 +85,12 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
         }
     }
 
+    #[inline]
     pub fn resolve_extent(&self, axis: Axis, value: f32) -> f32 {
-        self.frame.layout_resolution.extent(axis, value)
+        self.resolution.extent(axis, value)
     }
 
+    #[inline]
     pub fn resolve_sides(&self, sides: Sides) -> Sides {
         Sides {
             top: self.resolve_extent(Axis::Vertical, sides.top),
@@ -84,6 +100,7 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
         }
     }
 
+    #[inline]
     pub fn axis_size(&self, child: NodeId, axis: Axis) -> f32 {
         self.assert_child(child);
         let area = self.frame.nodes[child.index()].area;
@@ -93,6 +110,7 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
         }
     }
 
+    #[inline]
     pub fn set_size(&mut self, child: NodeId, axis: Axis, size: f32) {
         self.assert_child(child);
         let area = &mut self.frame.nodes[child.index()].area;
@@ -102,6 +120,7 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
         }
     }
 
+    #[inline]
     pub fn set_z_index(&mut self, child: NodeId, z_index: i16) {
         self.assert_child(child);
         self.frame.nodes[child.index()].place.z_index = z_index;
@@ -129,6 +148,7 @@ pub struct Children<'a> {
 impl Iterator for Children<'_> {
     type Item = NodeId;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         while self.next.index() <= self.end {
             let node = self.next;
@@ -152,6 +172,10 @@ pub fn run<R: Platform, L: Layout<R>>(
 ) -> Size {
     let layout = frame.data.load::<L>(id);
     let nodes = frame.nodes.as_ptr();
+    let first_child = frame.node_id(node.index() + 1);
+    let children_end = frame.nodes[node.index()].subtree_end as usize;
+    let offset = frame.layout_offset(node);
+    let resolution = frame.layout_resolution;
     layout.layout(
         &mut LayoutCx {
             frame,
@@ -159,6 +183,10 @@ pub fn run<R: Platform, L: Layout<R>>(
             node,
             nodes,
             item: PhantomData,
+            first_child,
+            children_end,
+            offset,
+            resolution,
         },
         constraints,
     )

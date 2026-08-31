@@ -572,6 +572,10 @@ impl Atom<AsciiPlatform> for Fill {
             }
         }
     }
+
+    fn measure_depends_on_constraints(&self) -> bool {
+        false
+    }
 }
 
 blit::impl_atom_widgets!(AsciiPlatform => Fill);

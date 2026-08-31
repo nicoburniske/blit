@@ -48,6 +48,10 @@ impl Atom<TerminalPlatform> for Block {
         let clip = platform.clip;
         platform.current.push_block(block, bounds, clip);
     }
+
+    fn measure_depends_on_constraints(&self) -> bool {
+        false
+    }
 }
 
 blit::builder! {
@@ -81,6 +85,10 @@ impl Atom<TerminalPlatform> for Text {
         let clip = platform.clip;
         platform.current.push_text(request, bounds, clip);
     }
+
+    fn measure_depends_on_constraints(&self) -> bool {
+        self.options.wrap != TextWrap::None
+    }
 }
 
 blit::builder! {
@@ -101,6 +109,10 @@ impl Atom<TerminalPlatform> for Image {
         platform
             .current
             .push_image(ImagePlacement::new(self.image, area), bounds, clip);
+    }
+
+    fn measure_depends_on_constraints(&self) -> bool {
+        false
     }
 }
 
@@ -136,6 +148,10 @@ impl Atom<TerminalPlatform> for Shadow {
         let bounds = shifted.to_physical(Scale2::IDENTITY);
         let clip = platform.clip;
         platform.current.push_shadow(shadow, bounds, clip);
+    }
+
+    fn measure_depends_on_constraints(&self) -> bool {
+        false
     }
 }
 

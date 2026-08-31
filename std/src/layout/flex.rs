@@ -74,6 +74,9 @@ impl<P: Platform> Layout<P> for Flex {
         let tight_cross =
             size_on_axis(constraints.min, cross_axis) == size_on_axis(constraints.max, cross_axis);
 
+        let mut used = 0.0;
+        let mut natural_cross: f32 = 0.0;
+        let mut grow = 0usize;
         for node in cx.children() {
             let main_sizing = cx.sizing(node, self.axis);
             let cross_sizing = cx.sizing(node, cross_axis);
@@ -102,22 +105,10 @@ impl<P: Platform> Layout<P> for Flex {
                     cross_stretch,
                 ),
             );
-            cx.layout_child(node, constraints);
-        }
-
-        let mut used = 0.0;
-        let mut natural_cross: f32 = 0.0;
-        let mut grow = 0usize;
-        for node in cx.children() {
-            used += cx.axis_size(node, self.axis);
-            natural_cross = natural_cross.max(cx.axis_size(
-                node,
-                match self.axis {
-                    Axis::Horizontal => Axis::Vertical,
-                    Axis::Vertical => Axis::Horizontal,
-                },
-            ));
-            grow += usize::from(matches!(cx.sizing(node, self.axis), Sizing::Grow { .. }));
+            let child = cx.layout_child(node, constraints);
+            used += size_on_axis(child, self.axis);
+            natural_cross = natural_cross.max(size_on_axis(child, cross_axis));
+            grow += usize::from(matches!(main_sizing, Sizing::Grow { .. }));
         }
         let natural = flow_size(
             used + gaps + main_padding,
@@ -191,6 +182,7 @@ impl<P: Platform> Layout<P> for Flex {
         let available_cross = (size_on_axis(size, cross_axis) - cross_padding).max(0.0);
         for node in cx.children() {
             let main_size = cx.axis_size(node, self.axis);
+            let main_sizing = cx.sizing(node, self.axis);
             let cross_sizing = cx.sizing(node, cross_axis);
             let stretch = tight_cross
                 && (matches!(cross_sizing, Sizing::Grow { .. })
@@ -205,7 +197,7 @@ impl<P: Platform> Layout<P> for Flex {
                 stretch,
             );
             let cross_changed = cross.0 == cross.1 && cross.0 != cx.axis_size(node, cross_axis);
-            if main_changed || cross_changed {
+            if (main_changed && !matches!(main_sizing, Sizing::Fixed(_))) || cross_changed {
                 cx.constrain_child(
                     node,
                     flow_constraints(self.axis, (main_size, main_size), cross),

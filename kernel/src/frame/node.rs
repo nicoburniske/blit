@@ -79,6 +79,7 @@ impl Sizing {
         }
     }
 
+    #[inline]
     pub fn resolve(self, intrinsic: f32, available: f32, cross: bool) -> f32 {
         match self {
             Self::Fit { .. } => self.clamp(intrinsic.min(available)),
@@ -93,6 +94,7 @@ impl Sizing {
         }
     }
 
+    #[inline]
     pub fn clamp(self, size: f32) -> f32 {
         match self {
             Self::Fit { min, max } | Self::Grow { min, max } => {

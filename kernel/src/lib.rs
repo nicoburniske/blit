@@ -68,6 +68,11 @@ pub trait Atom<R: Platform>: Widget<R, Response = NodeId> + Copy + 'static {
     fn measure(&self, platform: &mut R, constraints: Constraints) -> Size;
 
     fn paint(&self, platform: &mut R, area: Rect);
+
+    /// whether measurement must be repeated when constraints tighten
+    fn measure_depends_on_constraints(&self) -> bool {
+        true
+    }
 }
 
 pub trait Clip<R: Platform>: Copy + 'static {

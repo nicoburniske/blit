@@ -58,6 +58,10 @@ impl Atom<DesktopPlatform> for Rectangle {
                 .push_box_shadow(shadow, area.to_physical(scale), clip);
         }
     }
+
+    fn measure_depends_on_constraints(&self) -> bool {
+        false
+    }
 }
 
 blit::builder! {
@@ -97,6 +101,10 @@ impl Atom<DesktopPlatform> for Text {
         let clip = platform.clip;
         platform.current.push_text(request, bounds, clip);
     }
+
+    fn measure_depends_on_constraints(&self) -> bool {
+        self.options.wrap != blit_cpu::text_types::TextWrap::None
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -132,6 +140,10 @@ impl Atom<DesktopPlatform> for Image {
         let bounds = area.to_physical(platform.scale);
         let clip = platform.clip;
         platform.current.push_image(request, bounds, clip);
+    }
+
+    fn measure_depends_on_constraints(&self) -> bool {
+        false
     }
 }
 
