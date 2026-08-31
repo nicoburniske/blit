@@ -355,8 +355,8 @@ impl<R: Platform> Frame<R> {
     fn add_layer(&mut self) -> LayerId {
         let owner = self
             .current_parent
-            .expect("layer declaration requires a container");
-        let id = container::layer_id(self.layers.len());
+            .expect("layer declaration requires a node");
+        let id = layer_id(self.layers.len());
         self.layers.push(Layer { owner });
         id
     }
@@ -431,7 +431,7 @@ impl<R: Platform> Frame<R> {
         place.width = self.layout_resolution.sizing(Axis::Horizontal, place.width);
         place.height = self.layout_resolution.sizing(Axis::Vertical, place.height);
         if let Some(layer) = place.layer {
-            let layer = container::layer_index(layer);
+            let layer = layer_index(layer);
             assert!(
                 layer < self.layers.len(),
                 "layer does not belong to this frame"

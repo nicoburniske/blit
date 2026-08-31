@@ -1,19 +1,18 @@
-use std::{
-    any::TypeId,
-    mem::size_of,
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
-    time::Duration,
-};
-
-pub mod container;
 pub mod interaction;
 pub mod layout;
 pub mod paint;
 pub mod position;
 pub mod transition;
 
-pub use container::{Absolute, Anchor, Entry, LayerId, Node, Place, PositionTarget, Sizing};
+use std::{
+    any::TypeId,
+    marker::PhantomData,
+    mem::size_of,
+    num::NonZeroU16,
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+    time::Duration,
+};
 
 use crate::{
     Atom, Clip, FrameInfo, Platform, Widget,
@@ -36,7 +35,7 @@ impl<R: Platform> Ui<R> {
         let frame = self.frame_mut();
         let layout = frame.store_layout(layout);
         let node = frame.push_node(Some(layout));
-        container::new(self, node)
+        new_node(self, node)
     }
 
     pub fn layer(&mut self) -> LayerId {
@@ -181,7 +180,7 @@ impl<'ui, R: Platform> Cx<'ui, R> {
         );
         let layout = frame.store_layout(layout);
         frame.nodes[self.node.index()].layout = layout;
-        container::new(self.ui, self.node)
+        new_node(self.ui, self.node)
     }
 }
 
@@ -237,4 +236,5 @@ impl<R: Platform> Ui<R> {
     }
 }
 
+include!("node.rs");
 include!("graph.rs");
