@@ -253,8 +253,7 @@ impl<R: Platform> Frame<R> {
             let stored = self.atoms[index];
             let measure = self.atom_kinds[stored.kind as usize].measure;
             let measured = measure(&self.data, stored.data, platform, constraints);
-            size.width = size.width.max(measured.width);
-            size.height = size.height.max(measured.height);
+            size = size.max(measured);
             atom = stored.next;
         }
         size

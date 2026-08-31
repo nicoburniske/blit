@@ -131,7 +131,7 @@ impl Session {
         let screen = self.platform.renderer().screen();
         FrameInfo::new(LogicalSize::new(screen.width as f32, screen.height as f32))
             .layout_resolution(LayoutResolution::Discrete {
-                step: LogicalSize::new(1.0, 1.0),
+                step: LogicalSize::uniform(1.0),
             })
     }
 

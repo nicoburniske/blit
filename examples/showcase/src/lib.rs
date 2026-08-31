@@ -278,8 +278,8 @@ impl<'a, C, F> Resizable<'a, C, F> {
             id,
             initial,
             minimum: Size::ZERO,
-            maximum: Size::new(f32::INFINITY, f32::INFINITY),
-            grip_size: Size::new(1.0, 1.0),
+            maximum: Size::uniform(f32::INFINITY),
+            grip_size: Size::uniform(1.0),
             content,
             grip,
         }
@@ -378,10 +378,7 @@ impl<P: Platform> Layout<P> for ResizeLayout {
     type Item = ResizeItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
-        let maximum = Size::new(
-            self.maximum.width.max(self.minimum.width),
-            self.maximum.height.max(self.minimum.height),
-        );
+        let maximum = self.maximum.max(self.minimum);
         let size = constraints.constrain(Size::new(
             cx.resolve_extent(
                 Axis::Horizontal,

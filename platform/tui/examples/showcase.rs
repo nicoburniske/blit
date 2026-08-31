@@ -24,7 +24,6 @@ fn main() -> io::Result<()> {
     blit_tui::run(|ui| showcase.show(ui))
 }
 
-#[derive(Default)]
 struct Showcase {
     page: Page,
     layout: LayoutPage,
@@ -32,6 +31,21 @@ struct Showcase {
     blocks: BlocksPage,
     scroll: ScrollPage,
     fps: FpsBadge,
+    show_fps: bool,
+}
+
+impl Default for Showcase {
+    fn default() -> Self {
+        Self {
+            page: Page::default(),
+            layout: LayoutPage::default(),
+            text: TextPage::default(),
+            blocks: BlocksPage::default(),
+            scroll: ScrollPage::default(),
+            fps: FpsBadge::default(),
+            show_fps: true,
+        }
+    }
 }
 
 impl Showcase {
@@ -50,38 +64,45 @@ impl Showcase {
                 .place(Place::new().height(Sizing::fixed(1.0)))
                 .node(Flex::row().align(Align::Center).gap(1.0));
             header.insert(Block::new().background(colors::SURFACE));
-            header.add(Text::new(" BLIT ").attributes(TextAttributes::BOLD));
+            header.add(|ui: Cx<'_>| {
+                let mut logo = ui.node(Flex::row().align(Align::Center));
+                logo.insert(Block::new().background(colors::ACCENT));
+                logo.add(
+                    Text::new(" blit ")
+                        .color(colors::SURFACE)
+                        .attributes(TextAttributes::BOLD),
+                );
+            });
             for (page, label) in [
-                (Page::Layout, " Layout "),
-                (Page::Text, " Text "),
-                (Page::Blocks, " Blocks "),
-                (Page::Scroll, " Scroll "),
+                (Page::Layout, " layout "),
+                (Page::Text, " text "),
+                (Page::Blocks, " blocks "),
+                (Page::Scroll, " scroll "),
             ] {
-                if header
-                    .add(Button::new(
-                        WidgetId::new(("tui page", label)),
-                        label,
-                        self.page == page,
-                    ))
-                    .response
-                {
+                if header.add(Button::new(
+                    WidgetId::new(("tui page", label)),
+                    label,
+                    self.page == page,
+                )) {
                     self.page = page;
                 }
             }
-            if header
-                .add(Button::new(
-                    WidgetId::new("tui reset showcase"),
-                    " Reset ",
-                    false,
-                ))
-                .response
-            {
-                self.layout = LayoutPage::default();
-                self.text = TextPage::default();
-                self.blocks = BlocksPage::default();
-                self.scroll = ScrollPage::default();
+            header.place(Place::new().grow()).add(Block::new());
+            if header.add(Button::new(
+                WidgetId::new("toggle tui fps"),
+                " fps ",
+                self.show_fps,
+            )) {
+                self.show_fps = !self.show_fps;
             }
-            header.add(Text::new("q quit").color(colors::TEXT_MUTED));
+            if header.add(Button::new(
+                WidgetId::new("tui reset showcase"),
+                " reset ",
+                false,
+            )) {
+                *self = Self::default();
+            }
+            header.add(Text::new(" q quit ").color(colors::TEXT_MUTED));
         }
         match self.page {
             Page::Layout => root.place(Place::new().grow()).add(&mut self.layout),
@@ -89,7 +110,9 @@ impl Showcase {
             Page::Blocks => root.place(Place::new().grow()).add(&mut self.blocks),
             Page::Scroll => root.place(Place::new().grow()).add(&mut self.scroll),
         };
-        root.add(&mut self.fps);
+        if self.show_fps {
+            root.add(&mut self.fps);
+        }
         control
     }
 }
@@ -287,7 +310,7 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                     )
                     .minimum(Size::new(18.0, 9.0))
                     .maximum(screen.size())
-                    .grip_size(Size::new(1.0, 1.0)),
+                    .grip_size(Size::uniform(1.0)),
                 );
             }
         }
@@ -367,14 +390,11 @@ impl Widget<TuiPlatform> for &mut TextPage {
                 .enumerate()
                 {
                     let selected = text_attributes.contains(attribute);
-                    if toggles
-                        .add(Button::new(
-                            WidgetId::new(("tui text attribute", index)),
-                            label,
-                            selected,
-                        ))
-                        .response
-                    {
+                    if toggles.add(Button::new(
+                        WidgetId::new(("tui text attribute", index)),
+                        label,
+                        selected,
+                    )) {
                         text_attributes.set(attribute, !selected);
                     }
                 }
@@ -503,7 +523,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                 )
                 .minimum(Size::new(12.0, 6.0))
                 .maximum(screen.size())
-                .grip_size(Size::new(1.0, 1.0)),
+                .grip_size(Size::uniform(1.0)),
             );
         }
     }
@@ -651,14 +671,11 @@ impl Widget<TuiPlatform> for &mut ScrollPage {
                 (Axis::Vertical, " Vertical "),
                 (Axis::Horizontal, " Horizontal "),
             ] {
-                if controls
-                    .add(Button::new(
-                        WidgetId::new(("tui scroll axis", label)),
-                        label,
-                        *scroll_axis == axis,
-                    ))
-                    .response
-                {
+                if controls.add(Button::new(
+                    WidgetId::new(("tui scroll axis", label)),
+                    label,
+                    *scroll_axis == axis,
+                )) {
                     *scroll_axis = axis;
                     *scroll = scroll::State::default();
                 }
@@ -786,7 +803,7 @@ impl Widget<TuiPlatform> for TuiGrip {
         let marker = match self.0.edge {
             ResizeEdge::Right => Size::new(1.0, 3.0),
             ResizeEdge::Bottom => Size::new(5.0, 1.0),
-            ResizeEdge::Corner => Size::new(1.0, 1.0),
+            ResizeEdge::Corner => Size::uniform(1.0),
         };
         let active =
             self.0.interaction.hovered || self.0.interaction.active || self.0.interaction.dragging;
@@ -853,13 +870,11 @@ fn choices<T: Copy + PartialEq>(ui: Cx<'_>, label: &str, selected: &mut T, optio
                 .align(Align::Center),
         );
         for (index, &(option, value)) in options.iter().enumerate() {
-            let clicked = values
-                .add(Button::new(
-                    WidgetId::new((label, index)),
-                    option,
-                    *selected == value,
-                ))
-                .response;
+            let clicked = values.add(Button::new(
+                WidgetId::new((label, index)),
+                option,
+                *selected == value,
+            ));
             if clicked {
                 *selected = value;
             }
@@ -876,7 +891,7 @@ impl Widget<TuiPlatform> for Canvas {
     type Response = ();
 
     fn build(self, ui: Cx<'_>) {
-        let unit = Size::new(1.0, 1.0);
+        let unit = Size::uniform(1.0);
         let background = Block::new()
             .background(colors::CANVAS)
             .border(Border::new(colors::CANVAS_BORDER).style(BorderStyle::Rounded));
