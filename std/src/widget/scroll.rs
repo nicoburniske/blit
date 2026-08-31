@@ -5,19 +5,56 @@ use blit::{
     Widget, WidgetId,
 };
 
+blit::builder! {
+    /// scrollbar behavior + geometry
+    #[derive(Clone, Copy, Debug)]
+    pub struct Config {
+        new(),
+        scroll_speed: f32 = 1.0,
+        inertia_friction: f32 = 6.0,
+        sense: Sense = Sense::SCROLL,
+        scrollbar_thickness: f32 = 1.0,
+        minimum_thumb_extent: f32 = 1.0,
+    }
+}
+
+pub trait Scrollbar {
+    const HAS_TRACK: bool;
+    const HAS_THUMB: bool;
+
+    type Track;
+    type Thumb;
+
+    fn config(&self) -> Config {
+        Config::default()
+    }
+
+    fn into_widgets(self, active: bool) -> (Self::Track, Self::Thumb);
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoScrollbar;
+
+impl Scrollbar for NoScrollbar {
+    const HAS_TRACK: bool = false;
+    const HAS_THUMB: bool = false;
+
+    type Track = ();
+    type Thumb = ();
+
+    fn into_widgets(self, _: bool) -> (Self::Track, Self::Thumb) {
+        ((), ())
+    }
+}
+
 /// scrolls one widget along one axis
-pub struct Area<'a, C, X, F = fn(bool) -> (), T = fn(bool) -> ()> {
+pub struct Area<'a, C, X, S = NoScrollbar> {
     state: &'a mut State,
     clip: X,
     content: C,
-    scrollbar: Option<F>,
-    track: Option<T>,
+    scrollbar: S,
+    config: Config,
     axis: Axis,
-    scroll_speed: f32,
-    inertia_friction: f32,
-    sense: Sense,
-    scrollbar_thickness: f32,
-    minimum_scrollbar_extent: f32,
 }
 
 blit::builder! {
@@ -55,95 +92,44 @@ impl State {
     }
 }
 
-impl<'a, C, X> Area<'a, C, X> {
+impl<'a, C, X, S> Area<'a, C, X, S>
+where
+    S: Default + Scrollbar,
+{
     pub fn new(state: &'a mut State, clip: X, content: C) -> Self {
+        let scrollbar = S::default();
+        let config = scrollbar.config();
         Self {
             state,
             clip,
             content,
-            scrollbar: None,
-            track: None,
+            scrollbar,
+            config,
             axis: Axis::Vertical,
-            scroll_speed: 1.0,
-            inertia_friction: 6.0,
-            sense: Sense::SCROLL_AND_DRAG,
-            scrollbar_thickness: 1.0,
-            minimum_scrollbar_extent: 1.0,
         }
     }
 }
 
-impl<'a, C, X, F, T> Area<'a, C, X, F, T> {
+impl<C, X, S> Area<'_, C, X, S> {
     pub fn axis(mut self, axis: Axis) -> Self {
         self.axis = axis;
         self
     }
 
-    pub fn scroll_speed(mut self, speed: f32) -> Self {
-        self.scroll_speed = speed;
+    pub fn config(mut self, config: Config) -> Self {
+        self.config = config;
         self
-    }
-
-    pub fn inertia_friction(mut self, friction: f32) -> Self {
-        self.inertia_friction = friction;
-        self
-    }
-
-    pub fn sense(mut self, sense: Sense) -> Self {
-        self.sense = sense;
-        self
-    }
-
-    pub fn scrollbar_thickness(mut self, thickness: f32) -> Self {
-        self.scrollbar_thickness = thickness;
-        self
-    }
-
-    pub fn minimum_scrollbar_extent(mut self, extent: f32) -> Self {
-        self.minimum_scrollbar_extent = extent;
-        self
-    }
-
-    /// creates the scrollbar thumb from its active state
-    pub fn scrollbar<N>(self, factory: N) -> Area<'a, C, X, N, T> {
-        self.map_scrollbar(|_, track| (Some(factory), track))
-    }
-
-    /// creates the reserved scrollbar track from its active state
-    pub fn scroll_track<N>(self, factory: N) -> Area<'a, C, X, F, N> {
-        self.map_scrollbar(|scrollbar, _| (scrollbar, Some(factory)))
-    }
-
-    fn map_scrollbar<N, U>(
-        self,
-        map: impl FnOnce(Option<F>, Option<T>) -> (Option<N>, Option<U>),
-    ) -> Area<'a, C, X, N, U> {
-        let (scrollbar, track) = map(self.scrollbar, self.track);
-        Area {
-            state: self.state,
-            content: self.content,
-            clip: self.clip,
-            scrollbar,
-            track,
-            axis: self.axis,
-            scroll_speed: self.scroll_speed,
-            inertia_friction: self.inertia_friction,
-            sense: self.sense,
-            scrollbar_thickness: self.scrollbar_thickness,
-            minimum_scrollbar_extent: self.minimum_scrollbar_extent,
-        }
     }
 }
 
-impl<R, C, X, F, W, T, V> Widget<R> for Area<'_, C, X, F, T>
+impl<R, C, X, S> Widget<R> for Area<'_, C, X, S>
 where
     R: Platform,
     C: Widget<R>,
     X: Clip<R>,
-    F: FnOnce(bool) -> W,
-    W: Widget<R>,
-    T: FnOnce(bool) -> V,
-    V: Widget<R>,
+    S: Scrollbar,
+    S::Track: Widget<R>,
+    S::Thumb: Widget<R>,
 {
     type Response = ();
 
@@ -151,8 +137,8 @@ where
         let id = self.state.id;
         let content_id = id.child("content");
         let thumb_id = id.child("scroll thumb");
-        let has_thumb = self.scrollbar.is_some();
-        let has_track = self.track.is_some();
+        let has_thumb = S::HAS_THUMB;
+        let has_track = S::HAS_TRACK;
 
         if let Some(area) = cx.geometry(id) {
             self.state.viewport_extent = match self.axis {
@@ -167,7 +153,7 @@ where
             };
         }
 
-        let interaction = cx.interact(id, self.sense);
+        let interaction = cx.interact(id, self.config.sense);
         let thumb_interaction = has_thumb.then(|| cx.interact(thumb_id, Sense::DRAG));
         let now = cx.time();
         let elapsed = self
@@ -205,7 +191,7 @@ where
                 Axis::Vertical => interaction.drag_delta.y,
             };
             if drag_delta != 0.0 {
-                direct_delta = -drag_delta * self.scroll_speed;
+                direct_delta = -drag_delta * self.config.scroll_speed;
                 sample_velocity = self.state.tracking;
                 if !self.state.tracking {
                     self.state.velocity = 0.0;
@@ -221,7 +207,7 @@ where
                 if self.axis == Axis::Horizontal && delta == 0.0 {
                     delta = scroll.delta.y;
                 }
-                direct_delta = delta * self.scroll_speed;
+                direct_delta = delta * self.config.scroll_speed;
                 if scroll.continuous {
                     match scroll.phase {
                         ScrollPhase::Started => {
@@ -249,9 +235,9 @@ where
             }
 
             if !self.state.tracking && self.state.velocity != 0.0 {
-                let decay = (-self.inertia_friction * elapsed).exp();
-                let offset =
-                    self.state.offset + self.state.velocity * (1.0 - decay) / self.inertia_friction;
+                let decay = (-self.config.inertia_friction * elapsed).exp();
+                let offset = self.state.offset
+                    + self.state.velocity * (1.0 - decay) / self.config.inertia_friction;
                 self.state.offset = offset.clamp(0.0, maximum);
                 self.state.velocity *= decay;
                 if self.state.offset != offset || self.state.velocity.abs() < MIN_SCROLL_VELOCITY {
@@ -270,8 +256,8 @@ where
                 offset: self.state.offset,
                 thumb: has_thumb,
                 track: has_track,
-                scrollbar_thickness: self.scrollbar_thickness,
-                minimum_scrollbar_extent: self.minimum_scrollbar_extent,
+                scrollbar_thickness: self.config.scrollbar_thickness,
+                minimum_thumb_extent: self.config.minimum_thumb_extent,
             })
             .widget_id(id)
             .clip(self.clip);
@@ -280,14 +266,15 @@ where
             .widget_id(content_id)
             .add(self.content);
         let thumb_active = thumb_interaction.is_some_and(|interaction| interaction.active);
-        if let Some(track) = self.track {
-            viewport.item(ScrollItem::Track).add(track(thumb_active));
+        let (track, thumb) = self.scrollbar.into_widgets(thumb_active);
+        if has_track {
+            viewport.item(ScrollItem::Track).add(track);
         }
-        if let Some(scrollbar) = self.scrollbar {
+        if has_thumb {
             viewport
                 .item(ScrollItem::Thumb)
                 .widget_id(thumb_id)
-                .add(scrollbar(thumb_active));
+                .add(thumb);
         }
     }
 }
@@ -299,7 +286,7 @@ struct ScrollLayout {
     thumb: bool,
     track: bool,
     scrollbar_thickness: f32,
-    minimum_scrollbar_extent: f32,
+    minimum_thumb_extent: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -387,9 +374,10 @@ impl<R: Platform> Layout<R> for ScrollLayout {
         );
 
         if let Some(track) = track {
+            let track_extent = if maximum > 0.0 { viewport_extent } else { 0.0 };
             let track_size = match self.axis {
-                Axis::Horizontal => Size::new(viewport_extent, thickness),
-                Axis::Vertical => Size::new(thickness, viewport_extent),
+                Axis::Horizontal => Size::new(track_extent, thickness),
+                Axis::Vertical => Size::new(thickness, track_extent),
             };
             cx.layout_child(track, Constraints::tight(track_size));
             cx.set_position(
@@ -403,7 +391,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
 
         if let Some(thumb) = thumb {
             let minimum_extent = cx
-                .resolve_extent(self.axis, self.minimum_scrollbar_extent)
+                .resolve_extent(self.axis, self.minimum_thumb_extent)
                 .max(0.0);
             let thumb_extent = if content_extent > viewport_extent && content_extent > 0.0 {
                 (viewport_extent * viewport_extent / content_extent)
