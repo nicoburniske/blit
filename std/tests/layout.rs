@@ -1,5 +1,7 @@
-use blit::{Atom, Constraints, Frame, FrameInfo, Place, Platform, Rect, Size, Sizing, WidgetId};
-use blit_std::layout::{Align, Flex, Grid, RectLayout, Wrap};
+use blit::{
+    Atom, Constraints, Frame, FrameInfo, Place, Platform, Rect, Sides, Size, Sizing, WidgetId,
+};
+use blit_std::layout::{Align, Flex, Grid, RectLayout, Single, Wrap};
 
 #[derive(Default)]
 struct TestPlatform;
@@ -79,6 +81,34 @@ fn flex_distributes_growing_space() {
     );
     assert_eq!(frame.geometry(fixed).unwrap().width, 20.0);
     assert_eq!(frame.geometry(grow).unwrap().width, 76.0);
+}
+
+#[test]
+fn single_resolves_child_sizing() {
+    let mut frame = Frame::default();
+    let percent = WidgetId::new("percentage child");
+    let grow = WidgetId::new("growing child");
+    frame.render(
+        &mut TestPlatform,
+        FrameInfo::new(Size::new(20.0, 10.0)),
+        |ui| {
+            let mut row = ui.node(Flex::row().align(Align::Start));
+            {
+                let mut fit = row.node(Single::new().padding(Sides::all(1.0)));
+                fit.place(Place::new().width(Sizing::percent(0.5)))
+                    .widget_id(percent)
+                    .add(BoxAtom(Size::new(3.0, 1.0)));
+            }
+            let mut fill = row
+                .place(Place::new().grow())
+                .node(Single::new().padding(Sides::all(1.0)));
+            fill.place(Place::new().grow())
+                .widget_id(grow)
+                .add(BoxAtom(Size::new(3.0, 1.0)));
+        },
+    );
+    assert_eq!(frame.geometry(percent), Some(Rect::new(1.0, 1.0, 1.5, 1.0)));
+    assert_eq!(frame.geometry(grow), Some(Rect::new(6.0, 1.0, 13.0, 8.0)));
 }
 
 #[test]

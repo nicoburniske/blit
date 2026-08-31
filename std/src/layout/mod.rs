@@ -1,11 +1,13 @@
 mod flex;
 mod grid;
 mod rect;
+mod single;
 mod wrap;
 
 pub use flex::*;
 pub use grid::*;
 pub use rect::*;
+pub use single::*;
 pub use wrap::*;
 
 use blit::{Axis, Constraints, Size, Sizing};
