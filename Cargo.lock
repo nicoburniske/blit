@@ -111,8 +111,8 @@ dependencies = [
  "blit-cpu",
  "blit-diff",
  "blit-executor",
- "blit-layout",
  "blit-showcase",
+ "blit-std",
  "softbuffer",
  "winit",
 ]
@@ -137,18 +137,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "blit-layout"
-version = "0.1.0"
-dependencies = [
- "blit",
-]
-
-[[package]]
 name = "blit-showcase"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-layout",
+ "blit-std",
+]
+
+[[package]]
+name = "blit-std"
+version = "0.1.0"
+dependencies = [
+ "blit",
 ]
 
 [[package]]
@@ -169,8 +169,8 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "blit-diff",
- "blit-layout",
  "blit-showcase",
+ "blit-std",
  "blit-term",
  "termina",
 ]

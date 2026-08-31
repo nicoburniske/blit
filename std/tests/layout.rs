@@ -1,5 +1,5 @@
 use blit::{Atom, Constraints, Frame, FrameInfo, Place, Platform, Rect, Size, Sizing, WidgetId};
-use blit_layout::{Flex, Grid, RectLayout, Wrap};
+use blit_std::layout::{Flex, Grid, RectLayout, Wrap};
 
 #[derive(Default)]
 struct TestPlatform;
@@ -20,6 +20,8 @@ impl Atom<TestPlatform> for BoxAtom {
     fn paint(&self, _: &mut TestPlatform, _: Rect) {}
 }
 
+blit::impl_atom_widgets!(TestPlatform => BoxAtom);
+
 #[test]
 fn flex_distributes_growing_space() {
     let mut frame = Frame::default();
@@ -34,11 +36,11 @@ fn flex_distributes_growing_space() {
             row.child()
                 .place(Place::new().width(Sizing::fixed(20.0)))
                 .widget_id(fixed)
-                .atom(BoxAtom(Size::new(1.0, 10.0)));
+                .add(BoxAtom(Size::new(1.0, 10.0)));
             row.child()
                 .place(Place::new().width(Sizing::grow()))
                 .widget_id(grow)
-                .atom(BoxAtom(Size::new(1.0, 10.0)));
+                .add(BoxAtom(Size::new(1.0, 10.0)));
         },
     );
     assert_eq!(frame.geometry(fixed).unwrap().width, 20.0);
@@ -60,10 +62,10 @@ fn spanning_grid_places_items_in_equal_cells() {
             grid.child()
                 .item(placer.place(1, 2))
                 .widget_id(wide)
-                .atom(BoxAtom(Size::new(20.0, 10.0)));
+                .add(BoxAtom(Size::new(20.0, 10.0)));
             grid.child()
                 .item(placer.place(1, 1))
-                .atom(BoxAtom(Size::new(10.0, 10.0)));
+                .add(BoxAtom(Size::new(10.0, 10.0)));
         },
     );
     assert_eq!(frame.geometry(wide).unwrap().width, 66.0);
@@ -80,7 +82,7 @@ fn rect_and_wrap_resolve_positions() {
             .child()
             .item(Rect::new(3.0, 4.0, 10.0, 5.0))
             .widget_id(rect)
-            .atom(BoxAtom(Size::ZERO));
+            .add(BoxAtom(Size::ZERO));
     });
     assert_eq!(frame.geometry(rect), Some(Rect::new(3.0, 4.0, 10.0, 5.0)));
 
@@ -89,7 +91,7 @@ fn rect_and_wrap_resolve_positions() {
         for _ in 0..3 {
             wrap.child()
                 .place(Place::new().fixed(6.0, 2.0))
-                .atom(BoxAtom(Size::ZERO));
+                .add(BoxAtom(Size::ZERO));
         }
     });
 }

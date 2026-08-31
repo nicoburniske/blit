@@ -1,6 +1,6 @@
 mod platform;
 
-pub use blit_layout as layout;
+pub use blit_std::layout;
 pub use blit_term::{color, image, text};
 pub use platform::{BoundsClip, TerminalPlatform, atom, widget};
 

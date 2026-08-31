@@ -1,6 +1,6 @@
 use blit::{Axis, Constraints, Layout, LayoutCx, Platform, Point, Sides, Size};
 
-use crate::sizing_range;
+use super::sizing_range;
 
 const MAX_SPANNING_COLUMNS: usize = 64;
 

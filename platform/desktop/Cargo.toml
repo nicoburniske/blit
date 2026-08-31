@@ -11,7 +11,7 @@ blit.workspace = true
 blit-cpu = { path = "../../render/cpu" }
 blit-diff.workspace = true
 blit-executor.workspace = true
-blit-layout.workspace = true
+blit-std.workspace = true
 
 [dev-dependencies]
 blit-showcase.workspace = true

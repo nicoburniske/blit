@@ -4,7 +4,7 @@ use blit::{
     Anchor, Axis, Constraints, Cx, Interaction, Layout, LayoutCx, NodeId, Place, Platform, Point,
     Rect, Sense, Sides, Size, Sizing, Widget, WidgetId,
 };
-pub use blit_layout::{Align, Justify};
+pub use blit_std::layout::{Align, Justify};
 
 #[derive(Debug, Default)]
 pub struct FpsCounter {
@@ -346,14 +346,14 @@ where
                 grip_size,
             })
             .widget_id(id);
-        shell.child().item(ResizeItem::Content).widget(content);
+        shell.child().item(ResizeItem::Content).add(content);
         for (item, edge, grip_id, interaction) in [
             (ResizeItem::Right, ResizeEdge::Right, right_id, right),
             (ResizeItem::Bottom, ResizeEdge::Bottom, bottom_id, bottom),
             (ResizeItem::Corner, ResizeEdge::Corner, corner_id, corner),
         ] {
             let widget = grip(ResizeGrip { edge, interaction });
-            shell.child().item(item).widget_id(grip_id).widget(widget);
+            shell.child().item(item).widget_id(grip_id).add(widget);
         }
     }
 }

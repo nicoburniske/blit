@@ -1,6 +1,6 @@
 use blit::{Axis, Constraints, Layout, LayoutCx, Platform, Point, Sides, Size, Sizing};
 
-use crate::{
+use super::{
     Align, Justify, flow_constraints, flow_size, justify_offset, size_on_axis, sizing_range,
 };
 

@@ -62,7 +62,7 @@ impl Atom<DesktopPlatform> for Rectangle {
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub(crate) struct TextAtom {
+    pub struct Text {
         new(text: TextRunId, style: TextStyle),
         color: Color = Color::BLACK,
         offset_x: f32 = 0.0,
@@ -70,7 +70,7 @@ blit::builder! {
     }
 }
 
-impl Atom<DesktopPlatform> for TextAtom {
+impl Atom<DesktopPlatform> for Text {
     fn measure(&self, platform: &mut DesktopPlatform, constraints: Constraints) -> Size {
         let measured = platform.measure_text(&TextLayoutRequest {
             text: self.text,
@@ -134,6 +134,8 @@ impl Atom<DesktopPlatform> for Image {
         platform.current.push_image(request, bounds, clip);
     }
 }
+
+blit::impl_atom_widgets!(DesktopPlatform => Rectangle, Text, Image);
 
 fn box_shadow(
     area: LogicalRect,

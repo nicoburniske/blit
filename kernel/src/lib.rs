@@ -58,7 +58,13 @@ where
     }
 }
 
-pub trait Atom<R: Platform>: Copy + 'static {
+impl<R: Platform> Widget<R> for () {
+    type Response = ();
+
+    fn build(self, _: Cx<'_, R>) {}
+}
+
+pub trait Atom<R: Platform>: Widget<R, Response = NodeId> + Copy + 'static {
     fn measure(&self, platform: &mut R, constraints: Constraints) -> Size;
 
     fn paint(&self, platform: &mut R, area: Rect);

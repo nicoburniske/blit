@@ -12,7 +12,7 @@ use blit_desktop::{
     layout::{Align, Flex, Grid, Wrap},
     style::{Border, BorderRadius},
     text::{FontId, TextStyle},
-    widget::Text,
+    widget::{Text, scroll},
 };
 use blit_showcase::{
     CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip,
@@ -39,9 +39,19 @@ fn main() {
     .unwrap();
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Page {
+    #[default]
+    Layout,
+    Scroll,
+}
+
 struct App {
+    page: Page,
     canvas: CanvasConfig,
     resize: ResizeState,
+    scroll_axis: Axis,
+    scroll: scroll::State,
     fps: FpsBadge,
 }
 
@@ -50,8 +60,11 @@ impl Application for App {
 
     fn new(_: EventLoopProxy<Self::Input>, _: Root<Self>, _: &mut DesktopPlatform) -> Self {
         Self {
+            page: Page::default(),
             canvas: CanvasConfig::default(),
             resize: ResizeState::default(),
+            scroll_axis: Axis::Vertical,
+            scroll: scroll::State::default(),
             fps: FpsBadge::default(),
         }
     }
@@ -63,61 +76,70 @@ impl Application for App {
         let unit = Size::new(8.0, 8.0);
         let mut root = ui
             .node(Flex::column().padding(Sides::all(20.0)).gap(14.0))
-            .atom(Rectangle::new().background(colors::BACKGROUND));
+            .add(Rectangle::new().background(colors::BACKGROUND));
         root.child()
             .place(Place::new().height(Sizing::fixed(52.0)))
-            .widget(|ui: Cx<'_>| {
+            .add(|ui: Cx<'_>| {
                 let mut header = ui.node(
                     Flex::row()
                         .align(Align::Center)
                         .justify(blit_desktop::layout::Justify::SpaceBetween),
                 );
-                header
-                    .child()
-                    .place(Place::new().grow())
-                    .widget(|ui: Cx<'_>| {
-                        let mut title = ui.node(Flex::column().gap(2.0));
-                        title.add(
-                            Text::new("BLIT / LAYOUT PLAYGROUND")
-                                .style(TextStyle {
-                                    size: 22.0,
-                                    ..TextStyle::default()
-                                })
-                                .color(colors::TEXT),
-                        );
-                        title.add(
-                            Text::new(
-                                "shared layout and resize mechanics, native desktop presentation",
-                            )
+                header.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
+                    let mut title = ui.node(Flex::column().gap(2.0));
+                    title.child().add(
+                        Text::new("BLIT / SHOWCASE")
+                            .style(TextStyle {
+                                size: 22.0,
+                                ..TextStyle::default()
+                            })
+                            .color(colors::TEXT),
+                    );
+                    title.child().add(
+                        Text::new("layout, scrolling, and native desktop presentation")
                             .style(TextStyle {
                                 size: 11.0,
                                 ..TextStyle::default()
                             })
                             .color(colors::TEXT_MUTED),
-                        );
-                    });
-                if header.add(Button::new(
-                    WidgetId::new("reset layout playground"),
+                    );
+                });
+                for (page, label) in [(Page::Layout, "LAYOUT"), (Page::Scroll, "SCROLL")] {
+                    if header.child().add(Button::new(
+                        WidgetId::new(("desktop page", label)),
+                        label,
+                        self.page == page,
+                    )) {
+                        self.page = page;
+                    }
+                }
+                if header.child().add(Button::new(
+                    WidgetId::new("reset desktop showcase"),
                     "RESET",
                     false,
                 )) {
                     self.canvas = CanvasConfig::default();
                     self.resize.reset();
+                    self.scroll_axis = Axis::Vertical;
+                    self.scroll = scroll::State::default();
                 }
             });
-        root.child().place(Place::new().grow()).widget(|ui: Cx<'_>| {
-            let mut body = ui.node(Flex::row().gap(14.0));
+        if self.page == Page::Layout {
+            let mut body = root
+                .child()
+                .place(Place::new().grow())
+                .node(Flex::row().gap(14.0));
             body.child()
                 .place(
                     Place::new()
                         .width(Sizing::fixed(330.0))
                         .height(Sizing::grow()),
                 )
-                .widget(|ui: Cx<'_>| {
+                .add(|ui: Cx<'_>| {
                     let mut controls = ui
                         .node(Flex::column().padding(Sides::all(14.0)).gap(7.0))
-                        .atom(panel(colors::SURFACE));
-                    controls.add(
+                        .add(panel(colors::SURFACE));
+                    controls.child().add(
                         Text::new("LAYOUT PARAMETERS")
                             .style(TextStyle {
                                 size: 12.0,
@@ -125,10 +147,9 @@ impl Application for App {
                             })
                             .color(colors::ACCENT),
                     );
-                    controls.add(|ui: Cx<'_>| {
+                    controls.child().add(|ui: Cx<'_>| {
                         choices(
                             ui,
-                            "layout",
                             "layout",
                             &mut self.canvas.layout,
                             &[
@@ -138,20 +159,18 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: Cx<'_>| {
+                    controls.child().add(|ui: Cx<'_>| {
                         choices(
                             ui,
-                            "axis",
                             "axis",
                             &mut self.canvas.axis,
                             &[("Horizontal", Axis::Horizontal), ("Vertical", Axis::Vertical)],
                         );
                     });
-                    controls.add(|ui: Cx<'_>| {
+                    controls.child().add(|ui: Cx<'_>| {
                         choices(
                             ui,
                             "justify",
-                            "justify position",
                             &mut self.canvas.justify,
                             &[
                                 ("Start", blit_desktop::layout::Justify::Start),
@@ -160,11 +179,10 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: Cx<'_>| {
+                    controls.child().add(|ui: Cx<'_>| {
                         choices(
                             ui,
                             "space",
-                            "justify distribution",
                             &mut self.canvas.justify,
                             &[
                                 ("Between", blit_desktop::layout::Justify::SpaceBetween),
@@ -173,10 +191,9 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: Cx<'_>| {
+                    controls.child().add(|ui: Cx<'_>| {
                         choices(
                             ui,
-                            "align",
                             "align",
                             &mut self.canvas.align,
                             &[
@@ -187,10 +204,9 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: Cx<'_>| {
+                    controls.child().add(|ui: Cx<'_>| {
                         choices(
                             ui,
-                            "sizing",
                             "sizing",
                             &mut self.canvas.sizing,
                             &[
@@ -200,43 +216,39 @@ impl Application for App {
                             ],
                         );
                     });
-                    controls.add(|ui: Cx<'_>| {
+                    controls.child().add(|ui: Cx<'_>| {
                         choices(
                             ui,
-                            "zoom",
                             "zoom",
                             &mut self.canvas.zoom,
                             &[("75%", 0.75), ("100%", 1.0), ("125%", 1.25)],
                         );
                     });
-                    controls.add(|ui: Cx<'_>| {
+                    controls.child().add(|ui: Cx<'_>| {
                         choices(
                             ui,
-                            "gap",
                             "gap",
                             &mut self.canvas.gap_steps,
                             &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
                         );
                     });
-                    controls.add(|ui: Cx<'_>| {
+                    controls.child().add(|ui: Cx<'_>| {
                         choices(
                             ui,
-                            "padding",
                             "padding",
                             &mut self.canvas.padding_steps,
                             &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
                         );
                     });
-                    controls.add(|ui: Cx<'_>| {
+                    controls.child().add(|ui: Cx<'_>| {
                         choices(
                             ui,
                             "transition",
-                            "transitions",
                             &mut self.canvas.transitions,
                             &[("On", true), ("Off", false)],
                         );
                     });
-                    controls.child().place(Place::new().grow()).widget(
+                    controls.child().place(Place::new().grow()).add(
                         Text::new("Drag the highlighted right edge, bottom edge, or corner. Layout changes preserve item identity and animate geometry.")
                             .style(TextStyle {
                                 size: 11.0,
@@ -249,13 +261,14 @@ impl Application for App {
                             }),
                     );
                 });
-            body.child().place(Place::new().grow()).widget(|ui: Cx<'_>| {
+            body.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
                 let mut preview = ui
                     .node(Flex::column().padding(Sides::all(12.0)).gap(8.0))
-                    .atom(panel(colors::SURFACE));
-                preview.child()
+                    .add(panel(colors::SURFACE));
+                preview
+                    .child()
                     .place(Place::new().height(Sizing::fixed(22.0)))
-                    .widget(
+                    .add(
                         Text::new("LIVE PREVIEW")
                             .style(TextStyle {
                                 size: 11.0,
@@ -263,16 +276,19 @@ impl Application for App {
                             })
                             .color(colors::ACCENT),
                     );
-                preview.child().place(Place::new().grow()).widget(|ui: Cx<'_>| {
-                    let mut viewport = ui
-                        .node(Flex::row().padding(Sides::all(10.0)).align(Align::Start))
-                        .atom(
-                            Rectangle::new()
-                                .background(colors::TRACK)
-                                .radius(BorderRadius::uniform(8.0)),
-                        );
-                    viewport.add(
-                        Resizable::new(
+                preview
+                    .child()
+                    .place(Place::new().grow())
+                    .add(|ui: Cx<'_>| {
+                        let mut viewport = ui
+                            .node(Flex::row().padding(Sides::all(10.0)).align(Align::Start))
+                            .add(
+                                Rectangle::new()
+                                    .background(colors::TRACK)
+                                    .radius(BorderRadius::uniform(8.0)),
+                            );
+                        viewport.child().add(
+                            Resizable::new(
                                 &mut self.resize,
                                 WidgetId::new("layout canvas"),
                                 Size::new(
@@ -291,11 +307,98 @@ impl Application for App {
                                 (screen.height - 120.0).max(180.0),
                             ))
                             .grip_size(Size::new(12.0, 12.0)),
-                    );
-                });
+                        );
+                    });
             });
-        });
-        root.add(&mut self.fps);
+        } else {
+            let mut section = root
+                .child()
+                .place(Place::new().grow())
+                .node(Flex::column().padding(Sides::all(12.0)).gap(8.0))
+                .add(panel(colors::SURFACE));
+            {
+                let mut header = section
+                    .child()
+                    .node(Flex::row().gap(6.0).align(Align::Center));
+                header.child().place(Place::new().grow()).add(
+                    Text::new("SCROLL AREA")
+                        .style(TextStyle {
+                            size: 11.0,
+                            ..TextStyle::default()
+                        })
+                        .color(colors::TEXT_MUTED),
+                );
+                for (axis, label) in [
+                    (Axis::Vertical, "VERTICAL"),
+                    (Axis::Horizontal, "HORIZONTAL"),
+                ] {
+                    if header.child().add(Button::new(
+                        WidgetId::new(("desktop scroll axis", label)),
+                        label,
+                        self.scroll_axis == axis,
+                    )) {
+                        self.scroll_axis = axis;
+                        self.scroll = scroll::State::default();
+                    }
+                }
+            }
+            let axis = self.scroll_axis;
+            section.child().place(Place::new().grow()).add(
+                scroll::Area::new(&mut self.scroll, BoundsClip, move |ui: Cx<'_>| {
+                    let mut items = ui.node(Flex::new(axis).padding(Sides::all(6.0)).gap(6.0));
+                    for index in 0..100 {
+                        let item = ITEMS[index % ITEMS.len()];
+                        let place = match axis {
+                            Axis::Horizontal => Place::new().width(Sizing::fixed(92.0)),
+                            Axis::Vertical => Place::new().height(Sizing::fixed(30.0)),
+                        };
+                        items.child().place(place).add(|ui: Cx<'_>| {
+                            let layout = match axis {
+                                Axis::Horizontal => Flex::column()
+                                    .align(Align::Center)
+                                    .justify(blit_desktop::layout::Justify::Center),
+                                Axis::Vertical => {
+                                    Flex::row().padding(Sides::all(6.0)).align(Align::Center)
+                                }
+                            };
+                            let background = if index % 2 == 0 {
+                                colors::CANVAS
+                            } else {
+                                colors::SURFACE_HIGH
+                            };
+                            let mut tile = ui.node(layout).add(
+                                Rectangle::new()
+                                    .background(background)
+                                    .radius(BorderRadius::uniform(5.0)),
+                            );
+                            tile.child().add(
+                                Text::new(item.label)
+                                    .style(TextStyle {
+                                        size: 10.0,
+                                        ..TextStyle::default()
+                                    })
+                                    .color(colors::TEXT),
+                            );
+                        });
+                    }
+                    items.id()
+                })
+                .axis(axis)
+                .scroll_track(|_| Rectangle::new().background(colors::TRACK))
+                .scrollbar(|active| {
+                    Rectangle::new()
+                        .background(if active {
+                            colors::TEXT_DIM
+                        } else {
+                            colors::BORDER
+                        })
+                        .radius(BorderRadius::uniform(3.0))
+                })
+                .scrollbar_thickness(6.0)
+                .minimum_scrollbar_extent(24.0),
+            );
+        }
+        root.child().add(&mut self.fps);
     }
 }
 
@@ -328,7 +431,7 @@ impl Widget<DesktopPlatform> for &mut FpsBadge {
                     .gap(6.0)
                     .align(Align::Center),
             )
-            .atom(
+            .add(
                 Rectangle::new()
                     .background(colors::SURFACE_HIGH)
                     .border(Border::solid(1.0, colors::ACCENT))
@@ -339,12 +442,12 @@ impl Widget<DesktopPlatform> for &mut FpsBadge {
                     .anchors(Anchor::BottomRight, Anchor::BottomRight)
                     .offset(-16.0, -16.0),
             );
-        badge.child().place(Place::new().fixed(6.0, 6.0)).atom(
+        badge.child().place(Place::new().fixed(6.0, 6.0)).add(
             Rectangle::new()
                 .background(colors::ACCENT)
                 .radius(BorderRadius::uniform(3.0)),
         );
-        badge.add(
+        badge.child().add(
             Text::new(&self.label)
                 .style(TextStyle {
                     size: 10.0,
@@ -352,7 +455,7 @@ impl Widget<DesktopPlatform> for &mut FpsBadge {
                 })
                 .color(colors::TEXT),
         );
-        badge.add(
+        badge.child().add(
             Text::new("SCREEN ABSOLUTE")
                 .style(TextStyle {
                     size: 10.0,
@@ -391,7 +494,7 @@ impl Widget<DesktopPlatform> for DesktopGrip {
         let node = grip.id();
         grip.child()
             .place(Place::new().fixed(marker.width, marker.height))
-            .atom(
+            .add(
                 Rectangle::new()
                     .background(color)
                     .radius(BorderRadius::uniform(marker.width.min(marker.height) / 2.0)),
@@ -437,14 +540,14 @@ impl Widget<DesktopPlatform> for Button<'_> {
         };
         let mut button = ui
             .node(Flex::row().padding(Sides::new().top(5.0).right(8.0).bottom(5.0).left(8.0)))
-            .atom(
+            .add(
                 Rectangle::new()
                     .background(background)
                     .border(Border::solid(1.0, border))
                     .radius(BorderRadius::uniform(5.0)),
             )
             .widget_id(self.id);
-        button.add(
+        button.child().add(
             Text::new(self.label)
                 .style(TextStyle {
                     size: 10.0,
@@ -456,17 +559,11 @@ impl Widget<DesktopPlatform> for Button<'_> {
     }
 }
 
-fn choices<T: Copy + PartialEq>(
-    ui: Cx<'_>,
-    label: &str,
-    id: &str,
-    selected: &mut T,
-    options: &[(&str, T)],
-) {
+fn choices<T: Copy + PartialEq>(ui: Cx<'_>, label: &str, selected: &mut T, options: &[(&str, T)]) {
     let mut line = ui.node(Flex::row().align(Align::Center).gap(6.0));
     line.child()
         .place(Place::new().width(Sizing::fixed(66.0)))
-        .widget(
+        .add(
             Text::new(label)
                 .style(TextStyle {
                     size: 10.0,
@@ -474,21 +571,19 @@ fn choices<T: Copy + PartialEq>(
                 })
                 .color(colors::TEXT_MUTED),
         );
-    line.child()
-        .place(Place::new().grow())
-        .widget(|ui: Cx<'_>| {
-            let mut values = ui.node(Flex::row().gap(4.0));
-            for (index, &(option, value)) in options.iter().enumerate() {
-                let clicked = values.add(Button::new(
-                    WidgetId::new((id, index)),
-                    option,
-                    *selected == value,
-                ));
-                if clicked {
-                    *selected = value;
-                }
+    line.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
+        let mut values = ui.node(Flex::row().gap(4.0));
+        for (index, &(option, value)) in options.iter().enumerate() {
+            let clicked = values.child().add(Button::new(
+                WidgetId::new((label, index)),
+                option,
+                *selected == value,
+            ));
+            if clicked {
+                *selected = value;
             }
-        });
+        }
+    });
 }
 
 #[derive(Clone, Copy)]
@@ -515,14 +610,14 @@ impl Widget<DesktopPlatform> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .atom(background)
+                    .add(background)
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child()
                         .place(self.config.item_place(index, self.unit))
-                        .widget(|ui: Cx<'_>| {
+                        .add(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -541,14 +636,14 @@ impl Widget<DesktopPlatform> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .atom(background)
+                    .add(background)
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child()
                         .place(self.config.item_place(index, self.unit))
-                        .widget(|ui: Cx<'_>| {
+                        .add(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -560,7 +655,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     .column_gap(self.config.gap(Axis::Horizontal, self.unit))
                     .row_gap(self.config.gap(Axis::Vertical, self.unit));
                 let mut placer = grid.placer();
-                let mut canvas = ui.node(grid).atom(background).clip(BoundsClip);
+                let mut canvas = ui.node(grid).add(background).clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
@@ -571,7 +666,7 @@ impl Widget<DesktopPlatform> for Canvas {
                             Place::new()
                                 .height(Sizing::fixed(5.0 * self.unit.height * self.config.zoom)),
                         )
-                        .widget(|ui: Cx<'_>| {
+                        .add(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -593,7 +688,7 @@ fn canvas_item(
                 .align(Align::Center)
                 .justify(blit_desktop::layout::Justify::Center),
         )
-        .atom(
+        .add(
             Rectangle::new()
                 .background(colors::ITEMS[index])
                 .radius(BorderRadius::uniform(5.0)),
@@ -608,7 +703,7 @@ fn canvas_item(
     } else {
         item
     };
-    item.add(
+    item.child().add(
         Text::new(spec.label)
             .style(TextStyle {
                 size: 11.0 * config.zoom,
@@ -624,21 +719,21 @@ fn canvas_item(
                     .layer(badges)
                     .z_index(1),
             )
-            .widget(|ui: Cx<'_>| {
+            .add(|ui: Cx<'_>| {
                 let mut badge = ui
                     .node(
                         Flex::row()
                             .align(Align::Center)
                             .justify(blit_desktop::layout::Justify::Center),
                     )
-                    .atom(
+                    .add(
                         Rectangle::new()
                             .background(colors::BACKGROUND)
                             .border(Border::solid(1.0, Color::WHITE))
                             .radius(BorderRadius::uniform(4.0)),
                     )
                     .absolute(Absolute::attach(anchor, Anchor::Center));
-                badge.add(
+                badge.child().add(
                     Text::new("ABS")
                         .style(TextStyle {
                             size: (7.0 * config.zoom).max(7.0),
