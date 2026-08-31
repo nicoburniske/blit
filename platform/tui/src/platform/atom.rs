@@ -1,16 +1,16 @@
 use blit::{Atom, Constraints, LogicalRect, Scale2, Size};
-use blit_term::{
+use blit_tui_render::{
     color::Color,
     command_list::{Block as DrawBlock, BoxShadow as DrawShadow},
     image::{ImageId, ImagePlacement},
     text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextWrap},
 };
 
-pub use blit_term::command_list::{
+pub use blit_tui_render::command_list::{
     BlockTitle as Title, Border, BorderSides, BorderStyle, TitlePosition,
 };
 
-use super::TerminalPlatform;
+use super::TuiPlatform;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -31,12 +31,12 @@ impl Block {
     }
 }
 
-impl Atom<TerminalPlatform> for Block {
-    fn measure(&self, _: &mut TerminalPlatform, constraints: Constraints) -> Size {
+impl Atom<TuiPlatform> for Block {
+    fn measure(&self, _: &mut TuiPlatform, constraints: Constraints) -> Size {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
+    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
         let mut block = DrawBlock::new(area).titles(self.titles);
         if let Some(background) = self.background {
             block = block.background(background);
@@ -64,8 +64,8 @@ blit::builder! {
     }
 }
 
-impl Atom<TerminalPlatform> for Text {
-    fn measure(&self, platform: &mut TerminalPlatform, constraints: Constraints) -> Size {
+impl Atom<TuiPlatform> for Text {
+    fn measure(&self, platform: &mut TuiPlatform, constraints: Constraints) -> Size {
         let mut request = TextLayoutRequest::new(self.text).wrap(self.options.wrap);
         if self.options.wrap != TextWrap::None && constraints.max.width.is_finite() {
             request = request.max_width(constraints.max.width);
@@ -76,7 +76,7 @@ impl Atom<TerminalPlatform> for Text {
         constraints.constrain(platform.measure_text(&request))
     }
 
-    fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
+    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
         let request = TextRequest::new(self.text, area)
             .color(self.color)
             .attributes(self.attributes)
@@ -98,12 +98,12 @@ blit::builder! {
     }
 }
 
-impl Atom<TerminalPlatform> for Image {
-    fn measure(&self, _: &mut TerminalPlatform, constraints: Constraints) -> Size {
+impl Atom<TuiPlatform> for Image {
+    fn measure(&self, _: &mut TuiPlatform, constraints: Constraints) -> Size {
         constraints.constrain(self.intrinsic)
     }
 
-    fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
+    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
         let bounds = area.to_physical(Scale2::IDENTITY);
         let clip = platform.clip;
         platform
@@ -133,12 +133,12 @@ impl Shadow {
     }
 }
 
-impl Atom<TerminalPlatform> for Shadow {
-    fn measure(&self, _: &mut TerminalPlatform, _: Constraints) -> Size {
+impl Atom<TuiPlatform> for Shadow {
+    fn measure(&self, _: &mut TuiPlatform, _: Constraints) -> Size {
         Size::ZERO
     }
 
-    fn paint(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
+    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
         let shifted = LogicalRect {
             x: area.x + self.offset_x,
             y: area.y + self.offset_y,
@@ -155,4 +155,4 @@ impl Atom<TerminalPlatform> for Shadow {
     }
 }
 
-blit::impl_atom_widgets!(TerminalPlatform => Block, Text, Image, Shadow);
+blit::impl_atom_widgets!(TuiPlatform => Block, Text, Image, Shadow);

@@ -3,15 +3,15 @@ pub mod widget;
 
 use blit::{Clip, FrameInfo, LogicalPoint, LogicalRect, PhysicalRect, Platform, Size};
 use blit_diff::{Change, Myers, Reconciliation};
-use blit_term::{
-    TerminalRenderer,
+use blit_tui_render::{
+    TuiRenderer,
     command_list::{ClipId, CommandList},
     image::{ImageData, ImageHandle},
     text::{Span, TextLayoutRequest, TextRequest, TextRunId},
 };
 
-pub struct TerminalPlatform {
-    renderer: TerminalRenderer,
+pub struct TuiPlatform {
+    renderer: TuiRenderer,
     current: CommandList,
     previous: CommandList,
     diff: Myers,
@@ -21,8 +21,8 @@ pub struct TerminalPlatform {
     invalidated: bool,
 }
 
-impl TerminalPlatform {
-    pub fn new(renderer: TerminalRenderer) -> Self {
+impl TuiPlatform {
+    pub fn new(renderer: TuiRenderer) -> Self {
         Self {
             renderer,
             current: CommandList::default(),
@@ -35,11 +35,11 @@ impl TerminalPlatform {
         }
     }
 
-    pub fn renderer(&self) -> &TerminalRenderer {
+    pub fn renderer(&self) -> &TuiRenderer {
         &self.renderer
     }
 
-    pub fn renderer_mut(&mut self) -> &mut TerminalRenderer {
+    pub fn renderer_mut(&mut self) -> &mut TuiRenderer {
         &mut self.renderer
     }
 
@@ -76,7 +76,7 @@ impl TerminalPlatform {
     }
 }
 
-impl TerminalPlatform {
+impl TuiPlatform {
     fn reconcile(&mut self) {
         self.damage.clear();
         if std::mem::take(&mut self.invalidated) {
@@ -123,7 +123,7 @@ impl TerminalPlatform {
     }
 }
 
-impl Platform for TerminalPlatform {
+impl Platform for TuiPlatform {
     fn begin(&mut self, _: FrameInfo) {
         self.current.clear();
         self.clip = ClipId::default();
@@ -142,14 +142,14 @@ impl Platform for TerminalPlatform {
 #[derive(Clone, Copy)]
 pub struct BoundsClip;
 
-impl Clip<TerminalPlatform> for BoundsClip {
-    fn push(&self, platform: &mut TerminalPlatform, area: LogicalRect) {
+impl Clip<TuiPlatform> for BoundsClip {
+    fn push(&self, platform: &mut TuiPlatform, area: LogicalRect) {
         let previous = platform.clip;
         platform.clip = platform.current.push_clip(previous, area);
         platform.clips.push(previous);
     }
 
-    fn pop(&self, platform: &mut TerminalPlatform) {
+    fn pop(&self, platform: &mut TuiPlatform) {
         platform.clip = platform.clips.pop().unwrap();
     }
 }

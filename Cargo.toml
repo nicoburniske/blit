@@ -8,9 +8,9 @@ members = [
     "font",
     "kernel",
     "platform/desktop",
-    "platform/terminal",
+    "platform/tui",
     "render/cpu",
-    "render/term",
+    "render/tui",
     "std",
 ]
 

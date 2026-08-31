@@ -152,7 +152,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "blit-term"
+name = "blit-tui"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-diff",
+ "blit-showcase",
+ "blit-std",
+ "blit-tui-render",
+ "termina",
+]
+
+[[package]]
+name = "blit-tui-render"
 version = "0.1.0"
 dependencies = [
  "base64",
@@ -161,18 +173,6 @@ dependencies = [
  "divan",
  "unicode-segmentation",
  "unicode-width",
-]
-
-[[package]]
-name = "blit-terminal"
-version = "0.1.0"
-dependencies = [
- "blit",
- "blit-diff",
- "blit-showcase",
- "blit-std",
- "blit-term",
- "termina",
 ]
 
 [[package]]

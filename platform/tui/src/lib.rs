@@ -1,11 +1,11 @@
 mod platform;
 
 pub use blit_std::layout;
-pub use blit_term::{color, image, text};
-pub use platform::{BoundsClip, TerminalPlatform, atom, widget};
+pub use blit_tui_render::{color, image, text};
+pub use platform::{BoundsClip, TuiPlatform, atom, widget};
 
-pub type Ui = blit::Ui<TerminalPlatform>;
-pub type Cx<'a> = blit::Cx<'a, TerminalPlatform>;
+pub type Ui = blit::Ui<TuiPlatform>;
+pub type Cx<'a> = blit::Cx<'a, TuiPlatform>;
 
 use std::{io, io::Write as _, time::Duration, time::Instant};
 
@@ -13,7 +13,7 @@ use blit::{
     Frame, FrameInfo, LayoutResolution, LogicalPoint, LogicalSize,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
-use blit_term::{RendererConfig, TerminalRenderer};
+use blit_tui_render::{RendererConfig, TuiRenderer};
 use termina::{
     Event as TerminalEvent, PlatformTerminal, Terminal, WindowSize,
     event::{
@@ -36,7 +36,7 @@ pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
 }
 
 pub fn run_with<S>(
-    initialize: impl FnOnce(&mut TerminalPlatform) -> S,
+    initialize: impl FnOnce(&mut TuiPlatform) -> S,
     mut render: impl FnMut(&mut S, &mut Ui) -> ControlFlow,
 ) -> io::Result<()> {
     let mut session = Session::new()?;
@@ -94,7 +94,7 @@ pub fn run_with<S>(
 
 pub struct Session {
     terminal: PlatformTerminal,
-    platform: TerminalPlatform,
+    platform: TuiPlatform,
     active: bool,
 }
 
@@ -106,8 +106,8 @@ impl Session {
 
     pub fn new() -> io::Result<Self> {
         let mut terminal = PlatformTerminal::new()?;
-        let renderer = TerminalRenderer::new(renderer_config(terminal.get_dimensions()?)?);
-        let platform = TerminalPlatform::new(renderer);
+        let renderer = TuiRenderer::new(renderer_config(terminal.get_dimensions()?)?);
+        let platform = TuiPlatform::new(renderer);
         terminal.enter_raw_mode()?;
         let mut session = Self {
             terminal,
@@ -119,11 +119,11 @@ impl Session {
         Ok(session)
     }
 
-    pub fn platform(&self) -> &TerminalPlatform {
+    pub fn platform(&self) -> &TuiPlatform {
         &self.platform
     }
 
-    pub fn platform_mut(&mut self) -> &mut TerminalPlatform {
+    pub fn platform_mut(&mut self) -> &mut TuiPlatform {
         &mut self.platform
     }
 

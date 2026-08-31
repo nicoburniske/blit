@@ -1,8 +1,8 @@
 use std::hint::black_box;
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
-use blit_term::{
-    RendererConfig, TerminalRenderer,
+use blit_tui_render::{
+    RendererConfig, TuiRenderer,
     color::Color,
     command_list::{Block, ClipId, CommandList},
 };
@@ -25,7 +25,7 @@ fn main() {
 #[divan::bench(args = [(96, 32), (240, 80), (400, 200)])]
 fn renderer_creation(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
     bencher.bench(|| {
-        TerminalRenderer::new(
+        TuiRenderer::new(
             RendererConfig::new()
                 .columns(black_box(columns))
                 .rows(black_box(rows)),
@@ -106,6 +106,6 @@ fn commands(screen: PhysicalRect, changed: bool) -> CommandList {
     commands
 }
 
-fn renderer() -> TerminalRenderer {
-    TerminalRenderer::new(RendererConfig::new().columns(96).rows(32))
+fn renderer() -> TuiRenderer {
+    TuiRenderer::new(RendererConfig::new().columns(96).rows(32))
 }
