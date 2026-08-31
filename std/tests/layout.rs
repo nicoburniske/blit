@@ -33,12 +33,10 @@ fn flex_distributes_growing_space() {
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui| {
             let mut row = ui.node(Flex::row().gap(4.0));
-            row.child()
-                .place(Place::new().width(Sizing::fixed(20.0)))
+            row.place(Place::new().width(Sizing::fixed(20.0)))
                 .widget_id(fixed)
                 .add(BoxAtom(Size::new(1.0, 10.0)));
-            row.child()
-                .place(Place::new().width(Sizing::grow()))
+            row.place(Place::new().width(Sizing::grow()))
                 .widget_id(grow)
                 .add(BoxAtom(Size::new(1.0, 10.0)));
         },
@@ -59,12 +57,10 @@ fn spanning_grid_places_items_in_equal_cells() {
         |ui| {
             let mut placer = layout.placer();
             let mut grid = ui.node(layout);
-            grid.child()
-                .item(placer.place(1, 2))
+            grid.item(placer.place(1, 2))
                 .widget_id(wide)
                 .add(BoxAtom(Size::new(20.0, 10.0)));
-            grid.child()
-                .item(placer.place(1, 1))
+            grid.item(placer.place(1, 1))
                 .add(BoxAtom(Size::new(10.0, 10.0)));
         },
     );
@@ -79,7 +75,6 @@ fn rect_and_wrap_resolve_positions() {
     frame.render(&mut platform, FrameInfo::new(Size::new(30.0, 20.0)), |ui| {
         let mut fixed = ui.node(RectLayout);
         fixed
-            .child()
             .item(Rect::new(3.0, 4.0, 10.0, 5.0))
             .widget_id(rect)
             .add(BoxAtom(Size::ZERO));
@@ -89,8 +84,7 @@ fn rect_and_wrap_resolve_positions() {
     frame.render(&mut platform, FrameInfo::new(Size::new(12.0, 20.0)), |ui| {
         let mut wrap = ui.node(Wrap::horizontal().gap(1.0));
         for _ in 0..3 {
-            wrap.child()
-                .place(Place::new().fixed(6.0, 2.0))
+            wrap.place(Place::new().fixed(6.0, 2.0))
                 .add(BoxAtom(Size::ZERO));
         }
     });

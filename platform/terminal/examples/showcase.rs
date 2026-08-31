@@ -49,45 +49,42 @@ fn main() -> io::Result<()> {
         let screen = ui.screen();
         let mut root = ui
             .node(Flex::column().padding(Sides::all(1.0)).gap(1.0))
-            .add(Block::new().background(colors::BACKGROUND));
+            .insert(Block::new().background(colors::BACKGROUND));
         {
             let mut header = root
-                .child()
                 .place(Place::new().height(Sizing::fixed(1.0)))
-                .node(Flex::row().align(Align::Center).gap(1.0));
-            header = header.add(Block::new().background(colors::SURFACE));
-            header
-                .child()
-                .add(Text::new(" BLIT ").attributes(TextAttributes::BOLD));
-            if header.child().add(Button::new(
+                .node(Flex::row().align(Align::Center).gap(1.0))
+                .insert(Block::new().background(colors::SURFACE));
+            header.add(Text::new(" BLIT ").attributes(TextAttributes::BOLD));
+            if header.add(Button::new(
                 WidgetId::new("terminal layout page"),
                 " Layout ",
                 page == Page::Layout,
             )) {
                 page = Page::Layout;
             }
-            if header.child().add(Button::new(
+            if header.add(Button::new(
                 WidgetId::new("terminal text page"),
                 " Text ",
                 page == Page::Text,
             )) {
                 page = Page::Text;
             }
-            if header.child().add(Button::new(
+            if header.add(Button::new(
                 WidgetId::new("terminal blocks page"),
                 " Blocks ",
                 page == Page::Blocks,
             )) {
                 page = Page::Blocks;
             }
-            if header.child().add(Button::new(
+            if header.add(Button::new(
                 WidgetId::new("terminal scroll page"),
                 " Scroll ",
                 page == Page::Scroll,
             )) {
                 page = Page::Scroll;
             }
-            if header.child().add(Button::new(
+            if header.add(Button::new(
                 WidgetId::new("terminal reset showcase"),
                 " Reset ",
                 false,
@@ -111,29 +108,25 @@ fn main() -> io::Result<()> {
             }
         }
         if page == Page::Layout {
-            let mut body = root
-                .child()
-                .place(Place::new().grow())
-                .node(Flex::row().gap(1.0));
+            let mut body = root.place(Place::new().grow()).node(Flex::row().gap(1.0));
             {
                 let mut sidebar = body
-                    .child()
                     .place(
                         Place::new()
                             .width(Sizing::fixed(40.0))
                             .height(Sizing::grow()),
                     )
-                    .node(Flex::column().padding(Sides::all(1.0)));
-                sidebar = sidebar.add(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
-                sidebar.child().place(Place::new().grow()).add(
+                    .node(Flex::column().padding(Sides::all(1.0)))
+                    .insert(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
+                sidebar.place(Place::new().grow()).add(
                     scroll::Area::new(&mut layout_scroll, BoundsClip, |ui: Cx<'_>| {
                         let mut controls = ui.node(Flex::column().gap(1.0));
-                        controls.child().add(
+                        controls.add(
                             Text::new("FLOW")
                                 .color(colors::SECTION)
                                 .attributes(TextAttributes::BOLD),
                         );
-                        controls.child().add(|ui: Cx<'_>| {
+                        controls.add(|ui: Cx<'_>| {
                             choices(
                                 ui,
                                 "layout",
@@ -146,7 +139,7 @@ fn main() -> io::Result<()> {
                                 ],
                             );
                         });
-                        controls.child().add(|ui: Cx<'_>| {
+                        controls.add(|ui: Cx<'_>| {
                             choices(
                                 ui,
                                 "axis",
@@ -155,12 +148,12 @@ fn main() -> io::Result<()> {
                                 &[(" Horz ", Axis::Horizontal), (" Vert ", Axis::Vertical)],
                             );
                         });
-                        controls.child().add(
+                        controls.add(
                             Text::new("DISTRIBUTION")
                                 .color(colors::SECTION)
                                 .attributes(TextAttributes::BOLD),
                         );
-                        controls.child().add(|ui: Cx<'_>| {
+                        controls.add(|ui: Cx<'_>| {
                             choices(
                                 ui,
                                 "justify",
@@ -173,7 +166,7 @@ fn main() -> io::Result<()> {
                                 ],
                             );
                         });
-                        controls.child().add(|ui: Cx<'_>| {
+                        controls.add(|ui: Cx<'_>| {
                             choices(
                                 ui,
                                 "distribute",
@@ -186,7 +179,7 @@ fn main() -> io::Result<()> {
                                 ],
                             );
                         });
-                        controls.child().add(|ui: Cx<'_>| {
+                        controls.add(|ui: Cx<'_>| {
                             choices(
                                 ui,
                                 "align",
@@ -200,12 +193,12 @@ fn main() -> io::Result<()> {
                                 ],
                             );
                         });
-                        controls.child().add(
+                        controls.add(
                             Text::new("SCALE, SPACE & MOTION")
                                 .color(colors::SECTION)
                                 .attributes(TextAttributes::BOLD),
                         );
-                        controls.child().add(|ui: Cx<'_>| {
+                        controls.add(|ui: Cx<'_>| {
                             choices(
                                 ui,
                                 "sizing",
@@ -218,7 +211,7 @@ fn main() -> io::Result<()> {
                                 ],
                             );
                         });
-                        controls.child().add(|ui: Cx<'_>| {
+                        controls.add(|ui: Cx<'_>| {
                             choices(
                                 ui,
                                 "zoom",
@@ -227,7 +220,7 @@ fn main() -> io::Result<()> {
                                 &[(" 75% ", 0.75), (" 100% ", 1.0), (" 125% ", 1.25)],
                             );
                         });
-                        controls.child().add(|ui: Cx<'_>| {
+                        controls.add(|ui: Cx<'_>| {
                             choices(
                                 ui,
                                 "gap",
@@ -236,7 +229,7 @@ fn main() -> io::Result<()> {
                                 &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
                             );
                         });
-                        controls.child().add(|ui: Cx<'_>| {
+                        controls.add(|ui: Cx<'_>| {
                             choices(
                                 ui,
                                 "padding",
@@ -245,7 +238,7 @@ fn main() -> io::Result<()> {
                                 &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
                             );
                         });
-                        controls.child().add(|ui: Cx<'_>| {
+                        controls.add(|ui: Cx<'_>| {
                             choices(
                                 ui,
                                 "transitions",
@@ -268,30 +261,28 @@ fn main() -> io::Result<()> {
             }
             {
                 let mut preview = body
-                    .child()
                     .place(Place::new().grow())
-                    .node(Flex::column().padding(Sides::all(1.0)));
-                preview = preview.add(
-                    panel(colors::SURFACE, " LIVE PREVIEW ").title(
-                        Title::new(match (canvas.layout, canvas.axis) {
-                            (CanvasLayout::Flex, Axis::Horizontal) => " FLEX / HORIZONTAL ",
-                            (CanvasLayout::Flex, Axis::Vertical) => " FLEX / VERTICAL ",
-                            (CanvasLayout::Wrap, Axis::Horizontal) => " WRAP / HORIZONTAL ",
-                            (CanvasLayout::Wrap, Axis::Vertical) => " WRAP / VERTICAL ",
-                            (CanvasLayout::Grid, Axis::Horizontal) => " GRID / HORIZONTAL ",
-                            (CanvasLayout::Grid, Axis::Vertical) => " GRID / VERTICAL ",
-                        })
-                        .color(colors::TEXT_MUTED)
-                        .position(TitlePosition::TopRight),
-                    ),
-                );
+                    .node(Flex::column().padding(Sides::all(1.0)))
+                    .insert(
+                        panel(colors::SURFACE, " LIVE PREVIEW ").title(
+                            Title::new(match (canvas.layout, canvas.axis) {
+                                (CanvasLayout::Flex, Axis::Horizontal) => " FLEX / HORIZONTAL ",
+                                (CanvasLayout::Flex, Axis::Vertical) => " FLEX / VERTICAL ",
+                                (CanvasLayout::Wrap, Axis::Horizontal) => " WRAP / HORIZONTAL ",
+                                (CanvasLayout::Wrap, Axis::Vertical) => " WRAP / VERTICAL ",
+                                (CanvasLayout::Grid, Axis::Horizontal) => " GRID / HORIZONTAL ",
+                                (CanvasLayout::Grid, Axis::Vertical) => " GRID / VERTICAL ",
+                            })
+                            .color(colors::TEXT_MUTED)
+                            .position(TitlePosition::TopRight),
+                        ),
+                    );
                 {
                     let mut viewport = preview
-                        .child()
                         .place(Place::new().grow())
-                        .node(Flex::row().padding(Sides::all(1.0)).align(Align::Start));
-                    viewport = viewport.add(Block::new().background(colors::TRACK));
-                    viewport.child().add(
+                        .node(Flex::row().padding(Sides::all(1.0)).align(Align::Start))
+                        .insert(Block::new().background(colors::TRACK));
+                    viewport.add(
                         Resizable::new(
                             &mut resize,
                             WidgetId::new("terminal layout canvas"),
@@ -309,138 +300,132 @@ fn main() -> io::Result<()> {
                 }
             }
         } else if page == Page::Text {
-            let mut body = root
-                .child()
-                .place(Place::new().grow())
-                .node(Flex::row().gap(1.0));
-            body.child()
-                .place(
-                    Place::new()
-                        .width(Sizing::fixed(40.0))
-                        .height(Sizing::grow()),
-                )
-                .add(|ui: Cx<'_>| {
-                    let mut controls = ui
-                        .node(Flex::column().padding(Sides::all(1.0)).gap(1.0))
-                        .add(panel(colors::SURFACE, " TEXT CONTROLS "));
-                    controls.child().add(
-                        Text::new("ATTRIBUTES")
-                            .color(colors::SECTION)
-                            .attributes(TextAttributes::BOLD),
+            let mut body = root.place(Place::new().grow()).node(Flex::row().gap(1.0));
+            body.place(
+                Place::new()
+                    .width(Sizing::fixed(40.0))
+                    .height(Sizing::grow()),
+            )
+            .add(|ui: Cx<'_>| {
+                let mut controls = ui
+                    .node(Flex::column().padding(Sides::all(1.0)).gap(1.0))
+                    .insert(panel(colors::SURFACE, " TEXT CONTROLS "));
+                controls.add(
+                    Text::new("ATTRIBUTES")
+                        .color(colors::SECTION)
+                        .attributes(TextAttributes::BOLD),
+                );
+                controls.add(|ui: Cx<'_>| {
+                    let mut toggles = ui.node(
+                        Wrap::new(Axis::Horizontal)
+                            .item_gap(1.0)
+                            .run_gap(1.0)
+                            .align(Align::Center),
                     );
-                    controls.child().add(|ui: Cx<'_>| {
-                        let mut toggles = ui.node(
-                            Wrap::new(Axis::Horizontal)
-                                .item_gap(1.0)
-                                .run_gap(1.0)
-                                .align(Align::Center),
-                        );
-                        for (index, (label, attribute)) in [
-                            (" Bold ", TextAttributes::BOLD),
-                            (" Dim ", TextAttributes::DIM),
-                            (" Italic ", TextAttributes::ITALIC),
-                            (" Underline ", TextAttributes::UNDERLINE),
-                            (" Blink ", TextAttributes::BLINK),
-                            (" Inverse ", TextAttributes::INVERSE),
-                            (" Hidden ", TextAttributes::HIDDEN),
-                            (" Strikethrough ", TextAttributes::STRIKETHROUGH),
-                        ]
-                        .into_iter()
-                        .enumerate()
-                        {
-                            let selected = text_attributes.contains(attribute);
-                            if toggles.child().add(Button::new(
-                                WidgetId::new(("terminal text attribute", index)),
-                                label,
-                                selected,
-                            )) {
-                                text_attributes.set(attribute, !selected);
-                            }
+                    for (index, (label, attribute)) in [
+                        (" Bold ", TextAttributes::BOLD),
+                        (" Dim ", TextAttributes::DIM),
+                        (" Italic ", TextAttributes::ITALIC),
+                        (" Underline ", TextAttributes::UNDERLINE),
+                        (" Blink ", TextAttributes::BLINK),
+                        (" Inverse ", TextAttributes::INVERSE),
+                        (" Hidden ", TextAttributes::HIDDEN),
+                        (" Strikethrough ", TextAttributes::STRIKETHROUGH),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        let selected = text_attributes.contains(attribute);
+                        if toggles.add(Button::new(
+                            WidgetId::new(("terminal text attribute", index)),
+                            label,
+                            selected,
+                        )) {
+                            text_attributes.set(attribute, !selected);
                         }
-                    });
-                    controls.child().add(
-                        Text::new("OPTIONS")
-                            .color(colors::SECTION)
-                            .attributes(TextAttributes::BOLD),
-                    );
-                    controls.child().add(|ui: Cx<'_>| {
-                        choices(
-                            ui,
-                            "wrap",
-                            "terminal text wrap",
-                            &mut text_wrap,
-                            &[
-                                (" None ", TextWrap::None),
-                                (" Word ", TextWrap::Word),
-                                (" Character ", TextWrap::Character),
-                            ],
-                        );
-                    });
-                    controls.child().add(|ui: Cx<'_>| {
-                        choices(
-                            ui,
-                            "overflow",
-                            "terminal text overflow",
-                            &mut text_overflow,
-                            &[
-                                (" Clip ", TextOverflow::Clip),
-                                (" Ellipsis ", TextOverflow::Ellipsis),
-                            ],
-                        );
-                    });
-                    controls.child().add(|ui: Cx<'_>| {
-                        choices(
-                            ui,
-                            "horizontal",
-                            "terminal text horizontal align",
-                            &mut text_horizontal,
-                            &[
-                                (" Left ", HorizontalAlign::Left),
-                                (" Center ", HorizontalAlign::Center),
-                                (" Right ", HorizontalAlign::Right),
-                            ],
-                        );
-                    });
-                    controls.child().add(|ui: Cx<'_>| {
-                        choices(
-                            ui,
-                            "vertical",
-                            "terminal text vertical align",
-                            &mut text_vertical,
-                            &[
-                                (" Top ", VerticalAlign::Top),
-                                (" Center ", VerticalAlign::Center),
-                                (" Bottom ", VerticalAlign::Bottom),
-                            ],
-                        );
-                    });
-                    controls.child().add(|ui: Cx<'_>| {
-                        choices(
-                            ui,
-                            "maximum lines",
-                            "terminal text maximum lines",
-                            &mut text_max_lines,
-                            &[(" All ", None), (" 3 ", Some(3)), (" 6 ", Some(6))],
-                        );
-                    });
+                    }
                 });
+                controls.add(
+                    Text::new("OPTIONS")
+                        .color(colors::SECTION)
+                        .attributes(TextAttributes::BOLD),
+                );
+                controls.add(|ui: Cx<'_>| {
+                    choices(
+                        ui,
+                        "wrap",
+                        "terminal text wrap",
+                        &mut text_wrap,
+                        &[
+                            (" None ", TextWrap::None),
+                            (" Word ", TextWrap::Word),
+                            (" Character ", TextWrap::Character),
+                        ],
+                    );
+                });
+                controls.add(|ui: Cx<'_>| {
+                    choices(
+                        ui,
+                        "overflow",
+                        "terminal text overflow",
+                        &mut text_overflow,
+                        &[
+                            (" Clip ", TextOverflow::Clip),
+                            (" Ellipsis ", TextOverflow::Ellipsis),
+                        ],
+                    );
+                });
+                controls.add(|ui: Cx<'_>| {
+                    choices(
+                        ui,
+                        "horizontal",
+                        "terminal text horizontal align",
+                        &mut text_horizontal,
+                        &[
+                            (" Left ", HorizontalAlign::Left),
+                            (" Center ", HorizontalAlign::Center),
+                            (" Right ", HorizontalAlign::Right),
+                        ],
+                    );
+                });
+                controls.add(|ui: Cx<'_>| {
+                    choices(
+                        ui,
+                        "vertical",
+                        "terminal text vertical align",
+                        &mut text_vertical,
+                        &[
+                            (" Top ", VerticalAlign::Top),
+                            (" Center ", VerticalAlign::Center),
+                            (" Bottom ", VerticalAlign::Bottom),
+                        ],
+                    );
+                });
+                controls.add(|ui: Cx<'_>| {
+                    choices(
+                        ui,
+                        "maximum lines",
+                        "terminal text maximum lines",
+                        &mut text_max_lines,
+                        &[(" All ", None), (" 3 ", Some(3)), (" 6 ", Some(6))],
+                    );
+                });
+            });
             let mut preview = body
-                .child()
                 .place(Place::new().grow())
-                .node(Flex::column().padding(Sides::all(1.0)).gap(1.0));
-            preview = preview.add(
-                panel(colors::SURFACE, " RESIZABLE TEXT ").title(
-                    Title::new(" DRAG TO REFLOW ")
-                        .color(colors::TEXT_DIM)
-                        .position(TitlePosition::BottomRight),
-                ),
-            );
+                .node(Flex::column().padding(Sides::all(1.0)).gap(1.0))
+                .insert(
+                    panel(colors::SURFACE, " RESIZABLE TEXT ").title(
+                        Title::new(" DRAG TO REFLOW ")
+                            .color(colors::TEXT_DIM)
+                            .position(TitlePosition::BottomRight),
+                    ),
+                );
             {
                 let mut viewport = preview
-                    .child()
                     .place(Place::new().grow())
-                    .node(Flex::row().padding(Sides::all(1.0)).align(Align::Start));
-                viewport = viewport.add(Block::new().background(colors::TRACK));
+                    .node(Flex::row().padding(Sides::all(1.0)).align(Align::Start))
+                    .insert(Block::new().background(colors::TRACK));
                 let mut options = TextOptions::new()
                     .wrap(text_wrap)
                     .overflow(text_overflow)
@@ -449,7 +434,7 @@ fn main() -> io::Result<()> {
                 if let Some(max_lines) = text_max_lines {
                     options = options.max_lines(max_lines);
                 }
-                viewport.child().add(
+                viewport.add(
                     Resizable::new(
                         &mut text_resize,
                         WidgetId::new("terminal text preview"),
@@ -457,7 +442,7 @@ fn main() -> io::Result<()> {
                         |ui: Cx<'_>| {
                             let mut paragraph = ui
                                 .node(Flex::column().padding(Sides::all(1.0)))
-                                .add(
+                                .insert(
                                     Block::new().background(colors::CANVAS).border(
                                         Border::new(colors::CANVAS_BORDER)
                                             .style(BorderStyle::Rounded),
@@ -479,7 +464,7 @@ fn main() -> io::Result<()> {
                                     " retain their own emphasis and the words continue flowing through the same layout.",
                                 ),
                             ];
-                            paragraph.child().place(Place::new().grow()).add(
+                            paragraph.place(Place::new().grow()).add(
                                 Text::rich(&sample)
                                     .color(colors::TEXT)
                                     .attributes(text_attributes)
@@ -494,21 +479,17 @@ fn main() -> io::Result<()> {
                 );
             }
         } else if page == Page::Blocks {
-            let mut body = root
-                .child()
-                .place(Place::new().grow())
-                .node(Flex::row().gap(1.0));
+            let mut body = root.place(Place::new().grow()).node(Flex::row().gap(1.0));
             {
                 let mut controls = body
-                    .child()
                     .place(
                         Place::new()
                             .width(Sizing::fixed(40.0))
                             .height(Sizing::grow()),
                     )
-                    .node(Flex::column().padding(Sides::all(1.0)).gap(1.0));
-                controls = controls.add(panel(colors::SURFACE, " BLOCK OPTIONS "));
-                controls.child().add(|ui: Cx<'_>| {
+                    .node(Flex::column().padding(Sides::all(1.0)).gap(1.0))
+                    .insert(panel(colors::SURFACE, " BLOCK OPTIONS "));
+                controls.add(|ui: Cx<'_>| {
                     choices(
                         ui,
                         "border style",
@@ -522,7 +503,7 @@ fn main() -> io::Result<()> {
                         ],
                     );
                 });
-                controls.child().add(|ui: Cx<'_>| {
+                controls.add(|ui: Cx<'_>| {
                     choices(
                         ui,
                         "border sides",
@@ -536,7 +517,7 @@ fn main() -> io::Result<()> {
                         ],
                     );
                 });
-                controls.child().add(|ui: Cx<'_>| {
+                controls.add(|ui: Cx<'_>| {
                     choices(
                         ui,
                         "shadow",
@@ -545,7 +526,7 @@ fn main() -> io::Result<()> {
                         &[(" On ", true), (" Off ", false)],
                     );
                 });
-                controls.child().add(|ui: Cx<'_>| {
+                controls.add(|ui: Cx<'_>| {
                     choices(
                         ui,
                         "background",
@@ -556,52 +537,46 @@ fn main() -> io::Result<()> {
                 });
             }
             let mut preview = body
-                .child()
-                .place(Place::new().grow())
-                .node(Flex::column().padding(Sides::all(1.0)).gap(1.0));
-            preview = preview.add(panel(colors::SURFACE, " BLOCK PREVIEW "));
-            preview
-                .child()
-                .place(Place::new().grow())
-                .add(|ui: Cx<'_>| {
-                    let mut block = Block::new()
-                        .border(
-                            Border::new(colors::CANVAS_BORDER)
-                                .style(block_style)
-                                .sides(block_sides),
-                        )
-                        .title(
-                            Title::new(" CONFIGURED BLOCK ")
-                                .color(colors::ACCENT)
-                                .attributes(TextAttributes::BOLD),
-                        );
-                    if block_background {
-                        block = block.background(colors::SURFACE_HIGH);
-                    }
-                    if block_shadow {
-                        block = block.shadow(Shadow::new(colors::SHADOW));
-                    }
-                    let mut configured = ui
-                        .node(
-                            Flex::column()
-                                .padding(Sides::all(1.0))
-                                .align(Align::Center)
-                                .justify(Justify::Center),
-                        )
-                        .add(block);
-                    configured
-                        .child()
-                        .add(Text::new("change the options on the left").color(colors::TEXT_MUTED));
-                });
-        } else {
-            let mut body = root
-                .child()
                 .place(Place::new().grow())
                 .node(Flex::column().padding(Sides::all(1.0)).gap(1.0))
-                .add(panel(colors::SURFACE, " SCROLL AREA "));
+                .insert(panel(colors::SURFACE, " BLOCK PREVIEW "));
+            preview.place(Place::new().grow()).add(|ui: Cx<'_>| {
+                let mut block = Block::new()
+                    .border(
+                        Border::new(colors::CANVAS_BORDER)
+                            .style(block_style)
+                            .sides(block_sides),
+                    )
+                    .title(
+                        Title::new(" CONFIGURED BLOCK ")
+                            .color(colors::ACCENT)
+                            .attributes(TextAttributes::BOLD),
+                    );
+                if block_background {
+                    block = block.background(colors::SURFACE_HIGH);
+                }
+                if block_shadow {
+                    block = block.shadow(Shadow::new(colors::SHADOW));
+                }
+                let mut configured = ui
+                    .node(
+                        Flex::column()
+                            .padding(Sides::all(1.0))
+                            .align(Align::Center)
+                            .justify(Justify::Center),
+                    )
+                    .insert(block);
+                configured
+                    .add(Text::new("change the options on the left").color(colors::TEXT_MUTED));
+            });
+        } else {
+            let mut body = root
+                .place(Place::new().grow())
+                .node(Flex::column().padding(Sides::all(1.0)).gap(1.0))
+                .insert(panel(colors::SURFACE, " SCROLL AREA "));
             {
-                let mut controls = body.child().node(Flex::row().gap(1.0).align(Align::Center));
-                controls.child().add(
+                let mut controls = body.node(Flex::row().gap(1.0).align(Align::Center));
+                controls.add(
                     Text::new("AXIS")
                         .color(colors::TEXT_MUTED)
                         .attributes(TextAttributes::BOLD),
@@ -610,7 +585,7 @@ fn main() -> io::Result<()> {
                     (Axis::Vertical, " Vertical "),
                     (Axis::Horizontal, " Horizontal "),
                 ] {
-                    if controls.child().add(Button::new(
+                    if controls.add(Button::new(
                         WidgetId::new(("terminal scroll axis", label)),
                         label,
                         scroll_axis == axis,
@@ -621,7 +596,7 @@ fn main() -> io::Result<()> {
                 }
             }
             let axis = scroll_axis;
-            body.child().place(Place::new().grow()).add(
+            body.place(Place::new().grow()).add(
                 scroll::Area::new(&mut scroll, BoundsClip, move |ui: Cx<'_>| {
                     let mut items = ui.node(Flex::new(axis).gap(1.0));
                     for index in 0..100 {
@@ -630,7 +605,7 @@ fn main() -> io::Result<()> {
                             Axis::Horizontal => Place::new().width(Sizing::fixed(12.0)),
                             Axis::Vertical => Place::new().height(Sizing::fixed(3.0)),
                         };
-                        items.child().place(place).add(|ui: Cx<'_>| {
+                        items.place(place).add(|ui: Cx<'_>| {
                             let layout = match axis {
                                 Axis::Horizontal => {
                                     Flex::column().align(Align::Center).justify(Justify::Center)
@@ -644,12 +619,12 @@ fn main() -> io::Result<()> {
                             } else {
                                 colors::TRACK
                             };
-                            let mut tile = ui.node(layout).add(
+                            let mut tile = ui.node(layout).insert(
                                 Block::new()
                                     .background(background)
                                     .border(Border::new(colors::CANVAS_BORDER)),
                             );
-                            tile.child().add(
+                            tile.add(
                                 Text::new(item.label)
                                     .color(colors::TEXT)
                                     .attributes(TextAttributes::BOLD),
@@ -671,7 +646,7 @@ fn main() -> io::Result<()> {
                 .minimum_scrollbar_extent(4.0),
             );
         }
-        root.child().add(&mut fps);
+        root.add(&mut fps);
         control
     })
 }
@@ -714,7 +689,7 @@ impl Widget<TerminalPlatform> for &mut FpsBadge {
                     .gap(1.0)
                     .align(Align::Center),
             )
-            .add(
+            .insert(
                 Block::new()
                     .background(colors::SURFACE_HIGH)
                     .border(Border::new(colors::ACCENT).style(BorderStyle::Rounded)),
@@ -725,17 +700,14 @@ impl Widget<TerminalPlatform> for &mut FpsBadge {
                     .offset(-1.0, -1.0),
             );
         badge
-            .child()
             .place(Place::new().fixed(1.0, 1.0))
             .add(Block::new().background(colors::ACCENT));
-        badge.child().add(
+        badge.add(
             Text::new(&self.label)
                 .color(colors::TEXT)
                 .attributes(TextAttributes::BOLD),
         );
-        badge
-            .child()
-            .add(Text::new("SCREEN ABSOLUTE").color(colors::TEXT_DIM));
+        badge.add(Text::new("SCREEN ABSOLUTE").color(colors::TEXT_DIM));
     }
 }
 
@@ -761,8 +733,7 @@ impl Widget<TerminalPlatform> for TerminalGrip {
         };
         let mut grip = ui.node(Flex::row().align(Align::Center).justify(Justify::Center));
         let node = grip.id();
-        grip.child()
-            .place(Place::new().fixed(marker.width, marker.height))
+        grip.place(Place::new().fixed(marker.width, marker.height))
             .add(Block::new().background(color));
         node
     }
@@ -800,11 +771,9 @@ impl Widget<TerminalPlatform> for Button<'_> {
         };
         let mut button = ui
             .node(Flex::row().padding(Sides::x(1.0)))
-            .add(block)
+            .insert(block)
             .widget_id(self.id);
-        button
-            .child()
-            .add(Text::new(self.label).color(colors::TEXT));
+        button.add(Text::new(self.label).color(colors::TEXT));
         interaction.clicked
     }
 }
@@ -817,10 +786,8 @@ fn choices<T: Copy + PartialEq>(
     options: &[(&str, T)],
 ) {
     let mut group = ui.node(Flex::column());
-    group
-        .child()
-        .add(Text::new(label).color(colors::TEXT_MUTED));
-    group.child().add(|ui: Cx<'_>| {
+    group.add(Text::new(label).color(colors::TEXT_MUTED));
+    group.add(|ui: Cx<'_>| {
         let mut values = ui.node(
             Wrap::new(Axis::Horizontal)
                 .item_gap(2.0)
@@ -828,7 +795,7 @@ fn choices<T: Copy + PartialEq>(
                 .align(Align::Center),
         );
         for (index, &(option, value)) in options.iter().enumerate() {
-            let clicked = values.child().add(Button::new(
+            let clicked = values.add(Button::new(
                 WidgetId::new((id, index)),
                 option,
                 *selected == value,
@@ -863,12 +830,11 @@ impl Widget<TerminalPlatform> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .add(background)
+                    .insert(background)
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
-                        .child()
                         .place(self.config.item_place(index, unit))
                         .add(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
@@ -889,12 +855,11 @@ impl Widget<TerminalPlatform> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .add(background)
+                    .insert(background)
                     .clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
-                        .child()
                         .place(self.config.item_place(index, unit))
                         .add(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
@@ -908,12 +873,11 @@ impl Widget<TerminalPlatform> for Canvas {
                     .column_gap(self.config.gap(Axis::Horizontal, unit))
                     .row_gap(self.config.gap(Axis::Vertical, unit));
                 let mut placer = grid.placer();
-                let mut canvas = ui.node(grid).add(background).clip(BoundsClip);
+                let mut canvas = ui.node(grid).insert(background).clip(BoundsClip);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
                     canvas
-                        .child()
                         .item(item)
                         .place(Place::new().height(Sizing::fixed(3.0 * self.config.zoom)))
                         .add(|ui: Cx<'_>| {
@@ -935,7 +899,7 @@ fn canvas_item(
 ) {
     let item = ui
         .node(Flex::column().align(Align::Center).justify(Justify::Center))
-        .add(Block::new().background(colors::ITEMS[index]));
+        .insert(Block::new().background(colors::ITEMS[index]));
     let mut item = if config.transitions {
         item.widget_id(WidgetId::new(("terminal canvas item", index)))
             .transition(
@@ -946,26 +910,25 @@ fn canvas_item(
     } else {
         item
     };
-    item.child().add(
+    item.add(
         Text::new(spec.label)
             .color(colors::TEXT)
             .attributes(TextAttributes::BOLD),
     );
     if let Some(anchor) = spec.badge {
-        item.child()
-            .place(
-                Place::new()
-                    .fixed(unit.width * 2.0, unit.height)
-                    .layer(badges)
-                    .z_index(1),
-            )
-            .add(|ui: Cx<'_>| {
-                let mut badge = ui
-                    .node(Flex::row().align(Align::Center).justify(Justify::Center))
-                    .add(Block::new().background(colors::ACCENT_DARK))
-                    .absolute(Absolute::attach(anchor, Anchor::Center));
-                badge.child().add(Text::new("A").color(colors::TEXT));
-            });
+        item.place(
+            Place::new()
+                .fixed(unit.width * 2.0, unit.height)
+                .layer(badges)
+                .z_index(1),
+        )
+        .add(|ui: Cx<'_>| {
+            let mut badge = ui
+                .node(Flex::row().align(Align::Center).justify(Justify::Center))
+                .insert(Block::new().background(colors::ACCENT_DARK))
+                .absolute(Absolute::attach(anchor, Anchor::Center));
+            badge.add(Text::new("A").color(colors::TEXT));
+        });
     }
 }
 

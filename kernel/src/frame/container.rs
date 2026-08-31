@@ -231,8 +231,8 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
         self
     }
 
-    /// adds a widget to this node
-    pub fn add<W>(self, widget: W) -> Self
+    /// inserts a widget into the current node
+    pub fn insert<W>(self, widget: W) -> Self
     where
         W: Widget<R, Response = NodeId>,
     {
@@ -252,36 +252,59 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
         self.ui.frame_mut().add_layer()
     }
 
-    pub fn child(&mut self) -> Child<'_, 'ui, R, L> {
-        Child {
+    pub fn place(&mut self, place: Place) -> Entry<'_, 'ui, R, L> {
+        Entry {
+            node: self,
+            place,
+            item: (),
+            id: None,
+        }
+    }
+
+    pub fn item(&mut self, item: L::Item) -> Entry<'_, 'ui, R, L, L::Item> {
+        Entry {
             node: self,
             place: Place::new(),
-            item: (),
+            item,
             id: None,
         }
     }
 }
 
+impl<'ui, R: Platform, L: Layout<R, Item = ()>> Node<'ui, R, L> {
+    /// adds a child widget with default placement
+    pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
+        add_child(self, Place::new(), (), None, widget)
+    }
+
+    /// adds a child layout node with default placement
+    pub fn node<N: Layout<R>>(&mut self, layout: N) -> Node<'_, R, N> {
+        Entry {
+            node: self,
+            place: Place::new(),
+            item: (),
+            id: None,
+        }
+        .node(layout)
+    }
+}
+
 /// pending child insertion
-///
-/// `I` is `()` until `item()` supplies `L::Item`
-///
-/// insertion requires `I = L::Item`
-pub struct Child<'child, 'ui, R, L, I = ()>
+#[must_use = "an insertion does nothing until add or node is called"]
+pub struct Entry<'entry, 'ui, R, L, I = ()>
 where
     R: Platform,
     L: Layout<R>,
 {
-    node: &'child mut Node<'ui, R, L>,
+    node: &'entry mut Node<'ui, R, L>,
     place: Place,
     item: I,
     id: Option<WidgetId>,
 }
 
-impl<'child, 'ui, R: Platform, L: Layout<R>, I> Child<'child, 'ui, R, L, I> {
-    /// supplies the parent layout's item and enables insertion
-    pub fn item(self, item: L::Item) -> Child<'child, 'ui, R, L, L::Item> {
-        Child {
+impl<'entry, 'ui, R: Platform, L: Layout<R>, I> Entry<'entry, 'ui, R, L, I> {
+    pub fn item(self, item: L::Item) -> Entry<'entry, 'ui, R, L, L::Item> {
+        Entry {
             node: self.node,
             place: self.place,
             item,
@@ -300,14 +323,14 @@ impl<'child, 'ui, R: Platform, L: Layout<R>, I> Child<'child, 'ui, R, L, I> {
     }
 }
 
-impl<'child, R: Platform, L: Layout<R>> Child<'child, '_, R, L, L::Item> {
+impl<'entry, R: Platform, L: Layout<R>> Entry<'entry, '_, R, L, L::Item> {
     /// adds a child widget
     pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
-        insert(self.node, self.place, self.item, self.id, widget)
+        add_child(self.node, self.place, self.item, self.id, widget)
     }
 
     /// creates a child with a layout
-    pub fn node<N: Layout<R>>(self, layout: N) -> Node<'child, R, N> {
+    pub fn node<N: Layout<R>>(self, layout: N) -> Node<'entry, R, N> {
         let child = {
             let frame = self.node.ui.frame_mut();
             let layout = frame.store_layout(layout);
@@ -363,7 +386,7 @@ pub fn layer_order(id: LayerId) -> u16 {
     id.0.get()
 }
 
-fn insert<R, L, W>(
+fn add_child<R, L, W>(
     node: &mut Node<'_, R, L>,
     place: Place,
     item: L::Item,
