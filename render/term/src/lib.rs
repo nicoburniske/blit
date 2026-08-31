@@ -102,13 +102,24 @@ impl TerminalRenderer {
         if self.columns == columns && self.rows == rows {
             return;
         }
+        for cell in &self.cells {
+            if let CellText::Run { text, .. } = cell.text {
+                let index = (text.0 as u32)
+                    .checked_sub(1)
+                    .expect("invalid terminal text run") as usize;
+                self.text_runs.update_index(index, |run| {
+                    assert_eq!(run.id, text, "expired text run");
+                    run.screen_references -= 1;
+                });
+            }
+        }
         self.columns = columns;
         self.rows = rows;
         self.backgrounds
             .resize(columns * rows, Background::default());
         self.glyphs.resize(columns * rows, None);
         self.boxes.resize(columns * rows, BoxCell::default());
-        self.cells.resize(columns * rows, Cell::default());
+        self.cells = vec![Cell::default(); columns * rows];
         self.previous = vec![Cell::invalid(); columns * rows];
         self.damaged = vec![true; columns * rows];
     }
@@ -159,7 +170,7 @@ impl TerminalRenderer {
         let mut output = String::with_capacity((self.columns + 1) * self.rows);
         for row in self.cells.chunks(self.columns) {
             for cell in row {
-                output.push_str(cell.text.as_str());
+                Self::push_cell_text(&self.text_runs, cell.text, &mut output);
             }
             while output.ends_with(' ') {
                 output.pop();
@@ -175,6 +186,50 @@ impl TerminalRenderer {
             .expect("invalid terminal text run") as usize;
         assert_eq!(self.text_runs.get_index(index).id, id, "expired text run");
         index
+    }
+
+    fn set_cell(&mut self, index: usize, cell: Cell) {
+        let old = match self.cells[index].text {
+            CellText::Run { text, .. } => Some(text),
+            _ => None,
+        };
+        let new = match cell.text {
+            CellText::Run { text, .. } => Some(text),
+            _ => None,
+        };
+        if old != new {
+            if let Some(text) = new {
+                let index = self.text_run_index(text);
+                self.text_runs
+                    .update_index(index, |run| run.screen_references += 1);
+            }
+            if let Some(text) = old {
+                let index = self.text_run_index(text);
+                self.text_runs.update_index(index, |run| {
+                    run.screen_references -= 1;
+                });
+            }
+        }
+        self.cells[index] = cell;
+    }
+
+    fn push_cell_text(
+        text_runs: &DeferredCache<RunKey, CachedRun, RunScale>,
+        text: CellText,
+        output: &mut String,
+    ) {
+        match text {
+            CellText::Empty => {}
+            CellText::Scalar(character) => output.push(character),
+            CellText::Run { text, start, end } => {
+                let index = (text.0 as u32)
+                    .checked_sub(1)
+                    .expect("invalid terminal text run") as usize;
+                let run = text_runs.get_index(index);
+                assert_eq!(run.id, text, "expired text run");
+                output.push_str(&run.text[start as usize..end as usize]);
+            }
+        }
     }
 
     fn layout_text(&mut self, request: &TextLayoutRequest) -> usize {
@@ -391,13 +446,13 @@ impl TerminalRenderer {
                     if self.damaged[index] {
                         self.glyphs[index] = Some(Glyph {
                             text: if continuation == 0 {
-                                GlyphText::Run {
+                                CellText::Run {
                                     text: title.text,
-                                    start: grapheme.start,
-                                    end: grapheme.end,
+                                    start: grapheme.start as u32,
+                                    end: grapheme.end as u32,
                                 }
                             } else {
-                                GlyphText::Static("")
+                                CellText::Empty
                             },
                             color: title.color,
                             attributes: title.attributes,
@@ -469,7 +524,8 @@ impl TerminalRenderer {
         }
         if damage_bounds.2 == 0 || damage_bounds.3 == 0 {
             self.text_layouts.trim_to_weight();
-            self.text_runs.trim_to_weight();
+            self.text_runs
+                .trim_to_weight_if(|_, run| run.screen_references == 0);
             return;
         }
         self.clear_damaged(damage_bounds);
@@ -669,16 +725,16 @@ impl TerminalRenderer {
                             .iter()
                             .map(|grapheme| {
                                 (
-                                    GlyphText::Run {
+                                    CellText::Run {
                                         text: request.text,
-                                        start: grapheme.start,
-                                        end: grapheme.end,
+                                        start: grapheme.start as u32,
+                                        end: grapheme.end as u32,
                                     },
                                     grapheme.width,
                                     Some(grapheme.start),
                                 )
                             })
-                            .chain(line_ellipsis.then_some((GlyphText::Static("…"), 1, None)));
+                            .chain(line_ellipsis.then_some((CellText::Scalar('…'), 1, None)));
                         for (grapheme, width, byte_offset) in graphemes {
                             if let Some(byte_offset) = byte_offset {
                                 while span_index + 1 < spans.len()
@@ -715,7 +771,7 @@ impl TerminalRenderer {
                                     let index = y as usize * self.columns + continuation_x;
                                     if self.damaged[index] {
                                         self.glyphs[index] = Some(Glyph {
-                                            text: GlyphText::Static(""),
+                                            text: CellText::Empty,
                                             color,
                                             attributes,
                                             z,
@@ -747,14 +803,14 @@ impl TerminalRenderer {
                 }
             }
         }
-        const SINGLE_BOXES: [&str; 16] = [
-            " ", "╵", "╴", "└", "╷", "│", "┌", "├", "╶", "┘", "─", "┴", "┐", "┤", "┬", "┼",
+        const SINGLE_BOXES: [char; 16] = [
+            ' ', '╵', '╴', '└', '╷', '│', '┌', '├', '╶', '┘', '─', '┴', '┐', '┤', '┬', '┼',
         ];
-        const DOUBLE_BOXES: [&str; 16] = [
-            " ", "╵", "╴", "╚", "╷", "║", "╔", "╠", "╶", "╝", "═", "╩", "╗", "╣", "╦", "╬",
+        const DOUBLE_BOXES: [char; 16] = [
+            ' ', '╵', '╴', '╚', '╷', '║', '╔', '╠', '╶', '╝', '═', '╩', '╗', '╣', '╦', '╬',
         ];
-        const HEAVY_BOXES: [&str; 16] = [
-            " ", "╹", "╺", "┗", "╻", "┃", "┏", "┣", "╸", "┛", "━", "┻", "┓", "┫", "┳", "╋",
+        const HEAVY_BOXES: [char; 16] = [
+            ' ', '╹', '╺', '┗', '╻', '┃', '┏', '┣', '╸', '┛', '━', '┻', '┓', '┫', '┳', '╋',
         ];
         for cell_y in damage_bounds.1..damage_bounds.3 {
             for cell_x in damage_bounds.0..damage_bounds.2 {
@@ -763,54 +819,59 @@ impl TerminalRenderer {
                     continue;
                 }
                 let background = self.backgrounds[index];
-                let glyph = self.glyphs[index].as_ref();
+                let glyph = self.glyphs[index];
                 let box_cell = self.boxes[index];
                 if let Some(glyph) = glyph
                     && background.z <= glyph.z
                     && box_cell.z <= glyph.z
                 {
-                    let text = match glyph.text {
-                        GlyphText::Static(text) => text,
-                        GlyphText::Run { text, start, end } => {
-                            let run = self.text_run_index(text);
-                            &self.text_runs.get_index(run).text[start..end]
-                        }
-                    };
-                    let cell = &mut self.cells[index];
-                    cell.text.clear();
-                    cell.text.push_str(text);
-                    cell.foreground = glyph.color;
-                    cell.background = background.color;
-                    cell.attributes = glyph.attributes;
+                    self.set_cell(
+                        index,
+                        Cell {
+                            text: glyph.text,
+                            foreground: glyph.color,
+                            background: background.color,
+                            attributes: glyph.attributes,
+                            valid: true,
+                        },
+                    );
                     continue;
                 }
                 if box_cell.edges != 0 && background.z <= box_cell.z {
                     let text = match box_cell.style {
                         BorderStyle::Rounded => match box_cell.edges {
-                            3 => "╰",
-                            6 => "╭",
-                            9 => "╯",
-                            12 => "╮",
+                            3 => '╰',
+                            6 => '╭',
+                            9 => '╯',
+                            12 => '╮',
                             _ => SINGLE_BOXES[box_cell.edges as usize],
                         },
                         BorderStyle::Single => SINGLE_BOXES[box_cell.edges as usize],
                         BorderStyle::Double => DOUBLE_BOXES[box_cell.edges as usize],
                         BorderStyle::Heavy => HEAVY_BOXES[box_cell.edges as usize],
                     };
-                    let cell = &mut self.cells[index];
-                    cell.text.clear();
-                    cell.text.push_str(text);
-                    cell.foreground = box_cell.color;
-                    cell.background = background.color;
-                    cell.attributes = TextAttributes::NONE;
+                    self.set_cell(
+                        index,
+                        Cell {
+                            text: CellText::Scalar(text),
+                            foreground: box_cell.color,
+                            background: background.color,
+                            attributes: TextAttributes::NONE,
+                            valid: true,
+                        },
+                    );
                     continue;
                 }
-                let cell = &mut self.cells[index];
-                cell.text.clear();
-                cell.text.push(' ');
-                cell.foreground = Color::Reset;
-                cell.background = background.color;
-                cell.attributes = TextAttributes::NONE;
+                self.set_cell(
+                    index,
+                    Cell {
+                        text: CellText::Scalar(' '),
+                        foreground: Color::Reset,
+                        background: background.color,
+                        attributes: TextAttributes::NONE,
+                        valid: true,
+                    },
+                );
             }
         }
         let mut style = None;
@@ -861,8 +922,8 @@ impl TerminalRenderer {
                         self.output.push('m');
                         style = Some(next_style);
                     }
-                    self.output.push_str(&cell.text);
-                    self.previous[index].clone_from(cell);
+                    Self::push_cell_text(&self.text_runs, cell.text, &mut self.output);
+                    self.previous[index] = *cell;
                     x += 1;
                 }
             }
@@ -938,7 +999,8 @@ impl TerminalRenderer {
                 .retain(|placement| placement.image != id);
         }
         self.text_layouts.trim_to_weight();
-        self.text_runs.trim_to_weight();
+        self.text_runs
+            .trim_to_weight_if(|_, run| run.screen_references == 0);
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
@@ -1015,6 +1077,10 @@ impl TerminalRenderer {
             len: spans.iter().map(|span| span.text.len()).sum(),
             spans: spans.len(),
         };
+        assert!(
+            u32::try_from(query.len).is_ok(),
+            "terminal text run too long"
+        );
         let next = self.next_text_run;
         let (_, index) = self.text_runs.get_or_insert_by(
             &query,
@@ -1044,6 +1110,7 @@ impl TerminalRenderer {
                     CachedRun {
                         id: TextRunId(u64::from(next) << 32),
                         text: text.into_boxed_str(),
+                        screen_references: 0,
                         spans: resolved.into_boxed_slice(),
                     },
                 )
@@ -1158,27 +1225,28 @@ impl BoxCell {
     }
 }
 
-#[derive(Clone, Copy)]
-enum GlyphText {
-    Static(&'static str),
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CellText {
+    Empty,
+    Scalar(char),
     Run {
         text: TextRunId,
-        start: usize,
-        end: usize,
+        start: u32,
+        end: u32,
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct Glyph {
-    text: GlyphText,
+    text: CellText,
     color: Color,
     attributes: TextAttributes,
     z: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Cell {
-    text: String,
+    text: CellText,
     foreground: Color,
     background: Color,
     attributes: TextAttributes,
@@ -1197,7 +1265,7 @@ impl Cell {
 impl Default for Cell {
     fn default() -> Self {
         Self {
-            text: " ".into(),
+            text: CellText::Scalar(' '),
             foreground: Color::Reset,
             background: Color::Reset,
             attributes: TextAttributes::NONE,
@@ -1227,6 +1295,7 @@ impl Scale<LayoutKey, TextLayout> for LayoutScale {
 struct CachedRun {
     id: TextRunId,
     text: Box<str>,
+    screen_references: usize,
     spans: Box<[ResolvedSpan]>,
 }
 
@@ -1332,7 +1401,14 @@ mod tests {
         );
         renderer.render(&commands, &[renderer.screen()]);
 
-        assert_eq!(renderer.cells[renderer.columns + 1].text, "x");
+        assert_eq!(
+            renderer.cells[renderer.columns + 1].text,
+            CellText::Run {
+                text,
+                start: 0,
+                end: 1,
+            }
+        );
         assert_eq!(
             renderer.cells[renderer.columns + 1].attributes,
             TextAttributes::BOLD | TextAttributes::STRIKETHROUGH
@@ -1403,7 +1479,14 @@ mod tests {
         );
         renderer.render(&commands, &[renderer.screen()]);
 
-        assert_eq!(renderer.cells[renderer.columns + 1].text, "x");
+        assert_eq!(
+            renderer.cells[renderer.columns + 1].text,
+            CellText::Run {
+                text,
+                start: 0,
+                end: 1,
+            }
+        );
     }
 
     #[test]
@@ -1494,8 +1577,14 @@ mod tests {
         );
         renderer.render(&commands, &[renderer.screen()]);
 
-        assert_eq!(renderer.cells[renderer.columns + 2].text, "╭");
-        assert_eq!(renderer.cells[renderer.columns + 3].text, "─");
+        assert_eq!(
+            renderer.cells[renderer.columns + 2].text,
+            CellText::Scalar('╭')
+        );
+        assert_eq!(
+            renderer.cells[renderer.columns + 3].text,
+            CellText::Scalar('─')
+        );
     }
 
     #[test]
@@ -1583,6 +1672,26 @@ mod tests {
             .max_width(CELL_WIDTH * 8.0);
         let layout = renderer.layout_text(&request);
         assert_eq!(renderer.layout_text(&request), layout);
+    }
+
+    #[test]
+    fn displayed_text_survives_cache_pressure() {
+        use crate::command_list::ClipId;
+
+        let mut renderer = renderer(1, 1);
+        let text = renderer.text_run("x");
+        let mut commands = CommandList::default();
+        commands.push_text(
+            TextRequest::new(text, renderer.screen().to_logical(SCALE)),
+            renderer.screen(),
+            ClipId::default(),
+        );
+        renderer.render(&commands, &[renderer.screen()]);
+
+        renderer.text_run(&"y".repeat(TEXT_RUN_CACHE_CAPACITY));
+        renderer.render(&CommandList::default(), &[]);
+
+        assert_eq!(renderer.plain_text(), "x\n");
     }
 
     #[test]

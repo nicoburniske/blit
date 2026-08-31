@@ -22,6 +22,17 @@ fn main() {
     divan::main()
 }
 
+#[divan::bench(args = [(96, 32), (240, 80), (400, 200)])]
+fn renderer_creation(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
+    bencher.bench(|| {
+        TerminalRenderer::new(
+            RendererConfig::new()
+                .columns(black_box(columns))
+                .rows(black_box(rows)),
+        )
+    });
+}
+
 #[divan::bench]
 fn render_full(bencher: divan::Bencher) {
     let mut renderer = renderer();
