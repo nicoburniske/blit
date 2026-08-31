@@ -1,10 +1,12 @@
+pub use blit_std::widget::scroll;
+
 use blit::Widget;
 use blit_cpu::{
     color::Color,
     text_types::{TextOptions, TextStyle},
 };
 
-use super::{DesktopPlatform, atom::TextAtom};
+use super::{DesktopPlatform, atom};
 use crate::Cx;
 
 blit::builder! {
@@ -24,7 +26,7 @@ impl Widget<DesktopPlatform> for Text<'_> {
     fn build(self, mut cx: Cx<'_>) {
         let run = cx.platform().text_run(self.text, self.style);
         cx.atom(
-            TextAtom::new(run, self.style)
+            atom::Text::new(run, self.style)
                 .color(self.color)
                 .offset_x(self.offset_x)
                 .options(self.options),

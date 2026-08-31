@@ -7,11 +7,11 @@ members = [
     "executor",
     "font",
     "kernel",
-    "layout",
     "platform/desktop",
     "platform/terminal",
     "render/cpu",
     "render/term",
+    "std",
 ]
 
 [workspace.package]
@@ -22,5 +22,5 @@ blit = { path = "kernel" }
 blit-diff = { path = "diff" }
 blit-executor = { path = "executor" }
 blit-font = { path = "font" }
-blit-layout = { path = "layout" }
 blit-showcase = { path = "examples/showcase" }
+blit-std = { path = "std" }

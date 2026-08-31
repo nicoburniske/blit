@@ -2,7 +2,7 @@ use std::{marker::PhantomData, num::NonZeroU16};
 
 use super::{Cx, NodeId, Ui};
 use crate::{
-    Atom, Clip, Platform, Widget,
+    Clip, Platform, Widget,
     animation::Transition,
     geometry::{Point, Sides},
     interact::WidgetId,
@@ -29,14 +29,6 @@ crate::builder! {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Sizing {
-    Fit { min: f32, max: f32 },
-    Grow { min: f32, max: f32 },
-    Fixed(f32),
-    Percent(f32),
-}
-
 impl Place {
     pub const fn fixed(mut self, width: f32, height: f32) -> Self {
         self.width = Sizing::fixed(width);
@@ -49,6 +41,14 @@ impl Place {
         self.height = Sizing::grow();
         self
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Sizing {
+    Fit { min: f32, max: f32 },
+    Grow { min: f32, max: f32 },
+    Fixed(f32),
+    Percent(f32),
 }
 
 impl Sizing {
@@ -231,14 +231,8 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
         self
     }
 
-    /// appends an atom to this node
-    pub fn atom<A: Atom<R>>(self, atom: A) -> Self {
-        self.ui.frame_mut().push_atom(self.node, atom);
-        self
-    }
-
-    /// builds a widget into this node
-    pub fn widget<W>(self, widget: W) -> Self
+    /// adds a widget to this node
+    pub fn add<W>(self, widget: W) -> Self
     where
         W: Widget<R, Response = NodeId>,
     {
@@ -265,17 +259,6 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
             item: (),
             id: None,
         }
-    }
-}
-
-impl<'ui, R, L> Node<'ui, R, L>
-where
-    R: Platform,
-    L: Layout<R, Item = ()>,
-{
-    /// builds a widget in a default child
-    pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
-        insert(self, Place::new(), (), None, widget)
     }
 }
 
@@ -318,16 +301,8 @@ impl<'child, 'ui, R: Platform, L: Layout<R>, I> Child<'child, 'ui, R, L, I> {
 }
 
 impl<'child, R: Platform, L: Layout<R>> Child<'child, '_, R, L, L::Item> {
-    /// creates a child containing an atom
-    pub fn atom<A: Atom<R>>(self, atom: A) -> NodeId {
-        self.widget(|mut cx: Cx<'_, R>| {
-            cx.atom(atom);
-            cx.id()
-        })
-    }
-
-    /// creates a child built by a widget
-    pub fn widget<W: Widget<R>>(self, widget: W) -> W::Response {
+    /// adds a child widget
+    pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
         insert(self.node, self.place, self.item, self.id, widget)
     }
 

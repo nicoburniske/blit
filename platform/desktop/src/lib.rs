@@ -9,7 +9,7 @@ mod pixel;
 mod platform;
 
 pub use blit_cpu::{color, image, style, text_types as text};
-pub use blit_layout as layout;
+pub use blit_std::layout;
 pub use platform::{BoundsClip, DesktopPlatform, atom, widget};
 
 pub type Ui = blit::Ui<DesktopPlatform>;

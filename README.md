@@ -13,7 +13,7 @@ philosophy:
 workspace layers:
 
 - `blit` in `kernel/` provides frame construction, layout execution, interaction, transitions, animations, timers, and platform extension traits
-- `blit-layout` provides flex, grid, wrap, and rectangle layout policies
+- `blit-std` provides standard layouts and render-agnostic widgets such as scrolling
 - `blit-diff` provides reusable bounded Myers sequence reconciliation
 - `blit-cpu` and `blit-term` provide backend-specific draw data, command lists, resources, and rendering mechanisms
 - `blit-desktop` and `blit-terminal` compose platforms, implement atoms, and own command reconciliation policy
@@ -29,6 +29,7 @@ features:
 
 - flat immediate-mode frame graphs with deferred whole-frame layout
 - custom atoms, clips, and layout policies
+- horizontal and vertical scrolling with optional atom or widget scrollbars
 - content-sized, flexible, percentage, anchored, layered, and z-ordered layout
 - automatic position and size transitions
 - keyed value animations, looping animations, and timers

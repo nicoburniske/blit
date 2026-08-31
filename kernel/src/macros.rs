@@ -65,3 +65,23 @@ macro_rules! builder {
         $crate::builder!(@default $name $(<$lifetime>)?; $($required),*);
     };
 }
+
+#[macro_export]
+macro_rules! impl_atom_widgets {
+    ($platform:ty => $($atom:ty),+ $(,)?) => {
+        $(
+            impl $crate::Widget<$platform> for $atom {
+                type Response = $crate::NodeId;
+
+                fn build(
+                    self,
+                    mut cx: $crate::Cx<'_, $platform>,
+                ) -> Self::Response {
+                    let id = cx.id();
+                    cx.atom(self);
+                    id
+                }
+            }
+        )+
+    };
+}
