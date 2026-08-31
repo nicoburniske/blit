@@ -204,9 +204,8 @@ impl<R: Platform> DerefMut for Cx<'_, R> {
 // Ui must remain non-Copy and non-Clone
 // NonNull is dereferenced only through Ui borrows
 impl<R: Platform> Ui<R> {
-    fn build_node<W: Widget<R>>(&mut self, widget: W) -> W::Response {
+    fn build_node<W: Widget<R>>(&mut self, node: NodeId, widget: W) -> W::Response {
         let parent = self.frame().current_parent;
-        let node = self.frame_mut().push_node(None);
         self.frame_mut().current_parent = Some(node);
         let output = widget.build(Cx { ui: self, node });
         let frame = self.frame_mut();

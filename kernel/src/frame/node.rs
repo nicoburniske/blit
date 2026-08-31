@@ -174,11 +174,6 @@ impl Absolute {
     }
 }
 
-pub struct Added<T> {
-    pub node: NodeId,
-    pub response: T,
-}
-
 pub struct Node<'ui, R, L>
 where
     R: Platform,
@@ -244,59 +239,60 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
         self.ui.frame_mut().add_layer()
     }
 
-    pub fn place(&mut self, place: Place) -> Entry<'_, 'ui, R, L> {
-        Entry {
-            node: self,
+    pub fn place(&mut self, place: Place) -> Child<'_, 'ui, R, L> {
+        let node = self.ui.frame_mut().push_node(None);
+        Child {
+            parent: self,
+            node,
             place,
             item: (),
             id: None,
         }
     }
 
-    pub fn item(&mut self, item: L::Item) -> Entry<'_, 'ui, R, L, L::Item> {
-        Entry {
-            node: self,
-            place: Place::new(),
-            item,
-            id: None,
-        }
+    pub fn item(&mut self, item: L::Item) -> Child<'_, 'ui, R, L, L::Item> {
+        self.place(Place::new()).item(item)
     }
 }
 
 impl<'ui, R: Platform, L: Layout<R, Item = ()>> Node<'ui, R, L> {
     /// adds a child widget with default placement
-    pub fn add<W: Widget<R>>(&mut self, widget: W) -> Added<W::Response> {
-        add_child(self, Place::new(), (), None, widget)
+    pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
+        self.child().add(widget)
+    }
+
+    pub fn child(&mut self) -> Child<'_, 'ui, R, L> {
+        self.place(Place::new())
     }
 
     /// adds a child layout node with default placement
     pub fn node<N: Layout<R>>(&mut self, layout: N) -> Node<'_, R, N> {
-        Entry {
-            node: self,
-            place: Place::new(),
-            item: (),
-            id: None,
-        }
-        .node(layout)
+        self.child().node(layout)
     }
 }
 
 /// pending child insertion
-#[must_use = "an insertion does nothing until add or node is called"]
-pub struct Entry<'entry, 'ui, R, L, I = ()>
+#[must_use = "a child must be populated with add or node"]
+pub struct Child<'entry, 'ui, R, L, I = ()>
 where
     R: Platform,
     L: Layout<R>,
 {
-    node: &'entry mut Node<'ui, R, L>,
+    parent: &'entry mut Node<'ui, R, L>,
+    node: NodeId,
     place: Place,
     item: I,
     id: Option<WidgetId>,
 }
 
-impl<'entry, 'ui, R: Platform, L: Layout<R>, I> Entry<'entry, 'ui, R, L, I> {
-    pub fn item(self, item: L::Item) -> Entry<'entry, 'ui, R, L, L::Item> {
-        Entry {
+impl<'entry, 'ui, R: Platform, L: Layout<R>, I> Child<'entry, 'ui, R, L, I> {
+    pub fn id(&self) -> NodeId {
+        self.node
+    }
+
+    pub fn item(self, item: L::Item) -> Child<'entry, 'ui, R, L, L::Item> {
+        Child {
+            parent: self.parent,
             node: self.node,
             place: self.place,
             item,
@@ -315,26 +311,32 @@ impl<'entry, 'ui, R: Platform, L: Layout<R>, I> Entry<'entry, 'ui, R, L, I> {
     }
 }
 
-impl<'entry, R: Platform, L: Layout<R>> Entry<'entry, '_, R, L, L::Item> {
+impl<'entry, R: Platform, L: Layout<R>> Child<'entry, '_, R, L, L::Item> {
     /// adds a child widget
-    pub fn add<W: Widget<R>>(self, widget: W) -> Added<W::Response> {
-        add_child(self.node, self.place, self.item, self.id, widget)
+    pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
+        let response = self.parent.ui.build_node(self.node, widget);
+        let frame = self.parent.ui.frame_mut();
+        frame.set_place(self.node, self.place);
+        let item = frame.data.store(self.item);
+        frame.nodes[self.node.index()].item = item;
+        if let Some(id) = self.id {
+            frame.set_id(self.node, id);
+        }
+        response
     }
 
     /// creates a child with a layout
     pub fn node<N: Layout<R>>(self, layout: N) -> Node<'entry, R, N> {
-        let child = {
-            let frame = self.node.ui.frame_mut();
-            let layout = frame.store_layout(layout);
-            let child = frame.push_node(Some(layout));
-            frame.set_place(child, self.place);
-            frame.nodes[child.index()].item = frame.data.store(self.item);
-            if let Some(id) = self.id {
-                frame.set_id(child, id);
-            }
-            child
-        };
-        new_node(self.node.ui, child)
+        let frame = self.parent.ui.frame_mut();
+        let layout = frame.store_layout(layout);
+        frame.nodes[self.node.index()].layout = layout;
+        frame.set_place(self.node, self.place);
+        let item = frame.data.store(self.item);
+        frame.nodes[self.node.index()].item = item;
+        if let Some(id) = self.id {
+            frame.set_id(self.node, id);
+        }
+        new_node(self.parent.ui, self.node)
     }
 }
 
@@ -376,45 +378,4 @@ fn layer_order(id: LayerId) -> u16 {
     #[cfg(debug_assertions)]
     generation::assert(id.1);
     id.0.get()
-}
-
-fn add_child<R, L, W>(
-    node: &mut Node<'_, R, L>,
-    place: Place,
-    item: L::Item,
-    id: Option<WidgetId>,
-    widget: W,
-) -> Added<W::Response>
-where
-    R: Platform,
-    L: Layout<R>,
-    W: Widget<R>,
-{
-    let start = node.ui.frame().nodes.len();
-    let response = node.ui.build_node(widget);
-    let frame = node.ui.frame_mut();
-    let end = frame.nodes.len();
-    assert!(end > start, "layout child did not add a node");
-
-    let child = frame.node_id(start);
-    assert_eq!(
-        frame.nodes[child.index()].parent,
-        node.node,
-        "layout child was added outside its parent"
-    );
-    assert_eq!(
-        frame.nodes[child.index()].subtree_end as usize + 1,
-        end,
-        "a layout item must contain exactly one root"
-    );
-    frame.set_place(child, place);
-    let data = frame.data.store(item);
-    frame.nodes[child.index()].item = data;
-    if let Some(id) = id {
-        frame.set_id(child, id);
-    }
-    Added {
-        node: child,
-        response,
-    }
 }

@@ -69,17 +69,15 @@ fn layout_atoms_measure_and_paint_in_order() {
 
     frame.render(&mut platform, FrameInfo::new(Size::new(5.0, 4.0)), |ui| {
         let mut root = ui.node(Overlay);
-        let response = root
-            .add(|ui: Cx<'_>| {
-                let mut node = ui.node(BaseOnly);
-                let response = node.insert(|mut cx: Cx<'_>| {
-                    cx.atom(Fill::new('A', Size::new(3.0, 1.0)));
-                    42
-                });
-                node.insert(Fill::new('B', Size::new(1.0, 2.0)));
-                response
-            })
-            .response;
+        let response = root.add(|ui: Cx<'_>| {
+            let mut node = ui.node(BaseOnly);
+            let response = node.insert(|mut cx: Cx<'_>| {
+                cx.atom(Fill::new('A', Size::new(3.0, 1.0)));
+                42
+            });
+            node.insert(Fill::new('B', Size::new(1.0, 2.0)));
+            response
+        });
         assert_eq!(response, 42);
     });
 
@@ -93,7 +91,9 @@ fn resolves_absolute_targets_and_layer_order() {
 
     frame.render(&mut platform, FrameInfo::new(Size::new(8.0, 5.0)), |ui| {
         let mut overlay = ui.node(Overlay);
-        let target = overlay.add(Fill::new('T', Size::new(2.0, 2.0))).node;
+        let child = overlay.child();
+        let target = child.id();
+        child.add(Fill::new('T', Size::new(2.0, 2.0)));
         let mut absolute = overlay
             .node(Overlay)
             .absolute(Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target));
@@ -303,7 +303,9 @@ fn absolute_places_resolve_against_the_target() {
 
     frame.render(&mut platform, FrameInfo::new(Size::new(10.0, 4.0)), |ui| {
         let mut overlay = ui.node(Overlay);
-        let target = overlay.add(Fill::new('T', Size::new(6.0, 2.0))).node;
+        let child = overlay.child();
+        let target = child.id();
+        child.add(Fill::new('T', Size::new(6.0, 2.0)));
         overlay
             .place(
                 Place::new()
@@ -348,7 +350,9 @@ fn frame_ids_reject_cross_frame_use() {
     frame.render(&mut platform, FrameInfo::new(Size::new(1.0, 1.0)), |ui| {
         let mut root = ui.node(Overlay);
         layer = Some(root.new_layer());
-        node = Some(root.add(Fill::new('X', Size::new(1.0, 1.0))).node);
+        let child = root.child();
+        node = Some(child.id());
+        child.add(Fill::new('X', Size::new(1.0, 1.0)));
     });
 
     let node = node.unwrap();
