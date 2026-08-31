@@ -1,8 +1,7 @@
 use std::{fmt::Write as _, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Axis, Easing, NodeId, Place, Sense, Sides, Size, Sizing, Transition, Widget,
-    WidgetId,
+    Absolute, Anchor, Axis, Easing, Place, Sense, Sides, Size, Sizing, Transition, Widget, WidgetId,
 };
 use blit_cpu::{Font, FontFace, RendererConfig};
 use blit_desktop::{
@@ -74,9 +73,8 @@ impl Application for App {
     fn render(&mut self, ui: &mut Ui) {
         let screen = ui.screen();
         let unit = Size::new(8.0, 8.0);
-        let mut root = ui
-            .node(Flex::column().padding(Sides::all(20.0)).gap(14.0))
-            .insert(Rectangle::new().background(colors::BACKGROUND));
+        let mut root = ui.node(Flex::column().padding(Sides::all(20.0)).gap(14.0));
+        root.insert(Rectangle::new().background(colors::BACKGROUND));
         root.place(Place::new().height(Sizing::fixed(52.0)))
             .add(|ui: Cx<'_>| {
                 let mut header = ui.node(
@@ -104,19 +102,25 @@ impl Application for App {
                     );
                 });
                 for (page, label) in [(Page::Layout, "LAYOUT"), (Page::Scroll, "SCROLL")] {
-                    if header.add(Button::new(
-                        WidgetId::new(("desktop page", label)),
-                        label,
-                        self.page == page,
-                    )) {
+                    if header
+                        .add(Button::new(
+                            WidgetId::new(("desktop page", label)),
+                            label,
+                            self.page == page,
+                        ))
+                        .response
+                    {
                         self.page = page;
                     }
                 }
-                if header.add(Button::new(
-                    WidgetId::new("reset desktop showcase"),
-                    "RESET",
-                    false,
-                )) {
+                if header
+                    .add(Button::new(
+                        WidgetId::new("reset desktop showcase"),
+                        "RESET",
+                        false,
+                    ))
+                    .response
+                {
                     self.canvas = CanvasConfig::default();
                     self.resize.reset();
                     self.scroll_axis = Axis::Vertical;
@@ -131,9 +135,9 @@ impl Application for App {
                         .height(Sizing::grow()),
                 )
                 .add(|ui: Cx<'_>| {
-                    let mut controls = ui
-                        .node(Flex::column().padding(Sides::all(14.0)).gap(7.0))
-                        .insert(panel(colors::SURFACE));
+                    let mut controls =
+                        ui.node(Flex::column().padding(Sides::all(14.0)).gap(7.0));
+                    controls.insert(panel(colors::SURFACE));
                     controls.add(
                         Text::new("LAYOUT PARAMETERS")
                             .style(TextStyle {
@@ -257,9 +261,8 @@ impl Application for App {
                     );
                 });
             body.place(Place::new().grow()).add(|ui: Cx<'_>| {
-                let mut preview = ui
-                    .node(Flex::column().padding(Sides::all(12.0)).gap(8.0))
-                    .insert(panel(colors::SURFACE));
+                let mut preview = ui.node(Flex::column().padding(Sides::all(12.0)).gap(8.0));
+                preview.insert(panel(colors::SURFACE));
                 preview.place(Place::new().height(Sizing::fixed(22.0))).add(
                     Text::new("LIVE PREVIEW")
                         .style(TextStyle {
@@ -269,13 +272,13 @@ impl Application for App {
                         .color(colors::ACCENT),
                 );
                 preview.place(Place::new().grow()).add(|ui: Cx<'_>| {
-                    let mut viewport = ui
-                        .node(Flex::row().padding(Sides::all(10.0)).align(Align::Start))
-                        .insert(
-                            Rectangle::new()
-                                .background(colors::TRACK)
-                                .radius(BorderRadius::uniform(8.0)),
-                        );
+                    let mut viewport =
+                        ui.node(Flex::row().padding(Sides::all(10.0)).align(Align::Start));
+                    viewport.insert(
+                        Rectangle::new()
+                            .background(colors::TRACK)
+                            .radius(BorderRadius::uniform(8.0)),
+                    );
                     viewport.add(
                         Resizable::new(
                             &mut self.resize,
@@ -302,8 +305,8 @@ impl Application for App {
         } else {
             let mut section = root
                 .place(Place::new().grow())
-                .node(Flex::column().padding(Sides::all(12.0)).gap(8.0))
-                .insert(panel(colors::SURFACE));
+                .node(Flex::column().padding(Sides::all(12.0)).gap(8.0));
+            section.insert(panel(colors::SURFACE));
             {
                 let mut header = section.node(Flex::row().gap(6.0).align(Align::Center));
                 header.place(Place::new().grow()).add(
@@ -318,11 +321,14 @@ impl Application for App {
                     (Axis::Vertical, "VERTICAL"),
                     (Axis::Horizontal, "HORIZONTAL"),
                 ] {
-                    if header.add(Button::new(
-                        WidgetId::new(("desktop scroll axis", label)),
-                        label,
-                        self.scroll_axis == axis,
-                    )) {
+                    if header
+                        .add(Button::new(
+                            WidgetId::new(("desktop scroll axis", label)),
+                            label,
+                            self.scroll_axis == axis,
+                        ))
+                        .response
+                    {
                         self.scroll_axis = axis;
                         self.scroll = scroll::State::default();
                     }
@@ -352,7 +358,8 @@ impl Application for App {
                             } else {
                                 colors::SURFACE_HIGH
                             };
-                            let mut tile = ui.node(layout).insert(
+                            let mut tile = ui.node(layout);
+                            tile.insert(
                                 Rectangle::new()
                                     .background(background)
                                     .radius(BorderRadius::uniform(5.0)),
@@ -367,7 +374,6 @@ impl Application for App {
                             );
                         });
                     }
-                    items.id()
                 })
                 .axis(axis)
                 .scroll_track(|_| Rectangle::new().background(colors::TRACK))
@@ -417,17 +423,17 @@ impl Widget<DesktopPlatform> for &mut FpsBadge {
                     .gap(6.0)
                     .align(Align::Center),
             )
-            .insert(
-                Rectangle::new()
-                    .background(colors::SURFACE_HIGH)
-                    .border(Border::solid(1.0, colors::ACCENT))
-                    .radius(BorderRadius::uniform(7.0)),
-            )
             .absolute(
                 Absolute::screen(0.0, 0.0)
                     .anchors(Anchor::BottomRight, Anchor::BottomRight)
                     .offset(-16.0, -16.0),
             );
+        badge.insert(
+            Rectangle::new()
+                .background(colors::SURFACE_HIGH)
+                .border(Border::solid(1.0, colors::ACCENT))
+                .radius(BorderRadius::uniform(7.0)),
+        );
         badge.place(Place::new().fixed(6.0, 6.0)).add(
             Rectangle::new()
                 .background(colors::ACCENT)
@@ -455,9 +461,9 @@ impl Widget<DesktopPlatform> for &mut FpsBadge {
 struct DesktopGrip(ResizeGrip);
 
 impl Widget<DesktopPlatform> for DesktopGrip {
-    type Response = NodeId;
+    type Response = ();
 
-    fn build(self, ui: Cx<'_>) -> NodeId {
+    fn build(self, ui: Cx<'_>) {
         let marker = match self.0.edge {
             ResizeEdge::Right => Size::new(3.0, 48.0),
             ResizeEdge::Bottom => Size::new(48.0, 3.0),
@@ -477,14 +483,12 @@ impl Widget<DesktopPlatform> for DesktopGrip {
                 .align(Align::Center)
                 .justify(blit_desktop::layout::Justify::Center),
         );
-        let node = grip.id();
         grip.place(Place::new().fixed(marker.width, marker.height))
             .add(
                 Rectangle::new()
                     .background(color)
                     .radius(BorderRadius::uniform(marker.width.min(marker.height) / 2.0)),
             );
-        node
     }
 }
 
@@ -525,13 +529,13 @@ impl Widget<DesktopPlatform> for Button<'_> {
         };
         let mut button = ui
             .node(Flex::row().padding(Sides::new().top(5.0).right(8.0).bottom(5.0).left(8.0)))
-            .insert(
-                Rectangle::new()
-                    .background(background)
-                    .border(Border::solid(1.0, border))
-                    .radius(BorderRadius::uniform(5.0)),
-            )
             .widget_id(self.id);
+        button.insert(
+            Rectangle::new()
+                .background(background)
+                .border(Border::solid(1.0, border))
+                .radius(BorderRadius::uniform(5.0)),
+        );
         button.add(
             Text::new(self.label)
                 .style(TextStyle {
@@ -557,11 +561,13 @@ fn choices<T: Copy + PartialEq>(ui: Cx<'_>, label: &str, selected: &mut T, optio
     line.place(Place::new().grow()).add(|ui: Cx<'_>| {
         let mut values = ui.node(Flex::row().gap(4.0));
         for (index, &(option, value)) in options.iter().enumerate() {
-            let clicked = values.add(Button::new(
-                WidgetId::new((label, index)),
-                option,
-                *selected == value,
-            ));
+            let clicked = values
+                .add(Button::new(
+                    WidgetId::new((label, index)),
+                    option,
+                    *selected == value,
+                ))
+                .response;
             if clicked {
                 *selected = value;
             }
@@ -593,8 +599,8 @@ impl Widget<DesktopPlatform> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .insert(background)
                     .clip(BoundsClip);
+                canvas.insert(background);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
@@ -618,8 +624,8 @@ impl Widget<DesktopPlatform> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .insert(background)
                     .clip(BoundsClip);
+                canvas.insert(background);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
@@ -636,7 +642,8 @@ impl Widget<DesktopPlatform> for Canvas {
                     .column_gap(self.config.gap(Axis::Horizontal, self.unit))
                     .row_gap(self.config.gap(Axis::Vertical, self.unit));
                 let mut placer = grid.placer();
-                let mut canvas = ui.node(grid).insert(background).clip(BoundsClip);
+                let mut canvas = ui.node(grid).clip(BoundsClip);
+                canvas.insert(background);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
@@ -662,17 +669,16 @@ fn canvas_item(
     badges: blit::LayerId,
     config: CanvasConfig,
 ) {
-    let item = ui
-        .node(
-            Flex::column()
-                .align(Align::Center)
-                .justify(blit_desktop::layout::Justify::Center),
-        )
-        .insert(
-            Rectangle::new()
-                .background(colors::ITEMS[index])
-                .radius(BorderRadius::uniform(5.0)),
-        );
+    let mut item = ui.node(
+        Flex::column()
+            .align(Align::Center)
+            .justify(blit_desktop::layout::Justify::Center),
+    );
+    item.insert(
+        Rectangle::new()
+            .background(colors::ITEMS[index])
+            .radius(BorderRadius::uniform(5.0)),
+    );
     let mut item = if config.transitions {
         item.widget_id(WidgetId::new(("canvas item", index)))
             .transition(
@@ -705,13 +711,13 @@ fn canvas_item(
                         .align(Align::Center)
                         .justify(blit_desktop::layout::Justify::Center),
                 )
-                .insert(
-                    Rectangle::new()
-                        .background(colors::BACKGROUND)
-                        .border(Border::solid(1.0, Color::WHITE))
-                        .radius(BorderRadius::uniform(4.0)),
-                )
                 .absolute(Absolute::attach(anchor, Anchor::Center));
+            badge.insert(
+                Rectangle::new()
+                    .background(colors::BACKGROUND)
+                    .border(Border::solid(1.0, Color::WHITE))
+                    .radius(BorderRadius::uniform(4.0)),
+            );
             badge.add(
                 Text::new("ABS")
                     .style(TextStyle {

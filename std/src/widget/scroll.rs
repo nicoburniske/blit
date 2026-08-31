@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Cx, Layout, LayoutCx, NodeId, Platform, Point, ScrollPhase, Sense,
-    Size, Widget, WidgetId,
+    Axis, Clip, Constraints, Cx, Layout, LayoutCx, Platform, Point, ScrollPhase, Sense, Size,
+    Widget, WidgetId,
 };
 
 /// scrolls one widget along one axis
@@ -145,10 +145,9 @@ where
     T: FnOnce(bool) -> V,
     V: Widget<R>,
 {
-    type Response = NodeId;
+    type Response = ();
 
-    fn build(self, mut cx: Cx<'_, R>) -> Self::Response {
-        let node = cx.id();
+    fn build(self, mut cx: Cx<'_, R>) {
         let id = self.state.id;
         let content_id = id.child("content");
         let thumb_id = id.child("scroll thumb");
@@ -290,7 +289,6 @@ where
                 .widget_id(thumb_id)
                 .add(scrollbar(thumb_active));
         }
-        node
     }
 }
 

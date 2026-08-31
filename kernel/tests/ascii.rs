@@ -69,12 +69,18 @@ fn layout_atoms_measure_and_paint_in_order() {
 
     frame.render(&mut platform, FrameInfo::new(Size::new(5.0, 4.0)), |ui| {
         let mut root = ui.node(Overlay);
-        root.add(|ui: Cx<'_>| {
-            ui.node(BaseOnly)
-                .insert(Fill::new('A', Size::new(3.0, 1.0)))
-                .insert(Fill::new('B', Size::new(1.0, 2.0)))
-                .id()
-        });
+        let response = root
+            .add(|ui: Cx<'_>| {
+                let mut node = ui.node(BaseOnly);
+                let response = node.insert(|mut cx: Cx<'_>| {
+                    cx.atom(Fill::new('A', Size::new(3.0, 1.0)));
+                    42
+                });
+                node.insert(Fill::new('B', Size::new(1.0, 2.0)));
+                response
+            })
+            .response;
+        assert_eq!(response, 42);
     });
 
     assert_eq!(platform.contents(), "     \n BBB \n BBB \n     ");
@@ -87,11 +93,11 @@ fn resolves_absolute_targets_and_layer_order() {
 
     frame.render(&mut platform, FrameInfo::new(Size::new(8.0, 5.0)), |ui| {
         let mut overlay = ui.node(Overlay);
-        let target = overlay.add(Fill::new('T', Size::new(2.0, 2.0)));
-        let _absolute = overlay
+        let target = overlay.add(Fill::new('T', Size::new(2.0, 2.0))).node;
+        let mut absolute = overlay
             .node(Overlay)
-            .insert(Fill::new('A', Size::new(1.0, 1.0)))
             .absolute(Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target));
+        absolute.insert(Fill::new('A', Size::new(1.0, 1.0)));
     });
 
     assert_eq!(
@@ -122,10 +128,8 @@ fn resolves_absolute_targets_and_layer_order() {
         let mut root = ui.node(Overlay);
         let layer = root.new_layer();
         root.add(|ui: Cx<'_>| {
-            let mut panel = ui
-                .node(BaseOnly)
-                .insert(Fill::new('p', Size::new(3.0, 3.0)))
-                .clip(DiamondClip);
+            let mut panel = ui.node(BaseOnly).clip(DiamondClip);
+            panel.insert(Fill::new('p', Size::new(3.0, 3.0)));
             panel
                 .place(Place::new().layer(layer))
                 .add(Fill::new('L', Size::new(3.0, 3.0)));
@@ -136,10 +140,8 @@ fn resolves_absolute_targets_and_layer_order() {
     frame.render(&mut platform, FrameInfo::new(Size::new(3.0, 3.0)), |ui| {
         let mut root = ui.node(Overlay);
         root.add(|ui: Cx<'_>| {
-            let mut panel = ui
-                .node(BaseOnly)
-                .insert(Fill::new('p', Size::new(3.0, 3.0)))
-                .clip(DiamondClip);
+            let mut panel = ui.node(BaseOnly).clip(DiamondClip);
+            panel.insert(Fill::new('p', Size::new(3.0, 3.0)));
             let layer = panel.new_layer();
             panel
                 .place(Place::new().layer(layer))
@@ -301,7 +303,7 @@ fn absolute_places_resolve_against_the_target() {
 
     frame.render(&mut platform, FrameInfo::new(Size::new(10.0, 4.0)), |ui| {
         let mut overlay = ui.node(Overlay);
-        let target = overlay.add(Fill::new('T', Size::new(6.0, 2.0)));
+        let target = overlay.add(Fill::new('T', Size::new(6.0, 2.0))).node;
         overlay
             .place(
                 Place::new()
@@ -309,13 +311,13 @@ fn absolute_places_resolve_against_the_target() {
                     .height(Sizing::grow()),
             )
             .add(|ui: Cx<'_>| {
-                let _absolute = ui
+                let mut absolute = ui
                     .node(Overlay)
-                    .insert(Fill::new('A', Size::new(1.0, 1.0)))
                     .absolute(
                         Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target),
                     )
                     .widget_id(id);
+                absolute.insert(Fill::new('A', Size::new(1.0, 1.0)));
             });
     });
 
@@ -346,7 +348,7 @@ fn frame_ids_reject_cross_frame_use() {
     frame.render(&mut platform, FrameInfo::new(Size::new(1.0, 1.0)), |ui| {
         let mut root = ui.node(Overlay);
         layer = Some(root.new_layer());
-        node = Some(root.add(Fill::new('X', Size::new(1.0, 1.0))));
+        node = Some(root.add(Fill::new('X', Size::new(1.0, 1.0))).node);
     });
 
     let node = node.unwrap();
@@ -445,11 +447,11 @@ fn transition_scene(
             column
                 .item(ColumnItem { gap_before: 0.0 })
                 .add(|ui: Cx<'_>| {
-                    let _child = ui
+                    let mut child = ui
                         .node(Overlay)
-                        .insert(Fill::new('X', Size::new(width, 1.0)))
                         .widget_id(id)
                         .transition(Transition::new(Duration::from_secs(1)).width());
+                    child.insert(Fill::new('X', Size::new(width, 1.0)));
                 });
         },
     );
@@ -468,10 +470,10 @@ fn unidentified_transition_scene(
         |ui| {
             let mut overlay = ui.node(Overlay);
             overlay.add(|ui: Cx<'_>| {
-                let _child = ui
+                let mut child = ui
                     .node(Overlay)
-                    .insert(Fill::new('X', Size::new(width, 1.0)))
                     .transition(Transition::new(Duration::from_secs(1)).width());
+                child.insert(Fill::new('X', Size::new(width, 1.0)));
             });
         },
     );
@@ -494,11 +496,11 @@ fn position_transition_scene(
             column
                 .item(ColumnItem { gap_before: gap })
                 .add(|ui: Cx<'_>| {
-                    let _child = ui
+                    let mut child = ui
                         .node(Overlay)
-                        .insert(Fill::new('X', Size::new(1.0, 1.0)))
                         .widget_id(id)
                         .transition(Transition::new(Duration::from_secs(1)).y());
+                    child.insert(Fill::new('X', Size::new(1.0, 1.0)));
                 });
         },
     );
@@ -508,10 +510,8 @@ fn clipped_button(ui: &mut Ui, id: WidgetId) -> Interaction {
     let interaction = ui.interact(id, Sense::CLICK);
     let mut root = ui.node(Overlay);
     root.add(|ui: Cx<'_>| {
-        let mut panel = ui
-            .node(BaseOnly)
-            .insert(Fill::new('P', Size::new(3.0, 1.0)))
-            .clip(DiamondClip);
+        let mut panel = ui.node(BaseOnly).clip(DiamondClip);
+        panel.insert(Fill::new('P', Size::new(3.0, 1.0)));
         panel
             .place(Place::new())
             .widget_id(id)
@@ -528,10 +528,8 @@ fn scene(ui: &mut Ui) {
     column
         .item(ColumnItem { gap_before: 1.0 })
         .add(|ui: Cx<'_>| {
-            let mut panel = ui
-                .node(Overlay)
-                .insert(Fill::new('b', Size::new(5.0, 3.0)))
-                .clip(DiamondClip);
+            let mut panel = ui.node(Overlay).clip(DiamondClip);
+            panel.insert(Fill::new('b', Size::new(5.0, 3.0)));
             panel.add(Fill::new('C', Size::new(1.0, 1.0)));
         });
 }

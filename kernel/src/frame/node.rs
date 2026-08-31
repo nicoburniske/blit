@@ -174,6 +174,11 @@ impl Absolute {
     }
 }
 
+pub struct Added<T> {
+    pub node: NodeId,
+    pub response: T,
+}
+
 pub struct Node<'ui, R, L>
 where
     R: Platform,
@@ -223,15 +228,11 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
     }
 
     /// inserts a widget into the current node
-    pub fn insert<W>(self, widget: W) -> Self
-    where
-        W: Widget<R, Response = NodeId>,
-    {
+    pub fn insert<W: Widget<R>>(&mut self, widget: W) -> W::Response {
         widget.build(Cx {
             ui: self.ui,
             node: self.node,
-        });
-        self
+        })
     }
 
     pub fn transition(self, transition: Transition) -> Self {
@@ -264,7 +265,7 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
 
 impl<'ui, R: Platform, L: Layout<R, Item = ()>> Node<'ui, R, L> {
     /// adds a child widget with default placement
-    pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
+    pub fn add<W: Widget<R>>(&mut self, widget: W) -> Added<W::Response> {
         add_child(self, Place::new(), (), None, widget)
     }
 
@@ -316,7 +317,7 @@ impl<'entry, 'ui, R: Platform, L: Layout<R>, I> Entry<'entry, 'ui, R, L, I> {
 
 impl<'entry, R: Platform, L: Layout<R>> Entry<'entry, '_, R, L, L::Item> {
     /// adds a child widget
-    pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
+    pub fn add<W: Widget<R>>(self, widget: W) -> Added<W::Response> {
         add_child(self.node, self.place, self.item, self.id, widget)
     }
 
@@ -383,14 +384,14 @@ fn add_child<R, L, W>(
     item: L::Item,
     id: Option<WidgetId>,
     widget: W,
-) -> W::Response
+) -> Added<W::Response>
 where
     R: Platform,
     L: Layout<R>,
     W: Widget<R>,
 {
     let start = node.ui.frame().nodes.len();
-    let output = node.ui.build_node(widget);
+    let response = node.ui.build_node(widget);
     let frame = node.ui.frame_mut();
     let end = frame.nodes.len();
     assert!(end > start, "layout child did not add a node");
@@ -412,5 +413,8 @@ where
     if let Some(id) = id {
         frame.set_id(child, id);
     }
-    output
+    Added {
+        node: child,
+        response,
+    }
 }

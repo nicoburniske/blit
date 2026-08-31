@@ -155,6 +155,7 @@ impl<R: Platform> Ui<R> {
     }
 }
 
+/// widget build context for the current frame node
 pub struct Cx<'ui, R: Platform> {
     ui: &'ui mut Ui<R>,
     node: NodeId,

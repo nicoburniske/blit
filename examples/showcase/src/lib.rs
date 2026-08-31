@@ -1,8 +1,8 @@
 use std::{collections::VecDeque, time::Duration};
 
 use blit::{
-    Anchor, Axis, Constraints, Cx, Interaction, Layout, LayoutCx, NodeId, Place, Platform, Point,
-    Rect, Sense, Sides, Size, Sizing, Widget, WidgetId,
+    Anchor, Axis, Constraints, Cx, Interaction, Layout, LayoutCx, Place, Platform, Point, Rect,
+    Sense, Sides, Size, Sizing, Widget, WidgetId,
 };
 pub use blit_std::layout::{Align, Justify};
 
@@ -304,9 +304,9 @@ impl<'a, C, F> Resizable<'a, C, F> {
 impl<P, C, F, G> Widget<P> for Resizable<'_, C, F>
 where
     P: Platform,
-    C: Widget<P, Response = ()>,
+    C: Widget<P>,
     F: FnMut(ResizeGrip) -> G,
-    G: Widget<P, Response = NodeId>,
+    G: Widget<P>,
 {
     type Response = ();
 
