@@ -61,7 +61,23 @@ where
 impl<R: Platform> Widget<R> for () {
     type Response = ();
 
-    fn build(self, _: Cx<'_, R>) {}
+    fn build(self, cx: Cx<'_, R>) {
+        #[derive(Clone, Copy)]
+        struct EmptyLayout;
+
+        impl<R: Platform> Layout<R> for EmptyLayout {
+            type Item = ();
+
+            fn layout(
+                &self,
+                _: &mut LayoutCx<'_, R, Self::Item>,
+                constraints: Constraints,
+            ) -> Size {
+                constraints.constrain(Size::ZERO)
+            }
+        }
+        cx.node(EmptyLayout);
+    }
 }
 
 pub trait Atom<R: Platform>: Widget<R> + Copy + 'static {
