@@ -13,7 +13,7 @@ pub mod paint;
 pub mod position;
 pub mod transition;
 
-pub use container::{Absolute, Anchor, Child, LayerId, Node, Place, PositionTarget, Sizing};
+pub use container::{Absolute, Anchor, Entry, LayerId, Node, Place, PositionTarget, Sizing};
 
 use crate::{
     Atom, Clip, FrameInfo, Platform, Widget,

@@ -277,20 +277,15 @@ where
             .widget_id(id)
             .clip(self.clip);
         viewport
-            .child()
             .item(ScrollItem::Content)
             .widget_id(content_id)
             .add(self.content);
         let thumb_active = thumb_interaction.is_some_and(|interaction| interaction.active);
         if let Some(track) = self.track {
-            viewport
-                .child()
-                .item(ScrollItem::Track)
-                .add(track(thumb_active));
+            viewport.item(ScrollItem::Track).add(track(thumb_active));
         }
         if let Some(scrollbar) = self.scrollbar {
             viewport
-                .child()
                 .item(ScrollItem::Thumb)
                 .widget_id(thumb_id)
                 .add(scrollbar(thumb_active));
