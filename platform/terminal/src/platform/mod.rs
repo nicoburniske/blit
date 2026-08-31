@@ -189,24 +189,24 @@ mod tests {
         let mut frame = Frame::default();
         frame.render(&mut platform, FrameInfo::new(Size::new(4.0, 2.0)), |ui| {
             ui.node(Flex::column())
-                .surface(Block::new().background(Color::WHITE));
+                .widget(Block::new().background(Color::WHITE));
         });
         assert!(!platform.renderer().output().is_empty());
         frame.render(&mut platform, FrameInfo::new(Size::new(4.0, 2.0)), |ui| {
             ui.node(Flex::column())
-                .surface(Block::new().background(Color::WHITE));
+                .widget(Block::new().background(Color::WHITE));
         });
         assert!(platform.renderer().output().is_empty());
     }
 
     #[test]
-    fn layout_surface_resolves_borrowed_titles() {
+    fn layout_widget_resolves_borrowed_titles() {
         let renderer = TerminalRenderer::new(RendererConfig::new().columns(12).rows(3));
         let mut platform = TerminalPlatform::new(renderer);
         let mut frame = Frame::default();
         let title = String::from("Settings");
         frame.render(&mut platform, FrameInfo::new(Size::new(12.0, 3.0)), |ui| {
-            ui.node(Flex::column()).surface(
+            ui.node(Flex::column()).widget(
                 Block::new()
                     .border(Border::new(Color::WHITE))
                     .shadow(Shadow::new(Color::BLACK))

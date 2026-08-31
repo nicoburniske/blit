@@ -66,33 +66,36 @@ impl Application for App {
             .atom(Rectangle::new().background(colors::BACKGROUND));
         root.child()
             .place(Place::new().height(Sizing::fixed(52.0)))
-            .add(|ui: Cx<'_>| {
+            .widget(|ui: Cx<'_>| {
                 let mut header = ui.node(
                     Flex::row()
                         .align(Align::Center)
                         .justify(blit_desktop::layout::Justify::SpaceBetween),
                 );
-                header.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
-                    let mut title = ui.node(Flex::column().gap(2.0));
-                    title.add(
-                        Text::new("BLIT / LAYOUT PLAYGROUND")
+                header
+                    .child()
+                    .place(Place::new().grow())
+                    .widget(|ui: Cx<'_>| {
+                        let mut title = ui.node(Flex::column().gap(2.0));
+                        title.add(
+                            Text::new("BLIT / LAYOUT PLAYGROUND")
+                                .style(TextStyle {
+                                    size: 22.0,
+                                    ..TextStyle::default()
+                                })
+                                .color(colors::TEXT),
+                        );
+                        title.add(
+                            Text::new(
+                                "shared layout and resize mechanics, native desktop presentation",
+                            )
                             .style(TextStyle {
-                                size: 22.0,
+                                size: 11.0,
                                 ..TextStyle::default()
                             })
-                            .color(colors::TEXT),
-                    );
-                    title.add(
-                        Text::new(
-                            "shared layout and resize mechanics, native desktop presentation",
-                        )
-                        .style(TextStyle {
-                            size: 11.0,
-                            ..TextStyle::default()
-                        })
-                        .color(colors::TEXT_MUTED),
-                    );
-                });
+                            .color(colors::TEXT_MUTED),
+                        );
+                    });
                 if header.add(Button::new(
                     WidgetId::new("reset layout playground"),
                     "RESET",
@@ -102,7 +105,7 @@ impl Application for App {
                     self.resize.reset();
                 }
             });
-        root.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
+        root.child().place(Place::new().grow()).widget(|ui: Cx<'_>| {
             let mut body = ui.node(Flex::row().gap(14.0));
             body.child()
                 .place(
@@ -110,7 +113,7 @@ impl Application for App {
                         .width(Sizing::fixed(330.0))
                         .height(Sizing::grow()),
                 )
-                .add(|ui: Cx<'_>| {
+                .widget(|ui: Cx<'_>| {
                     let mut controls = ui
                         .node(Flex::column().padding(Sides::all(14.0)).gap(7.0))
                         .atom(panel(colors::SURFACE));
@@ -233,7 +236,7 @@ impl Application for App {
                             &[("On", true), ("Off", false)],
                         );
                     });
-                    controls.child().place(Place::new().grow()).add(
+                    controls.child().place(Place::new().grow()).widget(
                         Text::new("Drag the highlighted right edge, bottom edge, or corner. Layout changes preserve item identity and animate geometry.")
                             .style(TextStyle {
                                 size: 11.0,
@@ -246,13 +249,13 @@ impl Application for App {
                             }),
                     );
                 });
-            body.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
+            body.child().place(Place::new().grow()).widget(|ui: Cx<'_>| {
                 let mut preview = ui
                     .node(Flex::column().padding(Sides::all(12.0)).gap(8.0))
                     .atom(panel(colors::SURFACE));
                 preview.child()
                     .place(Place::new().height(Sizing::fixed(22.0)))
-                    .add(
+                    .widget(
                         Text::new("LIVE PREVIEW")
                             .style(TextStyle {
                                 size: 11.0,
@@ -260,7 +263,7 @@ impl Application for App {
                             })
                             .color(colors::ACCENT),
                     );
-                preview.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
+                preview.child().place(Place::new().grow()).widget(|ui: Cx<'_>| {
                     let mut viewport = ui
                         .node(Flex::row().padding(Sides::all(10.0)).align(Align::Start))
                         .atom(
@@ -463,7 +466,7 @@ fn choices<T: Copy + PartialEq>(
     let mut line = ui.node(Flex::row().align(Align::Center).gap(6.0));
     line.child()
         .place(Place::new().width(Sizing::fixed(66.0)))
-        .add(
+        .widget(
             Text::new(label)
                 .style(TextStyle {
                     size: 10.0,
@@ -471,19 +474,21 @@ fn choices<T: Copy + PartialEq>(
                 })
                 .color(colors::TEXT_MUTED),
         );
-    line.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
-        let mut values = ui.node(Flex::row().gap(4.0));
-        for (index, &(option, value)) in options.iter().enumerate() {
-            let clicked = values.add(Button::new(
-                WidgetId::new((id, index)),
-                option,
-                *selected == value,
-            ));
-            if clicked {
-                *selected = value;
+    line.child()
+        .place(Place::new().grow())
+        .widget(|ui: Cx<'_>| {
+            let mut values = ui.node(Flex::row().gap(4.0));
+            for (index, &(option, value)) in options.iter().enumerate() {
+                let clicked = values.add(Button::new(
+                    WidgetId::new((id, index)),
+                    option,
+                    *selected == value,
+                ));
+                if clicked {
+                    *selected = value;
+                }
             }
-        }
-    });
+        });
 }
 
 #[derive(Clone, Copy)]
@@ -517,7 +522,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     canvas
                         .child()
                         .place(self.config.item_place(index, self.unit))
-                        .add(|ui: Cx<'_>| {
+                        .widget(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -543,7 +548,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     canvas
                         .child()
                         .place(self.config.item_place(index, self.unit))
-                        .add(|ui: Cx<'_>| {
+                        .widget(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -566,7 +571,7 @@ impl Widget<DesktopPlatform> for Canvas {
                             Place::new()
                                 .height(Sizing::fixed(5.0 * self.unit.height * self.config.zoom)),
                         )
-                        .add(|ui: Cx<'_>| {
+                        .widget(|ui: Cx<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -619,7 +624,7 @@ fn canvas_item(
                     .layer(badges)
                     .z_index(1),
             )
-            .add(|ui: Cx<'_>| {
+            .widget(|ui: Cx<'_>| {
                 let mut badge = ui
                     .node(
                         Flex::row()

@@ -231,16 +231,18 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
         self
     }
 
+    /// appends an atom to this node
     pub fn atom<A: Atom<R>>(self, atom: A) -> Self {
         self.ui.frame_mut().push_atom(self.node, atom);
         self
     }
 
-    pub fn surface<W>(self, surface: W) -> Self
+    /// builds a widget into this node
+    pub fn widget<W>(self, widget: W) -> Self
     where
         W: Widget<R, Response = NodeId>,
     {
-        surface.build(Cx {
+        widget.build(Cx {
             ui: self.ui,
             node: self.node,
         });
@@ -271,6 +273,7 @@ where
     R: Platform,
     L: Layout<R, Item = ()>,
 {
+    /// builds a widget in a default child
     pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
         insert(self, Place::new(), (), None, widget)
     }
@@ -315,18 +318,20 @@ impl<'child, 'ui, R: Platform, L: Layout<R>, I> Child<'child, 'ui, R, L, I> {
 }
 
 impl<'child, R: Platform, L: Layout<R>> Child<'child, '_, R, L, L::Item> {
+    /// creates a child containing an atom
     pub fn atom<A: Atom<R>>(self, atom: A) -> NodeId {
-        self.add(|mut cx: Cx<'_, R>| {
+        self.widget(|mut cx: Cx<'_, R>| {
             cx.atom(atom);
             cx.id()
         })
     }
 
-    #[allow(clippy::should_implement_trait)]
-    pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
+    /// creates a child built by a widget
+    pub fn widget<W: Widget<R>>(self, widget: W) -> W::Response {
         insert(self.node, self.place, self.item, self.id, widget)
     }
 
+    /// creates a child with a layout
     pub fn node<N: Layout<R>>(self, layout: N) -> Node<'child, R, N> {
         let child = {
             let frame = self.node.ui.frame_mut();
