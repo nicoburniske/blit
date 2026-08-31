@@ -1,5 +1,5 @@
 use blit::{Atom, Constraints, Frame, FrameInfo, Place, Platform, Rect, Size, Sizing, WidgetId};
-use blit_std::layout::{Flex, Grid, RectLayout, Wrap};
+use blit_std::layout::{Align, Flex, Grid, RectLayout, Wrap};
 
 #[derive(Default)]
 struct TestPlatform;
@@ -18,9 +18,45 @@ impl Atom<TestPlatform> for BoxAtom {
     }
 
     fn paint(&self, _: &mut TestPlatform, _: Rect) {}
+
+    fn measure_depends_on_constraints(&self) -> bool {
+        false
+    }
 }
 
-blit::impl_atom_widgets!(TestPlatform => BoxAtom);
+blit::impl_atom_widgets!(TestPlatform => BoxAtom, ResponsiveAtom);
+
+#[derive(Clone, Copy)]
+struct ResponsiveAtom;
+
+impl Atom<TestPlatform> for ResponsiveAtom {
+    fn measure(&self, _: &mut TestPlatform, constraints: Constraints) -> Size {
+        constraints.constrain(Size::new(
+            10.0,
+            if constraints.max.width < 10.0 {
+                2.0
+            } else {
+                1.0
+            },
+        ))
+    }
+
+    fn paint(&self, _: &mut TestPlatform, _: Rect) {}
+}
+
+#[test]
+fn flex_remeasures_constraint_dependent_atoms() {
+    let mut frame = Frame::default();
+    let mut platform = TestPlatform;
+    let child = WidgetId::new("responsive");
+    frame.render(&mut platform, FrameInfo::new(Size::new(5.0, 10.0)), |ui| {
+        let mut row = ui.node(Flex::row().align(Align::Start));
+        row.place(Place::new().width(Sizing::grow()))
+            .widget_id(child)
+            .add(ResponsiveAtom);
+    });
+    assert_eq!(frame.geometry(child).unwrap().size(), Size::new(5.0, 2.0));
+}
 
 #[test]
 fn flex_distributes_growing_space() {

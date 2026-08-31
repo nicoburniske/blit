@@ -251,6 +251,7 @@ impl Constraints {
         }
     }
 
+    #[inline]
     pub fn constrain(self, size: Size) -> Size {
         Size {
             width: size.width.clamp(self.min.width, self.max.width),
