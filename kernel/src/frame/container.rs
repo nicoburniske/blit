@@ -308,7 +308,7 @@ impl<'child, 'ui, R: Platform, L: Layout<R>, I> Child<'child, 'ui, R, L, I> {
     }
 }
 
-impl<R: Platform, L: Layout<R>> Child<'_, '_, R, L, L::Item> {
+impl<'child, R: Platform, L: Layout<R>> Child<'child, '_, R, L, L::Item> {
     pub fn atom<A: Atom<R>>(self, atom: A) -> NodeId {
         self.add(|mut cx: Cx<'_, R>| {
             cx.atom(atom);
@@ -321,11 +321,19 @@ impl<R: Platform, L: Layout<R>> Child<'_, '_, R, L, L::Item> {
         insert(self.node, self.place, self.item, self.id, widget)
     }
 
-    pub fn node<N, O>(self, layout: N, children: impl FnOnce(Node<'_, R, N>) -> O) -> O
-    where
-        N: Layout<R>,
-    {
-        self.add(|cx: Cx<'_, R>| children(cx.node(layout)))
+    pub fn node<N: Layout<R>>(self, layout: N) -> Node<'child, R, N> {
+        let child = {
+            let frame = self.node.ui.frame_mut();
+            let layout = frame.store_layout(layout);
+            let child = frame.push_node(Some(layout));
+            frame.set_place(child, self.place);
+            frame.nodes[child.index()].item = frame.data.store(self.item);
+            if let Some(id) = self.id {
+                frame.set_id(child, id);
+            }
+            child
+        };
+        new(self.node.ui, child)
     }
 }
 
