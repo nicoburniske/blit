@@ -1,4 +1,4 @@
-use std::{fmt::Write as _, io, time::Duration};
+use std::{cell::RefCell, fmt::Write as _, io, rc::Rc, time::Duration};
 
 use blit::{
     Absolute, Anchor, Axis, Easing, Input, Interaction, Key, Place, Sense, Sides, Size, Sizing,
@@ -10,7 +10,9 @@ use blit_showcase::{
 };
 use blit_tui::{
     BoundsClip, ControlFlow, Cx, TuiPlatform, Ui,
-    atom::{Border, BorderSides, BorderStyle, Shadow, TitlePosition},
+    atom::{
+        Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, TitlePosition,
+    },
     color::Color,
     layout::{Align, Flex, Grid, Justify, Single, Wrap},
     text::{
@@ -29,6 +31,7 @@ struct Showcase {
     layout: LayoutPage,
     text: TextPage,
     blocks: BlocksPage,
+    atoms: AtomsPage,
     scroll: ScrollPage,
     fps: FpsBadge,
     show_fps: bool,
@@ -41,6 +44,7 @@ impl Default for Showcase {
             layout: LayoutPage::default(),
             text: TextPage::default(),
             blocks: BlocksPage::default(),
+            atoms: AtomsPage::default(),
             scroll: ScrollPage::default(),
             fps: FpsBadge::default(),
             show_fps: true,
@@ -77,6 +81,7 @@ impl Showcase {
                 (Page::Layout, " layout "),
                 (Page::Text, " text "),
                 (Page::Blocks, " blocks "),
+                (Page::Atoms, " atoms "),
                 (Page::Scroll, " scroll "),
             ] {
                 if header.add(Button::new(
@@ -108,6 +113,7 @@ impl Showcase {
             Page::Layout => root.place(Place::new().grow()).add(&mut self.layout),
             Page::Text => root.place(Place::new().grow()).add(&mut self.text),
             Page::Blocks => root.place(Place::new().grow()).add(&mut self.blocks),
+            Page::Atoms => root.place(Place::new().grow()).add(&mut self.atoms),
             Page::Scroll => root.place(Place::new().grow()).add(&mut self.scroll),
         };
         if self.show_fps {
@@ -658,6 +664,73 @@ impl Widget<TuiPlatform> for &mut BlocksPage {
     }
 }
 
+struct AtomsPage {
+    sparkline: Rc<RefCell<Vec<u64>>>,
+    bars: Rc<RefCell<Vec<Bar>>>,
+}
+
+impl Default for AtomsPage {
+    fn default() -> Self {
+        Self {
+            sparkline: Rc::new(RefCell::new(vec![0; 80])),
+            bars: Rc::new(RefCell::new(vec![
+                Bar::new(32, "Mon".into()),
+                Bar::new(67, "Tue".into()),
+                Bar::new(45, "Wed".into()),
+                Bar::new(86, "Thu".into()),
+                Bar::new(58, "Fri".into()),
+                Bar::new(93, "Sat".into()),
+                Bar::new(74, "Sun".into()),
+            ])),
+        }
+    }
+}
+
+impl Widget<TuiPlatform> for &mut AtomsPage {
+    type Response = ();
+
+    fn build(self, mut ui: Cx<'_>) {
+        let phase = ui.animate_loop(
+            WidgetId::new("tui atom animation"),
+            Duration::from_secs(3),
+            Easing::Linear,
+        );
+        let ratio = (phase * std::f32::consts::TAU).sin() * 0.25 + 0.5;
+        for (x, value) in self.sparkline.borrow_mut().iter_mut().enumerate() {
+            *value =
+                (((x as f32 * 0.24 + phase * std::f32::consts::TAU).sin() + 1.0) * 50.0) as u64;
+        }
+
+        let mut body = ui.node(Flex::column().padding(Sides::all(1.0)).gap(1.0));
+        body.insert(panel(colors::SURFACE, " DIRECT CELL ATOMS "));
+        body.add(
+            Text::new("ratatui-style atoms paint into the resolved atom area")
+                .color(colors::TEXT_MUTED),
+        );
+        body.place(Place::new().height(Sizing::fixed(1.0))).add(
+            Gauge::new(ratio as f64)
+                .filled(colors::ACCENT)
+                .unfilled(colors::TRACK)
+                .label_color(colors::SURFACE),
+        );
+        body.place(Place::new().height(Sizing::fixed(5.0))).add(
+            Sparkline::new(self.sparkline.clone())
+                .maximum(100)
+                .color(colors::ACCENT)
+                .background(colors::CANVAS),
+        );
+        body.place(Place::new().grow()).add(
+            BarChart::new(self.bars.clone())
+                .maximum(100)
+                .bar_width(5)
+                .gap(2)
+                .color(colors::SECTION)
+                .label_color(colors::TEXT_MUTED)
+                .background(colors::CANVAS),
+        );
+    }
+}
+
 #[derive(Default)]
 struct ScrollPage {
     axis: Axis,
@@ -744,6 +817,7 @@ enum Page {
     Layout,
     Text,
     Blocks,
+    Atoms,
     Scroll,
 }
 

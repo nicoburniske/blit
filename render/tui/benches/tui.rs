@@ -4,7 +4,8 @@ use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_tui_render::{
     RendererConfig, TuiRenderer,
     color::Color,
-    command_list::{Block, ClipId, CommandList},
+    surface::{Cell, CellStyle},
+    text::TextRequest,
 };
 use divan::counter::ItemsCount;
 
@@ -33,49 +34,74 @@ fn renderer_creation(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
     });
 }
 
-#[divan::bench]
-fn render_full(bencher: divan::Bencher) {
-    let mut renderer = renderer();
-    let screen = renderer.screen();
-    let commands = commands(screen, false);
-    let damage = [screen];
+#[divan::bench(args = [(96, 32), (240, 80), (400, 200)])]
+fn render_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
+    let mut renderer = TuiRenderer::new(RendererConfig::new().columns(columns).rows(rows));
+    let screen = renderer.screen().to_logical(Scale2::IDENTITY);
     bencher
-        .counter(ItemsCount::new((screen.width * screen.height) as usize))
-        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
+        .counter(ItemsCount::new(usize::from(columns) * usize::from(rows)))
+        .bench_local(|| {
+            renderer.begin_frame();
+            renderer
+                .cells(screen, screen)
+                .clear(Cell::default().style(CellStyle::new().background(Color::Rgb(20, 30, 40))));
+            renderer.end_frame();
+            black_box(renderer.output());
+        });
 }
 
 #[divan::bench]
-fn render_one_cell(bencher: divan::Bencher) {
+fn render_scene(bencher: divan::Bencher) {
     let mut renderer = renderer();
-    let screen = renderer.screen();
-    let commands = commands(screen, true);
-    renderer.render(&commands, &[screen]);
-    bencher
-        .counter(ItemsCount::new(1usize))
-        .bench_local(|| renderer.render(black_box(&commands), black_box(&[CHANGED_CELL])));
+    bencher.bench_local(|| {
+        scene(&mut renderer, false);
+        black_box(renderer.output());
+    });
 }
 
 #[divan::bench]
 fn update_one_cell(bencher: divan::Bencher) {
     let mut renderer = renderer();
-    let screen = renderer.screen();
-    let old = commands(screen, false);
-    let new = commands(screen, true);
-    renderer.render(&old, &[screen]);
+    scene(&mut renderer, false);
     let mut changed = true;
     bencher.bench_local(|| {
-        renderer.render(
-            black_box(if changed { &new } else { &old }),
-            black_box(&[CHANGED_CELL]),
-        );
+        scene(&mut renderer, changed);
         black_box(renderer.output());
         changed = !changed;
     });
 }
 
-fn commands(screen: PhysicalRect, changed: bool) -> CommandList {
-    let mut commands = CommandList::default();
-    commands.push_clear(screen);
+#[divan::bench]
+fn update_one_cell_in_large_text(bencher: divan::Bencher) {
+    let mut renderer = TuiRenderer::new(RendererConfig::new().columns(200).rows(50));
+    let screen = renderer.screen();
+    let frame = vec!["A".repeat(screen.width as usize); screen.height as usize].join("\n");
+    let mut changed_frame = frame.clone();
+    let changed_byte =
+        CHANGED_CELL.y as usize * (screen.width as usize + 1) + CHANGED_CELL.x as usize;
+    changed_frame.replace_range(changed_byte..changed_byte + 1, "B");
+    let area = screen.to_logical(Scale2::IDENTITY);
+    let old = renderer.text_run(&frame);
+    let new = renderer.text_run(&changed_frame);
+    renderer.begin_frame();
+    renderer.paint_text(TextRequest::new(old, area), area);
+    renderer.end_frame();
+    let mut changed = true;
+    bencher.counter(ItemsCount::new(1usize)).bench_local(|| {
+        renderer.begin_frame();
+        renderer.paint_text(
+            TextRequest::new(if changed { new } else { old }, area),
+            area,
+        );
+        renderer.end_frame();
+        black_box(renderer.output());
+        changed = !changed;
+    });
+}
+
+fn scene(renderer: &mut TuiRenderer, changed: bool) {
+    let screen = renderer.screen().to_logical(Scale2::IDENTITY);
+    renderer.begin_frame();
     for row in 0..8 {
         for column in 0..12 {
             let area = LogicalRect {
@@ -84,26 +110,27 @@ fn commands(screen: PhysicalRect, changed: bool) -> CommandList {
                 width: 8.0,
                 height: 4.0,
             };
-            commands.push_block(
-                Block::new(area).background(Color::Rgb(
-                    (column * 19) as u8,
-                    (row * 31) as u8,
-                    ((row + column) * 13) as u8,
-                )),
-                area.to_physical(Scale2::IDENTITY),
-                ClipId::default(),
-            );
+            renderer
+                .cells(area, screen)
+                .clear(
+                    Cell::default().style(CellStyle::new().background(Color::Rgb(
+                        (column * 19) as u8,
+                        (row * 31) as u8,
+                        ((row + column) * 13) as u8,
+                    ))),
+                );
         }
     }
     if changed {
-        let area = CHANGED_CELL.to_logical(Scale2::IDENTITY);
-        commands.push_block(
-            Block::new(area).background(Color::Rgb(86, 211, 194)),
-            area.to_physical(Scale2::IDENTITY),
-            ClipId::default(),
-        );
+        renderer
+            .cells(CHANGED_CELL.to_logical(Scale2::IDENTITY), screen)
+            .set_cell(
+                0,
+                0,
+                Cell::new('x').style(CellStyle::new().foreground(Color::WHITE)),
+            );
     }
-    commands
+    renderer.end_frame();
 }
 
 fn renderer() -> TuiRenderer {

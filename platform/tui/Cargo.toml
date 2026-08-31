@@ -8,7 +8,6 @@ autoexamples = false
 
 [dependencies]
 blit.workspace = true
-blit-diff.workspace = true
 blit-std.workspace = true
 blit-tui-render = { path = "../../render/tui" }
 termina = "0.3.3"

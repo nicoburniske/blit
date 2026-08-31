@@ -156,7 +156,6 @@ name = "blit-tui"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-diff",
  "blit-showcase",
  "blit-std",
  "blit-tui-render",

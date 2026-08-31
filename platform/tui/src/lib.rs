@@ -1,8 +1,10 @@
 mod platform;
 
+pub mod atom;
+pub mod widget;
 pub use blit_std::layout;
-pub use blit_tui_render::{color, image, text};
-pub use platform::{BoundsClip, TuiPlatform, atom, widget};
+pub use blit_tui_render::{color, image, surface, text};
+pub use platform::{BoundsClip, TuiPlatform};
 
 pub type Ui = blit::Ui<TuiPlatform>;
 pub type Cx<'a> = blit::Cx<'a, TuiPlatform>;
@@ -279,7 +281,12 @@ impl Session {
     }
 
     pub fn present(&mut self) -> io::Result<()> {
-        self.terminal.write_all(self.platform.renderer().output())?;
+        let output = self.platform.renderer().output();
+        // avoid flushing when rendering produced no terminal changes
+        if output.is_empty() {
+            return Ok(());
+        }
+        self.terminal.write_all(output)?;
         self.terminal.flush()
     }
 
