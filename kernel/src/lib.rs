@@ -11,8 +11,8 @@ pub mod layout;
 
 pub use animation::{Easing, Transition, TransitionProperties};
 pub use frame::{
-    Absolute, Anchor, Cx, Entry, Frame, FrameMemory, LayerId, Node, NodeId, Place, PositionTarget,
-    Sizing, Ui,
+    Absolute, Added, Anchor, Cx, Entry, Frame, FrameMemory, LayerId, Node, NodeId, Place,
+    PositionTarget, Sizing, Ui,
 };
 pub use geometry::{
     Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize,
@@ -64,7 +64,7 @@ impl<R: Platform> Widget<R> for () {
     fn build(self, _: Cx<'_, R>) {}
 }
 
-pub trait Atom<R: Platform>: Widget<R, Response = NodeId> + Copy + 'static {
+pub trait Atom<R: Platform>: Widget<R> + Copy + 'static {
     fn measure(&self, platform: &mut R, constraints: Constraints) -> Size;
 
     fn paint(&self, platform: &mut R, area: Rect);

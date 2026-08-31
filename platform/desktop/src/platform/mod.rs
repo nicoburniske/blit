@@ -216,9 +216,8 @@ mod tests {
         platform.set_scale(2.0);
         let mut frame = Frame::default();
         frame.render(&mut platform, FrameInfo::new(Size::new(8.0, 8.0)), |ui| {
-            let mut root = ui
-                .node(Flex::column().padding(Sides::all(3.0)))
-                .insert(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
+            let mut root = ui.node(Flex::column().padding(Sides::all(3.0)));
+            root.insert(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
             root.place(Place::new().fixed(2.0, 2.0))
                 .add(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
         });

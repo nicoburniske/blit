@@ -1,6 +1,6 @@
 pub use blit_std::widget::scroll;
 
-use blit::{NodeId, Widget};
+use blit::Widget;
 use blit_tui_render::{
     color::Color,
     text::{Span, TextAttributes, TextOptions},
@@ -33,9 +33,9 @@ impl<'a> Block<'a> {
 }
 
 impl Widget<TuiPlatform> for Block<'_> {
-    type Response = NodeId;
+    type Response = ();
 
-    fn build(self, mut cx: Cx<'_>) -> Self::Response {
+    fn build(self, mut cx: Cx<'_>) {
         let color = self
             .border
             .map(|border| border.color)
@@ -57,7 +57,6 @@ impl Widget<TuiPlatform> for Block<'_> {
             background: self.background,
             titles,
         });
-        cx.id()
     }
 }
 

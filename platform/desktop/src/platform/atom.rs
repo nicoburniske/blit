@@ -149,6 +149,7 @@ impl Atom<DesktopPlatform> for Image {
 
 blit::impl_atom_widgets!(DesktopPlatform => Rectangle, Text, Image);
 
+// todo: add box shadow atom.
 fn box_shadow(
     area: LogicalRect,
     radius: blit_cpu::style::BorderRadius,

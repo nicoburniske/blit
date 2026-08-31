@@ -71,15 +71,10 @@ macro_rules! impl_atom_widgets {
     ($platform:ty => $($atom:ty),+ $(,)?) => {
         $(
             impl $crate::Widget<$platform> for $atom {
-                type Response = $crate::NodeId;
+                type Response = ();
 
-                fn build(
-                    self,
-                    mut cx: $crate::Cx<'_, $platform>,
-                ) -> Self::Response {
-                    let id = cx.id();
+                fn build(self, mut cx: $crate::Cx<'_, $platform>) {
                     cx.atom(self);
-                    id
                 }
             }
         )+
