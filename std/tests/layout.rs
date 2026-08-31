@@ -127,7 +127,7 @@ fn spanning_grid_places_items_in_equal_cells() {
                 .widget_id(wide)
                 .add(BoxAtom(Size::new(20.0, 10.0)));
             grid.item(placer.place(1, 1))
-                .add(BoxAtom(Size::new(10.0, 10.0)));
+                .add(BoxAtom(Size::uniform(10.0)));
         },
     );
     assert_eq!(frame.geometry(wide).unwrap().width, 66.0);

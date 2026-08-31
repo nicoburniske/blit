@@ -32,11 +32,31 @@ impl Size {
         Self { width, height }
     }
 
+    pub const fn uniform(size: f32) -> Self {
+        Self::new(size, size)
+    }
+
     pub fn max(self, other: Self) -> Self {
         Self {
             width: self.width.max(other.width),
             height: self.height.max(other.height),
         }
+    }
+}
+
+impl std::ops::Sub for Size {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        Self::new(self.width - other.width, self.height - other.height)
+    }
+}
+
+impl std::ops::Mul<f32> for Size {
+    type Output = Self;
+
+    fn mul(self, scale: f32) -> Self {
+        Self::new(self.width * scale, self.height * scale)
     }
 }
 
@@ -218,20 +238,21 @@ impl Sides {
         }
     }
 
-    pub const fn x(value: f32) -> Self {
+    pub const fn xy(x: f32, y: f32) -> Self {
         Self {
-            left: value,
-            right: value,
-            ..Self::all(0.0)
+            top: y,
+            right: x,
+            bottom: y,
+            left: x,
         }
     }
 
+    pub const fn x(value: f32) -> Self {
+        Self::xy(value, 0.0)
+    }
+
     pub const fn y(value: f32) -> Self {
-        Self {
-            top: value,
-            bottom: value,
-            ..Self::all(0.0)
-        }
+        Self::xy(0.0, value)
     }
 }
 
@@ -267,14 +288,8 @@ impl Constraints {
     #[inline]
     pub fn shrink(self, amount: Size) -> Self {
         Self {
-            min: Size::new(
-                (self.min.width - amount.width).max(0.0),
-                (self.min.height - amount.height).max(0.0),
-            ),
-            max: Size::new(
-                (self.max.width - amount.width).max(0.0),
-                (self.max.height - amount.height).max(0.0),
-            ),
+            min: (self.min - amount).max(Size::ZERO),
+            max: (self.max - amount).max(Size::ZERO),
         }
     }
 }

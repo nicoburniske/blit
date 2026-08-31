@@ -3,7 +3,7 @@ use blit_cpu::{
     color::Color,
     command_list::{BoxShadow, Rectangle as DrawRectangle},
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
-    style::{Border, BorderRadius, Shadow},
+    style::{Border, BorderRadius},
     text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle},
 };
 
@@ -13,10 +13,6 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Rectangle {
         new(),
-        @optional {
-            shadow: Shadow,
-            inset_shadow: Shadow,
-        },
         background: Color = Color::TRANSPARENT,
         border: Border<'static> = Border::None,
         radius: BorderRadius = BorderRadius::default(),
@@ -32,12 +28,6 @@ impl Atom<DesktopPlatform> for Rectangle {
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
         let scale = platform.scale;
         let clip = platform.clip;
-        if let Some(shadow) = self.shadow {
-            let shadow = box_shadow(area, self.radius, shadow, false);
-            platform
-                .current
-                .push_box_shadow(shadow, shadow.bounds().to_physical(scale), clip);
-        }
         if self.background != Color::TRANSPARENT || !matches!(self.border, Border::None) {
             platform.current.push_rectangle(
                 DrawRectangle {
@@ -50,12 +40,6 @@ impl Atom<DesktopPlatform> for Rectangle {
                 area.to_physical(scale),
                 clip,
             );
-        }
-        if let Some(shadow) = self.inset_shadow {
-            let shadow = box_shadow(area, self.radius, shadow, true);
-            platform
-                .current
-                .push_box_shadow(shadow, area.to_physical(scale), clip);
         }
     }
 
@@ -147,19 +131,47 @@ impl Atom<DesktopPlatform> for Image {
     }
 }
 
-blit::impl_atom_widgets!(DesktopPlatform => Rectangle, Text, Image);
-
-// todo: add box shadow atom.
-fn box_shadow(
-    area: LogicalRect,
-    radius: blit_cpu::style::BorderRadius,
-    shadow: Shadow,
-    inset: bool,
-) -> BoxShadow {
-    BoxShadow::new(area, shadow.color)
-        .radius(radius)
-        .offset(shadow.offset_x, shadow.offset_y)
-        .blur(shadow.blur)
-        .spread(shadow.spread)
-        .inset(inset)
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Shadow {
+        new(color: Color),
+        radius: BorderRadius = BorderRadius::default(),
+        offset_x: f32 = 0.0,
+        offset_y: f32 = 0.0,
+        blur: f32 = 0.0,
+        spread: f32 = 0.0,
+        inset: bool = false,
+    }
 }
+
+impl Shadow {
+    pub const fn offset(mut self, x: f32, y: f32) -> Self {
+        self.offset_x = x;
+        self.offset_y = y;
+        self
+    }
+}
+
+impl Atom<DesktopPlatform> for Shadow {
+    fn measure(&self, _: &mut DesktopPlatform, _: Constraints) -> Size {
+        Size::ZERO
+    }
+
+    fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
+        let shadow = BoxShadow::new(area, self.color)
+            .radius(self.radius)
+            .offset(self.offset_x, self.offset_y)
+            .blur(self.blur)
+            .spread(self.spread)
+            .inset(self.inset);
+        let bounds = shadow.bounds().to_physical(platform.scale);
+        let clip = platform.clip;
+        platform.current.push_box_shadow(shadow, bounds, clip);
+    }
+
+    fn measure_depends_on_constraints(&self) -> bool {
+        false
+    }
+}
+
+blit::impl_atom_widgets!(DesktopPlatform => Rectangle, Text, Image, Shadow);
