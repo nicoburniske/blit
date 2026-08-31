@@ -204,6 +204,11 @@ crate::builder! {
 }
 
 impl Sides {
+    #[inline]
+    pub fn size(self) -> Size {
+        Size::new(self.left + self.right, self.top + self.bottom)
+    }
+
     pub const fn all(value: f32) -> Self {
         Self {
             top: value,
@@ -256,6 +261,20 @@ impl Constraints {
         Size {
             width: size.width.clamp(self.min.width, self.max.width),
             height: size.height.clamp(self.min.height, self.max.height),
+        }
+    }
+
+    #[inline]
+    pub fn shrink(self, amount: Size) -> Self {
+        Self {
+            min: Size::new(
+                (self.min.width - amount.width).max(0.0),
+                (self.min.height - amount.height).max(0.0),
+            ),
+            max: Size::new(
+                (self.max.width - amount.width).max(0.0),
+                (self.max.height - amount.height).max(0.0),
+            ),
         }
     }
 }

@@ -342,28 +342,10 @@ impl<R: Platform> Layout<R> for ScrollLayout {
             0.0
         };
         let gutter = if self.track { thickness } else { 0.0 };
-        let viewport_constraints = match self.axis {
-            Axis::Horizontal => Constraints {
-                min: Size::new(
-                    constraints.min.width,
-                    (constraints.min.height - gutter).max(0.0),
-                ),
-                max: Size::new(
-                    constraints.max.width,
-                    (constraints.max.height - gutter).max(0.0),
-                ),
-            },
-            Axis::Vertical => Constraints {
-                min: Size::new(
-                    (constraints.min.width - gutter).max(0.0),
-                    constraints.min.height,
-                ),
-                max: Size::new(
-                    (constraints.max.width - gutter).max(0.0),
-                    constraints.max.height,
-                ),
-            },
-        };
+        let viewport_constraints = constraints.shrink(match self.axis {
+            Axis::Horizontal => Size::new(0.0, gutter),
+            Axis::Vertical => Size::new(gutter, 0.0),
+        });
         let content_constraints = match self.axis {
             Axis::Horizontal => Constraints {
                 min: Size::new(0.0, viewport_constraints.min.height),
