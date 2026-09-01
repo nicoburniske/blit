@@ -49,6 +49,12 @@ impl FontData {
     }
 }
 
+impl AsRef<[u8]> for FontData {
+    fn as_ref(&self) -> &[u8] {
+        self.bytes()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FontId(pub u64);
 

@@ -1,10 +1,15 @@
+mod raster;
+
 use std::{collections::HashMap, mem::size_of};
 
 use blit_cache::{DeferredCache, Scale};
-use blit_font::{GlyphId, Metrics, Rasterizer};
 use blit_text::{FontData, FontId, TextSystem};
+use raster::{Metrics, Rasterizer};
 
-use crate::Font;
+struct Font {
+    data: FontData,
+    face_index: u32,
+}
 
 pub struct CachedGlyph {
     pub metrics: Metrics,
@@ -50,14 +55,12 @@ impl GlyphCache {
                 let face = text
                     .font(key.font)
                     .expect("text backend returned an unknown font");
-                match face.data {
-                    FontData::Static(data) => Font::from_static_face(data, face.face_index),
-                    FontData::Shared(data) => Font::from_shared_face(data, face.face_index),
+                Font {
+                    data: face.data,
+                    face_index: face.face_index,
                 }
-                .expect("text backend returned invalid font")
             });
-            let (metrics, alpha) =
-                rasterizer.rasterize(font, GlyphId(key.glyph), f32::from_bits(key.size));
+            let (metrics, alpha) = rasterizer.rasterize(font, key.glyph, f32::from_bits(key.size));
             CachedGlyph {
                 metrics,
                 alpha: alpha.into_boxed_slice(),

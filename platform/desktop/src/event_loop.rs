@@ -204,14 +204,12 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Ok(surface) => surface,
             Err(error) => return self.fail(event_loop, error),
         };
-        let renderer = match Renderer::new(
+        let renderer = Renderer::new(
             DesktopBuffer::new(size.width as usize, size.height as usize),
             config.renderer,
             config.text,
-        ) {
-            Ok(renderer) => renderer.strategy(Scanline::default()),
-            Err(error) => return self.fail(event_loop, error),
-        };
+        )
+        .strategy(Scanline::default());
         let mut platform = DesktopPlatform::new(renderer);
         platform.set_scale(window.scale_factor() as f32);
         let frame = Frame::default();
