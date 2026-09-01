@@ -608,7 +608,7 @@ fn renderer_with_shadow_cache<S>(
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
-    let mut text = TextSystem::new(blit_text::cosmic::Backend::without_system_fonts());
+    let mut text = TextSystem::new(blit_text_cosmic::Backend::without_system_fonts());
     let font = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();

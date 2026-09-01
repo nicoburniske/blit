@@ -1,0 +1,12 @@
+[package]
+name = "blit-text-cosmic"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+blit.workspace = true
+blit-text.workspace = true
+cosmic-text = { version = "0.19", default-features = false, features = ["fontconfig", "std"] }
+unicode-segmentation = "1"

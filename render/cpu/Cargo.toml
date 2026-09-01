@@ -13,7 +13,8 @@ slotmap = "1"
 ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-blit-text = { workspace = true, features = ["cosmic"] }
+blit-text-cosmic.workspace = true
+blit-text-fontdue.workspace = true
 divan = "0.1"
 
 [[bench]]

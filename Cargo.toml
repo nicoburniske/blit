@@ -10,6 +10,8 @@ members = [
     "platform/tui",
     "render/cpu",
     "render/text",
+    "render/text-cosmic",
+    "render/text-fontdue",
     "render/tui",
     "std",
 ]
@@ -24,3 +26,5 @@ blit-executor = { path = "executor" }
 blit-showcase = { path = "examples/showcase" }
 blit-std = { path = "std" }
 blit-text = { path = "render/text" }
+blit-text-cosmic = { path = "render/text-cosmic" }
+blit-text-fontdue = { path = "render/text-fontdue" }

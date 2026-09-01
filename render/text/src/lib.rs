@@ -1,12 +1,11 @@
-#[cfg(feature = "cosmic")]
-pub mod cosmic;
-
-use std::{mem::size_of, ops::Range, ptr::NonNull, sync::Arc};
+use std::{mem::size_of, ops::Range, sync::Arc};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 
 pub trait TextBackend: 'static {
-    fn system_font(&mut self, request: SystemFontRequest<'_>) -> Result<FontId, FontError>;
+    fn system_font(&mut self, _request: SystemFontRequest<'_>) -> Result<FontId, FontError> {
+        Err(FontError::Unsupported)
+    }
 
     fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontId, FontError>;
 
@@ -59,14 +58,12 @@ pub enum FontStyle {
 pub struct TextStyle {
     pub font: FontId,
     pub size: f32,
-    pub weight: u16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayoutRequest {
     pub max_width: Option<f32>,
     pub max_height: Option<f32>,
-    pub offset_x: f32,
     pub max_lines: Option<u16>,
     pub wrap: TextWrap,
     pub overflow: TextOverflow,
@@ -142,7 +139,6 @@ impl TextLayout {
 pub struct LayoutRun {
     pub font: FontId,
     pub size: f32,
-    pub bounds: LogicalRect,
     pub glyphs: Range<u32>,
 }
 
@@ -162,7 +158,7 @@ pub struct Caret {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Glyph {
-    pub id: u32,
+    pub id: u16,
     /// pen origin in logical coordinates relative to the layout origin
     pub position: LogicalPoint,
     pub advance: f32,
@@ -183,7 +179,6 @@ pub enum HorizontalAlign {
     Start,
     Center,
     End,
-    Justify,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -221,90 +216,29 @@ impl std::fmt::Display for FontError {
 impl std::error::Error for FontError {}
 
 pub struct TextSystem {
-    data: NonNull<()>,
-    drop: fn(NonNull<()>),
-    system_font: fn(NonNull<()>, SystemFontRequest<'_>) -> Result<FontId, FontError>,
-    register_font: fn(NonNull<()>, FontData, u32) -> Result<FontId, FontError>,
-    font: fn(NonNull<()>, FontId) -> Option<FontFace>,
-    layout: fn(NonNull<()>, &str, TextStyle, LayoutRequest) -> TextLayout,
+    backend: Box<dyn TextBackend>,
 }
 
 impl TextSystem {
-    pub fn new<B: TextBackend>(backend: B) -> Self {
+    pub fn new(backend: impl TextBackend) -> Self {
         Self {
-            data: NonNull::from(Box::leak(Box::new(backend))).cast(),
-            drop: dispatch::drop_backend::<B>,
-            system_font: dispatch::system_font::<B>,
-            register_font: dispatch::register_font::<B>,
-            font: dispatch::font::<B>,
-            layout: dispatch::layout::<B>,
+            backend: Box::new(backend),
         }
     }
 
     pub fn system_font(&mut self, request: SystemFontRequest<'_>) -> Result<FontId, FontError> {
-        (self.system_font)(self.data, request)
+        self.backend.system_font(request)
     }
 
     pub fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontId, FontError> {
-        (self.register_font)(self.data, data, face_index)
+        self.backend.register_font(data, face_index)
     }
 
     pub fn font(&self, font: FontId) -> Option<FontFace> {
-        (self.font)(self.data, font)
+        self.backend.font(font)
     }
 
     pub fn layout(&mut self, text: &str, style: TextStyle, request: LayoutRequest) -> TextLayout {
-        (self.layout)(self.data, text, style, request)
-    }
-}
-
-impl Drop for TextSystem {
-    fn drop(&mut self) {
-        (self.drop)(self.data)
-    }
-}
-
-mod dispatch {
-    // safety: TextSystem owns data as Box<B> and dispatches according to its borrow
-    use super::*;
-
-    pub fn drop_backend<B: TextBackend>(data: NonNull<()>) {
-        unsafe { drop(Box::from_raw(data.cast::<B>().as_ptr())) }
-    }
-
-    fn backend<B: TextBackend>(data: NonNull<()>) -> &'static B {
-        unsafe { data.cast::<B>().as_ref() }
-    }
-
-    fn backend_mut<B: TextBackend>(data: NonNull<()>) -> &'static mut B {
-        unsafe { data.cast::<B>().as_mut() }
-    }
-
-    pub fn system_font<B: TextBackend>(
-        data: NonNull<()>,
-        request: SystemFontRequest<'_>,
-    ) -> Result<FontId, FontError> {
-        backend_mut::<B>(data).system_font(request)
-    }
-
-    pub fn register_font<B: TextBackend>(
-        data: NonNull<()>,
-        font: FontData,
-        face_index: u32,
-    ) -> Result<FontId, FontError> {
-        backend_mut::<B>(data).register_font(font, face_index)
-    }
-
-    pub fn font<B: TextBackend>(data: NonNull<()>, font: FontId) -> Option<FontFace> {
-        backend::<B>(data).font(font)
-    }
-
-    pub fn layout<B: TextBackend>(
-        data: NonNull<()>,
-        text: &str,
-        style: TextStyle,
-        request: LayoutRequest,
-    ) -> TextLayout {
-        backend_mut::<B>(data).layout(text, style, request)
+        self.backend.layout(text, style, request)
     }
 }
