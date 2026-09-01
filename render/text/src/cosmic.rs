@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, hash_map::DefaultHasher},
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::{iter, sync::Arc};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use cosmic_text::{
@@ -10,52 +6,28 @@ use cosmic_text::{
     Metrics, Shaping, Wrap,
     fontdb::{self, Query, Source},
 };
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    Backend, FontData, FontError, FontFace, FontId, FontStyle, Glyph, GlyphRun, GlyphRunVisitor,
-    HorizontalAlign, SystemFontRequest, TextId, TextLayoutId, TextLayoutRequest, TextOverflow,
-    TextStyle, TextWrap, VerticalAlign,
+    Caret, FontData, FontError, FontFace, FontId, FontStyle, Glyph, HorizontalAlign, LayoutLine,
+    LayoutRequest, LayoutRun, SystemFontRequest, TextLayout, TextOverflow, TextStyle, TextWrap,
+    VerticalAlign,
 };
 
-pub struct CosmicBackend {
+pub struct Backend {
     fonts: FontSystem,
     faces: Vec<CosmicFace>,
-    face_ids: HashMap<fontdb::ID, FontId>,
-    texts: Vec<CosmicText>,
-    text_ids: HashMap<u64, Vec<usize>>,
-    layouts: Vec<CosmicLayout>,
 }
 
 struct CosmicFace {
+    cosmic: fontdb::ID,
     data: FontFace,
     family: Box<str>,
     stretch: fontdb::Stretch,
     style: fontdb::Style,
 }
 
-struct CosmicText {
-    text: Box<str>,
-    line_starts: Box<[usize]>,
-    style: TextStyle,
-}
-
-struct CosmicLayout {
-    text: usize,
-    buffer: Buffer,
-    runs: Box<[OwnedRun]>,
-    size: LogicalSize,
-    offset_x: f32,
-    offset_y: f32,
-}
-
-struct OwnedRun {
-    font: FontId,
-    size: f32,
-    bounds: LogicalRect,
-    glyphs: Box<[Glyph]>,
-}
-
-impl CosmicBackend {
+impl Backend {
     pub fn new() -> Self {
         Self::with_font_system(FontSystem::new())
     }
@@ -71,16 +43,12 @@ impl CosmicBackend {
         Self {
             fonts,
             faces: Vec::new(),
-            face_ids: HashMap::new(),
-            texts: Vec::new(),
-            text_ids: HashMap::new(),
-            layouts: Vec::new(),
         }
     }
 
     fn face(&mut self, cosmic: fontdb::ID) -> Option<FontId> {
-        if let Some(id) = self.face_ids.get(&cosmic) {
-            return Some(*id);
+        if let Some(index) = self.faces.iter().position(|face| face.cosmic == cosmic) {
+            return Some(FontId(u64::try_from(index + 1).ok()?));
         }
         let info = self.fonts.db().face(cosmic)?;
         let family = info.families.first()?.0.clone().into_boxed_str();
@@ -95,28 +63,23 @@ impl CosmicBackend {
             })?;
         let id = FontId(u64::try_from(self.faces.len() + 1).ok()?);
         self.faces.push(CosmicFace {
+            cosmic,
             data,
             family,
             stretch,
             style,
         });
-        self.face_ids.insert(cosmic, id);
         Some(id)
-    }
-
-    fn layout(&self, layout: TextLayoutId) -> &CosmicLayout {
-        let index = layout.0.checked_sub(1).expect("invalid text layout") as usize;
-        self.layouts.get(index).expect("expired text layout")
     }
 }
 
-impl Default for CosmicBackend {
+impl Default for Backend {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Backend for CosmicBackend {
+impl crate::TextBackend for Backend {
     fn system_font(&mut self, request: SystemFontRequest<'_>) -> Result<FontId, FontError> {
         let family = [Family::Name(request.family)];
         let cosmic = self
@@ -163,6 +126,7 @@ impl Backend for CosmicBackend {
         let info = self.fonts.db().face(cosmic).ok_or(FontError::InvalidData)?;
         let id = FontId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
         self.faces.push(CosmicFace {
+            cosmic,
             data: FontFace { data, face_index },
             family: info
                 .families
@@ -174,7 +138,6 @@ impl Backend for CosmicBackend {
             stretch: info.stretch,
             style: info.style,
         });
-        self.face_ids.insert(cosmic, id);
         Ok(id)
     }
 
@@ -183,92 +146,50 @@ impl Backend for CosmicBackend {
         self.faces.get(index).map(|face| face.data.clone())
     }
 
-    fn text(&mut self, text: &str, style: TextStyle) -> TextId {
-        let mut hasher = DefaultHasher::new();
-        text.hash(&mut hasher);
-        style.font.hash(&mut hasher);
-        style.size.to_bits().hash(&mut hasher);
-        style.weight.hash(&mut hasher);
-        let digest = hasher.finish();
-        if let Some(indices) = self.text_ids.get(&digest)
-            && let Some(index) = indices.iter().copied().find(|index| {
-                let cached = &self.texts[*index];
-                cached.text.as_ref() == text && cached.style == style
-            })
-        {
-            return TextId(u64::try_from(index + 1).expect("too many texts"));
-        }
-
-        let mut line_starts: Vec<_> = LineIter::new(text).map(|(range, _)| range.start).collect();
-        if line_starts.is_empty() {
-            line_starts.push(0);
-        } else if matches!(text.as_bytes().last(), Some(b'\r' | b'\n')) {
-            line_starts.push(text.len());
-        }
-        let index = self.texts.len();
-        self.texts.push(CosmicText {
-            text: text.into(),
-            line_starts: line_starts.into_boxed_slice(),
-            style,
+    fn layout(&mut self, text: &str, style: TextStyle, request: LayoutRequest) -> TextLayout {
+        let face_index = style.font.0.checked_sub(1).expect("invalid font") as usize;
+        let face = self.faces.get(face_index).expect("expired font");
+        let line_height = style.size * 1.2;
+        let height = match (request.max_height, request.max_lines) {
+            (Some(height), Some(lines)) => Some(height.min(line_height * f32::from(lines))),
+            (Some(height), None) => Some(height),
+            (None, Some(lines)) => Some(line_height * f32::from(lines)),
+            (None, None) => None,
+        };
+        let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(style.size, line_height));
+        buffer.set_size(request.max_width, height);
+        buffer.set_wrap(match request.wrap {
+            TextWrap::None => Wrap::None,
+            TextWrap::Word => Wrap::Word,
+            TextWrap::Glyph => Wrap::Glyph,
         });
-        self.text_ids.entry(digest).or_default().push(index);
-        TextId(u64::try_from(index + 1).expect("too many texts"))
-    }
-
-    fn layout(&mut self, request: TextLayoutRequest) -> TextLayoutId {
-        let text_index = request.text.0.checked_sub(1).expect("invalid text") as usize;
-        let line_height;
-        let mut buffer;
-        {
-            let text = self.texts.get(text_index).expect("expired text");
-            let face_index = text.style.font.0.checked_sub(1).expect("invalid font") as usize;
-            let face = self.faces.get(face_index).expect("expired font");
-            line_height = text.style.size * 1.2;
-            let height = match (request.max_height, request.max_lines) {
-                (Some(height), Some(lines)) => Some(height.min(line_height * f32::from(lines))),
-                (Some(height), None) => Some(height),
-                (None, Some(lines)) => Some(line_height * f32::from(lines)),
-                (None, None) => None,
-            };
-            buffer = Buffer::new(&mut self.fonts, Metrics::new(text.style.size, line_height));
-            buffer.set_size(request.max_width, height);
-            buffer.set_wrap(match request.wrap {
-                TextWrap::None => Wrap::None,
-                TextWrap::Word => Wrap::Word,
-                TextWrap::Glyph => Wrap::Glyph,
-            });
-            buffer.set_ellipsize(match request.overflow {
-                TextOverflow::Clip => Ellipsize::None,
-                TextOverflow::Ellipsis => Ellipsize::End(match request.max_lines {
-                    Some(lines) => EllipsizeHeightLimit::Lines(usize::from(lines)),
-                    None => EllipsizeHeightLimit::Height(request.max_height.unwrap_or(f32::MAX)),
-                }),
-            });
-            let attrs = Attrs::new()
-                .family(Family::Name(&face.family))
-                .stretch(face.stretch)
-                .style(face.style)
-                .weight(cosmic_text::Weight(text.style.weight));
-            buffer.set_text(
-                &text.text,
-                &attrs,
-                Shaping::Advanced,
-                Some(match request.horizontal_align {
-                    HorizontalAlign::Start => Align::Left,
-                    HorizontalAlign::Center => Align::Center,
-                    HorizontalAlign::End => Align::Right,
-                    HorizontalAlign::Justify => Align::Justified,
-                }),
-            );
-            buffer.shape_until_scroll(&mut self.fonts, false);
-        }
+        buffer.set_ellipsize(match request.overflow {
+            TextOverflow::Clip => Ellipsize::None,
+            TextOverflow::Ellipsis => Ellipsize::End(match request.max_lines {
+                Some(lines) => EllipsizeHeightLimit::Lines(usize::from(lines)),
+                None => EllipsizeHeightLimit::Height(request.max_height.unwrap_or(f32::MAX)),
+            }),
+        });
+        let attrs = Attrs::new()
+            .family(Family::Name(&face.family))
+            .stretch(face.stretch)
+            .style(face.style)
+            .weight(cosmic_text::Weight(style.weight));
+        buffer.set_text(
+            text,
+            &attrs,
+            Shaping::Advanced,
+            Some(match request.horizontal_align {
+                HorizontalAlign::Start => Align::Left,
+                HorizontalAlign::Center => Align::Center,
+                HorizontalAlign::End => Align::Right,
+                HorizontalAlign::Justify => Align::Justified,
+            }),
+        );
+        buffer.shape_until_scroll(&mut self.fonts, false);
 
         let mut width = 0.0f32;
-        let mut content_height = if self.texts[text_index].text.is_empty() {
-            line_height
-        } else {
-            0.0
-        };
+        let mut content_height = if text.is_empty() { line_height } else { 0.0 };
         for run in buffer.layout_runs() {
             width = width.max(run.line_w);
             content_height = content_height.max(run.line_top + run.line_height);
@@ -280,121 +201,125 @@ impl Backend for CosmicBackend {
                 VerticalAlign::Center => ((height - content_height) / 2.0).floor(),
                 VerticalAlign::End => (height - content_height).floor(),
             });
+        let mut line_starts: Vec<_> = LineIter::new(text).map(|(range, _)| range.start).collect();
+        if line_starts.is_empty() {
+            line_starts.push(0);
+        } else if matches!(text.as_bytes().last(), Some(b'\r' | b'\n')) {
+            line_starts.push(text.len());
+        }
 
-        let mut runs = Vec::<OwnedRun>::new();
-        for run in buffer.layout_runs() {
+        let mut glyphs = Vec::new();
+        let mut runs = Vec::new();
+        let mut lines = Vec::new();
+        let mut carets = Vec::new();
+        let mut line_carets = Vec::new();
+        for line in buffer.layout_runs() {
             let bounds = LogicalRect {
                 x: -request.offset_x,
-                y: run.line_top + offset_y,
-                width: run.line_w,
-                height: run.line_height,
+                y: line.line_top + offset_y,
+                width: line.line_w,
+                height: line.line_height,
             };
+            let run_start = u32::try_from(runs.len()).expect("too many layout runs");
             let mut start = 0;
-            while start < run.glyphs.len() {
-                let source = &run.glyphs[start];
+            while start < line.glyphs.len() {
+                let source = &line.glyphs[start];
                 let mut end = start + 1;
-                while end < run.glyphs.len()
-                    && run.glyphs[end].font_id == source.font_id
-                    && run.glyphs[end].font_size.to_bits() == source.font_size.to_bits()
+                while end < line.glyphs.len()
+                    && line.glyphs[end].font_id == source.font_id
+                    && line.glyphs[end].font_size.to_bits() == source.font_size.to_bits()
                 {
                     end += 1;
                 }
                 let font = self
                     .face(source.font_id)
                     .expect("cosmic-text returned invalid font");
-                let glyphs = run.glyphs[start..end]
-                    .iter()
-                    .map(|glyph| Glyph {
+                let glyph_start = u32::try_from(glyphs.len()).expect("too many glyphs");
+                glyphs.extend(line.glyphs[start..end].iter().map(|glyph| {
+                    Glyph {
                         id: u32::from(glyph.glyph_id),
                         position: LogicalPoint {
                             x: glyph.x + glyph.font_size * glyph.x_offset - request.offset_x,
-                            y: run.line_y + glyph.y - glyph.font_size * glyph.y_offset + offset_y,
+                            y: line.line_y + glyph.y - glyph.font_size * glyph.y_offset + offset_y,
                         },
                         advance: glyph.w,
                         cluster: u32::try_from(
-                            self.texts[text_index].line_starts[run.line_i]
-                                .saturating_add(glyph.start),
+                            line_starts[line.line_i].saturating_add(glyph.start),
                         )
                         .expect("text is too long"),
-                    })
-                    .collect();
-                runs.push(OwnedRun {
+                    }
+                }));
+                runs.push(LayoutRun {
                     font,
                     size: source.font_size,
                     bounds,
-                    glyphs,
+                    glyphs: glyph_start..u32::try_from(glyphs.len()).expect("too many glyphs"),
                 });
                 start = end;
             }
+
+            line_carets.clear();
+            if line.glyphs.is_empty() {
+                line_carets.push(Caret {
+                    byte_offset: u32::try_from(line_starts[line.line_i]).expect("text is too long"),
+                    position: LogicalPoint {
+                        x: -request.offset_x,
+                        y: line.line_top + offset_y,
+                    },
+                    height: line.line_height,
+                });
+            } else {
+                for glyph in line.glyphs {
+                    let cluster = &line.text[glyph.start..glyph.end];
+                    for index in cluster
+                        .grapheme_indices(true)
+                        .map(|(index, _)| glyph.start + index)
+                        .chain(iter::once(glyph.end))
+                    {
+                        let Some(x) = line.cursor_position(&Cursor::new(line.line_i, index)) else {
+                            continue;
+                        };
+                        line_carets.push(Caret {
+                            byte_offset: u32::try_from(
+                                line_starts[line.line_i].saturating_add(index),
+                            )
+                            .expect("text is too long"),
+                            position: LogicalPoint {
+                                x: x - request.offset_x,
+                                y: line.line_top + offset_y,
+                            },
+                            height: line.line_height,
+                        });
+                    }
+                }
+                line_carets.sort_by(|left, right| {
+                    left.byte_offset
+                        .cmp(&right.byte_offset)
+                        .then_with(|| left.position.x.total_cmp(&right.position.x))
+                });
+                line_carets.dedup_by(|left, right| {
+                    left.byte_offset == right.byte_offset
+                        && left.position.x.to_bits() == right.position.x.to_bits()
+                });
+            }
+            let caret_start = u32::try_from(carets.len()).expect("too many carets");
+            carets.extend_from_slice(&line_carets);
+            lines.push(LayoutLine {
+                bounds,
+                runs: run_start..u32::try_from(runs.len()).expect("too many layout runs"),
+                carets: caret_start..u32::try_from(carets.len()).expect("too many carets"),
+            });
         }
 
-        self.layouts.push(CosmicLayout {
-            text: text_index,
-            buffer,
-            runs: runs.into_boxed_slice(),
+        TextLayout {
             size: LogicalSize {
                 width,
                 height: content_height,
             },
-            offset_x: request.offset_x,
-            offset_y,
-        });
-        TextLayoutId(u64::try_from(self.layouts.len()).expect("too many text layouts"))
-    }
-
-    fn size(&self, layout: TextLayoutId) -> LogicalSize {
-        self.layout(layout).size
-    }
-
-    fn hit_test(&self, layout: TextLayoutId, position: LogicalPoint) -> usize {
-        let layout = self.layout(layout);
-        let Some(cursor) = layout
-            .buffer
-            .hit(position.x + layout.offset_x, position.y - layout.offset_y)
-        else {
-            return 0;
-        };
-        self.texts[layout.text].line_starts[cursor.line].saturating_add(cursor.index)
-    }
-
-    fn cursor_rect(&self, layout: TextLayoutId, byte_offset: usize) -> LogicalRect {
-        let layout = self.layout(layout);
-        let text = &self.texts[layout.text];
-        let byte_offset = byte_offset.min(text.text.len());
-        let line = text
-            .line_starts
-            .partition_point(|start| *start <= byte_offset)
-            .saturating_sub(1);
-        let index = byte_offset
-            .saturating_sub(text.line_starts[line])
-            .min(layout.buffer.lines[line].text().len());
-        let cursor = Cursor::new(line, index);
-        let (x, y) = layout.buffer.cursor_position(&cursor).unwrap_or((0.0, 0.0));
-        let height = layout
-            .buffer
-            .layout_runs()
-            .find(|run| run.line_i == line && y == run.line_top)
-            .map_or(text.style.size * 1.2, |run| run.line_height);
-        LogicalRect {
-            x: x - layout.offset_x,
-            y: y + layout.offset_y,
-            width: 0.0,
-            height,
+            glyphs: glyphs.into_boxed_slice(),
+            runs: runs.into_boxed_slice(),
+            lines: lines.into_boxed_slice(),
+            carets: carets.into_boxed_slice(),
         }
-    }
-
-    fn visit_runs(&self, layout: TextLayoutId, visitor: &mut GlyphRunVisitor<'_>) {
-        for run in &self.layout(layout).runs {
-            visitor.push(GlyphRun {
-                font: run.font,
-                size: run.size,
-                bounds: run.bounds,
-                glyphs: &run.glyphs,
-            });
-        }
-    }
-
-    fn finish_frame(&mut self) {
-        self.layouts.clear();
     }
 }

@@ -5,6 +5,10 @@ edition = "2024"
 license.workspace = true
 publish = false
 
+[features]
+cosmic = ["dep:cosmic-text", "dep:unicode-segmentation"]
+
 [dependencies]
 blit.workspace = true
-cosmic-text = { version = "0.19", default-features = false, features = ["fontconfig", "std"] }
+cosmic-text = { version = "0.19", default-features = false, features = ["fontconfig", "std"], optional = true }
+unicode-segmentation = { version = "1", optional = true }

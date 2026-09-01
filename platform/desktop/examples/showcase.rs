@@ -4,7 +4,7 @@ use blit::{
     Absolute, Anchor, Axis, Easing, Interaction, Place, Sense, Sides, Size, Sizing, Transition,
     Widget, WidgetId,
 };
-use blit_cpu::{CosmicBackend, FontData, FontFace, RendererConfig, TextSystem};
+use blit_cpu::{FontFace, RendererConfig, TextSystem};
 use blit_desktop::{
     Application, BoundsClip, Config, Cx, DesktopPlatform, EventLoopProxy, Root, Ui,
     atom::{Rectangle, Shadow},
@@ -18,9 +18,10 @@ use blit_showcase::{
     CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip,
     ResizeState,
 };
+use blit_text::FontData;
 
 fn main() {
-    let mut text = TextSystem::new(CosmicBackend::new());
+    let mut text = TextSystem::new(blit_text::cosmic::Backend::new());
     let font = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();
@@ -34,6 +35,8 @@ fn main() {
                 weight: 400,
                 font,
             }],
+            text_cache_capacity: 1024 * 1024,
+            layout_cache_capacity: 2 * 1024 * 1024,
             glyph_cache_capacity: 1024 * 1024,
             shadow_cache_capacity: 512 * 1024,
         },

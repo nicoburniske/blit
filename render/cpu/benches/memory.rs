@@ -5,8 +5,7 @@ use std::{
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
-    CosmicBackend, FontData, FontFace, Renderer, RendererConfig, Scanline, TextSystem, VecBuffer,
-    Xrgb8888,
+    FontData, FontFace, Renderer, RendererConfig, Scanline, TextSystem, VecBuffer, Xrgb8888,
     color::Color,
     command_list::{ClipId, CommandList, Rectangle},
     text_types::FontId,
@@ -40,7 +39,7 @@ fn main() {
         width: SIDE as i32,
         height: SIDE as i32,
     }];
-    let mut text = TextSystem::new(CosmicBackend::without_system_fonts());
+    let mut text = TextSystem::new(blit_text::cosmic::Backend::without_system_fonts());
     let font = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();
@@ -52,6 +51,8 @@ fn main() {
                 weight: 400,
                 font,
             }],
+            text_cache_capacity: 1,
+            layout_cache_capacity: 1,
             glyph_cache_capacity: 1,
             shadow_cache_capacity: 0,
         },
