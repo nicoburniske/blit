@@ -152,6 +152,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "blit-text"
+version = "0.1.0"
+dependencies = [
+ "blit",
+]
+
+[[package]]
 name = "blit-tui"
 version = "0.1.0"
 dependencies = [
