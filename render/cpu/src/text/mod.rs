@@ -6,62 +6,39 @@ use std::{
     hash::{Hash, Hasher},
     mem::size_of,
     ptr::NonNull,
+    sync::Arc,
 };
 
 use crate::{
+    Pixel, PixelSpan, RendererConfig,
     color::Color,
     text_types::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use blit_font::{Layout, TextRun};
-use font::FontCache;
-use paragraph::{Caret, PaintGlyph, ParagraphCache};
-
-use crate::{Pixel, PixelSpan, RendererConfig};
+use blit_text::{
+    Backend, FontError, FontFace as RegisteredFace, FontId, GlyphRun, GlyphRunVisitor,
+    HorizontalAlign, SystemFontRequest, TextId, TextLayoutId, TextOverflow, TextSystem,
+    VerticalAlign,
+};
+use font::{FontStore, GlyphCache};
+use paragraph::ParagraphCache;
 
 pub struct TextRenderer {
-    fonts: FontCache,
-    runs: DeferredCache<RunKey, CachedRun, RunScale>,
-    run_builder: Layout,
-    next_run: u32,
-    paragraphs: ParagraphCache,
-    paint_glyphs: Vec<PaintGlyph>,
-    carets: Vec<Caret>,
+    backend: TextSystem,
+    families: Box<[ConfiguredFace]>,
+    glyphs: GlyphCache,
     prepared: Vec<PreparedGlyph>,
+    lines: Vec<PreparedLine>,
     coverage: Vec<u8>,
 }
 
-struct CachedRun {
-    id: TextRunId,
-    face: usize,
-    run: TextRun,
-}
-
-struct RunScale;
-
-impl Scale<RunKey, CachedRun> for RunScale {
-    fn weight(&self, _key: &RunKey, run: &CachedRun) -> usize {
-        size_of::<CachedRun>() + run.run.allocated_bytes()
-    }
-}
-
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
-struct RunKey {
-    digest: u64,
-    len: usize,
-    font: crate::text_types::FontId,
-    size: u32,
+#[derive(Clone, Copy)]
+struct ConfiguredFace {
+    family: crate::text_types::FontId,
     weight: u16,
-}
-
-#[derive(Clone, Copy, Hash)]
-struct RunQuery {
-    digest: u64,
-    len: usize,
-    font: crate::text_types::FontId,
-    size: u32,
-    weight: u16,
+    font: FontId,
 }
 
 pub struct PreparedGlyph {
@@ -72,79 +49,82 @@ pub struct PreparedGlyph {
     height: u32,
 }
 
+struct PreparedLine {
+    glyph_start: u32,
+    glyph_end: u32,
+    top: i32,
+    bottom: i32,
+}
+
 #[derive(Clone, Copy)]
-pub struct PreparedLines(u32);
+pub struct PreparedLines {
+    start: u32,
+    end: u32,
+}
 
 impl PreparedLines {
-    // rasterize the full glyph range without cached multiline filtering
-    const NONE: Self = Self(u32::MAX);
+    const NONE: Self = Self {
+        start: u32::MAX,
+        end: u32::MAX,
+    };
 }
 
 impl TextRenderer {
     pub fn new(config: RendererConfig) -> Self {
-        Self {
-            fonts: FontCache::new(config.fonts, config.glyph_cache_capacity),
-            runs: DeferredCache::new(RunScale, config.paragraph_cache_capacity),
-            run_builder: Layout::with_metric_cache_capacity(config.font_metric_cache_capacity),
-            next_run: 1,
-            paragraphs: ParagraphCache::new(config.paragraph_cache_capacity),
-            paint_glyphs: Vec::new(),
-            carets: Vec::new(),
-            prepared: Vec::new(),
-            coverage: Vec::new(),
-        }
+        let backend = TextSystem::new(TinyBackend::new(
+            config.font_metric_cache_capacity,
+            config.paragraph_cache_capacity,
+        ));
+        Self::with_backend(config, backend).expect("configured font is invalid")
     }
 
-    pub fn text_run(&mut self, text: &str, style: TextStyle, scale_factor: f32) -> TextRunId {
-        let Some((face, font)) = self.fonts.font(style.font, style.weight) else {
+    pub fn with_backend(
+        config: RendererConfig,
+        mut backend: TextSystem,
+    ) -> Result<Self, FontError> {
+        let mut families = Vec::with_capacity(config.fonts.len());
+        for face in config.fonts {
+            let font = backend
+                .register_font(blit_text::FontData::Shared(Arc::from(face.font.bytes())), 0)?;
+            families.push(ConfiguredFace {
+                family: face.id,
+                weight: face.weight,
+                font,
+            });
+        }
+        Ok(Self {
+            backend,
+            families: families.into_boxed_slice(),
+            glyphs: GlyphCache::new(config.glyph_cache_capacity),
+            prepared: Vec::new(),
+            lines: Vec::new(),
+            coverage: Vec::new(),
+        })
+    }
+
+    pub fn text_run(&mut self, text: &str, style: TextStyle, _scale_factor: f32) -> TextRunId {
+        let Some(face) = self
+            .families
+            .iter()
+            .filter(|face| face.family == style.font)
+            .min_by_key(|face| {
+                (
+                    face.weight.abs_diff(style.weight),
+                    std::cmp::Reverse(face.weight),
+                )
+            })
+        else {
             return TextRunId::default();
         };
-        let mut hasher = DefaultHasher::new();
-        text.hash(&mut hasher);
-        let query = RunQuery {
-            digest: hasher.finish(),
-            len: text.len(),
-            font: style.font,
-            size: (style.size * scale_factor).to_bits(),
-            weight: style.weight,
-        };
-        let next_run = self.next_run;
-        let (_, index) = self.runs.get_or_insert_by(
-            &query,
-            |key, cached| {
-                key.digest == query.digest
-                    && key.len == query.len
-                    && key.font == query.font
-                    && key.size == query.size
-                    && key.weight == query.weight
-                    && cached.run.matches(text)
-            },
-            || {
-                (
-                    RunKey {
-                        digest: query.digest,
-                        len: query.len,
-                        font: query.font,
-                        size: query.size,
-                        weight: query.weight,
-                    },
-                    CachedRun {
-                        id: TextRunId(u64::from(next_run) << 32),
-                        face,
-                        run: self
-                            .run_builder
-                            .text_run(font, text, style.size * scale_factor),
-                    },
-                )
+        let text = self.backend.text(
+            text,
+            blit_text::TextStyle {
+                font: face.font,
+                size: style.size,
+                weight: style.weight,
             },
         );
-        if self.runs.get_index(index).id.0 as u32 == 0 {
-            let slot = u32::try_from(index + 1).expect("too many cached text runs");
-            self.runs
-                .update_index(index, |run| run.id.0 |= u64::from(slot));
-            self.next_run = self.next_run.checked_add(1).expect("too many text runs");
-        }
-        self.runs.get_index(index).id
+        TextRunId(text.0)
     }
 
     pub fn prepare(
@@ -153,53 +133,68 @@ impl TextRenderer {
         scale_factor: f32,
     ) -> (u32, u32, PreparedLines, PhysicalRect) {
         let area = request.area.to_physical(Scale2::uniform(scale_factor));
-        let Some(index) = (request.text.0 as u32)
-            .checked_sub(1)
-            .map(|index| index as usize)
-        else {
-            return (0, 0, PreparedLines::NONE, PhysicalRect::default());
-        };
-        let cached = self.runs.get_index(index);
-        assert_eq!(cached.id, request.text, "expired text run");
-        let face = cached.face;
-        let run = &cached.run;
-        let font = self.fonts.get_font(face);
-        let paint_index = self
-            .paragraphs
-            .prepare_paint(request, run, font, scale_factor);
-        let paint = self.paragraphs.get_paint(paint_index);
-        if paint.bounds.width == 0 || paint.bounds.height == 0 {
-            return (0, 0, PreparedLines::NONE, PhysicalRect::default());
-        }
-        let start = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
-        for glyph in &paint.glyphs {
-            let cached = self.fonts.glyph(face, glyph.key);
-            let cached = self.fonts.get(cached);
-            self.prepared.push(PreparedGlyph {
-                alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),
-                x: glyph.x,
-                y: glyph.y,
-                width: u32::try_from(cached.metrics.width).expect("glyph is too wide"),
-                height: u32::try_from(cached.metrics.height).expect("glyph is too tall"),
-            });
-        }
-        let end = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
-        let lines = if paint.lines.len() > 1 {
-            PreparedLines(u32::try_from(paint_index).expect("too many cached paragraphs"))
+        let layout = self.backend.layout(Self::paint_request(request));
+        let glyph_start = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
+        let line_start = u32::try_from(self.lines.len()).expect("too many prepared lines");
+        let mut bounds = PhysicalRect::default();
+        let mut has_bounds = false;
+        let backend = &self.backend;
+        let glyphs = &mut self.glyphs;
+        let prepared = &mut self.prepared;
+        let lines = &mut self.lines;
+        backend.visit_runs(layout, |run| {
+            let start = u32::try_from(prepared.len()).expect("too many prepared glyphs");
+            for glyph in run.glyphs {
+                let cached = glyphs.glyph(backend, run.font, glyph.id, run.size * scale_factor);
+                let cached = glyphs.get(cached);
+                let x = (glyph.position.x * scale_factor + cached.metrics.bounds.xmin.floor())
+                    .round() as i32;
+                let y = (glyph.position.y * scale_factor
+                    + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin).floor())
+                .round() as i32;
+                let width = u32::try_from(cached.metrics.width).expect("glyph is too wide");
+                let height = u32::try_from(cached.metrics.height).expect("glyph is too tall");
+                prepared.push(PreparedGlyph {
+                    alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),
+                    x,
+                    y,
+                    width,
+                    height,
+                });
+                let glyph_bounds = PhysicalRect {
+                    x: area.x.saturating_add(x),
+                    y: area.y.saturating_add(y),
+                    width: width as i32,
+                    height: height as i32,
+                };
+                bounds = if has_bounds {
+                    bounds.union(glyph_bounds)
+                } else {
+                    has_bounds = true;
+                    glyph_bounds
+                };
+            }
+            let end = u32::try_from(prepared.len()).expect("too many prepared glyphs");
+            if start != end {
+                lines.push(PreparedLine {
+                    glyph_start: start,
+                    glyph_end: end,
+                    top: (run.bounds.y * scale_factor).floor() as i32,
+                    bottom: ((run.bounds.y + run.bounds.height) * scale_factor).ceil() as i32,
+                });
+            }
+        });
+        let glyph_end = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
+        let line_end = u32::try_from(self.lines.len()).expect("too many prepared lines");
+        let lines = if line_end.saturating_sub(line_start) > 1 {
+            PreparedLines {
+                start: line_start,
+                end: line_end,
+            }
         } else {
             PreparedLines::NONE
         };
-        (
-            start,
-            end,
-            lines,
-            PhysicalRect {
-                x: area.x.saturating_add(paint.bounds.x),
-                y: area.y.saturating_add(paint.bounds.y),
-                width: paint.bounds.width as i32,
-                height: paint.bounds.height as i32,
-            },
-        )
+        (glyph_start, glyph_end, lines, bounds)
     }
 
     pub fn draw_line<P: Pixel>(
@@ -216,25 +211,17 @@ impl TextRenderer {
         if line < clip.y || line >= clip.y.saturating_add(clip.height) {
             return;
         }
-        let (glyph_start, glyph_end) = if lines.0 == PreparedLines::NONE.0 {
+        let (glyph_start, glyph_end) = if lines.start == PreparedLines::NONE.start {
             (glyph_start, glyph_end)
         } else {
             let mut start = glyph_end;
             let mut end = glyph_start;
-            for prepared_line in &self.paragraphs.get_paint(lines.0 as usize).lines {
+            for prepared_line in &self.lines[lines.start as usize..lines.end as usize] {
                 if line >= area.y.saturating_add(prepared_line.top)
                     && line < area.y.saturating_add(prepared_line.bottom)
                 {
-                    start = start.min(
-                        glyph_start
-                            .checked_add(prepared_line.glyph_start)
-                            .expect("too many prepared glyphs"),
-                    );
-                    end = end.max(
-                        glyph_start
-                            .checked_add(prepared_line.glyph_end)
-                            .expect("too many prepared glyphs"),
-                    );
+                    start = start.min(prepared_line.glyph_start);
+                    end = end.max(prepared_line.glyph_end);
                 }
             }
             if start >= end {
@@ -298,66 +285,44 @@ impl TextRenderer {
 
     pub fn finish_frame(&mut self) {
         self.prepared.clear();
-        self.paragraphs.finish_frame();
-        self.runs.trim_to_weight();
-        self.fonts.finish_frame();
+        self.lines.clear();
+        self.backend.finish_frame();
+        self.glyphs.finish_frame();
     }
 
     pub fn offset_at_position(
         &mut self,
         request: &TextRequest,
         position: LogicalPoint,
-        scale_factor: f32,
+        _scale_factor: f32,
     ) -> usize {
-        let Some(index) = (request.text.0 as u32)
-            .checked_sub(1)
-            .map(|index| index as usize)
-        else {
-            return 0;
-        };
-        let cached = self.runs.get_index(index);
-        let face = cached.face;
-        let paragraph = self.paragraphs.prepare(request, &cached.run, scale_factor);
-        paragraph::resolve(
-            self.paragraphs.get(paragraph),
-            request,
-            &cached.run,
-            self.fonts.get_font(face),
-            scale_factor,
-            &mut self.paint_glyphs,
-            None,
-            &mut self.carets,
-            false,
-            true,
-        );
-        let x = (position.x - request.area.x) * scale_factor;
-        let y = (position.y - request.area.y) * scale_factor;
-        self.carets
-            .iter()
-            .min_by(|left, right| {
-                let left_distance = (left.x - x).powi(2) + (left.y + left.height / 2.0 - y).powi(2);
-                let right_distance =
-                    (right.x - x).powi(2) + (right.y + right.height / 2.0 - y).powi(2);
-                left_distance.total_cmp(&right_distance)
-            })
-            .map_or(0, |caret| caret.byte_offset.min(cached.run.len()))
+        let layout = self.backend.layout(Self::paint_request(request));
+        self.backend.hit_test(
+            layout,
+            LogicalPoint {
+                x: position.x - request.area.x,
+                y: position.y - request.area.y,
+            },
+        )
     }
 
-    pub fn measure(&mut self, request: &TextLayoutRequest, scale_factor: f32) -> LogicalSize {
-        let Some(index) = (request.text.0 as u32)
-            .checked_sub(1)
-            .map(|index| index as usize)
-        else {
-            return LogicalSize::default();
-        };
-        let cached = self.runs.get_index(index);
-        assert_eq!(cached.id, request.text, "expired text run");
-        self.paragraphs.measure(
-            ParagraphCache::layout_key(request, scale_factor),
-            request,
-            &cached.run,
-            scale_factor,
-        )
+    pub fn measure(&mut self, request: &TextLayoutRequest, _scale_factor: f32) -> LogicalSize {
+        let layout = self.backend.layout(blit_text::TextLayoutRequest {
+            text: TextId(request.text.0),
+            max_width: request.max_width,
+            max_height: None,
+            offset_x: 0.0,
+            max_lines: request.max_lines,
+            wrap: match request.wrap {
+                crate::text_types::TextWrap::None => blit_text::TextWrap::None,
+                crate::text_types::TextWrap::Word => blit_text::TextWrap::Word,
+                crate::text_types::TextWrap::Character => blit_text::TextWrap::Glyph,
+            },
+            overflow: TextOverflow::Clip,
+            horizontal_align: HorizontalAlign::Start,
+            vertical_align: VerticalAlign::Start,
+        });
+        self.backend.size(layout)
     }
 
     pub fn cursor_rect(
@@ -366,50 +331,305 @@ impl TextRenderer {
         byte_offset: usize,
         scale_factor: f32,
     ) -> LogicalRect {
-        let width = scale_factor.recip();
-        let Some(index) = (request.text.0 as u32)
-            .checked_sub(1)
-            .map(|index| index as usize)
-        else {
-            return LogicalRect {
-                x: request.area.x,
-                y: request.area.y,
-                width,
-                height: request.style.size,
-            };
+        let layout = self.backend.layout(Self::paint_request(request));
+        let rect = self.backend.cursor_rect(layout, byte_offset);
+        LogicalRect {
+            x: request.area.x + rect.x,
+            y: request.area.y + rect.y,
+            width: scale_factor.recip(),
+            height: rect.height,
+        }
+    }
+
+    fn paint_request(request: &TextRequest) -> blit_text::TextLayoutRequest {
+        blit_text::TextLayoutRequest {
+            text: TextId(request.text.0),
+            max_width: Some(request.area.width.max(0.0)),
+            max_height: Some(request.area.height.max(0.0)),
+            offset_x: request.offset_x,
+            max_lines: request.options.max_lines,
+            wrap: match request.options.wrap {
+                crate::text_types::TextWrap::None => blit_text::TextWrap::None,
+                crate::text_types::TextWrap::Word => blit_text::TextWrap::Word,
+                crate::text_types::TextWrap::Character => blit_text::TextWrap::Glyph,
+            },
+            overflow: match request.options.overflow {
+                crate::text_types::TextOverflow::Clip => TextOverflow::Clip,
+                crate::text_types::TextOverflow::Ellipsis => TextOverflow::Ellipsis,
+            },
+            horizontal_align: match request.options.horizontal_align {
+                crate::text_types::HorizontalAlign::Left => HorizontalAlign::Start,
+                crate::text_types::HorizontalAlign::Center => HorizontalAlign::Center,
+                crate::text_types::HorizontalAlign::Right => HorizontalAlign::End,
+            },
+            vertical_align: match request.options.vertical_align {
+                crate::text_types::VerticalAlign::Top => VerticalAlign::Start,
+                crate::text_types::VerticalAlign::Center => VerticalAlign::Center,
+                crate::text_types::VerticalAlign::Bottom => VerticalAlign::End,
+            },
+        }
+    }
+}
+
+struct TinyBackend {
+    fonts: FontStore,
+    runs: DeferredCache<RunKey, CachedRun, RunScale>,
+    run_builder: Layout,
+    next_run: u32,
+    paragraphs: ParagraphCache,
+    layouts: Vec<BackendLayout>,
+}
+
+struct CachedRun {
+    id: TextId,
+    style: blit_text::TextStyle,
+    run: TextRun,
+}
+
+struct BackendLayout {
+    paint: usize,
+    run: usize,
+    size: LogicalSize,
+}
+
+struct RunScale;
+
+impl Scale<RunKey, CachedRun> for RunScale {
+    fn weight(&self, _key: &RunKey, run: &CachedRun) -> usize {
+        size_of::<CachedRun>() + run.run.allocated_bytes()
+    }
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct RunKey {
+    digest: u64,
+    len: usize,
+    font: FontId,
+    size: u32,
+    weight: u16,
+}
+
+impl TinyBackend {
+    fn new(font_metric_cache_capacity: usize, paragraph_cache_capacity: usize) -> Self {
+        Self {
+            fonts: FontStore::new(),
+            runs: DeferredCache::new(RunScale, paragraph_cache_capacity),
+            run_builder: Layout::with_metric_cache_capacity(font_metric_cache_capacity),
+            next_run: 1,
+            paragraphs: ParagraphCache::new(paragraph_cache_capacity),
+            layouts: Vec::new(),
+        }
+    }
+
+    fn layout(&self, layout: TextLayoutId) -> &BackendLayout {
+        let index = layout.0.checked_sub(1).expect("invalid text layout") as usize;
+        self.layouts.get(index).expect("expired text layout")
+    }
+}
+
+impl Backend for TinyBackend {
+    fn system_font(&mut self, _request: SystemFontRequest<'_>) -> Result<FontId, FontError> {
+        Err(FontError::NotFound)
+    }
+
+    fn register_font(
+        &mut self,
+        data: blit_text::FontData,
+        face_index: u32,
+    ) -> Result<FontId, FontError> {
+        self.fonts
+            .register(data, face_index)
+            .ok_or(FontError::InvalidData)
+    }
+
+    fn font(&self, font: FontId) -> Option<RegisteredFace> {
+        self.fonts.face(font)
+    }
+
+    fn text(&mut self, text: &str, style: blit_text::TextStyle) -> TextId {
+        let Some((_, font)) = self.fonts.font(style.font) else {
+            return TextId::default();
         };
-        let cached = self.runs.get_index(index);
-        let face = cached.face;
-        let paragraph = self.paragraphs.prepare(request, &cached.run, scale_factor);
-        paragraph::resolve(
-            self.paragraphs.get(paragraph),
-            request,
-            &cached.run,
-            self.fonts.get_font(face),
-            scale_factor,
-            &mut self.paint_glyphs,
-            None,
-            &mut self.carets,
-            false,
-            true,
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        let digest = hasher.finish();
+        let key = RunKey {
+            digest,
+            len: text.len(),
+            font: style.font,
+            size: style.size.to_bits(),
+            weight: style.weight,
+        };
+        let next_run = self.next_run;
+        let (_, index) = self.runs.get_or_insert_by(
+            &key,
+            |candidate, cached| *candidate == key && cached.run.matches(text),
+            || {
+                (
+                    key,
+                    CachedRun {
+                        id: TextId(u64::from(next_run) << 32),
+                        style,
+                        run: self.run_builder.text_run(font, text, style.size),
+                    },
+                )
+            },
         );
-        let Some(caret) = self
+        if self.runs.get_index(index).id.0 as u32 == 0 {
+            let slot = u32::try_from(index + 1).expect("too many cached text runs");
+            self.runs
+                .update_index(index, |run| run.id.0 |= u64::from(slot));
+            self.next_run = self.next_run.checked_add(1).expect("too many text runs");
+        }
+        self.runs.get_index(index).id
+    }
+
+    fn layout(&mut self, request: blit_text::TextLayoutRequest) -> TextLayoutId {
+        let run_index = (request.text.0 as u32)
+            .checked_sub(1)
+            .expect("invalid text") as usize;
+        let cached = self.runs.get_index(run_index);
+        assert_eq!(cached.id, request.text, "expired text");
+        let old_text = TextRunId(request.text.0);
+        let old_style = TextStyle {
+            font: crate::text_types::FontId::default(),
+            size: cached.style.size,
+            weight: cached.style.weight,
+        };
+        let old_wrap = match request.wrap {
+            blit_text::TextWrap::None => crate::text_types::TextWrap::None,
+            blit_text::TextWrap::Word => crate::text_types::TextWrap::Word,
+            blit_text::TextWrap::Glyph => crate::text_types::TextWrap::Character,
+        };
+        let measure_request = TextLayoutRequest {
+            text: old_text,
+            style: old_style,
+            wrap: old_wrap,
+            max_width: request.max_width,
+            max_lines: request.max_lines,
+        };
+        let size = self.paragraphs.measure(
+            ParagraphCache::layout_key(&measure_request, 1.0),
+            &measure_request,
+            &cached.run,
+            1.0,
+        );
+        let paint_request = TextRequest {
+            text: old_text,
+            area: LogicalRect {
+                x: 0.0,
+                y: 0.0,
+                width: request.max_width.unwrap_or(size.width).max(0.0),
+                height: request.max_height.unwrap_or(size.height).max(0.0),
+            },
+            offset_x: request.offset_x,
+            color: Color::default(),
+            style: old_style,
+            options: crate::text_types::TextOptions {
+                wrap: old_wrap,
+                overflow: match request.overflow {
+                    TextOverflow::Clip => crate::text_types::TextOverflow::Clip,
+                    TextOverflow::Ellipsis => crate::text_types::TextOverflow::Ellipsis,
+                },
+                horizontal_align: match request.horizontal_align {
+                    HorizontalAlign::Start | HorizontalAlign::Justify => {
+                        crate::text_types::HorizontalAlign::Left
+                    }
+                    HorizontalAlign::Center => crate::text_types::HorizontalAlign::Center,
+                    HorizontalAlign::End => crate::text_types::HorizontalAlign::Right,
+                },
+                vertical_align: match request.vertical_align {
+                    VerticalAlign::Start => crate::text_types::VerticalAlign::Top,
+                    VerticalAlign::Center => crate::text_types::VerticalAlign::Center,
+                    VerticalAlign::End => crate::text_types::VerticalAlign::Bottom,
+                },
+                max_lines: request.max_lines,
+            },
+        };
+        let font = self.fonts.font(cached.style.font).unwrap().1;
+        let paint = self
+            .paragraphs
+            .prepare_paint(&paint_request, &cached.run, font, 1.0);
+        self.layouts.push(BackendLayout {
+            paint,
+            run: run_index,
+            size,
+        });
+        TextLayoutId(u64::try_from(self.layouts.len()).expect("too many text layouts"))
+    }
+
+    fn size(&self, layout: TextLayoutId) -> LogicalSize {
+        self.layout(layout).size
+    }
+
+    fn hit_test(&self, layout: TextLayoutId, position: LogicalPoint) -> usize {
+        let layout = self.layout(layout);
+        let paint = self.paragraphs.get_paint(layout.paint);
+        let run = &self.runs.get_index(layout.run).run;
+        paint
+            .carets
+            .iter()
+            .min_by(|left, right| {
+                let left_distance = (left.x - position.x).powi(2)
+                    + (left.y + left.height / 2.0 - position.y).powi(2);
+                let right_distance = (right.x - position.x).powi(2)
+                    + (right.y + right.height / 2.0 - position.y).powi(2);
+                left_distance.total_cmp(&right_distance)
+            })
+            .map_or(0, |caret| caret.byte_offset.min(run.len()))
+    }
+
+    fn cursor_rect(&self, layout: TextLayoutId, byte_offset: usize) -> LogicalRect {
+        let layout = self.layout(layout);
+        let paint = self.paragraphs.get_paint(layout.paint);
+        let run = self.runs.get_index(layout.run);
+        let width = 1.0;
+        let Some(caret) = paint
             .carets
             .iter()
             .min_by_key(|caret| caret.byte_offset.abs_diff(byte_offset))
         else {
             return LogicalRect {
-                x: request.area.x,
-                y: request.area.y,
+                x: 0.0,
+                y: 0.0,
                 width,
-                height: request.style.size,
+                height: run.style.size,
             };
         };
         LogicalRect {
-            x: request.area.x + caret.x / scale_factor,
-            y: request.area.y + caret.y / scale_factor,
+            x: caret.x,
+            y: caret.y,
             width,
-            height: caret.height / scale_factor,
+            height: caret.height,
         }
+    }
+
+    fn visit_runs(&self, layout: TextLayoutId, visitor: &mut GlyphRunVisitor<'_>) {
+        let layout = self.layout(layout);
+        let paint = self.paragraphs.get_paint(layout.paint);
+        let run = self.runs.get_index(layout.run);
+        for line in &paint.lines {
+            visitor.push(GlyphRun {
+                font: run.style.font,
+                size: run.style.size,
+                bounds: LogicalRect {
+                    x: paint.bounds.x as f32,
+                    y: line.top.max(paint.bounds.y) as f32,
+                    width: paint.bounds.width as f32,
+                    height: line
+                        .bottom
+                        .min(paint.bounds.y.saturating_add(paint.bounds.height as i32))
+                        .saturating_sub(line.top.max(paint.bounds.y))
+                        as f32,
+                },
+                glyphs: &paint.glyphs[line.glyph_start as usize..line.glyph_end as usize],
+            });
+        }
+    }
+
+    fn finish_frame(&mut self) {
+        self.layouts.clear();
+        self.paragraphs.finish_frame();
+        self.runs.trim_to_weight();
     }
 }

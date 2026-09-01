@@ -9,6 +9,7 @@ publish = false
 blit = { workspace = true }
 blit_cache = { path = "../../cache" }
 blit-font = { workspace = true }
+blit-text = { workspace = true }
 slotmap = "1"
 
 [dev-dependencies]

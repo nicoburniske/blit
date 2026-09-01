@@ -25,3 +25,4 @@ blit-executor = { path = "executor" }
 blit-font = { path = "font" }
 blit-showcase = { path = "examples/showcase" }
 blit-std = { path = "std" }
+blit-text = { path = "render/text" }

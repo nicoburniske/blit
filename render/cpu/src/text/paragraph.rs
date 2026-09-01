@@ -6,14 +6,15 @@ use crate::text_types::{
 };
 use blit::Scale2;
 use blit_cache::{DeferredCache, Scale};
-use blit_font::{GlyphRasterConfig, Layout, LayoutSettings, LinePosition, TextRun};
+use blit_font::{Layout, LayoutSettings, LinePosition, TextRun};
+use blit_text::Glyph;
 
 pub struct ParagraphCache {
     layouts: DeferredCache<LayoutKey, ParagraphLayout, LayoutScale>,
     paints: DeferredCache<PaintKey, ParagraphPaint, PaintScale>,
     layout: Layout,
     // reusable paragraph resolution scratch buffers
-    glyphs: Vec<PaintGlyph>,
+    glyphs: Vec<Glyph>,
     lines: Vec<PaintLine>,
     carets: Vec<Caret>,
 }
@@ -30,8 +31,9 @@ impl Scale<LayoutKey, ParagraphLayout> for LayoutScale {
 impl Scale<PaintKey, ParagraphPaint> for PaintScale {
     fn weight(&self, _key: &PaintKey, paragraph: &ParagraphPaint) -> usize {
         size_of::<ParagraphPaint>()
-            + paragraph.glyphs.len() * size_of::<PaintGlyph>()
+            + paragraph.glyphs.len() * size_of::<Glyph>()
             + paragraph.lines.len() * size_of::<PaintLine>()
+            + paragraph.carets.len() * size_of::<Caret>()
     }
 }
 
@@ -79,10 +81,6 @@ impl ParagraphCache {
         )
     }
 
-    pub fn get(&self, index: usize) -> &ParagraphLayout {
-        self.layouts.get_index(index)
-    }
-
     pub fn prepare_paint(
         &mut self,
         request: &TextRequest,
@@ -110,12 +108,13 @@ impl ParagraphCache {
                 Some(lines),
                 carets,
                 true,
-                false,
+                true,
             );
             ParagraphPaint {
                 bounds: resolved,
                 glyphs: glyphs.as_slice().into(),
                 lines: lines.as_slice().into(),
+                carets: carets.as_slice().into(),
             }
         });
         index
@@ -178,8 +177,9 @@ pub struct ParagraphLayout {
 
 pub struct ParagraphPaint {
     pub bounds: ResolvedParagraph,
-    pub glyphs: Box<[PaintGlyph]>,
+    pub glyphs: Box<[Glyph]>,
     pub lines: Box<[PaintLine]>,
+    pub carets: Box<[Caret]>,
 }
 
 #[derive(Clone, Copy)]
@@ -196,13 +196,6 @@ pub struct ResolvedParagraph {
     pub y: i32,
     pub width: usize,
     pub height: usize,
-}
-
-#[derive(Clone, Copy)]
-pub struct PaintGlyph {
-    pub key: GlyphRasterConfig,
-    pub x: i32,
-    pub y: i32,
 }
 
 #[derive(Clone, Copy)]
@@ -265,7 +258,7 @@ pub fn resolve(
     run: &TextRun,
     font: &blit_font::Font,
     scale_factor: f32,
-    glyphs: &mut Vec<PaintGlyph>,
+    glyphs: &mut Vec<Glyph>,
     mut lines: Option<&mut Vec<PaintLine>>,
     carets: &mut Vec<Caret>,
     resolve_glyphs: bool,
@@ -397,10 +390,14 @@ pub fn resolve(
                     bottom = bottom.max(glyph_bottom.min(area.height));
                     line_top = line_top.min(y);
                     line_bottom = line_bottom.max(glyph_bottom);
-                    glyphs.push(PaintGlyph {
-                        key: glyph.key,
-                        x,
-                        y,
+                    glyphs.push(Glyph {
+                        id: u32::from(glyph.key.glyph_id.0),
+                        position: blit::LogicalPoint::new(
+                            pen + horizontal_offset,
+                            line.baseline_y + vertical_offset,
+                        ),
+                        advance: glyph.advance,
+                        cluster: u32::try_from(glyph.byte_offset).expect("text is too long"),
                     });
                 }
             }
@@ -421,13 +418,14 @@ pub fn resolve(
                 bottom = bottom.max(glyph_bottom.min(area.height));
                 line_top = line_top.min(y);
                 line_bottom = line_bottom.max(glyph_bottom);
-                glyphs.push(PaintGlyph {
-                    key: GlyphRasterConfig {
-                        glyph_id: ellipsis_id,
-                        size,
-                    },
-                    x,
-                    y,
+                glyphs.push(Glyph {
+                    id: u32::from(ellipsis_id.0),
+                    position: blit::LogicalPoint::new(
+                        pen + horizontal_offset,
+                        line.baseline_y + vertical_offset,
+                    ),
+                    advance: ellipsis_metrics.advance_width,
+                    cluster: u32::try_from(run.len()).expect("text is too long"),
                 });
             }
         }
