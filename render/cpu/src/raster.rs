@@ -1,8 +1,7 @@
 use std::simd::f32x4;
 
+use blit_text::FontFace;
 use ttf_parser::{OutlineBuilder, Rect};
-
-use super::Font;
 
 // adapted from the femtofont and fontdue rasterizer
 
@@ -44,10 +43,10 @@ impl Default for Rasterizer {
 }
 
 impl Rasterizer {
-    pub fn rasterize(&mut self, font: &Font, glyph: u16, size: f32) -> (Metrics, Vec<u8>) {
+    pub fn rasterize(&mut self, font: &FontFace, glyph: u16, size: f32) -> (Metrics, Vec<u8>) {
         let face = match ttf_parser::Face::parse(font.data.as_ref(), font.face_index) {
             Ok(face) => face,
-            Err(_) => unreachable!("validated immutable font became invalid"),
+            Err(_) => panic!("text backend returned invalid font"),
         };
         if !size.is_finite() || size <= 0.0 {
             return (Metrics::default(), Vec::new());

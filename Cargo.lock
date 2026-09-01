@@ -114,6 +114,7 @@ dependencies = [
  "blit-executor",
  "blit-showcase",
  "blit-std",
+ "blit-text",
  "softbuffer",
  "winit",
 ]
@@ -150,6 +151,7 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "cosmic-text",
+ "unicode-segmentation",
 ]
 
 [[package]]

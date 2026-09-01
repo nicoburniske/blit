@@ -190,16 +190,14 @@ mod tests {
     use super::*;
     use crate::atom::Rectangle;
     use blit::{Frame, Place, Sides, Size};
-    use blit_cpu::{
-        CosmicBackend, FontData, FontFace, RendererConfig, TextSystem, color::Color,
-        text_types::FontId,
-    };
+    use blit_cpu::{FontFace, RendererConfig, TextSystem, color::Color, text_types::FontId};
     use blit_std::layout::Flex;
+    use blit_text::FontData;
 
     #[test]
     fn nested_content_renders_at_device_scale() {
         let mut pixels = vec![0; 16 * 16];
-        let mut text = TextSystem::new(CosmicBackend::without_system_fonts());
+        let mut text = TextSystem::new(blit_text::cosmic::Backend::without_system_fonts());
         let font = text
             .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
             .unwrap();
@@ -211,6 +209,8 @@ mod tests {
                     weight: 400,
                     font,
                 }],
+                text_cache_capacity: 0,
+                layout_cache_capacity: 0,
                 glyph_cache_capacity: 0,
                 shadow_cache_capacity: 0,
             },

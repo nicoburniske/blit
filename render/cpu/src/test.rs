@@ -1,4 +1,10 @@
-use std::ops::Range;
+use std::{
+    ops::Range,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering::Relaxed},
+    },
+};
 
 use crate::{
     color::Color,
@@ -10,6 +16,7 @@ use crate::{
     text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
 };
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
+use blit_text::{FontError, FontFace as BackendFontFace, LayoutRequest, TextBackend, TextLayout};
 
 use super::*;
 
@@ -76,13 +83,15 @@ impl PixelBuffer for TrackingBuffer {
 fn renderer_config() -> RendererConfig {
     RendererConfig {
         fonts: Vec::new(),
+        text_cache_capacity: 1024 * 1024,
+        layout_cache_capacity: 1024 * 1024,
         glyph_cache_capacity: 1024 * 1024,
         shadow_cache_capacity: 1024 * 1024,
     }
 }
 
 fn new_renderer<B: PixelBuffer>(buffer: B, mut config: RendererConfig) -> Renderer<B> {
-    let mut text = TextSystem::new(CosmicBackend::without_system_fonts());
+    let mut text = TextSystem::new(blit_text::cosmic::Backend::without_system_fonts());
     let font = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();
@@ -175,6 +184,80 @@ fn renderer_supports_custom_pixel_layouts() {
     let end = renderer.text_cursor_rect(&request, "abc".len());
     assert_eq!(start.width, 0.5);
     assert!(end.x > start.x);
+}
+
+struct CountingBackend(Arc<AtomicUsize>);
+
+impl TextBackend for CountingBackend {
+    fn system_font(
+        &mut self,
+        _request: blit_text::SystemFontRequest<'_>,
+    ) -> Result<BackendFontId, FontError> {
+        Err(FontError::NotFound)
+    }
+
+    fn register_font(
+        &mut self,
+        _data: FontData,
+        _face_index: u32,
+    ) -> Result<BackendFontId, FontError> {
+        Err(FontError::Unsupported)
+    }
+
+    fn font(&self, _font: BackendFontId) -> Option<BackendFontFace> {
+        None
+    }
+
+    fn layout(
+        &mut self,
+        _text: &str,
+        _style: blit_text::TextStyle,
+        _request: LayoutRequest,
+    ) -> TextLayout {
+        self.0.fetch_add(1, Relaxed);
+        TextLayout {
+            size: LogicalSize::default(),
+            glyphs: Box::new([]),
+            runs: Box::new([]),
+            lines: Box::new([]),
+            carets: Box::new([]),
+        }
+    }
+}
+
+#[test]
+fn layout_eviction_is_deferred_until_frame_end() {
+    let layouts = Arc::new(AtomicUsize::new(0));
+    let mut renderer = Renderer::new(
+        VecBuffer::<Xrgb8888>::new(1, 1),
+        RendererConfig {
+            fonts: vec![FontFace {
+                id: FontId::default(),
+                weight: 400,
+                font: BackendFontId(1),
+            }],
+            text_cache_capacity: 1024,
+            layout_cache_capacity: 0,
+            glyph_cache_capacity: 0,
+            shadow_cache_capacity: 0,
+        },
+        TextSystem::new(CountingBackend(layouts.clone())),
+    );
+    let request = TextLayoutRequest {
+        text: renderer.text_run("cached", TextStyle::default()),
+        style: TextStyle::default(),
+        wrap: TextWrap::None,
+        max_width: None,
+        max_lines: None,
+    };
+
+    renderer.measure_text(&request);
+    renderer.measure_text(&request);
+    assert_eq!(layouts.load(Relaxed), 1);
+
+    renderer.render(&CommandList::default(), &[]);
+    renderer.measure_text(&request);
+    assert_eq!(layouts.load(Relaxed), 2);
 }
 
 #[test]

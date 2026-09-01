@@ -1,15 +1,9 @@
-mod raster;
-
-use std::{collections::HashMap, mem::size_of};
+use std::mem::size_of;
 
 use blit_cache::{DeferredCache, Scale};
-use blit_text::{FontData, FontId, TextSystem};
-use raster::{Metrics, Rasterizer};
+use blit_text::{FontId, TextSystem};
 
-struct Font {
-    data: FontData,
-    face_index: u32,
-}
+use crate::raster::{Metrics, Rasterizer};
 
 pub struct CachedGlyph {
     pub metrics: Metrics,
@@ -17,7 +11,6 @@ pub struct CachedGlyph {
 }
 
 pub struct GlyphCache {
-    fonts: HashMap<FontId, Font>,
     glyphs: DeferredCache<GlyphKey, CachedGlyph, GlyphScale>,
     rasterizer: Rasterizer,
 }
@@ -33,34 +26,19 @@ impl Scale<GlyphKey, CachedGlyph> for GlyphScale {
 impl GlyphCache {
     pub fn new(capacity: usize) -> Self {
         Self {
-            fonts: HashMap::new(),
             glyphs: DeferredCache::new(GlyphScale, capacity),
             rasterizer: Rasterizer::default(),
         }
     }
 
-    pub fn glyph(&mut self, text: &TextSystem, font: FontId, glyph: u32, size: f32) -> usize {
-        let key = GlyphKey {
-            font,
-            glyph: u16::try_from(glyph).expect("glyph id is too large"),
-            size: size.to_bits(),
-        };
-        let Self {
-            fonts,
-            glyphs,
-            rasterizer,
-        } = self;
+    pub fn glyph(&mut self, text: &TextSystem, font: FontId, glyph: u16, size: u32) -> usize {
+        let key = GlyphKey { font, glyph, size };
+        let Self { glyphs, rasterizer } = self;
         let (_, index) = glyphs.get_or_insert(key, || {
-            let font = fonts.entry(key.font).or_insert_with(|| {
-                let face = text
-                    .font(key.font)
-                    .expect("text backend returned an unknown font");
-                Font {
-                    data: face.data,
-                    face_index: face.face_index,
-                }
-            });
-            let (metrics, alpha) = rasterizer.rasterize(font, key.glyph, f32::from_bits(key.size));
+            let face = text
+                .font(key.font)
+                .expect("text backend returned an unknown font");
+            let (metrics, alpha) = rasterizer.rasterize(&face, key.glyph, f32::from_bits(key.size));
             CachedGlyph {
                 metrics,
                 alpha: alpha.into_boxed_slice(),

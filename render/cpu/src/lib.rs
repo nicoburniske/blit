@@ -2,8 +2,10 @@
 
 pub mod color;
 pub mod command_list;
+mod glyph;
 pub mod image;
 mod pixel;
+mod raster;
 pub mod render;
 mod strategy;
 pub mod style;
@@ -17,7 +19,7 @@ use crate::{
     text_types::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
-pub use blit_text::{CosmicBackend, FontData, FontError, FontId as BackendFontId, TextSystem};
+pub use blit_text::{FontData, FontError, FontId as BackendFontId, TextSystem};
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
@@ -30,6 +32,8 @@ use strategy::{
 
 pub struct RendererConfig {
     pub fonts: Vec<FontFace>,
+    pub text_cache_capacity: usize,
+    pub layout_cache_capacity: usize,
     pub glyph_cache_capacity: usize,
     pub shadow_cache_capacity: usize,
 }
@@ -46,7 +50,7 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
 }
 
 impl<B: PixelBuffer> Renderer<B, Direct> {
-    pub fn new(buffer: B, config: RendererConfig, backend: TextSystem) -> Self {
+    pub fn new(buffer: B, config: RendererConfig, text: TextSystem) -> Self {
         let shadow_cache_capacity = config.shadow_cache_capacity;
         Self {
             context: RenderContext {
@@ -54,7 +58,7 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
                 shadows: shadow::Cache::new(shadow_cache_capacity),
-                text: TextRenderer::new(config, backend),
+                text: TextRenderer::new(config, text),
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
             },
