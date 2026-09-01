@@ -9,7 +9,9 @@ pub trait Backend: 'static {
 
     fn font(&self, font: FontId) -> Option<FontFace>;
 
-    fn layout(&mut self, request: TextLayoutRequest<'_>) -> TextLayoutId;
+    fn text(&mut self, text: &str, style: TextStyle) -> TextId;
+
+    fn layout(&mut self, request: TextLayoutRequest) -> TextLayoutId;
 
     fn size(&self, layout: TextLayoutId) -> LogicalSize;
 
@@ -68,10 +70,12 @@ pub struct TextStyle {
     pub size: f32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TextId(pub u64);
+
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextLayoutRequest<'a> {
-    pub text: &'a str,
-    pub style: TextStyle,
+pub struct TextLayoutRequest {
+    pub text: TextId,
     pub max_width: Option<f32>,
     pub max_lines: Option<u16>,
     pub wrap: TextWrap,
@@ -139,7 +143,8 @@ pub struct TextSystem {
     system_font: fn(NonNull<()>, SystemFontRequest<'_>) -> Result<FontId, FontError>,
     register_font: fn(NonNull<()>, FontData, u32) -> Result<FontId, FontError>,
     font: fn(NonNull<()>, FontId) -> Option<FontFace>,
-    layout: fn(NonNull<()>, TextLayoutRequest<'_>) -> TextLayoutId,
+    text: fn(NonNull<()>, &str, TextStyle) -> TextId,
+    layout: fn(NonNull<()>, TextLayoutRequest) -> TextLayoutId,
     size: fn(NonNull<()>, TextLayoutId) -> LogicalSize,
     hit_test: fn(NonNull<()>, TextLayoutId, LogicalPoint) -> usize,
     cursor_rect: fn(NonNull<()>, TextLayoutId, usize) -> LogicalRect,
@@ -155,6 +160,7 @@ impl TextSystem {
             system_font: dispatch::system_font::<B>,
             register_font: dispatch::register_font::<B>,
             font: dispatch::font::<B>,
+            text: dispatch::text::<B>,
             layout: dispatch::layout::<B>,
             size: dispatch::size::<B>,
             hit_test: dispatch::hit_test::<B>,
@@ -176,7 +182,11 @@ impl TextSystem {
         (self.font)(self.data, font)
     }
 
-    pub fn layout(&mut self, request: TextLayoutRequest<'_>) -> TextLayoutId {
+    pub fn text(&mut self, text: &str, style: TextStyle) -> TextId {
+        (self.text)(self.data, text, style)
+    }
+
+    pub fn layout(&mut self, request: TextLayoutRequest) -> TextLayoutId {
         (self.layout)(self.data, request)
     }
 
@@ -270,7 +280,11 @@ mod dispatch {
         backend::<B>(data).font(font)
     }
 
-    pub fn layout<B: Backend>(data: NonNull<()>, request: TextLayoutRequest<'_>) -> TextLayoutId {
+    pub fn text<B: Backend>(data: NonNull<()>, text: &str, style: TextStyle) -> TextId {
+        backend_mut::<B>(data).text(text, style)
+    }
+
+    pub fn layout<B: Backend>(data: NonNull<()>, request: TextLayoutRequest) -> TextLayoutId {
         backend_mut::<B>(data).layout(request)
     }
 
