@@ -68,6 +68,7 @@ pub enum FontStyle {
 pub struct TextStyle {
     pub font: FontId,
     pub size: f32,
+    pub weight: u16,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -77,9 +78,13 @@ pub struct TextId(pub u64);
 pub struct TextLayoutRequest {
     pub text: TextId,
     pub max_width: Option<f32>,
+    pub max_height: Option<f32>,
+    pub offset_x: f32,
     pub max_lines: Option<u16>,
     pub wrap: TextWrap,
+    pub overflow: TextOverflow,
     pub horizontal_align: HorizontalAlign,
+    pub vertical_align: VerticalAlign,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -89,13 +94,14 @@ pub struct TextLayoutId(pub u64);
 pub struct GlyphRun<'a> {
     pub font: FontId,
     pub size: f32,
-    pub baseline: LogicalPoint,
+    pub bounds: LogicalRect,
     pub glyphs: &'a [Glyph],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Glyph {
     pub id: u32,
+    /// pen origin in logical coordinates relative to the layout origin
     pub position: LogicalPoint,
     pub advance: f32,
     pub cluster: u32,
@@ -128,6 +134,21 @@ pub enum HorizontalAlign {
     Center,
     End,
     Justify,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum VerticalAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TextOverflow {
+    #[default]
+    Clip,
+    Ellipsis,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

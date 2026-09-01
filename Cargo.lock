@@ -98,6 +98,7 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "blit-font",
+ "blit-text",
  "blit_cache",
  "divan",
  "slotmap",

@@ -8,7 +8,10 @@ mod test;
 use std::{
     error::Error,
     fmt,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 pub use layout::{
@@ -22,27 +25,42 @@ static NEXT_FONT_ID: AtomicUsize = AtomicUsize::new(0);
 
 enum FontData {
     Static(&'static [u8]),
-    Owned(Box<[u8]>),
+    Shared(Arc<[u8]>),
 }
 
 pub struct Font {
     data: FontData,
+    face_index: u32,
     id: usize,
 }
 
 impl Font {
     pub fn from_static(data: &'static [u8]) -> Result<Self, InvalidFont> {
-        Face::parse(data, 0).map_err(InvalidFont)?;
+        Self::from_static_face(data, 0)
+    }
+
+    pub fn from_static_face(data: &'static [u8], face_index: u32) -> Result<Self, InvalidFont> {
+        Face::parse(data, face_index).map_err(InvalidFont)?;
         Ok(Self {
             data: FontData::Static(data),
+            face_index,
             id: NEXT_FONT_ID.fetch_add(1, Ordering::Relaxed),
         })
     }
 
     pub fn from_owned(data: Box<[u8]>) -> Result<Self, InvalidFont> {
-        Face::parse(&data, 0).map_err(InvalidFont)?;
+        Self::from_shared(data.into())
+    }
+
+    pub fn from_shared(data: Arc<[u8]>) -> Result<Self, InvalidFont> {
+        Self::from_shared_face(data, 0)
+    }
+
+    pub fn from_shared_face(data: Arc<[u8]>, face_index: u32) -> Result<Self, InvalidFont> {
+        Face::parse(&data, face_index).map_err(InvalidFont)?;
         Ok(Self {
-            data: FontData::Owned(data),
+            data: FontData::Shared(data),
+            face_index,
             id: NEXT_FONT_ID.fetch_add(1, Ordering::Relaxed),
         })
     }
@@ -61,12 +79,16 @@ impl Font {
         Self::line_metrics_from_face(&self.face(), size)
     }
 
+    pub fn bytes(&self) -> &[u8] {
+        match &self.data {
+            FontData::Static(data) => data,
+            FontData::Shared(data) => data,
+        }
+    }
+
     fn face(&self) -> Face<'_> {
-        let data = match &self.data {
-            FontData::Static(data) => *data,
-            FontData::Owned(data) => data.as_ref(),
-        };
-        match Face::parse(data, 0) {
+        let data = self.bytes();
+        match Face::parse(data, self.face_index) {
             Ok(face) => face,
             Err(_) => unreachable!("validated immutable font became invalid"),
         }

@@ -18,6 +18,7 @@ use crate::{
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
 pub use blit_font::Font;
+pub use blit_text::{FontError, TextSystem};
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
@@ -61,6 +62,26 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
             },
             strategy: Direct::default(),
         }
+    }
+
+    pub fn with_text_backend(
+        buffer: B,
+        config: RendererConfig,
+        backend: TextSystem,
+    ) -> Result<Self, FontError> {
+        let shadow_cache_capacity = config.shadow_cache_capacity;
+        Ok(Self {
+            context: RenderContext {
+                buffer,
+                scale_factor: 1.0,
+                images: SlotMap::with_key(),
+                shadows: shadow::Cache::new(shadow_cache_capacity),
+                text: TextRenderer::with_backend(config, backend)?,
+                commands: CommandList::default(),
+                clips: ClipStack::default(),
+            },
+            strategy: Direct::default(),
+        })
     }
 
     pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T> {
