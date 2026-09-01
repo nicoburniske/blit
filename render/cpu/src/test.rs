@@ -90,8 +90,20 @@ fn renderer_config() -> RendererConfig {
     }
 }
 
-fn new_renderer<B: PixelBuffer>(buffer: B, mut config: RendererConfig) -> Renderer<B> {
-    let mut text = TextSystem::new(blit_text::cosmic::Backend::without_system_fonts());
+fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {
+    new_renderer_with_backend(
+        buffer,
+        config,
+        blit_text_cosmic::Backend::without_system_fonts(),
+    )
+}
+
+fn new_renderer_with_backend<B: PixelBuffer, T: TextBackend>(
+    buffer: B,
+    mut config: RendererConfig,
+    backend: T,
+) -> Renderer<B> {
+    let mut text = TextSystem::new(backend);
     let font = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();
@@ -184,6 +196,58 @@ fn renderer_supports_custom_pixel_layouts() {
     let end = renderer.text_cursor_rect(&request, "abc".len());
     assert_eq!(start.width, 0.5);
     assert!(end.x > start.x);
+    let shifted = TextRequest {
+        offset_x: 4.0,
+        ..request
+    };
+    assert_eq!(renderer.text_cursor_rect(&shifted, 0).x, start.x - 4.0);
+    assert_eq!(
+        renderer.text_offset_at_position(
+            &shifted,
+            LogicalPoint {
+                x: end.x - 4.0,
+                y: end.y,
+            },
+        ),
+        renderer.text_offset_at_position(&request, LogicalPoint { x: end.x, y: end.y }),
+    );
+}
+
+#[test]
+fn fontdue_layout_renders_with_cpu_rasterization() {
+    let mut renderer = new_renderer_with_backend(
+        VecBuffer::<Xrgb8888>::new(32, 24),
+        renderer_config(),
+        blit_text_fontdue::Backend::new(),
+    );
+    let area = LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 32.0,
+        height: 24.0,
+    };
+    let mut commands = CommandList::default();
+    commands.push_text(
+        TextRequest {
+            text: renderer.text_run("M", TextStyle::default()),
+            area,
+            offset_x: 0.0,
+            color: Color::WHITE,
+            style: TextStyle::default(),
+            options: TextOptions::default(),
+        },
+        area.to_physical(SCALE),
+        ClipId::default(),
+    );
+    renderer.render(&commands, &[area.to_physical(SCALE)]);
+
+    assert!(
+        renderer
+            .buffer()
+            .pixels()
+            .iter()
+            .any(|pixel| pixel.raw() != 0)
+    );
 }
 
 struct CountingBackend(Arc<AtomicUsize>);
@@ -255,9 +319,27 @@ fn layout_eviction_is_deferred_until_frame_end() {
     renderer.measure_text(&request);
     assert_eq!(layouts.load(Relaxed), 1);
 
+    let mut paint = TextRequest {
+        text: request.text,
+        area: LogicalRect {
+            width: 1.0,
+            height: 1.0,
+            ..LogicalRect::default()
+        },
+        offset_x: 0.0,
+        color: Color::WHITE,
+        style: TextStyle::default(),
+        options: TextOptions::default(),
+    };
+    renderer.text_cursor_rect(&paint, 0);
+    assert_eq!(layouts.load(Relaxed), 2);
+    paint.offset_x = 10.0;
+    renderer.text_cursor_rect(&paint, 0);
+    assert_eq!(layouts.load(Relaxed), 2);
+
     renderer.render(&CommandList::default(), &[]);
     renderer.measure_text(&request);
-    assert_eq!(layouts.load(Relaxed), 2);
+    assert_eq!(layouts.load(Relaxed), 3);
 }
 
 #[test]
@@ -1471,11 +1553,21 @@ fn text_runs_are_keyed_by_content_and_style() {
 
     assert_eq!(renderer.text_run("same", style), first);
     assert_ne!(renderer.text_run("changed", style), first);
-    assert_ne!(
+    assert_eq!(
         renderer.text_run(
             "same",
             TextStyle {
                 weight: 500,
+                ..style
+            },
+        ),
+        first
+    );
+    assert_ne!(
+        renderer.text_run(
+            "same",
+            TextStyle {
+                size: 17.0,
                 ..style
             },
         ),

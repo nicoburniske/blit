@@ -1,0 +1,11 @@
+[package]
+name = "blit-text-fontdue"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+blit.workspace = true
+blit-text.workspace = true
+fontdue = { version = "0.9.4", default-features = false, features = ["std"] }

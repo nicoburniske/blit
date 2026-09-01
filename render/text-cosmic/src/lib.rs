@@ -8,7 +8,7 @@ use cosmic_text::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{
+use blit_text::{
     Caret, FontData, FontError, FontFace, FontId, FontStyle, Glyph, HorizontalAlign, LayoutLine,
     LayoutRequest, LayoutRun, SystemFontRequest, TextLayout, TextOverflow, TextStyle, TextWrap,
     VerticalAlign,
@@ -23,6 +23,7 @@ struct CosmicFace {
     cosmic: fontdb::ID,
     data: FontFace,
     family: Box<str>,
+    weight: fontdb::Weight,
     stretch: fontdb::Stretch,
     style: fontdb::Style,
 }
@@ -52,6 +53,7 @@ impl Backend {
         }
         let info = self.fonts.db().face(cosmic)?;
         let family = info.families.first()?.0.clone().into_boxed_str();
+        let weight = info.weight;
         let stretch = info.stretch;
         let style = info.style;
         let data = self
@@ -66,6 +68,7 @@ impl Backend {
             cosmic,
             data,
             family,
+            weight,
             stretch,
             style,
         });
@@ -79,7 +82,7 @@ impl Default for Backend {
     }
 }
 
-impl crate::TextBackend for Backend {
+impl blit_text::TextBackend for Backend {
     fn system_font(&mut self, request: SystemFontRequest<'_>) -> Result<FontId, FontError> {
         let family = [Family::Name(request.family)];
         let cosmic = self
@@ -135,6 +138,7 @@ impl crate::TextBackend for Backend {
                 .0
                 .clone()
                 .into_boxed_str(),
+            weight: info.weight,
             stretch: info.stretch,
             style: info.style,
         });
@@ -174,7 +178,7 @@ impl crate::TextBackend for Backend {
             .family(Family::Name(&face.family))
             .stretch(face.stretch)
             .style(face.style)
-            .weight(cosmic_text::Weight(style.weight));
+            .weight(face.weight);
         buffer.set_text(
             text,
             &attrs,
@@ -183,7 +187,6 @@ impl crate::TextBackend for Backend {
                 HorizontalAlign::Start => Align::Left,
                 HorizontalAlign::Center => Align::Center,
                 HorizontalAlign::End => Align::Right,
-                HorizontalAlign::Justify => Align::Justified,
             }),
         );
         buffer.shape_until_scroll(&mut self.fonts, false);
@@ -215,7 +218,7 @@ impl crate::TextBackend for Backend {
         let mut line_carets = Vec::new();
         for line in buffer.layout_runs() {
             let bounds = LogicalRect {
-                x: -request.offset_x,
+                x: 0.0,
                 y: line.line_top + offset_y,
                 width: line.line_w,
                 height: line.line_height,
@@ -237,9 +240,9 @@ impl crate::TextBackend for Backend {
                 let glyph_start = u32::try_from(glyphs.len()).expect("too many glyphs");
                 glyphs.extend(line.glyphs[start..end].iter().map(|glyph| {
                     Glyph {
-                        id: u32::from(glyph.glyph_id),
+                        id: glyph.glyph_id,
                         position: LogicalPoint {
-                            x: glyph.x + glyph.font_size * glyph.x_offset - request.offset_x,
+                            x: glyph.x + glyph.font_size * glyph.x_offset,
                             y: line.line_y + glyph.y - glyph.font_size * glyph.y_offset + offset_y,
                         },
                         advance: glyph.w,
@@ -252,7 +255,6 @@ impl crate::TextBackend for Backend {
                 runs.push(LayoutRun {
                     font,
                     size: source.font_size,
-                    bounds,
                     glyphs: glyph_start..u32::try_from(glyphs.len()).expect("too many glyphs"),
                 });
                 start = end;
@@ -263,7 +265,7 @@ impl crate::TextBackend for Backend {
                 line_carets.push(Caret {
                     byte_offset: u32::try_from(line_starts[line.line_i]).expect("text is too long"),
                     position: LogicalPoint {
-                        x: -request.offset_x,
+                        x: 0.0,
                         y: line.line_top + offset_y,
                     },
                     height: line.line_height,
@@ -285,7 +287,7 @@ impl crate::TextBackend for Backend {
                             )
                             .expect("text is too long"),
                             position: LogicalPoint {
-                                x: x - request.offset_x,
+                                x,
                                 y: line.line_top + offset_y,
                             },
                             height: line.line_height,

@@ -39,7 +39,7 @@ fn main() {
         width: SIDE as i32,
         height: SIDE as i32,
     }];
-    let mut text = TextSystem::new(blit_text::cosmic::Backend::without_system_fonts());
+    let mut text = TextSystem::new(blit_text_cosmic::Backend::without_system_fonts());
     let font = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();

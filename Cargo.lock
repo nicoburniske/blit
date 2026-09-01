@@ -98,6 +98,8 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "blit-text",
+ "blit-text-cosmic",
+ "blit-text-fontdue",
  "blit_cache",
  "divan",
  "slotmap",
@@ -115,6 +117,8 @@ dependencies = [
  "blit-showcase",
  "blit-std",
  "blit-text",
+ "blit-text-cosmic",
+ "blit-text-fontdue",
  "softbuffer",
  "winit",
 ]
@@ -150,8 +154,25 @@ name = "blit-text"
 version = "0.1.0"
 dependencies = [
  "blit",
+]
+
+[[package]]
+name = "blit-text-cosmic"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-text",
  "cosmic-text",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "blit-text-fontdue"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-text",
+ "fontdue",
 ]
 
 [[package]]
@@ -539,6 +560,15 @@ dependencies = [
  "memmap2",
  "slotmap",
  "tinyvec",
+ "ttf-parser",
+]
+
+[[package]]
+name = "fontdue"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7894823fa221401399e2598f8b63f81ac77ff5c63248b7656779bff1632d7d3d"
+dependencies = [
  "ttf-parser",
 ]
 

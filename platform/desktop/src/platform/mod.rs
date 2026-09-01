@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn nested_content_renders_at_device_scale() {
         let mut pixels = vec![0; 16 * 16];
-        let mut text = TextSystem::new(blit_text::cosmic::Backend::without_system_fonts());
+        let mut text = TextSystem::new(blit_text_cosmic::Backend::without_system_fonts());
         let font = text
             .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
             .unwrap();

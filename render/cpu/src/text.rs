@@ -23,6 +23,7 @@ pub struct TextRenderer {
     next_text: u32,
     glyphs: GlyphCache,
     prepared: Vec<PreparedGlyph>,
+    lines: Vec<PreparedLine>,
     coverage: Vec<u8>,
 }
 
@@ -39,7 +40,6 @@ struct TextKey {
     len: usize,
     font: FontId,
     size: u32,
-    weight: u16,
 }
 
 struct CachedText {
@@ -53,7 +53,6 @@ struct LayoutKey {
     text: TextRunId,
     max_width: Option<u32>,
     max_height: Option<u32>,
-    offset_x: u32,
     max_lines: Option<u16>,
     wrap: blit_text::TextWrap,
     overflow: blit_text::TextOverflow,
@@ -76,6 +75,7 @@ struct CachedLayout {
 
 struct CachedPaint {
     scale: u32,
+    offset_x: u32,
     bounds: PhysicalRect,
     glyphs: Vec<PaintGlyph>,
     lines: Vec<PreparedLine>,
@@ -120,10 +120,16 @@ struct PreparedLine {
 }
 
 #[derive(Clone, Copy)]
-pub struct PreparedLines(u32);
+pub struct PreparedLines {
+    start: u32,
+    end: u32,
+}
 
 impl PreparedLines {
-    const NONE: Self = Self(u32::MAX);
+    const NONE: Self = Self {
+        start: u32::MAX,
+        end: u32::MAX,
+    };
 }
 
 impl TextRenderer {
@@ -144,6 +150,7 @@ impl TextRenderer {
             next_text: 1,
             glyphs: GlyphCache::new(config.glyph_cache_capacity),
             prepared: Vec::new(),
+            lines: Vec::new(),
             coverage: Vec::new(),
         }
     }
@@ -165,7 +172,6 @@ impl TextRenderer {
         let style = blit_text::TextStyle {
             font: face.font,
             size: style.size,
-            weight: style.weight,
         };
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
@@ -174,7 +180,6 @@ impl TextRenderer {
             len: text.len(),
             font: style.font,
             size: style.size.to_bits(),
-            weight: style.weight,
         };
         let next_text = self.next_text;
         let (_, index) = self.texts.get_or_insert_by(
@@ -212,7 +217,6 @@ impl TextRenderer {
             text,
             max_width: request.max_width.map(f32::to_bits),
             max_height: request.max_height.map(f32::to_bits),
-            offset_x: request.offset_x.to_bits(),
             max_lines: request.max_lines,
             wrap: request.wrap,
             overflow: request.overflow,
@@ -235,23 +239,26 @@ impl TextRenderer {
         let area = request.area.to_physical(Scale2::uniform(scale_factor));
         let layout_index = self.layout(request.text, Self::paint_request(request));
         let scale = scale_factor.to_bits();
+        let offset_x = request.offset_x.to_bits();
         let rebuild = self
             .layouts
             .get_index(layout_index)
             .paint
             .as_ref()
-            .is_none_or(|paint| paint.scale != scale);
+            .is_none_or(|paint| paint.scale != scale || paint.offset_x != offset_x);
         if rebuild {
             let mut paint = self
                 .layouts
                 .update_index(layout_index, |cached| cached.paint.take())
                 .unwrap_or_else(|| CachedPaint {
                     scale,
+                    offset_x,
                     bounds: PhysicalRect::default(),
                     glyphs: Vec::new(),
                     lines: Vec::new(),
                 });
             paint.scale = scale;
+            paint.offset_x = offset_x;
             paint.bounds = PhysicalRect::default();
             paint.glyphs.clear();
             paint.lines.clear();
@@ -267,11 +274,11 @@ impl TextRenderer {
                 let mut line_bottom = i32::MIN;
                 let size = (run.size * scale_factor).to_bits();
                 for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
-                    let glyph_id = u16::try_from(glyph.id).expect("glyph id is too large");
-                    let cached = glyphs.glyph(text, run.font, glyph_id, size);
+                    let cached = glyphs.glyph(text, run.font, glyph.id, size);
                     let cached = glyphs.get(cached);
-                    let x = (glyph.position.x * scale_factor + cached.metrics.bounds.xmin.floor())
-                        .round() as i32;
+                    let x = ((glyph.position.x - request.offset_x) * scale_factor
+                        + cached.metrics.bounds.xmin.floor())
+                    .round() as i32;
                     let y = (glyph.position.y * scale_factor
                         + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin).floor())
                     .round() as i32;
@@ -292,7 +299,7 @@ impl TextRenderer {
                     }
                     paint.glyphs.push(PaintGlyph {
                         font: run.font,
-                        glyph: glyph_id,
+                        glyph: glyph.id,
                         size,
                         x,
                         y,
@@ -343,9 +350,23 @@ impl TextRenderer {
         }
         let glyph_end = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
         let lines = if paint.lines.len() > 1 {
-            let index = u32::try_from(layout_index).expect("too many cached layouts");
-            assert_ne!(index, PreparedLines::NONE.0, "too many cached layouts");
-            PreparedLines(index)
+            let start = u32::try_from(self.lines.len()).expect("too many prepared lines");
+            for line in &paint.lines {
+                self.lines.push(PreparedLine {
+                    glyph_start: glyph_start
+                        .checked_add(line.glyph_start)
+                        .expect("too many prepared glyphs"),
+                    glyph_end: glyph_start
+                        .checked_add(line.glyph_end)
+                        .expect("too many prepared glyphs"),
+                    top: line.top,
+                    bottom: line.bottom,
+                });
+            }
+            PreparedLines {
+                start,
+                end: u32::try_from(self.lines.len()).expect("too many prepared lines"),
+            }
         } else {
             PreparedLines::NONE
         };
@@ -372,31 +393,17 @@ impl TextRenderer {
         if line < clip.y || line >= clip.y.saturating_add(clip.height) {
             return;
         }
-        let (glyph_start, glyph_end) = if lines.0 == PreparedLines::NONE.0 {
+        let (glyph_start, glyph_end) = if lines.start == PreparedLines::NONE.start {
             (glyph_start, glyph_end)
         } else {
             let mut start = glyph_end;
             let mut end = glyph_start;
-            let paint = self
-                .layouts
-                .get_index(lines.0 as usize)
-                .paint
-                .as_ref()
-                .unwrap();
-            for prepared_line in &paint.lines {
+            for prepared_line in &self.lines[lines.start as usize..lines.end as usize] {
                 if line >= area.y.saturating_add(prepared_line.top)
                     && line < area.y.saturating_add(prepared_line.bottom)
                 {
-                    start = start.min(
-                        glyph_start
-                            .checked_add(prepared_line.glyph_start)
-                            .expect("too many prepared glyphs"),
-                    );
-                    end = end.max(
-                        glyph_start
-                            .checked_add(prepared_line.glyph_end)
-                            .expect("too many prepared glyphs"),
-                    );
+                    start = start.min(prepared_line.glyph_start);
+                    end = end.max(prepared_line.glyph_end);
                 }
             }
             if start >= end {
@@ -460,6 +467,7 @@ impl TextRenderer {
 
     pub fn finish_frame(&mut self) {
         self.prepared.clear();
+        self.lines.clear();
         self.layouts.trim_to_weight();
         self.texts.trim_to_weight();
         self.glyphs.finish_frame();
@@ -476,7 +484,7 @@ impl TextRenderer {
             .get_index(layout)
             .layout
             .hit_test(LogicalPoint {
-                x: position.x - request.area.x,
+                x: position.x - request.area.x + request.offset_x,
                 y: position.y - request.area.y,
             })
     }
@@ -487,7 +495,6 @@ impl TextRenderer {
             LayoutRequest {
                 max_width: request.max_width,
                 max_height: None,
-                offset_x: 0.0,
                 max_lines: request.max_lines,
                 wrap: match request.wrap {
                     crate::text_types::TextWrap::None => blit_text::TextWrap::None,
@@ -515,7 +522,7 @@ impl TextRenderer {
             .layout
             .cursor_rect(byte_offset);
         LogicalRect {
-            x: request.area.x + rect.x,
+            x: request.area.x + rect.x - request.offset_x,
             y: request.area.y + rect.y,
             width: scale_factor.recip(),
             height: rect.height,
@@ -526,7 +533,6 @@ impl TextRenderer {
         LayoutRequest {
             max_width: Some(request.area.width.max(0.0)),
             max_height: Some(request.area.height.max(0.0)),
-            offset_x: request.offset_x,
             max_lines: request.options.max_lines,
             wrap: match request.options.wrap {
                 crate::text_types::TextWrap::None => blit_text::TextWrap::None,
