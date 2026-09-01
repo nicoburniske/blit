@@ -1,6 +1,6 @@
 //! terminal cell drawing
 
-use blit::{LogicalPoint, LogicalRect};
+use blit::LogicalRect;
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
@@ -24,20 +24,6 @@ blit::builder! {
     }
 }
 
-impl CellStyle {
-    pub const fn foreground_color(self) -> Color {
-        self.foreground
-    }
-
-    pub const fn background_color(self) -> Option<Color> {
-        self.background
-    }
-
-    pub const fn text_attributes(self) -> TextAttributes {
-        self.attributes
-    }
-}
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Cell {
     pub character: Option<char>,
@@ -56,27 +42,19 @@ impl Cell {
         self.style = style;
         self
     }
-
-    pub const fn character(self) -> Option<char> {
-        self.character
-    }
-
-    pub const fn cell_style(self) -> CellStyle {
-        self.style
-    }
 }
 
 pub struct CellBuffer<'a> {
     renderer: &'a mut TuiRenderer,
-    area: LogicalRect,
-    clip: LogicalRect,
     origin_x: isize,
     origin_y: isize,
     columns: usize,
     rows: usize,
+    bounds: [isize; 4],
 }
 
 impl TuiRenderer {
+    #[inline]
     pub fn cells(&mut self, area: LogicalRect, clip: LogicalRect) -> CellBuffer<'_> {
         CellBuffer::new(self, area, clip)
     }
@@ -87,10 +65,12 @@ impl TuiRenderer {
 }
 
 impl CellBuffer<'_> {
+    #[inline]
     pub fn columns(&self) -> usize {
         self.columns
     }
 
+    #[inline]
     pub fn rows(&self) -> usize {
         self.rows
     }
@@ -100,6 +80,44 @@ impl CellBuffer<'_> {
             .character
             .and_then(UnicodeWidthChar::width)
             .unwrap_or(1);
+        let [left, top, right, bottom] = self.bounds;
+        if left == right || top == bottom {
+            return;
+        }
+        if width == 1
+            && let Some(background) = cell.style.background
+        {
+            let character = cell
+                .character
+                .filter(|character| character.width() == Some(1));
+            let fill = ScreenCell {
+                text: CellText::Scalar(character.unwrap_or(' ')),
+                foreground: character.map_or(Color::Reset, |_| cell.style.foreground),
+                background,
+                attributes: character.map_or(TextAttributes::NONE, |_| cell.style.attributes),
+                valid: true,
+            };
+            for y in top..bottom {
+                let start = y as usize * self.renderer.columns + left as usize;
+                let end = y as usize * self.renderer.columns + right as usize;
+                if self.renderer.frame_cells[start].text != CellText::Scalar(' ') {
+                    TuiRenderer::clear_glyph(
+                        &mut self.renderer.frame_cells,
+                        self.renderer.columns,
+                        start,
+                    );
+                }
+                if self.renderer.frame_cells[end - 1].text != CellText::Scalar(' ') {
+                    TuiRenderer::clear_glyph(
+                        &mut self.renderer.frame_cells,
+                        self.renderer.columns,
+                        end - 1,
+                    );
+                }
+                self.renderer.frame_cells[start..end].fill(fill);
+            }
+            return;
+        }
         if width > 1 && cell.style.background.is_some() {
             let background = Cell {
                 character: None,
@@ -110,8 +128,7 @@ impl CellBuffer<'_> {
                     self.renderer.paint_cell(
                         self.origin_x + x as isize,
                         self.origin_y + y as isize,
-                        self.area,
-                        self.clip,
+                        self.bounds,
                         background,
                     );
                 }
@@ -123,14 +140,14 @@ impl CellBuffer<'_> {
                 self.renderer.paint_cell(
                     self.origin_x + x as isize,
                     self.origin_y + y as isize,
-                    self.area,
-                    self.clip,
+                    self.bounds,
                     cell,
                 );
             }
         }
     }
 
+    #[inline]
     pub fn set_cell(&mut self, x: usize, y: usize, cell: Cell) {
         if x >= self.columns || y >= self.rows {
             return;
@@ -138,8 +155,7 @@ impl CellBuffer<'_> {
         self.renderer.paint_cell(
             self.origin_x + x as isize,
             self.origin_y + y as isize,
-            self.area,
-            self.clip,
+            self.bounds,
             cell,
         );
     }
@@ -148,22 +164,29 @@ impl CellBuffer<'_> {
         if x >= self.columns || y >= self.rows || text.is_empty() {
             return;
         }
-        let Some(clip) = self.area.intersection(self.clip) else {
+        let [left, top, right, bottom] = self.bounds;
+        if left == right || top == bottom {
             return;
-        };
+        }
         let area = LogicalRect::new(
             (self.origin_x + x as isize) as f32,
             (self.origin_y + y as isize) as f32,
             (self.columns - x) as f32,
             (self.rows - y) as f32,
         );
+        let clip = LogicalRect::new(
+            left as f32,
+            top as f32,
+            (right - left) as f32,
+            (bottom - top) as f32,
+        );
         let text = self.renderer.text_run(text);
         self.renderer.paint_text_at(
             TextRequest::new(text, area)
-                .color(style.foreground_color())
-                .attributes(style.text_attributes()),
+                .color(style.foreground)
+                .attributes(style.attributes),
             clip,
-            style.background_color(),
+            style.background,
         );
     }
 }
@@ -193,6 +216,21 @@ impl TuiRenderer {
         let layout = self.text_layouts.get_index(layout);
         let spans = &self.text_runs.get_index(run).spans;
         let mut span_index = 0;
+        let base_style = CellStyle {
+            background,
+            foreground: request.color,
+            attributes: request.attributes,
+        };
+        let resolve_style = |span: &crate::ResolvedSpan| {
+            let mut attributes = request.attributes | span.attributes;
+            attributes.set(span.remove_attributes, false);
+            CellStyle {
+                background: span.background.or(background),
+                foreground: span.color.unwrap_or(request.color),
+                attributes,
+            }
+        };
+        let mut span_style = spans.first().map_or(base_style, resolve_style);
         let ellipsis = request.options.overflow == TextOverflow::Ellipsis
             && (layout.truncated || layout.width as f32 > request.area.width);
         let maximum = request.area.width.floor().max(1.0) as usize;
@@ -243,19 +281,18 @@ impl TuiRenderer {
                 })
                 .chain(line_ellipsis.then_some((CellText::Scalar('…'), 1, None)));
             for (grapheme, width, byte_offset) in graphemes {
-                if let Some(byte_offset) = byte_offset {
+                let style = if let Some(byte_offset) = byte_offset {
+                    let previous = span_index;
                     while span_index + 1 < spans.len() && byte_offset >= spans[span_index].end {
                         span_index += 1;
                     }
-                }
-                let span = byte_offset.and_then(|_| spans.get(span_index));
-                let color = span.and_then(|span| span.color).unwrap_or(request.color);
-                let background = span.and_then(|span| span.background).or(background);
-                let attributes = span.map_or(request.attributes, |span| {
-                    let mut attributes = request.attributes | span.attributes;
-                    attributes.set(span.remove_attributes, false);
-                    attributes
-                });
+                    if span_index != previous {
+                        span_style = spans.get(span_index).map_or(base_style, resolve_style);
+                    }
+                    span_style
+                } else {
+                    base_style
+                };
                 let x = start_x + column as isize;
                 if x >= right as isize {
                     break;
@@ -268,11 +305,7 @@ impl TuiRenderer {
                         index,
                         grapheme,
                         width,
-                        CellStyle {
-                            background,
-                            foreground: color,
-                            attributes,
-                        },
+                        style,
                     );
                 }
                 column += width;
@@ -280,30 +313,20 @@ impl TuiRenderer {
         }
     }
 
-    fn paint_cell(&mut self, x: isize, y: isize, area: LogicalRect, clip: LogicalRect, cell: Cell) {
-        let glyph = cell.character().and_then(|character| {
+    fn paint_cell(&mut self, x: isize, y: isize, bounds: [isize; 4], cell: Cell) {
+        let [left, top, right, bottom] = bounds;
+        let glyph = cell.character.and_then(|character| {
             character
                 .width()
                 .filter(|width| *width != 0)
                 .map(|width| (CellText::Scalar(character), width))
         });
         let width = glyph.map_or(1, |(_, width)| width);
-        if x < 0 || y < 0 || y >= self.rows as isize || x + width as isize > self.columns as isize {
-            return;
-        }
-        if width == 1 {
-            let point = LogicalPoint::new(x as f32 + 0.5, y as f32 + 0.5);
-            if !area.contains(point) || !clip.contains(point) {
-                return;
-            }
-        } else if (0..width).any(|offset| {
-            let point = LogicalPoint::new(x as f32 + offset as f32 + 0.5, y as f32 + 0.5);
-            !area.contains(point) || !clip.contains(point)
-        }) {
+        if x < left || y < top || y >= bottom || x + width as isize > right {
             return;
         }
         let index = y as usize * self.columns + x as usize;
-        let style = cell.cell_style();
+        let style = cell.style;
         if let Some((text, width)) = glyph {
             Self::paint_glyph(
                 &mut self.frame_cells,
@@ -313,7 +336,7 @@ impl TuiRenderer {
                 width,
                 style,
             );
-        } else if let Some(background) = style.background_color() {
+        } else if let Some(background) = style.background {
             if self.frame_cells[index].text != CellText::Scalar(' ') {
                 Self::clear_glyph(&mut self.frame_cells, self.columns, index);
             }
@@ -335,22 +358,20 @@ impl TuiRenderer {
                 Self::clear_glyph(frame_cells, columns, index);
             }
         }
-        let background = style
-            .background_color()
-            .unwrap_or(frame_cells[index].background);
+        let background = style.background.unwrap_or(frame_cells[index].background);
         frame_cells[index] = ScreenCell {
             text,
-            foreground: style.foreground_color(),
+            foreground: style.foreground,
             background,
-            attributes: style.text_attributes(),
+            attributes: style.attributes,
             valid: true,
         };
         for cell in &mut frame_cells[index + 1..index + width] {
             *cell = ScreenCell {
                 text: CellText::Continuation,
-                foreground: style.foreground_color(),
+                foreground: style.foreground,
                 background,
-                attributes: style.text_attributes(),
+                attributes: style.attributes,
                 valid: true,
             };
         }
@@ -376,33 +397,29 @@ impl TuiRenderer {
 }
 
 impl CellBuffer<'_> {
+    #[inline]
     fn new(renderer: &mut TuiRenderer, area: LogicalRect, clip: LogicalRect) -> CellBuffer<'_> {
-        let left = area.x.round() as isize;
-        let top = area.y.round() as isize;
-        let right = (area.x + area.width).round() as isize;
-        let bottom = (area.y + area.height).round() as isize;
-        let clip_left = clip.x.round();
-        let clip_top = clip.y.round();
-        let clip_right = (clip.x + clip.width).round();
-        let clip_bottom = (clip.y + clip.height).round();
+        let origin_x = area.x.round() as isize;
+        let origin_y = area.y.round() as isize;
+        let area_right = (area.x + area.width).round() as isize;
+        let area_bottom = (area.y + area.height).round() as isize;
+        let clip_left = clip.x.round() as isize;
+        let clip_top = clip.y.round() as isize;
+        let clip_right = (clip.x + clip.width).round() as isize;
+        let clip_bottom = (clip.y + clip.height).round() as isize;
+        let screen_right = renderer.columns as isize;
+        let screen_bottom = renderer.rows as isize;
+        let left = origin_x.max(clip_left).clamp(0, screen_right);
+        let top = origin_y.max(clip_top).clamp(0, screen_bottom);
+        let right = area_right.min(clip_right).clamp(left, screen_right);
+        let bottom = area_bottom.min(clip_bottom).clamp(top, screen_bottom);
         CellBuffer {
             renderer,
-            area: LogicalRect::new(
-                left as f32,
-                top as f32,
-                (right - left).max(0) as f32,
-                (bottom - top).max(0) as f32,
-            ),
-            clip: LogicalRect::new(
-                clip_left,
-                clip_top,
-                (clip_right - clip_left).max(0.0),
-                (clip_bottom - clip_top).max(0.0),
-            ),
-            origin_x: left,
-            origin_y: top,
-            columns: (right - left).max(0) as usize,
-            rows: (bottom - top).max(0) as usize,
+            origin_x,
+            origin_y,
+            columns: (area_right - origin_x).max(0) as usize,
+            rows: (area_bottom - origin_y).max(0) as usize,
+            bounds: [left, top, right, bottom],
         }
     }
 }

@@ -4,8 +4,8 @@ use base64::Engine as _;
 use blit::LogicalRect;
 
 use crate::{
-    BASE64, Cell, KittyPlacement, TuiRenderer, image::ImagePlacement, text::TextAttributes,
-    write_color,
+    BASE64, Cell, CellText, KittyPlacement, TuiRenderer, image::ImagePlacement,
+    text::TextAttributes, write_color,
 };
 
 impl TuiRenderer {
@@ -42,10 +42,28 @@ impl TuiRenderer {
     #[inline]
     pub fn end_frame(&mut self) {
         for index in 0..self.cells.len() {
-            let cell = self.frame_cells[index];
-            self.changed[index] = self.cells[index] != cell;
-            self.set_cell(index, cell);
+            self.changed[index] = self.cells[index] != self.frame_cells[index];
+            let old = match self.cells[index].text {
+                CellText::Run { run, .. } => Some(run),
+                _ => None,
+            };
+            let new = match self.frame_cells[index].text {
+                CellText::Run { run, .. } => Some(run),
+                _ => None,
+            };
+            if old != new {
+                if let Some(run) = new {
+                    self.text_runs
+                        .update_index(run as usize, |run| run.screen_references += 1);
+                }
+                if let Some(run) = old {
+                    self.text_runs.update_index(run as usize, |run| {
+                        run.screen_references -= 1;
+                    });
+                }
+            }
         }
+        std::mem::swap(&mut self.cells, &mut self.frame_cells);
 
         let mut style = None;
         for y in 0..self.rows {

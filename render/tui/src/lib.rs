@@ -484,29 +484,6 @@ impl TuiRenderer {
         index
     }
 
-    fn set_cell(&mut self, index: usize, cell: Cell) {
-        let old = match self.cells[index].text {
-            CellText::Run { run, .. } => Some(run),
-            _ => None,
-        };
-        let new = match cell.text {
-            CellText::Run { run, .. } => Some(run),
-            _ => None,
-        };
-        if old != new {
-            if let Some(run) = new {
-                self.text_runs
-                    .update_index(run as usize, |run| run.screen_references += 1);
-            }
-            if let Some(run) = old {
-                self.text_runs.update_index(run as usize, |run| {
-                    run.screen_references -= 1;
-                });
-            }
-        }
-        self.cells[index] = cell;
-    }
-
     fn push_cell_text(
         text_runs: &DeferredCache<RunKey, CachedRun, RunScale>,
         text: CellText,
@@ -803,6 +780,17 @@ mod tests {
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "\n");
         assert_eq!(renderer.cells[1].background, Color::RED);
+
+        renderer.begin_frame();
+        renderer
+            .cells(area, area)
+            .write(0, 0, "界", CellStyle::new());
+        renderer
+            .cells(LogicalRect::new(1.0, 0.0, 1.0, 1.0), area)
+            .clear(SurfaceCell::default().style(CellStyle::new().background(Color::GREEN)));
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), "\n");
+        assert_eq!(renderer.cells[1].background, Color::GREEN);
 
         renderer.begin_frame();
         renderer
