@@ -737,6 +737,20 @@ mod tests {
     }
 
     #[test]
+    fn direct_cells_quantize_half_cell_areas() {
+        let mut renderer = renderer(4, 3);
+        let screen = renderer.screen().to_logical(SCALE);
+        renderer.begin_frame();
+        renderer
+            .cells(LogicalRect::new(1.0, 0.5, 2.0, 1.0), screen)
+            .clear(SurfaceCell::default().style(CellStyle::new().background(Color::CYAN)));
+        renderer.end_frame();
+
+        assert_eq!(renderer.cells[5].background, Color::CYAN);
+        assert_eq!(renderer.cells[6].background, Color::CYAN);
+    }
+
+    #[test]
     fn direct_cells_support_graphemes_and_wide_overwrites() {
         let mut renderer = renderer(8, 1);
         let area = renderer.screen().to_logical(SCALE);
