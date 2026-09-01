@@ -36,7 +36,7 @@ impl Widget<TuiPlatform> for Block<'_> {
             .unwrap_or(Color::Reset);
         let titles = self.titles.map(|title| {
             title.map(|title| {
-                let text = cx.platform().text_run(title.text);
+                let text = cx.platform().renderer_mut().text_run(title.text);
                 atom::Title::new(text)
                     .color(title.color.unwrap_or(color))
                     .attributes(title.attributes)

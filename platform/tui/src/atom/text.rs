@@ -25,7 +25,7 @@ impl Atom<TuiPlatform> for Text {
         if let Some(max_lines) = self.options.max_lines {
             request = request.max_lines(max_lines);
         }
-        constraints.constrain(platform.measure_text(&request))
+        constraints.constrain(platform.renderer_mut().measure_text(&request))
     }
 
     fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {

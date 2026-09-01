@@ -34,9 +34,9 @@ impl Widget<TuiPlatform> for Text<'_> {
 
     fn build(self, mut cx: Cx<'_>) {
         let run = if let Some(spans) = self.spans {
-            cx.platform().rich_text(spans)
+            cx.platform().renderer_mut().rich_text(spans)
         } else {
-            cx.platform().text_run(self.text)
+            cx.platform().renderer_mut().text_run(self.text)
         };
         cx.atom(
             atom::Text::new(run)

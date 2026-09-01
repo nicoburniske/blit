@@ -1,10 +1,5 @@
-use blit::{Clip, FrameInfo, LogicalPoint, LogicalRect, Platform, Scale2, Size};
-use blit_tui_render::{
-    TuiRenderer,
-    cell::CellBuffer,
-    image::{ImageData, ImageHandle, ImagePlacement},
-    text::{Span, TextLayoutRequest, TextRequest, TextRunId},
-};
+use blit::{Clip, FrameInfo, LogicalRect, Platform, Scale2};
+use blit_tui_render::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 
 pub struct TuiPlatform {
     renderer: TuiRenderer,
@@ -30,40 +25,8 @@ impl TuiPlatform {
         &mut self.renderer
     }
 
-    pub fn invalidate_all(&mut self) {
-        self.renderer.invalidate();
-    }
-
     pub fn cells(&mut self, area: LogicalRect) -> CellBuffer<'_> {
         self.renderer.cells(area, self.clip)
-    }
-
-    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        self.renderer.create_image(data)
-    }
-
-    pub fn text_run(&mut self, text: &str) -> TextRunId {
-        self.renderer.text_run(text)
-    }
-
-    pub fn rich_text(&mut self, spans: &[Span<'_>]) -> TextRunId {
-        self.renderer.rich_text(spans)
-    }
-
-    pub fn text_offset_at_position(
-        &mut self,
-        request: &TextRequest,
-        position: LogicalPoint,
-    ) -> usize {
-        self.renderer.text_offset_at_position(request, position)
-    }
-
-    pub fn text_cursor_rect(&mut self, request: &TextRequest, offset: usize) -> LogicalRect {
-        self.renderer.text_cursor_rect(request, offset)
-    }
-
-    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> Size {
-        self.renderer.measure_text(request)
     }
 
     pub fn paint_text(&mut self, text: TextRequest) {
