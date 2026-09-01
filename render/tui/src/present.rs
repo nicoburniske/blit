@@ -1,149 +1,34 @@
 use std::fmt::Write as _;
 
 use base64::Engine as _;
-use blit::{LogicalPoint, LogicalRect};
+use blit::LogicalRect;
 
 use crate::{
-    BASE64, Background, Cell, CellText, Glyph, KittyPlacement, TuiRenderer,
-    color::Color,
-    image::ImagePlacement,
-    surface::{Cell as SurfaceCell, CellBuffer},
-    text::{
-        HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest,
-        VerticalAlign,
-    },
+    BASE64, Cell, KittyPlacement, TuiRenderer, image::ImagePlacement, text::TextAttributes,
     write_color,
 };
 
 impl TuiRenderer {
     pub fn begin_frame(&mut self) {
         self.output.clear();
-        self.backgrounds.fill(Background::default());
-        self.glyphs.fill(None);
+        self.frame_cells.fill(Cell::default());
         self.kitty_placements.clear();
-        self.z = 0;
+        self.next_placement = 1;
     }
-
-    pub fn cells(&mut self, area: LogicalRect, clip: LogicalRect) -> CellBuffer<'_> {
-        let z = self.next_z();
-        CellBuffer::new(self, area, clip, z)
-    }
-
-    pub fn paint_text(&mut self, request: TextRequest, clip: LogicalRect) {
-        let z = self.next_z();
-        let (area_left, area_top, area_right, area_bottom) = self.cell_bounds(request.area);
-        let (clip_left, clip_top, clip_right, clip_bottom) = self.cell_bounds(clip);
-        let left = area_left.max(clip_left);
-        let top = area_top.max(clip_top);
-        let right = area_right.min(clip_right);
-        let bottom = area_bottom.min(clip_bottom);
-        let layout_request = TextLayoutRequest {
-            text: request.text,
-            wrap: request.options.wrap,
-            max_width: Some(request.area.width),
-            max_lines: request.options.max_lines,
-        };
-        let run = self.text_run_index(request.text);
-        let cell_run = u32::try_from(run).expect("too many tui text runs");
-        let layout = self.layout_text(&layout_request);
-        let layout = self.text_layouts.get_index(layout);
-        let spans = &self.text_runs.get_index(run).spans;
-        let mut span_index = 0;
-        let ellipsis = request.options.overflow == TextOverflow::Ellipsis
-            && (layout.truncated || layout.width as f32 > request.area.width);
-        let maximum = request.area.width.floor().max(1.0) as usize;
-        let area_width = area_right as isize - area_left as isize;
-        let area_height = area_bottom as isize - area_top as isize;
-        let line_count = layout.lines.len() as isize;
-        let start_y = match request.options.vertical_align {
-            VerticalAlign::Top => area_top as isize,
-            VerticalAlign::Center => area_top as isize + (area_height - line_count).div_euclid(2),
-            VerticalAlign::Bottom => area_bottom as isize - line_count,
-        };
-        for (line_index, line) in layout.lines.iter().enumerate() {
-            let y = start_y + line_index as isize;
-            if y < top as isize || y >= bottom as isize {
-                continue;
-            }
-            let mut line_end = line.end;
-            let mut line_width = line.width;
-            let line_ellipsis = ellipsis && line_index + 1 == layout.lines.len();
-            if line_ellipsis {
-                while line_width >= maximum && line_end != line.start {
-                    line_end -= 1;
-                    line_width -= layout.graphemes[line_end].width;
-                }
-                line_width += 1;
-            }
-            let start_x = match request.options.horizontal_align {
-                HorizontalAlign::Left => area_left as isize - request.offset_x.round() as isize,
-                HorizontalAlign::Center => {
-                    area_left as isize + (area_width - line_width as isize).div_euclid(2)
-                }
-                HorizontalAlign::Right => area_right as isize - line_width as isize,
-            };
-            let mut column = 0;
-            let graphemes = layout.graphemes[line.start..line_end]
-                .iter()
-                .map(|grapheme| {
-                    (
-                        CellText::Run {
-                            run: cell_run,
-                            start: grapheme.start as u32,
-                            end: grapheme.end as u32,
-                        },
-                        grapheme.width,
-                        Some(grapheme.start),
-                    )
-                })
-                .chain(line_ellipsis.then_some((CellText::Scalar('…'), 1, None)));
-            for (grapheme, width, byte_offset) in graphemes {
-                if let Some(byte_offset) = byte_offset {
-                    while span_index + 1 < spans.len() && byte_offset >= spans[span_index].end {
-                        span_index += 1;
-                    }
-                }
-                let span = byte_offset.and_then(|_| spans.get(span_index));
-                let color = span.and_then(|span| span.color).unwrap_or(request.color);
-                let attributes = span.map_or(request.attributes, |span| {
-                    request.attributes | span.attributes
-                });
-                let x = start_x + column as isize;
-                if x >= right as isize {
-                    break;
-                }
-                if x >= left as isize && x + width as isize <= right as isize {
-                    let index = y as usize * self.columns + x as usize;
-                    self.glyphs[index] = Some(Glyph {
-                        text: grapheme,
-                        color,
-                        attributes,
-                        z,
-                    });
-                    for continuation in 1..width {
-                        self.glyphs[index + continuation] = Some(Glyph {
-                            text: CellText::Empty,
-                            color,
-                            attributes,
-                            z,
-                        });
-                    }
-                }
-                column += width;
-            }
-        }
-    }
-
     pub fn place_image(&mut self, request: ImagePlacement, clip: LogicalRect) {
-        let z = self.next_z();
         if let Some(area) = request.area.intersection(clip) {
             let x = area.x.floor().max(0.0) as usize;
             let y = area.y.floor().max(0.0) as usize;
             let right = (area.x + area.width).ceil().min(self.columns as f32) as usize;
             let bottom = (area.y + area.height).ceil().min(self.rows as f32) as usize;
             if right > x && bottom > y {
+                let id = self.next_placement;
+                self.next_placement = self
+                    .next_placement
+                    .checked_add(1)
+                    .expect("too many tui image placements");
                 self.kitty_placements.push(KittyPlacement {
-                    id: z.checked_add(1).expect("too many tui image placements"),
+                    id,
                     image: request.image.0 as u32,
                     x,
                     y,
@@ -154,63 +39,10 @@ impl TuiRenderer {
         }
     }
 
-    pub(crate) fn paint_cell(
-        &mut self,
-        x: isize,
-        y: isize,
-        area: LogicalRect,
-        clip: LogicalRect,
-        z: u32,
-        cell: SurfaceCell,
-    ) {
-        if x < 0 || y < 0 || x >= self.columns as isize || y >= self.rows as isize {
-            return;
-        }
-        let point = LogicalPoint::new(x as f32 + 0.5, y as f32 + 0.5);
-        if !area.contains(point) || !clip.contains(point) {
-            return;
-        }
-        let index = y as usize * self.columns + x as usize;
-        let style = cell.cell_style();
-        if let Some(background) = style.background_color() {
-            self.backgrounds[index] = Background {
-                color: background,
-                z,
-            };
-        }
-        if let Some(character) = cell.character() {
-            self.glyphs[index] = Some(Glyph {
-                text: CellText::Scalar(character),
-                color: style.foreground_color(),
-                attributes: style.text_attributes(),
-                z,
-            });
-        }
-    }
-
+    #[inline]
     pub fn end_frame(&mut self) {
         for index in 0..self.cells.len() {
-            let background = self.backgrounds[index];
-            let glyph = self.glyphs[index];
-            let cell = if let Some(glyph) = glyph
-                && background.z <= glyph.z
-            {
-                Cell {
-                    text: glyph.text,
-                    foreground: glyph.color,
-                    background: background.color,
-                    attributes: glyph.attributes,
-                    valid: true,
-                }
-            } else {
-                Cell {
-                    text: CellText::Scalar(' '),
-                    foreground: Color::Reset,
-                    background: background.color,
-                    attributes: TextAttributes::NONE,
-                    valid: true,
-                }
-            };
+            let cell = self.frame_cells[index];
             self.changed[index] = self.cells[index] != cell;
             self.set_cell(index, cell);
         }
@@ -369,10 +201,5 @@ impl TuiRenderer {
         for cell in &mut self.cells {
             cell.valid = false;
         }
-    }
-
-    fn next_z(&mut self) -> u32 {
-        self.z = self.z.checked_add(1).expect("too many tui draw operations");
-        self.z
     }
 }

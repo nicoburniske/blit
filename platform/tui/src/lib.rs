@@ -3,7 +3,7 @@ mod platform;
 pub mod atom;
 pub mod widget;
 pub use blit_std::layout;
-pub use blit_tui_render::{color, image, surface, text};
+pub use blit_tui_render::{cell, color, image, text};
 pub use platform::{BoundsClip, TuiPlatform};
 
 pub type Ui = blit::Ui<TuiPlatform>;

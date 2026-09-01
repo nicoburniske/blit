@@ -6,10 +6,10 @@ use std::{
     mem::size_of,
 };
 
+pub mod cell;
 pub mod color;
 pub mod image;
-mod paint;
-pub mod surface;
+mod present;
 pub mod text;
 
 use crate::{
@@ -47,12 +47,11 @@ pub struct TuiRenderer {
     next_image: u32,
     kitty_placements: Vec<KittyPlacement>,
     presented_kitty_placements: Vec<KittyPlacement>,
-    backgrounds: Vec<Background>,
-    glyphs: Vec<Option<Glyph>>,
+    frame_cells: Vec<Cell>,
     cells: Vec<Cell>,
     changed: Vec<bool>,
     output: String,
-    z: u32,
+    next_placement: u32,
 }
 
 impl TuiRenderer {
@@ -72,12 +71,11 @@ impl TuiRenderer {
             next_image: 1,
             kitty_placements: Vec::new(),
             presented_kitty_placements: Vec::new(),
-            backgrounds: vec![Background::default(); columns * rows],
-            glyphs: vec![None; columns * rows],
+            frame_cells: vec![Cell::default(); columns * rows],
             cells: vec![Cell::invalid(); columns * rows],
             changed: vec![true; columns * rows],
             output: String::new(),
-            z: 0,
+            next_placement: 1,
         }
     }
 
@@ -105,22 +103,9 @@ impl TuiRenderer {
         }
         self.columns = columns;
         self.rows = rows;
-        self.backgrounds
-            .resize(columns * rows, Background::default());
-        self.glyphs.resize(columns * rows, None);
+        self.frame_cells.resize(columns * rows, Cell::default());
         self.cells = vec![Cell::invalid(); columns * rows];
         self.changed = vec![true; columns * rows];
-    }
-
-    fn cell_bounds(&self, area: LogicalRect) -> (usize, usize, usize, usize) {
-        (
-            area.x.round().clamp(0.0, self.columns as f32) as usize,
-            area.y.round().clamp(0.0, self.rows as f32) as usize,
-            (area.x + area.width)
-                .round()
-                .clamp(0.0, self.columns as f32) as usize,
-            (area.y + area.height).round().clamp(0.0, self.rows as f32) as usize,
-        )
     }
 
     pub fn output(&self) -> &[u8] {
@@ -153,188 +138,6 @@ impl TuiRenderer {
         output
     }
 
-    fn text_run_index(&self, id: TextRunId) -> usize {
-        let index = (id.0 as u32).checked_sub(1).expect("invalid tui text run") as usize;
-        assert_eq!(self.text_runs.get_index(index).id, id, "expired text run");
-        index
-    }
-
-    fn set_cell(&mut self, index: usize, cell: Cell) {
-        let old = match self.cells[index].text {
-            CellText::Run { run, .. } => Some(run),
-            _ => None,
-        };
-        let new = match cell.text {
-            CellText::Run { run, .. } => Some(run),
-            _ => None,
-        };
-        if old != new {
-            if let Some(run) = new {
-                self.text_runs
-                    .update_index(run as usize, |run| run.screen_references += 1);
-            }
-            if let Some(run) = old {
-                self.text_runs.update_index(run as usize, |run| {
-                    run.screen_references -= 1;
-                });
-            }
-        }
-        self.cells[index] = cell;
-    }
-
-    fn push_cell_text(
-        text_runs: &DeferredCache<RunKey, CachedRun, RunScale>,
-        text: CellText,
-        output: &mut String,
-    ) {
-        match text {
-            CellText::Empty => {}
-            CellText::Scalar(character) => output.push(character),
-            CellText::Run { run, start, end } => {
-                let run = text_runs.get_index(run as usize);
-                output.push_str(&run.text[start as usize..end as usize]);
-            }
-        }
-    }
-
-    fn layout_text(&mut self, request: &TextLayoutRequest) -> usize {
-        fn start_line(lines: &mut Vec<Line>, grapheme: usize, limit: usize) -> bool {
-            if lines.len() >= limit {
-                return false;
-            }
-            lines.push(Line {
-                start: grapheme,
-                end: grapheme,
-                width: 0,
-            });
-            true
-        }
-
-        let max_columns = request
-            .max_width
-            .map(|width| width.floor().max(0.0) as usize);
-        let max_lines = usize::from(request.max_lines.unwrap_or(u16::MAX)).max(1);
-        let key = LayoutKey {
-            text: request.text,
-            max_columns,
-            max_lines,
-            wrap: request.wrap,
-        };
-        let run = self.text_run_index(request.text);
-        let text = &self.text_runs.get_index(run).text;
-        let lines = &mut self.layout_lines;
-        let graphemes = &mut self.layout_graphemes;
-        let (_, index) = self.text_layouts.get_or_insert(key, || {
-            lines.clear();
-            graphemes.clear();
-            start_line(lines, 0, max_lines);
-            let mut truncated = false;
-            match request.wrap {
-                TextWrap::Word => {
-                    'tokens: for (token_offset, token) in text.split_word_bound_indices() {
-                        let whitespace = token.chars().all(char::is_whitespace);
-                        let token_width = UnicodeWidthStr::width(token);
-                        if !whitespace
-                            && lines.last().unwrap().width != 0
-                            && max_columns.is_some_and(|maximum| {
-                                lines.last().unwrap().width + token_width > maximum
-                            })
-                        {
-                            let current = lines.last_mut().unwrap();
-                            while current.end != current.start
-                                && text
-                                    [graphemes.last().unwrap().start..graphemes.last().unwrap().end]
-                                    .chars()
-                                    .all(char::is_whitespace)
-                            {
-                                let grapheme = graphemes.pop().unwrap();
-                                current.end -= 1;
-                                current.width -= grapheme.width;
-                            }
-                            if !start_line(lines, graphemes.len(), max_lines) {
-                                truncated = true;
-                                break;
-                            }
-                        }
-                        for (offset, grapheme) in token.grapheme_indices(true) {
-                            if grapheme == "\n" || grapheme == "\r\n" {
-                                if !start_line(lines, graphemes.len(), max_lines) {
-                                    truncated = true;
-                                    break 'tokens;
-                                }
-                                continue;
-                            }
-                            let width = UnicodeWidthStr::width(grapheme).max(1);
-                            if max_columns.is_some_and(|maximum| {
-                                lines.last().unwrap().width + width > maximum
-                            }) && lines.last().unwrap().width != 0
-                            {
-                                if !start_line(lines, graphemes.len(), max_lines) {
-                                    truncated = true;
-                                    break 'tokens;
-                                }
-                                if whitespace {
-                                    continue;
-                                }
-                            }
-                            if whitespace && lines.last().unwrap().width == 0 {
-                                continue;
-                            }
-                            let start = token_offset + offset;
-                            graphemes.push(LayoutGrapheme {
-                                start,
-                                end: start + grapheme.len(),
-                                width,
-                            });
-                            let current = lines.last_mut().unwrap();
-                            current.end += 1;
-                            current.width += width;
-                        }
-                    }
-                }
-                TextWrap::None | TextWrap::Character => {
-                    'graphemes: for (start, grapheme) in text.grapheme_indices(true) {
-                        if grapheme == "\n" || grapheme == "\r\n" {
-                            if !start_line(lines, graphemes.len(), max_lines) {
-                                truncated = true;
-                                break;
-                            }
-                            continue;
-                        }
-                        let width = UnicodeWidthStr::width(grapheme).max(1);
-                        if request.wrap == TextWrap::Character
-                            && max_columns.is_some_and(|maximum| {
-                                lines.last().unwrap().width + width > maximum
-                            })
-                            && lines.last().unwrap().width != 0
-                            && !start_line(lines, graphemes.len(), max_lines)
-                        {
-                            truncated = true;
-                            break 'graphemes;
-                        }
-                        graphemes.push(LayoutGrapheme {
-                            start,
-                            end: start + grapheme.len(),
-                            width,
-                        });
-                        let current = lines.last_mut().unwrap();
-                        current.end += 1;
-                        current.width += width;
-                    }
-                }
-            }
-            TextLayout {
-                width: lines.iter().map(|line| line.width).max().unwrap_or(0),
-                lines: lines.as_slice().into(),
-                graphemes: graphemes.as_slice().into(),
-                truncated,
-            }
-        });
-        index
-    }
-}
-
-impl TuiRenderer {
     pub fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
         let (mut left, mut top, mut right, mut bottom) = self.cell_bounds(area);
         left = left.max((clip.x - 0.5).ceil().clamp(0.0, self.columns as f32) as usize);
@@ -527,12 +330,6 @@ impl TuiRenderer {
     }
 }
 
-#[derive(Clone, Copy, Default)]
-struct Background {
-    color: Color,
-    z: u32,
-}
-
 struct StoredImage {
     handle: ImageHandle,
     rgba: Box<[u8]>,
@@ -553,18 +350,15 @@ struct KittyPlacement {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CellText {
-    Empty,
+    Continuation,
     Scalar(char),
     // screen references pin cache slots while cells use them
-    Run { run: u32, start: u32, end: u32 },
-}
-
-#[derive(Clone, Copy)]
-struct Glyph {
-    text: CellText,
-    color: Color,
-    attributes: TextAttributes,
-    z: u32,
+    Run {
+        run: u32,
+        start: u32,
+        end: u32,
+        width: u16,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -666,6 +460,216 @@ struct TextLayout {
     truncated: bool,
 }
 
+impl TuiRenderer {
+    fn cell_bounds(&self, area: LogicalRect) -> (usize, usize, usize, usize) {
+        (
+            area.x.round().clamp(0.0, self.columns as f32) as usize,
+            area.y.round().clamp(0.0, self.rows as f32) as usize,
+            (area.x + area.width)
+                .round()
+                .clamp(0.0, self.columns as f32) as usize,
+            (area.y + area.height).round().clamp(0.0, self.rows as f32) as usize,
+        )
+    }
+
+    fn text_run_index(&self, id: TextRunId) -> usize {
+        let index = (id.0 as u32).checked_sub(1).expect("invalid tui text run") as usize;
+        assert_eq!(self.text_runs.get_index(index).id, id, "expired text run");
+        index
+    }
+
+    fn set_cell(&mut self, index: usize, cell: Cell) {
+        let old = match self.cells[index].text {
+            CellText::Run { run, .. } => Some(run),
+            _ => None,
+        };
+        let new = match cell.text {
+            CellText::Run { run, .. } => Some(run),
+            _ => None,
+        };
+        if old != new {
+            if let Some(run) = new {
+                self.text_runs
+                    .update_index(run as usize, |run| run.screen_references += 1);
+            }
+            if let Some(run) = old {
+                self.text_runs.update_index(run as usize, |run| {
+                    run.screen_references -= 1;
+                });
+            }
+        }
+        self.cells[index] = cell;
+    }
+
+    fn push_cell_text(
+        text_runs: &DeferredCache<RunKey, CachedRun, RunScale>,
+        text: CellText,
+        output: &mut String,
+    ) {
+        match text {
+            CellText::Continuation => {}
+            CellText::Scalar(character) => output.push(character),
+            CellText::Run {
+                run, start, end, ..
+            } => {
+                let run = text_runs.get_index(run as usize);
+                output.push_str(&run.text[start as usize..end as usize]);
+            }
+        }
+    }
+
+    fn layout_text(&mut self, request: &TextLayoutRequest) -> usize {
+        fn grapheme_width(grapheme: &str) -> Option<usize> {
+            if grapheme.contains(char::is_control) {
+                return None;
+            }
+            let width = UnicodeWidthStr::width(grapheme);
+            (width != 0).then_some(width)
+        }
+
+        fn start_line(lines: &mut Vec<Line>, grapheme: usize, limit: usize) -> bool {
+            if lines.len() >= limit {
+                return false;
+            }
+            lines.push(Line {
+                start: grapheme,
+                end: grapheme,
+                width: 0,
+            });
+            true
+        }
+
+        let max_columns = request
+            .max_width
+            .map(|width| width.floor().max(0.0) as usize);
+        let max_lines = usize::from(request.max_lines.unwrap_or(u16::MAX)).max(1);
+        let key = LayoutKey {
+            text: request.text,
+            max_columns,
+            max_lines,
+            wrap: request.wrap,
+        };
+        let run = self.text_run_index(request.text);
+        let text = &self.text_runs.get_index(run).text;
+        let lines = &mut self.layout_lines;
+        let graphemes = &mut self.layout_graphemes;
+        let (_, index) = self.text_layouts.get_or_insert(key, || {
+            lines.clear();
+            graphemes.clear();
+            start_line(lines, 0, max_lines);
+            let mut truncated = false;
+            match request.wrap {
+                TextWrap::Word => {
+                    'tokens: for (token_offset, token) in text.split_word_bound_indices() {
+                        let whitespace = token.chars().all(char::is_whitespace);
+                        let token_width = token
+                            .graphemes(true)
+                            .filter_map(grapheme_width)
+                            .sum::<usize>();
+                        if !whitespace
+                            && lines.last().unwrap().width != 0
+                            && max_columns.is_some_and(|maximum| {
+                                lines.last().unwrap().width + token_width > maximum
+                            })
+                        {
+                            let current = lines.last_mut().unwrap();
+                            while current.end != current.start
+                                && text
+                                    [graphemes.last().unwrap().start..graphemes.last().unwrap().end]
+                                    .chars()
+                                    .all(char::is_whitespace)
+                            {
+                                let grapheme = graphemes.pop().unwrap();
+                                current.end -= 1;
+                                current.width -= grapheme.width;
+                            }
+                            if !start_line(lines, graphemes.len(), max_lines) {
+                                truncated = true;
+                                break;
+                            }
+                        }
+                        for (offset, grapheme) in token.grapheme_indices(true) {
+                            if grapheme == "\n" || grapheme == "\r\n" {
+                                if !start_line(lines, graphemes.len(), max_lines) {
+                                    truncated = true;
+                                    break 'tokens;
+                                }
+                                continue;
+                            }
+                            let Some(width) = grapheme_width(grapheme) else {
+                                continue;
+                            };
+                            if max_columns.is_some_and(|maximum| {
+                                lines.last().unwrap().width + width > maximum
+                            }) && lines.last().unwrap().width != 0
+                            {
+                                if !start_line(lines, graphemes.len(), max_lines) {
+                                    truncated = true;
+                                    break 'tokens;
+                                }
+                                if whitespace {
+                                    continue;
+                                }
+                            }
+                            if whitespace && lines.last().unwrap().width == 0 {
+                                continue;
+                            }
+                            let start = token_offset + offset;
+                            graphemes.push(LayoutGrapheme {
+                                start,
+                                end: start + grapheme.len(),
+                                width,
+                            });
+                            let current = lines.last_mut().unwrap();
+                            current.end += 1;
+                            current.width += width;
+                        }
+                    }
+                }
+                TextWrap::None | TextWrap::Character => {
+                    'graphemes: for (start, grapheme) in text.grapheme_indices(true) {
+                        if grapheme == "\n" || grapheme == "\r\n" {
+                            if !start_line(lines, graphemes.len(), max_lines) {
+                                truncated = true;
+                                break;
+                            }
+                            continue;
+                        }
+                        let Some(width) = grapheme_width(grapheme) else {
+                            continue;
+                        };
+                        if request.wrap == TextWrap::Character
+                            && max_columns.is_some_and(|maximum| {
+                                lines.last().unwrap().width + width > maximum
+                            })
+                            && lines.last().unwrap().width != 0
+                            && !start_line(lines, graphemes.len(), max_lines)
+                        {
+                            truncated = true;
+                            break 'graphemes;
+                        }
+                        graphemes.push(LayoutGrapheme {
+                            start,
+                            end: start + grapheme.len(),
+                            width,
+                        });
+                        let current = lines.last_mut().unwrap();
+                        current.end += 1;
+                        current.width += width;
+                    }
+                }
+            }
+            TextLayout {
+                width: lines.iter().map(|line| line.width).max().unwrap_or(0),
+                lines: lines.as_slice().into(),
+                graphemes: graphemes.as_slice().into(),
+                truncated,
+            }
+        });
+        index
+    }
+}
+
 fn write_color(output: &mut String, color: Color, foreground: bool) {
     match color {
         Color::Reset => output.push_str(if foreground { "39" } else { "49" }),
@@ -695,7 +699,7 @@ mod tests {
     use blit::Scale2;
 
     use crate::{
-        surface::{Cell as SurfaceCell, CellStyle},
+        cell::{Cell as SurfaceCell, CellStyle},
         text::{HorizontalAlign, TextOptions, VerticalAlign},
     };
 
@@ -730,6 +734,77 @@ mod tests {
             .set_cell(1, 1, SurfaceCell::new('x'));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "\n x\n");
+    }
+
+    #[test]
+    fn direct_cells_support_graphemes_and_wide_overwrites() {
+        let mut renderer = renderer(8, 1);
+        let area = renderer.screen().to_logical(SCALE);
+        let text = "e\u{301}界👍🏽";
+        let family = "👨‍👩‍👧";
+
+        renderer.begin_frame();
+        {
+            let mut cells = renderer.cells(area, area);
+            cells.write(0, 0, text, CellStyle::new());
+            cells.write(5, 0, family, CellStyle::new());
+        }
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), format!("{text}{family}\n"));
+
+        renderer.begin_frame();
+        {
+            let mut cells = renderer.cells(area, area);
+            cells.write(0, 0, text, CellStyle::new());
+            cells.write(5, 0, family, CellStyle::new());
+        }
+        renderer.end_frame();
+        assert!(renderer.output().is_empty());
+
+        renderer.begin_frame();
+        {
+            let mut cells = renderer.cells(area, area);
+            cells.write(0, 0, "界", CellStyle::new());
+            cells.set_cell(1, 0, SurfaceCell::new('x'));
+        }
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), " x\n");
+
+        renderer.begin_frame();
+        {
+            let mut cells = renderer.cells(area, area);
+            cells.write(0, 0, "界", CellStyle::new());
+            cells.set_cell(
+                1,
+                0,
+                SurfaceCell::default().style(CellStyle::new().background(Color::RED)),
+            );
+        }
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), "\n");
+        assert_eq!(renderer.cells[1].background, Color::RED);
+
+        renderer.begin_frame();
+        renderer
+            .cells(area, area)
+            .write(7, 0, "界", CellStyle::new());
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), "\n");
+
+        renderer.begin_frame();
+        renderer
+            .cells(area, area)
+            .set_cell(0, 0, SurfaceCell::new('界'));
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), "界\n");
+
+        renderer.begin_frame();
+        renderer
+            .cells(area, area)
+            .set_cell(0, 0, SurfaceCell::new('a'));
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), "a\n");
+        assert!(String::from_utf8_lossy(renderer.output()).contains("a "));
     }
 
     #[test]

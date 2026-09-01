@@ -1,8 +1,8 @@
 use blit::{Clip, FrameInfo, LogicalPoint, LogicalRect, Platform, Scale2, Size};
 use blit_tui_render::{
     TuiRenderer,
+    cell::CellBuffer,
     image::{ImageData, ImageHandle, ImagePlacement},
-    surface::CellBuffer,
     text::{Span, TextLayoutRequest, TextRequest, TextRunId},
 };
 

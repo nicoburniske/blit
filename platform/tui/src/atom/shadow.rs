@@ -1,7 +1,7 @@
 use blit::{Atom, Constraints, LogicalRect, Size};
 use blit_tui_render::{
+    cell::{Cell, CellStyle},
     color::Color,
-    surface::{Cell, CellStyle},
 };
 
 use crate::TuiPlatform;

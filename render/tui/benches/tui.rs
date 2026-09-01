@@ -3,8 +3,8 @@ use std::hint::black_box;
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_tui_render::{
     RendererConfig, TuiRenderer,
+    cell::{Cell, CellStyle},
     color::Color,
-    surface::{Cell, CellStyle},
     text::TextRequest,
 };
 use divan::counter::ItemsCount;
