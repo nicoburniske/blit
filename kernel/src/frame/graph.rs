@@ -225,6 +225,7 @@ impl<R: Platform> Frame<R> {
         if render {
             paint::render(self, platform, frame);
         }
+        self.data.clear();
     }
 
     fn layout_node(&mut self, node: NodeId, platform: &mut R, constraints: Constraints) -> Size {

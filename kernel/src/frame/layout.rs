@@ -35,7 +35,7 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
     pub fn item(&self, child: NodeId) -> I {
         self.assert_child(child);
         let data = self.frame.nodes[child.index()].item;
-        self.frame.data.load(data)
+        *self.frame.data.load(data)
     }
 
     pub fn measure_base(&mut self, constraints: Constraints) -> Size {
@@ -170,7 +170,7 @@ pub fn run<R: Platform, L: Layout<R>>(
     id: DataId,
     constraints: Constraints,
 ) -> Size {
-    let layout = frame.data.load::<L>(id);
+    let layout = *frame.data.load::<L>(id);
     let nodes = frame.nodes.as_ptr();
     let first_child = frame.node_id(node.index() + 1);
     let children_end = frame.nodes[node.index()].subtree_end as usize;

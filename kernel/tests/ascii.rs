@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{cell::Cell, rc::Rc, time::Duration};
 
 use blit::{
     Absolute, Anchor, Atom, Axis, Clip, Constraints, Easing, Frame, FrameInfo, Input, Interaction,
@@ -81,6 +81,25 @@ fn layout_atoms_measure_and_paint_in_order() {
     });
 
     assert_eq!(platform.contents(), "     \n BBB \n BBB \n     ");
+}
+
+#[test]
+fn owned_atom_uses_resolved_area_and_drops() {
+    let area = Rc::new(Cell::new(Rect::default()));
+    let drops = Rc::new(Cell::new(0));
+    let mut frame = Frame::<AsciiPlatform>::default();
+    let mut platform = AsciiPlatform::default();
+
+    frame.render(&mut platform, FrameInfo::new(Size::new(3.0, 2.0)), |ui| {
+        ui.node(Overlay).insert(OwnedAtom {
+            area: area.clone(),
+            drops: drops.clone(),
+        });
+    });
+
+    assert_eq!(area.get(), Rect::new(0.0, 0.0, 3.0, 2.0));
+    assert_eq!(platform.contents(), "PPP\nPPP");
+    assert_eq!(drops.get(), 1);
 }
 
 #[test]
@@ -537,6 +556,32 @@ fn scene(ui: &mut Ui) {
         });
 }
 
+struct OwnedAtom {
+    area: Rc<Cell<Rect>>,
+    drops: Rc<Cell<usize>>,
+}
+
+impl Atom<AsciiPlatform> for OwnedAtom {
+    fn measure(&self, _: &mut AsciiPlatform, constraints: Constraints) -> Size {
+        constraints.constrain(Size::ZERO)
+    }
+
+    fn paint(&self, platform: &mut AsciiPlatform, area: Rect) {
+        self.area.set(area);
+        platform.cells.fill('P');
+    }
+
+    fn measure_depends_on_constraints(&self) -> bool {
+        false
+    }
+}
+
+impl Drop for OwnedAtom {
+    fn drop(&mut self) {
+        self.drops.set(self.drops.get() + 1);
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Fill {
     glyph: char,
@@ -579,7 +624,7 @@ impl Atom<AsciiPlatform> for Fill {
     }
 }
 
-blit::impl_atom_widgets!(AsciiPlatform => Fill);
+blit::impl_atom_widgets!(AsciiPlatform => Fill, OwnedAtom);
 
 #[derive(Clone, Copy)]
 struct DiamondClip;

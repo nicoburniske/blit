@@ -79,7 +79,7 @@ impl<R: Platform> Widget<R> for () {
     }
 }
 
-pub trait Atom<R: Platform>: Widget<R> + Copy + 'static {
+pub trait Atom<R: Platform>: Widget<R> + 'static {
     fn measure(&self, platform: &mut R, constraints: Constraints) -> Size;
 
     fn paint(&self, platform: &mut R, area: Rect);
