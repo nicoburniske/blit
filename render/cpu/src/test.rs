@@ -75,25 +75,23 @@ impl PixelBuffer for TrackingBuffer {
 
 fn renderer_config() -> RendererConfig {
     RendererConfig {
-        fonts: vec![FontFace {
-            id: FontId::default(),
-            weight: 400,
-            font: Font::from_static(include_bytes!(env!("BLIT_TEST_FONT"))).unwrap(),
-        }],
-        font_metric_cache_capacity: 256,
+        fonts: Vec::new(),
         glyph_cache_capacity: 1024 * 1024,
-        paragraph_cache_capacity: 1024 * 1024,
         shadow_cache_capacity: 1024 * 1024,
     }
 }
 
-fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {
-    Renderer::new(
-        buffer,
-        config,
-        TextSystem::new(CosmicBackend::without_system_fonts()),
-    )
-    .unwrap()
+fn new_renderer<B: PixelBuffer>(buffer: B, mut config: RendererConfig) -> Renderer<B> {
+    let mut text = TextSystem::new(CosmicBackend::without_system_fonts());
+    let font = text
+        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
+        .unwrap();
+    config.fonts.push(FontFace {
+        id: FontId::default(),
+        weight: 400,
+        font,
+    });
+    Renderer::new(buffer, config, text)
 }
 
 #[test]

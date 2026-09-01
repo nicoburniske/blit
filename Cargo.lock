@@ -97,11 +97,11 @@ name = "blit-cpu"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-font",
  "blit-text",
  "blit_cache",
  "divan",
  "slotmap",
+ "ttf-parser",
 ]
 
 [[package]]
@@ -130,13 +130,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blit-font"
-version = "0.1.0"
-dependencies = [
- "ttf-parser",
-]
-
-[[package]]
 name = "blit-showcase"
 version = "0.1.0"
 dependencies = [
@@ -157,7 +150,6 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "cosmic-text",
- "fontdb",
 ]
 
 [[package]]

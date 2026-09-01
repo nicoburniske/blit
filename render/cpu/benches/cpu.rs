@@ -2,8 +2,8 @@ use std::hint::black_box;
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
-    CosmicBackend, Direct, Font, FontFace, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
-    RendererConfig, Scanline, TextSystem, VecBuffer, Xrgb8888,
+    CosmicBackend, Direct, FontData, FontFace, Pixel, PremultipliedRgbaColor, RenderStrategy,
+    Renderer, RendererConfig, Scanline, TextSystem, VecBuffer, Xrgb8888,
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     image::{
@@ -608,21 +608,22 @@ fn renderer_with_shadow_cache<S>(
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
+    let mut text = TextSystem::new(CosmicBackend::without_system_fonts());
+    let font = text
+        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
+        .unwrap();
     Renderer::new(
         VecBuffer::new(width, height),
         RendererConfig {
             fonts: vec![FontFace {
                 id: FontId::default(),
                 weight: 400,
-                font: Font::from_static(include_bytes!(env!("BLIT_TEST_FONT"))).unwrap(),
+                font,
             }],
-            font_metric_cache_capacity: 512,
             glyph_cache_capacity: 512 * 1024,
-            paragraph_cache_capacity: 512 * 1024,
             shadow_cache_capacity,
         },
-        TextSystem::new(CosmicBackend::without_system_fonts()),
+        text,
     )
-    .unwrap()
     .strategy(strategy)
 }

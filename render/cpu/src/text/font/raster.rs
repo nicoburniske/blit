@@ -1,10 +1,25 @@
-use std::{mem::size_of, simd::f32x4};
+use std::simd::f32x4;
 
 use ttf_parser::{OutlineBuilder, Rect};
 
-use crate::{Font, GlyphId, Metrics};
+use super::Font;
 
 // adapted from the femtofont and fontdue rasterizer
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Metrics {
+    pub width: usize,
+    pub height: usize,
+    pub bounds: OutlineBounds,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct OutlineBounds {
+    pub xmin: f32,
+    pub ymin: f32,
+    pub width: f32,
+    pub height: f32,
+}
 
 pub struct Rasterizer {
     outline: Outline,
@@ -29,11 +44,38 @@ impl Default for Rasterizer {
 }
 
 impl Rasterizer {
-    pub fn rasterize(&mut self, font: &Font, glyph: GlyphId, size: f32) -> (Metrics, Vec<u8>) {
-        let face = font.face();
-        let mut metrics = Font::metrics_from_face(&face, glyph, size);
-        let Some(bounds) = face.glyph_bounding_box(ttf_parser::GlyphId(glyph.0)) else {
-            return (metrics, Vec::new());
+    pub fn rasterize(&mut self, font: &Font, glyph: u16, size: f32) -> (Metrics, Vec<u8>) {
+        let face = match ttf_parser::Face::parse(font.data.as_ref(), font.face_index) {
+            Ok(face) => face,
+            Err(_) => unreachable!("validated immutable font became invalid"),
+        };
+        if !size.is_finite() || size <= 0.0 {
+            return (Metrics::default(), Vec::new());
+        }
+        let glyph = ttf_parser::GlyphId(glyph);
+        let Some(bounds) = face.glyph_bounding_box(glyph) else {
+            return (Metrics::default(), Vec::new());
+        };
+        let scale = size / face.units_per_em() as f32;
+        let outline_bounds = OutlineBounds {
+            xmin: bounds.x_min as f32 * scale,
+            ymin: bounds.y_min as f32 * scale,
+            width: (bounds.x_max - bounds.x_min) as f32 * scale,
+            height: (bounds.y_max - bounds.y_min) as f32 * scale,
+        };
+        let mut offset_x = outline_bounds.xmin.fract();
+        let mut offset_y =
+            (1.0 - outline_bounds.height.fract() - outline_bounds.ymin.fract()).fract();
+        if offset_x < 0.0 {
+            offset_x += 1.0;
+        }
+        if offset_y < 0.0 {
+            offset_y += 1.0;
+        }
+        let mut metrics = Metrics {
+            width: (outline_bounds.width + offset_x).ceil().max(0.0) as usize,
+            height: (outline_bounds.height + offset_y).ceil().max(0.0) as usize,
+            bounds: outline_bounds,
         };
         let pixels = metrics
             .width
@@ -44,10 +86,7 @@ impl Rasterizer {
         }
 
         self.outline.reset(size, face.units_per_em() as f32);
-        if face
-            .outline_glyph(ttf_parser::GlyphId(glyph.0), &mut self.outline)
-            .is_none()
-        {
+        if face.outline_glyph(glyph, &mut self.outline).is_none() {
             metrics.width = 0;
             metrics.height = 0;
             return (metrics, Vec::new());
@@ -58,16 +97,6 @@ impl Rasterizer {
         let initialized = self.coverage.len().min(coverage_len);
         self.coverage[..initialized].fill(0.0);
         self.coverage.resize(coverage_len, 0.0);
-        let scale = size / face.units_per_em() as f32;
-        let mut offset_x = metrics.bounds.xmin.fract();
-        let mut offset_y =
-            (1.0 - metrics.bounds.height.fract() - metrics.bounds.ymin.fract()).fract();
-        if offset_x < 0.0 {
-            offset_x += 1.0;
-        }
-        if offset_y < 0.0 {
-            offset_y += 1.0;
-        }
         self.draw(metrics.width, scale, offset_x, offset_y);
 
         let mut alpha = Vec::with_capacity(pixels);
@@ -77,12 +106,6 @@ impl Rasterizer {
             alpha.push((height.abs() * 255.9).clamp(0.0, 255.0) as u8);
         }
         (metrics, alpha)
-    }
-
-    pub fn allocated_bytes(&self) -> usize {
-        self.coverage.capacity() * size_of::<f32>()
-            + (self.outline.vertical.capacity() + self.outline.mixed.capacity()) * size_of::<Line>()
-            + self.outline.stack.capacity() * size_of::<Segment>()
     }
 
     fn draw(&mut self, width: usize, scale: f32, offset_x: f32, offset_y: f32) {

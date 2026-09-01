@@ -6,10 +6,10 @@ use std::{
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use cosmic_text::{
-    Align, Attrs, Buffer, Cursor, Ellipsize, EllipsizeHeightLimit, Family, FontSystem, Metrics,
-    Shaping, Wrap,
+    Align, Attrs, Buffer, Cursor, Ellipsize, EllipsizeHeightLimit, Family, FontSystem, LineIter,
+    Metrics, Shaping, Wrap,
+    fontdb::{self, Query, Source},
 };
-use fontdb::{Query, Source};
 
 use crate::{
     Backend, FontData, FontError, FontFace, FontId, FontStyle, Glyph, GlyphRun, GlyphRunVisitor,
@@ -53,14 +53,6 @@ struct OwnedRun {
     size: f32,
     bounds: LogicalRect,
     glyphs: Box<[Glyph]>,
-}
-
-struct SharedFontData(Arc<[u8]>);
-
-impl AsRef<[u8]> for SharedFontData {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
 }
 
 impl CosmicBackend {
@@ -155,14 +147,10 @@ impl Backend for CosmicBackend {
     }
 
     fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontId, FontError> {
-        let shared = match &data {
-            FontData::Static(data) => Arc::<[u8]>::from(*data),
-            FontData::Shared(data) => data.clone(),
-        };
         let ids = self
             .fonts
             .db_mut()
-            .load_font_source(Source::Binary(Arc::new(SharedFontData(shared))));
+            .load_font_source(Source::Binary(Arc::new(data.clone())));
         let cosmic = ids
             .into_iter()
             .find(|id| {
@@ -211,12 +199,12 @@ impl Backend for CosmicBackend {
             return TextId(u64::try_from(index + 1).expect("too many texts"));
         }
 
-        let mut line_starts = vec![0];
-        line_starts.extend(
-            text.match_indices('\n')
-                .map(|(index, _)| index + 1)
-                .filter(|index| *index < text.len()),
-        );
+        let mut line_starts: Vec<_> = LineIter::new(text).map(|(range, _)| range.start).collect();
+        if line_starts.is_empty() {
+            line_starts.push(0);
+        } else if matches!(text.as_bytes().last(), Some(b'\r' | b'\n')) {
+            line_starts.push(text.len());
+        }
         let index = self.texts.len();
         self.texts.push(CosmicText {
             text: text.into(),
@@ -372,11 +360,15 @@ impl Backend for CosmicBackend {
     fn cursor_rect(&self, layout: TextLayoutId, byte_offset: usize) -> LogicalRect {
         let layout = self.layout(layout);
         let text = &self.texts[layout.text];
+        let byte_offset = byte_offset.min(text.text.len());
         let line = text
             .line_starts
             .partition_point(|start| *start <= byte_offset)
             .saturating_sub(1);
-        let cursor = Cursor::new(line, byte_offset.saturating_sub(text.line_starts[line]));
+        let index = byte_offset
+            .saturating_sub(text.line_starts[line])
+            .min(layout.buffer.lines[line].text().len());
+        let cursor = Cursor::new(line, index);
         let (x, y) = layout.buffer.cursor_position(&cursor).unwrap_or((0.0, 0.0));
         let height = layout
             .buffer

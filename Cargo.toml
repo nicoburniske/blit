@@ -5,7 +5,6 @@ members = [
     "diff",
     "examples/showcase",
     "executor",
-    "font",
     "kernel",
     "platform/desktop",
     "platform/tui",
@@ -22,7 +21,6 @@ license = "MIT"
 blit = { path = "kernel" }
 blit-diff = { path = "diff" }
 blit-executor = { path = "executor" }
-blit-font = { path = "font" }
 blit-showcase = { path = "examples/showcase" }
 blit-std = { path = "std" }
 blit-text = { path = "render/text" }

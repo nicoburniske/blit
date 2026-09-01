@@ -8,9 +8,9 @@ publish = false
 [dependencies]
 blit = { workspace = true }
 blit_cache = { path = "../../cache" }
-blit-font = { workspace = true }
 blit-text = { workspace = true }
 slotmap = "1"
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 divan = "0.1"

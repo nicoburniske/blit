@@ -4,7 +4,7 @@ use blit::{
     Absolute, Anchor, Axis, Easing, Interaction, Place, Sense, Sides, Size, Sizing, Transition,
     Widget, WidgetId,
 };
-use blit_cpu::{CosmicBackend, Font, FontFace, RendererConfig, TextSystem};
+use blit_cpu::{CosmicBackend, FontData, FontFace, RendererConfig, TextSystem};
 use blit_desktop::{
     Application, BoundsClip, Config, Cx, DesktopPlatform, EventLoopProxy, Root, Ui,
     atom::{Rectangle, Shadow},
@@ -20,6 +20,10 @@ use blit_showcase::{
 };
 
 fn main() {
+    let mut text = TextSystem::new(CosmicBackend::new());
+    let font = text
+        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
+        .unwrap();
     blit_desktop::run::<App>(Config {
         title: "Blit layout playground".into(),
         width: 1120,
@@ -28,14 +32,12 @@ fn main() {
             fonts: vec![FontFace {
                 id: FontId::default(),
                 weight: 400,
-                font: Font::from_static(include_bytes!(env!("BLIT_TEST_FONT"))).unwrap(),
+                font,
             }],
-            font_metric_cache_capacity: 256,
             glyph_cache_capacity: 1024 * 1024,
-            paragraph_cache_capacity: 2 * 1024 * 1024,
             shadow_cache_capacity: 512 * 1024,
         },
-        text: TextSystem::new(CosmicBackend::new()),
+        text,
     })
     .unwrap();
 }

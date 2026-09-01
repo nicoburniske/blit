@@ -1,6 +1,6 @@
 mod font;
 
-use std::{ptr::NonNull, sync::Arc};
+use std::ptr::NonNull;
 
 use crate::{
     Pixel, PixelSpan, RendererConfig,
@@ -8,9 +8,7 @@ use crate::{
     text_types::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
-use blit_text::{
-    FontError, FontId, HorizontalAlign, TextId, TextOverflow, TextSystem, VerticalAlign,
-};
+use blit_text::{FontId, HorizontalAlign, TextId, TextOverflow, TextSystem, VerticalAlign};
 use font::GlyphCache;
 
 pub struct TextRenderer {
@@ -58,25 +56,23 @@ impl PreparedLines {
 }
 
 impl TextRenderer {
-    pub fn new(config: RendererConfig, mut backend: TextSystem) -> Result<Self, FontError> {
-        let mut families = Vec::with_capacity(config.fonts.len());
-        for face in config.fonts {
-            let font = backend
-                .register_font(blit_text::FontData::Shared(Arc::from(face.font.bytes())), 0)?;
-            families.push(ConfiguredFace {
-                family: face.id,
-                weight: face.weight,
-                font,
-            });
-        }
-        Ok(Self {
+    pub fn new(config: RendererConfig, backend: TextSystem) -> Self {
+        Self {
             backend,
-            families: families.into_boxed_slice(),
+            families: config
+                .fonts
+                .into_iter()
+                .map(|face| ConfiguredFace {
+                    family: face.id,
+                    weight: face.weight,
+                    font: face.font,
+                })
+                .collect(),
             glyphs: GlyphCache::new(config.glyph_cache_capacity),
             prepared: Vec::new(),
             lines: Vec::new(),
             coverage: Vec::new(),
-        })
+        }
     }
 
     pub fn text_run(&mut self, text: &str, style: TextStyle, _scale_factor: f32) -> TextRunId {
