@@ -1,6 +1,29 @@
 use crate::color::Color;
 use blit::geometry::LogicalRect;
-pub use blit_font::{HorizontalAlign, TextWrap, VerticalAlign};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TextWrap {
+    #[default]
+    None,
+    Word,
+    Character,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum HorizontalAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum VerticalAlign {
+    #[default]
+    Top,
+    Center,
+    Bottom,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextRequest {

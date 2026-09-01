@@ -4,7 +4,7 @@ use blit::{
     Absolute, Anchor, Axis, Easing, Interaction, Place, Sense, Sides, Size, Sizing, Transition,
     Widget, WidgetId,
 };
-use blit_cpu::{Font, FontFace, RendererConfig};
+use blit_cpu::{CosmicBackend, Font, FontFace, RendererConfig, TextSystem};
 use blit_desktop::{
     Application, BoundsClip, Config, Cx, DesktopPlatform, EventLoopProxy, Root, Ui,
     atom::{Rectangle, Shadow},
@@ -35,6 +35,7 @@ fn main() {
             paragraph_cache_capacity: 2 * 1024 * 1024,
             shadow_cache_capacity: 512 * 1024,
         },
+        text: TextSystem::new(CosmicBackend::new()),
     })
     .unwrap();
 }

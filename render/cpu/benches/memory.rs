@@ -5,7 +5,8 @@ use std::{
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
-    Font, FontFace, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888,
+    CosmicBackend, Font, FontFace, Renderer, RendererConfig, Scanline, TextSystem, VecBuffer,
+    Xrgb8888,
     color::Color,
     command_list::{ClipId, CommandList, Rectangle},
     text_types::FontId,
@@ -52,7 +53,9 @@ fn main() {
             paragraph_cache_capacity: 1,
             shadow_cache_capacity: 0,
         },
+        TextSystem::new(CosmicBackend::without_system_fonts()),
     )
+    .unwrap()
     .strategy(Scanline::default());
     let baseline = CURRENT.load(Relaxed);
     GROSS.store(0, Relaxed);

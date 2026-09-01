@@ -87,9 +87,18 @@ fn renderer_config() -> RendererConfig {
     }
 }
 
+fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {
+    Renderer::new(
+        buffer,
+        config,
+        TextSystem::new(CosmicBackend::without_system_fonts()),
+    )
+    .unwrap()
+}
+
 #[test]
 fn renderer_supports_custom_pixel_layouts() {
-    let mut renderer = Renderer::new(VecBuffer::<BgrPixel>::new(32, 24), renderer_config());
+    let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(32, 24), renderer_config());
     let m = renderer.text_run("M", TextStyle::default());
     let clip = PhysicalRect {
         x: 0,
@@ -172,7 +181,7 @@ fn renderer_supports_custom_pixel_layouts() {
 
 #[test]
 fn text_measurement_reports_wrapped_layout_size() {
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
     let request = TextLayoutRequest {
         text: renderer.text_run("hello world", TextStyle::default()),
         style: TextStyle::default(),
@@ -199,7 +208,7 @@ fn clear_resets_stale_pixels_before_drawing() {
         stale: Argb8888,
     ) -> Vec<Argb8888> {
         let mut renderer =
-            Renderer::new(VecBuffer::<Argb8888>::new(12, 10), renderer_config()).strategy(strategy);
+            new_renderer(VecBuffer::<Argb8888>::new(12, 10), renderer_config()).strategy(strategy);
         renderer.buffer_mut().pixels_mut().fill(stale);
         let screen = renderer.screen();
         let rectangle = Rectangle::new(LogicalRect {
@@ -230,7 +239,7 @@ fn clear_resets_stale_pixels_before_drawing() {
     assert_eq!(expected[0], transparent);
     assert_ne!(expected[12 / 2 + 10 / 2 * 12], transparent);
 
-    let mut renderer = Renderer::new(VecBuffer::<Argb8888>::new(12, 10), renderer_config());
+    let mut renderer = new_renderer(VecBuffer::<Argb8888>::new(12, 10), renderer_config());
     renderer.buffer_mut().pixels_mut().fill(stale);
     let screen = renderer.screen();
     let mut paint = CommandList::default();
@@ -247,7 +256,7 @@ fn clear_resets_stale_pixels_before_drawing() {
 
 #[test]
 fn commands_outside_damage_are_not_prepared() {
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(8, 4), renderer_config());
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 4), renderer_config());
     let damaged = LogicalRect {
         x: 0.0,
         y: 0.0,
@@ -294,7 +303,7 @@ fn commands_outside_damage_are_not_prepared() {
 #[test]
 fn dropped_image_is_removed_after_last_handle() {
     static PIXEL: [u8; 4] = [255, 255, 255, 255];
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config());
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config());
     let texture = ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1);
 
     let first = renderer.create_image(texture);
@@ -354,7 +363,7 @@ fn image_alpha_rows_are_cached_and_used() {
     for (pixel, alpha) in pixels.chunks_exact_mut(4).zip(alpha) {
         pixel.copy_from_slice(&[alpha / 2, alpha / 4, alpha / 8, alpha]);
     }
-    let mut renderer = Renderer::new(VecBuffer::<TrackingPixel>::new(6, 4), renderer_config())
+    let mut renderer = new_renderer(VecBuffer::<TrackingPixel>::new(6, 4), renderer_config())
         .strategy(Scanline::default());
     let image = renderer.create_image(ImageData::new(
         ImagePixels::Owned(pixels.into()),
@@ -479,7 +488,7 @@ fn image_alpha_rows_are_cached_and_used() {
 
 #[test]
 fn direct_preserves_exact_overlapping_damage() {
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(4, 4), renderer_config());
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(4, 4), renderer_config());
     let screen = renderer.screen();
     let mut paint = CommandList::default();
     paint.push_rectangle(
@@ -526,7 +535,7 @@ fn direct_preserves_exact_overlapping_damage() {
 
 #[test]
 fn direct_does_not_merge_touching_damage() {
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(3, 3), renderer_config());
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(3, 3), renderer_config());
     let screen = renderer.screen();
     let mut paint = CommandList::default();
     paint.push_rectangle(
@@ -560,7 +569,7 @@ fn direct_does_not_merge_touching_damage() {
 
 #[test]
 fn direct_preserves_damage_beyond_stack_capacity() {
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(9, 1), renderer_config());
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(9, 1), renderer_config());
     let screen = renderer.screen();
     let damage: [PhysicalRect; 9] = std::array::from_fn(|x| PhysicalRect {
         x: x as i32,
@@ -587,7 +596,7 @@ fn direct_preserves_damage_beyond_stack_capacity() {
 
 #[test]
 fn frame_is_rendered_once_per_affected_line_in_order() {
-    let mut renderer = Renderer::new(
+    let mut renderer = new_renderer(
         TrackingBuffer {
             pixels: vec![Xrgb8888::default(); 16],
             lines: Vec::new(),
@@ -637,7 +646,7 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
 
 #[test]
 fn scanline_merges_overlapping_damage_per_line() {
-    let mut renderer = Renderer::new(
+    let mut renderer = new_renderer(
         TrackingBuffer {
             pixels: vec![Xrgb8888::default(); 20],
             lines: Vec::new(),
@@ -689,7 +698,7 @@ fn scanline_merges_overlapping_damage_per_line() {
 
 #[test]
 fn scanline_only_borrows_dirty_horizontal_ranges() {
-    let mut renderer = Renderer::new(
+    let mut renderer = new_renderer(
         TrackingBuffer {
             pixels: vec![Xrgb8888::default(); 8],
             lines: Vec::new(),
@@ -783,7 +792,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         }
     }
 
-    let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(4, 2), renderer_config())
+    let mut renderer = new_renderer(VecBuffer::<CountingPixel>::new(4, 2), renderer_config())
         .strategy(Scanline::default());
     let screen = renderer.screen();
     let area = LogicalRect {
@@ -818,7 +827,7 @@ fn scanline_skips_commands_behind_opaque_content() {
             .all(|pixel| pixel.draws == 2)
     );
 
-    let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(8, 7), renderer_config())
+    let mut renderer = new_renderer(VecBuffer::<CountingPixel>::new(8, 7), renderer_config())
         .strategy(Scanline::default());
     let screen = renderer.screen();
     let damage = PhysicalRect {
@@ -858,7 +867,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     );
 
     static IMAGE_PIXEL: [u8; 4] = [0, 255, 0, 255];
-    let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(4, 2), renderer_config())
+    let mut renderer = new_renderer(VecBuffer::<CountingPixel>::new(4, 2), renderer_config())
         .strategy(Scanline::default());
     let image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&IMAGE_PIXEL),
@@ -938,7 +947,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         0, 0, 0, 0, 0, 128, 0, 128, 0, 255, 0, 255, 0, 255, 0, 255, 0, 128, 0, 128, 0, 0, 0, 0,
     ];
     static UNDERLAY_ALPHA: [u8; 1] = [128];
-    let mut renderer = Renderer::new(VecBuffer::<CountingPixel>::new(6, 1), renderer_config())
+    let mut renderer = new_renderer(VecBuffer::<CountingPixel>::new(6, 1), renderer_config())
         .strategy(Scanline::default());
     let partial_image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&PARTIAL_IMAGE_PIXELS),
@@ -1037,8 +1046,8 @@ fn scanline_skips_commands_behind_opaque_content() {
 
 #[test]
 fn cached_dirty_ranges_match_direct_rendering() {
-    let mut direct = Renderer::new(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
-    let mut scanline = Renderer::new(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config())
+    let mut direct = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
+    let mut scanline = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config())
         .strategy(Scanline::default());
     let red = Rectangle::new(LogicalRect {
         x: 0.0,
@@ -1097,8 +1106,8 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
     fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(
         strategy: S,
     ) -> Renderer<VecBuffer<Xrgb8888>, S> {
-        let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(128, 96), renderer_config())
-            .strategy(strategy);
+        let mut renderer =
+            new_renderer(VecBuffer::<Xrgb8888>::new(128, 96), renderer_config()).strategy(strategy);
         renderer.set_scale(Scale2::uniform(2.0));
         let screen = renderer.screen();
         let first = BoxShadow::new(
@@ -1183,7 +1192,7 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
         strategy: S,
     ) -> Renderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer =
-            Renderer::new(VecBuffer::<Xrgb8888>::new(48, 36), renderer_config()).strategy(strategy);
+            new_renderer(VecBuffer::<Xrgb8888>::new(48, 36), renderer_config()).strategy(strategy);
         let screen = renderer.screen();
         let mut paint = CommandList::default();
         let clip = paint.push_clip(
@@ -1241,7 +1250,7 @@ fn rounded_clips_match_between_strategies() {
         strategy: S,
     ) -> Renderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer =
-            Renderer::new(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(strategy);
+            new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(strategy);
         let image = renderer.create_image(ImageData::new(
             ImagePixels::Static(&PIXEL),
             ImageFormat::Rgb8,
@@ -1329,7 +1338,7 @@ fn rounded_clips_match_between_strategies() {
 #[test]
 fn dropped_image_remains_valid_until_frame_end() {
     static PIXEL: [u8; 4] = [255, 0, 0, 255];
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
         .strategy(Scanline::default());
     let image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&PIXEL),
@@ -1375,7 +1384,7 @@ fn dropped_image_remains_valid_until_frame_end() {
 
 #[test]
 fn text_runs_are_keyed_by_content_and_style() {
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
     let style = TextStyle::default();
     let first = renderer.text_run("same", style);
 

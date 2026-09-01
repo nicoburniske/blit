@@ -17,7 +17,7 @@ pub type Cx<'a> = blit::Cx<'a, DesktopPlatform>;
 
 use std::{error::Error, fmt};
 
-use blit_cpu::RendererConfig;
+use blit_cpu::{FontError, RendererConfig, TextSystem};
 use winit::event_loop::EventLoopProxy as WinitEventLoopProxy;
 
 pub struct Config {
@@ -25,6 +25,7 @@ pub struct Config {
     pub width: u32,
     pub height: u32,
     pub renderer: RendererConfig,
+    pub text: TextSystem,
 }
 
 /// sends application input to the desktop event loop
@@ -74,6 +75,7 @@ pub enum RunError {
     EventLoop(winit::error::EventLoopError),
     Window(winit::error::OsError),
     Surface(softbuffer::SoftBufferError),
+    Font(FontError),
 }
 
 impl fmt::Display for RunError {
@@ -82,6 +84,7 @@ impl fmt::Display for RunError {
             Self::EventLoop(error) => error.fmt(formatter),
             Self::Window(error) => error.fmt(formatter),
             Self::Surface(error) => error.fmt(formatter),
+            Self::Font(error) => error.fmt(formatter),
         }
     }
 }
@@ -103,5 +106,11 @@ impl From<winit::error::OsError> for RunError {
 impl From<softbuffer::SoftBufferError> for RunError {
     fn from(error: softbuffer::SoftBufferError) -> Self {
         Self::Surface(error)
+    }
+}
+
+impl From<FontError> for RunError {
+    fn from(error: FontError) -> Self {
+        Self::Font(error)
     }
 }

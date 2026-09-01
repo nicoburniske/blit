@@ -7,3 +7,5 @@ publish = false
 
 [dependencies]
 blit.workspace = true
+cosmic-text = { version = "0.19", default-features = false, features = ["fontconfig", "std"] }
+fontdb = { version = "0.23", default-features = false, features = ["fontconfig", "memmap", "std"] }

@@ -1,53 +1,10 @@
 use std::{collections::HashMap, mem::size_of};
 
 use blit_cache::{DeferredCache, Scale};
-use blit_font::{GlyphId, GlyphRasterConfig, Metrics, Rasterizer};
-use blit_text::{FontData, FontFace as RegisteredFace, FontId, TextSystem};
+use blit_font::{GlyphId, Metrics, Rasterizer};
+use blit_text::{FontData, FontId, TextSystem};
 
 use crate::Font;
-
-pub struct FontStore {
-    faces: Vec<StoredFace>,
-}
-
-struct StoredFace {
-    font: Font,
-    data: FontData,
-    face_index: u32,
-}
-
-impl FontStore {
-    pub fn new() -> Self {
-        Self { faces: Vec::new() }
-    }
-
-    pub fn font(&self, id: FontId) -> Option<(usize, &Font)> {
-        let index = usize::try_from(id.0).ok()?.checked_sub(1)?;
-        self.faces.get(index).map(|face| (index, &face.font))
-    }
-
-    pub fn face(&self, id: FontId) -> Option<RegisteredFace> {
-        let index = usize::try_from(id.0).ok()?.checked_sub(1)?;
-        self.faces.get(index).map(|face| RegisteredFace {
-            data: face.data.clone(),
-            face_index: face.face_index,
-        })
-    }
-
-    pub fn register(&mut self, data: FontData, face_index: u32) -> Option<FontId> {
-        let font = match &data {
-            FontData::Static(data) => Font::from_static_face(data, face_index).ok()?,
-            FontData::Shared(data) => Font::from_shared_face(data.clone(), face_index).ok()?,
-        };
-        let id = FontId(u64::try_from(self.faces.len() + 1).ok()?);
-        self.faces.push(StoredFace {
-            font,
-            data,
-            face_index,
-        });
-        Some(id)
-    }
-}
 
 pub struct CachedGlyph {
     pub metrics: Metrics,
@@ -80,10 +37,8 @@ impl GlyphCache {
     pub fn glyph(&mut self, text: &TextSystem, font: FontId, glyph: u32, size: f32) -> usize {
         let key = GlyphKey {
             font,
-            glyph: GlyphRasterConfig {
-                glyph_id: GlyphId(u16::try_from(glyph).expect("glyph id is too large")),
-                size,
-            },
+            glyph: u16::try_from(glyph).expect("glyph id is too large"),
+            size: size.to_bits(),
         };
         let Self {
             fonts,
@@ -101,7 +56,8 @@ impl GlyphCache {
                 }
                 .expect("text backend returned invalid font")
             });
-            let (metrics, alpha) = rasterizer.rasterize(font, key.glyph.glyph_id, key.glyph.size);
+            let (metrics, alpha) =
+                rasterizer.rasterize(font, GlyphId(key.glyph), f32::from_bits(key.size));
             CachedGlyph {
                 metrics,
                 alpha: alpha.into_boxed_slice(),
@@ -122,5 +78,6 @@ impl GlyphCache {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct GlyphKey {
     font: FontId,
-    glyph: GlyphRasterConfig,
+    glyph: u16,
+    size: u32,
 }

@@ -7,4 +7,3 @@ publish = false
 
 [dependencies]
 ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
-unicode-linebreak = "0.1.5"

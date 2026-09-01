@@ -190,7 +190,9 @@ mod tests {
     use super::*;
     use crate::atom::Rectangle;
     use blit::{Frame, Place, Sides, Size};
-    use blit_cpu::{Font, FontFace, RendererConfig, color::Color, text_types::FontId};
+    use blit_cpu::{
+        CosmicBackend, Font, FontFace, RendererConfig, TextSystem, color::Color, text_types::FontId,
+    };
     use blit_std::layout::Flex;
 
     #[test]
@@ -209,7 +211,9 @@ mod tests {
                 paragraph_cache_capacity: 0,
                 shadow_cache_capacity: 0,
             },
+            TextSystem::new(CosmicBackend::without_system_fonts()),
         )
+        .unwrap()
         .strategy(Scanline::default());
         renderer.buffer_mut().set(&mut pixels);
         let mut platform = DesktopPlatform::new(renderer);

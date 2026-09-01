@@ -1,27 +1,12 @@
 #![feature(portable_simd)]
 
-mod layout;
 mod raster;
 #[cfg(test)]
 mod test;
 
-use std::{
-    error::Error,
-    fmt,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-};
-
-pub use layout::{
-    CharacterData, GlyphPosition, GlyphRasterConfig, HorizontalAlign, Layout, LayoutSettings,
-    LineBreak, LinePosition, RunGlyph, TextRun, TextWrap, VerticalAlign,
-};
 pub use raster::Rasterizer;
+use std::{error::Error, fmt, sync::Arc};
 use ttf_parser::{Face, FaceParsingError, Rect};
-
-static NEXT_FONT_ID: AtomicUsize = AtomicUsize::new(0);
 
 enum FontData {
     Static(&'static [u8]),
@@ -31,7 +16,6 @@ enum FontData {
 pub struct Font {
     data: FontData,
     face_index: u32,
-    id: usize,
 }
 
 impl Font {
@@ -44,7 +28,6 @@ impl Font {
         Ok(Self {
             data: FontData::Static(data),
             face_index,
-            id: NEXT_FONT_ID.fetch_add(1, Ordering::Relaxed),
         })
     }
 
@@ -61,7 +44,6 @@ impl Font {
         Ok(Self {
             data: FontData::Shared(data),
             face_index,
-            id: NEXT_FONT_ID.fetch_add(1, Ordering::Relaxed),
         })
     }
 
@@ -92,10 +74,6 @@ impl Font {
             Ok(face) => face,
             Err(_) => unreachable!("validated immutable font became invalid"),
         }
-    }
-
-    fn id(&self) -> usize {
-        self.id
     }
 
     fn metrics_from_face(face: &Face<'_>, glyph: GlyphId, size: f32) -> Metrics {
