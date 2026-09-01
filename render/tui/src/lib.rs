@@ -47,11 +47,12 @@ pub struct TuiRenderer {
     next_image: u32,
     kitty_placements: Vec<KittyPlacement>,
     presented_kitty_placements: Vec<KittyPlacement>,
-    frame_cells: Vec<Cell>,
-    cells: Vec<Cell>,
+    frame_cells: Cells,
+    cells: Cells,
     changed: Vec<bool>,
     output: String,
     next_placement: u32,
+    invalidated: bool,
 }
 
 impl TuiRenderer {
@@ -71,11 +72,12 @@ impl TuiRenderer {
             next_image: 1,
             kitty_placements: Vec::new(),
             presented_kitty_placements: Vec::new(),
-            frame_cells: vec![Cell::default(); columns * rows],
-            cells: vec![Cell::invalid(); columns * rows],
+            frame_cells: Cells::new(columns * rows),
+            cells: Cells::new(columns * rows),
             changed: vec![true; columns * rows],
             output: String::new(),
             next_placement: 1,
+            invalidated: true,
         }
     }
 
@@ -95,17 +97,18 @@ impl TuiRenderer {
         if self.columns == columns && self.rows == rows {
             return;
         }
-        for cell in &self.cells {
-            if let CellText::Run { run, .. } = cell.text {
+        for glyph in &self.cells.glyph {
+            if let Some((run, _)) = Glyph(*glyph).run() {
                 self.text_runs
                     .update_index(run as usize, |run| run.screen_references -= 1);
             }
         }
         self.columns = columns;
         self.rows = rows;
-        self.frame_cells.resize(columns * rows, Cell::default());
-        self.cells = vec![Cell::invalid(); columns * rows];
+        self.frame_cells.resize(columns * rows);
+        self.cells = Cells::new(columns * rows);
         self.changed = vec![true; columns * rows];
+        self.invalidated = true;
     }
 
     pub fn output(&self) -> &[u8] {
@@ -126,9 +129,9 @@ impl TuiRenderer {
 
     pub fn plain_text(&self) -> String {
         let mut output = String::with_capacity((self.columns + 1) * self.rows);
-        for row in self.cells.chunks(self.columns) {
-            for cell in row {
-                Self::push_cell_text(&self.text_runs, cell.text, &mut output);
+        for row in self.cells.glyph.chunks(self.columns) {
+            for glyph in row {
+                Self::push_cell_text(&self.text_runs, Glyph(*glyph), &mut output);
             }
             while output.ends_with(' ') {
                 output.pop();
@@ -224,6 +227,7 @@ impl TuiRenderer {
                     query,
                     CachedRun {
                         id: TextRunId(u64::from(next) << 32),
+                        graphemes: Box::default(),
                         text: text.into_boxed_str(),
                         screen_references: 0,
                         spans: resolved.into_boxed_slice(),
@@ -310,46 +314,125 @@ struct KittyPlacement {
     height: usize,
 }
 
+// scalars use their Unicode value, bit 62 marks continuations, and bit 63 marks
+// cached run references with a 31 bit run index and 32 bit grapheme index
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CellText {
-    Continuation,
-    Scalar(char),
-    // screen references pin cache slots while cells use them
-    Run {
-        run: u32,
-        start: u32,
-        end: u32,
-        width: u16,
-    },
+struct Glyph(u64);
+
+impl Color {
+    #[inline]
+    fn packed(self) -> u32 {
+        match self {
+            Self::Reset => 0,
+            Self::Indexed(index) => 1 | u32::from(index) << 8,
+            Self::Rgb(red, green, blue) => {
+                2 | u32::from(red) << 8 | u32::from(green) << 16 | u32::from(blue) << 24
+            }
+        }
+    }
+
+    #[inline]
+    fn from_packed(packed: u32) -> Self {
+        debug_assert!(matches!(packed as u8, 0..=2));
+        match packed as u8 {
+            0 => Self::Reset,
+            1 => Self::Indexed((packed >> 8) as u8),
+            2 => Self::Rgb(
+                (packed >> 8) as u8,
+                (packed >> 16) as u8,
+                (packed >> 24) as u8,
+            ),
+            _ => Self::Reset,
+        }
+    }
+}
+
+impl Glyph {
+    const CONTINUATION: Self = Self(1 << 62);
+    const SPACE: Self = Self::scalar(' ');
+
+    const fn scalar(character: char) -> Self {
+        Self(character as u64)
+    }
+
+    fn from_run(run: u32, grapheme: u32) -> Self {
+        assert!(run < 1 << 31, "too many tui text runs");
+        Self(1 << 63 | u64::from(run) << 32 | u64::from(grapheme))
+    }
+
+    fn run(self) -> Option<(u32, u32)> {
+        (self.0 >> 63 != 0).then_some(((self.0 >> 32) as u32 & 0x7fff_ffff, self.0 as u32))
+    }
+
+    fn scalar_value(self) -> Option<char> {
+        (self.0 < 1 << 62).then(|| char::from_u32(self.0 as u32).unwrap())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Cell {
-    text: CellText,
+    glyph: Glyph,
     foreground: Color,
     background: Color,
     attributes: TextAttributes,
-    valid: bool,
-}
-
-impl Cell {
-    fn invalid() -> Self {
-        Self {
-            valid: false,
-            ..Self::default()
-        }
-    }
 }
 
 impl Default for Cell {
     fn default() -> Self {
         Self {
-            text: CellText::Scalar(' '),
+            glyph: Glyph::SPACE,
             foreground: Color::Reset,
             background: Color::Reset,
             attributes: TextAttributes::NONE,
-            valid: true,
         }
+    }
+}
+
+struct Cells {
+    glyph: Vec<u64>,
+    foreground: Vec<u32>,
+    background: Vec<u32>,
+    attributes: Vec<u16>,
+}
+
+impl Cells {
+    fn new(len: usize) -> Self {
+        Self {
+            glyph: vec![Glyph::SPACE.0; len],
+            foreground: vec![Color::Reset.packed(); len],
+            background: vec![Color::Reset.packed(); len],
+            attributes: vec![TextAttributes::NONE.0; len],
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.glyph.len()
+    }
+
+    fn fill(&mut self, range: std::ops::Range<usize>, cell: Cell) {
+        self.glyph[range.clone()].fill(cell.glyph.0);
+        self.foreground[range.clone()].fill(cell.foreground.packed());
+        self.background[range.clone()].fill(cell.background.packed());
+        self.attributes[range].fill(cell.attributes.0);
+    }
+
+    fn clear(&mut self) {
+        self.fill(0..self.len(), Cell::default());
+    }
+
+    fn resize(&mut self, len: usize) {
+        self.glyph.resize(len, Glyph::SPACE.0);
+        self.foreground.resize(len, Color::Reset.packed());
+        self.background.resize(len, Color::Reset.packed());
+        self.attributes.resize(len, TextAttributes::NONE.0);
+    }
+
+    fn row_eq(&self, other: &Self, range: std::ops::Range<usize>) -> bool {
+        self.glyph[range.clone()] == other.glyph[range.clone()]
+            && self.foreground[range.clone()] == other.foreground[range.clone()]
+            && self.background[range.clone()] == other.background[range.clone()]
+            && self.attributes[range.clone()] == other.attributes[range]
     }
 }
 
@@ -357,7 +440,10 @@ struct RunScale;
 
 impl Scale<RunKey, CachedRun> for RunScale {
     fn weight(&self, _key: &RunKey, run: &CachedRun) -> usize {
-        size_of::<CachedRun>() + run.text.len() + run.spans.len() * size_of::<ResolvedSpan>()
+        size_of::<CachedRun>()
+            + run.text.len()
+            + run.graphemes.len() * size_of::<u32>()
+            + run.spans.len() * size_of::<ResolvedSpan>()
     }
 }
 
@@ -374,6 +460,7 @@ impl Scale<LayoutKey, TextLayout> for LayoutScale {
 struct CachedRun {
     id: TextRunId,
     text: Box<str>,
+    graphemes: Box<[u32]>,
     screen_references: usize,
     spans: Box<[ResolvedSpan]>,
 }
@@ -412,9 +499,27 @@ struct Line {
 
 #[derive(Clone, Copy)]
 struct LayoutGrapheme {
-    start: usize,
-    end: usize,
-    width: usize,
+    start: u32,
+    // scalar graphemes store a tagged char, while complex graphemes index CachedRun::graphemes
+    glyph: u32,
+    width: u16,
+}
+
+impl LayoutGrapheme {
+    const SCALAR_TAG: u32 = 1 << 31;
+    const SCALAR_VALUE: u32 = Self::SCALAR_TAG - 1;
+
+    #[inline]
+    fn scalar(self) -> Option<char> {
+        (self.glyph & Self::SCALAR_TAG != 0)
+            .then(|| char::from_u32(self.glyph & Self::SCALAR_VALUE).unwrap())
+    }
+
+    #[inline]
+    fn resolve(self, run: u32) -> Glyph {
+        self.scalar()
+            .map_or_else(|| Glyph::from_run(run, self.glyph), Glyph::scalar)
+    }
 }
 
 struct TextLayout {
@@ -442,20 +547,42 @@ impl TuiRenderer {
         index
     }
 
+    fn glyphs_equal(
+        text_runs: &DeferredCache<RunKey, CachedRun, RunScale>,
+        left: Glyph,
+        right: Glyph,
+    ) -> bool {
+        if left == right {
+            return true;
+        }
+        let (Some((left_run, left_grapheme)), Some((right_run, right_grapheme))) =
+            (left.run(), right.run())
+        else {
+            return false;
+        };
+        let left = text_runs.get_index(left_run as usize);
+        let right = text_runs.get_index(right_run as usize);
+        let left_grapheme = left_grapheme as usize;
+        let right_grapheme = right_grapheme as usize;
+        left.text
+            [left.graphemes[left_grapheme] as usize..left.graphemes[left_grapheme + 1] as usize]
+            == right.text[right.graphemes[right_grapheme] as usize
+                ..right.graphemes[right_grapheme + 1] as usize]
+    }
+
     fn push_cell_text(
         text_runs: &DeferredCache<RunKey, CachedRun, RunScale>,
-        text: CellText,
+        glyph: Glyph,
         output: &mut String,
     ) {
-        match text {
-            CellText::Continuation => {}
-            CellText::Scalar(character) => output.push(character),
-            CellText::Run {
-                run, start, end, ..
-            } => {
-                let run = text_runs.get_index(run as usize);
-                output.push_str(&run.text[start as usize..end as usize]);
-            }
+        if let Some(character) = glyph.scalar_value() {
+            output.push(character);
+        } else if let Some((run, grapheme)) = glyph.run() {
+            let run = text_runs.get_index(run as usize);
+            let grapheme = grapheme as usize;
+            output.push_str(
+                &run.text[run.graphemes[grapheme] as usize..run.graphemes[grapheme + 1] as usize],
+            );
         }
     }
 
@@ -466,6 +593,20 @@ impl TuiRenderer {
             }
             let width = UnicodeWidthStr::width(grapheme);
             (width != 0).then_some(width)
+        }
+
+        fn layout_glyph(grapheme: &str, run_index: usize) -> u32 {
+            let mut characters = grapheme.chars();
+            if let Some(character) = characters.next().filter(|_| characters.next().is_none()) {
+                LayoutGrapheme::SCALAR_TAG | character as u32
+            } else {
+                let run_index = u32::try_from(run_index).unwrap();
+                assert!(
+                    run_index < LayoutGrapheme::SCALAR_TAG,
+                    "tui text run has too many graphemes"
+                );
+                run_index
+            }
         }
 
         fn start_line(lines: &mut Vec<Line>, grapheme: usize, limit: usize) -> bool {
@@ -491,7 +632,19 @@ impl TuiRenderer {
             wrap: request.wrap,
         };
         let run = self.text_run_index(request.text);
-        let text = &self.text_runs.get_index(run).text;
+        if self.text_runs.get_index(run).graphemes.is_empty() {
+            self.text_runs.update_index(run, |run| {
+                run.graphemes = run
+                    .text
+                    .grapheme_indices(true)
+                    .map(|(start, _)| u32::try_from(start).unwrap())
+                    .chain(std::iter::once(u32::try_from(run.text.len()).unwrap()))
+                    .collect();
+            });
+        }
+        let run = self.text_runs.get_index(run);
+        let text = &run.text;
+        let run_graphemes = &run.graphemes;
         let lines = &mut self.layout_lines;
         let graphemes = &mut self.layout_graphemes;
         let (_, index) = self.text_layouts.get_or_insert(key, || {
@@ -501,11 +654,25 @@ impl TuiRenderer {
             let mut truncated = false;
             match request.wrap {
                 TextWrap::Word => {
+                    let mut next_run_grapheme = 0;
                     'tokens: for (token_offset, token) in text.split_word_bound_indices() {
+                        let token_end = token_offset + token.len();
+                        let first_run_grapheme = next_run_grapheme;
+                        while next_run_grapheme + 1 < run_graphemes.len()
+                            && run_graphemes[next_run_grapheme] < token_end as u32
+                        {
+                            next_run_grapheme += 1;
+                        }
+                        let run_grapheme_range = first_run_grapheme..next_run_grapheme;
                         let whitespace = token.chars().all(char::is_whitespace);
-                        let token_width = token
-                            .graphemes(true)
-                            .filter_map(grapheme_width)
+                        let token_width = run_grapheme_range
+                            .clone()
+                            .filter_map(|index| {
+                                grapheme_width(
+                                    &text[run_graphemes[index] as usize
+                                        ..run_graphemes[index + 1] as usize],
+                                )
+                            })
                             .sum::<usize>();
                         if !whitespace
                             && lines.last().unwrap().width != 0
@@ -515,21 +682,29 @@ impl TuiRenderer {
                         {
                             let current = lines.last_mut().unwrap();
                             while current.end != current.start
-                                && text
-                                    [graphemes.last().unwrap().start..graphemes.last().unwrap().end]
-                                    .chars()
-                                    .all(char::is_whitespace)
+                                && if let Some(character) = graphemes.last().unwrap().scalar() {
+                                    character.is_whitespace()
+                                } else {
+                                    let index = graphemes.last().unwrap().glyph as usize;
+                                    text[run_graphemes[index] as usize
+                                        ..run_graphemes[index + 1] as usize]
+                                        .chars()
+                                        .all(char::is_whitespace)
+                                }
                             {
                                 let grapheme = graphemes.pop().unwrap();
                                 current.end -= 1;
-                                current.width -= grapheme.width;
+                                current.width -= usize::from(grapheme.width);
                             }
                             if !start_line(lines, graphemes.len(), max_lines) {
                                 truncated = true;
                                 break;
                             }
                         }
-                        for (offset, grapheme) in token.grapheme_indices(true) {
+                        for run_index in run_grapheme_range {
+                            let start = run_graphemes[run_index] as usize;
+                            let end = run_graphemes[run_index + 1] as usize;
+                            let grapheme = &text[start..end];
                             if grapheme == "\n" || grapheme == "\r\n" {
                                 if !start_line(lines, graphemes.len(), max_lines) {
                                     truncated = true;
@@ -555,11 +730,10 @@ impl TuiRenderer {
                             if whitespace && lines.last().unwrap().width == 0 {
                                 continue;
                             }
-                            let start = token_offset + offset;
                             graphemes.push(LayoutGrapheme {
-                                start,
-                                end: start + grapheme.len(),
-                                width,
+                                start: start as u32,
+                                glyph: layout_glyph(grapheme, run_index),
+                                width: u16::try_from(width).expect("tui grapheme is too wide"),
                             });
                             let current = lines.last_mut().unwrap();
                             current.end += 1;
@@ -568,7 +742,11 @@ impl TuiRenderer {
                     }
                 }
                 TextWrap::None | TextWrap::Character => {
-                    'graphemes: for (start, grapheme) in text.grapheme_indices(true) {
+                    'graphemes: for (run_index, boundaries) in run_graphemes.windows(2).enumerate()
+                    {
+                        let start = boundaries[0] as usize;
+                        let end = boundaries[1] as usize;
+                        let grapheme = &text[start..end];
                         if grapheme == "\n" || grapheme == "\r\n" {
                             if !start_line(lines, graphemes.len(), max_lines) {
                                 truncated = true;
@@ -590,9 +768,9 @@ impl TuiRenderer {
                             break 'graphemes;
                         }
                         graphemes.push(LayoutGrapheme {
-                            start,
-                            end: start + grapheme.len(),
-                            width,
+                            start: start as u32,
+                            glyph: layout_glyph(grapheme, run_index),
+                            width: u16::try_from(width).expect("tui grapheme is too wide"),
                         });
                         let current = lines.last_mut().unwrap();
                         current.end += 1;
@@ -641,7 +819,6 @@ mod tests {
 
     use crate::{
         cell::{Cell as SurfaceCell, CellStyle},
-        image::{ImageData, ImageFormat, ImagePixels, ImagePlacement},
         text::{HorizontalAlign, TextOptions, VerticalAlign},
     };
 
@@ -688,8 +865,8 @@ mod tests {
             .clear(SurfaceCell::default().style(CellStyle::new().background(Color::CYAN)));
         renderer.end_frame();
 
-        assert_eq!(renderer.cells[5].background, Color::CYAN);
-        assert_eq!(renderer.cells[6].background, Color::CYAN);
+        assert_eq!(renderer.cells.background[5], Color::CYAN.packed());
+        assert_eq!(renderer.cells.background[6], Color::CYAN.packed());
     }
 
     #[test]
@@ -718,6 +895,20 @@ mod tests {
         assert!(renderer.output().is_empty());
 
         renderer.begin_frame();
+        renderer
+            .cells(area, area)
+            .write(0, 0, "👨‍👩‍👧x", CellStyle::new());
+        renderer.end_frame();
+        renderer.begin_frame();
+        renderer
+            .cells(area, area)
+            .write(0, 0, "👨‍👩‍👧y", CellStyle::new());
+        renderer.end_frame();
+        assert!(!renderer.changed[0]);
+        assert!(!renderer.changed[1]);
+        assert!(renderer.changed[2]);
+
+        renderer.begin_frame();
         {
             let mut cells = renderer.cells(area, area);
             cells.write(0, 0, "界", CellStyle::new());
@@ -738,7 +929,7 @@ mod tests {
         }
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "\n");
-        assert_eq!(renderer.cells[1].background, Color::RED);
+        assert_eq!(renderer.cells.background[1], Color::RED.packed());
 
         renderer.begin_frame();
         renderer
@@ -749,7 +940,7 @@ mod tests {
             .clear(SurfaceCell::default().style(CellStyle::new().background(Color::GREEN)));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "\n");
-        assert_eq!(renderer.cells[1].background, Color::GREEN);
+        assert_eq!(renderer.cells.background[1], Color::GREEN.packed());
 
         renderer.begin_frame();
         renderer
@@ -804,15 +995,16 @@ mod tests {
         renderer.end_frame();
 
         let start = renderer.columns;
-        assert!(renderer.cells[start..start + 3].iter().all(|cell| {
-            cell.foreground == Color::RED
-                && cell.background == Color::BLUE
-                && cell.attributes == TextAttributes::BOLD
+        assert!((start..start + 3).all(|index| {
+            renderer.cells.foreground[index] == Color::RED.packed()
+                && renderer.cells.background[index] == Color::BLUE.packed()
+                && renderer.cells.attributes[index] == TextAttributes::BOLD.0
         }));
-        assert!(renderer.cells[start + 3..start + 5].iter().all(|cell| {
-            cell.foreground == Color::WHITE
-                && cell.background == Color::Reset
-                && cell.attributes == (TextAttributes::ITALIC | TextAttributes::RAPID_BLINK)
+        assert!((start + 3..start + 5).all(|index| {
+            renderer.cells.foreground[index] == Color::WHITE.packed()
+                && renderer.cells.background[index] == Color::Reset.packed()
+                && renderer.cells.attributes[index]
+                    == (TextAttributes::ITALIC | TextAttributes::RAPID_BLINK).0
         }));
         assert!(String::from_utf8_lossy(renderer.output()).contains(";6"));
     }

@@ -18,7 +18,7 @@ blit::builder! {
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct TextAttributes(u16);
+pub struct TextAttributes(pub u16);
 
 impl TextAttributes {
     pub const NONE: Self = Self(0);
