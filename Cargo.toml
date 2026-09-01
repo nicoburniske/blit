@@ -10,6 +10,7 @@ members = [
     "platform/desktop",
     "platform/tui",
     "render/cpu",
+    "render/text",
     "render/tui",
     "std",
 ]
