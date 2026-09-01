@@ -212,7 +212,10 @@ impl<R: Platform> Frame<R> {
             "a frame must have exactly one root"
         );
 
-        transition::resolve(self, platform, frame.size);
+        // layout mutates graph state while frame data remains immutable
+        // todo/hack: is there a better way to do this
+        let mut data = std::mem::take(&mut self.data);
+        transition::resolve(self, &data, platform, frame.size);
         position::resolve(self);
         paint::resolve_order(self);
         paint::resolve_clips(self);
@@ -223,23 +226,30 @@ impl<R: Platform> Frame<R> {
         self.transitions.retain(|state| state.seen);
         self.timers.retain(|timer| timer.seen);
         if render {
-            paint::render(self, platform, frame);
+            paint::render(self, &data, platform, frame);
         }
-        self.data.clear();
+        data.clear();
+        self.data = data;
     }
 
-    fn layout_node(&mut self, node: NodeId, platform: &mut R, constraints: Constraints) -> Size {
+    fn layout_node(
+        &mut self,
+        data: &DataArena,
+        node: NodeId,
+        platform: &mut R,
+        constraints: Constraints,
+    ) -> Size {
         let index = node.index();
         let size = if let Some(layout) = self.nodes[index].layout.index() {
             let stored = self.layouts[layout];
             let run = self.layout_kinds[stored.kind as usize].layout;
-            run(self, node, platform, stored.data, constraints)
+            run(data, self, node, platform, stored.data, constraints)
         } else {
             assert!(
                 self.nodes[index].first_atom.index().is_some(),
                 "node has neither an atom nor a layout"
             );
-            self.measure_base(node, platform, constraints)
+            self.measure_base(data, node, platform, constraints)
         };
         let size = constraints.constrain(size);
         self.nodes[index].area.width = size.width;
@@ -247,13 +257,19 @@ impl<R: Platform> Frame<R> {
         size
     }
 
-    fn measure_base(&mut self, node: NodeId, platform: &mut R, constraints: Constraints) -> Size {
+    fn measure_base(
+        &mut self,
+        data: &DataArena,
+        node: NodeId,
+        platform: &mut R,
+        constraints: Constraints,
+    ) -> Size {
         let mut size = Size::ZERO;
         let mut atom = self.nodes[node.index()].first_atom;
         while let Some(index) = atom.index() {
             let stored = self.atoms[index];
             let measure = self.atom_kinds[stored.kind as usize].measure;
-            let measured = measure(&self.data, stored.data, platform, constraints);
+            let measured = measure(data, stored.data, platform, constraints);
             size = size.max(measured);
             atom = stored.next;
         }
@@ -614,7 +630,7 @@ struct AtomKind<R: Platform> {
 
 struct LayoutKind<R: Platform> {
     type_id: TypeId,
-    layout: fn(&mut Frame<R>, NodeId, &mut R, DataId, Constraints) -> Size,
+    layout: fn(&DataArena, &mut Frame<R>, NodeId, &mut R, DataId, Constraints) -> Size,
 }
 
 struct ClipKind<R: Platform> {

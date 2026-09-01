@@ -87,7 +87,12 @@ pub fn resolve_clips<R: Platform>(frame: &mut Frame<R>) {
     }
 }
 
-pub fn render<R: Platform>(frame: &mut Frame<R>, platform: &mut R, info: FrameInfo) {
+pub fn render<R: Platform>(
+    frame: &mut Frame<R>,
+    data: &DataArena,
+    platform: &mut R,
+    info: FrameInfo,
+) {
     // todo: skip atoms outside their conservative paint bounds
     #[allow(clippy::too_many_arguments)]
     fn push<R: Platform>(
@@ -155,7 +160,7 @@ pub fn render<R: Platform>(frame: &mut Frame<R>, platform: &mut R, info: FrameIn
                 continue;
             }
             set(
-                &frame.data,
+                data,
                 &frame.clips,
                 &frame.clip_kinds,
                 &frame.resolved_clips,
@@ -167,7 +172,7 @@ pub fn render<R: Platform>(frame: &mut Frame<R>, platform: &mut R, info: FrameIn
             while let Some(atom_index) = atom.index() {
                 let stored = frame.atoms[atom_index];
                 (frame.atom_kinds[stored.kind as usize].paint)(
-                    &frame.data,
+                    data,
                     stored.data,
                     platform,
                     frame.nodes[index].area,
@@ -182,7 +187,7 @@ pub fn render<R: Platform>(frame: &mut Frame<R>, platform: &mut R, info: FrameIn
                 continue;
             }
             set(
-                &frame.data,
+                data,
                 &frame.clips,
                 &frame.clip_kinds,
                 &frame.resolved_clips,
@@ -194,7 +199,7 @@ pub fn render<R: Platform>(frame: &mut Frame<R>, platform: &mut R, info: FrameIn
             while let Some(atom_index) = atom.index() {
                 let stored = frame.atoms[atom_index];
                 (frame.atom_kinds[stored.kind as usize].paint)(
-                    &frame.data,
+                    data,
                     stored.data,
                     platform,
                     frame.nodes[node].area,
@@ -204,7 +209,7 @@ pub fn render<R: Platform>(frame: &mut Frame<R>, platform: &mut R, info: FrameIn
         }
     }
     set(
-        &frame.data,
+        data,
         &frame.clips,
         &frame.clip_kinds,
         &frame.resolved_clips,

@@ -84,22 +84,23 @@ fn layout_atoms_measure_and_paint_in_order() {
 }
 
 #[test]
-fn owned_atom_uses_resolved_area_and_drops() {
+fn owned_frame_values_use_resolved_area_and_drop() {
     let area = Rc::new(Cell::new(Rect::default()));
     let drops = Rc::new(Cell::new(0));
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
 
     frame.render(&mut platform, FrameInfo::new(Size::new(3.0, 2.0)), |ui| {
-        ui.node(Overlay).insert(OwnedAtom {
+        let value = || OwnedValue {
             area: area.clone(),
             drops: drops.clone(),
-        });
+        };
+        ui.node(value()).insert(value());
     });
 
     assert_eq!(area.get(), Rect::new(0.0, 0.0, 3.0, 2.0));
     assert_eq!(platform.contents(), "PPP\nPPP");
-    assert_eq!(drops.get(), 1);
+    assert_eq!(drops.get(), 2);
 }
 
 #[test]
@@ -556,12 +557,20 @@ fn scene(ui: &mut Ui) {
         });
 }
 
-struct OwnedAtom {
+struct OwnedValue {
     area: Rc<Cell<Rect>>,
     drops: Rc<Cell<usize>>,
 }
 
-impl Atom<AsciiPlatform> for OwnedAtom {
+impl<R: Platform> Layout<R> for OwnedValue {
+    type Item = ();
+
+    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+        constraints.constrain(cx.measure_base(Constraints::loose(constraints.max)))
+    }
+}
+
+impl Atom<AsciiPlatform> for OwnedValue {
     fn measure(&self, _: &mut AsciiPlatform, constraints: Constraints) -> Size {
         constraints.constrain(Size::ZERO)
     }
@@ -576,7 +585,7 @@ impl Atom<AsciiPlatform> for OwnedAtom {
     }
 }
 
-impl Drop for OwnedAtom {
+impl Drop for OwnedValue {
     fn drop(&mut self) {
         self.drops.set(self.drops.get() + 1);
     }
@@ -624,7 +633,7 @@ impl Atom<AsciiPlatform> for Fill {
     }
 }
 
-blit::impl_atom_widgets!(AsciiPlatform => Fill, OwnedAtom);
+blit::impl_atom_widgets!(AsciiPlatform => Fill, OwnedValue);
 
 #[derive(Clone, Copy)]
 struct DiamondClip;

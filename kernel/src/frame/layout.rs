@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use super::{Frame, NodeId, StoredNode};
 use crate::{
     Platform,
-    arena::DataId,
+    arena::{DataArena, DataId},
     frame::Sizing,
     geometry::{Constraints, Point, Sides, Size},
     layout::{Axis, Layout, LayoutResolution},
@@ -11,6 +11,7 @@ use crate::{
 
 pub struct LayoutCx<'a, R: Platform, I> {
     frame: &'a mut Frame<R>,
+    data: &'a DataArena,
     platform: &'a mut R,
     node: NodeId,
     nodes: *const StoredNode,
@@ -35,17 +36,18 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
     pub fn item(&self, child: NodeId) -> I {
         self.assert_child(child);
         let data = self.frame.nodes[child.index()].item;
-        *self.frame.data.load(data)
+        *self.data.load(data)
     }
 
     pub fn measure_base(&mut self, constraints: Constraints) -> Size {
         self.frame
-            .measure_base(self.node, self.platform, constraints)
+            .measure_base(self.data, self.node, self.platform, constraints)
     }
 
     pub fn layout_child(&mut self, child: NodeId, constraints: Constraints) -> Size {
         self.assert_child(child);
-        self.frame.layout_node(child, self.platform, constraints)
+        self.frame
+            .layout_node(self.data, child, self.platform, constraints)
     }
 
     pub fn constrain_child(&mut self, child: NodeId, constraints: Constraints) -> Size {
@@ -58,7 +60,8 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
             self.frame.nodes[child.index()].area.height = size.height;
             size
         } else {
-            self.frame.layout_node(child, self.platform, constraints)
+            self.frame
+                .layout_node(self.data, child, self.platform, constraints)
         }
     }
 
@@ -164,13 +167,14 @@ impl Iterator for Children<'_> {
 }
 
 pub fn run<R: Platform, L: Layout<R>>(
+    data: &DataArena,
     frame: &mut Frame<R>,
     node: NodeId,
     platform: &mut R,
     id: DataId,
     constraints: Constraints,
 ) -> Size {
-    let layout = *frame.data.load::<L>(id);
+    let layout = data.load::<L>(id);
     let nodes = frame.nodes.as_ptr();
     let first_child = frame.node_id(node.index() + 1);
     let children_end = frame.nodes[node.index()].subtree_end as usize;
@@ -179,6 +183,7 @@ pub fn run<R: Platform, L: Layout<R>>(
     layout.layout(
         &mut LayoutCx {
             frame,
+            data,
             platform,
             node,
             nodes,
