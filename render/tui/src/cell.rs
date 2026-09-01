@@ -4,7 +4,7 @@ use blit::LogicalRect;
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
-    Cell as ScreenCell, CellText, TuiRenderer,
+    Cell as ScreenCell, Cells, Glyph, TuiRenderer,
     color::Color,
     text::{
         HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest,
@@ -91,30 +91,29 @@ impl CellBuffer<'_> {
                 .character
                 .filter(|character| character.width() == Some(1));
             let fill = ScreenCell {
-                text: CellText::Scalar(character.unwrap_or(' ')),
+                glyph: Glyph::scalar(character.unwrap_or(' ')),
                 foreground: character.map_or(Color::Reset, |_| cell.style.foreground),
                 background,
                 attributes: character.map_or(TextAttributes::NONE, |_| cell.style.attributes),
-                valid: true,
             };
             for y in top..bottom {
                 let start = y as usize * self.renderer.columns + left as usize;
                 let end = y as usize * self.renderer.columns + right as usize;
-                if self.renderer.frame_cells[start].text != CellText::Scalar(' ') {
+                if self.renderer.frame_cells.glyph[start] != Glyph::SPACE.0 {
                     TuiRenderer::clear_glyph(
                         &mut self.renderer.frame_cells,
                         self.renderer.columns,
                         start,
                     );
                 }
-                if self.renderer.frame_cells[end - 1].text != CellText::Scalar(' ') {
+                if self.renderer.frame_cells.glyph[end - 1] != Glyph::SPACE.0 {
                     TuiRenderer::clear_glyph(
                         &mut self.renderer.frame_cells,
                         self.renderer.columns,
                         end - 1,
                     );
                 }
-                self.renderer.frame_cells[start..end].fill(fill);
+                self.renderer.frame_cells.fill(start..end, fill);
             }
             return;
         }
@@ -253,7 +252,7 @@ impl TuiRenderer {
             if line_ellipsis {
                 while line_width >= maximum && line_end != line.start {
                     line_end -= 1;
-                    line_width -= layout.graphemes[line_end].width;
+                    line_width -= usize::from(layout.graphemes[line_end].width);
                 }
                 line_width += 1;
             }
@@ -269,17 +268,12 @@ impl TuiRenderer {
                 .iter()
                 .map(|grapheme| {
                     (
-                        CellText::Run {
-                            run: cell_run,
-                            start: grapheme.start as u32,
-                            end: grapheme.end as u32,
-                            width: u16::try_from(grapheme.width).expect("tui grapheme is too wide"),
-                        },
-                        grapheme.width,
-                        Some(grapheme.start),
+                        grapheme.resolve(cell_run),
+                        usize::from(grapheme.width),
+                        Some(grapheme.start as usize),
                     )
                 })
-                .chain(line_ellipsis.then_some((CellText::Scalar('…'), 1, None)));
+                .chain(line_ellipsis.then_some((Glyph::scalar('…'), 1, None)));
             for (grapheme, width, byte_offset) in graphemes {
                 let style = if let Some(byte_offset) = byte_offset {
                     let previous = span_index;
@@ -319,7 +313,7 @@ impl TuiRenderer {
             character
                 .width()
                 .filter(|width| *width != 0)
-                .map(|width| (CellText::Scalar(character), width))
+                .map(|width| (Glyph::scalar(character), width))
         });
         let width = glyph.map_or(1, |(_, width)| width);
         if x < left || y < top || y >= bottom || x + width as isize > right {
@@ -337,62 +331,57 @@ impl TuiRenderer {
                 style,
             );
         } else if let Some(background) = style.background {
-            if self.frame_cells[index].text != CellText::Scalar(' ') {
+            if self.frame_cells.glyph[index] != Glyph::SPACE.0 {
                 Self::clear_glyph(&mut self.frame_cells, self.columns, index);
             }
-            self.frame_cells[index].background = background;
+            self.frame_cells.background[index] = background.packed();
         }
     }
 
     #[inline]
     fn paint_glyph(
-        frame_cells: &mut [ScreenCell],
+        frame_cells: &mut Cells,
         columns: usize,
         index: usize,
-        text: CellText,
+        glyph: Glyph,
         width: usize,
         style: CellStyle,
     ) {
         for index in index..index + width {
-            if frame_cells[index].text != CellText::Scalar(' ') {
+            if frame_cells.glyph[index] != Glyph::SPACE.0 {
                 Self::clear_glyph(frame_cells, columns, index);
             }
         }
-        let background = style.background.unwrap_or(frame_cells[index].background);
-        frame_cells[index] = ScreenCell {
-            text,
-            foreground: style.foreground,
-            background,
-            attributes: style.attributes,
-            valid: true,
-        };
-        for cell in &mut frame_cells[index + 1..index + width] {
-            *cell = ScreenCell {
-                text: CellText::Continuation,
-                foreground: style.foreground,
-                background,
-                attributes: style.attributes,
-                valid: true,
-            };
-        }
+        let background = style
+            .background
+            .map_or(frame_cells.background[index], Color::packed);
+        let foreground = style.foreground.packed();
+        let attributes = style.attributes.0;
+        frame_cells.glyph[index] = glyph.0;
+        frame_cells.foreground[index] = foreground;
+        frame_cells.background[index] = background;
+        frame_cells.attributes[index] = attributes;
+        let continuation = index + 1..index + width;
+        frame_cells.glyph[continuation.clone()].fill(Glyph::CONTINUATION.0);
+        frame_cells.foreground[continuation.clone()].fill(foreground);
+        frame_cells.background[continuation.clone()].fill(background);
+        frame_cells.attributes[continuation].fill(attributes);
     }
 
-    fn clear_glyph(frame_cells: &mut [ScreenCell], columns: usize, index: usize) {
+    fn clear_glyph(frame_cells: &mut Cells, columns: usize, index: usize) {
         let row = index / columns;
         let mut start = index;
-        while start > row * columns && frame_cells[start].text == CellText::Continuation {
+        while start > row * columns && frame_cells.glyph[start] == Glyph::CONTINUATION.0 {
             start -= 1;
         }
-        let width = match frame_cells[start].text {
-            CellText::Continuation => 1,
-            CellText::Scalar(character) => character.width().unwrap_or(1).max(1),
-            CellText::Run { width, .. } => usize::from(width),
-        };
-        for cell in &mut frame_cells[start..(start + width).min((row + 1) * columns)] {
-            cell.text = CellText::Scalar(' ');
-            cell.foreground = Color::Reset;
-            cell.attributes = TextAttributes::NONE;
+        let mut end = start + 1;
+        while end < (row + 1) * columns && frame_cells.glyph[end] == Glyph::CONTINUATION.0 {
+            end += 1;
         }
+        let range = start..end;
+        frame_cells.glyph[range.clone()].fill(Glyph::SPACE.0);
+        frame_cells.foreground[range.clone()].fill(Color::Reset.packed());
+        frame_cells.attributes[range].fill(TextAttributes::NONE.0);
     }
 }
 

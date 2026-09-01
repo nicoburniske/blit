@@ -4,14 +4,13 @@ use base64::Engine as _;
 use blit::LogicalRect;
 
 use crate::{
-    BASE64, Cell, CellText, KittyPlacement, TuiRenderer, image::ImagePlacement,
-    text::TextAttributes, write_color,
+    BASE64, KittyPlacement, TuiRenderer, image::ImagePlacement, text::TextAttributes, write_color,
 };
 
 impl TuiRenderer {
     pub fn begin_frame(&mut self) {
         self.output.clear();
-        self.frame_cells.fill(Cell::default());
+        self.frame_cells.clear();
         self.kitty_placements.clear();
         self.next_placement = 1;
     }
@@ -41,28 +40,36 @@ impl TuiRenderer {
 
     #[inline]
     pub fn end_frame(&mut self) {
-        for index in 0..self.cells.len() {
-            self.changed[index] = self.cells[index] != self.frame_cells[index];
-            let old = match self.cells[index].text {
-                CellText::Run { run, .. } => Some(run),
-                _ => None,
-            };
-            let new = match self.frame_cells[index].text {
-                CellText::Run { run, .. } => Some(run),
-                _ => None,
-            };
-            if old != new {
-                if let Some(run) = new {
-                    self.text_runs
-                        .update_index(run as usize, |run| run.screen_references += 1);
-                }
-                if let Some(run) = old {
-                    self.text_runs.update_index(run as usize, |run| {
-                        run.screen_references -= 1;
-                    });
+        for y in 0..self.rows {
+            let range = y * self.columns..(y + 1) * self.columns;
+            if !self.invalidated && self.cells.row_eq(&self.frame_cells, range.clone()) {
+                self.changed[range].fill(false);
+                continue;
+            }
+            for index in range {
+                let old_glyph = crate::Glyph(self.cells.glyph[index]);
+                let new_glyph = crate::Glyph(self.frame_cells.glyph[index]);
+                self.changed[index] = self.invalidated
+                    || !Self::glyphs_equal(&self.text_runs, old_glyph, new_glyph)
+                    || self.cells.foreground[index] != self.frame_cells.foreground[index]
+                    || self.cells.background[index] != self.frame_cells.background[index]
+                    || self.cells.attributes[index] != self.frame_cells.attributes[index];
+                let old = old_glyph.run().map(|(run, _)| run);
+                let new = new_glyph.run().map(|(run, _)| run);
+                if old != new {
+                    if let Some(run) = new {
+                        self.text_runs
+                            .update_index(run as usize, |run| run.screen_references += 1);
+                    }
+                    if let Some(run) = old {
+                        self.text_runs.update_index(run as usize, |run| {
+                            run.screen_references -= 1;
+                        });
+                    }
                 }
             }
         }
+        self.invalidated = false;
         std::mem::swap(&mut self.cells, &mut self.frame_cells);
 
         let mut style = None;
@@ -77,65 +84,89 @@ impl TuiRenderer {
                 write!(self.output, "\x1b[{};{}H", y + 1, x + 1).unwrap();
                 while x < self.columns {
                     let index = y * self.columns + x;
-                    let cell = &self.cells[index];
                     if !self.changed[index] {
                         break;
                     }
-                    let next_style = (cell.foreground, cell.background, cell.attributes);
+                    let next_style = (
+                        self.cells.foreground[index],
+                        self.cells.background[index],
+                        self.cells.attributes[index],
+                    );
                     if style != Some(next_style) {
                         if let Some((foreground, background, attributes)) = style
-                            && attributes == cell.attributes
+                            && attributes == next_style.2
                         {
                             self.output.push_str("\x1b[");
                             let mut separator = false;
-                            if foreground != cell.foreground {
-                                write_color(&mut self.output, cell.foreground, true);
+                            if foreground != next_style.0 {
+                                write_color(
+                                    &mut self.output,
+                                    crate::Color::from_packed(next_style.0),
+                                    true,
+                                );
                                 separator = true;
                             }
-                            if background != cell.background {
+                            if background != next_style.1 {
                                 if separator {
                                     self.output.push(';');
                                 }
-                                write_color(&mut self.output, cell.background, false);
+                                write_color(
+                                    &mut self.output,
+                                    crate::Color::from_packed(next_style.1),
+                                    false,
+                                );
                             }
                         } else {
+                            let attributes = TextAttributes(next_style.2);
                             self.output.push_str("\x1b[0");
-                            if cell.attributes.contains(TextAttributes::BOLD) {
+                            if attributes.contains(TextAttributes::BOLD) {
                                 self.output.push_str(";1");
                             }
-                            if cell.attributes.contains(TextAttributes::DIM) {
+                            if attributes.contains(TextAttributes::DIM) {
                                 self.output.push_str(";2");
                             }
-                            if cell.attributes.contains(TextAttributes::ITALIC) {
+                            if attributes.contains(TextAttributes::ITALIC) {
                                 self.output.push_str(";3");
                             }
-                            if cell.attributes.contains(TextAttributes::UNDERLINE) {
+                            if attributes.contains(TextAttributes::UNDERLINE) {
                                 self.output.push_str(";4");
                             }
-                            if cell.attributes.contains(TextAttributes::SLOW_BLINK) {
+                            if attributes.contains(TextAttributes::SLOW_BLINK) {
                                 self.output.push_str(";5");
                             }
-                            if cell.attributes.contains(TextAttributes::RAPID_BLINK) {
+                            if attributes.contains(TextAttributes::RAPID_BLINK) {
                                 self.output.push_str(";6");
                             }
-                            if cell.attributes.contains(TextAttributes::INVERSE) {
+                            if attributes.contains(TextAttributes::INVERSE) {
                                 self.output.push_str(";7");
                             }
-                            if cell.attributes.contains(TextAttributes::HIDDEN) {
+                            if attributes.contains(TextAttributes::HIDDEN) {
                                 self.output.push_str(";8");
                             }
-                            if cell.attributes.contains(TextAttributes::STRIKETHROUGH) {
+                            if attributes.contains(TextAttributes::STRIKETHROUGH) {
                                 self.output.push_str(";9");
                             }
                             self.output.push(';');
-                            write_color(&mut self.output, cell.foreground, true);
+                            write_color(
+                                &mut self.output,
+                                crate::Color::from_packed(next_style.0),
+                                true,
+                            );
                             self.output.push(';');
-                            write_color(&mut self.output, cell.background, false);
+                            write_color(
+                                &mut self.output,
+                                crate::Color::from_packed(next_style.1),
+                                false,
+                            );
                         }
                         self.output.push('m');
                         style = Some(next_style);
                     }
-                    Self::push_cell_text(&self.text_runs, cell.text, &mut self.output);
+                    Self::push_cell_text(
+                        &self.text_runs,
+                        crate::Glyph(self.cells.glyph[index]),
+                        &mut self.output,
+                    );
                     x += 1;
                 }
             }
@@ -224,8 +255,6 @@ impl TuiRenderer {
     }
 
     pub fn invalidate(&mut self) {
-        for cell in &mut self.cells {
-            cell.valid = false;
-        }
+        self.invalidated = true;
     }
 }
