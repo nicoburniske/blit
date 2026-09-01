@@ -167,56 +167,13 @@ impl TuiRenderer {
             .next_image
             .checked_add(1)
             .expect("too many terminal images");
-        let size = data.size;
-        let width = data.texture_rect.width as usize;
-        let height = data.texture_rect.height as usize;
-        let texture_x = data.texture_rect.x as usize;
-        let texture_y = data.texture_rect.y as usize;
-        let bytes = data.pixels.bytes();
-        let mut rgba = Vec::with_capacity(width * height * 4);
-        for y in 0..height {
-            for x in 0..width {
-                let offset = (texture_y + y) * data.stride_bytes
-                    + (texture_x + x) * data.format.bytes_per_pixel();
-                match data.format {
-                    crate::image::ImageFormat::Rgb8 => {
-                        rgba.extend_from_slice(&bytes[offset..offset + 3]);
-                        rgba.push(255);
-                    }
-                    crate::image::ImageFormat::Rgba8 => {
-                        rgba.extend_from_slice(&bytes[offset..offset + 4]);
-                    }
-                    crate::image::ImageFormat::Rgba8Premultiplied => {
-                        let alpha = bytes[offset + 3];
-                        for channel in &bytes[offset..offset + 3] {
-                            rgba.push(if alpha == 0 {
-                                0
-                            } else {
-                                ((*channel as u16 * 255) / u16::from(alpha)).min(255) as u8
-                            });
-                        }
-                        rgba.push(alpha);
-                    }
-                    crate::image::ImageFormat::Luma8 => {
-                        rgba.extend_from_slice(&[bytes[offset], bytes[offset], bytes[offset], 255]);
-                    }
-                    crate::image::ImageFormat::Alpha8(color) => {
-                        rgba.extend_from_slice(&[
-                            color.red,
-                            color.green,
-                            color.blue,
-                            ((u16::from(color.alpha) * u16::from(bytes[offset])) / 255) as u8,
-                        ]);
-                    }
-                }
-            }
-        }
-        let handle = ImageHandle::new(ImageId(u64::from(id)), size);
+        let handle = ImageHandle::new(ImageId(u64::from(id)), data.size);
         self.images.push(StoredImage {
             handle: handle.clone(),
-            rgba: rgba.into_boxed_slice(),
-            width,
-            height,
+            pixels: data.pixels,
+            format: data.format,
+            width: data.size.width as usize,
+            height: data.size.height as usize,
             transmitted: false,
         });
         handle
@@ -336,7 +293,8 @@ impl TuiRenderer {
 
 struct StoredImage {
     handle: ImageHandle,
-    rgba: Box<[u8]>,
+    pixels: crate::image::ImagePixels,
+    format: crate::image::ImageFormat,
     width: usize,
     height: usize,
     transmitted: bool,
@@ -683,6 +641,7 @@ mod tests {
 
     use crate::{
         cell::{Cell as SurfaceCell, CellStyle},
+        image::{ImageData, ImageFormat, ImagePixels, ImagePlacement},
         text::{HorizontalAlign, TextOptions, VerticalAlign},
     };
 

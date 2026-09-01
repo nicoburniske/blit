@@ -161,12 +161,17 @@ impl TuiRenderer {
                 .find(|image| image.handle.id().0 == u64::from(placement.image))
                 .expect("invalid terminal image");
             if !image.transmitted {
-                for (index, chunk) in image.rgba.chunks(3072).enumerate() {
-                    let more = usize::from((index + 1) * 3072 < image.rgba.len());
+                let bytes = image.pixels.bytes();
+                for (index, chunk) in bytes.chunks(3072).enumerate() {
+                    let more = usize::from((index + 1) * 3072 < bytes.len());
                     if index == 0 {
+                        let format = match image.format {
+                            crate::image::ImageFormat::Rgb8 => 24,
+                            crate::image::ImageFormat::Rgba8 => 32,
+                        };
                         write!(
                             self.output,
-                            "\x1b_Ga=t,f=32,s={},v={},i={},m={more},q=2;",
+                            "\x1b_Ga=t,f={format},s={},v={},i={},m={more},q=2;",
                             image.width, image.height, placement.image
                         )
                         .unwrap();
