@@ -195,15 +195,6 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                                     (" Start ", Justify::Start),
                                     (" Center ", Justify::Center),
                                     (" End ", Justify::End),
-                                ],
-                            );
-                        });
-                        controls.add(|ui: Cx<'_>| {
-                            choices(
-                                ui,
-                                "distribute",
-                                &mut canvas.justify,
-                                &[
                                     (" Between ", Justify::SpaceBetween),
                                     (" Around ", Justify::SpaceAround),
                                     (" Even ", Justify::SpaceEvenly),
