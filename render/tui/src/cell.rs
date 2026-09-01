@@ -250,8 +250,11 @@ impl TuiRenderer {
                 }
                 let span = byte_offset.and_then(|_| spans.get(span_index));
                 let color = span.and_then(|span| span.color).unwrap_or(request.color);
+                let background = span.and_then(|span| span.background).or(background);
                 let attributes = span.map_or(request.attributes, |span| {
-                    request.attributes | span.attributes
+                    let mut attributes = request.attributes | span.attributes;
+                    attributes.set(span.remove_attributes, false);
+                    attributes
                 });
                 let x = start_x + column as isize;
                 if x >= right as isize {

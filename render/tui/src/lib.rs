@@ -243,7 +243,9 @@ impl TuiRenderer {
                     && run.spans.iter().zip(spans).all(|(resolved, span)| {
                         run.text[resolved.start..resolved.end] == *span.text
                             && resolved.color == span.color
+                            && resolved.background == span.background
                             && resolved.attributes == span.attributes
+                            && resolved.remove_attributes == span.remove_attributes
                     })
             },
             || {
@@ -256,7 +258,9 @@ impl TuiRenderer {
                         start,
                         end: text.len(),
                         color: span.color,
+                        background: span.background,
                         attributes: span.attributes,
+                        remove_attributes: span.remove_attributes,
                     });
                 }
                 (
@@ -421,7 +425,9 @@ struct ResolvedSpan {
     start: usize,
     end: usize,
     color: Option<Color>,
+    background: Option<Color>,
     attributes: TextAttributes,
+    remove_attributes: TextAttributes,
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -827,8 +833,10 @@ mod tests {
         let spans = [
             Span::new("err")
                 .color(Color::RED)
-                .attributes(TextAttributes::BOLD),
-            Span::new("or"),
+                .background(Color::BLUE)
+                .attributes(TextAttributes::BOLD)
+                .remove_attributes(TextAttributes::ITALIC),
+            Span::new("or").attributes(TextAttributes::RAPID_BLINK),
         ];
         let text = renderer.rich_text(&spans);
         assert_eq!(renderer.rich_text(&spans), text);
@@ -836,22 +844,30 @@ mod tests {
         let screen = renderer.screen().to_logical(SCALE);
         renderer.begin_frame();
         renderer.paint_text(
-            TextRequest::new(text, area).color(Color::WHITE).options(
-                TextOptions::new()
-                    .horizontal_align(HorizontalAlign::Center)
-                    .vertical_align(VerticalAlign::Center),
-            ),
+            TextRequest::new(text, area)
+                .color(Color::WHITE)
+                .attributes(TextAttributes::ITALIC)
+                .options(
+                    TextOptions::new()
+                        .horizontal_align(HorizontalAlign::Center)
+                        .vertical_align(VerticalAlign::Center),
+                ),
             screen,
         );
         renderer.end_frame();
 
         let start = renderer.columns;
         assert!(renderer.cells[start..start + 3].iter().all(|cell| {
-            cell.foreground == Color::RED && cell.attributes == TextAttributes::BOLD
+            cell.foreground == Color::RED
+                && cell.background == Color::BLUE
+                && cell.attributes == TextAttributes::BOLD
         }));
         assert!(renderer.cells[start + 3..start + 5].iter().all(|cell| {
-            cell.foreground == Color::WHITE && cell.attributes == TextAttributes::NONE
+            cell.foreground == Color::WHITE
+                && cell.background == Color::Reset
+                && cell.attributes == (TextAttributes::ITALIC | TextAttributes::RAPID_BLINK)
         }));
+        assert!(String::from_utf8_lossy(renderer.output()).contains(";6"));
     }
 
     #[test]

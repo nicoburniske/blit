@@ -94,8 +94,11 @@ impl TuiRenderer {
                             if cell.attributes.contains(TextAttributes::UNDERLINE) {
                                 self.output.push_str(";4");
                             }
-                            if cell.attributes.contains(TextAttributes::BLINK) {
+                            if cell.attributes.contains(TextAttributes::SLOW_BLINK) {
                                 self.output.push_str(";5");
+                            }
+                            if cell.attributes.contains(TextAttributes::RAPID_BLINK) {
+                                self.output.push_str(";6");
                             }
                             if cell.attributes.contains(TextAttributes::INVERSE) {
                                 self.output.push_str(";7");

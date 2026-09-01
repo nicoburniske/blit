@@ -9,14 +9,16 @@ blit::builder! {
         new(text: &'a str),
         @optional {
             color: Color,
+            background: Color,
         },
         attributes: TextAttributes = TextAttributes::NONE,
+        remove_attributes: TextAttributes = TextAttributes::NONE,
     }
 }
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct TextAttributes(u8);
+pub struct TextAttributes(u16);
 
 impl TextAttributes {
     pub const NONE: Self = Self(0);
@@ -24,10 +26,12 @@ impl TextAttributes {
     pub const DIM: Self = Self(1 << 1);
     pub const ITALIC: Self = Self(1 << 2);
     pub const UNDERLINE: Self = Self(1 << 3);
-    pub const BLINK: Self = Self(1 << 4);
-    pub const INVERSE: Self = Self(1 << 5);
-    pub const HIDDEN: Self = Self(1 << 6);
-    pub const STRIKETHROUGH: Self = Self(1 << 7);
+    pub const SLOW_BLINK: Self = Self(1 << 4);
+    pub const BLINK: Self = Self::SLOW_BLINK;
+    pub const RAPID_BLINK: Self = Self(1 << 5);
+    pub const INVERSE: Self = Self(1 << 6);
+    pub const HIDDEN: Self = Self(1 << 7);
+    pub const STRIKETHROUGH: Self = Self(1 << 8);
 
     pub const fn contains(self, attributes: Self) -> bool {
         self.0 & attributes.0 == attributes.0
