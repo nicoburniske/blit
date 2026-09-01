@@ -221,11 +221,13 @@ fn paint_title_row(
     }
     let left_width = titles[0].map_or(0, |title| {
         platform
+            .renderer_mut()
             .measure_text(&TextLayoutRequest::new(title.text).max_lines(1))
             .width as usize
     });
     let right_width = titles[2].map_or(0, |title| {
         platform
+            .renderer_mut()
             .measure_text(&TextLayoutRequest::new(title.text).max_lines(1))
             .width as usize
     });
@@ -240,6 +242,7 @@ fn paint_title_row(
     }
     if let Some(title) = titles[1] {
         let width = (platform
+            .renderer_mut()
             .measure_text(&TextLayoutRequest::new(title.text).max_lines(1))
             .width as usize)
             .min(right_start.saturating_sub(left + left_width));

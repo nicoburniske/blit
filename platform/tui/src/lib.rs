@@ -66,7 +66,7 @@ pub fn run_with<S>(
             let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
             let poll = session.poll(timeout, &mut inputs)?;
             if poll.resized {
-                session.platform_mut().invalidate_all();
+                session.platform_mut().renderer_mut().invalidate();
             }
             let now = start.elapsed();
             let timer_due = frame
