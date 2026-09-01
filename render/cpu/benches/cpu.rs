@@ -2,8 +2,8 @@ use std::hint::black_box;
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
-    Direct, Font, FontFace, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
-    RendererConfig, Scanline, VecBuffer, Xrgb8888,
+    CosmicBackend, Direct, Font, FontFace, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
+    RendererConfig, Scanline, TextSystem, VecBuffer, Xrgb8888,
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     image::{
@@ -621,6 +621,8 @@ where
             paragraph_cache_capacity: 512 * 1024,
             shadow_cache_capacity,
         },
+        TextSystem::new(CosmicBackend::without_system_fonts()),
     )
+    .unwrap()
     .strategy(strategy)
 }

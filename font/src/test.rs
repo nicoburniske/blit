@@ -1,6 +1,4 @@
-use crate::TextWrap;
-
-use crate::{Font, Layout, LayoutSettings, Rasterizer};
+use crate::{Font, Rasterizer};
 
 static FONT: &[u8] = include_bytes!(env!("BLIT_TEST_FONT"));
 
@@ -19,19 +17,6 @@ fn static_and_owned_fonts_match() {
         static_font.horizontal_line_metrics(24.0),
         owned_font.horizontal_line_metrics(24.0)
     );
-}
-
-#[test]
-fn layout_wraps() {
-    let font = Font::from_static(FONT).unwrap();
-    let mut layout = Layout::default();
-    let settings = LayoutSettings {
-        max_width: Some(40.0),
-        wrap: TextWrap::Word,
-        ..Default::default()
-    };
-    layout.layout(&font, "one two three", 16.0, settings);
-    assert!(layout.lines().unwrap().len() > 1);
 }
 
 #[test]

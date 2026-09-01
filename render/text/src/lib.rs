@@ -1,3 +1,7 @@
+mod cosmic;
+
+pub use cosmic::CosmicBackend;
+
 use std::{marker::PhantomData, ptr::NonNull, sync::Arc};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
@@ -157,6 +161,18 @@ pub enum FontError {
     InvalidData,
     Unsupported,
 }
+
+impl std::fmt::Display for FontError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => formatter.write_str("font not found"),
+            Self::InvalidData => formatter.write_str("invalid font data"),
+            Self::Unsupported => formatter.write_str("unsupported font"),
+        }
+    }
+}
+
+impl std::error::Error for FontError {}
 
 pub struct TextSystem {
     data: NonNull<()>,
