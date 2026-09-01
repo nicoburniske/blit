@@ -374,14 +374,32 @@ impl TuiRenderer {
 
 impl CellBuffer<'_> {
     fn new(renderer: &mut TuiRenderer, area: LogicalRect, clip: LogicalRect) -> CellBuffer<'_> {
+        let left = area.x.round() as isize;
+        let top = area.y.round() as isize;
+        let right = (area.x + area.width).round() as isize;
+        let bottom = (area.y + area.height).round() as isize;
+        let clip_left = clip.x.round();
+        let clip_top = clip.y.round();
+        let clip_right = (clip.x + clip.width).round();
+        let clip_bottom = (clip.y + clip.height).round();
         CellBuffer {
             renderer,
-            area,
-            clip,
-            origin_x: area.x.round() as isize,
-            origin_y: area.y.round() as isize,
-            columns: area.width.round().max(0.0) as usize,
-            rows: area.height.round().max(0.0) as usize,
+            area: LogicalRect::new(
+                left as f32,
+                top as f32,
+                (right - left).max(0) as f32,
+                (bottom - top).max(0) as f32,
+            ),
+            clip: LogicalRect::new(
+                clip_left,
+                clip_top,
+                (clip_right - clip_left).max(0.0),
+                (clip_bottom - clip_top).max(0.0),
+            ),
+            origin_x: left,
+            origin_y: top,
+            columns: (right - left).max(0) as usize,
+            rows: (bottom - top).max(0) as usize,
         }
     }
 }
