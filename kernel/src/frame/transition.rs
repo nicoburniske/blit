@@ -4,12 +4,13 @@ use super::{Frame, NodeId, Sizing, position};
 use crate::{
     Platform,
     animation::{Transition, TransitionProperties},
+    arena::DataArena,
     geometry::{Rect, Size},
     interact::WidgetId,
     layout::Axis,
 };
 
-pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &mut R, size: Size) {
+pub fn resolve<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mut R, size: Size) {
     for index in 0..frame.geometry.len() {
         let record = frame.geometry[index];
         let (Some(id), Some(config)) = (record.id, record.transition) else {
@@ -26,7 +27,7 @@ pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &mut R, size: Size) 
         }
     }
 
-    position::layout(frame, platform, size);
+    position::layout(frame, data, platform, size);
     let mut active = TransitionProperties::NONE;
     for index in 0..frame.transitions.len() {
         if !frame.transitions[index].seen {
@@ -55,7 +56,7 @@ pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &mut R, size: Size) 
                     .sizing(Axis::Vertical, Sizing::fixed(state.current.height));
             }
         }
-        position::layout(frame, platform, size);
+        position::layout(frame, data, platform, size);
     }
 
     if active.intersects(TransitionProperties::POSITION) {

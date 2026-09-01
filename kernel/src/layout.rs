@@ -6,7 +6,7 @@ use crate::{
     geometry::{Constraints, Size},
 };
 
-pub trait Layout<R: Platform>: Copy + 'static {
+pub trait Layout<R: Platform>: 'static {
     type Item: Copy + 'static;
 
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size;

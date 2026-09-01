@@ -1,12 +1,13 @@
 use super::{Frame, NodeId, Sizing};
 use crate::{
     Platform,
+    arena::DataArena,
     geometry::{Constraints, Point, Size},
 };
 
-pub fn layout<R: Platform>(frame: &mut Frame<R>, platform: &mut R, size: Size) {
+pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mut R, size: Size) {
     let root = frame.node_id(0);
-    frame.layout_node(root, platform, Constraints::tight(size));
+    frame.layout_node(data, root, platform, Constraints::tight(size));
     for index in 1..frame.nodes.len() {
         let Some(positioned) = frame.nodes[index].positioned.index() else {
             continue;
@@ -35,6 +36,7 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, platform: &mut R, size: Size) {
         let width = range(frame.nodes[index].place.width, target.width);
         let height = range(frame.nodes[index].place.height, target.height);
         let size = frame.layout_node(
+            data,
             node,
             platform,
             Constraints {
