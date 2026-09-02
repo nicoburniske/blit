@@ -251,7 +251,7 @@ where
         }
 
         let mut viewport = cx
-            .node(ScrollLayout {
+            .layout(ScrollLayout {
                 axis: self.axis,
                 offset: self.state.offset,
                 thumb: has_thumb,
@@ -262,16 +262,18 @@ where
             .widget_id(id)
             .clip(self.clip);
         viewport
+            .child()
             .item(ScrollItem::Content)
             .widget_id(content_id)
             .add(self.content);
         let thumb_active = thumb_interaction.is_some_and(|interaction| interaction.active);
         let (track, thumb) = self.scrollbar.into_widgets(thumb_active);
         if has_track {
-            viewport.item(ScrollItem::Track).add(track);
+            viewport.child().item(ScrollItem::Track).add(track);
         }
         if has_thumb {
             viewport
+                .child()
                 .item(ScrollItem::Thumb)
                 .widget_id(thumb_id)
                 .add(thumb);

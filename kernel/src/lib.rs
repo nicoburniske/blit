@@ -75,7 +75,7 @@ impl<R: Platform> Widget<R> for () {
                 constraints.constrain(Size::ZERO)
             }
         }
-        cx.node(EmptyLayout);
+        cx.layout(EmptyLayout);
     }
 }
 

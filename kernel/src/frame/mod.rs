@@ -169,7 +169,7 @@ impl<'ui, R: Platform> Cx<'ui, R> {
     }
 
     /// establishes the current node's layout
-    pub fn node<L: Layout<R>>(self, layout: L) -> Node<'ui, R, L> {
+    pub fn layout<L: Layout<R>>(self, layout: L) -> Node<'ui, R, L> {
         let frame = self.ui.frame_mut();
         assert!(
             frame.nodes[self.node.index()].layout.index().is_none(),

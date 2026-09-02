@@ -149,7 +149,8 @@ mod tests {
         let mut frame = Frame::default();
         frame.render(&mut platform, FrameInfo::new(Size::new(10.0, 1.0)), |ui| {
             let mut root = ui.node(Single::new());
-            root.place(Place::new().grow())
+            root.child()
+                .place(Place::new().grow())
                 .add(Gauge::new(0.5).filled(Color::GREEN).unfilled(Color::BLACK));
         });
 
