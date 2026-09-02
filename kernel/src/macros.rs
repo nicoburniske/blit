@@ -77,8 +77,8 @@ macro_rules! impl_atom_widgets {
             impl $crate::Widget<$platform> for $atom {
                 type Response = ();
 
-                fn build(self, mut cx: $crate::Cx<'_, $platform>) {
-                    cx.atom(self);
+                fn build(self, mut node: $crate::Node<'_, $platform>) {
+                    node.atom(self);
                 }
             }
         )+
