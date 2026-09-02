@@ -9,10 +9,9 @@ pub mod transition;
 use std::{
     any::TypeId,
     marker::PhantomData,
-    mem::size_of,
+    mem::{ManuallyDrop, size_of},
     num::NonZeroU16,
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
+    ptr::{self, NonNull},
     time::Duration,
 };
 
@@ -32,16 +31,12 @@ pub struct Ui<R: Platform> {
 }
 
 impl<R: Platform> Ui<R> {
-    /// creates the frame's root layout node
-    pub fn node<L: Layout<R>>(&mut self, layout: L) -> Node<'_, R, L> {
+    /// creates the frame's root node
+    pub fn root<L: Layout<R>>(&mut self, layout: L) -> Node<'_, R, Open<L>> {
         let frame = self.frame_mut();
         let layout = frame.store_layout(layout);
         let node = frame.push_node(Some(layout));
-        new_node(self, node)
-    }
-
-    pub fn layer(&mut self) -> LayerId {
-        self.frame_mut().add_layer()
+        open_node(self, node)
     }
 
     pub fn set_id(&mut self, node: NodeId, id: WidgetId) {
@@ -151,50 +146,6 @@ impl<R: Platform> Ui<R> {
     }
 }
 
-/// widget build context for the current frame node
-pub struct Cx<'ui, R: Platform> {
-    ui: &'ui mut Ui<R>,
-    node: NodeId,
-}
-
-impl<'ui, R: Platform> Cx<'ui, R> {
-    pub fn id(&self) -> NodeId {
-        self.node
-    }
-
-    /// appends an atom to the current node
-    pub fn atom<A: Atom<R>>(&mut self, atom: A) -> &mut Self {
-        self.ui.frame_mut().push_atom(self.node, atom);
-        self
-    }
-
-    /// establishes the current node's layout
-    pub fn layout<L: Layout<R>>(self, layout: L) -> Node<'ui, R, L> {
-        let frame = self.ui.frame_mut();
-        assert!(
-            frame.nodes[self.node.index()].layout.index().is_none(),
-            "node already has a layout"
-        );
-        let layout = frame.store_layout(layout);
-        frame.nodes[self.node.index()].layout = layout;
-        new_node(self.ui, self.node)
-    }
-}
-
-impl<R: Platform> Deref for Cx<'_, R> {
-    type Target = Ui<R>;
-
-    fn deref(&self) -> &Self::Target {
-        self.ui
-    }
-}
-
-impl<R: Platform> DerefMut for Cx<'_, R> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ui
-    }
-}
-
 // Ui erases frame and platform lifetimes so widget APIs only need &mut Ui<R>
 // Frame::record keeps the only value inside the build callback
 // Ui must remain non-Copy and non-Clone
@@ -203,7 +154,7 @@ impl<R: Platform> Ui<R> {
     fn build_node<W: Widget<R>>(&mut self, node: NodeId, widget: W) -> W::Response {
         let parent = self.frame().current_parent;
         self.frame_mut().current_parent = Some(node);
-        let output = widget.build(Cx { ui: self, node });
+        let output = widget.build(Node::new(self, node, Build, false));
         let frame = self.frame_mut();
         frame.nodes[node.index()].subtree_end =
             u32::try_from(frame.nodes.len() - 1).expect("too many frame nodes");
