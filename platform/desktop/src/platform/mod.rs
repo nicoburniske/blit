@@ -223,13 +223,17 @@ mod tests {
         let mut platform = DesktopPlatform::new(renderer);
         platform.set_scale(2.0);
         let mut frame = Frame::default();
-        frame.render(&mut platform, FrameInfo::new(Size::uniform(8.0)), |ui| {
-            let mut root = ui.node(Flex::column().padding(Sides::all(3.0)));
-            root.insert(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
-            root.child()
-                .place(Place::fixed(2.0, 2.0))
-                .add(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
-        });
+        frame.render(
+            &mut platform,
+            FrameInfo::new(Size::uniform(8.0)),
+            |ui: crate::Ui<'_>| {
+                let mut root = ui.layout(Flex::column().padding(Sides::all(3.0)));
+                root.insert(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
+                root.child()
+                    .place(Place::fixed(2.0, 2.0))
+                    .insert(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
+            },
+        );
         assert_eq!(platform.previous.len(), 2);
         assert_eq!(pixels[7 * 16 + 7], 0x0046_6edc);
         assert_eq!(pixels[14 * 16 + 14], 0x0014_1820);

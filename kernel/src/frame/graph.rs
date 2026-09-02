@@ -73,18 +73,23 @@ impl<R: Platform> Default for Frame<R> {
 }
 
 impl<R: Platform> Frame<R> {
-    pub fn render(&mut self, platform: &mut R, frame: FrameInfo, build: impl FnOnce(&mut Ui<R>)) {
+    pub fn render<W: Widget<R>>(
+        &mut self,
+        platform: &mut R,
+        frame: FrameInfo,
+        widget: W,
+    ) -> W::Response {
         self.frame_requested = false;
-        self.record(platform, frame, Duration::ZERO, Input::None, true, build);
+        self.record(platform, frame, Duration::ZERO, Input::None, true, widget)
     }
 
-    pub fn render_inputs(
+    pub fn render_inputs<O>(
         &mut self,
         platform: &mut R,
         frame: FrameInfo,
         time: Duration,
         inputs: impl IntoIterator<Item = Input>,
-        mut build: impl FnMut(&mut Ui<R>),
+        mut build: impl FnMut(Ui<'_, R>) -> O,
     ) {
         self.frame_requested = false;
         let mut inputs = inputs.into_iter();
@@ -159,15 +164,15 @@ impl<R: Platform> Frame<R> {
         }
     }
 
-    fn record(
+    fn record<W: Widget<R>>(
         &mut self,
         platform: &mut R,
         frame: FrameInfo,
         time: Duration,
         input: Input,
         render: bool,
-        build: impl FnOnce(&mut Ui<R>),
-    ) {
+        widget: W,
+    ) -> W::Response {
         #[cfg(debug_assertions)]
         generation::begin();
         self.nodes.clear();
@@ -198,14 +203,14 @@ impl<R: Platform> Frame<R> {
         }
         self.interaction.begin(&input);
 
-        {
-            let mut ui = Ui {
+        let output = {
+            let root = self.push_node(None);
+            let mut context = Context {
                 frame: NonNull::from(&mut *self),
                 platform: NonNull::from(&mut *platform),
             };
-            build(&mut ui);
-        }
-        assert!(!self.nodes.is_empty(), "frame is empty");
+            context.build_node(root, widget)
+        };
         assert_eq!(
             self.nodes[0].subtree_end as usize,
             self.nodes.len() - 1,
@@ -230,6 +235,7 @@ impl<R: Platform> Frame<R> {
         }
         data.clear();
         self.data = data;
+        output
     }
 
     fn layout_node(
@@ -385,7 +391,7 @@ impl<R: Platform> Frame<R> {
         let owner = self
             .current_parent
             .expect("layer declaration requires a node");
-        let id = layer_id(self.layers.len());
+        let id = LayerId::new(self.layers.len());
         self.layers.push(Layer { owner });
         id
     }
@@ -460,7 +466,7 @@ impl<R: Platform> Frame<R> {
         place.width = self.layout_resolution.sizing(Axis::Horizontal, place.width);
         place.height = self.layout_resolution.sizing(Axis::Vertical, place.height);
         if let Some(layer) = place.layer {
-            let layer = layer_index(layer);
+            let layer = layer.index();
             assert!(
                 layer < self.layers.len(),
                 "layer does not belong to this frame"
@@ -475,30 +481,7 @@ impl<R: Platform> Frame<R> {
     }
 
     fn node_id(&self, index: usize) -> NodeId {
-        NodeId {
-            value: u32::try_from(index).expect("too many frame nodes"),
-            #[cfg(debug_assertions)]
-            generation: generation::get(),
-        }
-    }
-}
-
-/// identifies a node only during the current render
-///
-/// do not store this across renders
-#[cfg_attr(not(debug_assertions), repr(transparent))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NodeId {
-    value: u32,
-    #[cfg(debug_assertions)]
-    generation: u16,
-}
-
-impl NodeId {
-    fn index(self) -> usize {
-        #[cfg(debug_assertions)]
-        generation::assert(self.generation);
-        self.value as usize
+        NodeId::new(index)
     }
 }
 

@@ -38,8 +38,8 @@ pub fn resolve_order<R: Platform>(frame: &mut Frame<R>) {
             children.sort_unstable_by(|a, b| {
                 let a = a.index();
                 let b = b.index();
-                let a_layer = frame.nodes[a].place.layer.map_or(0, super::layer_order);
-                let b_layer = frame.nodes[b].place.layer.map_or(0, super::layer_order);
+                let a_layer = frame.nodes[a].place.layer.map_or(0, super::LayerId::order);
+                let b_layer = frame.nodes[b].place.layer.map_or(0, super::LayerId::order);
                 (b_layer, frame.nodes[b].place.z_index, b).cmp(&(
                     a_layer,
                     frame.nodes[a].place.z_index,
@@ -59,7 +59,7 @@ pub fn resolve_clips<R: Platform>(frame: &mut Frame<R>) {
         let parent = if index == 0 {
             ResolvedClipId::NONE
         } else if let Some(layer) = frame.nodes[index].place.layer {
-            let owner = frame.layers[super::layer_index(layer)].owner.index();
+            let owner = frame.layers[layer.index()].owner.index();
             frame.nodes[owner].resolved_clip
         } else {
             frame.nodes[frame.nodes[index].parent.index()].resolved_clip

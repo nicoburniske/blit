@@ -21,6 +21,7 @@ blit-text-fontdue = { workspace = true, optional = true }
 
 [dev-dependencies]
 blit-showcase.workspace = true
+blit-text.workspace = true
 blit-text-cosmic.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]

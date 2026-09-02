@@ -12,8 +12,7 @@ pub use blit_cpu::{color, image, style, text_types as text};
 pub use blit_std::layout;
 pub use platform::{BoundsClip, DesktopPlatform, atom, widget};
 
-pub type Ui = blit::Ui<DesktopPlatform>;
-pub type Cx<'a> = blit::Cx<'a, DesktopPlatform>;
+pub type Ui<'a> = blit::Ui<'a, DesktopPlatform>;
 
 use std::{error::Error, fmt};
 
@@ -63,7 +62,7 @@ pub trait Application: Sized + 'static {
 
     fn input(&mut self, input: Self::Input);
 
-    fn render(&mut self, ui: &mut Ui);
+    fn render(&mut self, ui: Ui<'_>);
 }
 
 pub fn run<A: Application>(config: Config) -> Result<(), RunError> {

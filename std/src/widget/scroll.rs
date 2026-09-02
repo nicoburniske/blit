@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Cx, Layout, LayoutCx, Platform, Point, ScrollPhase, Sense, Size,
+    Axis, Clip, Constraints, Layout, LayoutCx, Platform, Point, ScrollPhase, Sense, Size, Ui,
     Widget, WidgetId,
 };
 
@@ -133,29 +133,29 @@ where
 {
     type Response = ();
 
-    fn build(self, mut cx: Cx<'_, R>) {
+    fn build(self, mut ui: Ui<'_, R>) {
         let id = self.state.id;
         let content_id = id.child("content");
         let thumb_id = id.child("scroll thumb");
         let has_thumb = S::HAS_THUMB;
         let has_track = S::HAS_TRACK;
 
-        if let Some(area) = cx.geometry(id) {
+        if let Some(area) = ui.geometry(id) {
             self.state.viewport_extent = match self.axis {
                 Axis::Horizontal => area.width,
                 Axis::Vertical => area.height,
             };
         }
-        if let Some(area) = cx.geometry(content_id) {
+        if let Some(area) = ui.geometry(content_id) {
             self.state.content_extent = match self.axis {
                 Axis::Horizontal => area.width,
                 Axis::Vertical => area.height,
             };
         }
 
-        let interaction = cx.interact(id, self.config.sense);
-        let thumb_interaction = has_thumb.then(|| cx.interact(thumb_id, Sense::DRAG));
-        let now = cx.time();
+        let interaction = ui.interact(id, self.config.sense);
+        let thumb_interaction = has_thumb.then(|| ui.interact(thumb_id, Sense::DRAG));
+        let now = ui.time();
         let elapsed = self
             .state
             .last_frame
@@ -170,7 +170,7 @@ where
                 Axis::Horizontal => interaction.drag_delta.x,
                 Axis::Vertical => interaction.drag_delta.y,
             };
-            let thumb = cx
+            let thumb = ui
                 .geometry(thumb_id)
                 .map_or(self.state.viewport_extent, |area| match self.axis {
                     Axis::Horizontal => area.width,
@@ -243,14 +243,14 @@ where
                 if self.state.offset != offset || self.state.velocity.abs() < MIN_SCROLL_VELOCITY {
                     self.state.velocity = 0.0;
                 } else {
-                    cx.request_frame();
+                    ui.request_frame();
                 }
             } else {
                 self.state.offset = self.state.offset.clamp(0.0, maximum);
             }
         }
 
-        let mut viewport = cx
+        let mut viewport = ui
             .layout(ScrollLayout {
                 axis: self.axis,
                 offset: self.state.offset,
@@ -265,18 +265,18 @@ where
             .child()
             .item(ScrollItem::Content)
             .widget_id(content_id)
-            .add(self.content);
+            .insert(self.content);
         let thumb_active = thumb_interaction.is_some_and(|interaction| interaction.active);
         let (track, thumb) = self.scrollbar.into_widgets(thumb_active);
         if has_track {
-            viewport.child().item(ScrollItem::Track).add(track);
+            viewport.child().item(ScrollItem::Track).insert(track);
         }
         if has_thumb {
             viewport
                 .child()
                 .item(ScrollItem::Thumb)
                 .widget_id(thumb_id)
-                .add(thumb);
+                .insert(thumb);
         }
     }
 }
@@ -301,12 +301,12 @@ enum ScrollItem {
 impl<R: Platform> Layout<R> for ScrollLayout {
     type Item = ScrollItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let mut content = None;
         let mut track = None;
         let mut thumb = None;
-        for child in cx.children() {
-            match cx.item(child) {
+        for child in ui.children() {
+            match ui.item(child) {
                 ScrollItem::Content => content = Some(child),
                 ScrollItem::Track => track = Some(child),
                 ScrollItem::Thumb => thumb = Some(child),
@@ -318,7 +318,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
                 Axis::Horizontal => constraints.max.height,
                 Axis::Vertical => constraints.max.width,
             };
-            cx.resolve_extent(
+            ui.resolve_extent(
                 match self.axis {
                     Axis::Horizontal => Axis::Vertical,
                     Axis::Vertical => Axis::Horizontal,
@@ -345,7 +345,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
                 max: Size::new(viewport_constraints.max.width, f32::INFINITY),
             },
         };
-        let content_size = cx.layout_child(content, content_constraints);
+        let content_size = ui.layout_child(content, content_constraints);
         let content_viewport_size = viewport_constraints.constrain(content_size);
         let viewport_size = match self.axis {
             Axis::Horizontal => Size::new(
@@ -367,7 +367,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
         };
         let maximum = (content_extent - viewport_extent).max(0.0);
         let offset = self.offset.clamp(0.0, maximum);
-        cx.set_position(
+        ui.set_position(
             content,
             match self.axis {
                 Axis::Horizontal => Point::new(-offset, 0.0),
@@ -381,8 +381,8 @@ impl<R: Platform> Layout<R> for ScrollLayout {
                 Axis::Horizontal => Size::new(track_extent, thickness),
                 Axis::Vertical => Size::new(thickness, track_extent),
             };
-            cx.layout_child(track, Constraints::tight(track_size));
-            cx.set_position(
+            ui.layout_child(track, Constraints::tight(track_size));
+            ui.set_position(
                 track,
                 match self.axis {
                     Axis::Horizontal => Point::new(0.0, content_viewport_size.height),
@@ -392,7 +392,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
         }
 
         if let Some(thumb) = thumb {
-            let minimum_extent = cx
+            let minimum_extent = ui
                 .resolve_extent(self.axis, self.minimum_thumb_extent)
                 .max(0.0);
             let thumb_extent = if content_extent > viewport_extent && content_extent > 0.0 {
@@ -411,8 +411,8 @@ impl<R: Platform> Layout<R> for ScrollLayout {
                 Axis::Horizontal => Size::new(thumb_extent, thickness),
                 Axis::Vertical => Size::new(thickness, thumb_extent),
             };
-            cx.layout_child(thumb, Constraints::tight(thumb_size));
-            cx.set_position(
+            ui.layout_child(thumb, Constraints::tight(thumb_size));
+            ui.set_position(
                 thumb,
                 match self.axis {
                     Axis::Horizontal => Point::new(thumb_offset, viewport_size.height - thickness),

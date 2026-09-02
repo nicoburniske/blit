@@ -6,7 +6,7 @@ use blit::{
 };
 use blit_cpu::{FontFace, RendererConfig, TextLayoutEngine};
 use blit_desktop::{
-    Application, BoundsClip, Config, Cx, DesktopPlatform, EventLoopProxy, Root, Ui,
+    Application, BoundsClip, Config, DesktopPlatform, EventLoopProxy, Root, Ui,
     atom::{Rectangle, Shadow},
     color::Color,
     layout::{Align, Flex, Grid, Single, Wrap},
@@ -83,8 +83,8 @@ impl Application for App {
 
     fn input(&mut self, _: Self::Input) {}
 
-    fn render(&mut self, ui: &mut Ui) {
-        let mut root = ui.node(Flex::column().padding(Sides::all(sz::XL)).gap(sz::LG));
+    fn render(&mut self, ui: Ui<'_>) {
+        let mut root = ui.layout(Flex::column().padding(Sides::all(sz::XL)).gap(sz::LG));
         root.insert(Rectangle::new().background(colors::BACKGROUND));
         {
             let mut header = root
@@ -102,7 +102,7 @@ impl Application for App {
                     .border(Border::solid(sz::BORDER, colors::BORDER))
                     .radius(BorderRadius::uniform(sz::XS)),
             );
-            header.add(|ui: Cx<'_>| {
+            header.add(|ui: Ui<'_>| {
                 let mut logo = ui.layout(
                     Flex::row()
                         .padding(Sides::xy(sz::SM, sz::XXS))
@@ -135,7 +135,7 @@ impl Application for App {
                     self.page = page;
                 }
             }
-            header.child().place(Place::grow()).add(());
+            header.child().place(Place::grow()).insert(());
             if header.add(Button::new(
                 WidgetId::new("toggle desktop fps"),
                 "fps",
@@ -152,9 +152,9 @@ impl Application for App {
             }
         }
         match self.page {
-            Page::Layout => root.child().place(Place::grow()).add(&mut self.layout),
-            Page::Styles => root.child().place(Place::grow()).add(&mut self.styles),
-            Page::Scroll => root.child().place(Place::grow()).add(&mut self.scroll),
+            Page::Layout => root.child().place(Place::grow()).insert(&mut self.layout),
+            Page::Styles => root.child().place(Place::grow()).insert(&mut self.styles),
+            Page::Scroll => root.child().place(Place::grow()).insert(&mut self.scroll),
         };
         if self.show_fps {
             root.add(&mut self.fps);
@@ -173,7 +173,7 @@ struct LayoutPage {
 impl Widget<DesktopPlatform> for &mut LayoutPage {
     type Response = ();
 
-    fn build(self, ui: Cx<'_>) {
+    fn build(self, ui: Ui<'_>) {
         let LayoutPage {
             canvas,
             resize,
@@ -184,12 +184,12 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
         let unit = Size::uniform(sz::SM);
         let preview_config = *canvas;
         let mut body = ui.layout(Flex::row());
-        body.child().place(Place::grow()).add(
+        body.child().place(Place::grow()).insert(
             SplitPane::new(
                 split,
                 WidgetId::new("layout page split"),
                 sz::SIDEBAR,
-                |ui: Cx<'_>| {
+                |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(
                         Flex::column()
                             .padding(Sides::all(sz::LG))
@@ -204,10 +204,10 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                             })
                             .color(colors::ACCENT),
                     );
-                    sidebar.child().place(Place::grow()).add(
-                        ScrollArea::new(controls_scroll, BoundsClip, |ui: Cx<'_>| {
+                    sidebar.child().place(Place::grow()).insert(
+                        ScrollArea::new(controls_scroll, BoundsClip, |ui: Ui<'_>| {
                             let mut controls = ui.layout(Flex::column().gap(sz::XS));
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "layout",
@@ -219,7 +219,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                                     ],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "axis",
@@ -227,7 +227,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                                     &[("Horizontal", Axis::Horizontal), ("Vertical", Axis::Vertical)],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "justify",
@@ -239,7 +239,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                                     ],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "space",
@@ -251,7 +251,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                                     ],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "align",
@@ -264,7 +264,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                                     ],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "sizing",
@@ -276,7 +276,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                                     ],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "zoom",
@@ -284,7 +284,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                                     &[("75%", 0.75), ("100%", 1.0), ("125%", 1.25)],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "gap",
@@ -292,7 +292,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                                     &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "padding",
@@ -300,7 +300,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                                     &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "transition",
@@ -323,12 +323,12 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                         }),
                     );
                 },
-                |ui: Cx<'_>| {
+                |ui: Ui<'_>| {
                     let mut preview = ui.layout(Flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
                     preview.insert(panel(colors::SURFACE));
                     preview
                         .child().place(Place::new().height(Sizing::fixed(sz::XXL)))
-                        .add(
+                        .insert(
                             Text::new("LIVE PREVIEW")
                                 .style(TextStyle {
                                     size: sz::MD,
@@ -336,7 +336,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                                 })
                                 .color(colors::ACCENT),
                         );
-                    preview.child().place(Place::grow()).add(|ui: Cx<'_>| {
+                    preview.child().place(Place::grow()).insert(|ui: Ui<'_>| {
                         let mut viewport = ui
                             .layout(Single::new().padding(Sides::all(sz::SM)))
                             .clip(BoundsClip);
@@ -404,7 +404,7 @@ impl Default for StylesPage {
 impl Widget<DesktopPlatform> for &mut StylesPage {
     type Response = ();
 
-    fn build(self, ui: Cx<'_>) {
+    fn build(self, ui: Ui<'_>) {
         let StylesPage {
             shadow,
             radius,
@@ -420,12 +420,12 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
         let shadow_spread = *spread;
         let shadow_offset = *offset;
         let mut body = ui.layout(Flex::row());
-        body.child().place(Place::grow()).add(
+        body.child().place(Place::grow()).insert(
             SplitPane::new(
                 split,
                 WidgetId::new("styles page split"),
                 sz::SIDEBAR,
-                |ui: Cx<'_>| {
+                |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(
                         Flex::column()
                             .padding(Sides::all(sz::LG))
@@ -440,10 +440,10 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                             })
                             .color(colors::ACCENT),
                     );
-                    sidebar.child().place(Place::grow()).add(
-                        ScrollArea::new(controls_scroll, BoundsClip, |ui: Cx<'_>| {
+                    sidebar.child().place(Place::grow()).insert(
+                        ScrollArea::new(controls_scroll, BoundsClip, |ui: Ui<'_>| {
                             let mut controls = ui.layout(Flex::column().gap(sz::SM));
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "shadow",
@@ -455,7 +455,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                                     ],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "radius",
@@ -463,7 +463,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                                     &[("0", 0.0), ("18", sz::LG), ("32", sz::XXL)],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "blur",
@@ -471,7 +471,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                                     &[("0", 0.0), ("8", sz::XS), ("18", sz::LG)],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "spread",
@@ -483,7 +483,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                                     ],
                                 );
                             });
-                            controls.add(|ui: Cx<'_>| {
+                            controls.add(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "offset",
@@ -510,12 +510,12 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                         }),
                     );
                 },
-                |ui: Cx<'_>| {
+                |ui: Ui<'_>| {
                     let mut preview = ui.layout(Flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
                     preview.insert(panel(colors::SURFACE));
                     preview
                         .child().place(Place::new().height(Sizing::fixed(sz::XXL)))
-                        .add(
+                        .insert(
                             Text::new("LIVE STYLE PREVIEW")
                                 .style(TextStyle {
                                     size: sz::MD,
@@ -523,7 +523,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                                 })
                                 .color(colors::ACCENT),
                         );
-                    preview.child().place(Place::grow()).add(|ui: Cx<'_>| {
+                    preview.child().place(Place::grow()).insert(|ui: Ui<'_>| {
                         let mut stage = ui.layout(
                             Flex::row()
                                 .padding(Sides::all(sz::XXXL))
@@ -532,7 +532,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                         );
                         stage
                             .child().place(Place::fixed(sz::CARD_WIDTH, sz::CARD_HEIGHT))
-                            .add(|ui: Cx<'_>| {
+                            .insert(|ui: Ui<'_>| {
                                 let mut card = ui.layout(
                                     Flex::column()
                                         .padding(Sides::all(sz::XXL))
@@ -600,7 +600,7 @@ impl Default for ScrollPage {
 impl Widget<DesktopPlatform> for &mut ScrollPage {
     type Response = ();
 
-    fn build(self, ui: Cx<'_>) {
+    fn build(self, ui: Ui<'_>) {
         let ScrollPage {
             axis: scroll_axis,
             state: scroll,
@@ -611,7 +611,7 @@ impl Widget<DesktopPlatform> for &mut ScrollPage {
             let mut header = section
                 .child()
                 .layout(Flex::row().gap(sz::XS).align(Align::Center));
-            header.child().place(Place::grow()).add(
+            header.child().place(Place::grow()).insert(
                 Text::new("SCROLL AREA")
                     .style(TextStyle {
                         size: sz::MD,
@@ -634,8 +634,8 @@ impl Widget<DesktopPlatform> for &mut ScrollPage {
             }
         }
         let axis = *scroll_axis;
-        section.child().place(Place::grow()).add(
-            ScrollArea::new(scroll, BoundsClip, move |ui: Cx<'_>| {
+        section.child().place(Place::grow()).insert(
+            ScrollArea::new(scroll, BoundsClip, move |ui: Ui<'_>| {
                 let mut items = ui.layout(Flex::new(axis).padding(Sides::all(sz::XS)).gap(sz::XS));
                 for index in 0..100 {
                     let item = ITEMS[index % ITEMS.len()];
@@ -647,7 +647,7 @@ impl Widget<DesktopPlatform> for &mut ScrollPage {
                             Place::new().height(Sizing::fixed(sz::SCROLL_ITEM_HEIGHT))
                         }
                     };
-                    items.child().place(place).add(|ui: Cx<'_>| {
+                    items.child().place(place).insert(|ui: Ui<'_>| {
                         let layout = match axis {
                             Axis::Horizontal => Flex::column()
                                 .align(Align::Center)
@@ -700,7 +700,7 @@ impl Default for FpsBadge {
 impl Widget<DesktopPlatform> for &mut FpsBadge {
     type Response = ();
 
-    fn build(self, ui: Cx<'_>) {
+    fn build(self, ui: Ui<'_>) {
         if let Some(fps) = self.counter.update(ui.time()) {
             self.label.clear();
             let _ = write!(self.label, "FPS {fps:03.0}");
@@ -723,7 +723,7 @@ impl Widget<DesktopPlatform> for &mut FpsBadge {
                 .border(Border::solid(sz::BORDER, colors::ACCENT))
                 .radius(BorderRadius::uniform(sz::XS)),
         );
-        badge.child().place(Place::fixed(sz::XS, sz::XS)).add(
+        badge.child().place(Place::fixed(sz::XS, sz::XS)).insert(
             Rectangle::new()
                 .background(colors::ACCENT)
                 .radius(BorderRadius::uniform(sz::XXS)),
@@ -772,7 +772,7 @@ struct Divider {
 impl Widget<DesktopPlatform> for Divider {
     type Response = ();
 
-    fn build(self, ui: Cx<'_>) {
+    fn build(self, ui: Ui<'_>) {
         let active = self.interaction.hovered || self.interaction.dragging;
         let marker = match self.axis {
             Axis::Horizontal => Size::new(sz::BORDER_STRONG, sz::XXXL),
@@ -786,7 +786,7 @@ impl Widget<DesktopPlatform> for Divider {
         divider
             .child()
             .place(Place::fixed(marker.width, marker.height))
-            .add(
+            .insert(
                 Rectangle::new()
                     .background(if active {
                         colors::ACCENT
@@ -803,7 +803,7 @@ struct DesktopGrip(ResizeGrip);
 impl Widget<DesktopPlatform> for DesktopGrip {
     type Response = ();
 
-    fn build(self, ui: Cx<'_>) {
+    fn build(self, ui: Ui<'_>) {
         let marker = match self.0.edge {
             ResizeEdge::Right => Size::new(sz::XXS, sz::XXXXL),
             ResizeEdge::Bottom => Size::new(sz::XXXXL, sz::XXS),
@@ -825,7 +825,7 @@ impl Widget<DesktopPlatform> for DesktopGrip {
         );
         grip.child()
             .place(Place::fixed(marker.width, marker.height))
-            .add(
+            .insert(
                 Rectangle::new()
                     .background(color)
                     .radius(BorderRadius::uniform(marker.width.min(marker.height) / 2.0)),
@@ -852,7 +852,7 @@ impl<'a> Button<'a> {
 impl Widget<DesktopPlatform> for Button<'_> {
     type Response = bool;
 
-    fn build(self, mut ui: Cx<'_>) -> bool {
+    fn build(self, mut ui: Ui<'_>) -> bool {
         let interaction = ui.interact(self.id, Sense::CLICK);
         let background = if interaction.active {
             colors::ACCENT_DARK
@@ -889,7 +889,7 @@ impl Widget<DesktopPlatform> for Button<'_> {
     }
 }
 
-fn choices<T: Copy + PartialEq>(ui: Cx<'_>, label: &str, selected: &mut T, options: &[(&str, T)]) {
+fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, options: &[(&str, T)]) {
     let mut group = ui.layout(Flex::column().gap(sz::XXS));
     group.add(
         Text::new(label)
@@ -899,7 +899,7 @@ fn choices<T: Copy + PartialEq>(ui: Cx<'_>, label: &str, selected: &mut T, optio
             })
             .color(colors::TEXT_MUTED),
     );
-    group.add(|ui: Cx<'_>| {
+    group.add(|ui: Ui<'_>| {
         let mut values = ui.layout(
             Wrap::new(Axis::Horizontal)
                 .item_gap(sz::XXS)
@@ -927,7 +927,7 @@ struct Canvas {
 impl Widget<DesktopPlatform> for Canvas {
     type Response = ();
 
-    fn build(self, ui: Cx<'_>) {
+    fn build(self, ui: Ui<'_>) {
         let background = Rectangle::new()
             .background(colors::CANVAS)
             .border(Border::solid(sz::BORDER_STRONG, colors::CANVAS_BORDER))
@@ -949,7 +949,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     canvas
                         .child()
                         .place(self.config.item_place(index, self.unit))
-                        .add(|ui: Cx<'_>| {
+                        .insert(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -975,7 +975,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     canvas
                         .child()
                         .place(self.config.item_place(index, self.unit))
-                        .add(|ui: Cx<'_>| {
+                        .insert(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -999,7 +999,7 @@ impl Widget<DesktopPlatform> for Canvas {
                             Place::new()
                                 .height(Sizing::fixed(5.0 * self.unit.height * self.config.zoom)),
                         )
-                        .add(|ui: Cx<'_>| {
+                        .insert(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
                 }
@@ -1009,7 +1009,7 @@ impl Widget<DesktopPlatform> for Canvas {
 }
 
 fn canvas_item(
-    ui: Cx<'_>,
+    ui: Ui<'_>,
     index: usize,
     spec: blit_showcase::ItemSpec,
     badges: blit::LayerId,
@@ -1050,7 +1050,7 @@ fn canvas_item(
                     .layer(badges)
                     .z_index(1),
             )
-            .add(|ui: Cx<'_>| {
+            .insert(|ui: Ui<'_>| {
                 let mut badge = ui
                     .layout(
                         Flex::row()

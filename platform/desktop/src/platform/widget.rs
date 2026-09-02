@@ -7,7 +7,7 @@ use blit_cpu::{
 };
 
 use super::{DesktopPlatform, atom};
-use crate::Cx;
+use crate::Ui;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -23,9 +23,9 @@ blit::builder! {
 impl Widget<DesktopPlatform> for Text<'_> {
     type Response = ();
 
-    fn build(self, mut cx: Cx<'_>) {
-        let run = cx.platform().text_run(self.text, self.style);
-        cx.atom(
+    fn build(self, mut ui: Ui<'_>) {
+        let run = ui.platform().text_run(self.text, self.style);
+        ui.insert(
             atom::Text::new(run)
                 .color(self.color)
                 .offset_x(self.offset_x)

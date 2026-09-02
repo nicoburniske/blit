@@ -4,7 +4,7 @@ use blit_tui_render::{
     text::{Span, TextAttributes, TextOptions},
 };
 
-use crate::{Cx, TuiPlatform, atom};
+use crate::{TuiPlatform, Ui, atom};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -32,13 +32,13 @@ impl<'a> Text<'a> {
 impl Widget<TuiPlatform> for Text<'_> {
     type Response = ();
 
-    fn build(self, mut cx: Cx<'_>) {
+    fn build(self, mut ui: Ui<'_>) {
         let run = if let Some(spans) = self.spans {
-            cx.platform().renderer_mut().rich_text(spans)
+            ui.platform().renderer_mut().rich_text(spans)
         } else {
-            cx.platform().renderer_mut().text_run(self.text)
+            ui.platform().renderer_mut().text_run(self.text)
         };
-        cx.atom(
+        ui.insert(
             atom::Text::new(run)
                 .color(self.color)
                 .attributes(self.attributes)
