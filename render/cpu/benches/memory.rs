@@ -41,7 +41,7 @@ fn main() {
     }];
     let mut text: Box<dyn TextLayoutEngine> =
         Box::new(blit_text_cosmic::Backend::without_system_fonts());
-    let font = text
+    let face = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();
     let mut renderer = Renderer::new(
@@ -50,7 +50,9 @@ fn main() {
             fonts: vec![FontFace {
                 id: FontId::default(),
                 weight: 400,
-                font,
+                stretch: 100,
+                style: Default::default(),
+                face,
             }],
             text_cache_capacity: 1,
             layout_cache_capacity: 1,

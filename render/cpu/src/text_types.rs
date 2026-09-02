@@ -1,5 +1,6 @@
 use crate::color::Color;
 use blit::geometry::LogicalRect;
+pub use blit_text::FontStyle;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum TextWrap {
@@ -47,6 +48,8 @@ pub struct TextStyle {
     pub font: FontId,
     pub size: f32,
     pub weight: u16,
+    pub stretch: u16,
+    pub style: FontStyle,
 }
 
 impl Default for TextStyle {
@@ -55,6 +58,8 @@ impl Default for TextStyle {
             font: FontId::default(),
             size: 16.0,
             weight: 400,
+            stretch: 100,
+            style: FontStyle::Normal,
         }
     }
 }

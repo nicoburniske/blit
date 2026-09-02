@@ -4,7 +4,7 @@ use blit::{
     Absolute, Anchor, Axis, Easing, Interaction, Place, Sense, Sides, Size, Sizing, Transition,
     Widget, WidgetId,
 };
-use blit_cpu::{FontFace, RendererConfig, TextLayoutEngine};
+use blit_cpu::{FontData, FontFace, RendererConfig, TextLayoutEngine};
 use blit_desktop::{
     Application, BoundsClip, Config, DesktopPlatform, EventLoopProxy, Root, Ui,
     atom::{Rectangle, Shadow},
@@ -18,10 +18,9 @@ use blit_showcase::{
     CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip,
     ResizeState,
 };
-use blit_text::FontData;
 
 pub fn run(mut text: Box<dyn TextLayoutEngine>) {
-    let font = text
+    let face = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();
     blit_desktop::run::<App>(Config {
@@ -32,7 +31,9 @@ pub fn run(mut text: Box<dyn TextLayoutEngine>) {
             fonts: vec![FontFace {
                 id: FontId::default(),
                 weight: 400,
-                font,
+                stretch: 100,
+                style: Default::default(),
+                face,
             }],
             text_cache_capacity: 1024 * 1024,
             layout_cache_capacity: 2 * 1024 * 1024,

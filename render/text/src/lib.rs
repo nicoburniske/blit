@@ -4,13 +4,18 @@ use blit::{LogicalPoint, LogicalRect, LogicalSize};
 
 /// todo: support variable font instances and expose their coordinates to renderers
 pub trait TextLayoutEngine: 'static {
-    fn system_font(&mut self, _request: SystemFontRequest<'_>) -> Result<FontId, FontError> {
+    fn system_font(&mut self, _request: SystemFontRequest<'_>) -> Result<FontFaceId, FontError> {
         Err(FontError::Unsupported)
     }
 
-    fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontId, FontError>;
+    fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontFaceId, FontError>;
 
-    fn font(&self, font: FontId) -> Option<&FontFace>;
+    fn register_font_selection(
+        &mut self,
+        candidates: &[FontCandidate],
+    ) -> Result<FontSelectionId, FontError>;
+
+    fn font_face(&self, face: FontFaceId) -> Option<&FontFace>;
 
     fn layout(&mut self, text: &str, style: TextStyle, request: LayoutRequest) -> TextLayout;
 }
@@ -36,8 +41,21 @@ impl AsRef<[u8]> for FontData {
     }
 }
 
+/// backend owned font selection
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct FontId(pub u64);
+pub struct FontSelectionId(pub u64);
+
+/// exact face used by glyph ids
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct FontFaceId(pub u64);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FontCandidate {
+    pub face: FontFaceId,
+    pub weight: u16,
+    pub stretch: u16,
+    pub style: FontStyle,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SystemFontRequest<'a> {
@@ -57,8 +75,11 @@ pub enum FontStyle {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextStyle {
-    pub font: FontId,
+    pub font: FontSelectionId,
     pub size: f32,
+    pub weight: u16,
+    pub stretch: u16,
+    pub style: FontStyle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -83,7 +104,7 @@ pub struct TextLayout {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayoutRun {
-    pub font: FontId,
+    pub face: FontFaceId,
     pub size: f32,
     pub glyphs: Range<u32>,
 }
@@ -113,23 +134,23 @@ pub enum TextWrap {
     #[default]
     None,
     Word,
-    Glyph,
+    Character,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum HorizontalAlign {
     #[default]
-    Start,
+    Left,
     Center,
-    End,
+    Right,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum VerticalAlign {
     #[default]
-    Start,
+    Top,
     Center,
-    End,
+    Bottom,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
