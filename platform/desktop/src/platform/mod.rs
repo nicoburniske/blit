@@ -190,14 +190,15 @@ mod tests {
     use super::*;
     use crate::atom::Rectangle;
     use blit::{Frame, Place, Sides, Size};
-    use blit_cpu::{FontFace, RendererConfig, TextSystem, color::Color, text_types::FontId};
+    use blit_cpu::{FontFace, RendererConfig, TextLayoutEngine, color::Color, text_types::FontId};
     use blit_std::layout::Flex;
     use blit_text::FontData;
 
     #[test]
     fn nested_content_renders_at_device_scale() {
         let mut pixels = vec![0; 16 * 16];
-        let mut text = TextSystem::new(blit_text_cosmic::Backend::without_system_fonts());
+        let mut text: Box<dyn TextLayoutEngine> =
+            Box::new(blit_text_cosmic::Backend::without_system_fonts());
         let font = text
             .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
             .unwrap();

@@ -1,7 +1,7 @@
 use std::mem::size_of;
 
 use blit_cache::{DeferredCache, Scale};
-use blit_text::{FontId, TextSystem};
+use blit_text::{FontId, TextLayoutEngine};
 
 use crate::raster::{Metrics, Rasterizer};
 
@@ -31,7 +31,13 @@ impl GlyphCache {
         }
     }
 
-    pub fn glyph(&mut self, text: &TextSystem, font: FontId, glyph: u16, size: u32) -> usize {
+    pub fn glyph(
+        &mut self,
+        text: &dyn TextLayoutEngine,
+        font: FontId,
+        glyph: u16,
+        size: u32,
+    ) -> usize {
         let key = GlyphKey { font, glyph, size };
         let Self { glyphs, rasterizer } = self;
         let (_, index) = glyphs.get_or_insert(key, || {

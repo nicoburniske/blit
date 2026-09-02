@@ -16,7 +16,9 @@ use crate::{
     text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
 };
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
-use blit_text::{FontError, FontFace as BackendFontFace, LayoutRequest, TextBackend, TextLayout};
+use blit_text::{
+    FontError, FontFace as BackendFontFace, LayoutRequest, TextLayout, TextLayoutEngine,
+};
 
 use super::*;
 
@@ -98,12 +100,12 @@ fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B
     )
 }
 
-fn new_renderer_with_backend<B: PixelBuffer, T: TextBackend>(
+fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
     buffer: B,
     mut config: RendererConfig,
     backend: T,
 ) -> Renderer<B> {
-    let mut text = TextSystem::new(backend);
+    let mut text: Box<dyn TextLayoutEngine> = Box::new(backend);
     let font = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();
@@ -252,7 +254,7 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
 
 struct CountingBackend(Arc<AtomicUsize>);
 
-impl TextBackend for CountingBackend {
+impl TextLayoutEngine for CountingBackend {
     fn system_font(
         &mut self,
         _request: blit_text::SystemFontRequest<'_>,
@@ -305,7 +307,7 @@ fn layout_eviction_is_deferred_until_frame_end() {
             glyph_cache_capacity: 0,
             shadow_cache_capacity: 0,
         },
-        TextSystem::new(CountingBackend(layouts.clone())),
+        Box::new(CountingBackend(layouts.clone())),
     );
     let request = TextLayoutRequest {
         text: renderer.text_run("cached", TextStyle::default()),

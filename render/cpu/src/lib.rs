@@ -19,7 +19,7 @@ use crate::{
     text_types::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
-pub use blit_text::{FontData, FontError, FontId as BackendFontId, TextSystem};
+pub use blit_text::{FontData, FontError, FontId as BackendFontId, TextLayoutEngine};
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
@@ -50,7 +50,7 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
 }
 
 impl<B: PixelBuffer> Renderer<B, Direct> {
-    pub fn new(buffer: B, config: RendererConfig, text: TextSystem) -> Self {
+    pub fn new(buffer: B, config: RendererConfig, text: Box<dyn TextLayoutEngine>) -> Self {
         let shadow_cache_capacity = config.shadow_cache_capacity;
         Self {
             context: RenderContext {

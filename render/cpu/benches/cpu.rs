@@ -3,7 +3,7 @@ use std::hint::black_box;
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
     Direct, FontData, FontFace, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
-    RendererConfig, Scanline, TextSystem, VecBuffer, Xrgb8888,
+    RendererConfig, Scanline, TextLayoutEngine, VecBuffer, Xrgb8888,
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     image::{
@@ -608,7 +608,8 @@ fn renderer_with_shadow_cache<S>(
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
-    let mut text = TextSystem::new(blit_text_cosmic::Backend::without_system_fonts());
+    let mut text: Box<dyn TextLayoutEngine> =
+        Box::new(blit_text_cosmic::Backend::without_system_fonts());
     let font = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();

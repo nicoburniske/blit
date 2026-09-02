@@ -17,7 +17,7 @@ pub type Cx<'a> = blit::Cx<'a, DesktopPlatform>;
 
 use std::{error::Error, fmt};
 
-use blit_cpu::{RendererConfig, TextSystem};
+use blit_cpu::{RendererConfig, TextLayoutEngine};
 use winit::event_loop::EventLoopProxy as WinitEventLoopProxy;
 
 pub struct Config {
@@ -25,7 +25,7 @@ pub struct Config {
     pub width: u32,
     pub height: u32,
     pub renderer: RendererConfig,
-    pub text: TextSystem,
+    pub text: Box<dyn TextLayoutEngine>,
 }
 
 /// sends application input to the desktop event loop

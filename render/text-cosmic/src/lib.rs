@@ -82,7 +82,7 @@ impl Default for Backend {
     }
 }
 
-impl blit_text::TextBackend for Backend {
+impl blit_text::TextLayoutEngine for Backend {
     fn system_font(&mut self, request: SystemFontRequest<'_>) -> Result<FontId, FontError> {
         let family = [Family::Name(request.family)];
         let cosmic = self

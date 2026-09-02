@@ -1,7 +1,5 @@
 mod showcase_app;
 
-use blit_cpu::TextSystem;
-
 fn main() {
-    showcase_app::run(TextSystem::new(blit_text_cosmic::Backend::new()));
+    showcase_app::run(Box::new(blit_text_cosmic::Backend::new()));
 }

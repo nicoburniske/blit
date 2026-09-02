@@ -3,7 +3,7 @@ use std::{mem::size_of, ops::Range, sync::Arc};
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 
 /// todo: support variable font instances and expose their coordinates to renderers
-pub trait TextBackend: 'static {
+pub trait TextLayoutEngine: 'static {
     fn system_font(&mut self, _request: SystemFontRequest<'_>) -> Result<FontId, FontError> {
         Err(FontError::Unsupported)
     }
@@ -215,31 +215,3 @@ impl std::fmt::Display for FontError {
 }
 
 impl std::error::Error for FontError {}
-
-pub struct TextSystem {
-    backend: Box<dyn TextBackend>,
-}
-
-impl TextSystem {
-    pub fn new(backend: impl TextBackend) -> Self {
-        Self {
-            backend: Box::new(backend),
-        }
-    }
-
-    pub fn system_font(&mut self, request: SystemFontRequest<'_>) -> Result<FontId, FontError> {
-        self.backend.system_font(request)
-    }
-
-    pub fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontId, FontError> {
-        self.backend.register_font(data, face_index)
-    }
-
-    pub fn font(&self, font: FontId) -> Option<FontFace> {
-        self.backend.font(font)
-    }
-
-    pub fn layout(&mut self, text: &str, style: TextStyle, request: LayoutRequest) -> TextLayout {
-        self.backend.layout(text, style, request)
-    }
-}

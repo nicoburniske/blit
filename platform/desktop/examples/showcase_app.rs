@@ -4,7 +4,7 @@ use blit::{
     Absolute, Anchor, Axis, Easing, Interaction, Place, Sense, Sides, Size, Sizing, Transition,
     Widget, WidgetId,
 };
-use blit_cpu::{FontFace, RendererConfig, TextSystem};
+use blit_cpu::{FontFace, RendererConfig, TextLayoutEngine};
 use blit_desktop::{
     Application, BoundsClip, Config, Cx, DesktopPlatform, EventLoopProxy, Root, Ui,
     atom::{Rectangle, Shadow},
@@ -20,7 +20,7 @@ use blit_showcase::{
 };
 use blit_text::FontData;
 
-pub fn run(mut text: TextSystem) {
+pub fn run(mut text: Box<dyn TextLayoutEngine>) {
     let font = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();
