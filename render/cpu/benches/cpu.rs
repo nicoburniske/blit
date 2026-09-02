@@ -436,7 +436,6 @@ where
                 area,
                 offset_x: 0.0,
                 color: Color::from_rgba8(224, 232, 240, 255),
-                style: TextStyle::default(),
                 options: TextOptions::default(),
             },
             area.to_physical(SCALE),
@@ -486,7 +485,6 @@ where
                 area,
                 offset_x: 0.0,
                 color: Color::from_rgba8(224, 232, 240, 255),
-                style: TextStyle::default(),
                 options: TextOptions::default(),
             },
             area.to_physical(SCALE),
@@ -532,7 +530,6 @@ where
             area,
             offset_x: 0.0,
             color: Color::from_rgba8(224, 232, 240, 255),
-            style,
             options: TextOptions {
                 wrap: TextWrap::Word,
                 ..TextOptions::default()

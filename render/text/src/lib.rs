@@ -1,4 +1,4 @@
-use std::{mem::size_of, ops::Range, sync::Arc};
+use std::{ops::Range, sync::Arc};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 
@@ -10,7 +10,7 @@ pub trait TextLayoutEngine: 'static {
 
     fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontId, FontError>;
 
-    fn font(&self, font: FontId) -> Option<FontFace>;
+    fn font(&self, font: FontId) -> Option<&FontFace>;
 
     fn layout(&mut self, text: &str, style: TextStyle, request: LayoutRequest) -> TextLayout;
 }
@@ -81,61 +81,6 @@ pub struct TextLayout {
     pub carets: Box<[Caret]>,
 }
 
-impl TextLayout {
-    pub fn allocated_bytes(&self) -> usize {
-        self.glyphs.len() * size_of::<Glyph>()
-            + self.runs.len() * size_of::<LayoutRun>()
-            + self.lines.len() * size_of::<LayoutLine>()
-            + self.carets.len() * size_of::<Caret>()
-    }
-
-    pub fn hit_test(&self, position: LogicalPoint) -> usize {
-        let Some(line) = self.lines.iter().min_by(|left, right| {
-            let left_distance = if position.y < left.bounds.y {
-                left.bounds.y - position.y
-            } else if position.y > left.bounds.y + left.bounds.height {
-                position.y - left.bounds.y - left.bounds.height
-            } else {
-                0.0
-            };
-            let right_distance = if position.y < right.bounds.y {
-                right.bounds.y - position.y
-            } else if position.y > right.bounds.y + right.bounds.height {
-                position.y - right.bounds.y - right.bounds.height
-            } else {
-                0.0
-            };
-            left_distance.total_cmp(&right_distance)
-        }) else {
-            return 0;
-        };
-        self.carets[line.carets.start as usize..line.carets.end as usize]
-            .iter()
-            .min_by(|left, right| {
-                (left.position.x - position.x)
-                    .abs()
-                    .total_cmp(&(right.position.x - position.x).abs())
-            })
-            .map_or(0, |caret| caret.byte_offset as usize)
-    }
-
-    pub fn cursor_rect(&self, byte_offset: usize) -> LogicalRect {
-        let Some(caret) = self
-            .carets
-            .iter()
-            .min_by_key(|caret| (caret.byte_offset as usize).abs_diff(byte_offset))
-        else {
-            return LogicalRect::default();
-        };
-        LogicalRect {
-            x: caret.position.x,
-            y: caret.position.y,
-            width: 0.0,
-            height: caret.height,
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayoutRun {
     pub font: FontId,
@@ -146,7 +91,6 @@ pub struct LayoutRun {
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayoutLine {
     pub bounds: LogicalRect,
-    pub runs: Range<u32>,
     pub carets: Range<u32>,
 }
 
@@ -162,8 +106,6 @@ pub struct Glyph {
     pub id: u16,
     /// pen origin in logical coordinates relative to the layout origin
     pub position: LogicalPoint,
-    pub advance: f32,
-    pub cluster: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

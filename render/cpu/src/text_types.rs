@@ -31,14 +31,12 @@ pub struct TextRequest {
     pub area: LogicalRect,
     pub offset_x: f32,
     pub color: Color,
-    pub style: TextStyle,
     pub options: TextOptions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextLayoutRequest {
     pub text: TextRunId,
-    pub style: TextStyle,
     pub wrap: TextWrap,
     pub max_width: Option<f32>,
     pub max_lines: Option<u16>,

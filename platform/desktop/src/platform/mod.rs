@@ -190,9 +190,10 @@ mod tests {
     use super::*;
     use crate::atom::Rectangle;
     use blit::{Frame, Place, Sides, Size};
-    use blit_cpu::{FontFace, RendererConfig, TextLayoutEngine, color::Color, text_types::FontId};
+    use blit_cpu::{
+        FontData, FontFace, RendererConfig, TextLayoutEngine, color::Color, text_types::FontId,
+    };
     use blit_std::layout::Flex;
-    use blit_text::FontData;
 
     #[test]
     fn nested_content_renders_at_device_scale() {

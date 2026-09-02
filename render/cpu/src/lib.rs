@@ -397,9 +397,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     }
 
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.context
-            .text
-            .text_run(text, style, self.context.scale_factor)
+        self.context.text.text_run(text, style)
     }
 
     pub fn text_offset_at_position(
@@ -407,15 +405,11 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         request: &TextRequest,
         position: LogicalPoint,
     ) -> usize {
-        self.context
-            .text
-            .offset_at_position(request, position, self.context.scale_factor)
+        self.context.text.offset_at_position(request, position)
     }
 
     pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
-        self.context
-            .text
-            .measure(request, self.context.scale_factor)
+        self.context.text.measure(request)
     }
 
     pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {

@@ -4,7 +4,7 @@ use blit_cpu::{
     command_list::{BoxShadow, Rectangle as DrawRectangle},
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
     style::{Border, BorderRadius},
-    text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle},
+    text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId},
 };
 
 use super::DesktopPlatform;
@@ -51,7 +51,7 @@ impl Atom<DesktopPlatform> for Rectangle {
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Text {
-        new(text: TextRunId, style: TextStyle),
+        new(text: TextRunId),
         color: Color = Color::BLACK,
         offset_x: f32 = 0.0,
         options: TextOptions = TextOptions::default(),
@@ -62,7 +62,6 @@ impl Atom<DesktopPlatform> for Text {
     fn measure(&self, platform: &mut DesktopPlatform, constraints: Constraints) -> Size {
         let measured = platform.measure_text(&TextLayoutRequest {
             text: self.text,
-            style: self.style,
             wrap: self.options.wrap,
             max_width: (self.options.wrap != blit_cpu::text_types::TextWrap::None
                 && constraints.max.width.is_finite())
@@ -78,7 +77,6 @@ impl Atom<DesktopPlatform> for Text {
             area,
             offset_x: self.offset_x,
             color: self.color,
-            style: self.style,
             options: self.options,
         };
         let bounds = area.to_physical(platform.scale);

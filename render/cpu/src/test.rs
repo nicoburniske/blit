@@ -161,7 +161,6 @@ fn renderer_supports_custom_pixel_layouts() {
             },
             offset_x: 0.0,
             color: Color::WHITE,
-            style: TextStyle::default(),
             options: TextOptions::default(),
         },
         clip,
@@ -187,7 +186,6 @@ fn renderer_supports_custom_pixel_layouts() {
         },
         offset_x: 0.0,
         color: Color::WHITE,
-        style: TextStyle::default(),
         options: TextOptions::default(),
     };
     assert_eq!(
@@ -235,7 +233,6 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
             area,
             offset_x: 0.0,
             color: Color::WHITE,
-            style: TextStyle::default(),
             options: TextOptions::default(),
         },
         area.to_physical(SCALE),
@@ -255,13 +252,6 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
 struct CountingBackend(Arc<AtomicUsize>);
 
 impl TextLayoutEngine for CountingBackend {
-    fn system_font(
-        &mut self,
-        _request: blit_text::SystemFontRequest<'_>,
-    ) -> Result<BackendFontId, FontError> {
-        Err(FontError::NotFound)
-    }
-
     fn register_font(
         &mut self,
         _data: FontData,
@@ -270,7 +260,7 @@ impl TextLayoutEngine for CountingBackend {
         Err(FontError::Unsupported)
     }
 
-    fn font(&self, _font: BackendFontId) -> Option<BackendFontFace> {
+    fn font(&self, _font: BackendFontId) -> Option<&BackendFontFace> {
         None
     }
 
@@ -311,7 +301,6 @@ fn layout_eviction_is_deferred_until_frame_end() {
     );
     let request = TextLayoutRequest {
         text: renderer.text_run("cached", TextStyle::default()),
-        style: TextStyle::default(),
         wrap: TextWrap::None,
         max_width: None,
         max_lines: None,
@@ -330,7 +319,6 @@ fn layout_eviction_is_deferred_until_frame_end() {
         },
         offset_x: 0.0,
         color: Color::WHITE,
-        style: TextStyle::default(),
         options: TextOptions::default(),
     };
     renderer.text_cursor_rect(&paint, 0);
@@ -349,7 +337,6 @@ fn text_measurement_reports_wrapped_layout_size() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
     let request = TextLayoutRequest {
         text: renderer.text_run("hello world", TextStyle::default()),
-        style: TextStyle::default(),
         wrap: TextWrap::None,
         max_width: None,
         max_lines: None,
@@ -441,7 +428,6 @@ fn commands_outside_damage_are_not_prepared() {
             area: outside,
             offset_x: 0.0,
             color: Color::WHITE,
-            style: TextStyle::default(),
             options: TextOptions::default(),
         },
         outside.to_physical(SCALE),
@@ -1446,7 +1432,6 @@ fn rounded_clips_match_between_strategies() {
             area,
             offset_x: 0.0,
             color: Color::WHITE,
-            style: TextStyle::default(),
             options: TextOptions::default(),
         };
 

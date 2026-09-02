@@ -17,7 +17,7 @@ use blit_text::{FontId, LayoutRequest, TextLayout, TextLayoutEngine};
 
 pub struct TextRenderer {
     text: Box<dyn TextLayoutEngine>,
-    families: Box<[ConfiguredFace]>,
+    fonts: Box<[crate::FontFace]>,
     texts: DeferredCache<TextKey, CachedText, TextScale>,
     layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
     next_text: u32,
@@ -25,13 +25,6 @@ pub struct TextRenderer {
     prepared: Vec<PreparedGlyph>,
     lines: Vec<PreparedLine>,
     coverage: Vec<u8>,
-}
-
-#[derive(Clone, Copy)]
-struct ConfiguredFace {
-    family: crate::text_types::FontId,
-    weight: u16,
-    font: FontId,
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -96,7 +89,10 @@ impl Scale<LayoutKey, CachedLayout> for LayoutScale {
     fn weight(&self, _key: &LayoutKey, cached: &CachedLayout) -> usize {
         size_of::<LayoutKey>()
             + size_of::<CachedLayout>()
-            + cached.layout.allocated_bytes()
+            + cached.layout.glyphs.len() * size_of::<blit_text::Glyph>()
+            + cached.layout.runs.len() * size_of::<blit_text::LayoutRun>()
+            + cached.layout.lines.len() * size_of::<blit_text::LayoutLine>()
+            + cached.layout.carets.len() * size_of::<blit_text::Caret>()
             + cached.paint.as_ref().map_or(0, |paint| {
                 paint.glyphs.capacity() * size_of::<PaintGlyph>()
                     + paint.lines.capacity() * size_of::<PreparedLine>()
@@ -136,15 +132,7 @@ impl TextRenderer {
     pub fn new(config: RendererConfig, text: Box<dyn TextLayoutEngine>) -> Self {
         Self {
             text,
-            families: config
-                .fonts
-                .into_iter()
-                .map(|face| ConfiguredFace {
-                    family: face.id,
-                    weight: face.weight,
-                    font: face.font,
-                })
-                .collect(),
+            fonts: config.fonts.into_boxed_slice(),
             texts: DeferredCache::new(TextScale, config.text_cache_capacity),
             layouts: DeferredCache::new(LayoutScale, config.layout_cache_capacity),
             next_text: 1,
@@ -155,11 +143,11 @@ impl TextRenderer {
         }
     }
 
-    pub fn text_run(&mut self, text: &str, style: TextStyle, _scale_factor: f32) -> TextRunId {
+    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
         let Some(face) = self
-            .families
+            .fonts
             .iter()
-            .filter(|face| face.family == style.font)
+            .filter(|face| face.id == style.font)
             .min_by_key(|face| {
                 (
                     face.weight.abs_diff(style.weight),
@@ -473,23 +461,43 @@ impl TextRenderer {
         self.glyphs.finish_frame();
     }
 
-    pub fn offset_at_position(
-        &mut self,
-        request: &TextRequest,
-        position: LogicalPoint,
-        _scale_factor: f32,
-    ) -> usize {
+    pub fn offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
         let layout = self.layout(request.text, Self::paint_request(request));
-        self.layouts
-            .get_index(layout)
-            .layout
-            .hit_test(LogicalPoint {
-                x: position.x - request.area.x + request.offset_x,
-                y: position.y - request.area.y,
+        let layout = &self.layouts.get_index(layout).layout;
+        let position = LogicalPoint {
+            x: position.x - request.area.x + request.offset_x,
+            y: position.y - request.area.y,
+        };
+        let Some(line) = layout.lines.iter().min_by(|left, right| {
+            let left_distance = if position.y < left.bounds.y {
+                left.bounds.y - position.y
+            } else if position.y > left.bounds.y + left.bounds.height {
+                position.y - left.bounds.y - left.bounds.height
+            } else {
+                0.0
+            };
+            let right_distance = if position.y < right.bounds.y {
+                right.bounds.y - position.y
+            } else if position.y > right.bounds.y + right.bounds.height {
+                position.y - right.bounds.y - right.bounds.height
+            } else {
+                0.0
+            };
+            left_distance.total_cmp(&right_distance)
+        }) else {
+            return 0;
+        };
+        layout.carets[line.carets.start as usize..line.carets.end as usize]
+            .iter()
+            .min_by(|left, right| {
+                (left.position.x - position.x)
+                    .abs()
+                    .total_cmp(&(right.position.x - position.x).abs())
             })
+            .map_or(0, |caret| caret.byte_offset as usize)
     }
 
-    pub fn measure(&mut self, request: &TextLayoutRequest, _scale_factor: f32) -> LogicalSize {
+    pub fn measure(&mut self, request: &TextLayoutRequest) -> LogicalSize {
         let layout = self.layout(
             request.text,
             LayoutRequest {
@@ -516,16 +524,18 @@ impl TextRenderer {
         scale_factor: f32,
     ) -> LogicalRect {
         let layout = self.layout(request.text, Self::paint_request(request));
-        let rect = self
+        let caret = self
             .layouts
             .get_index(layout)
             .layout
-            .cursor_rect(byte_offset);
+            .carets
+            .iter()
+            .min_by_key(|caret| (caret.byte_offset as usize).abs_diff(byte_offset));
         LogicalRect {
-            x: request.area.x + rect.x - request.offset_x,
-            y: request.area.y + rect.y,
+            x: request.area.x + caret.map_or(0.0, |caret| caret.position.x) - request.offset_x,
+            y: request.area.y + caret.map_or(0.0, |caret| caret.position.y),
             width: scale_factor.recip(),
-            height: rect.height,
+            height: caret.map_or(0.0, |caret| caret.height),
         }
     }
 
