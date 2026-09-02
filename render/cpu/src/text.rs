@@ -13,10 +13,10 @@ use crate::{
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
-use blit_text::{FontId, LayoutRequest, TextLayout, TextSystem};
+use blit_text::{FontId, LayoutRequest, TextLayout, TextLayoutEngine};
 
 pub struct TextRenderer {
-    text: TextSystem,
+    text: Box<dyn TextLayoutEngine>,
     families: Box<[ConfiguredFace]>,
     texts: DeferredCache<TextKey, CachedText, TextScale>,
     layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
@@ -133,7 +133,7 @@ impl PreparedLines {
 }
 
 impl TextRenderer {
-    pub fn new(config: RendererConfig, text: TextSystem) -> Self {
+    pub fn new(config: RendererConfig, text: Box<dyn TextLayoutEngine>) -> Self {
         Self {
             text,
             families: config
@@ -265,7 +265,7 @@ impl TextRenderer {
             let mut has_bounds = false;
             let width = area.width.max(0);
             let height = area.height.max(0);
-            let text = &self.text;
+            let text = self.text.as_ref();
             let layout = &self.layouts.get_index(layout_index).layout;
             let glyphs = &mut self.glyphs;
             for run in &layout.runs {
@@ -338,7 +338,7 @@ impl TextRenderer {
         for glyph in &paint.glyphs {
             let cached = self
                 .glyphs
-                .glyph(&self.text, glyph.font, glyph.glyph, glyph.size);
+                .glyph(self.text.as_ref(), glyph.font, glyph.glyph, glyph.size);
             let cached = self.glyphs.get(cached);
             self.prepared.push(PreparedGlyph {
                 alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),

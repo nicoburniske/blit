@@ -5,7 +5,7 @@ use std::{
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
-    FontData, FontFace, Renderer, RendererConfig, Scanline, TextSystem, VecBuffer, Xrgb8888,
+    FontData, FontFace, Renderer, RendererConfig, Scanline, TextLayoutEngine, VecBuffer, Xrgb8888,
     color::Color,
     command_list::{ClipId, CommandList, Rectangle},
     text_types::FontId,
@@ -39,7 +39,8 @@ fn main() {
         width: SIDE as i32,
         height: SIDE as i32,
     }];
-    let mut text = TextSystem::new(blit_text_cosmic::Backend::without_system_fonts());
+    let mut text: Box<dyn TextLayoutEngine> =
+        Box::new(blit_text_cosmic::Backend::without_system_fonts());
     let font = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();

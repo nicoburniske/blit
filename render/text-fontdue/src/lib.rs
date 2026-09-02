@@ -3,7 +3,7 @@ use std::borrow::Borrow;
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use blit_text::{
     Caret, FontData, FontError, FontFace, FontId, Glyph, HorizontalAlign, LayoutLine,
-    LayoutRequest, LayoutRun, TextBackend, TextLayout, TextOverflow, TextStyle, TextWrap,
+    LayoutRequest, LayoutRun, TextLayout, TextLayoutEngine, TextOverflow, TextStyle, TextWrap,
     VerticalAlign,
 };
 use fontdue::{
@@ -46,7 +46,7 @@ impl Default for Backend {
     }
 }
 
-impl TextBackend for Backend {
+impl TextLayoutEngine for Backend {
     fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontId, FontError> {
         let font = Font::from_bytes(
             data.as_ref(),
