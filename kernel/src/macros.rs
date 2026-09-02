@@ -74,11 +74,11 @@ macro_rules! builder {
 macro_rules! impl_atom_widgets {
     ($platform:ty => $($atom:ty),+ $(,)?) => {
         $(
-            impl $crate::Widget<$platform> for $atom {
+            impl<S> $crate::Widget<$platform, S> for $atom {
                 type Response = ();
 
-                fn build(self, mut ui: $crate::Ui<'_, $platform>) {
-                    ui.insert(self);
+                fn build(self, mut ui: $crate::Ui<'_, $platform, S>) {
+                    ui.atom(self);
                 }
             }
         )+

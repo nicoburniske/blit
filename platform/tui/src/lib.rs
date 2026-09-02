@@ -6,7 +6,7 @@ pub use blit_std::layout;
 pub use blit_tui_render::{cell, color, image, text};
 pub use platform::{BoundsClip, TuiPlatform};
 
-pub type Ui<'a> = blit::Ui<'a, TuiPlatform>;
+pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiPlatform, S>;
 
 use std::{io, io::Write as _, time::Duration, time::Instant};
 

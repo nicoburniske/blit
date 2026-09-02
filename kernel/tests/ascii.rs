@@ -6,7 +6,7 @@ use blit::{
     Rect, Sense, Size, Sizing, Transition, WidgetId,
 };
 
-type Ui<'a> = blit::Ui<'a, AsciiPlatform>;
+type Ui<'a, S = blit::state::Build> = blit::Ui<'a, AsciiPlatform, S>;
 
 #[test]
 fn animations_and_timers_schedule_frames() {
@@ -73,8 +73,9 @@ fn layout_atoms_measure_and_paint_in_order() {
             let mut root = ui.layout(Overlay);
             let response = root.add(|ui: Ui<'_>| {
                 let mut ui = ui.layout(BaseOnly);
-                let response = ui.insert(|mut ui: Ui<'_>| {
-                    ui.insert(Fill::new('A', Size::new(3.0, 1.0)));
+                ui.insert(());
+                let response = ui.insert(|mut ui: Ui<'_, blit::state::Open<BaseOnly>>| {
+                    ui.atom(Fill::new('A', Size::new(3.0, 1.0)));
                     42
                 });
                 ui.insert(Fill::new('B', Size::new(1.0, 2.0)));

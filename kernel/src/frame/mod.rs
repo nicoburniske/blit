@@ -29,7 +29,7 @@ use crate::{
 pub mod state {
     use super::{PhantomData, Place};
 
-    /// state of a ui passed to [`Widget::build`](crate::Widget::build)
+    /// state of a node without an established layout
     pub struct Build;
 
     /// state of a ui with an active layout
@@ -49,7 +49,7 @@ pub mod state {
 
 /// scoped handle for building a frame node
 ///
-/// [`state::Build`]: unpopulated node passed to a widget
+/// [`state::Build`]: node without an established layout
 /// [`state::Open`]: laid-out node that accepts children
 /// [`state::Pending`]: new child awaiting a widget or layout
 pub struct Ui<'ui, R: Platform, S = state::Build> {
@@ -62,6 +62,13 @@ pub struct Ui<'ui, R: Platform, S = state::Build> {
 impl<'ui, R: Platform, S> Ui<'ui, R, S> {
     pub fn id(&self) -> NodeId {
         self.node
+    }
+
+    /// appends an atom to the current node
+    pub fn atom<A: Atom<R>>(&mut self, atom: A) -> &mut Self {
+        let node = self.node;
+        self.context.frame_mut().push_atom(node, atom);
+        self
     }
 
     pub fn clip<C: Clip<R>>(self, clip: C) -> Self {
@@ -102,13 +109,6 @@ impl<'ui, R: Platform, S> Ui<'ui, R, S> {
 }
 
 impl<'ui, R: Platform> Ui<'ui, R, state::Build> {
-    /// inserts an atom into the current node
-    pub fn insert<A: Atom<R>>(&mut self, atom: A) -> &mut Self {
-        let node = self.node;
-        self.context.frame_mut().push_atom(node, atom);
-        self
-    }
-
     /// establishes the current node's layout
     pub fn layout<L: Layout<R>>(self, layout: L) -> Ui<'ui, R, state::Open<L>> {
         let (context, node, _) = self.into_parts();
@@ -136,10 +136,20 @@ impl<'ui, R: Platform, L: Layout<R>> Ui<'ui, R, state::Open<L>> {
         self
     }
 
-    /// inserts a widget into the current node
-    pub fn insert<W: Widget<R>>(&mut self, widget: W) -> W::Response {
+    /// builds a compatible widget into the current node
+    pub fn insert<W>(&mut self, widget: W) -> W::Response
+    where
+        W: Widget<R, state::Open<L>>,
+    {
         let node = self.node;
-        widget.build(Ui::new(&mut *self.context, node, state::Build, false))
+        widget.build(Ui::new(
+            &mut *self.context,
+            node,
+            state::Open {
+                marker: PhantomData,
+            },
+            false,
+        ))
     }
 
     pub fn new_layer(&mut self) -> LayerId {

@@ -29,16 +29,16 @@ impl<'a> Text<'a> {
     }
 }
 
-impl Widget<TuiPlatform> for Text<'_> {
+impl<S> Widget<TuiPlatform, S> for Text<'_> {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_>) {
+    fn build(self, mut ui: Ui<'_, S>) {
         let run = if let Some(spans) = self.spans {
             ui.platform().renderer_mut().rich_text(spans)
         } else {
             ui.platform().renderer_mut().text_run(self.text)
         };
-        ui.insert(
+        ui.atom(
             atom::Text::new(run)
                 .color(self.color)
                 .attributes(self.attributes)
