@@ -16,10 +16,10 @@ use crate::{
     command_list::{BoxShadow, Command, CommandList as ResolvedCommandList, Rectangle},
     image::{ImageData, ImageHandle, ImageId, ImageRequest},
     style::Border,
-    text_types::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    text_types::{FontId, FontStyle, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
-pub use blit_text::{FontData, FontError, FontId as BackendFontId, TextLayoutEngine};
+pub use blit_text::{FontData, FontError, FontFaceId as BackendFontFaceId, TextLayoutEngine};
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
@@ -41,7 +41,9 @@ pub struct RendererConfig {
 pub struct FontFace {
     pub id: FontId,
     pub weight: u16,
-    pub font: BackendFontId,
+    pub stretch: u16,
+    pub style: FontStyle,
+    pub face: BackendFontFaceId,
 }
 
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {

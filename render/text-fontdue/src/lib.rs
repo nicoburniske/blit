@@ -1,10 +1,10 @@
-use std::borrow::Borrow;
+use std::{borrow::Borrow, cmp::Reverse};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use blit_text::{
-    Caret, FontData, FontError, FontFace, FontId, Glyph, HorizontalAlign, LayoutLine,
-    LayoutRequest, LayoutRun, TextLayout, TextLayoutEngine, TextOverflow, TextStyle, TextWrap,
-    VerticalAlign,
+    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, Glyph,
+    HorizontalAlign, LayoutLine, LayoutRequest, LayoutRun, TextLayout, TextLayoutEngine,
+    TextOverflow, TextStyle, TextWrap, VerticalAlign,
 };
 use fontdue::{
     Font, FontSettings,
@@ -17,6 +17,7 @@ use fontdue::{
 
 pub struct Backend {
     faces: Vec<Face>,
+    selections: Vec<Box<[FontCandidate]>>,
     layout: Layout,
 }
 
@@ -35,6 +36,7 @@ impl Backend {
     pub fn new() -> Self {
         Self {
             faces: Vec::new(),
+            selections: Vec::new(),
             layout: Layout::new(CoordinateSystem::PositiveYDown),
         }
     }
@@ -47,7 +49,7 @@ impl Default for Backend {
 }
 
 impl TextLayoutEngine for Backend {
-    fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontId, FontError> {
+    fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontFaceId, FontError> {
         let font = Font::from_bytes(
             data.as_ref(),
             FontSettings {
@@ -57,7 +59,8 @@ impl TextLayoutEngine for Backend {
             },
         )
         .map_err(|_| FontError::InvalidData)?;
-        let id = FontId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
+        let id =
+            FontFaceId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
         self.faces.push(Face {
             data: FontFace { data, face_index },
             font,
@@ -65,13 +68,49 @@ impl TextLayoutEngine for Backend {
         Ok(id)
     }
 
-    fn font(&self, font: FontId) -> Option<&FontFace> {
-        let index = usize::try_from(font.0).ok()?.checked_sub(1)?;
+    fn register_font_selection(
+        &mut self,
+        candidates: &[FontCandidate],
+    ) -> Result<FontSelectionId, FontError> {
+        if candidates.is_empty()
+            || candidates
+                .iter()
+                .any(|candidate| self.font_face(candidate.face).is_none())
+        {
+            return Err(FontError::NotFound);
+        }
+        let id = FontSelectionId(
+            u64::try_from(self.selections.len() + 1).map_err(|_| FontError::Unsupported)?,
+        );
+        self.selections.push(candidates.into());
+        Ok(id)
+    }
+
+    fn font_face(&self, face: FontFaceId) -> Option<&FontFace> {
+        let index = usize::try_from(face.0).ok()?.checked_sub(1)?;
         self.faces.get(index).map(|face| &face.data)
     }
 
     fn layout(&mut self, text: &str, style: TextStyle, request: LayoutRequest) -> TextLayout {
-        let face_index = usize::try_from(style.font.0)
+        let selection_index = usize::try_from(style.font.0)
+            .expect("invalid font selection")
+            .checked_sub(1)
+            .expect("invalid font selection");
+        let candidate = *self
+            .selections
+            .get(selection_index)
+            .expect("expired font selection")
+            .iter()
+            .min_by_key(|candidate| {
+                (
+                    candidate.style != style.style,
+                    candidate.stretch.abs_diff(style.stretch),
+                    candidate.weight.abs_diff(style.weight),
+                    Reverse(candidate.weight),
+                )
+            })
+            .expect("empty font selection");
+        let face_index = usize::try_from(candidate.face.0)
             .expect("invalid font")
             .checked_sub(1)
             .expect("invalid font");
@@ -85,7 +124,7 @@ impl TextLayoutEngine for Backend {
             line_height: 1.0,
             wrap_style: match request.wrap {
                 TextWrap::None | TextWrap::Word => WrapStyle::Word,
-                TextWrap::Glyph => WrapStyle::Letter,
+                TextWrap::Character => WrapStyle::Letter,
             },
             ..FontdueLayoutSettings::default()
         });
@@ -117,9 +156,9 @@ impl TextLayoutEngine for Backend {
             let offset_y = request
                 .max_height
                 .map_or(0.0, |height| match request.vertical_align {
-                    VerticalAlign::Start => 0.0,
+                    VerticalAlign::Top => 0.0,
                     VerticalAlign::Center => ((height - empty_height) / 2.0).floor(),
-                    VerticalAlign::End => (height - empty_height).floor(),
+                    VerticalAlign::Bottom => (height - empty_height).floor(),
                 });
             return TextLayout {
                 size: LogicalSize {
@@ -169,9 +208,9 @@ impl TextLayoutEngine for Backend {
         let offset_y = request
             .max_height
             .map_or(0.0, |height| match request.vertical_align {
-                VerticalAlign::Start => 0.0,
+                VerticalAlign::Top => 0.0,
                 VerticalAlign::Center => ((height - content_height) / 2.0).floor(),
-                VerticalAlign::End => (height - content_height).floor(),
+                VerticalAlign::Bottom => (height - content_height).floor(),
             });
 
         let source_glyphs = self.layout.glyphs();
@@ -235,9 +274,9 @@ impl TextLayoutEngine for Backend {
                 request
                     .max_width
                     .map_or(0.0, |max_width| match request.horizontal_align {
-                        HorizontalAlign::Start => 0.0,
+                        HorizontalAlign::Left => 0.0,
                         HorizontalAlign::Center => ((max_width - displayed_width) / 2.0).floor(),
-                        HorizontalAlign::End => (max_width - displayed_width).floor(),
+                        HorizontalAlign::Right => (max_width - displayed_width).floor(),
                     });
             width = width.max(displayed_width);
             let bounds = LogicalRect {
@@ -307,7 +346,7 @@ impl TextLayoutEngine for Backend {
             let glyph_end = u32::try_from(glyphs.len()).expect("too many glyphs");
             if glyph_start != glyph_end {
                 runs.push(LayoutRun {
-                    font: style.font,
+                    face: candidate.face,
                     size: style.size,
                     glyphs: glyph_start..glyph_end,
                 });
@@ -334,31 +373,57 @@ impl TextLayoutEngine for Backend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use blit_text::FontStyle;
 
     #[test]
     fn registered_font_produces_common_layout() {
         let mut backend = Backend::new();
-        let font = backend
+        let face = backend
             .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
+            .unwrap();
+        let bold = backend
+            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
+            .unwrap();
+        let font = backend
+            .register_font_selection(&[
+                FontCandidate {
+                    face,
+                    weight: 400,
+                    stretch: 100,
+                    style: FontStyle::Normal,
+                },
+                FontCandidate {
+                    face: bold,
+                    weight: 700,
+                    stretch: 100,
+                    style: FontStyle::Normal,
+                },
+            ])
             .unwrap();
         let layout = backend.layout(
             "secure approval",
-            TextStyle { font, size: 16.0 },
+            TextStyle {
+                font,
+                size: 16.0,
+                weight: 700,
+                stretch: 100,
+                style: FontStyle::Normal,
+            },
             LayoutRequest {
                 max_width: None,
                 max_height: None,
                 max_lines: None,
                 wrap: TextWrap::None,
                 overflow: TextOverflow::Clip,
-                horizontal_align: HorizontalAlign::Start,
-                vertical_align: VerticalAlign::Start,
+                horizontal_align: HorizontalAlign::Left,
+                vertical_align: VerticalAlign::Top,
             },
         );
 
         assert!(!layout.glyphs.is_empty());
         assert_eq!(layout.lines.len(), 1);
-        assert!(layout.runs.iter().all(|run| run.font == font));
-        assert_eq!(backend.font(font).unwrap().face_index, 0);
+        assert!(layout.runs.iter().all(|run| run.face == bold));
+        assert_eq!(backend.font_face(bold).unwrap().face_index, 0);
         assert_eq!(
             layout
                 .carets
@@ -373,20 +438,35 @@ mod tests {
     #[test]
     fn layout_wraps_and_exposes_valid_ranges() {
         let mut backend = Backend::new();
-        let font = backend
+        let face = backend
             .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
             .unwrap();
+        let font = backend
+            .register_font_selection(&[FontCandidate {
+                face,
+                weight: 400,
+                stretch: 100,
+                style: FontStyle::Normal,
+            }])
+            .unwrap();
+        let style = TextStyle {
+            font,
+            size: 16.0,
+            weight: 400,
+            stretch: 100,
+            style: FontStyle::Normal,
+        };
         let layout = backend.layout(
             "one two three",
-            TextStyle { font, size: 16.0 },
+            style,
             LayoutRequest {
                 max_width: Some(40.0),
                 max_height: None,
                 max_lines: None,
                 wrap: TextWrap::Word,
                 overflow: TextOverflow::Clip,
-                horizontal_align: HorizontalAlign::Start,
-                vertical_align: VerticalAlign::Start,
+                horizontal_align: HorizontalAlign::Left,
+                vertical_align: VerticalAlign::Top,
             },
         );
 
@@ -400,15 +480,15 @@ mod tests {
 
         let layout = backend.layout(
             "one two three",
-            TextStyle { font, size: 16.0 },
+            style,
             LayoutRequest {
                 max_width: Some(40.0),
                 max_height: None,
                 max_lines: Some(1),
                 wrap: TextWrap::Word,
                 overflow: TextOverflow::Ellipsis,
-                horizontal_align: HorizontalAlign::Start,
-                vertical_align: VerticalAlign::Start,
+                horizontal_align: HorizontalAlign::Left,
+                vertical_align: VerticalAlign::Top,
             },
         );
         assert_eq!(layout.lines.len(), 1);

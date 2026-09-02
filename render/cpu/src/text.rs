@@ -13,11 +13,13 @@ use crate::{
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
-use blit_text::{FontId, LayoutRequest, TextLayout, TextLayoutEngine};
+use blit_text::{
+    FontCandidate, FontFaceId, FontSelectionId, LayoutRequest, TextLayout, TextLayoutEngine,
+};
 
 pub struct TextRenderer {
     text: Box<dyn TextLayoutEngine>,
-    fonts: Box<[crate::FontFace]>,
+    fonts: Box<[ConfiguredFont]>,
     texts: DeferredCache<TextKey, CachedText, TextScale>,
     layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
     next_text: u32,
@@ -27,12 +29,20 @@ pub struct TextRenderer {
     coverage: Vec<u8>,
 }
 
+struct ConfiguredFont {
+    id: crate::text_types::FontId,
+    font: FontSelectionId,
+}
+
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct TextKey {
     digest: u64,
     len: usize,
-    font: FontId,
+    font: FontSelectionId,
     size: u32,
+    weight: u16,
+    stretch: u16,
+    style: blit_text::FontStyle,
 }
 
 struct CachedText {
@@ -76,7 +86,7 @@ struct CachedPaint {
 
 #[derive(Clone, Copy)]
 struct PaintGlyph {
-    font: FontId,
+    face: FontFaceId,
     glyph: u16,
     size: u32,
     x: i32,
@@ -129,10 +139,40 @@ impl PreparedLines {
 }
 
 impl TextRenderer {
-    pub fn new(config: RendererConfig, text: Box<dyn TextLayoutEngine>) -> Self {
+    pub fn new(config: RendererConfig, mut text: Box<dyn TextLayoutEngine>) -> Self {
+        let mut fonts = Vec::new();
+        let mut candidates = Vec::new();
+        for configured in &config.fonts {
+            if fonts
+                .iter()
+                .any(|font: &ConfiguredFont| font.id == configured.id)
+            {
+                continue;
+            }
+            candidates.clear();
+            candidates.extend(
+                config
+                    .fonts
+                    .iter()
+                    .filter(|face| face.id == configured.id)
+                    .map(|face| FontCandidate {
+                        face: face.face,
+                        weight: face.weight,
+                        stretch: face.stretch,
+                        style: face.style,
+                    }),
+            );
+            let font = text
+                .register_font_selection(&candidates)
+                .expect("invalid configured font");
+            fonts.push(ConfiguredFont {
+                id: configured.id,
+                font,
+            });
+        }
         Self {
             text,
-            fonts: config.fonts.into_boxed_slice(),
+            fonts: fonts.into_boxed_slice(),
             texts: DeferredCache::new(TextScale, config.text_cache_capacity),
             layouts: DeferredCache::new(LayoutScale, config.layout_cache_capacity),
             next_text: 1,
@@ -144,22 +184,15 @@ impl TextRenderer {
     }
 
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        let Some(face) = self
-            .fonts
-            .iter()
-            .filter(|face| face.id == style.font)
-            .min_by_key(|face| {
-                (
-                    face.weight.abs_diff(style.weight),
-                    std::cmp::Reverse(face.weight),
-                )
-            })
-        else {
+        let Some(font) = self.fonts.iter().find(|font| font.id == style.font) else {
             return TextRunId::default();
         };
         let style = blit_text::TextStyle {
-            font: face.font,
+            font: font.font,
             size: style.size,
+            weight: style.weight,
+            stretch: style.stretch,
+            style: style.style,
         };
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
@@ -168,6 +201,9 @@ impl TextRenderer {
             len: text.len(),
             font: style.font,
             size: style.size.to_bits(),
+            weight: style.weight,
+            stretch: style.stretch,
+            style: style.style,
         };
         let next_text = self.next_text;
         let (_, index) = self.texts.get_or_insert_by(
@@ -262,7 +298,7 @@ impl TextRenderer {
                 let mut line_bottom = i32::MIN;
                 let size = (run.size * scale_factor).to_bits();
                 for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
-                    let cached = glyphs.glyph(text, run.font, glyph.id, size);
+                    let cached = glyphs.glyph(text, run.face, glyph.id, size);
                     let cached = glyphs.get(cached);
                     let x = ((glyph.position.x - request.offset_x) * scale_factor
                         + cached.metrics.bounds.xmin.floor())
@@ -286,7 +322,7 @@ impl TextRenderer {
                         continue;
                     }
                     paint.glyphs.push(PaintGlyph {
-                        font: run.font,
+                        face: run.face,
                         glyph: glyph.id,
                         size,
                         x,
@@ -326,7 +362,7 @@ impl TextRenderer {
         for glyph in &paint.glyphs {
             let cached = self
                 .glyphs
-                .glyph(self.text.as_ref(), glyph.font, glyph.glyph, glyph.size);
+                .glyph(self.text.as_ref(), glyph.face, glyph.glyph, glyph.size);
             let cached = self.glyphs.get(cached);
             self.prepared.push(PreparedGlyph {
                 alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),
@@ -507,11 +543,11 @@ impl TextRenderer {
                 wrap: match request.wrap {
                     crate::text_types::TextWrap::None => blit_text::TextWrap::None,
                     crate::text_types::TextWrap::Word => blit_text::TextWrap::Word,
-                    crate::text_types::TextWrap::Character => blit_text::TextWrap::Glyph,
+                    crate::text_types::TextWrap::Character => blit_text::TextWrap::Character,
                 },
                 overflow: blit_text::TextOverflow::Clip,
-                horizontal_align: blit_text::HorizontalAlign::Start,
-                vertical_align: blit_text::VerticalAlign::Start,
+                horizontal_align: blit_text::HorizontalAlign::Left,
+                vertical_align: blit_text::VerticalAlign::Top,
             },
         );
         self.layouts.get_index(layout).layout.size
@@ -547,21 +583,21 @@ impl TextRenderer {
             wrap: match request.options.wrap {
                 crate::text_types::TextWrap::None => blit_text::TextWrap::None,
                 crate::text_types::TextWrap::Word => blit_text::TextWrap::Word,
-                crate::text_types::TextWrap::Character => blit_text::TextWrap::Glyph,
+                crate::text_types::TextWrap::Character => blit_text::TextWrap::Character,
             },
             overflow: match request.options.overflow {
                 crate::text_types::TextOverflow::Clip => blit_text::TextOverflow::Clip,
                 crate::text_types::TextOverflow::Ellipsis => blit_text::TextOverflow::Ellipsis,
             },
             horizontal_align: match request.options.horizontal_align {
-                crate::text_types::HorizontalAlign::Left => blit_text::HorizontalAlign::Start,
+                crate::text_types::HorizontalAlign::Left => blit_text::HorizontalAlign::Left,
                 crate::text_types::HorizontalAlign::Center => blit_text::HorizontalAlign::Center,
-                crate::text_types::HorizontalAlign::Right => blit_text::HorizontalAlign::End,
+                crate::text_types::HorizontalAlign::Right => blit_text::HorizontalAlign::Right,
             },
             vertical_align: match request.options.vertical_align {
-                crate::text_types::VerticalAlign::Top => blit_text::VerticalAlign::Start,
+                crate::text_types::VerticalAlign::Top => blit_text::VerticalAlign::Top,
                 crate::text_types::VerticalAlign::Center => blit_text::VerticalAlign::Center,
-                crate::text_types::VerticalAlign::Bottom => blit_text::VerticalAlign::End,
+                crate::text_types::VerticalAlign::Bottom => blit_text::VerticalAlign::Bottom,
             },
         }
     }

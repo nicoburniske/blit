@@ -17,7 +17,8 @@ use crate::{
 };
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_text::{
-    FontError, FontFace as BackendFontFace, LayoutRequest, TextLayout, TextLayoutEngine,
+    FontCandidate, FontError, FontFace as BackendFontFace, FontSelectionId, LayoutRequest,
+    TextLayout, TextLayoutEngine,
 };
 
 use super::*;
@@ -106,13 +107,15 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
     backend: T,
 ) -> Renderer<B> {
     let mut text: Box<dyn TextLayoutEngine> = Box::new(backend);
-    let font = text
+    let face = text
         .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
         .unwrap();
     config.fonts.push(FontFace {
         id: FontId::default(),
         weight: 400,
-        font,
+        stretch: 100,
+        style: Default::default(),
+        face,
     });
     Renderer::new(buffer, config, text)
 }
@@ -256,11 +259,18 @@ impl TextLayoutEngine for CountingBackend {
         &mut self,
         _data: FontData,
         _face_index: u32,
-    ) -> Result<BackendFontId, FontError> {
+    ) -> Result<BackendFontFaceId, FontError> {
         Err(FontError::Unsupported)
     }
 
-    fn font(&self, _font: BackendFontId) -> Option<&BackendFontFace> {
+    fn register_font_selection(
+        &mut self,
+        _candidates: &[FontCandidate],
+    ) -> Result<FontSelectionId, FontError> {
+        Ok(FontSelectionId(1))
+    }
+
+    fn font_face(&self, _face: BackendFontFaceId) -> Option<&BackendFontFace> {
         None
     }
 
@@ -290,7 +300,9 @@ fn layout_eviction_is_deferred_until_frame_end() {
             fonts: vec![FontFace {
                 id: FontId::default(),
                 weight: 400,
-                font: BackendFontId(1),
+                stretch: 100,
+                style: Default::default(),
+                face: BackendFontFaceId(1),
             }],
             text_cache_capacity: 1024,
             layout_cache_capacity: 0,
@@ -1540,7 +1552,7 @@ fn text_runs_are_keyed_by_content_and_style() {
 
     assert_eq!(renderer.text_run("same", style), first);
     assert_ne!(renderer.text_run("changed", style), first);
-    assert_eq!(
+    assert_ne!(
         renderer.text_run(
             "same",
             TextStyle {
