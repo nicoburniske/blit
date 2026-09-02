@@ -284,7 +284,7 @@ fn resolves_places_and_content_offsets() {
             let mut overlay = ui.node(Overlay).offset(Point::new(1.0, 0.0));
             overlay
                 .child()
-                .place(Place::new().fixed(3.0, 1.0))
+                .place(Place::fixed(3.0, 1.0))
                 .widget_id(fixed)
                 .add(Fill::new('F', Size::uniform(1.0)));
             overlay
