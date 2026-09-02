@@ -19,16 +19,22 @@ crate::builder! {
 }
 
 impl Place {
-    pub const fn fixed(mut self, width: f32, height: f32) -> Self {
-        self.width = Sizing::fixed(width);
-        self.height = Sizing::fixed(height);
-        self
+    pub const fn fixed(width: f32, height: f32) -> Self {
+        Self {
+            layer: None,
+            width: Sizing::fixed(width),
+            height: Sizing::fixed(height),
+            z_index: 0,
+        }
     }
 
-    pub const fn grow(mut self) -> Self {
-        self.width = Sizing::grow();
-        self.height = Sizing::grow();
-        self
+    pub const fn grow() -> Self {
+        Self {
+            layer: None,
+            width: Sizing::grow(),
+            height: Sizing::grow(),
+            z_index: 0,
+        }
     }
 }
 

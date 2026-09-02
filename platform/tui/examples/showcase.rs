@@ -93,7 +93,7 @@ impl Showcase {
                     self.page = page;
                 }
             }
-            header.child().place(Place::new().grow()).add(());
+            header.child().place(Place::grow()).add(());
             if header.add(Button::new(
                 WidgetId::new("toggle tui fps"),
                 " fps ",
@@ -111,20 +111,11 @@ impl Showcase {
             header.add(Text::new(" q quit ").color(colors::TEXT_MUTED));
         }
         match self.page {
-            Page::Layout => root
-                .child()
-                .place(Place::new().grow())
-                .add(&mut self.layout),
-            Page::Text => root.child().place(Place::new().grow()).add(&mut self.text),
-            Page::Blocks => root
-                .child()
-                .place(Place::new().grow())
-                .add(&mut self.blocks),
-            Page::Atoms => root.child().place(Place::new().grow()).add(&mut self.atoms),
-            Page::Scroll => root
-                .child()
-                .place(Place::new().grow())
-                .add(&mut self.scroll),
+            Page::Layout => root.child().place(Place::grow()).add(&mut self.layout),
+            Page::Text => root.child().place(Place::grow()).add(&mut self.text),
+            Page::Blocks => root.child().place(Place::grow()).add(&mut self.blocks),
+            Page::Atoms => root.child().place(Place::grow()).add(&mut self.atoms),
+            Page::Scroll => root.child().place(Place::grow()).add(&mut self.scroll),
         };
         if self.show_fps {
             root.add(&mut self.fps);
@@ -154,17 +145,17 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
         let screen = ui.screen();
         let preview_config = *canvas;
         let mut body = ui.layout(Flex::row());
-        body.child().place(Place::new().grow()).add(SplitPane::new(
+        body.child().place(Place::grow()).add(SplitPane::new(
             split,
             WidgetId::new("tui layout page split"),
             40.0,
             |ui: Cx<'_>| {
                 let mut sidebar = ui.layout(Flex::column().padding(Sides::all(1.0)));
                 sidebar.insert(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
-                sidebar
-                    .child()
-                    .place(Place::new().grow())
-                    .add(ScrollArea::new(layout_scroll, BoundsClip, |ui: Cx<'_>| {
+                sidebar.child().place(Place::grow()).add(ScrollArea::new(
+                    layout_scroll,
+                    BoundsClip,
+                    |ui: Cx<'_>| {
                         let mut controls = ui.layout(Flex::column().gap(1.0));
                         controls.add(
                             Text::new("FLOW")
@@ -273,7 +264,8 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                                 &[(" On ", true), (" Off ", false)],
                             );
                         });
-                    }));
+                    },
+                ));
             },
             |ui: Cx<'_>| {
                 let mut preview = ui.layout(Flex::column().padding(Sides::all(1.0)));
@@ -294,7 +286,7 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                 {
                     let mut viewport = preview
                         .child()
-                        .place(Place::new().grow())
+                        .place(Place::grow())
                         .layout(Single::new().padding(Sides::all(1.0)))
                         .clip(BoundsClip);
                     viewport.insert(Block::new().background(colors::TRACK));
@@ -369,7 +361,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
         let preview_vertical = *text_vertical;
         let preview_max_lines = *text_max_lines;
         let mut body = ui.layout(Flex::row());
-        body.child().place(Place::new().grow()).add(SplitPane::new(
+        body.child().place(Place::grow()).add(SplitPane::new(
             split,
             WidgetId::new("tui text page split"),
             40.0,
@@ -483,7 +475,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                 );
                 {
                     let mut viewport = preview
-                        .child().place(Place::new().grow())
+                        .child().place(Place::grow())
                         .layout(Single::new().padding(Sides::all(1.0)))
                         .clip(BoundsClip);
                     viewport.insert(Block::new().background(colors::TRACK));
@@ -524,7 +516,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                                         " retain their own emphasis and the words continue flowing through the same layout.",
                                     ),
                                 ];
-                                paragraph.child().place(Place::new().grow()).add(
+                                paragraph.child().place(Place::grow()).add(
                                     Text::rich(&sample)
                                         .color(colors::TEXT)
                                         .attributes(preview_attributes)
@@ -579,7 +571,7 @@ impl Widget<TuiPlatform> for &mut BlocksPage {
         let preview_shadow = *block_shadow;
         let preview_background = *block_background;
         let mut body = ui.layout(Flex::row());
-        body.child().place(Place::new().grow()).add(SplitPane::new(
+        body.child().place(Place::grow()).add(SplitPane::new(
             split,
             WidgetId::new("tui blocks page split"),
             40.0,
@@ -632,38 +624,34 @@ impl Widget<TuiPlatform> for &mut BlocksPage {
             |ui: Cx<'_>| {
                 let mut preview = ui.layout(Flex::column().padding(Sides::all(1.0)).gap(1.0));
                 preview.insert(panel(colors::SURFACE, " BLOCK PREVIEW "));
-                preview
-                    .child()
-                    .place(Place::new().grow())
-                    .add(|ui: Cx<'_>| {
-                        let mut block = Block::new()
-                            .border(
-                                Border::new(colors::CANVAS_BORDER)
-                                    .style(preview_style)
-                                    .sides(preview_sides),
-                            )
-                            .title(
-                                Title::new(" CONFIGURED BLOCK ")
-                                    .color(colors::ACCENT)
-                                    .attributes(TextAttributes::BOLD),
-                            );
-                        if preview_background {
-                            block = block.background(colors::SURFACE_HIGH);
-                        }
-                        if preview_shadow {
-                            block = block.shadow(Shadow::new(colors::SHADOW));
-                        }
-                        let mut configured = ui.layout(
-                            Flex::column()
-                                .padding(Sides::all(1.0))
-                                .align(Align::Center)
-                                .justify(Justify::Center),
+                preview.child().place(Place::grow()).add(|ui: Cx<'_>| {
+                    let mut block = Block::new()
+                        .border(
+                            Border::new(colors::CANVAS_BORDER)
+                                .style(preview_style)
+                                .sides(preview_sides),
+                        )
+                        .title(
+                            Title::new(" CONFIGURED BLOCK ")
+                                .color(colors::ACCENT)
+                                .attributes(TextAttributes::BOLD),
                         );
-                        configured.insert(block);
-                        configured.add(
-                            Text::new("change the options on the left").color(colors::TEXT_MUTED),
-                        );
-                    });
+                    if preview_background {
+                        block = block.background(colors::SURFACE_HIGH);
+                    }
+                    if preview_shadow {
+                        block = block.shadow(Shadow::new(colors::SHADOW));
+                    }
+                    let mut configured = ui.layout(
+                        Flex::column()
+                            .padding(Sides::all(1.0))
+                            .align(Align::Center)
+                            .justify(Justify::Center),
+                    );
+                    configured.insert(block);
+                    configured
+                        .add(Text::new("change the options on the left").color(colors::TEXT_MUTED));
+                });
             },
         ));
     }
@@ -728,7 +716,7 @@ impl Widget<TuiPlatform> for &mut AtomsPage {
                     .color(colors::ACCENT)
                     .background(colors::CANVAS),
             );
-        body.child().place(Place::new().grow()).add(
+        body.child().place(Place::grow()).add(
             BarChart::new(self.bars.clone())
                 .maximum(100)
                 .bar_width(5)
@@ -780,7 +768,7 @@ impl Widget<TuiPlatform> for &mut ScrollPage {
             }
         }
         let axis = *scroll_axis;
-        body.child().place(Place::new().grow()).add(
+        body.child().place(Place::grow()).add(
             ScrollArea::new(scroll, BoundsClip, move |ui: Cx<'_>| {
                 let mut items = ui.layout(Flex::new(axis).gap(1.0));
                 for index in 0..100 {
@@ -873,7 +861,7 @@ impl Widget<TuiPlatform> for &mut FpsBadge {
         );
         badge
             .child()
-            .place(Place::new().fixed(1.0, 1.0))
+            .place(Place::fixed(1.0, 1.0))
             .add(Block::new().background(colors::ACCENT));
         badge.add(
             Text::new(&self.label)
@@ -1085,8 +1073,7 @@ fn canvas_item(
     if let Some(anchor) = spec.badge {
         item.child()
             .place(
-                Place::new()
-                    .fixed(unit.width * 2.0, unit.height)
+                Place::fixed(unit.width * 2.0, unit.height)
                     .layer(badges)
                     .z_index(1),
             )

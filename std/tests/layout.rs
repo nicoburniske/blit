@@ -108,10 +108,10 @@ fn single_resolves_child_sizing() {
             }
             let mut fill = row
                 .child()
-                .place(Place::new().grow())
+                .place(Place::grow())
                 .layout(Single::new().padding(Sides::all(1.0)));
             fill.child()
-                .place(Place::new().grow())
+                .place(Place::grow())
                 .widget_id(grow)
                 .add(BoxAtom(Size::new(3.0, 1.0)));
         },
@@ -157,7 +157,7 @@ fn split_pane_clamps_the_leading_extent() {
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui| {
             let mut root = ui.node(Single::new());
-            root.child().place(Place::new().grow()).add(
+            root.child().place(Place::grow()).add(
                 split::Pane::<_, _, split::NoDivider>::new(
                     &mut state,
                     id,
@@ -204,7 +204,7 @@ fn rect_and_wrap_resolve_positions() {
         let mut wrap = ui.node(Wrap::horizontal().gap(1.0));
         for _ in 0..3 {
             wrap.child()
-                .place(Place::new().fixed(6.0, 2.0))
+                .place(Place::fixed(6.0, 2.0))
                 .add(BoxAtom(Size::ZERO));
         }
     });

@@ -135,7 +135,7 @@ impl Application for App {
                     self.page = page;
                 }
             }
-            header.child().place(Place::new().grow()).add(());
+            header.child().place(Place::grow()).add(());
             if header.add(Button::new(
                 WidgetId::new("toggle desktop fps"),
                 "fps",
@@ -152,18 +152,9 @@ impl Application for App {
             }
         }
         match self.page {
-            Page::Layout => root
-                .child()
-                .place(Place::new().grow())
-                .add(&mut self.layout),
-            Page::Styles => root
-                .child()
-                .place(Place::new().grow())
-                .add(&mut self.styles),
-            Page::Scroll => root
-                .child()
-                .place(Place::new().grow())
-                .add(&mut self.scroll),
+            Page::Layout => root.child().place(Place::grow()).add(&mut self.layout),
+            Page::Styles => root.child().place(Place::grow()).add(&mut self.styles),
+            Page::Scroll => root.child().place(Place::grow()).add(&mut self.scroll),
         };
         if self.show_fps {
             root.add(&mut self.fps);
@@ -193,7 +184,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
         let unit = Size::uniform(sz::SM);
         let preview_config = *canvas;
         let mut body = ui.layout(Flex::row());
-        body.child().place(Place::new().grow()).add(
+        body.child().place(Place::grow()).add(
             SplitPane::new(
                 split,
                 WidgetId::new("layout page split"),
@@ -213,7 +204,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                             })
                             .color(colors::ACCENT),
                     );
-                    sidebar.child().place(Place::new().grow()).add(
+                    sidebar.child().place(Place::grow()).add(
                         ScrollArea::new(controls_scroll, BoundsClip, |ui: Cx<'_>| {
                             let mut controls = ui.layout(Flex::column().gap(sz::XS));
                             controls.add(|ui: Cx<'_>| {
@@ -345,7 +336,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                                 })
                                 .color(colors::ACCENT),
                         );
-                    preview.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
+                    preview.child().place(Place::grow()).add(|ui: Cx<'_>| {
                         let mut viewport = ui
                             .layout(Single::new().padding(Sides::all(sz::SM)))
                             .clip(BoundsClip);
@@ -429,7 +420,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
         let shadow_spread = *spread;
         let shadow_offset = *offset;
         let mut body = ui.layout(Flex::row());
-        body.child().place(Place::new().grow()).add(
+        body.child().place(Place::grow()).add(
             SplitPane::new(
                 split,
                 WidgetId::new("styles page split"),
@@ -449,7 +440,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                             })
                             .color(colors::ACCENT),
                     );
-                    sidebar.child().place(Place::new().grow()).add(
+                    sidebar.child().place(Place::grow()).add(
                         ScrollArea::new(controls_scroll, BoundsClip, |ui: Cx<'_>| {
                             let mut controls = ui.layout(Flex::column().gap(sz::SM));
                             controls.add(|ui: Cx<'_>| {
@@ -532,7 +523,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                                 })
                                 .color(colors::ACCENT),
                         );
-                    preview.child().place(Place::new().grow()).add(|ui: Cx<'_>| {
+                    preview.child().place(Place::grow()).add(|ui: Cx<'_>| {
                         let mut stage = ui.layout(
                             Flex::row()
                                 .padding(Sides::all(sz::XXXL))
@@ -540,7 +531,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                                 .justify(blit_desktop::layout::Justify::Center),
                         );
                         stage
-                            .child().place(Place::new().fixed(sz::CARD_WIDTH, sz::CARD_HEIGHT))
+                            .child().place(Place::fixed(sz::CARD_WIDTH, sz::CARD_HEIGHT))
                             .add(|ui: Cx<'_>| {
                                 let mut card = ui.layout(
                                     Flex::column()
@@ -620,7 +611,7 @@ impl Widget<DesktopPlatform> for &mut ScrollPage {
             let mut header = section
                 .child()
                 .layout(Flex::row().gap(sz::XS).align(Align::Center));
-            header.child().place(Place::new().grow()).add(
+            header.child().place(Place::grow()).add(
                 Text::new("SCROLL AREA")
                     .style(TextStyle {
                         size: sz::MD,
@@ -643,7 +634,7 @@ impl Widget<DesktopPlatform> for &mut ScrollPage {
             }
         }
         let axis = *scroll_axis;
-        section.child().place(Place::new().grow()).add(
+        section.child().place(Place::grow()).add(
             ScrollArea::new(scroll, BoundsClip, move |ui: Cx<'_>| {
                 let mut items = ui.layout(Flex::new(axis).padding(Sides::all(sz::XS)).gap(sz::XS));
                 for index in 0..100 {
@@ -732,7 +723,7 @@ impl Widget<DesktopPlatform> for &mut FpsBadge {
                 .border(Border::solid(sz::BORDER, colors::ACCENT))
                 .radius(BorderRadius::uniform(sz::XS)),
         );
-        badge.child().place(Place::new().fixed(sz::XS, sz::XS)).add(
+        badge.child().place(Place::fixed(sz::XS, sz::XS)).add(
             Rectangle::new()
                 .background(colors::ACCENT)
                 .radius(BorderRadius::uniform(sz::XXS)),
@@ -794,7 +785,7 @@ impl Widget<DesktopPlatform> for Divider {
         );
         divider
             .child()
-            .place(Place::new().fixed(marker.width, marker.height))
+            .place(Place::fixed(marker.width, marker.height))
             .add(
                 Rectangle::new()
                     .background(if active {
@@ -833,7 +824,7 @@ impl Widget<DesktopPlatform> for DesktopGrip {
                 .justify(blit_desktop::layout::Justify::Center),
         );
         grip.child()
-            .place(Place::new().fixed(marker.width, marker.height))
+            .place(Place::fixed(marker.width, marker.height))
             .add(
                 Rectangle::new()
                     .background(color)
@@ -1055,8 +1046,7 @@ fn canvas_item(
     if let Some(anchor) = spec.badge {
         item.child()
             .place(
-                Place::new()
-                    .fixed(sz::BADGE_WIDTH * config.zoom, sz::LG * config.zoom)
+                Place::fixed(sz::BADGE_WIDTH * config.zoom, sz::LG * config.zoom)
                     .layer(badges)
                     .z_index(1),
             )
