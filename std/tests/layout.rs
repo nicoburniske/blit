@@ -56,7 +56,8 @@ fn flex_remeasures_constraint_dependent_atoms() {
     let child = WidgetId::new("responsive");
     frame.render(&mut platform, FrameInfo::new(Size::new(5.0, 10.0)), |ui| {
         let mut row = ui.node(Flex::row().align(Align::Start));
-        row.place(Place::new().width(Sizing::grow()))
+        row.child()
+            .place(Place::new().width(Sizing::grow()))
             .widget_id(child)
             .add(ResponsiveAtom);
     });
@@ -74,10 +75,12 @@ fn flex_distributes_growing_space() {
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui| {
             let mut row = ui.node(Flex::row().gap(4.0));
-            row.place(Place::new().width(Sizing::fixed(20.0)))
+            row.child()
+                .place(Place::new().width(Sizing::fixed(20.0)))
                 .widget_id(fixed)
                 .add(BoxAtom(Size::new(1.0, 10.0)));
-            row.place(Place::new().width(Sizing::grow()))
+            row.child()
+                .place(Place::new().width(Sizing::grow()))
                 .widget_id(grow)
                 .add(BoxAtom(Size::new(1.0, 10.0)));
         },
@@ -97,15 +100,18 @@ fn single_resolves_child_sizing() {
         |ui| {
             let mut row = ui.node(Flex::row().align(Align::Start));
             {
-                let mut fit = row.node(Single::new().padding(Sides::all(1.0)));
-                fit.place(Place::new().width(Sizing::percent(0.5)))
+                let mut fit = row.child().layout(Single::new().padding(Sides::all(1.0)));
+                fit.child()
+                    .place(Place::new().width(Sizing::percent(0.5)))
                     .widget_id(percent)
                     .add(BoxAtom(Size::new(3.0, 1.0)));
             }
             let mut fill = row
+                .child()
                 .place(Place::new().grow())
-                .node(Single::new().padding(Sides::all(1.0)));
-            fill.place(Place::new().grow())
+                .layout(Single::new().padding(Sides::all(1.0)));
+            fill.child()
+                .place(Place::new().grow())
                 .widget_id(grow)
                 .add(BoxAtom(Size::new(3.0, 1.0)));
         },
@@ -126,10 +132,12 @@ fn spanning_grid_places_items_in_equal_cells() {
         |ui| {
             let mut placer = layout.placer();
             let mut grid = ui.node(layout);
-            grid.item(placer.place(1, 2))
+            grid.child()
+                .item(placer.place(1, 2))
                 .widget_id(wide)
                 .add(BoxAtom(Size::new(20.0, 10.0)));
-            grid.item(placer.place(1, 1))
+            grid.child()
+                .item(placer.place(1, 1))
                 .add(BoxAtom(Size::uniform(10.0)));
         },
     );
@@ -149,7 +157,7 @@ fn split_pane_clamps_the_leading_extent() {
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui| {
             let mut root = ui.node(Single::new());
-            root.place(Place::new().grow()).add(
+            root.child().place(Place::new().grow()).add(
                 split::Pane::<_, _, split::NoDivider>::new(
                     &mut state,
                     id,
@@ -185,6 +193,7 @@ fn rect_and_wrap_resolve_positions() {
     frame.render(&mut platform, FrameInfo::new(Size::new(30.0, 20.0)), |ui| {
         let mut fixed = ui.node(RectLayout);
         fixed
+            .child()
             .item(Rect::new(3.0, 4.0, 10.0, 5.0))
             .widget_id(rect)
             .add(BoxAtom(Size::ZERO));
@@ -194,7 +203,8 @@ fn rect_and_wrap_resolve_positions() {
     frame.render(&mut platform, FrameInfo::new(Size::new(12.0, 20.0)), |ui| {
         let mut wrap = ui.node(Wrap::horizontal().gap(1.0));
         for _ in 0..3 {
-            wrap.place(Place::new().fixed(6.0, 2.0))
+            wrap.child()
+                .place(Place::new().fixed(6.0, 2.0))
                 .add(BoxAtom(Size::ZERO));
         }
     });

@@ -165,7 +165,7 @@ where
         state.changed = false;
 
         let mut panes = cx
-            .node(SplitLayout {
+            .layout(SplitLayout {
                 config,
                 extent,
                 minimum_leading,
@@ -173,14 +173,17 @@ where
             })
             .widget_id(id);
         panes
+            .child()
             .item(SplitItem::Leading)
             .widget_id(leading_id)
             .add(leading);
         panes
+            .child()
             .item(SplitItem::Divider)
             .widget_id(divider_id)
             .add(divider.into_widget(config.axis, interaction));
         panes
+            .child()
             .item(SplitItem::Trailing)
             .widget_id(trailing_id)
             .add(trailing);

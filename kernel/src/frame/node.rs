@@ -239,40 +239,28 @@ impl<'ui, R: Platform, L: Layout<R>> Node<'ui, R, L> {
         self.ui.frame_mut().add_layer()
     }
 
-    pub fn place(&mut self, place: Place) -> Child<'_, 'ui, R, L> {
+    pub fn child(&mut self) -> Child<'_, 'ui, R, L> {
         let node = self.ui.frame_mut().push_node(None);
         Child {
             parent: self,
             node,
-            place,
+            place: Place::new(),
             item: (),
             id: None,
         }
-    }
-
-    pub fn item(&mut self, item: L::Item) -> Child<'_, 'ui, R, L, L::Item> {
-        self.place(Place::new()).item(item)
     }
 }
 
 impl<'ui, R: Platform, L: Layout<R, Item = ()>> Node<'ui, R, L> {
     /// adds a child widget with default placement
+    /// equivalent to [`Node::child()`] + [`Child::add()`]
     pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
         self.child().add(widget)
-    }
-
-    pub fn child(&mut self) -> Child<'_, 'ui, R, L> {
-        self.place(Place::new())
-    }
-
-    /// adds a child layout node with default placement
-    pub fn node<N: Layout<R>>(&mut self, layout: N) -> Node<'_, R, N> {
-        self.child().node(layout)
     }
 }
 
 /// pending child insertion
-#[must_use = "a child must be populated with add or node"]
+#[must_use = "a child must be populated with add or layout"]
 pub struct Child<'entry, 'ui, R, L, I = ()>
 where
     R: Platform,
@@ -312,7 +300,7 @@ impl<'entry, 'ui, R: Platform, L: Layout<R>, I> Child<'entry, 'ui, R, L, I> {
 }
 
 impl<'entry, R: Platform, L: Layout<R>> Child<'entry, '_, R, L, L::Item> {
-    /// adds a child widget
+    /// adds a child widget to the parent node
     pub fn add<W: Widget<R>>(self, widget: W) -> W::Response {
         let response = self.parent.ui.build_node(self.node, widget);
         let frame = self.parent.ui.frame_mut();
@@ -325,8 +313,8 @@ impl<'entry, R: Platform, L: Layout<R>> Child<'entry, '_, R, L, L::Item> {
         response
     }
 
-    /// creates a child with a layout
-    pub fn node<N: Layout<R>>(self, layout: N) -> Node<'entry, R, N> {
+    /// establishes the child's layout
+    pub fn layout<N: Layout<R>>(self, layout: N) -> Node<'entry, R, N> {
         let frame = self.parent.ui.frame_mut();
         let layout = frame.store_layout(layout);
         frame.nodes[self.node.index()].layout = layout;
