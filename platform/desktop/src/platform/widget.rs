@@ -20,12 +20,12 @@ blit::builder! {
     }
 }
 
-impl Widget<DesktopPlatform> for Text<'_> {
+impl<S> Widget<DesktopPlatform, S> for Text<'_> {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_>) {
+    fn build(self, mut ui: Ui<'_, S>) {
         let run = ui.platform().text_run(self.text, self.style);
-        ui.insert(
+        ui.atom(
             atom::Text::new(run)
                 .color(self.color)
                 .offset_x(self.offset_x)

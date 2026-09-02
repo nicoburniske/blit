@@ -26,10 +26,10 @@ impl<'a> Block<'a> {
     }
 }
 
-impl Widget<TuiPlatform> for Block<'_> {
+impl<S> Widget<TuiPlatform, S> for Block<'_> {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_>) {
+    fn build(self, mut ui: Ui<'_, S>) {
         let color = self
             .border
             .map(|border| border.color)
@@ -44,9 +44,9 @@ impl Widget<TuiPlatform> for Block<'_> {
             })
         });
         if let Some(shadow) = self.shadow {
-            ui.insert(shadow);
+            ui.atom(shadow);
         }
-        ui.insert(atom::Block {
+        ui.atom(atom::Block {
             border: self.border,
             background: self.background,
             titles,

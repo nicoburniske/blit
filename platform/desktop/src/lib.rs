@@ -12,7 +12,7 @@ pub use blit_cpu::{color, image, style, text_types as text};
 pub use blit_std::layout;
 pub use platform::{BoundsClip, DesktopPlatform, atom, widget};
 
-pub type Ui<'a> = blit::Ui<'a, DesktopPlatform>;
+pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, DesktopPlatform, S>;
 
 use std::{error::Error, fmt};
 
