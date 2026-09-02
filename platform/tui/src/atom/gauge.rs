@@ -147,12 +147,16 @@ mod tests {
         let renderer = TuiRenderer::new(RendererConfig::new().columns(10).rows(1));
         let mut platform = TuiPlatform::new(renderer);
         let mut frame = Frame::default();
-        frame.render(&mut platform, FrameInfo::new(Size::new(10.0, 1.0)), |ui| {
-            let mut root = ui.node(Single::new());
-            root.child()
-                .place(Place::grow())
-                .add(Gauge::new(0.5).filled(Color::GREEN).unfilled(Color::BLACK));
-        });
+        frame.render(
+            &mut platform,
+            FrameInfo::new(Size::new(10.0, 1.0)),
+            |ui: crate::Ui<'_>| {
+                let mut root = ui.layout(Single::new());
+                root.child()
+                    .place(Place::grow())
+                    .insert(Gauge::new(0.5).filled(Color::GREEN).unfilled(Color::BLACK));
+            },
+        );
 
         assert_eq!(platform.renderer().plain_text(), "   50%\n");
     }

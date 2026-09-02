@@ -6,8 +6,7 @@ pub use blit_std::layout;
 pub use blit_tui_render::{cell, color, image, text};
 pub use platform::{BoundsClip, TuiPlatform};
 
-pub type Ui = blit::Ui<TuiPlatform>;
-pub type Cx<'a> = blit::Cx<'a, TuiPlatform>;
+pub type Ui<'a> = blit::Ui<'a, TuiPlatform>;
 
 use std::{io, io::Write as _, time::Duration, time::Instant};
 
@@ -33,13 +32,13 @@ pub enum ControlFlow {
     Exit,
 }
 
-pub fn run(mut render: impl FnMut(&mut Ui) -> ControlFlow) -> io::Result<()> {
+pub fn run(mut render: impl FnMut(Ui<'_>) -> ControlFlow) -> io::Result<()> {
     run_with(|_| (), move |_, ui| render(ui))
 }
 
 pub fn run_with<S>(
     initialize: impl FnOnce(&mut TuiPlatform) -> S,
-    mut render: impl FnMut(&mut S, &mut Ui) -> ControlFlow,
+    mut render: impl FnMut(&mut S, Ui<'_>) -> ControlFlow,
 ) -> io::Result<()> {
     let mut session = Session::new()?;
     let mut state = initialize(session.platform_mut());

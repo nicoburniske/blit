@@ -10,8 +10,7 @@ pub mod layout;
 
 pub use animation::{Easing, Transition, TransitionProperties};
 pub use frame::{
-    Absolute, Anchor, Frame, FrameMemory, LayerId, Node, NodeId, Place, PositionTarget, Sizing, Ui,
-    node_state,
+    Absolute, Anchor, Frame, FrameMemory, LayerId, NodeId, Place, PositionTarget, Sizing, Ui, state,
 };
 pub use geometry::{
     Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize,
@@ -42,25 +41,25 @@ crate::builder! {
 pub trait Widget<R: Platform> {
     type Response;
 
-    fn build(self, node: Node<'_, R>) -> Self::Response;
+    fn build(self, ui: Ui<'_, R>) -> Self::Response;
 }
 
 impl<R, F, O> Widget<R> for F
 where
     R: Platform,
-    F: FnOnce(Node<'_, R>) -> O,
+    F: FnOnce(Ui<'_, R>) -> O,
 {
     type Response = O;
 
-    fn build(self, node: Node<'_, R>) -> Self::Response {
-        self(node)
+    fn build(self, ui: Ui<'_, R>) -> Self::Response {
+        self(ui)
     }
 }
 
 impl<R: Platform> Widget<R> for () {
     type Response = ();
 
-    fn build(self, node: Node<'_, R>) {
+    fn build(self, ui: Ui<'_, R>) {
         #[derive(Clone, Copy)]
         struct EmptyLayout;
 
@@ -75,7 +74,7 @@ impl<R: Platform> Widget<R> for () {
                 constraints.constrain(Size::ZERO)
             }
         }
-        node.layout(EmptyLayout);
+        ui.layout(EmptyLayout);
     }
 }
 

@@ -116,6 +116,7 @@ dependencies = [
  "blit-executor",
  "blit-showcase",
  "blit-std",
+ "blit-text",
  "blit-text-cosmic",
  "blit-text-fontdue",
  "softbuffer",

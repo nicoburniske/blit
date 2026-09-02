@@ -2,7 +2,7 @@ use blit::Widget;
 use blit_tui_render::{color::Color, text::TextAttributes};
 
 use crate::{
-    Cx, TuiPlatform,
+    TuiPlatform, Ui,
     atom::{self, Border, Shadow, TitlePosition},
 };
 
@@ -29,14 +29,14 @@ impl<'a> Block<'a> {
 impl Widget<TuiPlatform> for Block<'_> {
     type Response = ();
 
-    fn build(self, mut cx: Cx<'_>) {
+    fn build(self, mut ui: Ui<'_>) {
         let color = self
             .border
             .map(|border| border.color)
             .unwrap_or(Color::Reset);
         let titles = self.titles.map(|title| {
             title.map(|title| {
-                let text = cx.platform().renderer_mut().text_run(title.text);
+                let text = ui.platform().renderer_mut().text_run(title.text);
                 atom::Title::new(text)
                     .color(title.color.unwrap_or(color))
                     .attributes(title.attributes)
@@ -44,9 +44,9 @@ impl Widget<TuiPlatform> for Block<'_> {
             })
         });
         if let Some(shadow) = self.shadow {
-            cx.atom(shadow);
+            ui.insert(shadow);
         }
-        cx.atom(atom::Block {
+        ui.insert(atom::Block {
             border: self.border,
             background: self.background,
             titles,

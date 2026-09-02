@@ -1,5 +1,5 @@
 use blit::{
-    Atom, Constraints, Frame, FrameInfo, Place, Platform, Rect, Sides, Size, Sizing, WidgetId,
+    Atom, Constraints, Frame, FrameInfo, Place, Platform, Rect, Sides, Size, Sizing, Ui, WidgetId,
 };
 use blit_std::{
     layout::{Align, Flex, Grid, RectLayout, Single, Wrap},
@@ -54,13 +54,17 @@ fn flex_remeasures_constraint_dependent_atoms() {
     let mut frame = Frame::default();
     let mut platform = TestPlatform;
     let child = WidgetId::new("responsive");
-    frame.render(&mut platform, FrameInfo::new(Size::new(5.0, 10.0)), |ui| {
-        let mut row = ui.node(Flex::row().align(Align::Start));
-        row.child()
-            .place(Place::new().width(Sizing::grow()))
-            .widget_id(child)
-            .add(ResponsiveAtom);
-    });
+    frame.render(
+        &mut platform,
+        FrameInfo::new(Size::new(5.0, 10.0)),
+        |ui: Ui<'_, TestPlatform>| {
+            let mut row = ui.layout(Flex::row().align(Align::Start));
+            row.child()
+                .place(Place::new().width(Sizing::grow()))
+                .widget_id(child)
+                .insert(ResponsiveAtom);
+        },
+    );
     assert_eq!(frame.geometry(child).unwrap().size(), Size::new(5.0, 2.0));
 }
 
@@ -73,16 +77,16 @@ fn flex_distributes_growing_space() {
     frame.render(
         &mut platform,
         FrameInfo::new(Size::new(100.0, 20.0)),
-        |ui| {
-            let mut row = ui.node(Flex::row().gap(4.0));
+        |ui: Ui<'_, TestPlatform>| {
+            let mut row = ui.layout(Flex::row().gap(4.0));
             row.child()
                 .place(Place::new().width(Sizing::fixed(20.0)))
                 .widget_id(fixed)
-                .add(BoxAtom(Size::new(1.0, 10.0)));
+                .insert(BoxAtom(Size::new(1.0, 10.0)));
             row.child()
                 .place(Place::new().width(Sizing::grow()))
                 .widget_id(grow)
-                .add(BoxAtom(Size::new(1.0, 10.0)));
+                .insert(BoxAtom(Size::new(1.0, 10.0)));
         },
     );
     assert_eq!(frame.geometry(fixed).unwrap().width, 20.0);
@@ -97,14 +101,14 @@ fn single_resolves_child_sizing() {
     frame.render(
         &mut TestPlatform,
         FrameInfo::new(Size::new(20.0, 10.0)),
-        |ui| {
-            let mut row = ui.node(Flex::row().align(Align::Start));
+        |ui: Ui<'_, TestPlatform>| {
+            let mut row = ui.layout(Flex::row().align(Align::Start));
             {
                 let mut fit = row.child().layout(Single::new().padding(Sides::all(1.0)));
                 fit.child()
                     .place(Place::new().width(Sizing::percent(0.5)))
                     .widget_id(percent)
-                    .add(BoxAtom(Size::new(3.0, 1.0)));
+                    .insert(BoxAtom(Size::new(3.0, 1.0)));
             }
             let mut fill = row
                 .child()
@@ -113,7 +117,7 @@ fn single_resolves_child_sizing() {
             fill.child()
                 .place(Place::grow())
                 .widget_id(grow)
-                .add(BoxAtom(Size::new(3.0, 1.0)));
+                .insert(BoxAtom(Size::new(3.0, 1.0)));
         },
     );
     assert_eq!(frame.geometry(percent), Some(Rect::new(1.0, 1.0, 1.5, 1.0)));
@@ -129,16 +133,16 @@ fn spanning_grid_places_items_in_equal_cells() {
     frame.render(
         &mut platform,
         FrameInfo::new(Size::new(100.0, 40.0)),
-        |ui| {
+        |ui: Ui<'_, TestPlatform>| {
             let mut placer = layout.placer();
-            let mut grid = ui.node(layout);
+            let mut grid = ui.layout(layout);
             grid.child()
                 .item(placer.place(1, 2))
                 .widget_id(wide)
-                .add(BoxAtom(Size::new(20.0, 10.0)));
+                .insert(BoxAtom(Size::new(20.0, 10.0)));
             grid.child()
                 .item(placer.place(1, 1))
-                .add(BoxAtom(Size::uniform(10.0)));
+                .insert(BoxAtom(Size::uniform(10.0)));
         },
     );
     assert_eq!(frame.geometry(wide).unwrap().width, 66.0);
@@ -155,9 +159,9 @@ fn split_pane_clamps_the_leading_extent() {
     frame.render(
         &mut platform,
         FrameInfo::new(Size::new(100.0, 20.0)),
-        |ui| {
-            let mut root = ui.node(Single::new());
-            root.child().place(Place::grow()).add(
+        |ui: Ui<'_, TestPlatform>| {
+            let mut root = ui.layout(Single::new());
+            root.child().place(Place::grow()).insert(
                 split::Pane::<_, _, split::NoDivider>::new(
                     &mut state,
                     id,
@@ -190,22 +194,30 @@ fn rect_and_wrap_resolve_positions() {
     let mut frame = Frame::default();
     let mut platform = TestPlatform;
     let rect = WidgetId::new("rect");
-    frame.render(&mut platform, FrameInfo::new(Size::new(30.0, 20.0)), |ui| {
-        let mut fixed = ui.node(RectLayout);
-        fixed
-            .child()
-            .item(Rect::new(3.0, 4.0, 10.0, 5.0))
-            .widget_id(rect)
-            .add(BoxAtom(Size::ZERO));
-    });
+    frame.render(
+        &mut platform,
+        FrameInfo::new(Size::new(30.0, 20.0)),
+        |ui: Ui<'_, TestPlatform>| {
+            let mut fixed = ui.layout(RectLayout);
+            fixed
+                .child()
+                .item(Rect::new(3.0, 4.0, 10.0, 5.0))
+                .widget_id(rect)
+                .insert(BoxAtom(Size::ZERO));
+        },
+    );
     assert_eq!(frame.geometry(rect), Some(Rect::new(3.0, 4.0, 10.0, 5.0)));
 
-    frame.render(&mut platform, FrameInfo::new(Size::new(12.0, 20.0)), |ui| {
-        let mut wrap = ui.node(Wrap::horizontal().gap(1.0));
-        for _ in 0..3 {
-            wrap.child()
-                .place(Place::fixed(6.0, 2.0))
-                .add(BoxAtom(Size::ZERO));
-        }
-    });
+    frame.render(
+        &mut platform,
+        FrameInfo::new(Size::new(12.0, 20.0)),
+        |ui: Ui<'_, TestPlatform>| {
+            let mut wrap = ui.layout(Wrap::horizontal().gap(1.0));
+            for _ in 0..3 {
+                wrap.child()
+                    .place(Place::fixed(6.0, 2.0))
+                    .insert(BoxAtom(Size::ZERO));
+            }
+        },
+    );
 }

@@ -338,12 +338,12 @@ mod tests {
         frame.render(
             &mut platform,
             FrameInfo::new(Size::new(20.0, 5.0)),
-            |ui| {
-                let mut root = ui.node(Single::new());
+            |ui: crate::Ui<'_>| {
+                let mut root = ui.layout(Single::new());
                 root.insert(widget::Text::new(
                     "xxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx",
                 ));
-                root.child().place(Place::fixed(20.0, 4.0)).add(
+                root.child().place(Place::fixed(20.0, 4.0)).insert(
                     widget::Block::new()
                         .background(Color::WHITE)
                         .border(Border::new(Color::GREEN).style(BorderStyle::Double))

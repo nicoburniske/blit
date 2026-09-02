@@ -1,5 +1,5 @@
 use blit::{
-    Axis, Constraints, Cx, Interaction, Layout, LayoutCx, Platform, Point, Sense, Size, Widget,
+    Axis, Constraints, Interaction, Layout, LayoutCx, Platform, Point, Sense, Size, Ui, Widget,
     WidgetId,
 };
 
@@ -123,7 +123,7 @@ where
 {
     type Response = ();
 
-    fn build(self, mut cx: Cx<'_, R>) {
+    fn build(self, mut ui: Ui<'_, R>) {
         let Self {
             state,
             id,
@@ -138,8 +138,8 @@ where
         let leading_id = id.child("leading pane");
         let divider_id = id.child("divider");
         let trailing_id = id.child("trailing pane");
-        let interaction = cx.interact(divider_id, config.sense);
-        let measured = cx.geometry(leading_id).map(|area| match config.axis {
+        let interaction = ui.interact(divider_id, config.sense);
+        let measured = ui.geometry(leading_id).map(|area| match config.axis {
             Axis::Horizontal => area.width,
             Axis::Vertical => area.height,
         });
@@ -164,7 +164,7 @@ where
         let extent = state.extent.unwrap_or(initial_extent);
         state.changed = false;
 
-        let mut panes = cx
+        let mut panes = ui
             .layout(SplitLayout {
                 config,
                 extent,
@@ -176,17 +176,17 @@ where
             .child()
             .item(SplitItem::Leading)
             .widget_id(leading_id)
-            .add(leading);
+            .insert(leading);
         panes
             .child()
             .item(SplitItem::Divider)
             .widget_id(divider_id)
-            .add(divider.into_widget(config.axis, interaction));
+            .insert(divider.into_widget(config.axis, interaction));
         panes
             .child()
             .item(SplitItem::Trailing)
             .widget_id(trailing_id)
-            .add(trailing);
+            .insert(trailing);
     }
 }
 
@@ -208,7 +208,7 @@ enum SplitItem {
 impl<R: Platform> Layout<R> for SplitLayout {
     type Item = SplitItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         fn extent(size: Size, axis: Axis) -> f32 {
             match axis {
                 Axis::Horizontal => size.width,
@@ -239,8 +239,8 @@ impl<R: Platform> Layout<R> for SplitLayout {
         let mut leading = None;
         let mut divider = None;
         let mut trailing = None;
-        for child in cx.children() {
-            match cx.item(child) {
+        for child in ui.children() {
+            match ui.item(child) {
                 SplitItem::Leading => leading = Some(child),
                 SplitItem::Divider => divider = Some(child),
                 SplitItem::Trailing => trailing = Some(child),
@@ -259,15 +259,15 @@ impl<R: Platform> Layout<R> for SplitLayout {
         let cross_min = extent(constraints.min, cross_axis);
         let cross_max = extent(constraints.max, cross_axis);
         let cross_range = (cross_min, cross_max);
-        let minimum_leading = cx.resolve_extent(axis, self.minimum_leading).max(0.0);
-        let minimum_trailing = cx.resolve_extent(axis, self.minimum_trailing).max(0.0);
-        let desired = cx.resolve_extent(axis, self.extent).max(0.0);
-        let divider_extent = cx.resolve_extent(axis, config.divider_extent).max(0.0);
+        let minimum_leading = ui.resolve_extent(axis, self.minimum_leading).max(0.0);
+        let minimum_trailing = ui.resolve_extent(axis, self.minimum_trailing).max(0.0);
+        let desired = ui.resolve_extent(axis, self.extent).max(0.0);
+        let divider_extent = ui.resolve_extent(axis, config.divider_extent).max(0.0);
 
         let natural_trailing = if main_max.is_finite() {
             0.0
         } else {
-            let size = cx.layout_child(
+            let size = ui.layout_child(
                 trailing,
                 flow_constraints(axis, (minimum_trailing, f32::INFINITY), cross_range),
             );
@@ -287,15 +287,15 @@ impl<R: Platform> Layout<R> for SplitLayout {
         };
         let trailing_extent = available - leading_extent;
 
-        let leading_size = cx.layout_child(
+        let leading_size = ui.layout_child(
             leading,
             flow_constraints(axis, (leading_extent, leading_extent), cross_range),
         );
-        let divider_size = cx.layout_child(
+        let divider_size = ui.layout_child(
             divider,
             flow_constraints(axis, (divider_extent, divider_extent), cross_range),
         );
-        let trailing_size = cx.layout_child(
+        let trailing_size = ui.layout_child(
             trailing,
             flow_constraints(axis, (trailing_extent, trailing_extent), cross_range),
         );
@@ -309,20 +309,20 @@ impl<R: Platform> Layout<R> for SplitLayout {
             (divider, divider_extent),
             (trailing, trailing_extent),
         ] {
-            if extent(cx.size(child), cross_axis) != cross {
-                cx.layout_child(child, flow_constraints(axis, (main, main), (cross, cross)));
+            if extent(ui.size(child), cross_axis) != cross {
+                ui.layout_child(child, flow_constraints(axis, (main, main), (cross, cross)));
             }
         }
 
-        cx.set_position(leading, Point::ZERO);
-        cx.set_position(
+        ui.set_position(leading, Point::ZERO);
+        ui.set_position(
             divider,
             match axis {
                 Axis::Horizontal => Point::new(leading_extent, 0.0),
                 Axis::Vertical => Point::new(0.0, leading_extent),
             },
         );
-        cx.set_position(
+        ui.set_position(
             trailing,
             match axis {
                 Axis::Horizontal => Point::new(leading_extent + divider_extent, 0.0),
