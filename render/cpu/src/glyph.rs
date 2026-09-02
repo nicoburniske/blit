@@ -44,7 +44,7 @@ impl GlyphCache {
             let face = text
                 .font(key.font)
                 .expect("text backend returned an unknown font");
-            let (metrics, alpha) = rasterizer.rasterize(&face, key.glyph, f32::from_bits(key.size));
+            let (metrics, alpha) = rasterizer.rasterize(face, key.glyph, f32::from_bits(key.size));
             CachedGlyph {
                 metrics,
                 alpha: alpha.into_boxed_slice(),

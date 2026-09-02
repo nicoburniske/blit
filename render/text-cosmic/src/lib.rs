@@ -145,9 +145,9 @@ impl blit_text::TextLayoutEngine for Backend {
         Ok(id)
     }
 
-    fn font(&self, font: FontId) -> Option<FontFace> {
+    fn font(&self, font: FontId) -> Option<&FontFace> {
         let index = usize::try_from(font.0).ok()?.checked_sub(1)?;
-        self.faces.get(index).map(|face| face.data.clone())
+        self.faces.get(index).map(|face| &face.data)
     }
 
     fn layout(&mut self, text: &str, style: TextStyle, request: LayoutRequest) -> TextLayout {
@@ -223,7 +223,6 @@ impl blit_text::TextLayoutEngine for Backend {
                 width: line.line_w,
                 height: line.line_height,
             };
-            let run_start = u32::try_from(runs.len()).expect("too many layout runs");
             let mut start = 0;
             while start < line.glyphs.len() {
                 let source = &line.glyphs[start];
@@ -238,19 +237,12 @@ impl blit_text::TextLayoutEngine for Backend {
                     .face(source.font_id)
                     .expect("cosmic-text returned invalid font");
                 let glyph_start = u32::try_from(glyphs.len()).expect("too many glyphs");
-                glyphs.extend(line.glyphs[start..end].iter().map(|glyph| {
-                    Glyph {
-                        id: glyph.glyph_id,
-                        position: LogicalPoint {
-                            x: glyph.x + glyph.font_size * glyph.x_offset,
-                            y: line.line_y + glyph.y - glyph.font_size * glyph.y_offset + offset_y,
-                        },
-                        advance: glyph.w,
-                        cluster: u32::try_from(
-                            line_starts[line.line_i].saturating_add(glyph.start),
-                        )
-                        .expect("text is too long"),
-                    }
+                glyphs.extend(line.glyphs[start..end].iter().map(|glyph| Glyph {
+                    id: glyph.glyph_id,
+                    position: LogicalPoint {
+                        x: glyph.x + glyph.font_size * glyph.x_offset,
+                        y: line.line_y + glyph.y - glyph.font_size * glyph.y_offset + offset_y,
+                    },
                 }));
                 runs.push(LayoutRun {
                     font,
@@ -308,7 +300,6 @@ impl blit_text::TextLayoutEngine for Backend {
             carets.extend_from_slice(&line_carets);
             lines.push(LayoutLine {
                 bounds,
-                runs: run_start..u32::try_from(runs.len()).expect("too many layout runs"),
                 carets: caret_start..u32::try_from(carets.len()).expect("too many carets"),
             });
         }

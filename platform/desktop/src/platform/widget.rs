@@ -26,7 +26,7 @@ impl Widget<DesktopPlatform> for Text<'_> {
     fn build(self, mut cx: Cx<'_>) {
         let run = cx.platform().text_run(self.text, self.style);
         cx.atom(
-            atom::Text::new(run, self.style)
+            atom::Text::new(run)
                 .color(self.color)
                 .offset_x(self.offset_x)
                 .options(self.options),

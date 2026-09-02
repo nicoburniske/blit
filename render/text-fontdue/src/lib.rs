@@ -65,9 +65,9 @@ impl TextLayoutEngine for Backend {
         Ok(id)
     }
 
-    fn font(&self, font: FontId) -> Option<FontFace> {
+    fn font(&self, font: FontId) -> Option<&FontFace> {
         let index = usize::try_from(font.0).ok()?.checked_sub(1)?;
-        self.faces.get(index).map(|face| face.data.clone())
+        self.faces.get(index).map(|face| &face.data)
     }
 
     fn layout(&mut self, text: &str, style: TextStyle, request: LayoutRequest) -> TextLayout {
@@ -135,7 +135,6 @@ impl TextLayoutEngine for Backend {
                         width: 0.0,
                         height: empty_height,
                     },
-                    runs: 0..0,
                     carets: 0..1,
                 }]),
                 carets: Box::new([Caret {
@@ -247,7 +246,6 @@ impl TextLayoutEngine for Backend {
                 width: displayed_width,
                 height: line.max_new_line_size,
             };
-            let run_start = u32::try_from(runs.len()).expect("too many layout runs");
             let glyph_start = u32::try_from(glyphs.len()).expect("too many glyphs");
             let caret_start = u32::try_from(carets.len()).expect("too many carets");
             let mut final_offset = source.first().map_or(text.len(), |glyph| glyph.byte_offset);
@@ -278,8 +276,6 @@ impl TextLayoutEngine for Backend {
                         x: pen + align_x,
                         y: line.baseline_y + offset_y,
                     },
-                    advance,
-                    cluster: byte_offset,
                 });
                 final_offset = source.byte_offset + source.parent.len_utf8();
                 final_x = pen + advance;
@@ -291,8 +287,6 @@ impl TextLayoutEngine for Backend {
                         x: displayed_width - ellipsis_advance + align_x,
                         y: line.baseline_y + offset_y,
                     },
-                    advance: ellipsis_advance,
-                    cluster: u32::try_from(final_offset).expect("text is too long"),
                 });
                 final_x = displayed_width;
             }
@@ -320,7 +314,6 @@ impl TextLayoutEngine for Backend {
             }
             lines.push(LayoutLine {
                 bounds,
-                runs: run_start..u32::try_from(runs.len()).expect("too many layout runs"),
                 carets: caret_start..u32::try_from(carets.len()).expect("too many carets"),
             });
         }
@@ -367,7 +360,12 @@ mod tests {
         assert!(layout.runs.iter().all(|run| run.font == font));
         assert_eq!(backend.font(font).unwrap().face_index, 0);
         assert_eq!(
-            layout.cursor_rect("secure approval".len()).height,
+            layout
+                .carets
+                .iter()
+                .find(|caret| caret.byte_offset as usize == "secure approval".len())
+                .unwrap()
+                .height,
             layout.size.height
         );
     }
@@ -394,7 +392,6 @@ mod tests {
 
         assert!(layout.lines.len() > 1);
         for line in &layout.lines {
-            assert!(line.runs.end as usize <= layout.runs.len());
             assert!(line.carets.end as usize <= layout.carets.len());
         }
         for run in &layout.runs {
