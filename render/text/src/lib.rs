@@ -2,6 +2,7 @@ use std::{mem::size_of, ops::Range, sync::Arc};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 
+/// todo: support variable font instances and expose their coordinates to renderers
 pub trait TextBackend: 'static {
     fn system_font(&mut self, _request: SystemFontRequest<'_>) -> Result<FontId, FontError> {
         Err(FontError::Unsupported)
