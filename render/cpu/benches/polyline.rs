@@ -33,6 +33,16 @@ fn single_line_scanline(bencher: divan::Bencher, width: f32) {
 }
 
 #[divan::bench(args = [1.0, 4.0])]
+fn horizontal_line_direct(bencher: divan::Bencher, width: f32) {
+    benchmark_polyline(bencher, Direct::default(), horizontal_points(), width)
+}
+
+#[divan::bench(args = [1.0, 4.0])]
+fn horizontal_line_scanline(bencher: divan::Bencher, width: f32) {
+    benchmark_polyline(bencher, Scanline::default(), horizontal_points(), width)
+}
+
+#[divan::bench(args = [1.0, 4.0])]
 fn single_line_zeno(bencher: divan::Bencher, width: f32) {
     benchmark_zeno(bencher, line_points(), width)
 }
@@ -66,6 +76,13 @@ fn line_points() -> Vec<LogicalPoint> {
     vec![
         LogicalPoint::new(12.0, 12.0),
         LogicalPoint::new(468.0, 244.0),
+    ]
+}
+
+fn horizontal_points() -> Vec<LogicalPoint> {
+    vec![
+        LogicalPoint::new(12.0, 128.0),
+        LogicalPoint::new(468.0, 128.0),
     ]
 }
 
