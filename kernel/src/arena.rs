@@ -22,7 +22,10 @@ pub struct DataArena {
 impl DataArena {
     pub fn store<T: 'static>(&mut self, value: T) -> DataId {
         const {
-            assert!(align_of::<T>() <= 8, "frame data alignment exceeds 8 bytes");
+            assert!(
+                align_of::<T>() <= align_of::<Word>(),
+                "frame data alignment exceeds arena alignment"
+            );
         }
         let offset = self
             .len
@@ -60,7 +63,7 @@ impl DataArena {
 
     pub fn load<T: 'static>(&self, id: DataId) -> &T {
         let offset = id.offset().expect("frame data is missing");
-        assert!(align_of::<T>() <= 8);
+        assert!(align_of::<T>() <= align_of::<Word>());
         assert_eq!(offset % align_of::<T>(), 0);
         assert!(
             offset
@@ -101,8 +104,8 @@ unsafe fn drop_value<T>(value: *mut u8) {
     unsafe { value.cast::<T>().drop_in_place() };
 }
 
-#[repr(C, align(8))]
-struct Word(MaybeUninit<[u8; 8]>);
+#[repr(C, align(64))]
+struct Word(MaybeUninit<[u8; 64]>);
 
 #[cfg(test)]
 mod tests {
@@ -112,6 +115,9 @@ mod tests {
 
     #[test]
     fn drops_owned_values_and_skips_trivial_values() {
+        #[repr(align(64))]
+        struct Aligned(u8);
+
         struct Dropped(Rc<Cell<bool>>);
 
         impl Drop for Dropped {
@@ -123,6 +129,8 @@ mod tests {
         let dropped = Rc::new(Cell::new(false));
         let mut arena = DataArena::default();
         arena.store(1_u32);
+        let aligned = arena.store(Aligned(7));
+        assert_eq!(arena.load::<Aligned>(aligned).0, 7);
         assert!(arena.drops.is_empty());
         arena.store(Dropped(dropped.clone()));
         assert_eq!(arena.drops.len(), 1);
