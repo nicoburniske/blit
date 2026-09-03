@@ -210,7 +210,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                             .color(colors::ACCENT),
                     );
                     sidebar.child(Place::grow()).build(
-                        ScrollArea::new(controls_scroll, BoundsClip, |ui: Ui<'_>| {
+                        ScrollArea::new(controls_scroll, BoundsClip).build(|ui: Ui<'_>| {
                             let mut controls = ui.layout(Flex::column().gap(sz::XS));
                             controls.child(Place::new()).build(|ui: Ui<'_>| {
                                 choices(
@@ -446,7 +446,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                             .color(colors::ACCENT),
                     );
                     sidebar.child(Place::grow()).build(
-                        ScrollArea::new(controls_scroll, BoundsClip, |ui: Ui<'_>| {
+                        ScrollArea::new(controls_scroll, BoundsClip).build(|ui: Ui<'_>| {
                             let mut controls = ui.layout(Flex::column().gap(sz::SM));
                             controls.child(Place::new()).build(|ui: Ui<'_>| {
                                 choices(
@@ -639,51 +639,44 @@ impl Widget<DesktopPlatform> for &mut ScrollPage {
             }
         }
         let axis = *scroll_axis;
+        let item_extent = match axis {
+            Axis::Horizontal => sz::SCROLL_ITEM_WIDTH,
+            Axis::Vertical => sz::SCROLL_ITEM_HEIGHT,
+        };
         section.child(Place::grow()).build(
-            ScrollArea::new(scroll, BoundsClip, move |ui: Ui<'_>| {
-                let mut items = ui.layout(Flex::new(axis).padding(Sides::all(sz::XS)).gap(sz::XS));
-                for index in 0..100 {
+            ScrollList::new(scroll, BoundsClip, 0_usize..100, item_extent)
+                .build(move |ui, index| {
                     let item = ITEMS[index % ITEMS.len()];
-                    let place = match axis {
-                        Axis::Horizontal => {
-                            Place::new().width(Sizing::fixed(sz::SCROLL_ITEM_WIDTH))
-                        }
+                    let layout = match axis {
+                        Axis::Horizontal => Flex::column()
+                            .align(Align::Center)
+                            .justify(blit_desktop::layout::Justify::Center),
                         Axis::Vertical => {
-                            Place::new().height(Sizing::fixed(sz::SCROLL_ITEM_HEIGHT))
+                            Flex::row().padding(Sides::all(sz::XS)).align(Align::Center)
                         }
                     };
-                    items.child(place).build(|ui: Ui<'_>| {
-                        let layout = match axis {
-                            Axis::Horizontal => Flex::column()
-                                .align(Align::Center)
-                                .justify(blit_desktop::layout::Justify::Center),
-                            Axis::Vertical => {
-                                Flex::row().padding(Sides::all(sz::XS)).align(Align::Center)
-                            }
-                        };
-                        let background = if index % 2 == 0 {
-                            colors::CANVAS
-                        } else {
-                            colors::SURFACE_HIGH
-                        };
-                        let mut tile = ui.layout(layout);
-                        tile.insert(
-                            Rectangle::new()
-                                .background(background)
-                                .radius(BorderRadius::uniform(sz::XXS)),
-                        );
-                        tile.child(Place::new()).insert(
-                            Text::new(item.label)
-                                .style(TextStyle {
-                                    size: sz::MD,
-                                    ..TextStyle::default()
-                                })
-                                .color(colors::TEXT),
-                        );
-                    });
-                }
-            })
-            .axis(axis),
+                    let background = if index.is_multiple_of(2) {
+                        colors::CANVAS
+                    } else {
+                        colors::SURFACE_HIGH
+                    };
+                    let mut tile = ui.layout(layout);
+                    tile.insert(
+                        Rectangle::new()
+                            .background(background)
+                            .radius(BorderRadius::uniform(sz::XXS)),
+                    );
+                    tile.child(Place::new()).insert(
+                        Text::new(item.label)
+                            .style(TextStyle {
+                                size: sz::MD,
+                                ..TextStyle::default()
+                            })
+                            .color(colors::TEXT),
+                    );
+                })
+                .axis(axis)
+                .gap(sz::XS),
         );
     }
 }
@@ -1072,7 +1065,8 @@ fn canvas_item(
 #[derive(Clone, Copy, Default)]
 struct Scroll;
 
-type ScrollArea<'a, C> = scroll::Area<'a, C, BoundsClip, Scroll>;
+type ScrollArea<'a, C = ()> = scroll::Area<'a, DesktopPlatform, BoundsClip, Scroll, C>;
+type ScrollList<'a, I, F = ()> = scroll::List<'a, DesktopPlatform, I, BoundsClip, Scroll, F>;
 
 impl scroll::Scrollbar for Scroll {
     const HAS_TRACK: bool = true;
@@ -1085,7 +1079,7 @@ impl scroll::Scrollbar for Scroll {
         scroll::Config::new()
             .scroll_speed(2.0)
             .inertia_friction(3.0)
-            .scrollbar_thickness(sz::XXS)
+            .scrollbar_thickness(sz::XS)
             .minimum_thumb_extent(sz::XXL)
     }
 
