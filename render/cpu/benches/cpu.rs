@@ -1,11 +1,11 @@
 use std::hint::black_box;
 
-use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
     Direct, FontData, FontFamily, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
     RendererConfig, Scanline, VecBuffer, Xrgb8888,
     color::Color,
-    command_list::{BoxShadow, ClipId, CommandList, Rectangle},
+    command_list::{BoxShadow, ClipId, CommandList, Polyline, Rectangle},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
@@ -28,6 +28,137 @@ fn main() {
 
 #[divan::bench(args = [255, 128])]
 fn blend_premultiplied_rgba(bencher: divan::Bencher, opacity: u8) {
+    bench_blend_premultiplied_rgba(bencher, opacity)
+}
+
+#[divan::bench]
+fn render_rectangles(bencher: divan::Bencher) {
+    bench_render_rectangles(bencher)
+}
+
+#[divan::bench(types = [Direct, Scanline], args = [1.0, 4.0])]
+fn render_polyline<S>(bencher: divan::Bencher, width: f32)
+where
+    S: Default + RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    bench_render_polyline(bencher, S::default(), width)
+}
+
+#[divan::bench]
+fn gradient_border(bencher: divan::Bencher) {
+    bench_gradient_border(bencher)
+}
+
+#[divan::bench(args = [true, false])]
+fn shadow(bencher: divan::Bencher, cached: bool) {
+    bench_shadow(bencher, cached)
+}
+
+#[divan::bench]
+fn tiny_rectangles_direct(bencher: divan::Bencher) {
+    bench_tiny_rectangles(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn tiny_rectangles_scanline(bencher: divan::Bencher) {
+    bench_tiny_rectangles(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn sparse_tiles_direct(bencher: divan::Bencher) {
+    bench_sparse_tiles(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn sparse_tiles_scanline(bencher: divan::Bencher) {
+    bench_sparse_tiles(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn overlapping_rectangles_direct(bencher: divan::Bencher) {
+    bench_overlapping_rectangles(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn overlapping_rectangles_scanline(bencher: divan::Bencher) {
+    bench_overlapping_rectangles(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn small_images_direct(bencher: divan::Bencher) {
+    bench_small_images(bencher, Direct::default(), ImageFormat::Rgb8)
+}
+
+#[divan::bench]
+fn small_images_luma_direct(bencher: divan::Bencher) {
+    bench_small_images(bencher, Direct::default(), ImageFormat::Luma8)
+}
+
+#[divan::bench]
+fn small_images_rgba_direct(bencher: divan::Bencher) {
+    bench_small_images(bencher, Direct::default(), ImageFormat::Rgba8)
+}
+
+#[divan::bench]
+fn small_images_premultiplied_rgba_direct(bencher: divan::Bencher) {
+    bench_small_images(bencher, Direct::default(), ImageFormat::Rgba8Premultiplied)
+}
+
+#[divan::bench]
+fn small_images_alpha_direct(bencher: divan::Bencher) {
+    bench_small_images(
+        bencher,
+        Direct::default(),
+        ImageFormat::Alpha8(Color::from_rgba8(38, 96, 176, 255)),
+    )
+}
+
+#[divan::bench]
+fn small_images_scanline(bencher: divan::Bencher) {
+    bench_small_images(bencher, Scanline::default(), ImageFormat::Rgb8)
+}
+
+#[divan::bench]
+fn text_labels_direct(bencher: divan::Bencher) {
+    bench_text_labels(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn text_labels_scanline(bencher: divan::Bencher) {
+    bench_text_labels(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn text_heavy_direct(bencher: divan::Bencher) {
+    bench_text_heavy(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn text_heavy_scanline(bencher: divan::Bencher) {
+    bench_text_heavy(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn wrapped_paragraph_direct(bencher: divan::Bencher) {
+    bench_wrapped_paragraph(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn wrapped_paragraph_scanline(bencher: divan::Bencher) {
+    bench_wrapped_paragraph(bencher, Scanline::default())
+}
+
+#[divan::bench]
+fn rounded_clip_direct(bencher: divan::Bencher) {
+    bench_rounded_clip(bencher, Direct::default())
+}
+
+#[divan::bench]
+fn rounded_clip_scanline(bencher: divan::Bencher) {
+    bench_rounded_clip(bencher, Scanline::default())
+}
+
+fn bench_blend_premultiplied_rgba(bencher: divan::Bencher, opacity: u8) {
     let source = (0..WIDTH)
         .map(|index| {
             let alpha = (index * 37 % 255 + 1) as u8;
@@ -50,8 +181,7 @@ fn blend_premultiplied_rgba(bencher: divan::Bencher, opacity: u8) {
     });
 }
 
-#[divan::bench]
-fn render_rectangles(bencher: divan::Bencher) {
+fn bench_render_rectangles(bencher: divan::Bencher) {
     let mut commands = CommandList::default();
     for index in 0..100 {
         let area = LogicalRect {
@@ -85,112 +215,41 @@ fn render_rectangles(bencher: divan::Bencher) {
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-#[divan::bench]
-fn tiny_rectangles_direct(bencher: divan::Bencher) {
-    benchmark_tiny_rectangles(bencher, Direct::default())
+fn bench_render_polyline<S>(bencher: divan::Bencher, strategy: S, width: f32)
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    const HEIGHT: usize = 256;
+    const SEGMENTS: usize = 255;
+    let points = (0..=SEGMENTS)
+        .map(|index| {
+            let x = 4.0 + index as f32 * 472.0 / SEGMENTS as f32;
+            let y =
+                128.0 + (index as f32 * 0.19).sin() * 72.0 + (index as f32 * 0.071).sin() * 28.0;
+            LogicalPoint::new(x, y)
+        })
+        .collect::<Vec<_>>();
+    let polyline = Polyline::new(&points, Color::from_rgba8(38, 160, 240, 255)).width(width);
+    let mut commands = CommandList::default();
+    commands.push_polyline(
+        polyline,
+        polyline.bounds().unwrap().to_physical(SCALE),
+        ClipId::default(),
+    );
+    let damage = [PhysicalRect {
+        width: WIDTH as i32,
+        height: HEIGHT as i32,
+        ..PhysicalRect::default()
+    }];
+    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
+    renderer.render(&commands, &damage);
+
+    bencher
+        .counter(ItemsCount::new(SEGMENTS))
+        .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-#[divan::bench]
-fn tiny_rectangles_scanline(bencher: divan::Bencher) {
-    benchmark_tiny_rectangles(bencher, Scanline::default())
-}
-
-#[divan::bench]
-fn sparse_tiles_direct(bencher: divan::Bencher) {
-    benchmark_sparse_tiles(bencher, Direct::default())
-}
-
-#[divan::bench]
-fn sparse_tiles_scanline(bencher: divan::Bencher) {
-    benchmark_sparse_tiles(bencher, Scanline::default())
-}
-
-#[divan::bench]
-fn overlapping_rectangles_direct(bencher: divan::Bencher) {
-    benchmark_overlapping_rectangles(bencher, Direct::default())
-}
-
-#[divan::bench]
-fn overlapping_rectangles_scanline(bencher: divan::Bencher) {
-    benchmark_overlapping_rectangles(bencher, Scanline::default())
-}
-
-#[divan::bench]
-fn small_images_direct(bencher: divan::Bencher) {
-    benchmark_small_images(bencher, Direct::default(), ImageFormat::Rgb8)
-}
-
-#[divan::bench]
-fn small_images_luma_direct(bencher: divan::Bencher) {
-    benchmark_small_images(bencher, Direct::default(), ImageFormat::Luma8)
-}
-
-#[divan::bench]
-fn small_images_rgba_direct(bencher: divan::Bencher) {
-    benchmark_small_images(bencher, Direct::default(), ImageFormat::Rgba8)
-}
-
-#[divan::bench]
-fn small_images_premultiplied_rgba_direct(bencher: divan::Bencher) {
-    benchmark_small_images(bencher, Direct::default(), ImageFormat::Rgba8Premultiplied)
-}
-
-#[divan::bench]
-fn small_images_alpha_direct(bencher: divan::Bencher) {
-    benchmark_small_images(
-        bencher,
-        Direct::default(),
-        ImageFormat::Alpha8(Color::from_rgba8(38, 96, 176, 255)),
-    )
-}
-
-#[divan::bench]
-fn small_images_scanline(bencher: divan::Bencher) {
-    benchmark_small_images(bencher, Scanline::default(), ImageFormat::Rgb8)
-}
-
-#[divan::bench]
-fn text_labels_direct(bencher: divan::Bencher) {
-    benchmark_text_labels(bencher, Direct::default())
-}
-
-#[divan::bench]
-fn text_labels_scanline(bencher: divan::Bencher) {
-    benchmark_text_labels(bencher, Scanline::default())
-}
-
-#[divan::bench]
-fn text_heavy_direct(bencher: divan::Bencher) {
-    benchmark_text_heavy(bencher, Direct::default())
-}
-
-#[divan::bench]
-fn text_heavy_scanline(bencher: divan::Bencher) {
-    benchmark_text_heavy(bencher, Scanline::default())
-}
-
-#[divan::bench]
-fn wrapped_paragraph_direct(bencher: divan::Bencher) {
-    benchmark_wrapped_paragraph(bencher, Direct::default())
-}
-
-#[divan::bench]
-fn wrapped_paragraph_scanline(bencher: divan::Bencher) {
-    benchmark_wrapped_paragraph(bencher, Scanline::default())
-}
-
-#[divan::bench]
-fn rounded_clip_direct(bencher: divan::Bencher) {
-    benchmark_rounded_clip(bencher, Direct::default())
-}
-
-#[divan::bench]
-fn rounded_clip_scanline(bencher: divan::Bencher) {
-    benchmark_rounded_clip(bencher, Scanline::default())
-}
-
-#[divan::bench]
-fn gradient_border(bencher: divan::Bencher) {
+fn bench_gradient_border(bencher: divan::Bencher) {
     let mut commands = CommandList::default();
     let area = LogicalRect {
         x: 48.0,
@@ -223,8 +282,7 @@ fn gradient_border(bencher: divan::Bencher) {
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-#[divan::bench(args = [true, false])]
-fn shadow(bencher: divan::Bencher, cached: bool) {
+fn bench_shadow(bencher: divan::Bencher, cached: bool) {
     let area = LogicalRect {
         x: 64.0,
         y: 176.0,
@@ -254,7 +312,7 @@ fn shadow(bencher: divan::Bencher, cached: bool) {
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-fn benchmark_tiny_rectangles<S>(bencher: divan::Bencher, strategy: S)
+fn bench_tiny_rectangles<S>(bencher: divan::Bencher, strategy: S)
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
@@ -292,7 +350,7 @@ where
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-fn benchmark_sparse_tiles<S>(bencher: divan::Bencher, strategy: S)
+fn bench_sparse_tiles<S>(bencher: divan::Bencher, strategy: S)
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
@@ -325,7 +383,7 @@ where
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-fn benchmark_overlapping_rectangles<S>(bencher: divan::Bencher, strategy: S)
+fn bench_overlapping_rectangles<S>(bencher: divan::Bencher, strategy: S)
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
@@ -358,7 +416,7 @@ where
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-fn benchmark_small_images<S>(bencher: divan::Bencher, strategy: S, format: ImageFormat)
+fn bench_small_images<S>(bencher: divan::Bencher, strategy: S, format: ImageFormat)
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
@@ -415,7 +473,7 @@ where
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-fn benchmark_text_labels<S>(bencher: divan::Bencher, strategy: S)
+fn bench_text_labels<S>(bencher: divan::Bencher, strategy: S)
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
@@ -455,7 +513,7 @@ where
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-fn benchmark_text_heavy<S>(bencher: divan::Bencher, strategy: S)
+fn bench_text_heavy<S>(bencher: divan::Bencher, strategy: S)
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
@@ -504,7 +562,7 @@ where
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-fn benchmark_wrapped_paragraph<S>(bencher: divan::Bencher, strategy: S)
+fn bench_wrapped_paragraph<S>(bencher: divan::Bencher, strategy: S)
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
@@ -546,7 +604,7 @@ where
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-fn benchmark_rounded_clip<S>(bencher: divan::Bencher, strategy: S)
+fn bench_rounded_clip<S>(bencher: divan::Bencher, strategy: S)
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {

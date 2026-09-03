@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     color::Color,
-    command_list::{BoxShadow, ClipId, Command, CommandList, Rectangle},
+    command_list::{BoxShadow, ClipId, Command, CommandList, Polyline, Rectangle},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
@@ -1273,6 +1273,86 @@ fn cached_dirty_ranges_match_direct_rendering() {
     scanline.render(&paint, &damage);
 
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
+}
+
+#[test]
+fn translucent_polylines_blend_connected_segments_once() {
+    fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(
+        strategy: S,
+        damage: &[PhysicalRect],
+    ) -> Vec<Xrgb8888> {
+        let mut renderer =
+            new_renderer(VecBuffer::<Xrgb8888>::new(64, 16), renderer_config()).strategy(strategy);
+        let points = [
+            LogicalPoint::new(2.0, 8.0),
+            LogicalPoint::new(60.0, 8.0),
+            LogicalPoint::new(60.0, 14.0),
+        ];
+        let polyline = Polyline::new(&points, Color::from_rgba8(38, 160, 240, 128)).width(3.0);
+        let bounds = polyline.bounds().unwrap().to_physical(SCALE);
+        let mut paint = CommandList::default();
+        let clip = paint.push_clip(
+            ClipId::default(),
+            LogicalRect::new(0.0, 4.0, 64.0, 12.0),
+            BorderRadius::uniform(2.0),
+        );
+        paint.push_polyline(polyline, bounds, clip);
+        renderer.render(&paint, damage);
+        renderer.buffer().pixels().to_vec()
+    }
+
+    let full_damage = [PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 64,
+        height: 16,
+    }];
+    let tiled_damage = [0, 8, 16, 24, 32, 40, 48, 56].map(|x| PhysicalRect {
+        x,
+        y: 0,
+        width: 8,
+        height: 16,
+    });
+    let direct = render(Direct::default(), &full_damage);
+    let tiled = render(Direct::default(), &tiled_damage);
+    let scanline = render(Scanline::default(), &full_damage);
+    assert_eq!(tiled, direct);
+    assert_eq!(scanline, direct);
+    assert_eq!(direct[7 * 64 + 59].raw(), 0x0013_5078);
+    assert!(
+        direct
+            .iter()
+            .any(|pixel| pixel.raw() != 0 && pixel.raw() != 0x0013_5078)
+    );
+    assert_eq!(direct[0].raw(), 0);
+}
+
+#[test]
+fn polyline_equivalence_includes_points_and_style() {
+    let points = [LogicalPoint::new(1.0, 2.0), LogicalPoint::new(3.0, 4.0)];
+    let changed = [LogicalPoint::new(1.0, 2.0), LogicalPoint::new(4.0, 4.0)];
+    let bounds = PhysicalRect::default();
+    let mut first = CommandList::default();
+    let mut same = CommandList::default();
+    let mut different = CommandList::default();
+    first.push_polyline(
+        Polyline::new(&points, Color::WHITE),
+        bounds,
+        ClipId::default(),
+    );
+    same.push_polyline(
+        Polyline::new(&points, Color::WHITE),
+        bounds,
+        ClipId::default(),
+    );
+    different.push_polyline(
+        Polyline::new(&changed, Color::WHITE),
+        bounds,
+        ClipId::default(),
+    );
+
+    assert!(first.equivalent(0, &same, 0));
+    assert!(!first.equivalent(0, &different, 0));
 }
 
 #[test]

@@ -17,6 +17,7 @@ pub struct Scanline {
     active: Vec<CommandId>,
     ranges: Vec<Range<usize>>,
     clip_ranges: Vec<Option<ClipLine>>,
+    polyline: crate::render::polyline::Rasterizer,
 }
 
 struct LineBuffer<'a, P> {
@@ -53,6 +54,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
     clip_ranges: &[Option<ClipLine>],
     images: &SlotMap<RendererImageId, StoredImage>,
     text: &mut TextRenderer,
+    polyline: &mut crate::render::polyline::Rasterizer,
     buffer: &mut LineBuffer<'_, P>,
 ) {
     let line = buffer.line as i32;
@@ -103,7 +105,9 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                                 width: range.end - range.start,
                                 height: 1,
                             };
-                            raster::draw_line(&payload, line, clip, coverage, images, text, buffer);
+                            raster::draw_line(
+                                &payload, line, clip, coverage, images, text, polyline, buffer,
+                            );
                         },
                     );
                     continue;
@@ -116,15 +120,8 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
             width: end - start,
             height: 1,
         };
-        raster::draw_line(
-            &commands.get(*command),
-            line,
-            clip,
-            255,
-            images,
-            text,
-            buffer,
-        );
+        let payload = commands.get(*command);
+        raster::draw_line(&payload, line, clip, 255, images, text, polyline, buffer);
     }
 }
 
@@ -136,6 +133,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let clips = &context.clips;
         let images = &context.images;
         let text = &mut context.text;
+        let polyline = &mut self.polyline;
         let buffer = &mut context.buffer;
         let clipped = commands.has_clips;
 
@@ -261,6 +259,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.clip_ranges,
                                 images,
                                 text,
+                                polyline,
                                 &mut buffer,
                             );
                         } else {
@@ -270,6 +269,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.clip_ranges,
                                 images,
                                 text,
+                                polyline,
                                 &mut buffer,
                             );
                         }
@@ -322,6 +322,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.clip_ranges,
                                 images,
                                 text,
+                                polyline,
                                 &mut buffer,
                             );
                         } else {
@@ -331,6 +332,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.clip_ranges,
                                 images,
                                 text,
+                                polyline,
                                 &mut buffer,
                             );
                         }

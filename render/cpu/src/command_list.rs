@@ -6,7 +6,8 @@ use crate::{
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text_types::{Span, TextRequest},
 };
-use blit::geometry::{LogicalRect, PhysicalRect};
+use blit::geometry::{LogicalPoint, LogicalRect, PhysicalRect};
+use std::ops::Range;
 
 #[derive(Default)]
 pub struct CommandList {
@@ -14,6 +15,7 @@ pub struct CommandList {
     clips: Vec<ClipNode>,
     gradient_stops: Vec<GradientStop>,
     text_colors: Vec<Option<Color>>,
+    polyline_points: Vec<LogicalPoint>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,9 +30,57 @@ pub enum Command<'a> {
     /// restores target pixels to the renderer's default value
     Clear,
     Rectangle(Rectangle<'a>),
+    Polyline(Polyline<'a>),
     Image(ImageRequest),
     Text(TextRequest, &'a [Option<Color>]),
     BoxShadow(BoxShadow),
+}
+
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Polyline<'a> {
+        new(points: &'a [LogicalPoint], color: Color),
+        origin: LogicalPoint = LogicalPoint::ZERO,
+        width: f32 = 1.0,
+        opacity: f32 = 1.0,
+    }
+}
+
+impl Polyline<'_> {
+    pub fn bounds(self) -> Option<LogicalRect> {
+        if self.points.len() < 2
+            || !self.width.is_finite()
+            || self.width <= 0.0
+            || !self.origin.x.is_finite()
+            || !self.origin.y.is_finite()
+        {
+            return None;
+        }
+        let first = self.points[0];
+        if !first.x.is_finite() || !first.y.is_finite() {
+            return None;
+        }
+        let mut left = first.x;
+        let mut top = first.y;
+        let mut right = first.x;
+        let mut bottom = first.y;
+        for point in &self.points[1..] {
+            if !point.x.is_finite() || !point.y.is_finite() {
+                return None;
+            }
+            left = left.min(point.x);
+            top = top.min(point.y);
+            right = right.max(point.x);
+            bottom = bottom.max(point.y);
+        }
+        let radius = self.width * 0.5;
+        Some(LogicalRect {
+            x: self.origin.x + left - radius,
+            y: self.origin.y + top - radius,
+            width: right - left + self.width,
+            height: bottom - top + self.width,
+        })
+    }
 }
 
 blit::builder! {
@@ -155,6 +205,29 @@ impl CommandList {
         });
     }
 
+    pub fn push_polyline(&mut self, polyline: Polyline<'_>, bounds: PhysicalRect, clip: ClipId) {
+        self.assert_clip(clip);
+        let start = u32::try_from(self.polyline_points.len())
+            .expect("too many command list polyline points");
+        let len =
+            u32::try_from(polyline.points.len()).expect("too many command list polyline points");
+        let end = start
+            .checked_add(len)
+            .expect("too many command list polyline points");
+        self.polyline_points.extend_from_slice(polyline.points);
+        self.commands.push(StoredCommand {
+            bounds,
+            clip,
+            kind: CommandKind::Polyline(StoredPolyline {
+                points: start..end,
+                origin: polyline.origin,
+                color: polyline.color,
+                width: polyline.width,
+                opacity: polyline.opacity,
+            }),
+        });
+    }
+
     pub fn push_image(&mut self, image: ImageRequest, bounds: PhysicalRect, clip: ClipId) {
         self.push(bounds, clip, CommandKind::Image(image))
     }
@@ -225,6 +298,14 @@ impl CommandList {
                     opacity: rectangle.opacity,
                 })
             }
+            CommandKind::Polyline(polyline) => Command::Polyline(Polyline {
+                points: &self.polyline_points
+                    [polyline.points.start as usize..polyline.points.end as usize],
+                origin: polyline.origin,
+                color: polyline.color,
+                width: polyline.width,
+                opacity: polyline.opacity,
+            }),
             CommandKind::Image(image) => Command::Image(*image),
             CommandKind::Text(text) => Command::Text(text.request, self.text_colors(text.palette)),
             CommandKind::BoxShadow(shadow) => Command::BoxShadow(*shadow),
@@ -249,6 +330,7 @@ impl CommandList {
         self.clips.clear();
         self.gradient_stops.clear();
         self.text_colors.clear();
+        self.polyline_points.clear();
     }
 
     pub fn equivalent(&self, index: usize, other: &Self, other_index: usize) -> bool {
@@ -300,6 +382,15 @@ impl CommandList {
                         }
                         _ => false,
                     }
+            }
+            (CommandKind::Polyline(left), CommandKind::Polyline(right)) => {
+                left.origin == right.origin
+                    && left.color == right.color
+                    && left.width == right.width
+                    && left.opacity == right.opacity
+                    && self.polyline_points[left.points.start as usize..left.points.end as usize]
+                        == other.polyline_points
+                            [right.points.start as usize..right.points.end as usize]
             }
             (CommandKind::Image(left), CommandKind::Image(right)) => left == right,
             (CommandKind::Text(left), CommandKind::Text(right)) => {
@@ -367,6 +458,7 @@ struct StoredCommand {
 enum CommandKind {
     Clear,
     Rectangle(StoredRectangle),
+    Polyline(StoredPolyline),
     Image(ImageRequest),
     Text(StoredText),
     BoxShadow(BoxShadow),
@@ -375,6 +467,14 @@ enum CommandKind {
 struct StoredText {
     request: TextRequest,
     palette: TextPalette,
+}
+
+struct StoredPolyline {
+    points: Range<u32>,
+    origin: LogicalPoint,
+    color: Color,
+    width: f32,
+    opacity: f32,
 }
 
 struct StoredRectangle {

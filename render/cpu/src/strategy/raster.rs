@@ -12,6 +12,7 @@ pub fn draw_line<B: PixelBuffer>(
     coverage: u8,
     images: &SlotMap<RendererImageId, StoredImage>,
     text: &mut TextRenderer,
+    polyline: &mut crate::render::polyline::Rasterizer,
     buffer: &mut B,
 ) {
     match payload {
@@ -66,6 +67,20 @@ pub fn draw_line<B: PixelBuffer>(
                     x,
                     pixels: buffer.line_mut(line as usize),
                 },
+            );
+        }
+        Payload::Polyline(command, segments) => {
+            let x = buffer.x_offset() as i32;
+            command.draw_line(
+                segments,
+                line,
+                clip,
+                coverage,
+                PixelSpan {
+                    x,
+                    pixels: buffer.line_mut(line as usize),
+                },
+                polyline,
             );
         }
         Payload::Image(request) => {

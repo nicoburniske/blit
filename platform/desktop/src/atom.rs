@@ -1,7 +1,7 @@
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, Constraints, LogicalPoint, LogicalRect, Size};
 use blit_cpu::{
     color::Color,
-    command_list::{BoxShadow, Rectangle as DrawRectangle, TextPalette},
+    command_list::{BoxShadow, Polyline as DrawPolyline, Rectangle as DrawRectangle, TextPalette},
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
     style::{Border, BorderRadius},
     text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId},
@@ -39,6 +39,41 @@ impl Atom<DesktopPlatform> for Rectangle {
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
         area
+    }
+}
+
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Line {
+        new(start: LogicalPoint, end: LogicalPoint, color: Color),
+        width: f32 = 1.0,
+        opacity: f32 = 1.0,
+    }
+}
+
+impl Atom<DesktopPlatform> for Line {
+    fn measure(&self, _: &mut DesktopPlatform, constraints: Constraints) -> Size {
+        let points = [self.start, self.end];
+        let request = DrawPolyline::new(&points, self.color).width(self.width);
+        constraints.constrain(request.bounds().map_or(Size::ZERO, |bounds| bounds.size()))
+    }
+
+    fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
+        let points = [self.start, self.end];
+        let request = DrawPolyline::new(&points, self.color)
+            .origin(LogicalPoint::new(area.x, area.y))
+            .width(self.width)
+            .opacity(self.opacity);
+        platform.paint_polyline(request);
+    }
+
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+        let points = [self.start, self.end];
+        DrawPolyline::new(&points, self.color)
+            .origin(LogicalPoint::new(area.x, area.y))
+            .width(self.width)
+            .bounds()
+            .unwrap_or_default()
     }
 }
 

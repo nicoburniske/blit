@@ -3,7 +3,7 @@ use std::time::Instant;
 use blit::{Clip, FrameStage, LogicalPoint, LogicalRect, PhysicalRect, Platform, Scale2, Size};
 use blit_cpu::{
     Renderer, Scanline,
-    command_list::{BoxShadow, ClipId, CommandList, Rectangle, TextPalette},
+    command_list::{BoxShadow, ClipId, CommandList, Polyline, Rectangle, TextPalette},
     image::{ImageData, ImageHandle, ImageRequest},
     text_types::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
@@ -55,6 +55,13 @@ impl DesktopPlatform {
     pub fn paint_rectangle(&mut self, rectangle: Rectangle<'_>) {
         let bounds = rectangle.area.to_physical(self.scale);
         self.current.push_rectangle(rectangle, bounds, self.clip);
+    }
+
+    pub fn paint_polyline(&mut self, polyline: Polyline<'_>) {
+        if let Some(bounds) = polyline.bounds() {
+            self.current
+                .push_polyline(polyline, bounds.to_physical(self.scale), self.clip);
+        }
     }
 
     pub fn paint_text(&mut self, text: TextRequest) {

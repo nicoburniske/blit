@@ -14,7 +14,7 @@ pub mod text_types;
 
 use crate::{
     color::Color,
-    command_list::{BoxShadow, Command, CommandList as ResolvedCommandList, Rectangle},
+    command_list::{BoxShadow, Command, CommandList as ResolvedCommandList, Polyline, Rectangle},
     image::{ImageData, ImageHandle, ImageId, ImageRequest},
     style::Border,
     text_types::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
@@ -24,7 +24,7 @@ pub use blit_text::{FontData, FontError, TextLayoutEngine};
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
-use render::{image as render_image, image_patch::AlphaRows, rectangle, shadow};
+use render::{image as render_image, image_patch::AlphaRows, polyline, rectangle, shadow};
 pub use strategy::{Direct, RenderStrategy, Scanline};
 use strategy::{
     clip::ClipStack,
@@ -116,6 +116,21 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             self.context
                 .commands
                 .push_rectangle(rectangle, bounds, clip);
+        }
+    }
+
+    fn prepare_polyline(&mut self, request: &Polyline<'_>, bounds: PhysicalRect, clip: u32) {
+        if let Some(polyline) = polyline::Prepared::new(request, self.context.scale_factor)
+            && let Some(bounds) = polyline.geometry.intersection(bounds)
+        {
+            self.context.commands.push_polyline(
+                polyline,
+                request.points,
+                request.origin,
+                self.context.scale_factor,
+                bounds,
+                clip,
+            );
         }
     }
 
@@ -378,6 +393,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                     Command::Clear => self.context.commands.push_clear(record.bounds),
                     Command::Rectangle(rectangle) => {
                         self.prepare_rectangle(&rectangle, record.bounds, record.clip.0)
+                    }
+                    Command::Polyline(polyline) => {
+                        self.prepare_polyline(&polyline, record.bounds, record.clip.0)
                     }
                     Command::Image(image) => {
                         self.prepare_image(&image, record.bounds, record.clip.0)
