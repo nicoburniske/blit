@@ -8,6 +8,7 @@ pub struct Direct {
     normalized: Vec<PhysicalRect>,
     pieces: Vec<PhysicalRect>,
     scratch: Vec<PhysicalRect>,
+    polyline: crate::render::polyline::Rasterizer,
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Direct {
@@ -57,39 +58,53 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                 };
                 for line in bounds.y..bounds.y + bounds.height {
                     if clip_id == 0 {
-                        raster::draw_line(
-                            &payload,
-                            line,
-                            PhysicalRect {
-                                y: line,
-                                height: 1,
-                                ..bounds
-                            },
-                            255,
-                            images,
-                            text,
-                            buffer,
-                        );
+                        let clip = PhysicalRect {
+                            y: line,
+                            height: 1,
+                            ..bounds
+                        };
+                        if let super::command::Payload::Polyline(command, segments) = payload {
+                            raster::draw_polyline(
+                                command,
+                                segments,
+                                line,
+                                clip,
+                                255,
+                                &mut self.polyline,
+                                buffer,
+                            );
+                        } else {
+                            raster::draw_line(&payload, line, clip, 255, images, text, buffer);
+                        }
                     } else {
                         clips.for_each(
                             clip_id,
                             line,
                             bounds.x..bounds.x + bounds.width,
                             |range, coverage| {
-                                raster::draw_line(
-                                    &payload,
-                                    line,
-                                    PhysicalRect {
-                                        x: range.start,
-                                        y: line,
-                                        width: range.end - range.start,
-                                        height: 1,
-                                    },
-                                    coverage,
-                                    images,
-                                    text,
-                                    buffer,
-                                );
+                                let clip = PhysicalRect {
+                                    x: range.start,
+                                    y: line,
+                                    width: range.end - range.start,
+                                    height: 1,
+                                };
+                                if let super::command::Payload::Polyline(command, segments) =
+                                    payload
+                                {
+                                    raster::draw_polyline(
+                                        command,
+                                        segments,
+                                        line,
+                                        clip,
+                                        coverage,
+                                        &mut self.polyline,
+                                        buffer,
+                                    );
+                                } else {
+                                    raster::draw_line(
+                                        &payload, line, clip, coverage, images, text, buffer,
+                                    );
+                                }
                             },
                         );
                     }

@@ -68,6 +68,7 @@ pub fn draw_line<B: PixelBuffer>(
                 },
             );
         }
+        Payload::Polyline(_, _) => unreachable!("polyline requires polyline rasterizer"),
         Payload::Image(request) => {
             let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
             if let Some(image) = images.get(image) {
@@ -114,4 +115,28 @@ pub fn draw_line<B: PixelBuffer>(
             );
         }
     }
+}
+
+#[inline(always)]
+pub fn draw_polyline<B: PixelBuffer>(
+    command: &crate::render::polyline::Prepared,
+    segments: &[crate::render::polyline::Segment],
+    line: i32,
+    clip: PhysicalRect,
+    coverage: u8,
+    rasterizer: &mut crate::render::polyline::Rasterizer,
+    buffer: &mut B,
+) {
+    let x = buffer.x_offset() as i32;
+    command.draw_line(
+        segments,
+        line,
+        clip,
+        coverage,
+        PixelSpan {
+            x,
+            pixels: buffer.line_mut(line as usize),
+        },
+        rasterizer,
+    );
 }

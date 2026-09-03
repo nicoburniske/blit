@@ -1,12 +1,13 @@
 use std::ops::Range;
 
 use crate::{color::Color, style::GradientStop};
-use blit::PhysicalRect;
+use blit::{LogicalPoint, PhysicalRect};
 
 use super::clip::ClipId;
 use crate::{
     render::{
         image_patch::Prepared as PreparedImage,
+        polyline::{Prepared as PreparedPolyline, Segment as PreparedSegment},
         rectangle::{
             Gradient as PreparedGradient, Prepared as PreparedRectangle,
             SolidPair as PreparedSolidPair,
@@ -21,6 +22,7 @@ pub type CommandId = u32;
 pub struct CommandList {
     commands: Vec<StoredCommand>,
     gradient_stops: Vec<GradientStop>,
+    polyline_segments: Vec<PreparedSegment>,
     has_translucent_image: bool,
     has_partial_opaque: bool,
     pub has_clips: bool,
@@ -31,6 +33,7 @@ pub enum Payload<'a> {
     Rectangle(&'a PreparedRectangle),
     SolidPair(&'a PreparedSolidPair),
     GradientRectangle(&'a PreparedGradient, &'a [GradientStop]),
+    Polyline(&'a PreparedPolyline, &'a [PreparedSegment]),
     Image(&'a PreparedImage),
     Text(&'a PreparedText),
 }
@@ -111,6 +114,39 @@ impl CommandList {
         true
     }
 
+    pub fn push_polyline(
+        &mut self,
+        polyline: PreparedPolyline,
+        points: &[LogicalPoint],
+        origin: LogicalPoint,
+        scale_factor: f32,
+        bounds: PhysicalRect,
+        clip: ClipId,
+    ) {
+        let start = u32::try_from(self.polyline_segments.len())
+            .expect("too many prepared polyline segments");
+        self.polyline_segments
+            .extend(points.windows(2).map(|points| {
+                let point = |point: LogicalPoint| LogicalPoint {
+                    x: (origin.x + point.x) * scale_factor,
+                    y: (origin.y + point.y) * scale_factor,
+                };
+                PreparedSegment::new(point(points[0]), point(points[1]))
+            }));
+        let end = u32::try_from(self.polyline_segments.len())
+            .expect("too many prepared polyline segments");
+        self.push(
+            StoredPayload::Polyline {
+                polyline,
+                points: start..end,
+            },
+            bounds,
+            clip,
+            false,
+            false,
+        );
+    }
+
     pub fn push_image(
         &mut self,
         image: PreparedImage,
@@ -144,6 +180,10 @@ impl CommandList {
             StoredPayload::GradientRectangle { rectangle, stops } => Payload::GradientRectangle(
                 rectangle,
                 &self.gradient_stops[stops.start as usize..stops.end as usize],
+            ),
+            StoredPayload::Polyline { polyline, points } => Payload::Polyline(
+                polyline,
+                &self.polyline_segments[points.start as usize..points.end as usize],
             ),
             StoredPayload::Image(image) => Payload::Image(image),
             StoredPayload::Text(text) => Payload::Text(text),
@@ -188,6 +228,7 @@ impl CommandList {
             Payload::SolidPair(_) => bounds.clone(),
             Payload::Image(_) => bounds.clone(),
             Payload::GradientRectangle(rectangle, _) => rectangle.overwrite_span(line)?,
+            Payload::Polyline(_, _) => return None,
             Payload::Text(_) => return None,
         };
         let start = span.start.max(bounds.start);
@@ -202,6 +243,7 @@ impl CommandList {
     pub fn clear(&mut self) {
         self.commands.clear();
         self.gradient_stops.clear();
+        self.polyline_segments.clear();
         self.has_translucent_image = false;
         self.has_partial_opaque = false;
         self.has_clips = false;
@@ -241,6 +283,10 @@ enum StoredPayload {
     GradientRectangle {
         rectangle: PreparedGradient,
         stops: Range<u32>,
+    },
+    Polyline {
+        polyline: PreparedPolyline,
+        points: Range<u32>,
     },
     Image(PreparedImage),
     Text(PreparedText),

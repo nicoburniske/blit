@@ -16,6 +16,7 @@ ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] 
 blit-text-cosmic.workspace = true
 blit-text-fontdue.workspace = true
 divan = "0.1"
+zeno = "0.3.3"
 
 [[bench]]
 name = "cpu"
@@ -23,4 +24,8 @@ harness = false
 
 [[bench]]
 name = "memory"
+harness = false
+
+[[bench]]
+name = "polyline"
 harness = false
