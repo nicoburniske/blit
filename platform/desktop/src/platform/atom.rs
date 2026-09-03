@@ -171,5 +171,3 @@ impl Atom<DesktopPlatform> for Shadow {
         false
     }
 }
-
-blit::impl_atom_widgets!(DesktopPlatform => Rectangle, Text, Image, Shadow);

@@ -69,18 +69,3 @@ macro_rules! builder {
         $crate::builder!(@default $name $(<$lifetime>)?; $($required),*);
     };
 }
-
-#[macro_export]
-macro_rules! impl_atom_widgets {
-    ($platform:ty => $($atom:ty),+ $(,)?) => {
-        $(
-            impl<S> $crate::Widget<$platform, S> for $atom {
-                type Response = ();
-
-                fn build(self, mut ui: $crate::Ui<'_, $platform, S>) {
-                    ui.atom(self);
-                }
-            }
-        )+
-    };
-}

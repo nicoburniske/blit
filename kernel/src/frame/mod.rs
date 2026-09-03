@@ -7,16 +7,11 @@ pub mod timer;
 pub mod transition;
 
 use std::{
-    any::TypeId,
-    marker::PhantomData,
-    mem::{ManuallyDrop, size_of},
-    num::NonZeroU16,
-    ptr::{self, NonNull},
-    time::Duration,
+    any::TypeId, marker::PhantomData, mem::size_of, num::NonZeroU16, ptr::NonNull, time::Duration,
 };
 
 use crate::{
-    Atom, Clip, FrameInfo, Platform, Widget,
+    Atom, Clip, Content, FrameInfo, Platform, Widget,
     animation::{Easing, Transition},
     arena::{DataArena, DataId},
     geometry::{Constraints, Point, Rect, Sides, Size},
@@ -25,226 +20,167 @@ use crate::{
     layout::{Axis, Layout, LayoutResolution},
 };
 
-/// ui build states
+/// typestate modes for [`crate::Ui`]
+///
+/// every mode can insert content and access shared frame services
 pub mod state {
-    use super::{PhantomData, Place};
+    use super::PhantomData;
 
-    /// state of a node without an established layout
+    /// an unlaid node that may establish a layout
     pub struct Build;
 
-    /// state of a ui with an active layout
-    pub struct Open<L> {
-        pub(super) marker: PhantomData<L>,
-    }
+    /// a laid-out node that may create children
+    pub struct Open<L>(PhantomData<L>);
 
-    /// state of a child waiting to be populated
-    ///
-    /// `P` is the parent layout and `I` tracks its required item
-    pub struct Pending<P, I = ()> {
-        pub(super) place: Place,
-        pub(super) item: I,
-        pub(super) marker: PhantomData<P>,
-    }
+    /// access to an existing node without layout or child creation
+    pub struct Node;
 }
 
 /// scoped handle for building a frame node
 ///
-/// [`state::Build`]: node without an established layout
-/// [`state::Open`]: laid-out node that accepts children
-/// [`state::Pending`]: new child awaiting a widget or layout
+/// its [`state`] mode determines which operations are available
 pub struct Ui<'ui, R: Platform, S = state::Build> {
-    context: &'ui mut Context<R>,
-    node: NodeId,
-    state: S,
-    open: bool,
+    inner: UiInner<'ui, R>,
+    marker: PhantomData<S>,
 }
 
 impl<'ui, R: Platform, S> Ui<'ui, R, S> {
     pub fn id(&self) -> NodeId {
-        self.node
-    }
-
-    /// appends an atom to the current node
-    pub fn atom<A: Atom<R>>(&mut self, atom: A) -> &mut Self {
-        let node = self.node;
-        self.context.frame_mut().push_atom(node, atom);
-        self
+        self.inner.node
     }
 
     pub fn clip<C: Clip<R>>(self, clip: C) -> Self {
-        let node = self.node;
-        let frame = self.context.frame_mut();
-        assert!(
-            frame.nodes[node.index()].clip.index().is_none(),
-            "node already has a clip"
-        );
+        let node = self.inner.node;
+        let frame = self.inner.context.frame_mut();
         let clip = frame.store_clip(clip);
         frame.nodes[node.index()].clip = clip;
         self
     }
 
-    pub fn absolute(self, absolute: Absolute) -> Self {
-        let node = self.node;
-        self.context.frame_mut().set_absolute(node, absolute);
-        self
-    }
-
     pub fn widget_id(self, id: WidgetId) -> Self {
-        let node = self.node;
-        self.context.frame_mut().set_id(node, id);
+        let node = self.inner.node;
+        self.inner.context.frame_mut().set_id(node, id);
         self
     }
 
     pub fn hit(self, hit: Sides) -> Self {
-        let node = self.node;
-        self.context.frame_mut().set_hit(node, hit);
+        let node = self.inner.node;
+        self.inner.context.frame_mut().set_hit(node, hit);
         self
     }
 
     pub fn transition(self, transition: Transition) -> Self {
-        let node = self.node;
-        self.context.frame_mut().set_transition(node, transition);
+        let node = self.inner.node;
+        self.inner
+            .context
+            .frame_mut()
+            .set_transition(node, transition);
         self
+    }
+
+    /// inserts content into the current node
+    pub fn insert<C: Content<R>>(&mut self, content: C) -> C::Response {
+        content.append(Ui {
+            inner: UiInner {
+                context: &mut *self.inner.context,
+                node: self.inner.node,
+                owns_node: false,
+            },
+            marker: PhantomData,
+        })
+    }
+
+    pub fn new_layer(&mut self) -> LayerId {
+        self.inner.context.frame_mut().add_layer()
     }
 }
 
 impl<'ui, R: Platform> Ui<'ui, R, state::Build> {
-    /// establishes the current node's layout
-    pub fn layout<L: Layout<R>>(self, layout: L) -> Ui<'ui, R, state::Open<L>> {
-        let (context, node, _) = self.into_parts();
-        let frame = context.frame_mut();
-        assert!(
-            frame.nodes[node.index()].layout.index().is_none(),
-            "node already has a layout"
-        );
-        let layout = frame.store_layout(layout);
-        frame.nodes[node.index()].layout = layout;
-        open_ui(context, node)
+    /// transfers this fresh node to a widget
+    pub fn build<W: Widget<R>>(self, widget: W) -> W::Response {
+        widget.build(self)
     }
 
-    pub fn new_layer(&mut self) -> LayerId {
-        self.context.frame_mut().add_layer()
+    /// establishes the current node's layout
+    pub fn layout<L: Layout<R>>(self, layout: L) -> Ui<'ui, R, state::Open<L>> {
+        let Ui { inner, .. } = self;
+        let frame = inner.context.frame_mut();
+        let layout = frame.store_layout(layout);
+        frame.nodes[inner.node.index()].layout = layout;
+        Ui {
+            inner,
+            marker: PhantomData,
+        }
     }
 }
 
 impl<'ui, R: Platform, L: Layout<R>> Ui<'ui, R, state::Open<L>> {
     pub fn offset(self, offset: Point) -> Self {
-        let node = self.node;
-        let frame = self.context.frame_mut();
+        let node = self.inner.node;
+        let frame = self.inner.context.frame_mut();
         let layout = frame.nodes[node.index()].layout.index().unwrap();
         frame.layouts[layout].offset = offset;
         self
     }
 
-    /// builds a compatible widget into the current node
-    pub fn insert<W>(&mut self, widget: W) -> W::Response
-    where
-        W: Widget<R, state::Open<L>>,
-    {
-        let node = self.node;
-        widget.build(Ui::new(
-            &mut *self.context,
+    /// creates a fresh child at the given place
+    pub fn child(&mut self, place: Place<L::Item>) -> Ui<'_, R> {
+        let Place {
+            kind,
+            layer,
+            width,
+            height,
+            z_index,
+        } = place;
+        let node = self.inner.context.frame_mut().push_node();
+        let frame = self.inner.context.frame_mut();
+        let kind = match kind {
+            PlaceKind::Layout(item) => {
+                frame.nodes[node.index()].item = frame.data.store(item);
+                PlaceKind::Layout(())
+            }
+            PlaceKind::Absolute(absolute) => {
+                frame.set_absolute(node, absolute);
+                PlaceKind::Absolute(absolute)
+            }
+        };
+        frame.set_place(
             node,
-            state::Open {
-                marker: PhantomData,
+            Place {
+                kind,
+                layer,
+                width,
+                height,
+                z_index,
             },
-            false,
-        ))
-    }
-
-    pub fn new_layer(&mut self) -> LayerId {
-        self.context.frame_mut().add_layer()
-    }
-
-    /// creates a pending child
-    #[must_use = "a child must be populated with insert or layout"]
-    pub fn child(&mut self) -> Ui<'_, R, state::Pending<L>> {
-        let node = self.context.frame_mut().push_node(None);
-        Ui::new(
-            &mut *self.context,
-            node,
-            state::Pending {
-                place: Place::new(),
-                item: (),
-                marker: PhantomData,
-            },
-            false,
-        )
-    }
-}
-
-impl<'ui, R: Platform, L: Layout<R, Item = ()>> Ui<'ui, R, state::Open<L>> {
-    /// adds a child widget with default placement
-    pub fn add<W: Widget<R>>(&mut self, widget: W) -> W::Response {
-        self.child().insert(widget)
-    }
-}
-
-impl<'ui, R: Platform, P: Layout<R>, I> Ui<'ui, R, state::Pending<P, I>> {
-    pub fn item(self, item: P::Item) -> Ui<'ui, R, state::Pending<P, P::Item>> {
-        let (context, node, state) = self.into_parts();
-        Ui::new(
-            context,
-            node,
-            state::Pending {
-                place: state.place,
-                item,
-                marker: PhantomData,
-            },
-            false,
-        )
-    }
-
-    pub fn place(mut self, place: Place) -> Self {
-        self.state.place = place;
-        self
-    }
-}
-
-impl<'ui, R: Platform, P: Layout<R>> Ui<'ui, R, state::Pending<P, P::Item>> {
-    /// inserts a widget into the pending child
-    pub fn insert<W: Widget<R>>(self, widget: W) -> W::Response {
-        let (context, node, state) = self.into_parts();
-        let response = context.build_node(node, widget);
-        let frame = context.frame_mut();
-        frame.set_place(node, state.place);
-        let item = frame.data.store(state.item);
-        frame.nodes[node.index()].item = item;
-        response
-    }
-
-    /// establishes the pending child's layout
-    pub fn layout<L: Layout<R>>(self, layout: L) -> Ui<'ui, R, state::Open<L>> {
-        let (context, node, state) = self.into_parts();
-        let frame = context.frame_mut();
-        let layout = frame.store_layout(layout);
-        frame.nodes[node.index()].layout = layout;
-        frame.set_place(node, state.place);
-        let item = frame.data.store(state.item);
-        frame.nodes[node.index()].item = item;
-        open_ui(context, node)
+        );
+        frame.current_parent = Some(node);
+        Ui::new(&mut *self.inner.context, node)
     }
 }
 
 impl<R: Platform, S> Ui<'_, R, S> {
     pub fn set_id(&mut self, node: NodeId, id: WidgetId) {
-        self.context.frame_mut().set_id(node, id);
+        self.inner.context.frame_mut().set_id(node, id);
     }
 
     pub fn set_hit(&mut self, node: NodeId, hit: Sides) {
-        self.context.frame_mut().set_hit(node, hit);
+        self.inner.context.frame_mut().set_hit(node, hit);
     }
 
     pub fn set_transition(&mut self, node: NodeId, transition: Transition) {
-        self.context.frame_mut().set_transition(node, transition);
+        self.inner
+            .context
+            .frame_mut()
+            .set_transition(node, transition);
     }
 
     pub fn geometry(&self, id: WidgetId) -> Option<Rect> {
-        self.context.frame().geometry(id)
+        self.inner.context.frame().geometry(id)
     }
 
     pub fn interact(&mut self, id: WidgetId, sense: Sense) -> Interaction {
-        let frame = self.context.frame_mut();
+        let frame = self.inner.context.frame_mut();
         let interaction = frame.interaction.response(id, sense);
         if interaction.activated || interaction.deactivated || interaction.clicked {
             frame.request_frame();
@@ -253,44 +189,44 @@ impl<R: Platform, S> Ui<'_, R, S> {
     }
 
     pub fn input(&self) -> &Input {
-        &self.context.frame().input
+        &self.inner.context.frame().input
     }
 
     /// accesses platform resources during frame construction
     ///
     /// drawing remains deferred to [`Atom`] implementations
     pub fn platform(&mut self) -> &mut R {
-        self.context.platform_mut()
+        self.inner.context.platform_mut()
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {
-        self.context.frame().interaction.is_focused(id)
+        self.inner.context.frame().interaction.is_focused(id)
     }
 
     pub fn focus(&mut self, id: WidgetId) {
-        let frame = self.context.frame_mut();
+        let frame = self.inner.context.frame_mut();
         if frame.interaction.focus(id) {
             frame.request_frame();
         }
     }
 
     pub fn clear_focus(&mut self) {
-        let frame = self.context.frame_mut();
+        let frame = self.inner.context.frame_mut();
         if frame.interaction.clear_focus() {
             frame.request_frame();
         }
     }
 
     pub fn pointer_position(&self) -> Option<Point> {
-        self.context.frame().interaction.pointer_position()
+        self.inner.context.frame().interaction.pointer_position()
     }
 
     pub fn screen(&self) -> Rect {
-        self.context.frame().screen
+        self.inner.context.frame().screen
     }
 
     pub fn time(&self) -> Duration {
-        self.context.frame().time
+        self.inner.context.frame().time
     }
 
     pub fn animate(
@@ -300,7 +236,7 @@ impl<R: Platform, S> Ui<'_, R, S> {
         duration: Duration,
         easing: Easing,
     ) -> f32 {
-        let frame = self.context.frame_mut();
+        let frame = self.inner.context.frame_mut();
         let time = frame.time;
         animation::AnimationState::update(&mut frame.animations, id, target, |animation| {
             animation.advance(target, duration, easing, time)
@@ -308,7 +244,7 @@ impl<R: Platform, S> Ui<'_, R, S> {
     }
 
     pub fn animate_loop(&mut self, id: WidgetId, duration: Duration, easing: Easing) -> f32 {
-        let frame = self.context.frame_mut();
+        let frame = self.inner.context.frame_mut();
         let time = frame.time;
         animation::AnimationState::update(&mut frame.animations, id, 0.0, |animation| {
             animation.advance_loop(duration, easing, time)
@@ -316,7 +252,7 @@ impl<R: Platform, S> Ui<'_, R, S> {
     }
 
     pub fn timer(&mut self, id: WidgetId, duration: Duration) -> bool {
-        let frame = self.context.frame_mut();
+        let frame = self.inner.context.frame_mut();
         timer::TimerState::update(&mut frame.timers, id, duration, None, frame.time)
     }
 
@@ -325,12 +261,22 @@ impl<R: Platform, S> Ui<'_, R, S> {
             !duration.is_zero(),
             "looping timer duration must be nonzero"
         );
-        let frame = self.context.frame_mut();
+        let frame = self.inner.context.frame_mut();
         timer::TimerState::update(&mut frame.timers, id, duration, Some(duration), frame.time)
     }
 
     pub fn request_frame(&mut self) {
-        self.context.frame_mut().request_frame();
+        self.inner.context.frame_mut().request_frame();
+    }
+}
+
+// all atoms are content
+impl<R: Platform, A: Atom<R>> Content<R> for A {
+    type Response = ();
+
+    fn append(self, ui: Ui<'_, R, state::Node>) {
+        let node = ui.inner.node;
+        ui.inner.context.frame_mut().push_atom(node, self);
     }
 }
 
@@ -356,22 +302,37 @@ pub struct LayerId {
     generation: u16,
 }
 
-crate::builder! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Place {
-        new(),
-        @optional {
-            layer: LayerId,
-        },
-        width: Sizing = Sizing::fit(),
-        height: Sizing = Sizing::fit(),
-        z_index: i16 = 0,
-    }
+/// placement of a child within its parent
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Place<I = ()> {
+    pub kind: PlaceKind<I>,
+    pub layer: Option<LayerId>,
+    pub width: Sizing,
+    pub height: Sizing,
+    pub z_index: i16,
 }
 
-impl Place {
+/// relationship between a child and its parent layout
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PlaceKind<I = ()> {
+    Layout(I),
+    Absolute(Absolute),
+}
+
+impl Place<()> {
+    pub const fn new() -> Self {
+        Self {
+            kind: PlaceKind::Layout(()),
+            layer: None,
+            width: Sizing::fit(),
+            height: Sizing::fit(),
+            z_index: 0,
+        }
+    }
+
     pub const fn fixed(width: f32, height: f32) -> Self {
         Self {
+            kind: PlaceKind::Layout(()),
             layer: None,
             width: Sizing::fixed(width),
             height: Sizing::fixed(height),
@@ -381,11 +342,60 @@ impl Place {
 
     pub const fn grow() -> Self {
         Self {
+            kind: PlaceKind::Layout(()),
             layer: None,
             width: Sizing::grow(),
             height: Sizing::grow(),
             z_index: 0,
         }
+    }
+}
+
+impl Default for Place<()> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<I> Place<I> {
+    pub const fn absolute(absolute: Absolute) -> Self {
+        Self {
+            kind: PlaceKind::Absolute(absolute),
+            layer: None,
+            width: Sizing::fit(),
+            height: Sizing::fit(),
+            z_index: 0,
+        }
+    }
+
+    pub fn item<T>(self, item: T) -> Place<T> {
+        Place {
+            kind: PlaceKind::Layout(item),
+            layer: self.layer,
+            width: self.width,
+            height: self.height,
+            z_index: self.z_index,
+        }
+    }
+
+    pub const fn layer(mut self, layer: LayerId) -> Self {
+        self.layer = Some(layer);
+        self
+    }
+
+    pub const fn width(mut self, width: Sizing) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub const fn height(mut self, height: Sizing) -> Self {
+        self.height = height;
+        self
+    }
+
+    pub const fn z_index(mut self, z_index: i16) -> Self {
+        self.z_index = z_index;
+        self
     }
 }
 
@@ -537,27 +547,28 @@ impl Absolute {
 
 include!("graph.rs");
 
-impl<'ui, R: Platform, S> Ui<'ui, R, S> {
-    fn new(context: &'ui mut Context<R>, node: NodeId, state: S, open: bool) -> Self {
-        Self {
-            context,
-            node,
-            state,
-            open,
-        }
-    }
+struct UiInner<'ui, R: Platform> {
+    context: &'ui mut Context<R>,
+    node: NodeId,
+    owns_node: bool,
+}
 
-    fn into_parts(self) -> (&'ui mut Context<R>, NodeId, S) {
-        let node = self.node;
-        let this = ManuallyDrop::new(self);
-        // safety: this is not dropped and each field is read once
-        unsafe { (ptr::read(&this.context), node, ptr::read(&this.state)) }
+impl<'ui, R: Platform> Ui<'ui, R, state::Build> {
+    fn new(context: &'ui mut Context<R>, node: NodeId) -> Self {
+        Self {
+            inner: UiInner {
+                context,
+                node,
+                owns_node: true,
+            },
+            marker: PhantomData,
+        }
     }
 }
 
-impl<R: Platform, S> Drop for Ui<'_, R, S> {
+impl<R: Platform> Drop for UiInner<'_, R> {
     fn drop(&mut self) {
-        if !self.open {
+        if !self.owns_node {
             return;
         }
         let node = self.node;
@@ -567,21 +578,6 @@ impl<R: Platform, S> Drop for Ui<'_, R, S> {
         let parent = frame.nodes[node.index()].parent;
         frame.current_parent = (parent != node).then_some(parent);
     }
-}
-
-fn open_ui<R: Platform, L: Layout<R>>(
-    context: &mut Context<R>,
-    node: NodeId,
-) -> Ui<'_, R, state::Open<L>> {
-    context.frame_mut().current_parent = Some(node);
-    Ui::new(
-        context,
-        node,
-        state::Open {
-            marker: PhantomData,
-        },
-        true,
-    )
 }
 
 impl NodeId {
@@ -632,22 +628,6 @@ struct Context<R: Platform> {
 // Frame::record keeps the only value inside the build callback
 // NonNull is dereferenced only through Ui borrows
 impl<R: Platform> Context<R> {
-    fn build_node<W: Widget<R>>(&mut self, node: NodeId, widget: W) -> W::Response {
-        let parent = self.frame().current_parent;
-        self.frame_mut().current_parent = Some(node);
-        let output = widget.build(Ui::new(self, node, state::Build, false));
-        let frame = self.frame_mut();
-        frame.nodes[node.index()].subtree_end =
-            u32::try_from(frame.nodes.len() - 1).expect("too many frame nodes");
-        frame.current_parent = parent;
-        assert!(
-            frame.nodes[node.index()].first_atom.index().is_some()
-                || frame.nodes[node.index()].layout.index().is_some(),
-            "widget did not populate its node"
-        );
-        output
-    }
-
     fn frame(&self) -> &Frame<R> {
         // safety: see above
         unsafe { self.frame.as_ref() }

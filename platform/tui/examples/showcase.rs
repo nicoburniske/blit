@@ -65,14 +65,13 @@ impl Showcase {
         root.insert(Block::new().background(colors::BACKGROUND));
         {
             let mut header = root
-                .child()
-                .place(Place::new().height(Sizing::fixed(1.0)))
+                .child(Place::new().height(Sizing::fixed(1.0)))
                 .layout(Flex::row().align(Align::Center).gap(1.0));
             header.insert(Block::new().background(colors::SURFACE));
-            header.add(|ui: Ui<'_>| {
+            header.child(Place::new()).build(|ui: Ui<'_>| {
                 let mut logo = ui.layout(Flex::row().align(Align::Center));
                 logo.insert(Block::new().background(colors::ACCENT));
-                logo.add(
+                logo.child(Place::new()).insert(
                     Text::new(" blit ")
                         .color(colors::SURFACE)
                         .attributes(TextAttributes::BOLD),
@@ -85,7 +84,7 @@ impl Showcase {
                 (Page::Atoms, " atoms "),
                 (Page::Scroll, " scroll "),
             ] {
-                if header.add(Button::new(
+                if header.child(Place::new()).build(Button::new(
                     WidgetId::new(("tui page", label)),
                     label,
                     self.page == page,
@@ -93,32 +92,39 @@ impl Showcase {
                     self.page = page;
                 }
             }
-            header.child().place(Place::grow()).insert(());
-            if header.add(Button::new(
+            header.child(Place::grow()).insert(());
+            if header.child(Place::new()).build(Button::new(
                 WidgetId::new("toggle tui fps"),
                 " fps ",
                 self.show_fps,
             )) {
                 self.show_fps = !self.show_fps;
             }
-            if header.add(Button::new(
+            if header.child(Place::new()).build(Button::new(
                 WidgetId::new("tui reset showcase"),
                 " reset ",
                 false,
             )) {
                 *self = Self::default();
             }
-            header.add(Text::new(" q quit ").color(colors::TEXT_MUTED));
+            header
+                .child(Place::new())
+                .insert(Text::new(" q quit ").color(colors::TEXT_MUTED));
         }
         match self.page {
-            Page::Layout => root.child().place(Place::grow()).insert(&mut self.layout),
-            Page::Text => root.child().place(Place::grow()).insert(&mut self.text),
-            Page::Blocks => root.child().place(Place::grow()).insert(&mut self.blocks),
-            Page::Atoms => root.child().place(Place::grow()).insert(&mut self.atoms),
-            Page::Scroll => root.child().place(Place::grow()).insert(&mut self.scroll),
+            Page::Layout => root.child(Place::grow()).build(&mut self.layout),
+            Page::Text => root.child(Place::grow()).build(&mut self.text),
+            Page::Blocks => root.child(Place::grow()).build(&mut self.blocks),
+            Page::Atoms => root.child(Place::grow()).build(&mut self.atoms),
+            Page::Scroll => root.child(Place::grow()).build(&mut self.scroll),
         };
         if self.show_fps {
-            root.add(&mut self.fps);
+            root.child(Place::absolute(
+                Absolute::screen(0.0, 0.0)
+                    .anchors(Anchor::BottomRight, Anchor::BottomRight)
+                    .offset(-1.0, -1.0),
+            ))
+            .build(&mut self.fps);
         }
         control
     }
@@ -145,24 +151,24 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
         let screen = ui.screen();
         let preview_config = *canvas;
         let mut body = ui.layout(Flex::row());
-        body.child().place(Place::grow()).insert(SplitPane::new(
+        body.child(Place::grow()).build(SplitPane::new(
             split,
             WidgetId::new("tui layout page split"),
             40.0,
             |ui: Ui<'_>| {
                 let mut sidebar = ui.layout(Flex::column().padding(Sides::all(1.0)));
                 sidebar.insert(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
-                sidebar.child().place(Place::grow()).insert(ScrollArea::new(
+                sidebar.child(Place::grow()).build(ScrollArea::new(
                     layout_scroll,
                     BoundsClip,
                     |ui: Ui<'_>| {
                         let mut controls = ui.layout(Flex::column().gap(1.0));
-                        controls.add(
+                        controls.child(Place::new()).insert(
                             Text::new("FLOW")
                                 .color(colors::SECTION)
                                 .attributes(TextAttributes::BOLD),
                         );
-                        controls.add(|ui: Ui<'_>| {
+                        controls.child(Place::new()).build(|ui: Ui<'_>| {
                             choices(
                                 ui,
                                 "layout",
@@ -174,7 +180,7 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                                 ],
                             );
                         });
-                        controls.add(|ui: Ui<'_>| {
+                        controls.child(Place::new()).build(|ui: Ui<'_>| {
                             choices(
                                 ui,
                                 "axis",
@@ -182,12 +188,12 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                                 &[(" Horz ", Axis::Horizontal), (" Vert ", Axis::Vertical)],
                             );
                         });
-                        controls.add(
+                        controls.child(Place::new()).insert(
                             Text::new("DISTRIBUTION")
                                 .color(colors::SECTION)
                                 .attributes(TextAttributes::BOLD),
                         );
-                        controls.add(|ui: Ui<'_>| {
+                        controls.child(Place::new()).build(|ui: Ui<'_>| {
                             choices(
                                 ui,
                                 "justify",
@@ -202,7 +208,7 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                                 ],
                             );
                         });
-                        controls.add(|ui: Ui<'_>| {
+                        controls.child(Place::new()).build(|ui: Ui<'_>| {
                             choices(
                                 ui,
                                 "align",
@@ -215,12 +221,12 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                                 ],
                             );
                         });
-                        controls.add(
+                        controls.child(Place::new()).insert(
                             Text::new("SCALE, SPACE & MOTION")
                                 .color(colors::SECTION)
                                 .attributes(TextAttributes::BOLD),
                         );
-                        controls.add(|ui: Ui<'_>| {
+                        controls.child(Place::new()).build(|ui: Ui<'_>| {
                             choices(
                                 ui,
                                 "sizing",
@@ -232,7 +238,7 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                                 ],
                             );
                         });
-                        controls.add(|ui: Ui<'_>| {
+                        controls.child(Place::new()).build(|ui: Ui<'_>| {
                             choices(
                                 ui,
                                 "zoom",
@@ -240,7 +246,7 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                                 &[(" 75% ", 0.75), (" 100% ", 1.0), (" 125% ", 1.25)],
                             );
                         });
-                        controls.add(|ui: Ui<'_>| {
+                        controls.child(Place::new()).build(|ui: Ui<'_>| {
                             choices(
                                 ui,
                                 "gap",
@@ -248,7 +254,7 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                                 &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
                             );
                         });
-                        controls.add(|ui: Ui<'_>| {
+                        controls.child(Place::new()).build(|ui: Ui<'_>| {
                             choices(
                                 ui,
                                 "padding",
@@ -256,7 +262,7 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                                 &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
                             );
                         });
-                        controls.add(|ui: Ui<'_>| {
+                        controls.child(Place::new()).build(|ui: Ui<'_>| {
                             choices(
                                 ui,
                                 "transitions",
@@ -285,12 +291,11 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                 );
                 {
                     let mut viewport = preview
-                        .child()
-                        .place(Place::grow())
+                        .child(Place::grow())
                         .layout(Single::new().padding(Sides::all(1.0)))
                         .clip(BoundsClip);
                     viewport.insert(Block::new().background(colors::TRACK));
-                    viewport.add(
+                    viewport.child(Place::new()).build(
                         Resizable::new(
                             resize,
                             WidgetId::new("tui layout canvas"),
@@ -361,19 +366,19 @@ impl Widget<TuiPlatform> for &mut TextPage {
         let preview_vertical = *text_vertical;
         let preview_max_lines = *text_max_lines;
         let mut body = ui.layout(Flex::row());
-        body.child().place(Place::grow()).insert(SplitPane::new(
+        body.child(Place::grow()).build(SplitPane::new(
             split,
             WidgetId::new("tui text page split"),
             40.0,
             |ui: Ui<'_>| {
                 let mut controls = ui.layout(Flex::column().padding(Sides::all(1.0)).gap(1.0));
                 controls.insert(panel(colors::SURFACE, " TEXT CONTROLS "));
-                controls.add(
+                controls.child(Place::new()).insert(
                     Text::new("ATTRIBUTES")
                         .color(colors::SECTION)
                         .attributes(TextAttributes::BOLD),
                 );
-                controls.add(|ui: Ui<'_>| {
+                controls.child(Place::new()).build(|ui: Ui<'_>| {
                     let mut toggles = ui.layout(
                         Wrap::new(Axis::Horizontal)
                             .item_gap(1.0)
@@ -394,7 +399,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                     .enumerate()
                     {
                         let selected = text_attributes.contains(attribute);
-                        if toggles.add(Button::new(
+                        if toggles.child(Place::new()).build(Button::new(
                             WidgetId::new(("tui text attribute", index)),
                             label,
                             selected,
@@ -403,12 +408,12 @@ impl Widget<TuiPlatform> for &mut TextPage {
                         }
                     }
                 });
-                controls.add(
+                controls.child(Place::new()).insert(
                     Text::new("OPTIONS")
                         .color(colors::SECTION)
                         .attributes(TextAttributes::BOLD),
                 );
-                controls.add(|ui: Ui<'_>| {
+                controls.child(Place::new()).build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "wrap",
@@ -420,7 +425,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                         ],
                     );
                 });
-                controls.add(|ui: Ui<'_>| {
+                controls.child(Place::new()).build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "overflow",
@@ -431,7 +436,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                         ],
                     );
                 });
-                controls.add(|ui: Ui<'_>| {
+                controls.child(Place::new()).build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "horizontal",
@@ -443,7 +448,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                         ],
                     );
                 });
-                controls.add(|ui: Ui<'_>| {
+                controls.child(Place::new()).build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "vertical",
@@ -455,7 +460,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                         ],
                     );
                 });
-                controls.add(|ui: Ui<'_>| {
+                controls.child(Place::new()).build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "maximum lines",
@@ -475,7 +480,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                 );
                 {
                     let mut viewport = preview
-                        .child().place(Place::grow())
+                        .child(Place::grow())
                         .layout(Single::new().padding(Sides::all(1.0)))
                         .clip(BoundsClip);
                     viewport.insert(Block::new().background(colors::TRACK));
@@ -487,7 +492,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                     if let Some(max_lines) = preview_max_lines {
                         options = options.max_lines(max_lines);
                     }
-                    viewport.add(
+                    viewport.child(Place::new()).build(
                         Resizable::new(
                             text_resize,
                             WidgetId::new("tui text preview"),
@@ -516,7 +521,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                                         " retain their own emphasis and the words continue flowing through the same layout.",
                                     ),
                                 ];
-                                paragraph.child().place(Place::grow()).insert(
+                                paragraph.child(Place::grow()).insert(
                                     Text::rich(&sample)
                                         .color(colors::TEXT)
                                         .attributes(preview_attributes)
@@ -571,14 +576,14 @@ impl Widget<TuiPlatform> for &mut BlocksPage {
         let preview_shadow = *block_shadow;
         let preview_background = *block_background;
         let mut body = ui.layout(Flex::row());
-        body.child().place(Place::grow()).insert(SplitPane::new(
+        body.child(Place::grow()).build(SplitPane::new(
             split,
             WidgetId::new("tui blocks page split"),
             40.0,
             |ui: Ui<'_>| {
                 let mut controls = ui.layout(Flex::column().padding(Sides::all(1.0)).gap(1.0));
                 controls.insert(panel(colors::SURFACE, " BLOCK OPTIONS "));
-                controls.add(|ui: Ui<'_>| {
+                controls.child(Place::new()).build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "border style",
@@ -591,7 +596,7 @@ impl Widget<TuiPlatform> for &mut BlocksPage {
                         ],
                     );
                 });
-                controls.add(|ui: Ui<'_>| {
+                controls.child(Place::new()).build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "border sides",
@@ -604,7 +609,7 @@ impl Widget<TuiPlatform> for &mut BlocksPage {
                         ],
                     );
                 });
-                controls.add(|ui: Ui<'_>| {
+                controls.child(Place::new()).build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "shadow",
@@ -612,7 +617,7 @@ impl Widget<TuiPlatform> for &mut BlocksPage {
                         &[(" On ", true), (" Off ", false)],
                     );
                 });
-                controls.add(|ui: Ui<'_>| {
+                controls.child(Place::new()).build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "background",
@@ -624,7 +629,7 @@ impl Widget<TuiPlatform> for &mut BlocksPage {
             |ui: Ui<'_>| {
                 let mut preview = ui.layout(Flex::column().padding(Sides::all(1.0)).gap(1.0));
                 preview.insert(panel(colors::SURFACE, " BLOCK PREVIEW "));
-                preview.child().place(Place::grow()).insert(|ui: Ui<'_>| {
+                preview.child(Place::grow()).build(|ui: Ui<'_>| {
                     let mut block = Block::new()
                         .border(
                             Border::new(colors::CANVAS_BORDER)
@@ -649,8 +654,9 @@ impl Widget<TuiPlatform> for &mut BlocksPage {
                             .justify(Justify::Center),
                     );
                     configured.insert(block);
-                    configured
-                        .add(Text::new("change the options on the left").color(colors::TEXT_MUTED));
+                    configured.child(Place::new()).insert(
+                        Text::new("change the options on the left").color(colors::TEXT_MUTED),
+                    );
                 });
             },
         ));
@@ -696,27 +702,23 @@ impl Widget<TuiPlatform> for &mut AtomsPage {
 
         let mut body = ui.layout(Flex::column().padding(Sides::all(1.0)).gap(1.0));
         body.insert(panel(colors::SURFACE, " DIRECT CELL ATOMS "));
-        body.add(
+        body.child(Place::new()).insert(
             Text::new("ratatui-style atoms paint into the resolved atom area")
                 .color(colors::TEXT_MUTED),
         );
-        body.child()
-            .place(Place::new().height(Sizing::fixed(1.0)))
-            .insert(
-                Gauge::new(ratio as f64)
-                    .filled(colors::ACCENT)
-                    .unfilled(colors::TRACK)
-                    .label_color(colors::SURFACE),
-            );
-        body.child()
-            .place(Place::new().height(Sizing::fixed(5.0)))
-            .insert(
-                Sparkline::new(self.sparkline.clone())
-                    .maximum(100)
-                    .color(colors::ACCENT)
-                    .background(colors::CANVAS),
-            );
-        body.child().place(Place::grow()).insert(
+        body.child(Place::new().height(Sizing::fixed(1.0))).insert(
+            Gauge::new(ratio as f64)
+                .filled(colors::ACCENT)
+                .unfilled(colors::TRACK)
+                .label_color(colors::SURFACE),
+        );
+        body.child(Place::new().height(Sizing::fixed(5.0))).insert(
+            Sparkline::new(self.sparkline.clone())
+                .maximum(100)
+                .color(colors::ACCENT)
+                .background(colors::CANVAS),
+        );
+        body.child(Place::grow()).insert(
             BarChart::new(self.bars.clone())
                 .maximum(100)
                 .bar_width(5)
@@ -746,9 +748,9 @@ impl Widget<TuiPlatform> for &mut ScrollPage {
         body.insert(panel(colors::SURFACE, " SCROLL AREA "));
         {
             let mut controls = body
-                .child()
+                .child(Place::new())
                 .layout(Flex::row().gap(1.0).align(Align::Center));
-            controls.add(
+            controls.child(Place::new()).insert(
                 Text::new("AXIS")
                     .color(colors::TEXT_MUTED)
                     .attributes(TextAttributes::BOLD),
@@ -757,7 +759,7 @@ impl Widget<TuiPlatform> for &mut ScrollPage {
                 (Axis::Vertical, " Vertical "),
                 (Axis::Horizontal, " Horizontal "),
             ] {
-                if controls.add(Button::new(
+                if controls.child(Place::new()).build(Button::new(
                     WidgetId::new(("tui scroll axis", label)),
                     label,
                     *scroll_axis == axis,
@@ -768,7 +770,7 @@ impl Widget<TuiPlatform> for &mut ScrollPage {
             }
         }
         let axis = *scroll_axis;
-        body.child().place(Place::grow()).insert(
+        body.child(Place::grow()).build(
             ScrollArea::new(scroll, BoundsClip, move |ui: Ui<'_>| {
                 let mut items = ui.layout(Flex::new(axis).gap(1.0));
                 for index in 0..100 {
@@ -777,7 +779,7 @@ impl Widget<TuiPlatform> for &mut ScrollPage {
                         Axis::Horizontal => Place::new().width(Sizing::fixed(12.0)),
                         Axis::Vertical => Place::new().height(Sizing::fixed(3.0)),
                     };
-                    items.child().place(place).insert(|ui: Ui<'_>| {
+                    items.child(place).build(|ui: Ui<'_>| {
                         let layout = match axis {
                             Axis::Horizontal => {
                                 Flex::column().align(Align::Center).justify(Justify::Center)
@@ -797,7 +799,7 @@ impl Widget<TuiPlatform> for &mut ScrollPage {
                                 .background(background)
                                 .border(Border::new(colors::CANVAS_BORDER)),
                         );
-                        tile.add(
+                        tile.child(Place::new()).insert(
                             Text::new(item.label)
                                 .color(colors::TEXT)
                                 .attributes(TextAttributes::BOLD),
@@ -842,33 +844,28 @@ impl Widget<TuiPlatform> for &mut FpsBadge {
             self.label.clear();
             let _ = write!(self.label, "FPS {fps:03.0}");
         }
-        let mut badge = ui
-            .layout(
-                Flex::row()
-                    .padding(Sides::all(1.0))
-                    .gap(1.0)
-                    .align(Align::Center),
-            )
-            .absolute(
-                Absolute::screen(0.0, 0.0)
-                    .anchors(Anchor::BottomRight, Anchor::BottomRight)
-                    .offset(-1.0, -1.0),
-            );
+        let mut badge = ui.layout(
+            Flex::row()
+                .padding(Sides::all(1.0))
+                .gap(1.0)
+                .align(Align::Center),
+        );
         badge.insert(
             Block::new()
                 .background(colors::SURFACE_HIGH)
                 .border(Border::new(colors::ACCENT).style(BorderStyle::Rounded)),
         );
         badge
-            .child()
-            .place(Place::fixed(1.0, 1.0))
+            .child(Place::fixed(1.0, 1.0))
             .insert(Block::new().background(colors::ACCENT));
-        badge.add(
+        badge.child(Place::new()).insert(
             Text::new(&self.label)
                 .color(colors::TEXT)
                 .attributes(TextAttributes::BOLD),
         );
-        badge.add(Text::new("SCREEN ABSOLUTE").color(colors::TEXT_DIM));
+        badge
+            .child(Place::new())
+            .insert(Text::new("SCREEN ABSOLUTE").color(colors::TEXT_DIM));
     }
 }
 
@@ -893,7 +890,8 @@ impl Widget<TuiPlatform> for TuiGrip {
             colors::GRIP
         };
         let mut grip = ui.layout(Flex::row().align(Align::Center).justify(Justify::Center));
-        grip.add(Text::new(marker).color(color));
+        grip.child(Place::new())
+            .insert(Text::new(marker).color(color));
     }
 }
 
@@ -931,15 +929,19 @@ impl Widget<TuiPlatform> for Button<'_> {
             .layout(Flex::row().padding(Sides::x(1.0)))
             .widget_id(self.id);
         button.insert(block);
-        button.add(Text::new(self.label).color(colors::TEXT));
+        button
+            .child(Place::new())
+            .insert(Text::new(self.label).color(colors::TEXT));
         interaction.clicked
     }
 }
 
 fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, options: &[(&str, T)]) {
     let mut group = ui.layout(Flex::column());
-    group.add(Text::new(label).color(colors::TEXT_MUTED));
-    group.add(|ui: Ui<'_>| {
+    group
+        .child(Place::new())
+        .insert(Text::new(label).color(colors::TEXT_MUTED));
+    group.child(Place::new()).build(|ui: Ui<'_>| {
         let mut values = ui.layout(
             Wrap::new(Axis::Horizontal)
                 .item_gap(2.0)
@@ -947,7 +949,7 @@ fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, optio
                 .align(Align::Center),
         );
         for (index, &(option, value)) in options.iter().enumerate() {
-            let clicked = values.add(Button::new(
+            let clicked = values.child(Place::new()).build(Button::new(
                 WidgetId::new((label, index)),
                 option,
                 *selected == value,
@@ -987,9 +989,8 @@ impl Widget<TuiPlatform> for Canvas {
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
-                        .child()
-                        .place(self.config.item_place(index, unit))
-                        .insert(|ui: Ui<'_>| {
+                        .child(self.config.item_place(index, unit))
+                        .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });
                 }
@@ -1013,9 +1014,8 @@ impl Widget<TuiPlatform> for Canvas {
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
-                        .child()
-                        .place(self.config.item_place(index, unit))
-                        .insert(|ui: Ui<'_>| {
+                        .child(self.config.item_place(index, unit))
+                        .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });
                 }
@@ -1033,10 +1033,12 @@ impl Widget<TuiPlatform> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
                     canvas
-                        .child()
-                        .item(item)
-                        .place(Place::new().height(Sizing::fixed(3.0 * self.config.zoom)))
-                        .insert(|ui: Ui<'_>| {
+                        .child(
+                            Place::new()
+                                .item(item)
+                                .height(Sizing::fixed(3.0 * self.config.zoom)),
+                        )
+                        .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });
                 }
@@ -1065,25 +1067,26 @@ fn canvas_item(
     } else {
         item
     };
-    item.add(
+    item.child(Place::new()).insert(
         Text::new(spec.label)
             .color(colors::TEXT)
             .attributes(TextAttributes::BOLD),
     );
     if let Some(anchor) = spec.badge {
-        item.child()
-            .place(
-                Place::fixed(unit.width * 2.0, unit.height)
-                    .layer(badges)
-                    .z_index(1),
-            )
-            .insert(|ui: Ui<'_>| {
-                let mut badge = ui
-                    .layout(Flex::row().align(Align::Center).justify(Justify::Center))
-                    .absolute(Absolute::attach(anchor, Anchor::Center));
-                badge.insert(Block::new().background(colors::ACCENT_DARK));
-                badge.add(Text::new("A").color(colors::TEXT));
-            });
+        item.child(
+            Place::absolute(Absolute::attach(anchor, Anchor::Center))
+                .width(Sizing::fixed(unit.width * 2.0))
+                .height(Sizing::fixed(unit.height))
+                .layer(badges)
+                .z_index(1),
+        )
+        .build(|ui: Ui<'_>| {
+            let mut badge = ui.layout(Flex::row().align(Align::Center).justify(Justify::Center));
+            badge.insert(Block::new().background(colors::ACCENT_DARK));
+            badge
+                .child(Place::new())
+                .insert(Text::new("A").color(colors::TEXT));
+        });
     }
 }
 
@@ -1108,11 +1111,13 @@ impl Widget<TuiPlatform> for Divider {
     fn build(self, ui: Ui<'_>) {
         let active = self.0.hovered || self.0.dragging;
         let mut divider = ui.layout(Flex::row().align(Align::Center).justify(Justify::Center));
-        divider.add(Text::new("⠿").color(if active {
-            colors::ACCENT
-        } else {
-            colors::TEXT_DIM
-        }));
+        divider
+            .child(Place::new())
+            .insert(Text::new("⠿").color(if active {
+                colors::ACCENT
+            } else {
+                colors::TEXT_DIM
+            }));
     }
 }
 
@@ -1132,7 +1137,7 @@ impl scroll::Scrollbar for Scroll {
         scroll::Config::new().minimum_thumb_extent(4.0)
     }
 
-    fn into_widgets(self, active: bool) -> (Self::Track, Self::Thumb) {
+    fn into_content(self, active: bool) -> (Self::Track, Self::Thumb) {
         (
             Block::new().background(colors::TRACK),
             Block::new().background(if active {

@@ -1,6 +1,6 @@
 use blit::{
-    Axis, Constraints, Interaction, Layout, LayoutCx, Platform, Point, Sense, Size, Ui, Widget,
-    WidgetId,
+    Axis, Constraints, Interaction, Layout, LayoutCx, Place, Platform, Point, Sense, Size, Ui,
+    Widget, WidgetId,
 };
 
 blit::builder! {
@@ -30,9 +30,7 @@ pub struct NoDivider;
 impl Divider for NoDivider {
     type Widget = ();
 
-    fn into_widget(self, _: Axis, _: Interaction) -> Self::Widget {
-        ()
-    }
+    fn into_widget(self, _: Axis, _: Interaction) -> Self::Widget {}
 }
 
 #[derive(Debug, Default)]
@@ -173,20 +171,17 @@ where
             })
             .widget_id(id);
         panes
-            .child()
-            .item(SplitItem::Leading)
+            .child(Place::new().item(SplitItem::Leading))
             .widget_id(leading_id)
-            .insert(leading);
+            .build(leading);
         panes
-            .child()
-            .item(SplitItem::Divider)
+            .child(Place::new().item(SplitItem::Divider))
             .widget_id(divider_id)
-            .insert(divider.into_widget(config.axis, interaction));
+            .build(divider.into_widget(config.axis, interaction));
         panes
-            .child()
-            .item(SplitItem::Trailing)
+            .child(Place::new().item(SplitItem::Trailing))
             .widget_id(trailing_id)
-            .insert(trailing);
+            .build(trailing);
     }
 }
 

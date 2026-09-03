@@ -58,5 +58,3 @@ impl Atom<TuiPlatform> for Shadow {
         false
     }
 }
-
-blit::impl_atom_widgets!(TuiPlatform => Shadow);

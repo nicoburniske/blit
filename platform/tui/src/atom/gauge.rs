@@ -132,8 +132,6 @@ fn percentage_label(ratio: f64) -> ([char; 4], usize) {
     }
 }
 
-blit::impl_atom_widgets!(TuiPlatform => Gauge);
-
 #[cfg(test)]
 mod tests {
     use blit::{Frame, FrameInfo, Place, Size};
@@ -152,8 +150,7 @@ mod tests {
             FrameInfo::new(Size::new(10.0, 1.0)),
             |ui: crate::Ui<'_>| {
                 let mut root = ui.layout(Single::new());
-                root.child()
-                    .place(Place::grow())
+                root.child(Place::grow())
                     .insert(Gauge::new(0.5).filled(Color::GREEN).unfilled(Color::BLACK));
             },
         );

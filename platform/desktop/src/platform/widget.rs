@@ -1,6 +1,6 @@
 pub use blit_std::widget::{scroll, split};
 
-use blit::Widget;
+use blit::{Content, state};
 use blit_cpu::{
     color::Color,
     text_types::{TextOptions, TextStyle},
@@ -20,12 +20,12 @@ blit::builder! {
     }
 }
 
-impl<S> Widget<DesktopPlatform, S> for Text<'_> {
+impl Content<DesktopPlatform> for Text<'_> {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_, S>) {
+    fn append(self, mut ui: Ui<'_, state::Node>) {
         let run = ui.platform().text_run(self.text, self.style);
-        ui.atom(
+        ui.insert(
             atom::Text::new(run)
                 .color(self.color)
                 .offset_x(self.offset_x)

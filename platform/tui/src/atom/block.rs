@@ -319,8 +319,6 @@ fn border_character(style: BorderStyle, edges: u8) -> char {
     }
 }
 
-blit::impl_atom_widgets!(TuiPlatform => Block);
-
 #[cfg(test)]
 mod tests {
     use blit::{Frame, FrameInfo, Place, Size};
@@ -343,7 +341,7 @@ mod tests {
                 root.insert(widget::Text::new(
                     "xxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx",
                 ));
-                root.child().place(Place::fixed(20.0, 4.0)).insert(
+                root.child(Place::fixed(20.0, 4.0)).insert(
                     widget::Block::new()
                         .background(Color::WHITE)
                         .border(Border::new(Color::GREEN).style(BorderStyle::Double))

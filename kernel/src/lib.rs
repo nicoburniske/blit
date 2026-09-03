@@ -5,21 +5,16 @@
 //!
 //! # core model
 //!
-//! - a node is the retained unit of geometry and composition. it may hold properties, zero or more
-//!   atoms, an optional layout, and zero or more child nodes. children require a layout
-//! - a [`Widget`] is consumed while building. it records content into one [`Ui`] node and may
-//!   return an immediate response, but is never measured or painted
-//! - an [`Atom`] is owned visual content retained for the later phases of the frame. it measures
-//!   under constraints, then paints with its node's resolved rectangle
-//! - a [`Layout`] is retained spatial policy. it measures and positions the node's children
-//!
-//! # building nodes
-//!
-//! [`Ui`] tracks node construction with three states:
-//!
-//! - [`state::Build`] is a node without a layout. it can receive atoms or establish its layout
-//! - [`state::Open`] has a layout. it can receive atoms and create children
-//! - [`state::Pending`] is a new child waiting for a widget or its own layout
+//! - a node is the retained unit of geometry and composition. it may hold properties, atoms, an
+//!   optional layout, and child nodes
+//! - [`Widget`] receives a fresh node and builds it. it may insert content or establish a layout
+//!   and build children
+//! - [`Content`] works within an existing node. it may configure the node, use frame and platform
+//!   services, and insert further content
+//! - [`Atom`] is visual content retained for painting. it measures under constraints, then paints
+//!   using the node's resolved position and size
+//! - [`Layout`] is retained policy for a node's children. it measures them and resolves their
+//!   positions and sizes
 //!
 //! # frame lifecycle
 //!
@@ -30,7 +25,7 @@
 //! retained frame graph
 //!     │ Layout measures Atoms and arranges children
 //!     ▼
-//! resolved rectangles
+//! resolved node positions and sizes
 //!     │ Atom::paint
 //!     ▼
 //! platform output
@@ -53,7 +48,8 @@ pub mod layout;
 
 pub use animation::{Easing, Transition, TransitionProperties};
 pub use frame::{
-    Absolute, Anchor, Frame, FrameMemory, LayerId, NodeId, Place, PositionTarget, Sizing, Ui, state,
+    Absolute, Anchor, Frame, FrameMemory, LayerId, NodeId, Place, PlaceKind, PositionTarget,
+    Sizing, Ui, state,
 };
 pub use geometry::{
     Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize,
@@ -81,30 +77,51 @@ crate::builder! {
     }
 }
 
-/// content that can build into a [`Ui`] state
-pub trait Widget<R: Platform, S = state::Build> {
+/// immediate builder that owns and populates a new frame node
+pub trait Widget<R: Platform> {
     type Response;
 
-    fn build(self, ui: Ui<'_, R, S>) -> Self::Response;
+    fn build(self, ui: Ui<'_, R>) -> Self::Response;
 }
 
-impl<R, S, F, O> Widget<R, S> for F
+/// immediate content that augments an existing node without changing its structure
+pub trait Content<R: Platform> {
+    type Response;
+
+    fn append(self, ui: Ui<'_, R, state::Node>) -> Self::Response;
+}
+
+/// retained visual content that measures and paints after building
+///
+/// every atom implements [`Content`]
+pub trait Atom<R: Platform>: 'static {
+    fn measure(&self, platform: &mut R, constraints: Constraints) -> Size;
+
+    fn paint(&self, platform: &mut R, area: Rect);
+
+    /// whether measurement must be repeated when constraints tighten
+    fn measure_depends_on_constraints(&self) -> bool {
+        true
+    }
+}
+
+impl<R, F, O> Widget<R> for F
 where
     R: Platform,
-    F: FnOnce(Ui<'_, R, S>) -> O,
+    F: FnOnce(Ui<'_, R>) -> O,
 {
     type Response = O;
 
-    fn build(self, ui: Ui<'_, R, S>) -> Self::Response {
+    fn build(self, ui: Ui<'_, R>) -> Self::Response {
         self(ui)
     }
 }
 
-impl<R: Platform, S> Widget<R, S> for () {
+impl<R: Platform> Widget<R> for () {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_, R, S>) {
-        ui.atom(self);
+    fn build(self, mut ui: Ui<'_, R>) {
+        ui.insert(self);
     }
 }
 
@@ -120,19 +137,12 @@ impl<R: Platform> Atom<R> for () {
     }
 }
 
-pub trait Atom<R: Platform>: Widget<R> + 'static {
-    fn measure(&self, platform: &mut R, constraints: Constraints) -> Size;
-
-    fn paint(&self, platform: &mut R, area: Rect);
-
-    /// whether measurement must be repeated when constraints tighten
-    fn measure_depends_on_constraints(&self) -> bool {
-        true
-    }
-}
-
 pub trait Clip<R: Platform>: Copy + 'static {
     fn push(&self, platform: &mut R, area: Rect);
 
     fn pop(&self, platform: &mut R);
 }
+
+#[cfg(doctest)]
+#[doc = include_str!("../tests/compile_fail.md")]
+mod compile_fail {}

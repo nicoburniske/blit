@@ -204,12 +204,13 @@ impl<R: Platform> Frame<R> {
         self.interaction.begin(&input);
 
         let output = {
-            let root = self.push_node(None);
+            let root = self.push_node();
             let mut context = Context {
                 frame: NonNull::from(&mut *self),
                 platform: NonNull::from(&mut *platform),
             };
-            context.build_node(root, widget)
+            context.frame_mut().current_parent = Some(root);
+            widget.build(Ui::new(&mut context, root))
         };
         assert_eq!(
             self.nodes[0].subtree_end as usize,
@@ -251,10 +252,6 @@ impl<R: Platform> Frame<R> {
             let run = self.layout_kinds[stored.kind as usize].layout;
             run(data, self, node, platform, stored.data, constraints)
         } else {
-            assert!(
-                self.nodes[index].first_atom.index().is_some(),
-                "node has neither an atom nor a layout"
-            );
             self.measure_base(data, node, platform, constraints)
         };
         let size = constraints.constrain(size);
@@ -368,14 +365,14 @@ impl<R: Platform> Frame<R> {
         id
     }
 
-    fn push_node(&mut self, layout: Option<StoredLayoutId>) -> NodeId {
+    fn push_node(&mut self) -> NodeId {
         let id = self.node_id(self.nodes.len());
         self.nodes.push(StoredNode {
             parent: self.current_parent.unwrap_or(id),
             subtree_end: id.value,
             first_atom: StoredAtomId::NONE,
             last_atom: StoredAtomId::NONE,
-            layout: layout.unwrap_or(StoredLayoutId::NONE),
+            layout: StoredLayoutId::NONE,
             clip: StoredClipId::NONE,
             item: DataId::NONE,
             area: Rect::default(),
@@ -398,7 +395,6 @@ impl<R: Platform> Frame<R> {
 
     fn set_absolute(&mut self, node: NodeId, absolute: Absolute) {
         let parent = self.nodes[node.index()].parent;
-        assert_ne!(parent, node, "the root cannot be absolutely positioned");
         let target = match absolute.target {
             PositionTarget::Parent => parent,
             PositionTarget::Node(target) => {
