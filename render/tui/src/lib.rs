@@ -1010,6 +1010,34 @@ mod tests {
     }
 
     #[test]
+    fn text_inherits_cell_foregrounds_without_a_color() {
+        let mut renderer = renderer(2, 1);
+        let area = renderer.screen().to_logical(SCALE);
+        let text = renderer.text_run("ok");
+        renderer.begin_frame();
+        {
+            let mut cells = renderer.cells(area, area);
+            for (x, (character, color)) in [('a', Color::RED), ('b', Color::GREEN)]
+                .into_iter()
+                .enumerate()
+            {
+                cells.set_cell(
+                    x,
+                    0,
+                    SurfaceCell::new(character).style(CellStyle::new().foreground(color)),
+                );
+            }
+        }
+        renderer.paint_text(TextRequest::new(text, area), area);
+        renderer.end_frame();
+
+        assert_eq!(
+            renderer.cells.foreground.as_slice(),
+            &[Color::RED.packed(), Color::GREEN.packed()]
+        );
+    }
+
+    #[test]
     fn text_cache_pins_presented_runs() {
         let mut renderer = renderer(1, 1);
         let area = renderer.screen().to_logical(SCALE);

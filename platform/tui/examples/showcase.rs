@@ -10,15 +10,13 @@ use blit_showcase::{
 };
 use blit_tui::{
     BoundsClip, ControlFlow, TuiPlatform, Ui,
-    atom::{
-        Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, TitlePosition,
-    },
+    atom::{Bar, BarChart, Border, BorderSides, BorderStyle, Shadow, Sparkline, TitlePosition},
     color::Color,
     layout::{Align, Flex, Grid, Justify, Single, Wrap},
     text::{
         HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign,
     },
-    widget::{Block, Text, Title, scroll, split},
+    widget::{Block, Gauge, Text, Title, scroll, split},
 };
 
 fn main() -> io::Result<()> {
@@ -707,8 +705,7 @@ impl Widget<TuiPlatform> for &mut AtomsPage {
         body.child(Place::new().height(Sizing::fixed(1.0))).insert(
             Gauge::new(ratio as f64)
                 .filled(colors::ACCENT)
-                .unfilled(colors::TRACK)
-                .label_color(colors::SURFACE),
+                .unfilled(colors::TRACK),
         );
         body.child(Place::new().height(Sizing::fixed(5.0))).insert(
             Sparkline::new(self.sparkline.clone())

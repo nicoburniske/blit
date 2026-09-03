@@ -24,6 +24,13 @@ blit::builder! {
     }
 }
 
+#[derive(Clone, Copy)]
+struct PaintStyle {
+    foreground: Option<Color>,
+    background: Option<Color>,
+    attributes: TextAttributes,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Cell {
     pub character: Option<char>,
@@ -215,17 +222,17 @@ impl TuiRenderer {
         let layout = self.text_layouts.get_index(layout);
         let spans = &self.text_runs.get_index(run).spans;
         let mut span_index = 0;
-        let base_style = CellStyle {
-            background,
+        let base_style = PaintStyle {
             foreground: request.color,
+            background,
             attributes: request.attributes,
         };
         let resolve_style = |span: &crate::ResolvedSpan| {
             let mut attributes = request.attributes | span.attributes;
             attributes.set(span.remove_attributes, false);
-            CellStyle {
+            PaintStyle {
+                foreground: span.color.or(request.color),
                 background: span.background.or(background),
-                foreground: span.color.unwrap_or(request.color),
                 attributes,
             }
         };
@@ -328,7 +335,11 @@ impl TuiRenderer {
                 index,
                 text,
                 width,
-                style,
+                PaintStyle {
+                    foreground: Some(style.foreground),
+                    background: style.background,
+                    attributes: style.attributes,
+                },
             );
         } else if let Some(background) = style.background {
             if self.frame_cells.glyph[index] != Glyph::SPACE.0 {
@@ -345,18 +356,20 @@ impl TuiRenderer {
         index: usize,
         glyph: Glyph,
         width: usize,
-        style: CellStyle,
+        style: PaintStyle,
     ) {
+        let background = style
+            .background
+            .map_or(frame_cells.background[index], Color::packed);
+        let foreground = style
+            .foreground
+            .map_or(frame_cells.foreground[index], Color::packed);
+        let attributes = style.attributes.0;
         for index in index..index + width {
             if frame_cells.glyph[index] != Glyph::SPACE.0 {
                 Self::clear_glyph(frame_cells, columns, index);
             }
         }
-        let background = style
-            .background
-            .map_or(frame_cells.background[index], Color::packed);
-        let foreground = style.foreground.packed();
-        let attributes = style.attributes.0;
         frame_cells.glyph[index] = glyph.0;
         frame_cells.foreground[index] = foreground;
         frame_cells.background[index] = background;
