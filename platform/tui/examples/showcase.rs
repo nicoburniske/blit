@@ -158,10 +158,8 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
             |ui: Ui<'_>| {
                 let mut sidebar = ui.layout(Flex::column().padding(Sides::all(1.0)));
                 sidebar.insert(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
-                sidebar.child(Place::grow()).build(ScrollArea::new(
-                    layout_scroll,
-                    BoundsClip,
-                    |ui: Ui<'_>| {
+                sidebar.child(Place::grow()).build(
+                    ScrollArea::new(layout_scroll, BoundsClip).build(|ui: Ui<'_>| {
                         let mut controls = ui.layout(Flex::column().gap(1.0));
                         controls.child(Place::new()).insert(
                             Text::new("FLOW")
@@ -270,8 +268,8 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                                 &[(" On ", true), (" Off ", false)],
                             );
                         });
-                    },
-                ));
+                    }),
+                );
             },
             |ui: Ui<'_>| {
                 let mut preview = ui.layout(Flex::column().padding(Sides::all(1.0)));
@@ -770,44 +768,39 @@ impl Widget<TuiPlatform> for &mut ScrollPage {
             }
         }
         let axis = *scroll_axis;
+        let item_extent = match axis {
+            Axis::Horizontal => 12.0,
+            Axis::Vertical => 3.0,
+        };
         body.child(Place::grow()).build(
-            ScrollArea::new(scroll, BoundsClip, move |ui: Ui<'_>| {
-                let mut items = ui.layout(Flex::new(axis).gap(1.0));
-                for index in 0..100 {
+            ScrollList::new(scroll, BoundsClip, 0_usize..100, item_extent)
+                .build(move |ui: Ui<'_>, index| {
                     let item = ITEMS[index % ITEMS.len()];
-                    let place = match axis {
-                        Axis::Horizontal => Place::new().width(Sizing::fixed(12.0)),
-                        Axis::Vertical => Place::new().height(Sizing::fixed(3.0)),
+                    let layout = match axis {
+                        Axis::Horizontal => {
+                            Flex::column().align(Align::Center).justify(Justify::Center)
+                        }
+                        Axis::Vertical => Flex::row().padding(Sides::all(1.0)).align(Align::Center),
                     };
-                    items.child(place).build(|ui: Ui<'_>| {
-                        let layout = match axis {
-                            Axis::Horizontal => {
-                                Flex::column().align(Align::Center).justify(Justify::Center)
-                            }
-                            Axis::Vertical => {
-                                Flex::row().padding(Sides::all(1.0)).align(Align::Center)
-                            }
-                        };
-                        let background = if index % 2 == 0 {
-                            colors::SURFACE_HIGH
-                        } else {
-                            colors::TRACK
-                        };
-                        let mut tile = ui.layout(layout);
-                        tile.insert(
-                            Block::new()
-                                .background(background)
-                                .border(Border::new(colors::CANVAS_BORDER)),
-                        );
-                        tile.child(Place::new()).insert(
-                            Text::new(item.label)
-                                .color(colors::TEXT)
-                                .attributes(TextAttributes::BOLD),
-                        );
-                    });
-                }
-            })
-            .axis(axis),
+                    let background = if index.is_multiple_of(2) {
+                        colors::SURFACE_HIGH
+                    } else {
+                        colors::TRACK
+                    };
+                    let mut tile = ui.layout(layout);
+                    tile.insert(
+                        Block::new()
+                            .background(background)
+                            .border(Border::new(colors::CANVAS_BORDER)),
+                    );
+                    tile.child(Place::new()).insert(
+                        Text::new(item.label)
+                            .color(colors::TEXT)
+                            .attributes(TextAttributes::BOLD),
+                    );
+                })
+                .axis(axis)
+                .gap(1.0),
         );
     }
 }
@@ -1124,7 +1117,8 @@ impl Widget<TuiPlatform> for Divider {
 #[derive(Clone, Copy, Default)]
 struct Scroll;
 
-type ScrollArea<'a, C> = scroll::Area<'a, C, BoundsClip, Scroll>;
+type ScrollArea<'a, C = ()> = scroll::Area<'a, TuiPlatform, BoundsClip, Scroll, C>;
+type ScrollList<'a, I, F = ()> = scroll::List<'a, TuiPlatform, I, BoundsClip, Scroll, F>;
 
 impl scroll::Scrollbar for Scroll {
     const HAS_TRACK: bool = true;
