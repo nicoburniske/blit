@@ -15,6 +15,13 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
         let positioned = frame.positioned[positioned];
         let node = frame.node_id(index);
         let target = frame.nodes[positioned.target.index()].area;
+        let containing = frame.nodes[index]
+            .place
+            .layer
+            .map_or(frame.nodes[index].parent, |layer| {
+                frame.layers[layer.index()].owner
+            });
+        let available = frame.nodes[containing.index()].area.size();
         let range = |sizing: Sizing, available: f32| match sizing {
             Sizing::Fit { min, max } => {
                 let min = min.max(0.0);
@@ -33,8 +40,8 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
                 (size, size)
             }
         };
-        let width = range(frame.nodes[index].place.width, target.width);
-        let height = range(frame.nodes[index].place.height, target.height);
+        let width = range(frame.nodes[index].place.width, available.width);
+        let height = range(frame.nodes[index].place.height, available.height);
         let size = frame.layout_node(
             data,
             node,

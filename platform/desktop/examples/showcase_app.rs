@@ -1,8 +1,8 @@
 use std::{fmt::Write as _, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Axis, Easing, Interaction, Place, Sense, Sides, Size, Sizing, Transition,
-    Widget, WidgetId,
+    Absolute, Anchor, Axis, Easing, Interaction, Place, Point, Sense, Sides, Size, Sizing,
+    Transition, Widget, WidgetId,
 };
 use blit_cpu::{FontData, FontFace, RendererConfig, TextLayoutEngine};
 use blit_desktop::{
@@ -12,7 +12,7 @@ use blit_desktop::{
     layout::{Align, Flex, Grid, Single, Wrap},
     style::{Border, BorderRadius},
     text::{FontId, TextStyle},
-    widget::{Text, scroll, split},
+    widget::{Text, popover, scroll, split},
 };
 use blit_showcase::{
     CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip,
@@ -58,6 +58,7 @@ struct App {
     layout: LayoutPage,
     styles: StylesPage,
     scroll: ScrollPage,
+    settings: popover::State,
     fps: FpsBadge,
     show_fps: bool,
 }
@@ -69,6 +70,7 @@ impl Default for App {
             layout: LayoutPage::default(),
             styles: StylesPage::default(),
             scroll: ScrollPage::default(),
+            settings: popover::State::new(),
             fps: FpsBadge::default(),
             show_fps: true,
         }
@@ -136,18 +138,43 @@ impl Application for App {
                 }
             }
             header.child(Place::grow()).insert(());
-            if header.child(Place::new()).build(Button::new(
-                WidgetId::new("toggle desktop fps"),
-                "fps",
-                self.show_fps,
-            )) {
-                self.show_fps = !self.show_fps;
-            }
-            if header.child(Place::new()).build(Button::new(
-                WidgetId::new("reset desktop showcase"),
-                "reset",
-                false,
-            )) {
+            let reset = header.child(Place::new()).build(
+                popover::Popover::new(&mut self.settings)
+                    .config(
+                        popover::Config::new()
+                            .target_anchor(Anchor::BottomRight)
+                            .child_anchor(Anchor::TopRight)
+                            .offset(Point::new(0.0, sz::XXS))
+                            .open_on_hover(true)
+                            .close(popover::Close::Exit),
+                    )
+                    .trigger(|ui, interaction, open| {
+                        draw_button(ui, "settings", open, interaction);
+                    })
+                    .build(|ui: Ui<'_>| {
+                        let mut popup =
+                            ui.layout(Flex::column().padding(Sides::all(sz::MD)).gap(sz::SM));
+                        popup.insert(
+                            Rectangle::new()
+                                .background(colors::SURFACE)
+                                .border(Border::solid(sz::BORDER, colors::ACCENT))
+                                .radius(BorderRadius::uniform(sz::XS)),
+                        );
+                        if popup.child(Place::new()).build(Button::new(
+                            WidgetId::new("desktop settings show fps"),
+                            "Show FPS",
+                            self.show_fps,
+                        )) {
+                            self.show_fps = !self.show_fps;
+                        }
+                        popup.child(Place::new()).build(Button::new(
+                            WidgetId::new("reset desktop showcase"),
+                            "Reset",
+                            false,
+                        ))
+                    }),
+            );
+            if reset.unwrap_or(false) {
                 *self = Self::default();
             }
         }
@@ -844,39 +871,43 @@ impl Widget<DesktopPlatform> for Button<'_> {
 
     fn build(self, mut ui: Ui<'_>) -> bool {
         let interaction = ui.interact(self.id, Sense::CLICK);
-        let background = if interaction.active {
-            colors::ACCENT_DARK
-        } else if self.selected {
-            colors::SELECTED
-        } else if interaction.hovered {
-            colors::SURFACE_HIGH
-        } else {
-            colors::TRACK
-        };
-        let border = if self.selected {
-            colors::ACCENT
-        } else {
-            colors::BORDER
-        };
-        let mut button = ui
-            .layout(Flex::row().padding(Sides::xy(sz::SM, sz::XS)))
-            .widget_id(self.id);
-        button.insert(
-            Rectangle::new()
-                .background(background)
-                .border(Border::solid(sz::BORDER, border))
-                .radius(BorderRadius::uniform(sz::XXS)),
-        );
-        button.child(Place::new()).insert(
-            Text::new(self.label)
-                .style(TextStyle {
-                    size: sz::MD,
-                    ..TextStyle::default()
-                })
-                .color(colors::TEXT),
-        );
+        ui.widget_id(self.id).build(|ui: Ui<'_>| {
+            draw_button(ui, self.label, self.selected, interaction);
+        });
         interaction.clicked
     }
+}
+
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction) {
+    let background = if interaction.active {
+        colors::ACCENT_DARK
+    } else if selected {
+        colors::SELECTED
+    } else if interaction.hovered {
+        colors::SURFACE_HIGH
+    } else {
+        colors::TRACK
+    };
+    let border = if selected {
+        colors::ACCENT
+    } else {
+        colors::BORDER
+    };
+    let mut button = ui.layout(Flex::row().padding(Sides::xy(sz::SM, sz::XS)));
+    button.insert(
+        Rectangle::new()
+            .background(background)
+            .border(Border::solid(sz::BORDER, border))
+            .radius(BorderRadius::uniform(sz::XXS)),
+    );
+    button.child(Place::new()).insert(
+        Text::new(label)
+            .style(TextStyle {
+                size: sz::MD,
+                ..TextStyle::default()
+            })
+            .color(colors::TEXT),
+    );
 }
 
 fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, options: &[(&str, T)]) {

@@ -18,7 +18,7 @@ use blit_tui::{
     text::{
         HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign,
     },
-    widget::{Block, Text, Title, scroll, split},
+    widget::{Block, Text, Title, popover, scroll, split},
 };
 
 fn main() -> io::Result<()> {
@@ -33,6 +33,7 @@ struct Showcase {
     blocks: BlocksPage,
     atoms: AtomsPage,
     scroll: ScrollPage,
+    settings: popover::State,
     fps: FpsBadge,
     show_fps: bool,
 }
@@ -46,6 +47,7 @@ impl Default for Showcase {
             blocks: BlocksPage::default(),
             atoms: AtomsPage::default(),
             scroll: ScrollPage::default(),
+            settings: popover::State::new(),
             fps: FpsBadge::default(),
             show_fps: true,
         }
@@ -54,7 +56,7 @@ impl Default for Showcase {
 
 impl Showcase {
     fn show(&mut self, ui: Ui<'_>) -> ControlFlow {
-        let control = if matches!(ui.input(), Input::Text('q'))
+        let mut control = if matches!(ui.input(), Input::Text('q'))
             || matches!(ui.input(), Input::Key(key) if key.key == Key::Escape)
         {
             ControlFlow::Exit
@@ -93,23 +95,50 @@ impl Showcase {
                 }
             }
             header.child(Place::grow()).insert(());
-            if header.child(Place::new()).build(Button::new(
-                WidgetId::new("toggle tui fps"),
-                " fps ",
-                self.show_fps,
-            )) {
-                self.show_fps = !self.show_fps;
-            }
-            if header.child(Place::new()).build(Button::new(
-                WidgetId::new("tui reset showcase"),
-                " reset ",
-                false,
-            )) {
+            let reset = header.child(Place::new()).build(
+                popover::Popover::new(&mut self.settings)
+                    .config(
+                        popover::Config::new()
+                            .target_anchor(Anchor::BottomRight)
+                            .child_anchor(Anchor::TopRight)
+                            .open_on_hover(true)
+                            .close(popover::Close::Exit),
+                    )
+                    .trigger(|ui, interaction, open| {
+                        draw_button(ui, " settings ", open, interaction);
+                    })
+                    .build(|ui: Ui<'_>| {
+                        let mut popup = ui.layout(Flex::column().padding(Sides::all(1.0)).gap(1.0));
+                        popup.insert(
+                            Block::new()
+                                .background(colors::SURFACE)
+                                .border(Border::new(colors::ACCENT).style(BorderStyle::Rounded)),
+                        );
+                        if popup.child(Place::new()).build(Button::new(
+                            WidgetId::new("tui settings show fps"),
+                            " show fps ",
+                            self.show_fps,
+                        )) {
+                            self.show_fps = !self.show_fps;
+                        }
+                        let reset = popup.child(Place::new()).build(Button::new(
+                            WidgetId::new("tui reset showcase"),
+                            " reset ",
+                            false,
+                        ));
+                        if popup.child(Place::new()).build(Button::new(
+                            WidgetId::new("tui quit showcase"),
+                            " quit ",
+                            false,
+                        )) {
+                            control = ControlFlow::Exit;
+                        }
+                        reset
+                    }),
+            );
+            if reset.unwrap_or(false) {
                 *self = Self::default();
             }
-            header
-                .child(Place::new())
-                .insert(Text::new(" q quit ").color(colors::TEXT_MUTED));
         }
         match self.page {
             Page::Layout => root.child(Place::grow()).build(&mut self.layout),
@@ -919,24 +948,28 @@ impl Widget<TuiPlatform> for Button<'_> {
 
     fn build(self, mut ui: Ui<'_>) -> bool {
         let interaction = ui.interact(self.id, Sense::CLICK);
-        let block = if interaction.active {
-            Block::new().background(colors::ACCENT_DARK)
-        } else if self.selected {
-            Block::new().background(colors::SELECTED)
-        } else if interaction.hovered {
-            Block::new().background(colors::SURFACE_HIGH)
-        } else {
-            Block::new()
-        };
-        let mut button = ui
-            .layout(Flex::row().padding(Sides::x(1.0)))
-            .widget_id(self.id);
-        button.insert(block);
-        button
-            .child(Place::new())
-            .insert(Text::new(self.label).color(colors::TEXT));
+        ui.widget_id(self.id).build(|ui: Ui<'_>| {
+            draw_button(ui, self.label, self.selected, interaction);
+        });
         interaction.clicked
     }
+}
+
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction) {
+    let block = if interaction.active {
+        Block::new().background(colors::ACCENT_DARK)
+    } else if selected {
+        Block::new().background(colors::SELECTED)
+    } else if interaction.hovered {
+        Block::new().background(colors::SURFACE_HIGH)
+    } else {
+        Block::new()
+    };
+    let mut button = ui.layout(Flex::row().padding(Sides::x(1.0)));
+    button.insert(block);
+    button
+        .child(Place::new())
+        .insert(Text::new(label).color(colors::TEXT));
 }
 
 fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, options: &[(&str, T)]) {

@@ -19,6 +19,7 @@ pub struct Frame<R: Platform> {
     clip_kinds: Vec<ClipKind<R>>,
     data: DataArena,
     layers: Vec<Layer>,
+    root_layer: LayerId,
     paint_order: Vec<NodeId>,
     order_stack: Vec<NodeId>,
     resolved_clips: Vec<ResolvedClip>,
@@ -52,6 +53,7 @@ impl<R: Platform> Default for Frame<R> {
             clip_kinds: Vec::new(),
             data: DataArena::default(),
             layers: Vec::new(),
+            root_layer: LayerId::UNINITIALIZED,
             paint_order: Vec::new(),
             order_stack: Vec::new(),
             resolved_clips: Vec::new(),
@@ -184,6 +186,7 @@ impl<R: Platform> Frame<R> {
         self.geometry.clear();
         self.data.clear();
         self.layers.clear();
+        self.root_layer = LayerId::UNINITIALIZED;
         self.paint_order.clear();
         self.resolved_clips.clear();
         self.active_clips.clear();
@@ -205,11 +208,12 @@ impl<R: Platform> Frame<R> {
 
         let output = {
             let root = self.push_node();
+            self.current_parent = Some(root);
+            self.root_layer = self.add_layer();
             let mut context = Context {
                 frame: NonNull::from(&mut *self),
                 platform: NonNull::from(&mut *platform),
             };
-            context.frame_mut().current_parent = Some(root);
             widget.build(Ui::new(&mut context, root))
         };
         assert_eq!(

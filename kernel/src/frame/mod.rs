@@ -87,6 +87,14 @@ impl<'ui, R: Platform, S> Ui<'ui, R, S> {
         })
     }
 
+    /// returns the layer owned by the frame root
+    pub fn root_layer(&self) -> LayerId {
+        let layer = self.inner.context.frame().root_layer;
+        #[cfg(debug_assertions)]
+        generation::assert(layer.generation);
+        layer
+    }
+
     pub fn new_layer(&mut self) -> LayerId {
         self.inner.context.frame_mut().add_layer()
     }
@@ -588,6 +596,12 @@ impl NodeId {
 }
 
 impl LayerId {
+    const UNINITIALIZED: Self = Self {
+        value: NonZeroU16::MIN,
+        #[cfg(debug_assertions)]
+        generation: 0,
+    };
+
     fn new(index: usize) -> Self {
         let value = u16::try_from(index + 1).expect("too many layers in one frame");
         Self {

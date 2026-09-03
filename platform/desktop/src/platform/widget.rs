@@ -1,4 +1,4 @@
-pub use blit_std::widget::{scroll, split};
+pub use blit_std::widget::{popover, scroll, split};
 
 use blit::{Content, state};
 use blit_cpu::{

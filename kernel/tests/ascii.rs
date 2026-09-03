@@ -244,7 +244,7 @@ fn resolves_absolute_targets_and_layer_order() {
         FrameInfo::new(Size::uniform(3.0)),
         |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
-            let layer = root.new_layer();
+            let layer = root.root_layer();
             root.child(Place::new()).build(|ui: Ui<'_>| {
                 let mut panel = ui.layout(BaseOnly).clip(DiamondClip);
                 panel.insert(Fill::new('p', Size::uniform(3.0)));
@@ -423,7 +423,7 @@ fn resolves_places_and_content_offsets() {
 }
 
 #[test]
-fn absolute_places_resolve_against_the_target() {
+fn absolute_places_position_against_the_target_and_size_against_the_parent() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
     let id = WidgetId::new("absolute");
@@ -453,7 +453,7 @@ fn absolute_places_resolve_against_the_target() {
         },
     );
 
-    assert_eq!(frame.geometry(id), Some(Rect::new(8.0, 3.0, 3.0, 2.0)));
+    assert_eq!(frame.geometry(id), Some(Rect::new(8.0, 3.0, 5.0, 4.0)));
 }
 
 #[test]

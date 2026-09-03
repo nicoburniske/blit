@@ -36,6 +36,12 @@ pub struct Sense {
 }
 
 impl Sense {
+    pub const ALL: Self = Self {
+        click: true,
+        drag: true,
+        focus: true,
+        scroll: true,
+    };
     pub const CLICK: Self = Self {
         click: true,
         drag: false,
