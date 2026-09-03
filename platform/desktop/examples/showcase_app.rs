@@ -12,12 +12,9 @@ use blit_desktop::{
     layout::{Align, Flex, Grid, Single, Wrap},
     style::{Border, BorderRadius},
     text::{FontId, TextStyle},
-    widget::{Text, popover, scroll, split},
+    widget::{Text, popover, resize, scroll, split},
 };
-use blit_showcase::{
-    CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip,
-    ResizeState,
-};
+use blit_showcase::{CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing};
 
 pub fn run(mut text: Box<dyn TextLayoutEngine>) {
     let face = text
@@ -197,7 +194,7 @@ impl Application for App {
 #[derive(Default)]
 struct LayoutPage {
     canvas: CanvasConfig,
-    resize: ResizeState,
+    resize: resize::State,
     scroll: scroll::State,
     split: split::State,
 }
@@ -381,7 +378,7 @@ impl Widget<DesktopPlatform> for &mut LayoutPage {
                             .max(sz::CANVAS_INITIAL_MIN)
                             * sz::CANVAS_INITIAL_SCALE;
                         viewport.child(Place::new()).build(
-                            Resizable::new(
+                            resize::Area::new(
                                 resize,
                                 WidgetId::new("layout canvas"),
                                 initial,
@@ -816,22 +813,22 @@ impl Widget<DesktopPlatform> for Divider {
     }
 }
 
-struct DesktopGrip(ResizeGrip);
+struct DesktopGrip(resize::Grip);
 
 impl Widget<DesktopPlatform> for DesktopGrip {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
         let marker = match self.0.edge {
-            ResizeEdge::Right => Size::new(sz::XXS, sz::XXXXL),
-            ResizeEdge::Bottom => Size::new(sz::XXXXL, sz::XXS),
-            ResizeEdge::Corner => Size::uniform(sz::XS),
+            resize::Edge::Right => Size::new(sz::XXS, sz::XXXXL),
+            resize::Edge::Bottom => Size::new(sz::XXXXL, sz::XXS),
+            resize::Edge::Corner => Size::uniform(sz::XS),
         };
         let active =
             self.0.interaction.hovered || self.0.interaction.active || self.0.interaction.dragging;
         let color = if active {
             colors::ACCENT
-        } else if self.0.edge == ResizeEdge::Corner {
+        } else if self.0.edge == resize::Edge::Corner {
             colors::GRIP_CORNER
         } else {
             colors::GRIP

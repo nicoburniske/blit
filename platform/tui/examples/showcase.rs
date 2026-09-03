@@ -4,10 +4,7 @@ use blit::{
     Absolute, Anchor, Axis, Easing, Input, Interaction, Key, Place, Sense, Sides, Size, Sizing,
     Transition, Widget, WidgetId,
 };
-use blit_showcase::{
-    CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing, Resizable, ResizeEdge, ResizeGrip,
-    ResizeState,
-};
+use blit_showcase::{CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, ControlFlow, TuiPlatform, Ui,
     atom::{
@@ -18,7 +15,7 @@ use blit_tui::{
     text::{
         HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign,
     },
-    widget::{Block, Text, Title, popover, scroll, split},
+    widget::{Block, Text, Title, popover, resize, scroll, split},
 };
 
 fn main() -> io::Result<()> {
@@ -162,7 +159,7 @@ impl Showcase {
 #[derive(Default)]
 struct LayoutPage {
     canvas: CanvasConfig,
-    resize: ResizeState,
+    resize: resize::State,
     scroll: scroll::State,
     split: split::State,
 }
@@ -323,7 +320,7 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
                         .clip(BoundsClip);
                     viewport.insert(Block::new().background(colors::TRACK));
                     viewport.child(Place::new()).build(
-                        Resizable::new(
+                        resize::Area::new(
                             resize,
                             WidgetId::new("tui layout canvas"),
                             Size::new(
@@ -346,7 +343,7 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
 }
 
 struct TextPage {
-    resize: ResizeState,
+    resize: resize::State,
     attributes: TextAttributes,
     wrap: TextWrap,
     overflow: TextOverflow,
@@ -359,7 +356,7 @@ struct TextPage {
 impl Default for TextPage {
     fn default() -> Self {
         Self {
-            resize: ResizeState::default(),
+            resize: resize::State::default(),
             attributes: TextAttributes::NONE,
             wrap: TextWrap::Word,
             overflow: TextOverflow::Clip,
@@ -520,7 +517,7 @@ impl Widget<TuiPlatform> for &mut TextPage {
                         options = options.max_lines(max_lines);
                     }
                     viewport.child(Place::new()).build(
-                        Resizable::new(
+                        resize::Area::new(
                             text_resize,
                             WidgetId::new("tui text preview"),
                             Size::new(64.0, 16.0),
@@ -901,22 +898,22 @@ impl Widget<TuiPlatform> for &mut FpsBadge {
     }
 }
 
-struct TuiGrip(ResizeGrip);
+struct TuiGrip(resize::Grip);
 
 impl Widget<TuiPlatform> for TuiGrip {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
         let marker = match self.0.edge {
-            ResizeEdge::Right => "║",
-            ResizeEdge::Bottom => "═══",
-            ResizeEdge::Corner => "╝",
+            resize::Edge::Right => "║",
+            resize::Edge::Bottom => "═══",
+            resize::Edge::Corner => "╝",
         };
         let active =
             self.0.interaction.hovered || self.0.interaction.active || self.0.interaction.dragging;
         let color = if active {
             colors::ACCENT
-        } else if self.0.edge == ResizeEdge::Corner {
+        } else if self.0.edge == resize::Edge::Corner {
             colors::GRIP_CORNER
         } else {
             colors::GRIP
