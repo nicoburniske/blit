@@ -160,21 +160,6 @@ impl<'ui, R: Platform, L: Layout<R>> Ui<'ui, R, state::Open<L>> {
 }
 
 impl<R: Platform, S> Ui<'_, R, S> {
-    pub fn set_id(&mut self, node: NodeId, id: WidgetId) {
-        self.inner.context.frame_mut().set_id(node, id);
-    }
-
-    pub fn set_hit(&mut self, node: NodeId, hit: Sides) {
-        self.inner.context.frame_mut().set_hit(node, hit);
-    }
-
-    pub fn set_transition(&mut self, node: NodeId, transition: Transition) {
-        self.inner
-            .context
-            .frame_mut()
-            .set_transition(node, transition);
-    }
-
     pub fn geometry(&self, id: WidgetId) -> Option<Rect> {
         self.inner.context.frame().geometry(id)
     }
@@ -358,6 +343,16 @@ impl Place<()> {
             z_index: 0,
         }
     }
+
+    pub fn item<I>(item: I) -> Place<I> {
+        Place {
+            kind: PlaceKind::Layout(item),
+            layer: None,
+            width: Sizing::fit(),
+            height: Sizing::fit(),
+            z_index: 0,
+        }
+    }
 }
 
 impl Default for Place<()> {
@@ -374,16 +369,6 @@ impl<I> Place<I> {
             width: Sizing::fit(),
             height: Sizing::fit(),
             z_index: 0,
-        }
-    }
-
-    pub fn item<T>(self, item: T) -> Place<T> {
-        Place {
-            kind: PlaceKind::Layout(item),
-            layer: self.layer,
-            width: self.width,
-            height: self.height,
-            z_index: self.z_index,
         }
     }
 

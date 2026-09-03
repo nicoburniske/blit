@@ -146,7 +146,7 @@ impl<R: Platform> Atom<R> for () {
     }
 }
 
-pub trait Clip<R: Platform>: Copy + 'static {
+pub trait Clip<R: Platform>: 'static {
     fn push(&self, platform: &mut R, area: Rect);
 
     fn pop(&self, platform: &mut R);

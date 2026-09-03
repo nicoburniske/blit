@@ -138,10 +138,10 @@ fn spanning_grid_places_items_in_equal_cells() {
         |ui: Ui<'_, TestPlatform>| {
             let mut placer = layout.placer();
             let mut grid = ui.layout(layout);
-            grid.child(Place::new().item(placer.place(1, 2)))
+            grid.child(Place::item(placer.place(1, 2)))
                 .widget_id(wide)
                 .insert(BoxAtom(Size::new(20.0, 10.0)));
-            grid.child(Place::new().item(placer.place(1, 1)))
+            grid.child(Place::item(placer.place(1, 1)))
                 .insert(BoxAtom(Size::uniform(10.0)));
         },
     );
@@ -200,7 +200,7 @@ fn rect_and_wrap_resolve_positions() {
         |ui: Ui<'_, TestPlatform>| {
             let mut fixed = ui.layout(RectLayout);
             fixed
-                .child(Place::new().item(Rect::new(3.0, 4.0, 10.0, 5.0)))
+                .child(Place::item(Rect::new(3.0, 4.0, 10.0, 5.0)))
                 .widget_id(rect)
                 .insert(BoxAtom(Size::ZERO));
         },

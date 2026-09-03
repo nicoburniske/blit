@@ -171,15 +171,15 @@ where
             })
             .widget_id(id);
         panes
-            .child(Place::new().item(SplitItem::Leading))
+            .child(Place::item(SplitItem::Leading))
             .widget_id(leading_id)
             .build(leading);
         panes
-            .child(Place::new().item(SplitItem::Divider))
+            .child(Place::item(SplitItem::Divider))
             .widget_id(divider_id)
             .build(divider.into_widget(config.axis, interaction));
         panes
-            .child(Place::new().item(SplitItem::Trailing))
+            .child(Place::item(SplitItem::Trailing))
             .widget_id(trailing_id)
             .build(trailing);
     }

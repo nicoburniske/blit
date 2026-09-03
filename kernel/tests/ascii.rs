@@ -155,7 +155,11 @@ fn empty_and_absolute_children_are_valid() {
         FrameInfo::new(Size::uniform(1.0)),
         |ui: Ui<'_>| {
             let mut root = ui.layout(Column);
-            root.child(Place::grow().item(ColumnItem { gap_before: 0.0 }));
+            root.child(
+                Place::item(ColumnItem { gap_before: 0.0 })
+                    .width(Sizing::grow())
+                    .height(Sizing::grow()),
+            );
             root.child(Place::absolute(Absolute::at(0.0, 0.0)));
         },
     );
@@ -495,7 +499,11 @@ fn frame_ids_reject_cross_frame_use() {
             frame.render(
                 &mut platform,
                 FrameInfo::new(Size::uniform(1.0)),
-                |mut ui: Ui<'_>| ui.set_id(node, WidgetId::new("stale")),
+                |ui: Ui<'_>| {
+                    let mut root = ui.layout(Overlay);
+                    root.child(Place::new());
+                    root.child(Place::absolute(Absolute::at(0.0, 0.0).relative_to(node)));
+                },
             );
         }))
         .is_err()
@@ -593,7 +601,7 @@ fn transition_scene(
         |ui: Ui<'_>| {
             let mut column = ui.layout(Column);
             column
-                .child(Place::new().item(ColumnItem { gap_before: 0.0 }))
+                .child(Place::item(ColumnItem { gap_before: 0.0 }))
                 .build(|ui: Ui<'_>| {
                     let mut child = ui
                         .layout(Overlay)
@@ -642,7 +650,7 @@ fn position_transition_scene(
         |ui: Ui<'_>| {
             let mut column = ui.layout(Column).offset(Point::new(0.0, 1.0));
             column
-                .child(Place::new().item(ColumnItem { gap_before: gap }))
+                .child(Place::item(ColumnItem { gap_before: gap }))
                 .build(|ui: Ui<'_>| {
                     let mut child = ui
                         .layout(Overlay)
@@ -671,10 +679,10 @@ fn clipped_button(mut ui: Ui<'_>, id: WidgetId) -> Interaction {
 fn scene(ui: Ui<'_>) {
     let mut column = ui.layout(Column);
     column
-        .child(Place::new().item(ColumnItem { gap_before: 0.0 }))
+        .child(Place::item(ColumnItem { gap_before: 0.0 }))
         .insert(Fill::new('A', Size::new(3.0, 1.0)));
     column
-        .child(Place::new().item(ColumnItem { gap_before: 1.0 }))
+        .child(Place::item(ColumnItem { gap_before: 1.0 }))
         .build(|ui: Ui<'_>| {
             let mut panel = ui.layout(Overlay).clip(DiamondClip);
             panel.insert(Fill::new('b', Size::new(5.0, 3.0)));

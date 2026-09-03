@@ -982,8 +982,7 @@ impl Widget<DesktopPlatform> for Canvas {
                     let item = placer.place(spec.rows, spec.columns);
                     canvas
                         .child(
-                            Place::new()
-                                .item(item)
+                            Place::item(item)
                                 .height(Sizing::fixed(5.0 * self.unit.height * self.config.zoom)),
                         )
                         .build(|ui: Ui<'_>| {

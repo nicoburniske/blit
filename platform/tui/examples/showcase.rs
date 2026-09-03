@@ -1036,11 +1036,7 @@ impl Widget<TuiPlatform> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
                     canvas
-                        .child(
-                            Place::new()
-                                .item(item)
-                                .height(Sizing::fixed(3.0 * self.config.zoom)),
-                        )
+                        .child(Place::item(item).height(Sizing::fixed(3.0 * self.config.zoom)))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });
