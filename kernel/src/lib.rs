@@ -99,6 +99,11 @@ pub trait Atom<R: Platform>: 'static {
 
     fn paint(&self, platform: &mut R, area: Rect);
 
+    /// conservative bounds containing everything this atom may paint
+    ///
+    /// these bounds may extend beyond the layout `area`
+    fn paint_bounds(&self, area: Rect) -> Rect;
+
     /// whether measurement must be repeated when constraints tighten
     fn measure_depends_on_constraints(&self) -> bool {
         true
@@ -131,6 +136,10 @@ impl<R: Platform> Atom<R> for () {
     }
 
     fn paint(&self, _: &mut R, _: Rect) {}
+
+    fn paint_bounds(&self, _: Rect) -> Rect {
+        Rect::default()
+    }
 
     fn measure_depends_on_constraints(&self) -> bool {
         false

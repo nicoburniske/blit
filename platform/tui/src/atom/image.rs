@@ -19,6 +19,10 @@ impl Atom<TuiPlatform> for Image {
         platform.place_image(ImagePlacement::new(self.image, area));
     }
 
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+        area
+    }
+
     fn measure_depends_on_constraints(&self) -> bool {
         false
     }

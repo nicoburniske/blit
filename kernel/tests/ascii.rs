@@ -62,6 +62,46 @@ fn lays_out_and_paints_external_atoms() {
 }
 
 #[test]
+fn culls_only_atoms_with_disjoint_known_paint_bounds() {
+    let culled = Rc::new(Cell::new(0));
+    let clipped = Rc::new(Cell::new(0));
+    let overflow = Rc::new(Cell::new(0));
+    let mut frame = Frame::<AsciiPlatform>::default();
+    let mut platform = AsciiPlatform::default();
+
+    frame.render(
+        &mut platform,
+        FrameInfo::new(Size::new(3.0, 1.0)),
+        |ui: Ui<'_>| {
+            let mut root = ui.layout(Overlay);
+            root.child(Place::absolute(Absolute::at(4.0, 0.0)))
+                .insert(PaintCount {
+                    count: culled.clone(),
+                    bounds_offset: Point::ZERO,
+                });
+            root.child(Place::absolute(Absolute::at(4.0, 0.0)))
+                .insert(PaintCount {
+                    count: overflow.clone(),
+                    bounds_offset: Point::new(-4.0, 0.0),
+                });
+            root.child(Place::fixed(1.0, 1.0)).build(|ui: Ui<'_>| {
+                let mut panel = ui.layout(Overlay).clip(DiamondClip);
+                panel
+                    .child(Place::absolute(Absolute::at(1.0, 0.0)))
+                    .insert(PaintCount {
+                        count: clipped.clone(),
+                        bounds_offset: Point::ZERO,
+                    });
+            });
+        },
+    );
+
+    assert_eq!(culled.get(), 0);
+    assert_eq!(clipped.get(), 0);
+    assert_eq!(overflow.get(), 1);
+}
+
+#[test]
 fn layout_atoms_measure_and_paint_in_order() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
@@ -644,6 +684,29 @@ fn scene(ui: Ui<'_>) {
         });
 }
 
+struct PaintCount {
+    count: Rc<Cell<usize>>,
+    bounds_offset: Point,
+}
+
+impl Atom<AsciiPlatform> for PaintCount {
+    fn measure(&self, _: &mut AsciiPlatform, constraints: Constraints) -> Size {
+        constraints.constrain(Size::uniform(1.0))
+    }
+
+    fn paint(&self, _: &mut AsciiPlatform, _: Rect) {
+        self.count.set(self.count.get() + 1);
+    }
+
+    fn paint_bounds(&self, area: Rect) -> Rect {
+        Rect {
+            x: area.x + self.bounds_offset.x,
+            y: area.y + self.bounds_offset.y,
+            ..area
+        }
+    }
+}
+
 struct OwnedValue {
     area: Rc<Cell<Rect>>,
     drops: Rc<Cell<usize>>,
@@ -665,6 +728,10 @@ impl Atom<AsciiPlatform> for OwnedValue {
     fn paint(&self, platform: &mut AsciiPlatform, area: Rect) {
         self.area.set(area);
         platform.cells.fill('P');
+    }
+
+    fn paint_bounds(&self, area: Rect) -> Rect {
+        area
     }
 
     fn measure_depends_on_constraints(&self) -> bool {
@@ -713,6 +780,10 @@ impl Atom<AsciiPlatform> for Fill {
                 platform.cells[y * platform.width + x] = self.glyph;
             }
         }
+    }
+
+    fn paint_bounds(&self, area: Rect) -> Rect {
+        area
     }
 
     fn measure_depends_on_constraints(&self) -> bool {

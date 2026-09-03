@@ -301,6 +301,7 @@ impl<R: Platform> Frame<R> {
                 self.atom_kinds.push(AtomKind {
                     type_id,
                     measure: measure_atom::<R, A>,
+                    paint_bounds: paint_bounds_atom::<R, A>,
                     paint: paint_atom::<R, A>,
                 });
                 self.atom_kinds.len() - 1
@@ -604,6 +605,7 @@ type ResolvedClipId = Index<ResolvedClip>;
 struct AtomKind<R: Platform> {
     type_id: TypeId,
     measure: fn(&DataArena, DataId, &mut R, Constraints) -> Size,
+    paint_bounds: fn(&DataArena, DataId, Rect) -> Rect,
     paint: fn(&DataArena, DataId, &mut R, Rect),
 }
 
@@ -625,6 +627,14 @@ fn measure_atom<R: Platform, A: Atom<R>>(
     constraints: Constraints,
 ) -> Size {
     data.load::<A>(id).measure(platform, constraints)
+}
+
+fn paint_bounds_atom<R: Platform, A: Atom<R>>(
+    data: &DataArena,
+    id: DataId,
+    area: Rect,
+) -> Rect {
+    data.load::<A>(id).paint_bounds(area)
 }
 
 fn paint_atom<R: Platform, A: Atom<R>>(data: &DataArena, id: DataId, platform: &mut R, area: Rect) {

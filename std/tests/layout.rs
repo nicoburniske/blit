@@ -24,6 +24,10 @@ impl Atom<TestPlatform> for BoxAtom {
 
     fn paint(&self, _: &mut TestPlatform, _: Rect) {}
 
+    fn paint_bounds(&self, _: Rect) -> Rect {
+        Rect::default()
+    }
+
     fn measure_depends_on_constraints(&self) -> bool {
         false
     }
@@ -45,6 +49,10 @@ impl Atom<TestPlatform> for ResponsiveAtom {
     }
 
     fn paint(&self, _: &mut TestPlatform, _: Rect) {}
+
+    fn paint_bounds(&self, _: Rect) -> Rect {
+        Rect::default()
+    }
 }
 
 #[test]

@@ -54,6 +54,14 @@ impl Atom<TuiPlatform> for Shadow {
         }
     }
 
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+        LogicalRect {
+            x: area.x + self.offset_x,
+            y: area.y + self.offset_y,
+            ..area
+        }
+    }
+
     fn measure_depends_on_constraints(&self) -> bool {
         false
     }

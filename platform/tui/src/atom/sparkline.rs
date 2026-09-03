@@ -79,6 +79,10 @@ impl Atom<TuiPlatform> for Sparkline {
         }
     }
 
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+        area
+    }
+
     fn measure_depends_on_constraints(&self) -> bool {
         false
     }

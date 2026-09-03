@@ -43,6 +43,10 @@ impl Atom<DesktopPlatform> for Rectangle {
         }
     }
 
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+        area
+    }
+
     fn measure_depends_on_constraints(&self) -> bool {
         false
     }
@@ -82,6 +86,10 @@ impl Atom<DesktopPlatform> for Text {
         let bounds = area.to_physical(platform.scale);
         let clip = platform.clip;
         platform.current.push_text(request, bounds, clip);
+    }
+
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+        area
     }
 
     fn measure_depends_on_constraints(&self) -> bool {
@@ -124,6 +132,10 @@ impl Atom<DesktopPlatform> for Image {
         platform.current.push_image(request, bounds, clip);
     }
 
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+        area
+    }
+
     fn measure_depends_on_constraints(&self) -> bool {
         false
     }
@@ -148,6 +160,15 @@ impl Shadow {
         self.offset_y = y;
         self
     }
+
+    fn command(&self, area: LogicalRect) -> BoxShadow {
+        BoxShadow::new(area, self.color)
+            .radius(self.radius)
+            .offset(self.offset_x, self.offset_y)
+            .blur(self.blur)
+            .spread(self.spread)
+            .inset(self.inset)
+    }
 }
 
 impl Atom<DesktopPlatform> for Shadow {
@@ -156,15 +177,14 @@ impl Atom<DesktopPlatform> for Shadow {
     }
 
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
-        let shadow = BoxShadow::new(area, self.color)
-            .radius(self.radius)
-            .offset(self.offset_x, self.offset_y)
-            .blur(self.blur)
-            .spread(self.spread)
-            .inset(self.inset);
+        let shadow = self.command(area);
         let bounds = shadow.bounds().to_physical(platform.scale);
         let clip = platform.clip;
         platform.current.push_box_shadow(shadow, bounds, clip);
+    }
+
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+        self.command(area).bounds()
     }
 
     fn measure_depends_on_constraints(&self) -> bool {
