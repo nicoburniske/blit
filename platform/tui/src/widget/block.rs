@@ -1,4 +1,4 @@
-use blit::Widget;
+use blit::{Content, state};
 use blit_tui_render::{color::Color, text::TextAttributes};
 
 use crate::{
@@ -26,10 +26,10 @@ impl<'a> Block<'a> {
     }
 }
 
-impl<S> Widget<TuiPlatform, S> for Block<'_> {
+impl Content<TuiPlatform> for Block<'_> {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_, S>) {
+    fn append(self, mut ui: Ui<'_, state::Node>) {
         let color = self
             .border
             .map(|border| border.color)
@@ -44,9 +44,9 @@ impl<S> Widget<TuiPlatform, S> for Block<'_> {
             })
         });
         if let Some(shadow) = self.shadow {
-            ui.atom(shadow);
+            ui.insert(shadow);
         }
-        ui.atom(atom::Block {
+        ui.insert(atom::Block {
             border: self.border,
             background: self.background,
             titles,

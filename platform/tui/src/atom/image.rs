@@ -23,5 +23,3 @@ impl Atom<TuiPlatform> for Image {
         false
     }
 }
-
-blit::impl_atom_widgets!(TuiPlatform => Image);

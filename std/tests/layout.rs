@@ -29,8 +29,6 @@ impl Atom<TestPlatform> for BoxAtom {
     }
 }
 
-blit::impl_atom_widgets!(TestPlatform => BoxAtom, ResponsiveAtom);
-
 #[derive(Clone, Copy)]
 struct ResponsiveAtom;
 
@@ -59,8 +57,7 @@ fn flex_remeasures_constraint_dependent_atoms() {
         FrameInfo::new(Size::new(5.0, 10.0)),
         |ui: Ui<'_, TestPlatform>| {
             let mut row = ui.layout(Flex::row().align(Align::Start));
-            row.child()
-                .place(Place::new().width(Sizing::grow()))
+            row.child(Place::new().width(Sizing::grow()))
                 .widget_id(child)
                 .insert(ResponsiveAtom);
         },
@@ -79,12 +76,10 @@ fn flex_distributes_growing_space() {
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui: Ui<'_, TestPlatform>| {
             let mut row = ui.layout(Flex::row().gap(4.0));
-            row.child()
-                .place(Place::new().width(Sizing::fixed(20.0)))
+            row.child(Place::new().width(Sizing::fixed(20.0)))
                 .widget_id(fixed)
                 .insert(BoxAtom(Size::new(1.0, 10.0)));
-            row.child()
-                .place(Place::new().width(Sizing::grow()))
+            row.child(Place::new().width(Sizing::grow()))
                 .widget_id(grow)
                 .insert(BoxAtom(Size::new(1.0, 10.0)));
         },
@@ -104,18 +99,17 @@ fn single_resolves_child_sizing() {
         |ui: Ui<'_, TestPlatform>| {
             let mut row = ui.layout(Flex::row().align(Align::Start));
             {
-                let mut fit = row.child().layout(Single::new().padding(Sides::all(1.0)));
-                fit.child()
-                    .place(Place::new().width(Sizing::percent(0.5)))
+                let mut fit = row
+                    .child(Place::new())
+                    .layout(Single::new().padding(Sides::all(1.0)));
+                fit.child(Place::new().width(Sizing::percent(0.5)))
                     .widget_id(percent)
                     .insert(BoxAtom(Size::new(3.0, 1.0)));
             }
             let mut fill = row
-                .child()
-                .place(Place::grow())
+                .child(Place::grow())
                 .layout(Single::new().padding(Sides::all(1.0)));
-            fill.child()
-                .place(Place::grow())
+            fill.child(Place::grow())
                 .widget_id(grow)
                 .insert(BoxAtom(Size::new(3.0, 1.0)));
         },
@@ -136,12 +130,10 @@ fn spanning_grid_places_items_in_equal_cells() {
         |ui: Ui<'_, TestPlatform>| {
             let mut placer = layout.placer();
             let mut grid = ui.layout(layout);
-            grid.child()
-                .item(placer.place(1, 2))
+            grid.child(Place::new().item(placer.place(1, 2)))
                 .widget_id(wide)
                 .insert(BoxAtom(Size::new(20.0, 10.0)));
-            grid.child()
-                .item(placer.place(1, 1))
+            grid.child(Place::new().item(placer.place(1, 1)))
                 .insert(BoxAtom(Size::uniform(10.0)));
         },
     );
@@ -161,13 +153,13 @@ fn split_pane_clamps_the_leading_extent() {
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui: Ui<'_, TestPlatform>| {
             let mut root = ui.layout(Single::new());
-            root.child().place(Place::grow()).insert(
+            root.child(Place::grow()).build(
                 split::Pane::<_, _, split::NoDivider>::new(
                     &mut state,
                     id,
                     30.0,
-                    BoxAtom(Size::ZERO),
-                    BoxAtom(Size::ZERO),
+                    |mut ui: Ui<'_, TestPlatform>| ui.insert(BoxAtom(Size::ZERO)),
+                    |mut ui: Ui<'_, TestPlatform>| ui.insert(BoxAtom(Size::ZERO)),
                 )
                 .minimum_leading(20.0)
                 .minimum_trailing(20.0)
@@ -200,8 +192,7 @@ fn rect_and_wrap_resolve_positions() {
         |ui: Ui<'_, TestPlatform>| {
             let mut fixed = ui.layout(RectLayout);
             fixed
-                .child()
-                .item(Rect::new(3.0, 4.0, 10.0, 5.0))
+                .child(Place::new().item(Rect::new(3.0, 4.0, 10.0, 5.0)))
                 .widget_id(rect)
                 .insert(BoxAtom(Size::ZERO));
         },
@@ -214,8 +205,7 @@ fn rect_and_wrap_resolve_positions() {
         |ui: Ui<'_, TestPlatform>| {
             let mut wrap = ui.layout(Wrap::horizontal().gap(1.0));
             for _ in 0..3 {
-                wrap.child()
-                    .place(Place::fixed(6.0, 2.0))
+                wrap.child(Place::fixed(6.0, 2.0))
                     .insert(BoxAtom(Size::ZERO));
             }
         },

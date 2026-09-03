@@ -83,5 +83,3 @@ impl Atom<TuiPlatform> for Sparkline {
         false
     }
 }
-
-blit::impl_atom_widgets!(TuiPlatform => Sparkline);

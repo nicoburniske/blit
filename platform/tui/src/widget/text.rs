@@ -1,4 +1,4 @@
-use blit::Widget;
+use blit::{Content, state};
 use blit_tui_render::{
     color::Color,
     text::{Span, TextAttributes, TextOptions},
@@ -29,16 +29,16 @@ impl<'a> Text<'a> {
     }
 }
 
-impl<S> Widget<TuiPlatform, S> for Text<'_> {
+impl Content<TuiPlatform> for Text<'_> {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_, S>) {
+    fn append(self, mut ui: Ui<'_, state::Node>) {
         let run = if let Some(spans) = self.spans {
             ui.platform().renderer_mut().rich_text(spans)
         } else {
             ui.platform().renderer_mut().text_run(self.text)
         };
-        ui.atom(
+        ui.insert(
             atom::Text::new(run)
                 .color(self.color)
                 .attributes(self.attributes)

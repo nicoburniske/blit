@@ -148,5 +148,3 @@ impl Atom<TuiPlatform> for BarChart {
         false
     }
 }
-
-blit::impl_atom_widgets!(TuiPlatform => BarChart);

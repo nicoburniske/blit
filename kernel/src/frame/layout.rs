@@ -132,10 +132,14 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
 
     #[track_caller]
     fn assert_child(&self, child: NodeId) {
+        let child = &self.frame.nodes[child.index()];
         assert_eq!(
-            self.frame.nodes[child.index()].parent,
-            self.node,
+            child.parent, self.node,
             "layout can only access direct children"
+        );
+        assert!(
+            child.positioned.index().is_none(),
+            "layout cannot access absolute children"
         );
     }
 }

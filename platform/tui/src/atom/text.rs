@@ -41,5 +41,3 @@ impl Atom<TuiPlatform> for Text {
         self.options.wrap != TextWrap::None
     }
 }
-
-blit::impl_atom_widgets!(TuiPlatform => Text);

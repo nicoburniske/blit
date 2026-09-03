@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Layout, LayoutCx, Platform, Point, ScrollPhase, Sense, Size, Ui,
-    Widget, WidgetId,
+    Axis, Clip, Constraints, Content, Layout, LayoutCx, Place, Platform, Point, ScrollPhase, Sense,
+    Size, Ui, Widget, WidgetId,
 };
 
 blit::builder! {
@@ -29,7 +29,7 @@ pub trait Scrollbar {
         Config::default()
     }
 
-    fn into_widgets(self, active: bool) -> (Self::Track, Self::Thumb);
+    fn into_content(self, active: bool) -> (Self::Track, Self::Thumb);
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -42,7 +42,7 @@ impl Scrollbar for NoScrollbar {
     type Track = ();
     type Thumb = ();
 
-    fn into_widgets(self, _: bool) -> (Self::Track, Self::Thumb) {
+    fn into_content(self, _: bool) -> (Self::Track, Self::Thumb) {
         ((), ())
     }
 }
@@ -128,8 +128,8 @@ where
     C: Widget<R>,
     X: Clip<R>,
     S: Scrollbar,
-    S::Track: Widget<R>,
-    S::Thumb: Widget<R>,
+    S::Track: Content<R>,
+    S::Thumb: Content<R>,
 {
     type Response = ();
 
@@ -262,19 +262,19 @@ where
             .widget_id(id)
             .clip(self.clip);
         viewport
-            .child()
-            .item(ScrollItem::Content)
+            .child(Place::new().item(ScrollItem::Content))
             .widget_id(content_id)
-            .insert(self.content);
+            .build(self.content);
         let thumb_active = thumb_interaction.is_some_and(|interaction| interaction.active);
-        let (track, thumb) = self.scrollbar.into_widgets(thumb_active);
+        let (track, thumb) = self.scrollbar.into_content(thumb_active);
         if has_track {
-            viewport.child().item(ScrollItem::Track).insert(track);
+            viewport
+                .child(Place::new().item(ScrollItem::Track))
+                .insert(track);
         }
         if has_thumb {
             viewport
-                .child()
-                .item(ScrollItem::Thumb)
+                .child(Place::new().item(ScrollItem::Thumb))
                 .widget_id(thumb_id)
                 .insert(thumb);
         }

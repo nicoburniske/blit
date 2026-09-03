@@ -346,14 +346,19 @@ where
                 grip_size,
             })
             .widget_id(id);
-        shell.child().item(ResizeItem::Content).insert(content);
+        shell
+            .child(Place::new().item(ResizeItem::Content))
+            .build(content);
         for (item, edge, grip_id, interaction) in [
             (ResizeItem::Right, ResizeEdge::Right, right_id, right),
             (ResizeItem::Bottom, ResizeEdge::Bottom, bottom_id, bottom),
             (ResizeItem::Corner, ResizeEdge::Corner, corner_id, corner),
         ] {
             let widget = grip(ResizeGrip { edge, interaction });
-            shell.child().item(item).widget_id(grip_id).insert(widget);
+            shell
+                .child(Place::new().item(item))
+                .widget_id(grip_id)
+                .build(widget);
         }
     }
 }

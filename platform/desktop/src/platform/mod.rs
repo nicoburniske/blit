@@ -231,8 +231,7 @@ mod tests {
             |ui: crate::Ui<'_>| {
                 let mut root = ui.layout(Flex::column().padding(Sides::all(3.0)));
                 root.insert(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
-                root.child()
-                    .place(Place::fixed(2.0, 2.0))
+                root.child(Place::fixed(2.0, 2.0))
                     .insert(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
             },
         );
