@@ -46,45 +46,48 @@ pub fn run_with<S>(
     let result = (|| -> io::Result<()> {
         let start = Instant::now();
         let mut control = ControlFlow::Continue;
-        let info = session.frame_info();
-        frame.render_inputs(session.platform_mut(), info, Duration::ZERO, [], |ui| {
-            if render(&mut state, ui) == ControlFlow::Exit {
-                control = ControlFlow::Exit;
-            }
-        });
-        session.present()?;
+        let mut now = Duration::ZERO;
+        let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
+        let mut input_count = 0;
         while control == ControlFlow::Continue {
-            let now = start.elapsed();
-            let timeout = if frame.has_pending_redraw() {
-                Some(Duration::ZERO)
-            } else {
-                frame
-                    .next_timer_deadline()
-                    .map(|deadline| deadline.saturating_sub(now))
-            };
-            let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
-            let poll = session.poll(timeout, &mut inputs)?;
-            if poll.resized {
-                session.platform_mut().renderer_mut().invalidate();
+            let info = session.frame_info();
+            frame.render_inputs(
+                session.platform_mut(),
+                info,
+                now,
+                inputs[..input_count].iter().copied(),
+                |ui| {
+                    if render(&mut state, ui) == ControlFlow::Exit {
+                        control = ControlFlow::Exit;
+                    }
+                },
+            );
+            session.present()?;
+            if control == ControlFlow::Exit {
+                break;
             }
-            let now = start.elapsed();
-            let timer_due = frame
-                .next_timer_deadline()
-                .is_some_and(|deadline| deadline <= now);
-            if poll.resized || poll.input_count != 0 || frame.has_pending_redraw() || timer_due {
-                let info = session.frame_info();
-                frame.render_inputs(
-                    session.platform_mut(),
-                    info,
-                    now,
-                    inputs[..poll.input_count].iter().copied(),
-                    |ui| {
-                        if render(&mut state, ui) == ControlFlow::Exit {
-                            control = ControlFlow::Exit;
-                        }
-                    },
-                );
-                session.present()?;
+            loop {
+                now = start.elapsed();
+                let timeout = if frame.has_pending_redraw() {
+                    Some(Duration::ZERO)
+                } else {
+                    frame
+                        .next_timer_deadline()
+                        .map(|deadline| deadline.saturating_sub(now))
+                };
+                let poll = session.poll(timeout, &mut inputs)?;
+                if poll.resized {
+                    session.platform_mut().renderer_mut().invalidate();
+                }
+                now = start.elapsed();
+                let timer_due = frame
+                    .next_timer_deadline()
+                    .is_some_and(|deadline| deadline <= now);
+                if poll.resized || poll.input_count != 0 || frame.has_pending_redraw() || timer_due
+                {
+                    input_count = poll.input_count;
+                    break;
+                }
             }
         }
         Ok(())

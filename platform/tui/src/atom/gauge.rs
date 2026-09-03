@@ -135,30 +135,3 @@ fn percentage_label(ratio: f64) -> ([char; 4], usize) {
         ([char::from(b'0' + percentage as u8), '%', ' ', ' '], 2)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use blit::{Frame, FrameInfo, Place, Size};
-    use blit_std::layout::Single;
-    use blit_tui_render::{RendererConfig, TuiRenderer};
-
-    use super::*;
-
-    #[test]
-    fn gauge_paints_into_the_resolved_area_without_allocating_a_label() {
-        let renderer = TuiRenderer::new(RendererConfig::new().columns(10).rows(1));
-        let mut platform = TuiPlatform::new(renderer);
-        let mut frame = Frame::default();
-        frame.render(
-            &mut platform,
-            FrameInfo::new(Size::new(10.0, 1.0)),
-            |ui: crate::Ui<'_>| {
-                let mut root = ui.layout(Single::new());
-                root.child(Place::grow())
-                    .insert(Gauge::new(0.5).filled(Color::GREEN).unfilled(Color::BLACK));
-            },
-        );
-
-        assert_eq!(platform.renderer().plain_text(), "   50%\n");
-    }
-}

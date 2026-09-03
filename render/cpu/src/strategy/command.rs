@@ -97,7 +97,6 @@ impl CommandList {
             return false;
         };
         self.gradient_stops.extend_from_slice(stops);
-        let overwrites = clip == 0 && rectangle.overwrites();
         self.push(
             StoredPayload::GradientRectangle {
                 rectangle,
@@ -105,7 +104,7 @@ impl CommandList {
             },
             bounds,
             clip,
-            overwrites,
+            false,
             false,
         );
         true
@@ -187,8 +186,7 @@ impl CommandList {
             Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
             Payload::SolidPair(_) => bounds.clone(),
             Payload::Image(_) => bounds.clone(),
-            Payload::GradientRectangle(rectangle, _) => rectangle.overwrite_span(line)?,
-            Payload::Text(_) => return None,
+            Payload::GradientRectangle(_, _) | Payload::Text(_) => return None,
         };
         let start = span.start.max(bounds.start);
         let end = span.end.min(bounds.end);
@@ -196,7 +194,7 @@ impl CommandList {
     }
 
     pub fn offsets(&self) -> Range<CommandId> {
-        0..command_id(self.commands.len())
+        0..CommandId::try_from(self.commands.len()).expect("too many CPU commands in one frame")
     }
 
     pub fn clear(&mut self) {
@@ -244,9 +242,4 @@ enum StoredPayload {
     },
     Image(PreparedImage),
     Text(PreparedText),
-}
-
-#[track_caller]
-fn command_id(index: usize) -> CommandId {
-    CommandId::try_from(index).expect("too many CPU commands in one frame")
 }

@@ -237,8 +237,6 @@ where
             ScrollLayout {
                 axis: self.axis,
                 offset: self.state.offset,
-                thumb: S::HAS_THUMB,
-                track: S::HAS_TRACK,
                 scrollbar_thickness: self.config.scrollbar_thickness,
                 minimum_thumb_extent: self.config.minimum_thumb_extent,
             },
@@ -307,8 +305,6 @@ where
             ScrollLayout {
                 axis: self.axis,
                 offset: self.state.offset,
-                thumb: S::HAS_THUMB,
-                track: S::HAS_TRACK,
                 scrollbar_thickness: self.config.scrollbar_thickness,
                 minimum_thumb_extent: self.config.minimum_thumb_extent,
             },
@@ -368,8 +364,6 @@ impl<R: Platform> Layout<R> for ListLayout {
 struct ScrollLayout {
     axis: Axis,
     offset: f32,
-    thumb: bool,
-    track: bool,
     scrollbar_thickness: f32,
     minimum_thumb_extent: f32,
 }
@@ -396,7 +390,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
             }
         }
         let content = content.expect("scroll area content is missing");
-        let thickness = if self.thumb || self.track {
+        let thickness = if thumb.is_some() || track.is_some() {
             let maximum = match self.axis {
                 Axis::Horizontal => constraints.max.height,
                 Axis::Vertical => constraints.max.width,
@@ -413,7 +407,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
         } else {
             0.0
         };
-        let gutter = if self.track { thickness } else { 0.0 };
+        let gutter = if track.is_some() { thickness } else { 0.0 };
         let viewport_constraints = constraints.shrink(match self.axis {
             Axis::Horizontal => Size::new(0.0, gutter),
             Axis::Vertical => Size::new(gutter, 0.0),

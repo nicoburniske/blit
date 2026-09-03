@@ -59,22 +59,19 @@ impl<'ui, R: Platform, S> Ui<'ui, R, S> {
 
     pub fn widget_id(self, id: WidgetId) -> Self {
         let node = self.inner.node;
-        self.inner.context.frame_mut().set_id(node, id);
+        self.inner.context.frame_mut().geometry_mut(node).id = Some(id);
         self
     }
 
     pub fn hit(self, hit: Sides) -> Self {
         let node = self.inner.node;
-        self.inner.context.frame_mut().set_hit(node, hit);
+        self.inner.context.frame_mut().geometry_mut(node).hit = hit;
         self
     }
 
     pub fn transition(self, transition: Transition) -> Self {
         let node = self.inner.node;
-        self.inner
-            .context
-            .frame_mut()
-            .set_transition(node, transition);
+        self.inner.context.frame_mut().geometry_mut(node).transition = Some(transition);
         self
     }
 

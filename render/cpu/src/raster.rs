@@ -294,6 +294,43 @@ impl Outline {
             self.mixed.push(line);
         }
     }
+
+    #[inline]
+    fn flatten(&mut self, end: Point, point: impl Fn(f32) -> Point) {
+        self.stack.clear();
+        self.stack.push(Segment {
+            start: self.previous,
+            start_time: 0.0,
+            end,
+            end_time: 1.0,
+        });
+        while let Some(segment) = self.stack.pop() {
+            let middle_time = (segment.start_time + segment.end_time) * 0.5;
+            let middle = point(middle_time);
+            let area = (middle.x - segment.start.x) * (segment.end.y - segment.start.y)
+                - (segment.end.x - segment.start.x) * (middle.y - segment.start.y);
+            if area.abs() > self.max_area
+                && middle_time != segment.start_time
+                && middle_time != segment.end_time
+            {
+                self.stack.push(Segment {
+                    start: middle,
+                    start_time: middle_time,
+                    end: segment.end,
+                    end_time: segment.end_time,
+                });
+                self.stack.push(Segment {
+                    start: segment.start,
+                    start_time: segment.start_time,
+                    end: middle,
+                    end_time: middle_time,
+                });
+            } else {
+                self.push_line(segment.start, segment.end);
+            }
+        }
+        self.previous = end;
+    }
 }
 
 impl OutlineBuilder for Outline {
@@ -315,39 +352,7 @@ impl OutlineBuilder for Outline {
             control: Point { x: x1, y: y1 },
             end: next,
         };
-        self.stack.clear();
-        self.stack.push(Segment {
-            start: self.previous,
-            start_time: 0.0,
-            end: next,
-            end_time: 1.0,
-        });
-        while let Some(segment) = self.stack.pop() {
-            let middle_time = (segment.start_time + segment.end_time) * 0.5;
-            let middle = curve.point(middle_time);
-            let area = (middle.x - segment.start.x) * (segment.end.y - segment.start.y)
-                - (segment.end.x - segment.start.x) * (middle.y - segment.start.y);
-            if area.abs() > self.max_area
-                && middle_time != segment.start_time
-                && middle_time != segment.end_time
-            {
-                self.stack.push(Segment {
-                    start: middle,
-                    start_time: middle_time,
-                    end: segment.end,
-                    end_time: segment.end_time,
-                });
-                self.stack.push(Segment {
-                    start: segment.start,
-                    start_time: segment.start_time,
-                    end: middle,
-                    end_time: middle_time,
-                });
-            } else {
-                self.push_line(segment.start, segment.end);
-            }
-        }
-        self.previous = next;
+        self.flatten(next, |time| curve.point(time));
     }
 
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
@@ -358,39 +363,7 @@ impl OutlineBuilder for Outline {
             second: Point { x: x2, y: y2 },
             end: next,
         };
-        self.stack.clear();
-        self.stack.push(Segment {
-            start: self.previous,
-            start_time: 0.0,
-            end: next,
-            end_time: 1.0,
-        });
-        while let Some(segment) = self.stack.pop() {
-            let middle_time = (segment.start_time + segment.end_time) * 0.5;
-            let middle = curve.point(middle_time);
-            let area = (middle.x - segment.start.x) * (segment.end.y - segment.start.y)
-                - (segment.end.x - segment.start.x) * (middle.y - segment.start.y);
-            if area.abs() > self.max_area
-                && middle_time != segment.start_time
-                && middle_time != segment.end_time
-            {
-                self.stack.push(Segment {
-                    start: middle,
-                    start_time: middle_time,
-                    end: segment.end,
-                    end_time: segment.end_time,
-                });
-                self.stack.push(Segment {
-                    start: segment.start,
-                    start_time: segment.start_time,
-                    end: middle,
-                    end_time: middle_time,
-                });
-            } else {
-                self.push_line(segment.start, segment.end);
-            }
-        }
-        self.previous = next;
+        self.flatten(next, |time| curve.point(time));
     }
 
     fn close(&mut self) {

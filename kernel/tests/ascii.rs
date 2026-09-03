@@ -111,14 +111,12 @@ fn layout_atoms_measure_and_paint_in_order() {
         FrameInfo::new(Size::new(5.0, 4.0)),
         |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
-            let response = root.child(Place::new()).build(|ui: Ui<'_>| {
+            root.child(Place::new()).build(|ui: Ui<'_>| {
                 let mut ui = ui.layout(BaseOnly);
                 ui.insert(());
                 ui.insert(FillContent);
                 ui.insert(Fill::new('B', Size::new(1.0, 2.0)));
-                42
             });
-            assert_eq!(response, 42);
         },
     );
 

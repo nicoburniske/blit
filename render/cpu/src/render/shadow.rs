@@ -159,7 +159,7 @@ impl Cache {
                         bottom_right: key.radii.bottom_right.saturating_sub(key.spread).max(0),
                         bottom_left: key.radii.bottom_left.saturating_sub(key.spread).max(0),
                     };
-                    mask_rounded(&mut alpha, padded_width, hole_area, hole_radii)?;
+                    mask_rounded(&mut alpha, padded_width, hole_area, hole_radii);
                 } else {
                     alpha.fill(0);
                 }
@@ -178,7 +178,7 @@ impl Cache {
                     width: key.width,
                     height: key.height,
                 };
-                mask_rounded(&mut alpha, width, area, key.radii)?;
+                mask_rounded(&mut alpha, width, area, key.radii);
                 alpha
             } else {
                 let mut alpha = vec![255u8; width.checked_mul(height)?];
@@ -188,7 +188,7 @@ impl Cache {
                     width: key.width,
                     height: key.height,
                 };
-                mask_rounded(&mut alpha, width, shape, key.radii)?;
+                mask_rounded(&mut alpha, width, shape, key.radii);
                 blur::stack(&mut alpha, width, height, key.blur as u32);
                 alpha
             };
@@ -282,10 +282,10 @@ impl Cache {
     }
 }
 
-fn mask_rounded(alpha: &mut [u8], stride: usize, area: PhysicalRect, radii: Radii) -> Option<()> {
+fn mask_rounded(alpha: &mut [u8], stride: usize, area: PhysicalRect, radii: Radii) {
     alpha[..area.y as usize * stride].fill(0);
     for y in area.y..area.y + area.height {
-        let line = RoundedLine::new(area, radii, y)?;
+        let line = RoundedLine::new(area, radii, y).expect("invalid rounded mask geometry");
         let start = line.visible_start().max(0) as usize;
         let end = line.visible_end().min(stride as i32) as usize;
         let full_start = line.full_start().clamp(start as i32, end as i32) as usize;
@@ -307,5 +307,4 @@ fn mask_rounded(alpha: &mut [u8], stride: usize, area: PhysicalRect, radii: Radi
         row[end..].fill(0);
     }
     alpha[(area.y + area.height) as usize * stride..].fill(0);
-    Some(())
 }

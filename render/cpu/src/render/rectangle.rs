@@ -242,14 +242,6 @@ impl Gradient {
         })
     }
 
-    pub fn overwrites(&self) -> bool {
-        false
-    }
-
-    pub fn overwrite_span(&self, _line: i32) -> Option<Range<i32>> {
-        None
-    }
-
     pub fn draw_line<P: Pixel>(
         &self,
         stops: &[GradientStop],

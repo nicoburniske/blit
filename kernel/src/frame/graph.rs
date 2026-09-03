@@ -435,18 +435,6 @@ impl<R: Platform> Frame<R> {
         &mut self.geometry[index]
     }
 
-    fn set_id(&mut self, node: NodeId, id: WidgetId) {
-        self.geometry_mut(node).id = Some(id);
-    }
-
-    fn set_hit(&mut self, node: NodeId, hit: Sides) {
-        self.geometry_mut(node).hit = hit;
-    }
-
-    fn set_transition(&mut self, node: NodeId, transition: Transition) {
-        self.geometry_mut(node).transition = Some(transition);
-    }
-
     fn layout_offset(&self, node: NodeId) -> Point {
         self.nodes[node.index()]
             .layout

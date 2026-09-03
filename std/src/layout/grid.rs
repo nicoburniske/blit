@@ -70,12 +70,23 @@ impl Grid {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GridItem {
     row: u16,
     column: u16,
     row_span: u16,
     column_span: u16,
+}
+
+impl Default for GridItem {
+    fn default() -> Self {
+        Self {
+            row: 0,
+            column: 0,
+            row_span: 1,
+            column_span: 1,
+        }
+    }
 }
 
 pub struct GridPlacer {

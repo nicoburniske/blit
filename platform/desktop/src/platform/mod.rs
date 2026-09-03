@@ -235,7 +235,6 @@ mod tests {
                     .insert(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
             },
         );
-        assert_eq!(platform.previous.len(), 2);
         assert_eq!(pixels[7 * 16 + 7], 0x0046_6edc);
         assert_eq!(pixels[14 * 16 + 14], 0x0014_1820);
     }

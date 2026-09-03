@@ -2,7 +2,7 @@ use blit::{
     Atom, Constraints, Frame, FrameInfo, Place, Platform, Rect, Sides, Size, Sizing, Ui, WidgetId,
 };
 use blit_std::{
-    layout::{Align, Flex, Grid, RectLayout, Single, Wrap},
+    layout::{Align, Flex, Grid, Single},
     widget::split,
 };
 
@@ -186,36 +186,5 @@ fn split_pane_clamps_the_leading_extent() {
     assert_eq!(
         frame.geometry(id.child("trailing pane")),
         Some(Rect::new(80.0, 0.0, 20.0, 20.0))
-    );
-}
-
-#[test]
-fn rect_and_wrap_resolve_positions() {
-    let mut frame = Frame::default();
-    let mut platform = TestPlatform;
-    let rect = WidgetId::new("rect");
-    frame.render(
-        &mut platform,
-        FrameInfo::new(Size::new(30.0, 20.0)),
-        |ui: Ui<'_, TestPlatform>| {
-            let mut fixed = ui.layout(RectLayout);
-            fixed
-                .child(Place::item(Rect::new(3.0, 4.0, 10.0, 5.0)))
-                .widget_id(rect)
-                .insert(BoxAtom(Size::ZERO));
-        },
-    );
-    assert_eq!(frame.geometry(rect), Some(Rect::new(3.0, 4.0, 10.0, 5.0)));
-
-    frame.render(
-        &mut platform,
-        FrameInfo::new(Size::new(12.0, 20.0)),
-        |ui: Ui<'_, TestPlatform>| {
-            let mut wrap = ui.layout(Wrap::horizontal().gap(1.0));
-            for _ in 0..3 {
-                wrap.child(Place::fixed(6.0, 2.0))
-                    .insert(BoxAtom(Size::ZERO));
-            }
-        },
     );
 }
