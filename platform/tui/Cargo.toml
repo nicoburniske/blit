@@ -18,3 +18,7 @@ blit-showcase.workspace = true
 [[example]]
 name = "tui-showcase"
 path = "examples/showcase.rs"
+
+[[example]]
+name = "readme"
+path = "examples/readme.rs"
