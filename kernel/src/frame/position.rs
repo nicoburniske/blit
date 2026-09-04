@@ -3,6 +3,7 @@ use crate::{
     Platform,
     arena::DataArena,
     geometry::{Constraints, Point, Size},
+    layout::Axis,
 };
 
 pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mut R, size: Size) {
@@ -48,14 +49,16 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
             None
         };
         let absolute_sizing = *data.load::<super::AbsoluteSizing>(frame.nodes[index].item);
-        let sizing = |sizing: Sizing, property, size| {
+        let res = frame.layout_resolution;
+        let sizing = |axis, sizing: Sizing, property, size| {
             transition
                 .filter(|geometry| geometry.transition_properties.intersects(property))
-                .map(|_| Sizing::fixed(size))
+                .map(|_| res.sizing(axis, Sizing::fixed(size)))
                 .unwrap_or(sizing)
         };
         let width = range(
             sizing(
+                Axis::Horizontal,
                 absolute_sizing.width,
                 crate::TransitionProperties::WIDTH,
                 transition.map_or(0.0, |geometry| geometry.transition_size.width),
@@ -64,6 +67,7 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
         );
         let height = range(
             sizing(
+                Axis::Vertical,
                 absolute_sizing.height,
                 crate::TransitionProperties::HEIGHT,
                 transition.map_or(0.0, |geometry| geometry.transition_size.height),

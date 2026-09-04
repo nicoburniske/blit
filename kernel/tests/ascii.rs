@@ -347,6 +347,34 @@ fn transitions_relayout_animated_sizes() {
 }
 
 #[test]
+fn absolute_size_transitions_use_layout_resolution() {
+    let mut frame = Frame::<AsciiPlatform>::default();
+    let mut platform = AsciiPlatform::default();
+    let id = WidgetId::new("absolute transition");
+    let info = FrameInfo::new(Size::new(5.0, 1.0)).layout_resolution(LayoutResolution::Discrete {
+        step: Size::uniform(1.0),
+    });
+    let mut render = |width, time| {
+        frame.render_inputs(&mut platform, info, time, [Input::None], |ui: Ui<'_>| {
+            let mut root = ui.layout(Overlay);
+            root.child(Place::absolute(
+                Absolute::at(0.0, 0.0)
+                    .width(Sizing::fixed(width))
+                    .height(Sizing::fixed(1.0)),
+            ))
+            .widget_id(id)
+            .transition(Transition::new(Duration::from_secs(1)).width())
+            .insert(Fill::new('X', Size::uniform(1.0)));
+        });
+        frame.geometry(id).unwrap().width
+    };
+
+    render(1.0, Duration::ZERO);
+    render(4.0, Duration::ZERO);
+    assert_eq!(render(4.0, Duration::from_millis(500)), 3.0);
+}
+
+#[test]
 fn transitions_resolved_positions() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
