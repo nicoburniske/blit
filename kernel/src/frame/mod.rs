@@ -6,9 +6,7 @@ pub mod position;
 pub mod timer;
 pub mod transition;
 
-use std::{
-    any::TypeId, marker::PhantomData, mem::size_of, num::NonZeroU16, ptr::NonNull, time::Duration,
-};
+use std::{any::TypeId, marker::PhantomData, num::NonZeroU16, ptr::NonNull, time::Duration};
 
 use crate::{
     Atom, Clip, Content, FrameInfo, Platform, Widget,
@@ -128,37 +126,24 @@ impl<'ui, R: Platform, L: Layout<R>> Ui<'ui, R, state::Open<L>> {
         self
     }
 
-    /// creates a fresh child at the given place
-    pub fn child(&mut self, place: Place<L::Item>) -> Ui<'_, R> {
+    /// creates a fresh child from the parent layout's item or a decorated [`Place`]
+    pub fn child(&mut self, place: impl Into<Place<L::Item>>) -> Ui<'_, R> {
         let Place {
             kind,
             layer,
-            width,
-            height,
             z_index,
-        } = place;
+        } = place.into();
         let node = self.inner.context.frame_mut().push_node();
         let frame = self.inner.context.frame_mut();
-        let kind = match kind {
+        match kind {
             PlaceKind::Layout(item) => {
                 frame.nodes[node.index()].item = frame.data.store(item);
-                PlaceKind::Layout(())
             }
             PlaceKind::Absolute(absolute) => {
                 frame.set_absolute(node, absolute);
-                PlaceKind::Absolute(absolute)
             }
-        };
-        frame.set_place(
-            node,
-            Place {
-                kind,
-                layer,
-                width,
-                height,
-                z_index,
-            },
-        );
+        }
+        frame.set_place(node, layer, z_index);
         frame.current_parent = Some(node);
         Ui::new(&mut *self.inner.context, node)
     }
@@ -301,13 +286,11 @@ pub struct LayerId {
     generation: u16,
 }
 
-/// placement of a child within its parent
+/// universal placement metadata around a layout item or absolute placement
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Place<I = ()> {
     pub kind: PlaceKind<I>,
     pub layer: Option<LayerId>,
-    pub width: Sizing,
-    pub height: Sizing,
     pub z_index: i16,
 }
 
@@ -318,49 +301,27 @@ pub enum PlaceKind<I = ()> {
     Absolute(Absolute),
 }
 
-impl Place<()> {
-    pub const fn new() -> Self {
+impl<I: Default> Place<I> {
+    pub fn new() -> Self {
         Self {
-            kind: PlaceKind::Layout(()),
+            kind: PlaceKind::Layout(I::default()),
             layer: None,
-            width: Sizing::fit(),
-            height: Sizing::fit(),
-            z_index: 0,
-        }
-    }
-
-    pub const fn fixed(width: f32, height: f32) -> Self {
-        Self {
-            kind: PlaceKind::Layout(()),
-            layer: None,
-            width: Sizing::fixed(width),
-            height: Sizing::fixed(height),
-            z_index: 0,
-        }
-    }
-
-    pub const fn grow() -> Self {
-        Self {
-            kind: PlaceKind::Layout(()),
-            layer: None,
-            width: Sizing::grow(),
-            height: Sizing::grow(),
-            z_index: 0,
-        }
-    }
-
-    pub fn item<I>(item: I) -> Place<I> {
-        Place {
-            kind: PlaceKind::Layout(item),
-            layer: None,
-            width: Sizing::fit(),
-            height: Sizing::fit(),
             z_index: 0,
         }
     }
 }
 
-impl Default for Place<()> {
+impl Place<()> {
+    pub fn item<I>(item: I) -> Place<I> {
+        Place {
+            kind: PlaceKind::Layout(item),
+            layer: None,
+            z_index: 0,
+        }
+    }
+}
+
+impl<I: Default> Default for Place<I> {
     fn default() -> Self {
         Self::new()
     }
@@ -371,8 +332,6 @@ impl<I> Place<I> {
         Self {
             kind: PlaceKind::Absolute(absolute),
             layer: None,
-            width: Sizing::fit(),
-            height: Sizing::fit(),
             z_index: 0,
         }
     }
@@ -382,22 +341,23 @@ impl<I> Place<I> {
         self
     }
 
-    pub const fn width(mut self, width: Sizing) -> Self {
-        self.width = width;
-        self
-    }
-
-    pub const fn height(mut self, height: Sizing) -> Self {
-        self.height = height;
-        self
-    }
-
     pub const fn z_index(mut self, z_index: i16) -> Self {
         self.z_index = z_index;
         self
     }
 }
 
+impl<I> From<I> for Place<I> {
+    fn from(item: I) -> Self {
+        Self {
+            kind: PlaceKind::Layout(item),
+            layer: None,
+            z_index: 0,
+        }
+    }
+}
+
+/// one-dimensional sizing policy interpreted by a layout or absolute placement
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Sizing {
     Fit { min: f32, max: f32 },
@@ -472,12 +432,15 @@ impl Sizing {
     }
 }
 
+/// placement and sizing of a child outside its parent layout
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Absolute {
     pub target: PositionTarget,
     pub target_anchor: Anchor,
     pub child_anchor: Anchor,
     pub offset: Point,
+    pub width: Sizing,
+    pub height: Sizing,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -509,6 +472,8 @@ impl Absolute {
             target_anchor: Anchor::TopLeft,
             child_anchor: Anchor::TopLeft,
             offset: Point::new(x, y),
+            width: Sizing::fit(),
+            height: Sizing::fit(),
         }
     }
 
@@ -536,6 +501,16 @@ impl Absolute {
 
     pub const fn offset(mut self, x: f32, y: f32) -> Self {
         self.offset = Point::new(x, y);
+        self
+    }
+
+    pub const fn width(mut self, width: Sizing) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub const fn height(mut self, height: Sizing) -> Self {
+        self.height = height;
         self
     }
 }

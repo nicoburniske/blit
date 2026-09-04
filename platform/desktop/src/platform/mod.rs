@@ -189,11 +189,11 @@ impl Clip<DesktopPlatform> for BoundsClip {
 mod tests {
     use super::*;
     use crate::atom::Rectangle;
-    use blit::{Frame, Place, Sides, Size};
+    use blit::{Frame, Sides, Size};
     use blit_cpu::{
         FontData, FontFace, RendererConfig, TextLayoutEngine, color::Color, text_types::FontId,
     };
-    use blit_std::layout::Flex;
+    use blit_std::layout::{Flex, FlexItem};
 
     #[test]
     fn nested_content_renders_at_device_scale() {
@@ -231,7 +231,7 @@ mod tests {
             |ui: crate::Ui<'_>| {
                 let mut root = ui.layout(Flex::column().padding(Sides::all(3.0)));
                 root.insert(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
-                root.child(Place::fixed(2.0, 2.0))
+                root.child(FlexItem::fixed(2.0, 2.0))
                     .insert(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
             },
         );

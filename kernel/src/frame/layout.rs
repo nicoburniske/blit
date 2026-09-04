@@ -33,10 +33,10 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
         }
     }
 
+    #[inline]
     pub fn item(&self, child: NodeId) -> I {
         self.assert_child(child);
-        let data = self.frame.nodes[child.index()].item;
-        *self.data.load(data)
+        *self.data.load(self.frame.nodes[child.index()].item)
     }
 
     pub fn measure_base(&mut self, constraints: Constraints) -> Size {
@@ -79,13 +79,35 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
         area.y = position.y + self.offset.y;
     }
 
+    /// resolves a layout-owned sizing policy for frame resolution and size transitions
     #[inline]
-    pub fn sizing(&self, child: NodeId, axis: Axis) -> Sizing {
-        self.assert_child(child);
-        match axis {
-            Axis::Horizontal => self.frame.nodes[child.index()].place.width,
-            Axis::Vertical => self.frame.nodes[child.index()].place.height,
+    pub fn resolve_sizing(&self, child: NodeId, axis: Axis, sizing: Sizing) -> Sizing {
+        if !self.frame.resolving_size_transition {
+            return self.resolution.sizing(axis, sizing);
         }
+        self.assert_child(child);
+        let sizing = self.frame.nodes[child.index()]
+            .geometry
+            .index()
+            .and_then(|index| {
+                let geometry = self.frame.geometry[index];
+                let (property, size) = match axis {
+                    Axis::Horizontal => (
+                        crate::TransitionProperties::WIDTH,
+                        geometry.transition_size.width,
+                    ),
+                    Axis::Vertical => (
+                        crate::TransitionProperties::HEIGHT,
+                        geometry.transition_size.height,
+                    ),
+                };
+                geometry
+                    .transition_properties
+                    .intersects(property)
+                    .then_some(Sizing::fixed(size))
+            })
+            .unwrap_or(sizing);
+        self.resolution.sizing(axis, sizing)
     }
 
     #[inline]
@@ -126,7 +148,7 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
     #[inline]
     pub fn set_z_index(&mut self, child: NodeId, z_index: i16) {
         self.assert_child(child);
-        self.frame.nodes[child.index()].place.z_index = z_index;
+        self.frame.nodes[child.index()].z_index = z_index;
         self.frame.needs_paint_order |= z_index != 0;
     }
 

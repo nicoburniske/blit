@@ -35,6 +35,7 @@ pub struct Frame<R: Platform> {
     screen: Rect,
     layout_resolution: LayoutResolution,
     needs_paint_order: bool,
+    resolving_size_transition: bool,
     frame_requested: bool,
 }
 
@@ -69,6 +70,7 @@ impl<R: Platform> Default for Frame<R> {
             screen: Rect::default(),
             layout_resolution: LayoutResolution::Continuous,
             needs_paint_order: false,
+            resolving_size_transition: false,
             frame_requested: true,
         }
     }
@@ -382,7 +384,8 @@ impl<R: Platform> Frame<R> {
             item: DataId::NONE,
             area: Rect::default(),
             positioned: PositionedId::NONE,
-            place: Place::new(),
+            layer: None,
+            z_index: 0,
             geometry: GeometryId::NONE,
             resolved_clip: ResolvedClipId::NONE,
         });
@@ -412,6 +415,14 @@ impl<R: Platform> Frame<R> {
             PositionTarget::Screen => self.node_id(0),
         };
         let positioned = PositionedId::new(self.positioned.len());
+        self.nodes[node.index()].item = self.data.store(AbsoluteSizing {
+            width: self
+                .layout_resolution
+                .sizing(Axis::Horizontal, absolute.width),
+            height: self
+                .layout_resolution
+                .sizing(Axis::Vertical, absolute.height),
+        });
         self.positioned.push(Positioned {
             target,
             uses_target_content_origin: matches!(absolute.target, PositionTarget::Parent),
@@ -433,6 +444,8 @@ impl<R: Platform> Frame<R> {
                 id: None,
                 hit: Sides::all(0.0),
                 transition: None,
+                transition_size: Size::ZERO,
+                transition_properties: crate::TransitionProperties::NONE,
             });
             id.index().unwrap()
         };
@@ -451,10 +464,8 @@ impl<R: Platform> Frame<R> {
             .map_or(self.screen, |clip| self.resolved_clips[clip].bounds)
     }
 
-    fn set_place(&mut self, node: NodeId, mut place: Place) {
-        place.width = self.layout_resolution.sizing(Axis::Horizontal, place.width);
-        place.height = self.layout_resolution.sizing(Axis::Vertical, place.height);
-        if let Some(layer) = place.layer {
+    fn set_place(&mut self, node: NodeId, layer: Option<LayerId>, z_index: i16) {
+        if let Some(layer) = layer {
             let layer = layer.index();
             assert!(
                 layer < self.layers.len(),
@@ -465,8 +476,9 @@ impl<R: Platform> Frame<R> {
                 "a layer can only contain nodes declared after its owner"
             );
         }
-        self.needs_paint_order |= place.z_index != 0 || place.layer.is_some();
-        self.nodes[node.index()].place = place;
+        self.needs_paint_order |= z_index != 0 || layer.is_some();
+        self.nodes[node.index()].layer = layer;
+        self.nodes[node.index()].z_index = z_index;
     }
 
     fn node_id(&self, index: usize) -> NodeId {
@@ -512,7 +524,8 @@ struct StoredNode {
     item: DataId,
     area: Rect,
     positioned: PositionedId,
-    place: Place,
+    layer: Option<LayerId>,
+    z_index: i16,
     geometry: GeometryId,
     resolved_clip: ResolvedClipId,
 }
@@ -527,11 +540,19 @@ struct Positioned {
 }
 
 #[derive(Clone, Copy)]
+struct AbsoluteSizing {
+    width: Sizing,
+    height: Sizing,
+}
+
+#[derive(Clone, Copy)]
 struct GeometryRecord {
     node: NodeId,
     id: Option<WidgetId>,
     hit: Sides,
     transition: Option<Transition>,
+    transition_size: Size,
+    transition_properties: crate::TransitionProperties,
 }
 
 #[derive(Clone, Copy)]

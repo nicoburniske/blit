@@ -5,6 +5,35 @@ use super::{
 };
 
 blit::builder! {
+    /// sizing policy for a flex child
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct FlexItem {
+        new(),
+        width: Sizing = Sizing::fit(),
+        height: Sizing = Sizing::fit(),
+    }
+}
+
+impl FlexItem {
+    pub fn fixed(width: f32, height: f32) -> Self {
+        Self::new()
+            .width(Sizing::fixed(width))
+            .height(Sizing::fixed(height))
+    }
+
+    pub fn grow() -> Self {
+        Self::new().width(Sizing::grow()).height(Sizing::grow())
+    }
+
+    fn sizing(self, axis: Axis) -> Sizing {
+        match axis {
+            Axis::Horizontal => self.width,
+            Axis::Vertical => self.height,
+        }
+    }
+}
+
+blit::builder! {
     /// flex layout of a container's direct children
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Flex {
@@ -28,7 +57,7 @@ impl Flex {
 }
 
 impl<P: Platform> Layout<P> for Flex {
-    type Item = ();
+    type Item = FlexItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
         fn minimum(sizing: Sizing, resolved: f32) -> f32 {
@@ -78,8 +107,9 @@ impl<P: Platform> Layout<P> for Flex {
         let mut natural_cross: f32 = 0.0;
         let mut grow = 0usize;
         for node in cx.children() {
-            let main_sizing = cx.sizing(node, self.axis);
-            let cross_sizing = cx.sizing(node, cross_axis);
+            let item = cx.item(node);
+            let main_sizing = cx.resolve_sizing(node, self.axis, item.sizing(self.axis));
+            let cross_sizing = cx.resolve_sizing(node, cross_axis, item.sizing(cross_axis));
             let main_available = if self.overflow
                 || matches!(
                     main_sizing,
@@ -120,7 +150,8 @@ impl<P: Platform> Layout<P> for Flex {
         let percentage_available = (available_main - gaps).max(0.0);
         let mut main_changed = false;
         for node in cx.children() {
-            if let Sizing::Percent(fraction) = cx.sizing(node, self.axis) {
+            let sizing = cx.resolve_sizing(node, self.axis, cx.item(node).sizing(self.axis));
+            if let Sizing::Percent(fraction) = sizing {
                 let child_size =
                     Sizing::Percent(fraction).resolve(0.0, percentage_available, false);
                 cx.set_size(node, self.axis, child_size);
@@ -134,14 +165,18 @@ impl<P: Platform> Layout<P> for Flex {
             let mut capacity = 0.0;
             for node in cx.children() {
                 let child_size = cx.axis_size(node, self.axis);
-                capacity += child_size - minimum(cx.sizing(node, self.axis), child_size);
+                let sizing = cx.resolve_sizing(node, self.axis, cx.item(node).sizing(self.axis));
+                capacity += child_size - minimum(sizing, child_size);
             }
             if capacity > 0.0 {
                 let deficit = (-free).min(capacity);
                 for node in cx.children() {
                     let child_size = cx.axis_size(node, self.axis);
-                    let available_shrink =
-                        child_size - minimum(cx.sizing(node, self.axis), child_size);
+                    let available_shrink = child_size
+                        - minimum(
+                            cx.resolve_sizing(node, self.axis, cx.item(node).sizing(self.axis)),
+                            child_size,
+                        );
                     let shrunk = child_size - deficit * available_shrink / capacity;
                     cx.set_size(node, self.axis, shrunk);
                     used += shrunk - child_size;
@@ -157,8 +192,8 @@ impl<P: Platform> Layout<P> for Flex {
             let mut distributed = 0.0;
             let mut uncapped = 0;
             for node in cx.children() {
-                if matches!(cx.sizing(node, self.axis), Sizing::Grow { .. }) {
-                    let sizing = cx.sizing(node, self.axis);
+                let sizing = cx.resolve_sizing(node, self.axis, cx.item(node).sizing(self.axis));
+                if matches!(sizing, Sizing::Grow { .. }) {
                     let child_size = cx.axis_size(node, self.axis);
                     let maximum = sizing.clamp(f32::INFINITY);
                     if maximum <= child_size {
@@ -182,8 +217,9 @@ impl<P: Platform> Layout<P> for Flex {
         let available_cross = (size_on_axis(size, cross_axis) - cross_padding).max(0.0);
         for node in cx.children() {
             let main_size = cx.axis_size(node, self.axis);
-            let main_sizing = cx.sizing(node, self.axis);
-            let cross_sizing = cx.sizing(node, cross_axis);
+            let item = cx.item(node);
+            let main_sizing = cx.resolve_sizing(node, self.axis, item.sizing(self.axis));
+            let cross_sizing = cx.resolve_sizing(node, cross_axis, item.sizing(cross_axis));
             let stretch = tight_cross
                 && (matches!(cross_sizing, Sizing::Grow { .. })
                     || self.align == Align::Stretch && matches!(cross_sizing, Sizing::Fit { .. }));
@@ -224,7 +260,8 @@ impl<P: Platform> Layout<P> for Flex {
         let available_cross = (resolved_cross - cross_padding).max(0.0);
 
         for node in cx.children() {
-            let cross_sizing = cx.sizing(node, cross_axis);
+            let cross_sizing =
+                cx.resolve_sizing(node, cross_axis, cx.item(node).sizing(cross_axis));
             let stretch = matches!(cross_sizing, Sizing::Grow { .. })
                 || self.align == Align::Stretch && matches!(cross_sizing, Sizing::Fit { .. });
             if stretch && cx.axis_size(node, cross_axis) != cross_sizing.clamp(available_cross) {

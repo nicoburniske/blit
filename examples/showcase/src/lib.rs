@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, time::Duration};
 
-use blit::{Anchor, Axis, Place, Sides, Size, Sizing};
+use blit::{Anchor, Axis, Sides, Size, Sizing};
 pub use blit_std::layout::{Align, Justify};
 
 #[derive(Debug, Default)]
@@ -103,7 +103,7 @@ impl CanvasConfig {
         f32::from(self.gap_steps) * self.zoom * unit
     }
 
-    pub fn item_place(self, index: usize, unit: Size) -> Place {
+    pub fn item_sizing(self, index: usize, unit: Size) -> (Sizing, Sizing) {
         let main_steps = 3.0 + (index % 5) as f32;
         let cross_steps = 3.0 + (index % 4) as f32;
         let (main_unit, cross_unit) = match self.axis {
@@ -123,8 +123,8 @@ impl CanvasConfig {
             Sizing::fixed(natural_cross)
         };
         match self.axis {
-            Axis::Horizontal => Place::new().width(main).height(cross),
-            Axis::Vertical => Place::new().width(cross).height(main),
+            Axis::Horizontal => (main, cross),
+            Axis::Vertical => (cross, main),
         }
     }
 }

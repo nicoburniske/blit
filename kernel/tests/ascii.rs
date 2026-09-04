@@ -84,7 +84,7 @@ fn culls_only_atoms_with_disjoint_known_paint_bounds() {
                     count: overflow.clone(),
                     bounds_offset: Point::new(-4.0, 0.0),
                 });
-            root.child(Place::fixed(1.0, 1.0)).build(|ui: Ui<'_>| {
+            root.child(TestItem::fixed(1.0, 1.0)).build(|ui: Ui<'_>| {
                 let mut panel = ui.layout(Overlay).clip(DiamondClip);
                 panel
                     .child(Place::absolute(Absolute::at(1.0, 0.0)))
@@ -154,7 +154,7 @@ fn empty_and_absolute_children_are_valid() {
         |ui: Ui<'_>| {
             let mut root = ui.layout(Column);
             root.child(
-                Place::item(ColumnItem { gap_before: 0.0 })
+                TestItem::new(0.0)
                     .width(Sizing::grow())
                     .height(Sizing::grow()),
             );
@@ -386,12 +386,12 @@ fn resolves_places_and_content_offsets() {
         |ui: Ui<'_>| {
             let mut overlay = ui.layout(Overlay).offset(Point::new(1.0, 0.0));
             overlay
-                .child(Place::fixed(3.0, 1.0))
+                .child(TestItem::fixed(3.0, 1.0))
                 .widget_id(fixed)
                 .insert(Fill::new('F', Size::uniform(1.0)));
             overlay
                 .child(
-                    Place::new()
+                    TestItem::default()
                         .width(Sizing::grow())
                         .height(Sizing::fixed(1.0)),
                 )
@@ -399,7 +399,7 @@ fn resolves_places_and_content_offsets() {
                 .insert(Fill::new('G', Size::uniform(1.0)));
             overlay
                 .child(
-                    Place::new()
+                    TestItem::default()
                         .width(Sizing::percent(0.25))
                         .height(Sizing::fixed(1.0)),
                 )
@@ -407,7 +407,7 @@ fn resolves_places_and_content_offsets() {
                 .insert(Fill::new('P', Size::uniform(1.0)));
             overlay
                 .child(
-                    Place::new()
+                    TestItem::default()
                         .width(Sizing::fit().max(3.0))
                         .height(Sizing::fixed(1.0)),
                 )
@@ -439,13 +439,12 @@ fn absolute_places_position_against_the_target_and_size_against_the_parent() {
                 id
             });
             overlay
-                .child(
-                    Place::absolute(
-                        Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target),
-                    )
-                    .width(Sizing::percent(0.5))
-                    .height(Sizing::grow()),
-                )
+                .child(Place::absolute(
+                    Absolute::attach(Anchor::BottomRight, Anchor::TopLeft)
+                        .relative_to(target)
+                        .width(Sizing::percent(0.5))
+                        .height(Sizing::grow()),
+                ))
                 .build(|ui: Ui<'_>| {
                     let mut absolute = ui.layout(Overlay).widget_id(id);
                     absolute.insert(Fill::new('A', Size::uniform(1.0)));
@@ -598,15 +597,13 @@ fn transition_scene(
         [Input::None],
         |ui: Ui<'_>| {
             let mut column = ui.layout(Column);
-            column
-                .child(Place::item(ColumnItem { gap_before: 0.0 }))
-                .build(|ui: Ui<'_>| {
-                    let mut child = ui
-                        .layout(Overlay)
-                        .widget_id(id)
-                        .transition(Transition::new(Duration::from_secs(1)).width());
-                    child.insert(Fill::new('X', Size::new(width, 1.0)));
-                });
+            column.child(TestItem::new(0.0)).build(|ui: Ui<'_>| {
+                let mut child = ui
+                    .layout(Overlay)
+                    .widget_id(id)
+                    .transition(Transition::new(Duration::from_secs(1)).width());
+                child.insert(Fill::new('X', Size::new(width, 1.0)));
+            });
         },
     );
 }
@@ -647,15 +644,13 @@ fn position_transition_scene(
         [Input::None],
         |ui: Ui<'_>| {
             let mut column = ui.layout(Column).offset(Point::new(0.0, 1.0));
-            column
-                .child(Place::item(ColumnItem { gap_before: gap }))
-                .build(|ui: Ui<'_>| {
-                    let mut child = ui
-                        .layout(Overlay)
-                        .widget_id(id)
-                        .transition(Transition::new(Duration::from_secs(1)).y());
-                    child.insert(Fill::new('X', Size::uniform(1.0)));
-                });
+            column.child(TestItem::new(gap)).build(|ui: Ui<'_>| {
+                let mut child = ui
+                    .layout(Overlay)
+                    .widget_id(id)
+                    .transition(Transition::new(Duration::from_secs(1)).y());
+                child.insert(Fill::new('X', Size::uniform(1.0)));
+            });
         },
     );
 }
@@ -677,17 +672,15 @@ fn clipped_button(mut ui: Ui<'_>, id: WidgetId) -> Interaction {
 fn scene(ui: Ui<'_>) {
     let mut column = ui.layout(Column);
     column
-        .child(Place::item(ColumnItem { gap_before: 0.0 }))
+        .child(TestItem::new(0.0))
         .insert(Fill::new('A', Size::new(3.0, 1.0)));
-    column
-        .child(Place::item(ColumnItem { gap_before: 1.0 }))
-        .build(|ui: Ui<'_>| {
-            let mut panel = ui.layout(Overlay).clip(DiamondClip);
-            panel.insert(Fill::new('b', Size::new(5.0, 3.0)));
-            panel
-                .child(Place::new())
-                .insert(Fill::new('C', Size::uniform(1.0)));
-        });
+    column.child(TestItem::new(1.0)).build(|ui: Ui<'_>| {
+        let mut panel = ui.layout(Overlay).clip(DiamondClip);
+        panel.insert(Fill::new('b', Size::new(5.0, 3.0)));
+        panel
+            .child(Place::new())
+            .insert(Fill::new('C', Size::uniform(1.0)));
+    });
 }
 
 struct PaintCount {
@@ -856,15 +849,49 @@ impl Clip<AsciiPlatform> for DiamondClip {
 }
 
 #[derive(Clone, Copy)]
-struct ColumnItem {
+struct TestItem {
     gap_before: f32,
+    width: Sizing,
+    height: Sizing,
+}
+
+impl TestItem {
+    fn new(gap_before: f32) -> Self {
+        Self {
+            gap_before,
+            width: Sizing::fit(),
+            height: Sizing::fit(),
+        }
+    }
+
+    fn fixed(width: f32, height: f32) -> Self {
+        Self::new(0.0)
+            .width(Sizing::fixed(width))
+            .height(Sizing::fixed(height))
+    }
+
+    fn width(mut self, width: Sizing) -> Self {
+        self.width = width;
+        self
+    }
+
+    fn height(mut self, height: Sizing) -> Self {
+        self.height = height;
+        self
+    }
+}
+
+impl Default for TestItem {
+    fn default() -> Self {
+        Self::new(0.0)
+    }
 }
 
 #[derive(Clone, Copy)]
 struct Column;
 
 impl<R: Platform> Layout<R> for Column {
-    type Item = ColumnItem;
+    type Item = TestItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let base = cx.measure_base(Constraints::loose(constraints.max));
@@ -891,7 +918,7 @@ impl<R: Platform> Layout<R> for Column {
 struct Overlay;
 
 impl<R: Platform> Layout<R> for Overlay {
-    type Item = ();
+    type Item = TestItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let mut size = cx.measure_base(Constraints::loose(constraints.max));
@@ -917,7 +944,7 @@ impl<R: Platform> Layout<R> for Overlay {
 struct BaseOnly;
 
 impl<R: Platform> Layout<R> for BaseOnly {
-    type Item = ();
+    type Item = TestItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let size = constraints.constrain(cx.measure_base(Constraints::loose(constraints.max)));
@@ -929,18 +956,19 @@ impl<R: Platform> Layout<R> for BaseOnly {
     }
 }
 
-fn resolve_child<R: Platform, I: Copy + 'static>(
-    cx: &mut LayoutCx<'_, R, I>,
+fn resolve_child<R: Platform>(
+    cx: &mut LayoutCx<'_, R, TestItem>,
     child: NodeId,
     available: Size,
     width_cross: bool,
     height_cross: bool,
 ) -> Size {
     let intrinsic = cx.layout_child(child, Constraints::loose(available));
+    let item = cx.item(child);
     let size = Size::new(
-        cx.sizing(child, Axis::Horizontal)
+        cx.resolve_sizing(child, Axis::Horizontal, item.width)
             .resolve(intrinsic.width, available.width, width_cross),
-        cx.sizing(child, Axis::Vertical)
+        cx.resolve_sizing(child, Axis::Vertical, item.height)
             .resolve(intrinsic.height, available.height, height_cross),
     );
     cx.constrain_child(child, Constraints::tight(size))

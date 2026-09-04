@@ -151,10 +151,12 @@ where
         }
 
         root.child(
-            Place::absolute(Absolute::screen(0.0, 0.0))
-                .width(Sizing::grow())
-                .height(Sizing::grow())
-                .layer(layer),
+            Place::absolute(
+                Absolute::screen(0.0, 0.0)
+                    .width(Sizing::grow())
+                    .height(Sizing::grow()),
+            )
+            .layer(layer),
         )
         .widget_id(backdrop_id)
         .build(());
@@ -163,10 +165,10 @@ where
                 Place::absolute(
                     Absolute::attach(self.config.target_anchor, self.config.child_anchor)
                         .relative_to(anchor)
-                        .offset(self.config.offset.x, self.config.offset.y),
+                        .offset(self.config.offset.x, self.config.offset.y)
+                        .width(self.config.width)
+                        .height(self.config.height),
                 )
-                .width(self.config.width)
-                .height(self.config.height)
                 .layer(layer),
             )
             .hit(
@@ -206,12 +208,12 @@ mod tests {
                     .config(config)
                     .trigger(|ui: Ui<'_, TestPlatform>, _, _| {
                         ui.layout(Single::new())
-                            .child(Place::fixed(2.0, 1.0))
+                            .child(crate::layout::SingleItem::fixed(2.0, 1.0))
                             .build(())
                     })
                     .build(|ui: Ui<'_, TestPlatform>| {
                         ui.layout(Single::new())
-                            .child(Place::fixed(4.0, 3.0))
+                            .child(crate::layout::SingleItem::fixed(4.0, 3.0))
                             .build(())
                     }),
             );

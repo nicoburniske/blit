@@ -16,7 +16,6 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
         let node = frame.node_id(index);
         let target = frame.nodes[positioned.target.index()].area;
         let containing = frame.nodes[index]
-            .place
             .layer
             .map_or(frame.nodes[index].parent, |layer| {
                 frame.layers[layer.index()].owner
@@ -40,8 +39,37 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
                 (size, size)
             }
         };
-        let width = range(frame.nodes[index].place.width, available.width);
-        let height = range(frame.nodes[index].place.height, available.height);
+        let transition = if frame.resolving_size_transition {
+            frame.nodes[index]
+                .geometry
+                .index()
+                .map(|index| frame.geometry[index])
+        } else {
+            None
+        };
+        let absolute_sizing = *data.load::<super::AbsoluteSizing>(frame.nodes[index].item);
+        let sizing = |sizing: Sizing, property, size| {
+            transition
+                .filter(|geometry| geometry.transition_properties.intersects(property))
+                .map(|_| Sizing::fixed(size))
+                .unwrap_or(sizing)
+        };
+        let width = range(
+            sizing(
+                absolute_sizing.width,
+                crate::TransitionProperties::WIDTH,
+                transition.map_or(0.0, |geometry| geometry.transition_size.width),
+            ),
+            available.width,
+        );
+        let height = range(
+            sizing(
+                absolute_sizing.height,
+                crate::TransitionProperties::HEIGHT,
+                transition.map_or(0.0, |geometry| geometry.transition_size.height),
+            ),
+            available.height,
+        );
         let size = frame.layout_node(
             data,
             node,

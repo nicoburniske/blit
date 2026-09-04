@@ -3,6 +3,28 @@ use blit::{Axis, Constraints, Layout, LayoutCx, Platform, Point, Sides, Size, Si
 use super::{flow_constraints, sizing_range};
 
 blit::builder! {
+    /// sizing policy for the child of a single layout
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct SingleItem {
+        new(),
+        width: Sizing = Sizing::fit(),
+        height: Sizing = Sizing::fit(),
+    }
+}
+
+impl SingleItem {
+    pub fn fixed(width: f32, height: f32) -> Self {
+        Self::new()
+            .width(Sizing::fixed(width))
+            .height(Sizing::fixed(height))
+    }
+
+    pub fn grow() -> Self {
+        Self::new().width(Sizing::grow()).height(Sizing::grow())
+    }
+}
+
+blit::builder! {
     /// lays out at most one direct child
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Single {
@@ -12,7 +34,7 @@ blit::builder! {
 }
 
 impl<P: Platform> Layout<P> for Single {
-    type Item = ();
+    type Item = SingleItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
         fn range(sizing: Sizing, minimum: f32, maximum: f32) -> (f32, f32) {
@@ -43,13 +65,14 @@ impl<P: Platform> Layout<P> for Single {
         );
 
         let content = constraints.shrink(padding_size);
+        let item = cx.item(child);
         let width = range(
-            cx.sizing(child, Axis::Horizontal),
+            cx.resolve_sizing(child, Axis::Horizontal, item.width),
             content.min.width,
             content.max.width,
         );
         let height = range(
-            cx.sizing(child, Axis::Vertical),
+            cx.resolve_sizing(child, Axis::Vertical, item.height),
             content.min.height,
             content.max.height,
         );

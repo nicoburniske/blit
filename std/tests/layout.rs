@@ -2,7 +2,7 @@ use blit::{
     Atom, Constraints, Frame, FrameInfo, Place, Platform, Rect, Sides, Size, Sizing, Ui, WidgetId,
 };
 use blit_std::{
-    layout::{Align, Flex, Grid, Single},
+    layout::{Align, Flex, FlexItem, Grid, Single, SingleItem},
     widget::split,
 };
 
@@ -65,7 +65,7 @@ fn flex_remeasures_constraint_dependent_atoms() {
         FrameInfo::new(Size::new(5.0, 10.0)),
         |ui: Ui<'_, TestPlatform>| {
             let mut row = ui.layout(Flex::row().align(Align::Start));
-            row.child(Place::new().width(Sizing::grow()))
+            row.child(FlexItem::new().width(Sizing::grow()))
                 .widget_id(child)
                 .insert(ResponsiveAtom);
         },
@@ -84,10 +84,10 @@ fn flex_distributes_growing_space() {
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui: Ui<'_, TestPlatform>| {
             let mut row = ui.layout(Flex::row().gap(4.0));
-            row.child(Place::new().width(Sizing::fixed(20.0)))
+            row.child(FlexItem::new().width(Sizing::fixed(20.0)))
                 .widget_id(fixed)
                 .insert(BoxAtom(Size::new(1.0, 10.0)));
-            row.child(Place::new().width(Sizing::grow()))
+            row.child(FlexItem::new().width(Sizing::grow()))
                 .widget_id(grow)
                 .insert(BoxAtom(Size::new(1.0, 10.0)));
         },
@@ -110,14 +110,14 @@ fn single_resolves_child_sizing() {
                 let mut fit = row
                     .child(Place::new())
                     .layout(Single::new().padding(Sides::all(1.0)));
-                fit.child(Place::new().width(Sizing::percent(0.5)))
+                fit.child(SingleItem::new().width(Sizing::percent(0.5)))
                     .widget_id(percent)
                     .insert(BoxAtom(Size::new(3.0, 1.0)));
             }
             let mut fill = row
-                .child(Place::grow())
+                .child(FlexItem::grow())
                 .layout(Single::new().padding(Sides::all(1.0)));
-            fill.child(Place::grow())
+            fill.child(SingleItem::grow())
                 .widget_id(grow)
                 .insert(BoxAtom(Size::new(3.0, 1.0)));
         },
@@ -138,10 +138,10 @@ fn spanning_grid_places_items_in_equal_cells() {
         |ui: Ui<'_, TestPlatform>| {
             let mut placer = layout.placer();
             let mut grid = ui.layout(layout);
-            grid.child(Place::item(placer.place(1, 2)))
+            grid.child(placer.place(1, 2))
                 .widget_id(wide)
                 .insert(BoxAtom(Size::new(20.0, 10.0)));
-            grid.child(Place::item(placer.place(1, 1)))
+            grid.child(placer.place(1, 1))
                 .insert(BoxAtom(Size::uniform(10.0)));
         },
     );
@@ -161,7 +161,7 @@ fn split_pane_clamps_the_leading_extent() {
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui: Ui<'_, TestPlatform>| {
             let mut root = ui.layout(Single::new());
-            root.child(Place::grow()).build(
+            root.child(SingleItem::grow()).build(
                 split::Pane::<_, _, split::NoDivider>::new(
                     &mut state,
                     id,

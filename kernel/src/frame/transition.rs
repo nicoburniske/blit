@@ -1,13 +1,12 @@
 use std::time::Duration;
 
-use super::{Frame, NodeId, Sizing, position};
+use super::{Frame, NodeId, position};
 use crate::{
     Platform,
     animation::{Transition, TransitionProperties},
     arena::DataArena,
     geometry::{Rect, Size},
     interact::WidgetId,
-    layout::Axis,
 };
 
 pub fn resolve<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mut R, size: Size) {
@@ -44,19 +43,14 @@ pub fn resolve<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &m
 
     if active.intersects(TransitionProperties::SIZE) {
         for state in frame.transitions.iter().filter(|state| state.seen) {
-            let node = &mut frame.nodes[state.node.index()];
-            if state.active.intersects(TransitionProperties::WIDTH) {
-                node.place.width = frame
-                    .layout_resolution
-                    .sizing(Axis::Horizontal, Sizing::fixed(state.current.width));
-            }
-            if state.active.intersects(TransitionProperties::HEIGHT) {
-                node.place.height = frame
-                    .layout_resolution
-                    .sizing(Axis::Vertical, Sizing::fixed(state.current.height));
-            }
+            let geometry = frame.nodes[state.node.index()].geometry.index().unwrap();
+            frame.geometry[geometry].transition_size = state.current.size();
+            frame.geometry[geometry].transition_properties =
+                state.active.intersection(TransitionProperties::SIZE);
         }
+        frame.resolving_size_transition = true;
         position::layout(frame, data, platform, size);
+        frame.resolving_size_transition = false;
     }
 
     if active.intersects(TransitionProperties::POSITION) {
