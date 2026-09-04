@@ -1,8 +1,8 @@
 use blit::{Axis, Constraints, Layout, LayoutCx, Platform, Point, Sides, Size, Sizing};
 
 use super::{
-    Align, Justify, flow_constraints, flow_size, justify_offset, override_sizing, size_on_axis,
-    sizing_range,
+    Align, Justify, flow_constraints, flow_size, justify_offset, override_sizing, percentage,
+    size_on_axis, sizing_range,
 };
 
 blit::builder! {
@@ -75,7 +75,7 @@ impl<P: Platform> Layout<P> for Flex {
         fn range(sizing: Sizing, available: f32, stretch: bool) -> (f32, f32) {
             if stretch {
                 let size = match sizing {
-                    Sizing::Percent(_) => sizing.resolve(0.0, available, true),
+                    Sizing::Percent(fraction) => percentage(fraction, available),
                     _ => sizing.clamp(available),
                 };
                 return (size, size);
@@ -158,8 +158,7 @@ impl<P: Platform> Layout<P> for Flex {
         for node in cx.children() {
             let sizing = res.sizing(self.axis, cx.item(node).sizing(self.axis));
             if let Sizing::Percent(fraction) = sizing {
-                let child_size =
-                    Sizing::Percent(fraction).resolve(0.0, percentage_available, false);
+                let child_size = percentage(fraction, percentage_available);
                 cx.set_size(node, self.axis, child_size);
                 used += child_size;
                 main_changed = true;

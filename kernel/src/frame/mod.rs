@@ -15,7 +15,7 @@ use crate::{
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::Input,
     interact::{Interaction, Sense, WidgetId},
-    layout::{Axis, Layout, LayoutResolution},
+    layout::{Axis, Layout, LayoutResolution, Sizing},
 };
 
 /// typestate modes for [`crate::Ui`]
@@ -349,81 +349,6 @@ impl<I> From<I> for Place<I> {
             kind: PlaceKind::Layout(item),
             layer: None,
             z_index: 0,
-        }
-    }
-}
-
-/// one-dimensional sizing policy interpreted by a layout or absolute placement
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Sizing {
-    Fit { min: f32, max: f32 },
-    Grow { min: f32, max: f32 },
-    Fixed(f32),
-    Percent(f32),
-}
-
-impl Sizing {
-    pub const fn fit() -> Self {
-        Self::Fit {
-            min: 0.0,
-            max: f32::INFINITY,
-        }
-    }
-
-    pub const fn grow() -> Self {
-        Self::Grow {
-            min: 0.0,
-            max: f32::INFINITY,
-        }
-    }
-
-    pub const fn fixed(size: f32) -> Self {
-        Self::Fixed(size)
-    }
-
-    pub const fn percent(fraction: f32) -> Self {
-        Self::Percent(fraction)
-    }
-
-    pub const fn min(self, value: f32) -> Self {
-        match self {
-            Self::Fit { max, .. } => Self::Fit { min: value, max },
-            Self::Grow { max, .. } => Self::Grow { min: value, max },
-            Self::Fixed(_) | Self::Percent(_) => self,
-        }
-    }
-
-    pub const fn max(self, value: f32) -> Self {
-        match self {
-            Self::Fit { min, .. } => Self::Fit { min, max: value },
-            Self::Grow { min, .. } => Self::Grow { min, max: value },
-            Self::Fixed(_) | Self::Percent(_) => self,
-        }
-    }
-
-    #[inline]
-    pub fn resolve(self, intrinsic: f32, available: f32, cross: bool) -> f32 {
-        match self {
-            Self::Fit { .. } => self.clamp(intrinsic.min(available)),
-            Self::Grow { .. } if cross => self.clamp(available),
-            Self::Grow { .. } => self.clamp(intrinsic.min(available)),
-            Self::Fixed(size) => size.max(0.0),
-            Self::Percent(fraction) if available.is_finite() => {
-                assert!((0.0..=1.0).contains(&fraction));
-                available * fraction
-            }
-            Self::Percent(_) => 0.0,
-        }
-    }
-
-    #[inline]
-    pub fn clamp(self, size: f32) -> f32 {
-        match self {
-            Self::Fit { min, max } | Self::Grow { min, max } => {
-                size.clamp(min.max(0.0), max.max(min).max(0.0))
-            }
-            Self::Fixed(fixed) => fixed.max(0.0),
-            Self::Percent(_) => size.max(0.0),
         }
     }
 }

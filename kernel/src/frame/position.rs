@@ -1,9 +1,9 @@
-use super::{Frame, NodeId, Sizing};
+use super::{Frame, NodeId};
 use crate::{
     Platform,
     arena::DataArena,
     geometry::{Constraints, Point, Size},
-    layout::Axis,
+    layout::{Axis, Sizing},
 };
 
 pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mut R, size: Size) {
@@ -35,10 +35,12 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
                 let size = size.max(0.0);
                 (size, size)
             }
-            Sizing::Percent(_) => {
-                let size = sizing.resolve(0.0, available, true);
+            Sizing::Percent(fraction) if available.is_finite() => {
+                assert!((0.0..=1.0).contains(&fraction));
+                let size = available * fraction;
                 (size, size)
             }
+            Sizing::Percent(_) => (0.0, 0.0),
         };
         let transition = if frame.resolving_size_transition {
             frame.nodes[index]

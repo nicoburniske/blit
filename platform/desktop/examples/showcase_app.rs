@@ -1011,9 +1011,7 @@ impl Widget<DesktopPlatform> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let item = placer.place(spec.rows, spec.columns);
                     canvas
-                        .child(
-                            item.height(Sizing::fixed(5.0 * self.unit.height * self.config.zoom)),
-                        )
+                        .child(item.preferred_height(5.0 * self.unit.height * self.config.zoom))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });

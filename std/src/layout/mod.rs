@@ -56,11 +56,19 @@ fn sizing_range(sizing: Sizing, available: f32) -> (f32, f32) {
             let size = size.max(0.0);
             (size, size)
         }
-        Sizing::Percent(_) => {
-            let size = sizing.resolve(0.0, available, false);
+        Sizing::Percent(fraction) => {
+            let size = percentage(fraction, available);
             (size, size)
         }
     }
+}
+
+fn percentage(fraction: f32, available: f32) -> f32 {
+    if !available.is_finite() {
+        return 0.0;
+    }
+    assert!((0.0..=1.0).contains(&fraction));
+    available * fraction
 }
 
 fn override_sizing(

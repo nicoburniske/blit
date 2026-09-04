@@ -138,14 +138,14 @@ fn spanning_grid_places_items_in_equal_cells() {
         |ui: Ui<'_, TestPlatform>| {
             let mut placer = layout.placer();
             let mut grid = ui.layout(layout);
-            grid.child(placer.place(1, 2))
+            grid.child(placer.place(1, 2).preferred_height(12.0))
                 .widget_id(wide)
                 .insert(BoxAtom(Size::new(20.0, 10.0)));
             grid.child(placer.place(1, 1))
                 .insert(BoxAtom(Size::uniform(10.0)));
         },
     );
-    assert_eq!(frame.geometry(wide).unwrap().width, 66.0);
+    assert_eq!(frame.geometry(wide).unwrap().size(), Size::new(66.0, 12.0));
 }
 
 #[test]

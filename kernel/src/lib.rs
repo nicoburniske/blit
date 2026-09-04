@@ -48,8 +48,8 @@ pub mod layout;
 
 pub use animation::{Easing, Transition, TransitionProperties};
 pub use frame::{
-    Absolute, Anchor, Frame, FrameMemory, LayerId, NodeId, Place, PlaceKind, PositionTarget,
-    Sizing, Ui, state,
+    Absolute, Anchor, Frame, FrameMemory, LayerId, NodeId, Place, PlaceKind, PositionTarget, Ui,
+    state,
 };
 pub use geometry::{
     Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize,
@@ -57,7 +57,7 @@ pub use geometry::{
 };
 pub use input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase};
 pub use interact::{Interaction, ScrollInteraction, Sense, WidgetId};
-pub use layout::{Axis, Children, Layout, LayoutCx, LayoutResolution};
+pub use layout::{Axis, Children, Layout, LayoutCx, LayoutResolution, Sizing};
 
 pub trait Platform {
     fn begin(&mut self, frame: FrameInfo);

@@ -436,7 +436,7 @@ fn resolves_places_and_content_offsets() {
             overlay
                 .child(
                     TestItem::default()
-                        .width(Sizing::fit().max(3.0))
+                        .width(Sizing::fit_range(0.0, 3.0))
                         .height(Sizing::fixed(1.0)),
                 )
                 .widget_id(fit)
@@ -1017,16 +1017,29 @@ fn resolve_child<R: Platform>(
     width_cross: bool,
     height_cross: bool,
 ) -> Size {
+    let resolve = |sizing: Sizing, intrinsic: f32, available: f32, stretch: bool| match sizing {
+        Sizing::Fit { .. } => sizing.clamp(intrinsic.min(available)),
+        Sizing::Grow { .. } if stretch => sizing.clamp(available),
+        Sizing::Grow { .. } => sizing.clamp(intrinsic.min(available)),
+        Sizing::Fixed(size) => size.max(0.0),
+        Sizing::Percent(fraction) if available.is_finite() => {
+            assert!((0.0..=1.0).contains(&fraction));
+            available * fraction
+        }
+        Sizing::Percent(_) => 0.0,
+    };
     let res = cx.layout_resolution();
     let intrinsic = cx.layout_child(child, Constraints::loose(available));
     let item = cx.item(child);
     let size = Size::new(
-        res.sizing(Axis::Horizontal, item.width).resolve(
+        resolve(
+            res.sizing(Axis::Horizontal, item.width),
             intrinsic.width,
             available.width,
             width_cross,
         ),
-        res.sizing(Axis::Vertical, item.height).resolve(
+        resolve(
+            res.sizing(Axis::Vertical, item.height),
             intrinsic.height,
             available.height,
             height_cross,

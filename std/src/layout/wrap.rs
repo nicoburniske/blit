@@ -1,8 +1,8 @@
 use blit::{Axis, Constraints, Layout, LayoutCx, Platform, Point, Sides, Size, Sizing};
 
 use super::{
-    Align, Justify, flow_constraints, flow_size, justify_offset, override_sizing, size_on_axis,
-    sizing_range,
+    Align, Justify, flow_constraints, flow_size, justify_offset, override_sizing, percentage,
+    size_on_axis, sizing_range,
 };
 
 blit::builder! {
@@ -124,7 +124,13 @@ impl<P: Platform> Layout<P> for Wrap {
             let item = cx.item(node);
             let main_sizing = res.sizing(self.axis, item.sizing(self.axis));
             let cross_sizing = res.sizing(cross_axis, item.sizing(cross_axis));
-            let main = main_sizing.resolve(size_on_axis(natural, self.axis), available_main, false);
+            let main = match main_sizing {
+                Sizing::Fit { .. } | Sizing::Grow { .. } => {
+                    main_sizing.clamp(size_on_axis(natural, self.axis).min(available_main))
+                }
+                Sizing::Fixed(size) => size.max(0.0),
+                Sizing::Percent(fraction) => percentage(fraction, available_main),
+            };
             let cross = sizing_range(cross_sizing, max_cross);
             if main != size_on_axis(natural, self.axis) {
                 cx.constrain_child(node, flow_constraints(self.axis, (main, main), cross));

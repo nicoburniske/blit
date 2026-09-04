@@ -114,8 +114,8 @@ impl CanvasConfig {
         let natural_cross = cross_steps * cross_unit * self.zoom;
         let main = match self.sizing {
             ItemSizing::Fixed => Sizing::fixed(natural_main),
-            ItemSizing::Fit => Sizing::fit().min(2.0 * main_unit).max(natural_main),
-            ItemSizing::Grow => Sizing::grow().min(2.0 * main_unit),
+            ItemSizing::Fit => Sizing::fit_range(2.0 * main_unit, natural_main),
+            ItemSizing::Grow => Sizing::grow_range(2.0 * main_unit, f32::INFINITY),
         };
         let cross = if self.align == Align::Stretch {
             Sizing::fit()
