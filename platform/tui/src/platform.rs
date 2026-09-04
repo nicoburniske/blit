@@ -5,6 +5,7 @@ pub struct TuiPlatform {
     renderer: TuiRenderer,
     clip: LogicalRect,
     clips: Vec<LogicalRect>,
+    should_quit: bool,
 }
 
 impl TuiPlatform {
@@ -14,7 +15,18 @@ impl TuiPlatform {
             renderer,
             clip,
             clips: Vec::new(),
+            should_quit: false,
         }
+    }
+
+    /// asks the active runner to exit after this frame
+    pub fn quit(&mut self) {
+        self.should_quit = true;
+    }
+
+    /// returns whether the active runner should exit
+    pub fn should_quit(&self) -> bool {
+        self.should_quit
     }
 
     pub fn renderer(&self) -> &TuiRenderer {

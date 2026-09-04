@@ -25,47 +25,39 @@ use termina::{
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ControlFlow {
-    #[default]
-    Continue,
-    Exit,
-}
-
-pub fn run(mut render: impl FnMut(Ui<'_>) -> ControlFlow) -> io::Result<()> {
+pub fn run(mut render: impl FnMut(Ui<'_>)) -> io::Result<()> {
     run_with(|_| (), move |_, ui| render(ui))
 }
 
 pub fn run_with<S>(
     initialize: impl FnOnce(&mut TuiPlatform) -> S,
-    mut render: impl FnMut(&mut S, Ui<'_>) -> ControlFlow,
+    mut render: impl FnMut(&mut S, Ui<'_>),
 ) -> io::Result<()> {
     let mut session = Session::new()?;
     let mut state = initialize(session.platform_mut());
     let mut frame = Frame::default();
     let result = (|| -> io::Result<()> {
         let start = Instant::now();
-        let mut control = ControlFlow::Continue;
         let mut now = Duration::ZERO;
         let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
         let mut input_count = 0;
-        while control == ControlFlow::Continue {
+        loop {
             let info = session.frame_info();
             frame.render_inputs(
                 session.platform_mut(),
                 info,
                 now,
                 inputs[..input_count].iter().copied(),
-                |ui| {
-                    if render(&mut state, ui) == ControlFlow::Exit {
-                        control = ControlFlow::Exit;
+                |mut ui| {
+                    if !ui.platform().should_quit() {
+                        render(&mut state, ui);
                     }
                 },
             );
-            session.present()?;
-            if control == ControlFlow::Exit {
+            if session.platform().should_quit() {
                 break;
             }
+            session.present()?;
             loop {
                 now = start.elapsed();
                 let timeout = if frame.has_pending_redraw() {

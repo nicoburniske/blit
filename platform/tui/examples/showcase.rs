@@ -6,7 +6,7 @@ use blit::{
 };
 use blit_showcase::{CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing};
 use blit_tui::{
-    BoundsClip, ControlFlow, TuiPlatform, Ui,
+    BoundsClip, TuiPlatform, Ui,
     atom::{
         Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, TitlePosition,
     },
@@ -52,14 +52,13 @@ impl Default for Showcase {
 }
 
 impl Showcase {
-    fn show(&mut self, ui: Ui<'_>) -> ControlFlow {
-        let mut control = if matches!(ui.input(), Input::Text('q'))
+    fn show(&mut self, mut ui: Ui<'_>) {
+        if matches!(ui.input(), Input::Text('q'))
             || matches!(ui.input(), Input::Key(key) if key.key == Key::Escape)
         {
-            ControlFlow::Exit
-        } else {
-            ControlFlow::Continue
-        };
+            ui.platform().quit();
+            return;
+        }
         let mut root = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
         root.insert(Block::new().background(colors::BACKGROUND));
         {
@@ -128,7 +127,7 @@ impl Showcase {
                             " quit ",
                             false,
                         )) {
-                            control = ControlFlow::Exit;
+                            popup.platform().quit();
                         }
                         reset
                     }),
@@ -152,7 +151,6 @@ impl Showcase {
             )
             .build(&mut self.fps);
         }
-        control
     }
 }
 
