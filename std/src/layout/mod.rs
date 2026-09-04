@@ -1,14 +1,10 @@
-mod flex;
-mod grid;
-mod rect;
-mod single;
-mod wrap;
+pub mod flex;
+pub mod grid;
+pub mod rect;
+pub mod single;
+pub mod wrap;
 
-pub use flex::*;
-pub use grid::*;
-pub use rect::*;
-pub use single::*;
-pub use wrap::*;
+mod sizing;
 
 use blit::{Axis, Constraints, Size, Sizing};
 
@@ -71,18 +67,56 @@ fn percentage(fraction: f32, available: f32) -> f32 {
     available * fraction
 }
 
+#[inline]
+fn capped_growth(
+    remaining: f32,
+    count: usize,
+    minimum_capacity: f32,
+    capacities: impl Clone + Iterator<Item = f32>,
+) -> f32 {
+    if count == 0 || remaining <= 0.0 {
+        return 0.0;
+    }
+    if remaining / count as f32 <= minimum_capacity {
+        return remaining / count as f32;
+    }
+
+    let mut growth = 0.0;
+    let mut remaining = remaining;
+    let mut count = count;
+    while count != 0 && remaining > 0.0 {
+        let share = remaining / count as f32;
+        let mut distributed = 0.0;
+        let mut uncapped = 0usize;
+        for capacity in capacities.clone() {
+            if capacity > growth {
+                distributed += (capacity - growth).min(share);
+                uncapped += usize::from(capacity > growth + share);
+            }
+        }
+        growth += share;
+        remaining = (remaining - distributed).max(0.0);
+        if distributed == 0.0 || uncapped == count {
+            break;
+        }
+        count = uncapped;
+    }
+    growth
+}
+
 fn override_sizing(
     width: &mut Sizing,
     height: &mut Sizing,
     override_width: Option<f32>,
     override_height: Option<f32>,
-) {
-    if let Some(value) = override_width {
-        *width = Sizing::fixed(value);
+) -> bool {
+    if let Some(extent) = override_width {
+        *width = Sizing::fixed(extent);
     }
-    if let Some(value) = override_height {
-        *height = Sizing::fixed(value);
+    if let Some(extent) = override_height {
+        *height = Sizing::fixed(extent);
     }
+    true
 }
 
 fn flow_constraints(axis: Axis, main: (f32, f32), cross: (f32, f32)) -> Constraints {

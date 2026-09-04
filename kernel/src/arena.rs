@@ -62,6 +62,18 @@ impl DataArena {
     }
 
     pub fn load<T: 'static>(&self, id: DataId) -> &T {
+        let offset = self.offset::<T>(id);
+        // safety: store wrote T at this checked address
+        unsafe { &*self.words.as_ptr().cast::<u8>().add(offset).cast::<T>() }
+    }
+
+    pub fn load_mut<T: 'static>(&mut self, id: DataId) -> &mut T {
+        let offset = self.offset::<T>(id);
+        // safety: the mutable arena borrow makes this checked address exclusive
+        unsafe { &mut *self.words.as_mut_ptr().cast::<u8>().add(offset).cast::<T>() }
+    }
+
+    fn offset<T: 'static>(&self, id: DataId) -> usize {
         let offset = id.offset().expect("frame data is missing");
         assert!(align_of::<T>() <= align_of::<Word>());
         assert_eq!(offset % align_of::<T>(), 0);
@@ -70,8 +82,7 @@ impl DataArena {
                 .checked_add(size_of::<T>())
                 .is_some_and(|end| end <= self.len)
         );
-        // safety: store wrote an aligned T at this offset
-        unsafe { &*self.words.as_ptr().cast::<u8>().add(offset).cast::<T>() }
+        offset
     }
 
     pub fn clear(&mut self) {

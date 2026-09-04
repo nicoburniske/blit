@@ -46,10 +46,6 @@ impl Atom<DesktopPlatform> for Rectangle {
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
         area
     }
-
-    fn measure_depends_on_constraints(&self) -> bool {
-        false
-    }
 }
 
 blit::builder! {
@@ -91,10 +87,6 @@ impl Atom<DesktopPlatform> for Text {
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
         area
     }
-
-    fn measure_depends_on_constraints(&self) -> bool {
-        self.options.wrap != blit_cpu::text_types::TextWrap::None
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -134,10 +126,6 @@ impl Atom<DesktopPlatform> for Image {
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
         area
-    }
-
-    fn measure_depends_on_constraints(&self) -> bool {
-        false
     }
 }
 
@@ -185,9 +173,5 @@ impl Atom<DesktopPlatform> for Shadow {
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
         self.command(area).bounds()
-    }
-
-    fn measure_depends_on_constraints(&self) -> bool {
-        false
     }
 }

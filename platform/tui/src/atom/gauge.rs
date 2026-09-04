@@ -111,10 +111,6 @@ impl Atom<TuiPlatform> for Gauge {
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
         area
     }
-
-    fn measure_depends_on_constraints(&self) -> bool {
-        false
-    }
 }
 
 fn percentage_label(ratio: f64) -> ([char; 4], usize) {

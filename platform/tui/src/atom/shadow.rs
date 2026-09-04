@@ -61,8 +61,4 @@ impl Atom<TuiPlatform> for Shadow {
             ..area
         }
     }
-
-    fn measure_depends_on_constraints(&self) -> bool {
-        false
-    }
 }

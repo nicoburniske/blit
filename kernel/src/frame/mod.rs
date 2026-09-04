@@ -264,7 +264,7 @@ impl<R: Platform, A: Atom<R>> Content<R> for A {
 ///
 /// do not store this across renders
 #[cfg_attr(not(debug_assertions), repr(transparent))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId {
     value: u32,
     #[cfg(debug_assertions)]

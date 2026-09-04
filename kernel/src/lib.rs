@@ -57,7 +57,7 @@ pub use geometry::{
 };
 pub use input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase};
 pub use interact::{Interaction, ScrollInteraction, Sense, WidgetId};
-pub use layout::{Axis, Children, Layout, LayoutCx, LayoutResolution, Sizing};
+pub use layout::{Axis, Layout, LayoutCx, LayoutResolution, Sizing};
 
 pub trait Platform {
     fn begin(&mut self, frame: FrameInfo);
@@ -95,6 +95,10 @@ pub trait Content<R: Platform> {
 ///
 /// every atom implements [`Content`]
 pub trait Atom<R: Platform>: 'static {
+    /// returns the size requested by this atom under `constraints`
+    ///
+    /// measurement may be skipped under tight constraints. painting must not
+    /// depend on prior measurement.
     fn measure(&self, platform: &mut R, constraints: Constraints) -> Size;
 
     fn paint(&self, platform: &mut R, area: Rect);
@@ -103,11 +107,6 @@ pub trait Atom<R: Platform>: 'static {
     ///
     /// these bounds may extend beyond the layout `area`
     fn paint_bounds(&self, area: Rect) -> Rect;
-
-    /// whether measurement must be repeated when constraints tighten
-    fn measure_depends_on_constraints(&self) -> bool {
-        true
-    }
 }
 
 impl<R, F, O> Widget<R> for F
@@ -139,10 +138,6 @@ impl<R: Platform> Atom<R> for () {
 
     fn paint_bounds(&self, _: Rect) -> Rect {
         Rect::default()
-    }
-
-    fn measure_depends_on_constraints(&self) -> bool {
-        false
     }
 }
 

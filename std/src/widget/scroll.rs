@@ -328,8 +328,6 @@ struct ListLayout {
 impl<R: Platform> Layout<R> for ListLayout {
     type Item = usize;
 
-    fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
-
     fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let mut cross_extent: f32 = 0.0;
         for child in ui.children() {
@@ -344,15 +342,15 @@ impl<R: Platform> Layout<R> for ListLayout {
                 },
             };
             let size = ui.layout_child(child, child_constraints);
-            let offset = ui.item(child) as f32 * self.stride;
+            let offset = *ui.item(child) as f32 * self.stride;
             match self.axis {
                 Axis::Horizontal => {
                     cross_extent = cross_extent.max(size.height);
-                    ui.set_position(child, Point::new(offset, 0.0));
+                    ui.set_child_position(child, Point::new(offset, 0.0));
                 }
                 Axis::Vertical => {
                     cross_extent = cross_extent.max(size.width);
-                    ui.set_position(child, Point::new(0.0, offset));
+                    ui.set_child_position(child, Point::new(0.0, offset));
                 }
             }
         }
@@ -360,6 +358,10 @@ impl<R: Platform> Layout<R> for ListLayout {
             Axis::Horizontal => Size::new(self.total_extent, cross_extent),
             Axis::Vertical => Size::new(cross_extent, self.total_extent),
         })
+    }
+
+    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
+        false
     }
 }
 
@@ -381,15 +383,13 @@ enum ScrollItem {
 impl<R: Platform> Layout<R> for ScrollLayout {
     type Item = ScrollItem;
 
-    fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
-
     fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
-        let res = ui.layout_resolution();
+        let res = ui.resolution();
         let mut content = None;
         let mut track = None;
         let mut thumb = None;
         for child in ui.children() {
-            match ui.item(child) {
+            match *ui.item(child) {
                 ScrollItem::Content => content = Some(child),
                 ScrollItem::Track => track = Some(child),
                 ScrollItem::Thumb => thumb = Some(child),
@@ -450,7 +450,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
         };
         let maximum = (content_extent - viewport_extent).max(0.0);
         let offset = self.offset.clamp(0.0, maximum);
-        ui.set_position(
+        ui.set_child_position(
             content,
             match self.axis {
                 Axis::Horizontal => Point::new(-offset, 0.0),
@@ -465,7 +465,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
                 Axis::Vertical => Size::new(thickness, track_extent),
             };
             ui.layout_child(track, Constraints::tight(track_size));
-            ui.set_position(
+            ui.set_child_position(
                 track,
                 match self.axis {
                     Axis::Horizontal => Point::new(0.0, content_viewport_size.height),
@@ -493,7 +493,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
                 Axis::Vertical => Size::new(thickness, thumb_extent),
             };
             ui.layout_child(thumb, Constraints::tight(thumb_size));
-            ui.set_position(
+            ui.set_child_position(
                 thumb,
                 match self.axis {
                     Axis::Horizontal => Point::new(thumb_offset, viewport_size.height - thickness),
@@ -503,6 +503,10 @@ impl<R: Platform> Layout<R> for ScrollLayout {
         }
 
         viewport_size
+    }
+
+    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
+        false
     }
 }
 

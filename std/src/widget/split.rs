@@ -203,8 +203,6 @@ enum SplitItem {
 impl<R: Platform> Layout<R> for SplitLayout {
     type Item = SplitItem;
 
-    fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
-
     fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         fn extent(size: Size, axis: Axis) -> f32 {
             match axis {
@@ -233,12 +231,12 @@ impl<R: Platform> Layout<R> for SplitLayout {
 
         let config = self.config;
         let axis = config.axis;
-        let res = ui.layout_resolution();
+        let res = ui.resolution();
         let mut leading = None;
         let mut divider = None;
         let mut trailing = None;
         for child in ui.children() {
-            match ui.item(child) {
+            match *ui.item(child) {
                 SplitItem::Leading => leading = Some(child),
                 SplitItem::Divider => divider = Some(child),
                 SplitItem::Trailing => trailing = Some(child),
@@ -307,20 +305,20 @@ impl<R: Platform> Layout<R> for SplitLayout {
             (divider, divider_extent),
             (trailing, trailing_extent),
         ] {
-            if extent(ui.size(child), cross_axis) != cross {
+            if extent(ui.child_size(child), cross_axis) != cross {
                 ui.layout_child(child, flow_constraints(axis, (main, main), (cross, cross)));
             }
         }
 
-        ui.set_position(leading, Point::ZERO);
-        ui.set_position(
+        ui.set_child_position(leading, Point::ZERO);
+        ui.set_child_position(
             divider,
             match axis {
                 Axis::Horizontal => Point::new(leading_extent, 0.0),
                 Axis::Vertical => Point::new(0.0, leading_extent),
             },
         );
-        ui.set_position(
+        ui.set_child_position(
             trailing,
             match axis {
                 Axis::Horizontal => Point::new(leading_extent + divider_extent, 0.0),
@@ -328,5 +326,9 @@ impl<R: Platform> Layout<R> for SplitLayout {
             },
         );
         flow_size(main, cross, axis)
+    }
+
+    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
+        false
     }
 }

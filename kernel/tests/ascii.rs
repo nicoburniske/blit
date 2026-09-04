@@ -347,6 +347,51 @@ fn transitions_relayout_animated_sizes() {
 }
 
 #[test]
+fn unsupported_size_transitions_finish_immediately() {
+    struct Unsupported;
+
+    impl<R: Platform> Layout<R> for Unsupported {
+        type Item = ();
+
+        fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+            let child = cx.children().next().unwrap();
+            let size = cx.layout_child(child, Constraints::loose(constraints.max));
+            cx.set_child_position(child, Point::ZERO);
+            constraints.constrain(size)
+        }
+
+        fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
+            false
+        }
+    }
+
+    let mut frame = Frame::<AsciiPlatform>::default();
+    let mut platform = AsciiPlatform::default();
+    let id = WidgetId::new("unsupported transition");
+    let mut render = |extent, time| {
+        frame.render_inputs(
+            &mut platform,
+            FrameInfo::new(Size::uniform(4.0)),
+            time,
+            [Input::None],
+            |ui: Ui<'_>| {
+                ui.layout(Unsupported)
+                    .child(())
+                    .widget_id(id)
+                    .transition(Transition::new(Duration::from_secs(1)).size())
+                    .insert(Fill::new('X', Size::uniform(extent)));
+            },
+        );
+    };
+
+    render(1.0, Duration::ZERO);
+    render(2.0, Duration::ZERO);
+
+    assert_eq!(frame.geometry(id).unwrap().size(), Size::uniform(2.0));
+    assert!(!frame.has_pending_redraw());
+}
+
+#[test]
 fn absolute_size_transitions_use_layout_resolution() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
@@ -745,10 +790,12 @@ struct OwnedValue {
 impl<R: Platform> Layout<R> for OwnedValue {
     type Item = ();
 
-    fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
-
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
-        constraints.constrain(cx.measure_base(Constraints::loose(constraints.max)))
+        constraints.constrain(cx.measure_atoms(Constraints::loose(constraints.max)))
+    }
+
+    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
+        false
     }
 }
 
@@ -764,10 +811,6 @@ impl Atom<AsciiPlatform> for OwnedValue {
 
     fn paint_bounds(&self, area: Rect) -> Rect {
         area
-    }
-
-    fn measure_depends_on_constraints(&self) -> bool {
-        false
     }
 }
 
@@ -816,10 +859,6 @@ impl Atom<AsciiPlatform> for Fill {
 
     fn paint_bounds(&self, area: Rect) -> Rect {
         area
-    }
-
-    fn measure_depends_on_constraints(&self) -> bool {
-        false
     }
 }
 
@@ -881,7 +920,6 @@ impl Clip<AsciiPlatform> for DiamondClip {
     }
 }
 
-#[derive(Clone, Copy)]
 struct TestItem {
     gap_before: f32,
     width: Sizing,
@@ -920,13 +958,14 @@ impl Default for TestItem {
     }
 }
 
-fn override_test_item(item: &mut TestItem, width: Option<f32>, height: Option<f32>) {
-    if let Some(value) = width {
-        item.width = Sizing::fixed(value);
+fn override_test_item(item: &mut TestItem, width: Option<f32>, height: Option<f32>) -> bool {
+    if let Some(extent) = width {
+        item.width = Sizing::fixed(extent);
     }
-    if let Some(value) = height {
-        item.height = Sizing::fixed(value);
+    if let Some(extent) = height {
+        item.height = Sizing::fixed(extent);
     }
+    true
 }
 
 #[derive(Clone, Copy)]
@@ -935,12 +974,8 @@ struct Column;
 impl<R: Platform> Layout<R> for Column {
     type Item = TestItem;
 
-    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
-        override_test_item(item, width, height)
-    }
-
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
-        let base = cx.measure_base(Constraints::loose(constraints.max));
+        let base = cx.measure_atoms(Constraints::loose(constraints.max));
         let mut children = Size::ZERO;
         for child in cx.children() {
             let item = cx.item(child);
@@ -953,10 +988,19 @@ impl<R: Platform> Layout<R> for Column {
         let mut y = 0.0;
         for child in cx.children() {
             y += cx.item(child).gap_before;
-            cx.set_position(child, Point::new(0.0, y));
-            y += cx.size(child).height;
+            cx.set_child_position(child, Point::new(0.0, y));
+            y += cx.child_size(child).height;
         }
         size
+    }
+
+    fn override_size(
+        &self,
+        item: &mut Self::Item,
+        width: Option<f32>,
+        height: Option<f32>,
+    ) -> bool {
+        override_test_item(item, width, height)
     }
 }
 
@@ -966,19 +1010,15 @@ struct Overlay;
 impl<R: Platform> Layout<R> for Overlay {
     type Item = TestItem;
 
-    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
-        override_test_item(item, width, height)
-    }
-
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
-        let mut size = cx.measure_base(Constraints::loose(constraints.max));
+        let mut size = cx.measure_atoms(Constraints::loose(constraints.max));
         for child in cx.children() {
             size = size.max(resolve_child(cx, child, constraints.max, true, true));
         }
         let size = constraints.constrain(size);
         for child in cx.children() {
-            let child_size = cx.size(child);
-            cx.set_position(
+            let child_size = cx.child_size(child);
+            cx.set_child_position(
                 child,
                 Point::new(
                     (size.width - child_size.width) / 2.0,
@@ -988,6 +1028,15 @@ impl<R: Platform> Layout<R> for Overlay {
         }
         size
     }
+
+    fn override_size(
+        &self,
+        item: &mut Self::Item,
+        width: Option<f32>,
+        height: Option<f32>,
+    ) -> bool {
+        override_test_item(item, width, height)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -996,17 +1045,22 @@ struct BaseOnly;
 impl<R: Platform> Layout<R> for BaseOnly {
     type Item = TestItem;
 
-    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
-        override_test_item(item, width, height)
-    }
-
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
-        let size = constraints.constrain(cx.measure_base(Constraints::loose(constraints.max)));
+        let size = constraints.constrain(cx.measure_atoms(Constraints::loose(constraints.max)));
         for child in cx.children() {
             resolve_child(cx, child, constraints.max, true, true);
-            cx.set_position(child, Point::ZERO);
+            cx.set_child_position(child, Point::ZERO);
         }
         size
+    }
+
+    fn override_size(
+        &self,
+        item: &mut Self::Item,
+        width: Option<f32>,
+        height: Option<f32>,
+    ) -> bool {
+        override_test_item(item, width, height)
     }
 }
 
@@ -1028,7 +1082,7 @@ fn resolve_child<R: Platform>(
         }
         Sizing::Percent(_) => 0.0,
     };
-    let res = cx.layout_resolution();
+    let res = cx.resolution();
     let intrinsic = cx.layout_child(child, Constraints::loose(available));
     let item = cx.item(child);
     let size = Size::new(
@@ -1045,7 +1099,7 @@ fn resolve_child<R: Platform>(
             height_cross,
         ),
     );
-    cx.constrain_child(child, Constraints::tight(size))
+    cx.layout_child(child, Constraints::tight(size))
 }
 
 #[derive(Default)]

@@ -4,7 +4,7 @@ use super::{Frame, NodeId, position};
 use crate::{
     Platform,
     animation::{Transition, TransitionProperties},
-    arena::{DataArena, DataId},
+    arena::DataArena,
     geometry::{Rect, Size},
     interact::WidgetId,
 };
@@ -47,6 +47,7 @@ pub fn resolve<R: Platform>(
     }
 
     if active.intersects(TransitionProperties::SIZE) {
+        let mut relayout = false;
         for index in 0..frame.transitions.len() {
             let state = &frame.transitions[index];
             if !state.seen {
@@ -55,14 +56,19 @@ pub fn resolve<R: Platform>(
             let node = state.node;
             let current = state.current;
             let properties = state.active.intersection(TransitionProperties::SIZE);
-            let geometry = frame.nodes[node.index()].geometry.index().unwrap();
-            frame.geometry[geometry].transition_size = current.size();
-            frame.geometry[geometry].transition_properties = properties;
-            if properties.is_empty() || frame.nodes[node.index()].positioned.index().is_some() {
+            if properties.is_empty() {
+                continue;
+            }
+            if frame.nodes[node.index()].positioned.index().is_some() {
+                let geometry = frame.nodes[node.index()].geometry.index().unwrap();
+                frame.geometry[geometry].transition_size = current.size();
+                frame.geometry[geometry].transition_properties = properties;
+                relayout = true;
                 continue;
             }
             let parent = frame.nodes[node.index()].parent;
             if parent == node {
+                frame.transitions[index].snap_size();
                 continue;
             }
             let layout = frame.layouts[frame.nodes[parent.index()].layout.index().unwrap()];
@@ -74,18 +80,18 @@ pub fn resolve<R: Platform>(
             let height = properties
                 .intersects(TransitionProperties::HEIGHT)
                 .then_some(current.height);
-            frame.nodes[node.index()].item =
-                (frame.layout_kinds[kind].size_override)(data, layout.data, item, width, height);
-            frame.transitions[index].item = item;
-        }
-        frame.resolving_size_transition = true;
-        position::layout(frame, data, platform, size);
-        frame.resolving_size_transition = false;
-        for state in frame.transitions.iter_mut().filter(|state| state.seen) {
-            if state.item.offset().is_some() {
-                frame.nodes[state.node.index()].item = state.item;
-                state.item = DataId::NONE;
+            if (frame.layout_kinds[kind].override_size)(data, layout.data, item, width, height) {
+                relayout = true;
+            } else {
+                frame.transitions[index].snap_size();
             }
+        }
+        if relayout {
+            frame
+                .target_sizes
+                .extend(frame.nodes.iter().map(|node| node.area.size()));
+            position::layout(frame, data, platform, size);
+            frame.target_sizes.clear();
         }
     }
 
@@ -114,7 +120,6 @@ pub struct TransitionState {
     pub config: Transition,
     pub initialized: bool,
     pub seen: bool,
-    item: DataId,
 }
 
 impl TransitionState {
@@ -130,7 +135,6 @@ impl TransitionState {
             config,
             initialized: false,
             seen: true,
-            item: DataId::NONE,
         }
     }
 
@@ -143,6 +147,21 @@ impl TransitionState {
 
     pub fn is_active(&self) -> bool {
         self.started_at.is_some()
+    }
+
+    fn snap_size(&mut self) {
+        if self.active.intersects(TransitionProperties::WIDTH) {
+            self.current.width = self.target.width;
+            self.initial.width = self.target.width;
+        }
+        if self.active.intersects(TransitionProperties::HEIGHT) {
+            self.current.height = self.target.height;
+            self.initial.height = self.target.height;
+        }
+        self.active = self.active.intersection(TransitionProperties::POSITION);
+        if self.active.is_empty() {
+            self.started_at = None;
+        }
     }
 
     pub fn advance(&mut self, target: Rect, now: Duration) {

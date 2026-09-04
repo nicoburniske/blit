@@ -42,7 +42,7 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
             }
             Sizing::Percent(_) => (0.0, 0.0),
         };
-        let transition = if frame.resolving_size_transition {
+        let transition = if !frame.target_sizes.is_empty() {
             frame.nodes[index]
                 .geometry
                 .index()

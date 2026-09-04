@@ -151,10 +151,8 @@ enum ResizeItem {
 impl<P: Platform> Layout<P> for ResizeLayout {
     type Item = ResizeItem;
 
-    fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
-
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
-        let res = cx.layout_resolution();
+        let res = cx.resolution();
         let maximum = self.maximum.max(self.minimum);
         let size = constraints.constrain(Size::new(
             res.extent(
@@ -173,7 +171,7 @@ impl<P: Platform> Layout<P> for ResizeLayout {
                 .min(size.height),
         );
         for child in cx.children() {
-            let (position, child_size, z_index) = match cx.item(child) {
+            let (position, child_size, z_index) = match *cx.item(child) {
                 ResizeItem::Content => (Point::ZERO, size, 0),
                 ResizeItem::Right => (
                     Point::new(size.width - grip.width, 0.0),
@@ -192,9 +190,13 @@ impl<P: Platform> Layout<P> for ResizeLayout {
                 ),
             };
             cx.layout_child(child, Constraints::tight(child_size));
-            cx.set_position(child, position);
-            cx.set_z_index(child, z_index);
+            cx.set_child_position(child, position);
+            cx.set_child_z_index(child, z_index);
         }
         size
+    }
+
+    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
+        false
     }
 }

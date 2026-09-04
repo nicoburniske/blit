@@ -29,13 +29,13 @@ pub struct Frame<R: Platform> {
     geometry_current: Vec<(WidgetId, Rect)>,
     animations: Vec<animation::AnimationState>,
     transitions: Vec<transition::TransitionState>,
+    target_sizes: Vec<Size>,
     timers: Vec<timer::TimerState>,
     input: Input,
     time: Duration,
     screen: Rect,
     layout_resolution: LayoutResolution,
     needs_paint_order: bool,
-    resolving_size_transition: bool,
     frame_requested: bool,
 }
 
@@ -64,13 +64,13 @@ impl<R: Platform> Default for Frame<R> {
             geometry_current: Vec::new(),
             animations: Vec::new(),
             transitions: Vec::new(),
+            target_sizes: Vec::new(),
             timers: Vec::new(),
             input: Input::None,
             time: Duration::ZERO,
             screen: Rect::default(),
             layout_resolution: LayoutResolution::Continuous,
             needs_paint_order: false,
-            resolving_size_transition: false,
             frame_requested: true,
         }
     }
@@ -164,6 +164,7 @@ impl<R: Platform> Frame<R> {
                 + self.geometry_current.capacity() * size_of::<(WidgetId, Rect)>()
                 + self.animations.capacity() * size_of::<animation::AnimationState>()
                 + self.transitions.capacity() * size_of::<transition::TransitionState>()
+                + self.target_sizes.capacity() * size_of::<Size>()
                 + self.timers.capacity() * size_of::<timer::TimerState>(),
         }
     }
@@ -257,10 +258,11 @@ impl<R: Platform> Frame<R> {
             let stored = self.layouts[layout];
             let run = self.layout_kinds[stored.kind as usize].layout;
             run(data, self, node, platform, stored.data, constraints)
+        } else if constraints.min == constraints.max {
+            constraints.min
         } else {
-            self.measure_base(data, node, platform, constraints)
+            constraints.constrain(self.measure_base(data, node, platform, constraints))
         };
-        let size = constraints.constrain(size);
         self.nodes[index].area.width = size.width;
         self.nodes[index].area.height = size.height;
         size
@@ -285,18 +287,6 @@ impl<R: Platform> Frame<R> {
         size
     }
 
-    fn measure_depends_on_constraints(&self, node: NodeId) -> bool {
-        let mut atom = self.nodes[node.index()].first_atom;
-        while let Some(index) = atom.index() {
-            let stored = self.atoms[index];
-            if stored.measure_depends_on_constraints {
-                return true;
-            }
-            atom = stored.next;
-        }
-        false
-    }
-
     fn push_atom<A: Atom<R>>(&mut self, node: NodeId, atom: A) {
         let type_id = TypeId::of::<A>();
         let kind = self
@@ -315,7 +305,6 @@ impl<R: Platform> Frame<R> {
         let id = StoredAtomId::new(self.atoms.len());
         self.atoms.push(StoredAtom {
             kind: u16::try_from(kind).expect("too many atom types"),
-            measure_depends_on_constraints: atom.measure_depends_on_constraints(),
             data: self.data.store(atom),
             next: StoredAtomId::NONE,
         });
@@ -338,7 +327,7 @@ impl<R: Platform> Frame<R> {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
                     layout: layout::run::<R, L>,
-                    size_override: layout::override_item::<R, L>,
+                    override_size: layout::override_item::<R, L>,
                 });
                 self.layout_kinds.len() - 1
             });
@@ -389,6 +378,8 @@ impl<R: Platform> Frame<R> {
             z_index: 0,
             geometry: GeometryId::NONE,
             resolved_clip: ResolvedClipId::NONE,
+            #[cfg(debug_assertions)]
+            layout_state: LayoutState::Unlaid,
         });
         id
     }
@@ -529,6 +520,16 @@ struct StoredNode {
     z_index: i16,
     geometry: GeometryId,
     resolved_clip: ResolvedClipId,
+    #[cfg(debug_assertions)]
+    layout_state: LayoutState,
+}
+
+#[cfg(debug_assertions)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LayoutState {
+    Unlaid,
+    Laid,
+    Positioned,
 }
 
 #[derive(Clone, Copy)]
@@ -573,7 +574,6 @@ struct ResolvedClip {
 #[derive(Clone, Copy)]
 struct StoredAtom {
     kind: u16,
-    measure_depends_on_constraints: bool,
     data: DataId,
     next: StoredAtomId,
 }
@@ -623,11 +623,18 @@ struct AtomKind<R: Platform> {
     paint: fn(&DataArena, DataId, &mut R, Rect),
 }
 
+type OverrideSize = fn(
+    &mut DataArena,
+    DataId,
+    DataId,
+    Option<f32>,
+    Option<f32>,
+) -> bool;
+
 struct LayoutKind<R: Platform> {
     type_id: TypeId,
     layout: fn(&DataArena, &mut Frame<R>, NodeId, &mut R, DataId, Constraints) -> Size,
-    size_override:
-        fn(&mut DataArena, DataId, DataId, Option<f32>, Option<f32>) -> DataId,
+    override_size: OverrideSize,
 }
 
 struct ClipKind<R: Platform> {

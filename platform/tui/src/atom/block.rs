@@ -129,10 +129,6 @@ impl Atom<TuiPlatform> for Block {
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
         area
     }
-
-    fn measure_depends_on_constraints(&self) -> bool {
-        false
-    }
 }
 
 blit::builder! {
@@ -326,7 +322,7 @@ fn border_character(style: BorderStyle, edges: u8) -> char {
 #[cfg(test)]
 mod tests {
     use blit::{Frame, FrameInfo, Size};
-    use blit_std::layout::{Single, SingleItem};
+    use blit_std::layout::single;
     use blit_tui_render::{RendererConfig, TuiRenderer};
 
     use super::*;
@@ -341,11 +337,11 @@ mod tests {
             &mut platform,
             FrameInfo::new(Size::new(20.0, 5.0)),
             |ui: crate::Ui<'_>| {
-                let mut root = ui.layout(Single::new());
+                let mut root = ui.layout(single::layout());
                 root.insert(widget::Text::new(
                     "xxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx",
                 ));
-                root.child(SingleItem::fixed(20.0, 4.0)).insert(
+                root.child(single::item().fixed(20.0, 4.0)).insert(
                     widget::Block::new()
                         .background(Color::WHITE)
                         .border(Border::new(Color::GREEN).style(BorderStyle::Double))

@@ -1,10 +1,12 @@
-use blit::{Axis, Constraints, Layout, LayoutCx, Platform, Point, Sides, Size};
+use blit::{Axis, Constraints, LayoutCx, LayoutResolution, Platform, Point, Sides, Size};
+
+use super::flow_constraints;
 
 const MAX_SPANNING_COLUMNS: usize = 64;
 
 /// fixed-column row-major grid
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Grid {
+pub struct Layout {
     columns: u16,
     spanning: bool,
     padding: Sides,
@@ -12,7 +14,7 @@ pub struct Grid {
     row_gap: f32,
 }
 
-impl Grid {
+impl Layout {
     pub fn columns(columns: usize) -> Self {
         assert!(columns != 0, "grid must have at least one column");
         Self {
@@ -57,26 +59,50 @@ impl Grid {
 
 /// placement and preferred track contribution for a grid child
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct GridItem {
+pub struct Item {
     row_span: u16,
     column_span: u16,
-    preferred_width: Option<f32>,
-    preferred_height: Option<f32>,
+    width: GridExtent,
+    height: GridExtent,
 }
 
-impl Default for GridItem {
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum GridExtent {
+    #[default]
+    Auto,
+    Preferred(f32),
+    Exact(f32),
+}
+
+impl GridExtent {
+    fn preferred(self) -> Option<f32> {
+        match self {
+            Self::Auto => None,
+            Self::Preferred(extent) | Self::Exact(extent) => Some(extent),
+        }
+    }
+
+    fn resolve(self, res: LayoutResolution, axis: Axis, assigned: f32) -> f32 {
+        match self {
+            Self::Exact(extent) => res.extent(axis, extent).max(0.0),
+            Self::Auto | Self::Preferred(_) => assigned,
+        }
+    }
+}
+
+impl Default for Item {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl GridItem {
+impl Item {
     pub const fn new() -> Self {
         Self {
             row_span: 1,
             column_span: 1,
-            preferred_width: None,
-            preferred_height: None,
+            width: GridExtent::Auto,
+            height: GridExtent::Auto,
         }
     }
 
@@ -93,102 +119,29 @@ impl GridItem {
     }
 
     pub const fn preferred_width(mut self, width: f32) -> Self {
-        self.preferred_width = Some(width);
+        self.width = GridExtent::Preferred(width);
         self
     }
 
     pub const fn preferred_height(mut self, height: f32) -> Self {
-        self.preferred_height = Some(height);
+        self.height = GridExtent::Preferred(height);
         self
     }
 }
 
-struct Placement {
-    next_row: [u16; MAX_SPANNING_COLUMNS],
-    row: u16,
-    column: u16,
+pub fn columns(columns: usize) -> Layout {
+    Layout::columns(columns)
 }
 
-impl Placement {
-    fn new() -> Self {
-        Self {
-            next_row: [0; MAX_SPANNING_COLUMNS],
-            row: 0,
-            column: 0,
-        }
-    }
-
-    fn place(&mut self, item: GridItem, columns: u16) -> (u16, u16) {
-        assert!(
-            item.column_span <= columns,
-            "grid column span exceeds its column count"
-        );
-
-        let grid_columns = columns as usize;
-        let span = item.column_span as usize;
-        let column = self.column as usize;
-        if column + span <= grid_columns
-            && self.next_row[column..column + span]
-                .iter()
-                .all(|row| *row <= self.row)
-        {
-            return self.occupy(self.row, column, item, grid_columns);
-        }
-
-        let mut placement = None;
-        for column in 0..=grid_columns - span {
-            let mut row = if column < self.column as usize {
-                self.row.checked_add(1).expect("too many grid rows")
-            } else {
-                self.row
-            };
-            for occupied in &self.next_row[column..column + span] {
-                row = row.max(*occupied);
-            }
-            if placement.is_none_or(|best| (row, column) < best) {
-                placement = Some((row, column));
-            }
-        }
-        let (row, column) = placement.unwrap();
-        self.occupy(row, column, item, grid_columns)
-    }
-
-    fn occupy(
-        &mut self,
-        row: u16,
-        column: usize,
-        item: GridItem,
-        grid_columns: usize,
-    ) -> (u16, u16) {
-        let span = item.column_span as usize;
-        let end_row = row.checked_add(item.row_span).expect("too many grid rows");
-        self.next_row[column..column + span].fill(end_row);
-        let next_column = column + span;
-        if next_column == grid_columns {
-            self.row = row.checked_add(1).expect("too many grid rows");
-            self.column = 0;
-        } else {
-            self.row = row;
-            self.column = next_column as u16;
-        }
-        (row, column as u16)
-    }
+pub fn item() -> Item {
+    Item::new()
 }
 
-impl<P: Platform> Layout<P> for Grid {
-    type Item = GridItem;
-
-    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
-        if let Some(width) = width {
-            item.preferred_width = Some(width);
-        }
-        if let Some(height) = height {
-            item.preferred_height = Some(height);
-        }
-    }
+impl<P: Platform> blit::Layout<P> for Layout {
+    type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
-        let res = cx.layout_resolution();
+        let res = cx.resolution();
         let range = |axis, preferred: Option<f32>, available| {
             if let Some(preferred) = preferred {
                 let preferred = res.extent(axis, preferred).max(0.0);
@@ -205,89 +158,114 @@ impl<P: Platform> Layout<P> for Grid {
         let vertical_padding = padding.top + padding.bottom;
         let horizontal_gaps = column_gap * columns.saturating_sub(1) as f32;
         let max_height = (constraints.max.height - vertical_padding).max(0.0);
-        let mut natural_column_width: f32 = 0.0;
+        if cx.children().next().is_none() {
+            return constraints.constrain(padding.size());
+        }
 
-        if self.spanning {
-            let mut rows = 0usize;
-            let mut placement = Placement::new();
-            for node in cx.children() {
-                let item = cx.item(node);
-                let (row, _) = placement.place(item, self.columns);
-                rows = rows.max(row as usize + item.row_span as usize);
-                let width = range(Axis::Horizontal, item.preferred_width, f32::INFINITY);
-                let height = range(Axis::Vertical, item.preferred_height, max_height);
-                let child = cx.layout_child(
-                    node,
-                    Constraints {
-                        min: Size {
-                            width: width.0,
-                            height: height.0,
-                        },
-                        max: Size {
-                            width: width.1,
-                            height: height.1,
-                        },
-                    },
-                );
-                let internal_gaps = column_gap * item.column_span.saturating_sub(1) as f32;
+        let width = if constraints.min.width == constraints.max.width {
+            constraints.min.width
+        } else {
+            let mut natural_column_width: f32 = 0.0;
+            for child in cx.children() {
+                let item = cx.item(child);
+                let width = range(Axis::Horizontal, item.width.preferred(), f32::INFINITY);
+                let height = range(Axis::Vertical, item.height.preferred(), max_height);
+                let child_size =
+                    cx.layout_child(child, flow_constraints(Axis::Horizontal, width, height));
+                let span = if self.spanning { item.column_span } else { 1 };
+                let internal_gaps = column_gap * span.saturating_sub(1) as f32;
                 natural_column_width = natural_column_width
-                    .max((child.width - internal_gaps).max(0.0) / item.column_span as f32);
-            }
-            if rows == 0 {
-                return constraints.constrain(Size::default());
+                    .max((child_size.width - internal_gaps).max(0.0) / span as f32);
             }
 
             let natural_width =
                 natural_column_width * columns as f32 + horizontal_gaps + horizontal_padding;
-            let width = natural_width.clamp(constraints.min.width, constraints.max.width);
-            let cell_width =
-                (width - horizontal_padding - horizontal_gaps).max(0.0) / columns as f32;
+            natural_width.clamp(constraints.min.width, constraints.max.width)
+        };
+        let cell_width = (width - horizontal_padding - horizontal_gaps).max(0.0) / columns as f32;
+
+        if self.spanning {
             let mut row_height: f32 = 0.0;
 
-            for node in cx.children() {
-                let item = cx.item(node);
-                let child_width = cell_width * item.column_span as f32
+            for child in cx.children() {
+                let item = cx.item(child);
+                let assigned_width = cell_width * item.column_span as f32
                     + column_gap * item.column_span.saturating_sub(1) as f32;
-                let height = range(Axis::Vertical, item.preferred_height, max_height);
-                let child = cx.constrain_child(
-                    node,
-                    Constraints {
-                        min: Size {
-                            width: child_width,
-                            height: height.0,
-                        },
-                        max: Size {
-                            width: child_width,
-                            height: height.1,
-                        },
-                    },
+                let child_width = item.width.resolve(res, Axis::Horizontal, assigned_width);
+                let height = range(Axis::Vertical, item.height.preferred(), max_height);
+                let child_size = cx.layout_child(
+                    child,
+                    flow_constraints(Axis::Horizontal, (child_width, child_width), height),
                 );
                 let internal_gaps = row_gap * item.row_span.saturating_sub(1) as f32;
-                row_height =
-                    row_height.max((child.height - internal_gaps).max(0.0) / item.row_span as f32);
+                row_height = row_height
+                    .max((child_size.height - internal_gaps).max(0.0) / item.row_span as f32);
             }
 
-            let mut placement = Placement::new();
-            for node in cx.children() {
-                let item = cx.item(node);
-                let (row, column) = placement.place(item, self.columns);
-                let child_width = cell_width * item.column_span as f32
-                    + column_gap * item.column_span.saturating_sub(1) as f32;
-                let child_height = row_height * item.row_span as f32
-                    + row_gap * item.row_span.saturating_sub(1) as f32;
-                cx.constrain_child(
-                    node,
-                    Constraints::tight(Size {
-                        width: child_width,
-                        height: child_height,
-                    }),
+            let mut column_rows = [0u16; MAX_SPANNING_COLUMNS];
+            let mut cursor_row = 0u16;
+            let mut cursor_column = 0usize;
+            let mut rows = 0usize;
+            for child in cx.children() {
+                let item = cx.item(child);
+                assert!(
+                    item.column_span <= self.columns,
+                    "grid column span exceeds its column count"
                 );
-                cx.set_position(
-                    node,
-                    Point {
-                        x: padding.left + column as f32 * (cell_width + column_gap),
-                        y: padding.top + row as f32 * (row_height + row_gap),
-                    },
+                let span = item.column_span as usize;
+                let column = cursor_column;
+                let (row, column) = if column + span <= columns
+                    && column_rows[column..column + span]
+                        .iter()
+                        .all(|row| *row <= cursor_row)
+                {
+                    (cursor_row, column)
+                } else {
+                    let mut placement = None;
+                    for column in 0..=columns - span {
+                        let mut row = if column < cursor_column {
+                            cursor_row.checked_add(1).expect("too many grid rows")
+                        } else {
+                            cursor_row
+                        };
+                        for occupied in &column_rows[column..column + span] {
+                            row = row.max(*occupied);
+                        }
+                        if placement.is_none_or(|best| (row, column) < best) {
+                            placement = Some((row, column));
+                        }
+                    }
+                    placement.unwrap()
+                };
+
+                let end_row = row.checked_add(item.row_span).expect("too many grid rows");
+                column_rows[column..column + span].fill(end_row);
+                let next_column = column + span;
+                if next_column == columns {
+                    cursor_row = row.checked_add(1).expect("too many grid rows");
+                    cursor_column = 0;
+                } else {
+                    cursor_row = row;
+                    cursor_column = next_column;
+                }
+                rows = rows.max(row as usize + item.row_span as usize);
+                let assigned_width = cell_width * item.column_span as f32
+                    + column_gap * item.column_span.saturating_sub(1) as f32;
+                let assigned_height = row_height * item.row_span as f32
+                    + row_gap * item.row_span.saturating_sub(1) as f32;
+                let child_size = Size {
+                    width: item.width.resolve(res, Axis::Horizontal, assigned_width),
+                    height: item.height.resolve(res, Axis::Vertical, assigned_height),
+                };
+                if cx.child_size(child) != child_size {
+                    cx.layout_child(child, Constraints::tight(child_size));
+                }
+                cx.set_child_position(
+                    child,
+                    Point::new(
+                        padding.left + column as f32 * (cell_width + column_gap),
+                        padding.top + row as f32 * (row_height + row_gap),
+                    ),
                 );
             }
 
@@ -299,58 +277,22 @@ impl<P: Platform> Layout<P> for Grid {
             });
         }
 
-        let count = cx.children().count();
-        if count == 0 {
-            return constraints.constrain(Size::default());
-        }
-        let rows = count.div_ceil(columns);
-
-        for node in cx.children() {
-            let item = cx.item(node);
+        let mut count = 0usize;
+        for child in cx.children() {
+            count += 1;
+            let item = cx.item(child);
             assert!(
                 item.row_span == 1 && item.column_span == 1,
-                "grid spans must be enabled with Grid::spanning"
+                "grid spans must be enabled with grid::Layout::spanning"
             );
-            let width = range(Axis::Horizontal, item.preferred_width, f32::INFINITY);
-            let height = range(Axis::Vertical, item.preferred_height, max_height);
-            let child = cx.layout_child(
-                node,
-                Constraints {
-                    min: Size {
-                        width: width.0,
-                        height: height.0,
-                    },
-                    max: Size {
-                        width: width.1,
-                        height: height.1,
-                    },
-                },
-            );
-            natural_column_width = natural_column_width.max(child.width);
-        }
-
-        let natural_width =
-            natural_column_width * columns as f32 + horizontal_gaps + horizontal_padding;
-        let width = natural_width.clamp(constraints.min.width, constraints.max.width);
-        let cell_width = (width - horizontal_padding - horizontal_gaps).max(0.0) / columns as f32;
-
-        for node in cx.children() {
-            let item = cx.item(node);
-            let height = range(Axis::Vertical, item.preferred_height, max_height);
-            cx.constrain_child(
-                node,
-                Constraints {
-                    min: Size {
-                        width: cell_width,
-                        height: height.0,
-                    },
-                    max: Size {
-                        width: cell_width,
-                        height: height.1,
-                    },
-                },
+            let child_width = item.width.resolve(res, Axis::Horizontal, cell_width);
+            let height = range(Axis::Vertical, item.height.preferred(), max_height);
+            cx.layout_child(
+                child,
+                flow_constraints(Axis::Horizontal, (child_width, child_width), height),
             );
         }
+        let rows = count.div_ceil(columns);
 
         let mut natural_height = vertical_padding + row_gap * rows.saturating_sub(1) as f32;
         let mut children = cx.children().peekable();
@@ -360,27 +302,25 @@ impl<P: Platform> Layout<P> for Grid {
             let mut row_count = 0usize;
             let mut row_height: f32 = 0.0;
             while row_count < columns
-                && let Some(node) = children.next()
+                && let Some(child) = children.next()
             {
-                row_height = row_height.max(cx.size(node).height);
+                row_height = row_height.max(cx.child_size(child).height);
                 row_count += 1;
             }
             natural_height += row_height;
 
-            for (column, node) in row.take(row_count).enumerate() {
-                cx.constrain_child(
-                    node,
-                    Constraints::tight(Size {
-                        width: cell_width,
-                        height: row_height,
-                    }),
+            for (column, child) in row.take(row_count).enumerate() {
+                let item = cx.item(child);
+                let child_size = Size::new(
+                    item.width.resolve(res, Axis::Horizontal, cell_width),
+                    item.height.resolve(res, Axis::Vertical, row_height),
                 );
-                cx.set_position(
-                    node,
-                    Point {
-                        x: padding.left + column as f32 * (cell_width + column_gap),
-                        y,
-                    },
+                if cx.child_size(child) != child_size {
+                    cx.layout_child(child, Constraints::tight(child_size));
+                }
+                cx.set_child_position(
+                    child,
+                    Point::new(padding.left + column as f32 * (cell_width + column_gap), y),
                 );
             }
             y += row_height + row_gap;
@@ -390,5 +330,20 @@ impl<P: Platform> Layout<P> for Grid {
             width,
             height: natural_height,
         })
+    }
+
+    fn override_size(
+        &self,
+        item: &mut Self::Item,
+        width: Option<f32>,
+        height: Option<f32>,
+    ) -> bool {
+        if let Some(extent) = width {
+            item.width = GridExtent::Exact(extent);
+        }
+        if let Some(extent) = height {
+            item.height = GridExtent::Exact(extent);
+        }
+        true
     }
 }

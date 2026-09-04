@@ -7,22 +7,30 @@ use crate::{
 
 pub trait Layout<R: Platform>: 'static {
     /// per-child data interpreted by this layout
-    type Item: Copy + 'static;
+    type Item: 'static;
 
-    /// lays out direct non-absolute children within parent constraints
+    /// measures this node and arranges its flow children
     ///
-    /// - use `cx` to measure, size, and position children
-    /// - call [`LayoutCx::measure_base`] when this node's atoms contribute
-    /// - adapt layout-owned physical lengths through [`LayoutCx::layout_resolution`]
-    /// - return the desired size, which the kernel constrains
+    /// layout may run more than once per frame, including during size
+    /// transitions. every call must:
+    ///
+    /// - measure any contributing atoms with [`LayoutCx::measure_atoms`]
+    /// - call [`LayoutCx::layout_child`] with every flow child's final constraints
+    /// - call [`LayoutCx::set_child_position`] for every flow child
+    /// - adapt layout-owned physical lengths through [`LayoutCx::resolution`]
+    /// - return a size within `constraints`
+    ///
+    /// use [`LayoutCx::target_child_size`] when animated sizes must not change
+    /// structural decisions such as wrapping.
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size;
 
-    /// applies animated outer dimensions to a temporary child item
+    /// applies an animated outer size to a flow child item
     ///
-    /// - values are the current interpolated dimensions
-    /// - `None` leaves that axis unchanged
-    /// - leaving the item unchanged disables animated sizing
-    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>);
+    /// return
+    /// - `true` if layout honors every supplied extent
+    /// - `false` disables the transition and must leave `item` unchanged
+    fn override_size(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>)
+    -> bool;
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

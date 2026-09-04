@@ -5,7 +5,7 @@ use blit::{
     WidgetId,
 };
 
-use crate::layout::Single;
+use crate::layout::single;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Close {
@@ -111,7 +111,7 @@ where
         } else if !self.config.open_on_hover && interaction.activated {
             self.state.open = !self.state.open;
         }
-        let mut root = ui.layout(Single::new());
+        let mut root = ui.layout(single::layout());
         let anchor = root
             .child(Place::new())
             .widget_id(trigger_id)
@@ -207,13 +207,13 @@ mod tests {
                 Popover::new(state)
                     .config(config)
                     .trigger(|ui: Ui<'_, TestPlatform>, _, _| {
-                        ui.layout(Single::new())
-                            .child(crate::layout::SingleItem::fixed(2.0, 1.0))
+                        ui.layout(single::layout())
+                            .child(single::item().fixed(2.0, 1.0))
                             .build(())
                     })
                     .build(|ui: Ui<'_, TestPlatform>| {
-                        ui.layout(Single::new())
-                            .child(crate::layout::SingleItem::fixed(4.0, 3.0))
+                        ui.layout(single::layout())
+                            .child(single::item().fixed(4.0, 3.0))
                             .build(())
                     }),
             );

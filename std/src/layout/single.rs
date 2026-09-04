@@ -1,44 +1,23 @@
-use blit::{Axis, Constraints, Layout, LayoutCx, Platform, Point, Sides, Size, Sizing};
+use blit::{Axis, Constraints, LayoutCx, Platform, Point, Sides, Size, Sizing};
 
-use super::{flow_constraints, override_sizing, sizing_range};
-
-blit::builder! {
-    /// sizing policy for the child of a single layout
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct SingleItem {
-        new(),
-        width: Sizing = Sizing::fit(),
-        height: Sizing = Sizing::fit(),
-    }
-}
-
-impl SingleItem {
-    pub fn fixed(width: f32, height: f32) -> Self {
-        Self::new()
-            .width(Sizing::fixed(width))
-            .height(Sizing::fixed(height))
-    }
-
-    pub fn grow() -> Self {
-        Self::new().width(Sizing::grow()).height(Sizing::grow())
-    }
-}
+pub use super::sizing::{Item, item};
+use super::{flow_constraints, override_sizing, percentage, sizing_range};
 
 blit::builder! {
     /// lays out at most one direct child
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Single {
+    pub struct Layout {
         new(),
         padding: Sides = Sides::all(0.0),
     }
 }
 
-impl<P: Platform> Layout<P> for Single {
-    type Item = SingleItem;
+pub fn layout() -> Layout {
+    Layout::new()
+}
 
-    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
-        override_sizing(&mut item.width, &mut item.height, width, height);
-    }
+impl<P: Platform> blit::Layout<P> for Layout {
+    type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
         fn range(sizing: Sizing, minimum: f32, maximum: f32) -> (f32, f32) {
@@ -57,7 +36,7 @@ impl<P: Platform> Layout<P> for Single {
             range
         }
 
-        let res = cx.layout_resolution();
+        let res = cx.resolution();
         let padding = res.sides(self.padding);
         let padding_size = padding.size();
         let mut children = cx.children();
@@ -71,21 +50,39 @@ impl<P: Platform> Layout<P> for Single {
 
         let content = constraints.shrink(padding_size);
         let item = cx.item(child);
-        let width = range(
-            res.sizing(Axis::Horizontal, item.width),
-            content.min.width,
-            content.max.width,
-        );
-        let height = range(
-            res.sizing(Axis::Vertical, item.height),
-            content.min.height,
-            content.max.height,
-        );
+        let width_sizing = res.sizing(Axis::Horizontal, item.width);
+        let height_sizing = res.sizing(Axis::Vertical, item.height);
+        let width = range(width_sizing, content.min.width, content.max.width);
+        let height = range(height_sizing, content.min.height, content.max.height);
         let child_size = cx.layout_child(child, flow_constraints(Axis::Horizontal, width, height));
-        cx.set_position(child, Point::new(padding.left, padding.top));
-        constraints.constrain(Size::new(
+        let size = constraints.constrain(Size::new(
             child_size.width + padding_size.width,
             child_size.height + padding_size.height,
-        ))
+        ));
+        let available = (size - padding_size).max(Size::ZERO);
+        let final_size = Size::new(
+            match width_sizing {
+                Sizing::Percent(fraction) => percentage(fraction, available.width),
+                _ => child_size.width,
+            },
+            match height_sizing {
+                Sizing::Percent(fraction) => percentage(fraction, available.height),
+                _ => child_size.height,
+            },
+        );
+        if final_size != child_size {
+            cx.layout_child(child, Constraints::tight(final_size));
+        }
+        cx.set_child_position(child, Point::new(padding.left, padding.top));
+        size
+    }
+
+    fn override_size(
+        &self,
+        item: &mut Self::Item,
+        width: Option<f32>,
+        height: Option<f32>,
+    ) -> bool {
+        override_sizing(&mut item.width, &mut item.height, width, height)
     }
 }
