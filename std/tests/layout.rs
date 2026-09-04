@@ -2,7 +2,7 @@ use blit::{
     Atom, Constraints, Frame, FrameInfo, Place, Platform, Rect, Sides, Size, Sizing, Ui, WidgetId,
 };
 use blit_std::{
-    layout::{Align, Flex, FlexItem, Grid, Single, SingleItem},
+    layout::{Align, Flex, FlexItem, Grid, GridItem, Single, SingleItem},
     widget::split,
 };
 
@@ -127,25 +127,47 @@ fn single_resolves_child_sizing() {
 }
 
 #[test]
-fn spanning_grid_places_items_in_equal_cells() {
+fn spanning_grid_sizes_spanning_items() {
     let mut frame = Frame::default();
-    let mut platform = TestPlatform;
     let wide = WidgetId::new("wide");
     let layout = Grid::columns(3).spanning().gap(2.0);
     frame.render(
-        &mut platform,
+        &mut TestPlatform,
         FrameInfo::new(Size::new(100.0, 40.0)),
         |ui: Ui<'_, TestPlatform>| {
-            let mut placer = layout.placer();
             let mut grid = ui.layout(layout);
-            grid.child(placer.place(1, 2).preferred_height(12.0))
+            grid.child(GridItem::new().column_span(2).preferred_height(12.0))
                 .widget_id(wide)
                 .insert(BoxAtom(Size::new(20.0, 10.0)));
-            grid.child(placer.place(1, 1))
+            grid.child(GridItem::new())
                 .insert(BoxAtom(Size::uniform(10.0)));
         },
     );
     assert_eq!(frame.geometry(wide).unwrap().size(), Size::new(66.0, 12.0));
+}
+
+#[test]
+fn spanning_grid_fills_available_cell() {
+    let mut frame = Frame::default();
+    let hole = WidgetId::new("hole");
+    frame.render(
+        &mut TestPlatform,
+        FrameInfo::new(Size::new(90.0, 20.0)),
+        |ui: Ui<'_, TestPlatform>| {
+            let mut grid = ui.layout(Grid::columns(3).spanning());
+            grid.child(GridItem::new().row_span(2).column_span(2))
+                .insert(BoxAtom(Size::uniform(20.0)));
+            grid.child(GridItem::new())
+                .insert(BoxAtom(Size::uniform(10.0)));
+            grid.child(GridItem::new())
+                .widget_id(hole)
+                .insert(BoxAtom(Size::uniform(10.0)));
+        },
+    );
+    assert_eq!(
+        frame.geometry(hole),
+        Some(Rect::new(60.0, 10.0, 30.0, 10.0))
+    );
 }
 
 #[test]

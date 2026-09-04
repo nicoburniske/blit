@@ -53,26 +53,11 @@ impl Grid {
         self.row_gap = gap;
         self
     }
-
-    pub fn placer(self) -> GridPlacer {
-        assert!(
-            self.spanning,
-            "grid spans must be enabled with Grid::spanning"
-        );
-        GridPlacer {
-            columns: self.columns,
-            next_row: [0; MAX_SPANNING_COLUMNS],
-            row: 0,
-            column: 0,
-        }
-    }
 }
 
 /// placement and preferred track contribution for a grid child
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GridItem {
-    row: u16,
-    column: u16,
     row_span: u16,
     column_span: u16,
     preferred_width: Option<f32>,
@@ -81,18 +66,32 @@ pub struct GridItem {
 
 impl Default for GridItem {
     fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GridItem {
+    pub const fn new() -> Self {
         Self {
-            row: 0,
-            column: 0,
             row_span: 1,
             column_span: 1,
             preferred_width: None,
             preferred_height: None,
         }
     }
-}
 
-impl GridItem {
+    pub fn row_span(mut self, rows: usize) -> Self {
+        self.row_span = u16::try_from(rows).expect("grid row span is too large");
+        assert!(self.row_span != 0, "grid row span must be nonzero");
+        self
+    }
+
+    pub fn column_span(mut self, columns: usize) -> Self {
+        self.column_span = u16::try_from(columns).expect("grid column span is too large");
+        assert!(self.column_span != 0, "grid column span must be nonzero");
+        self
+    }
+
     pub const fn preferred_width(mut self, width: f32) -> Self {
         self.preferred_width = Some(width);
         self
@@ -104,26 +103,38 @@ impl GridItem {
     }
 }
 
-pub struct GridPlacer {
-    columns: u16,
+struct Placement {
     next_row: [u16; MAX_SPANNING_COLUMNS],
     row: u16,
     column: u16,
 }
 
-impl GridPlacer {
-    pub fn place(&mut self, rows: usize, columns: usize) -> GridItem {
-        let row_span = u16::try_from(rows).expect("grid row span is too large");
-        let column_span = u16::try_from(columns).expect("grid column span is too large");
-        assert!(row_span != 0, "grid row span must be nonzero");
-        assert!(column_span != 0, "grid column span must be nonzero");
+impl Placement {
+    fn new() -> Self {
+        Self {
+            next_row: [0; MAX_SPANNING_COLUMNS],
+            row: 0,
+            column: 0,
+        }
+    }
+
+    fn place(&mut self, item: GridItem, columns: u16) -> (u16, u16) {
         assert!(
-            column_span <= self.columns,
+            item.column_span <= columns,
             "grid column span exceeds its column count"
         );
 
-        let grid_columns = self.columns as usize;
-        let span = column_span as usize;
+        let grid_columns = columns as usize;
+        let span = item.column_span as usize;
+        let column = self.column as usize;
+        if column + span <= grid_columns
+            && self.next_row[column..column + span]
+                .iter()
+                .all(|row| *row <= self.row)
+        {
+            return self.occupy(self.row, column, item, grid_columns);
+        }
+
         let mut placement = None;
         for column in 0..=grid_columns - span {
             let mut row = if column < self.column as usize {
@@ -139,7 +150,18 @@ impl GridPlacer {
             }
         }
         let (row, column) = placement.unwrap();
-        let end_row = row.checked_add(row_span).expect("too many grid rows");
+        self.occupy(row, column, item, grid_columns)
+    }
+
+    fn occupy(
+        &mut self,
+        row: u16,
+        column: usize,
+        item: GridItem,
+        grid_columns: usize,
+    ) -> (u16, u16) {
+        let span = item.column_span as usize;
+        let end_row = row.checked_add(item.row_span).expect("too many grid rows");
         self.next_row[column..column + span].fill(end_row);
         let next_column = column + span;
         if next_column == grid_columns {
@@ -149,16 +171,10 @@ impl GridPlacer {
             self.row = row;
             self.column = next_column as u16;
         }
-        GridItem {
-            row,
-            column: column as u16,
-            row_span,
-            column_span,
-            preferred_width: None,
-            preferred_height: None,
-        }
+        (row, column as u16)
     }
 }
+
 impl<P: Platform> Layout<P> for Grid {
     type Item = GridItem;
 
@@ -193,9 +209,11 @@ impl<P: Platform> Layout<P> for Grid {
 
         if self.spanning {
             let mut rows = 0usize;
+            let mut placement = Placement::new();
             for node in cx.children() {
                 let item = cx.item(node);
-                rows = rows.max(item.row as usize + item.row_span as usize);
+                let (row, _) = placement.place(item, self.columns);
+                rows = rows.max(row as usize + item.row_span as usize);
                 let width = range(Axis::Horizontal, item.preferred_width, f32::INFINITY);
                 let height = range(Axis::Vertical, item.preferred_height, max_height);
                 let child = cx.layout_child(
@@ -249,8 +267,10 @@ impl<P: Platform> Layout<P> for Grid {
                     row_height.max((child.height - internal_gaps).max(0.0) / item.row_span as f32);
             }
 
+            let mut placement = Placement::new();
             for node in cx.children() {
                 let item = cx.item(node);
+                let (row, column) = placement.place(item, self.columns);
                 let child_width = cell_width * item.column_span as f32
                     + column_gap * item.column_span.saturating_sub(1) as f32;
                 let child_height = row_height * item.row_span as f32
@@ -265,8 +285,8 @@ impl<P: Platform> Layout<P> for Grid {
                 cx.set_position(
                     node,
                     Point {
-                        x: padding.left + item.column as f32 * (cell_width + column_gap),
-                        y: padding.top + item.row as f32 * (row_height + row_gap),
+                        x: padding.left + column as f32 * (cell_width + column_gap),
+                        y: padding.top + row as f32 * (row_height + row_gap),
                     },
                 );
             }
@@ -287,6 +307,10 @@ impl<P: Platform> Layout<P> for Grid {
 
         for node in cx.children() {
             let item = cx.item(node);
+            assert!(
+                item.row_span == 1 && item.column_span == 1,
+                "grid spans must be enabled with Grid::spanning"
+            );
             let width = range(Axis::Horizontal, item.preferred_width, f32::INFINITY);
             let height = range(Axis::Vertical, item.preferred_height, max_height);
             let child = cx.layout_child(

@@ -11,7 +11,7 @@ use blit_tui::{
         Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, TitlePosition,
     },
     color::Color,
-    layout::{Align, Flex, FlexItem, Grid, Justify, Single, Wrap, WrapItem},
+    layout::{Align, Flex, FlexItem, Grid, GridItem, Justify, Single, Wrap, WrapItem},
     text::{
         HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign,
     },
@@ -1063,14 +1063,17 @@ impl Widget<TuiPlatform> for Canvas {
                     .padding(self.config.padding(unit))
                     .column_gap(self.config.gap(Axis::Horizontal, unit))
                     .row_gap(self.config.gap(Axis::Vertical, unit));
-                let mut placer = grid.placer();
                 let mut canvas = ui.layout(grid).clip(BoundsClip);
                 canvas.insert(background);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
-                    let item = placer.place(spec.rows, spec.columns);
                     canvas
-                        .child(item.preferred_height(3.0 * self.config.zoom))
+                        .child(
+                            GridItem::new()
+                                .row_span(spec.rows)
+                                .column_span(spec.columns)
+                                .preferred_height(3.0 * self.config.zoom),
+                        )
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config, unit);
                         });

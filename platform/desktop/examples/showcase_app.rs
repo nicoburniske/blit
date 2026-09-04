@@ -9,7 +9,7 @@ use blit_desktop::{
     Application, BoundsClip, Config, DesktopPlatform, EventLoopProxy, Root, Ui,
     atom::{Rectangle, Shadow},
     color::Color,
-    layout::{Align, Flex, FlexItem, Grid, Single, Wrap, WrapItem},
+    layout::{Align, Flex, FlexItem, Grid, GridItem, Single, Wrap, WrapItem},
     style::{Border, BorderRadius},
     text::{FontId, TextStyle},
     widget::{Text, popover, resize, scroll, split},
@@ -1004,14 +1004,17 @@ impl Widget<DesktopPlatform> for Canvas {
                     .padding(self.config.padding(self.unit))
                     .column_gap(self.config.gap(Axis::Horizontal, self.unit))
                     .row_gap(self.config.gap(Axis::Vertical, self.unit));
-                let mut placer = grid.placer();
                 let mut canvas = ui.layout(grid).clip(BoundsClip);
                 canvas.insert(background);
                 let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
-                    let item = placer.place(spec.rows, spec.columns);
                     canvas
-                        .child(item.preferred_height(5.0 * self.unit.height * self.config.zoom))
+                        .child(
+                            GridItem::new()
+                                .row_span(spec.rows)
+                                .column_span(spec.columns)
+                                .preferred_height(5.0 * self.unit.height * self.config.zoom),
+                        )
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, badges, self.config);
                         });
