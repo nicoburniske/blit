@@ -327,6 +327,8 @@ struct ListLayout {
 impl<R: Platform> Layout<R> for ListLayout {
     type Item = usize;
 
+    fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
+
     fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let mut cross_extent: f32 = 0.0;
         for child in ui.children() {
@@ -377,6 +379,8 @@ enum ScrollItem {
 
 impl<R: Platform> Layout<R> for ScrollLayout {
     type Item = ScrollItem;
+
+    fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
 
     fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let mut content = None;

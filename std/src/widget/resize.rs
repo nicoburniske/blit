@@ -151,6 +151,8 @@ enum ResizeItem {
 impl<P: Platform> Layout<P> for ResizeLayout {
     type Item = ResizeItem;
 
+    fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
+
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
         let maximum = self.maximum.max(self.minimum);
         let size = constraints.constrain(Size::new(

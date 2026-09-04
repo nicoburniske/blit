@@ -1,6 +1,6 @@
 use blit::{Axis, Constraints, Layout, LayoutCx, Platform, Point, Sides, Size, Sizing};
 
-use super::sizing_range;
+use super::{override_sizing, sizing_range};
 
 const MAX_SPANNING_COLUMNS: usize = 64;
 
@@ -164,6 +164,10 @@ impl GridPlacer {
 impl<P: Platform> Layout<P> for Grid {
     type Item = GridItem;
 
+    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
+        override_sizing(&mut item.width, &mut item.height, width, height);
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
         let columns = self.columns as usize;
         let padding = cx.resolve_sides(self.padding);
@@ -183,13 +187,11 @@ impl<P: Platform> Layout<P> for Grid {
                 let item = cx.item(node);
                 rows = rows.max(item.row as usize + item.row_span as usize);
                 let width = sizing_range(
-                    cx.resolve_sizing(node, Axis::Horizontal, item.width),
+                    cx.resolve_sizing(Axis::Horizontal, item.width),
                     f32::INFINITY,
                 );
-                let height = sizing_range(
-                    cx.resolve_sizing(node, Axis::Vertical, item.height),
-                    max_height,
-                );
+                let height =
+                    sizing_range(cx.resolve_sizing(Axis::Vertical, item.height), max_height);
                 let child = cx.layout_child(
                     node,
                     Constraints {
@@ -222,10 +224,8 @@ impl<P: Platform> Layout<P> for Grid {
                 let item = cx.item(node);
                 let child_width = cell_width * item.column_span as f32
                     + column_gap * item.column_span.saturating_sub(1) as f32;
-                let height = sizing_range(
-                    cx.resolve_sizing(node, Axis::Vertical, item.height),
-                    max_height,
-                );
+                let height =
+                    sizing_range(cx.resolve_sizing(Axis::Vertical, item.height), max_height);
                 let child = cx.constrain_child(
                     node,
                     Constraints {
@@ -283,13 +283,10 @@ impl<P: Platform> Layout<P> for Grid {
         for node in cx.children() {
             let item = cx.item(node);
             let width = sizing_range(
-                cx.resolve_sizing(node, Axis::Horizontal, item.width),
+                cx.resolve_sizing(Axis::Horizontal, item.width),
                 f32::INFINITY,
             );
-            let height = sizing_range(
-                cx.resolve_sizing(node, Axis::Vertical, item.height),
-                max_height,
-            );
+            let height = sizing_range(cx.resolve_sizing(Axis::Vertical, item.height), max_height);
             let child = cx.layout_child(
                 node,
                 Constraints {
@@ -313,10 +310,7 @@ impl<P: Platform> Layout<P> for Grid {
 
         for node in cx.children() {
             let item = cx.item(node);
-            let height = sizing_range(
-                cx.resolve_sizing(node, Axis::Vertical, item.height),
-                max_height,
-            );
+            let height = sizing_range(cx.resolve_sizing(Axis::Vertical, item.height), max_height);
             cx.constrain_child(
                 node,
                 Constraints {

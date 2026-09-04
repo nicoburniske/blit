@@ -1,7 +1,8 @@
 use blit::{Axis, Constraints, Layout, LayoutCx, Platform, Point, Sides, Size, Sizing};
 
 use super::{
-    Align, Justify, flow_constraints, flow_size, justify_offset, size_on_axis, sizing_range,
+    Align, Justify, flow_constraints, flow_size, justify_offset, override_sizing, size_on_axis,
+    sizing_range,
 };
 
 blit::builder! {
@@ -65,6 +66,10 @@ impl Wrap {
 impl<P: Platform> Layout<P> for Wrap {
     type Item = WrapItem;
 
+    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
+        override_sizing(&mut item.width, &mut item.height, width, height);
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
         let cross_axis = match self.axis {
             Axis::Horizontal => Axis::Vertical,
@@ -97,8 +102,8 @@ impl<P: Platform> Layout<P> for Wrap {
 
         for node in cx.children() {
             let item = cx.item(node);
-            let main_sizing = cx.resolve_sizing(node, self.axis, item.sizing(self.axis));
-            let cross_sizing = cx.resolve_sizing(node, cross_axis, item.sizing(cross_axis));
+            let main_sizing = cx.resolve_sizing(self.axis, item.sizing(self.axis));
+            let cross_sizing = cx.resolve_sizing(cross_axis, item.sizing(cross_axis));
             let size = cx.layout_child(
                 node,
                 flow_constraints(
@@ -116,8 +121,8 @@ impl<P: Platform> Layout<P> for Wrap {
         for node in cx.children() {
             let natural = cx.size(node);
             let item = cx.item(node);
-            let main_sizing = cx.resolve_sizing(node, self.axis, item.sizing(self.axis));
-            let cross_sizing = cx.resolve_sizing(node, cross_axis, item.sizing(cross_axis));
+            let main_sizing = cx.resolve_sizing(self.axis, item.sizing(self.axis));
+            let cross_sizing = cx.resolve_sizing(cross_axis, item.sizing(cross_axis));
             let main = main_sizing.resolve(size_on_axis(natural, self.axis), available_main, false);
             let cross = sizing_range(cross_sizing, max_cross);
             if main != size_on_axis(natural, self.axis) {
@@ -182,8 +187,7 @@ impl<P: Platform> Layout<P> for Wrap {
             let mut main_cursor = main_leading + offset;
             for node in run.take(run_count) {
                 let child_main = cx.axis_size(node, self.axis);
-                let cross_sizing =
-                    cx.resolve_sizing(node, cross_axis, cx.item(node).sizing(cross_axis));
+                let cross_sizing = cx.resolve_sizing(cross_axis, cx.item(node).sizing(cross_axis));
                 if self.align == Align::Stretch
                     && matches!(cross_sizing, Sizing::Fit { .. } | Sizing::Grow { .. })
                 {

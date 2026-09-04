@@ -326,10 +326,10 @@ fn transitions_relayout_animated_sizes() {
     let id = WidgetId::new("transition");
 
     transition_scene(&mut frame, &mut platform, id, 1.0, Duration::ZERO);
-    assert_eq!(platform.contents(), "X   ");
+    assert_eq!(platform.contents(), "X\nY\n \n ");
 
     transition_scene(&mut frame, &mut platform, id, 3.0, Duration::ZERO);
-    assert_eq!(platform.contents(), "X   ");
+    assert_eq!(platform.contents(), "X\nY\n \n ");
     assert!(frame.has_pending_redraw());
 
     transition_scene(
@@ -339,10 +339,10 @@ fn transitions_relayout_animated_sizes() {
         3.0,
         Duration::from_millis(500),
     );
-    assert_eq!(platform.contents(), "XX  ");
+    assert_eq!(platform.contents(), "X\nX\nY\n ");
 
     transition_scene(&mut frame, &mut platform, id, 3.0, Duration::from_secs(1));
-    assert_eq!(platform.contents(), "XXX ");
+    assert_eq!(platform.contents(), "X\nX\nX\nY");
     assert!(!frame.has_pending_redraw());
 }
 
@@ -587,12 +587,12 @@ fn transition_scene(
     frame: &mut Frame<AsciiPlatform>,
     platform: &mut AsciiPlatform,
     id: WidgetId,
-    width: f32,
+    height: f32,
     time: Duration,
 ) {
     frame.render_inputs(
         platform,
-        FrameInfo::new(Size::new(4.0, 1.0)),
+        FrameInfo::new(Size::new(1.0, 4.0)),
         time,
         [Input::None],
         |ui: Ui<'_>| {
@@ -601,9 +601,12 @@ fn transition_scene(
                 let mut child = ui
                     .layout(Overlay)
                     .widget_id(id)
-                    .transition(Transition::new(Duration::from_secs(1)).width());
-                child.insert(Fill::new('X', Size::new(width, 1.0)));
+                    .transition(Transition::new(Duration::from_secs(1)).height());
+                child.insert(Fill::new('X', Size::new(1.0, height)));
             });
+            column
+                .child(TestItem::new(0.0))
+                .insert(Fill::new('Y', Size::new(1.0, 1.0)));
         },
     );
 }
@@ -713,6 +716,8 @@ struct OwnedValue {
 
 impl<R: Platform> Layout<R> for OwnedValue {
     type Item = ();
+
+    fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
 
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         constraints.constrain(cx.measure_base(Constraints::loose(constraints.max)))
@@ -887,11 +892,24 @@ impl Default for TestItem {
     }
 }
 
+fn override_test_item(item: &mut TestItem, width: Option<f32>, height: Option<f32>) {
+    if let Some(value) = width {
+        item.width = Sizing::fixed(value);
+    }
+    if let Some(value) = height {
+        item.height = Sizing::fixed(value);
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Column;
 
 impl<R: Platform> Layout<R> for Column {
     type Item = TestItem;
+
+    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
+        override_test_item(item, width, height)
+    }
 
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let base = cx.measure_base(Constraints::loose(constraints.max));
@@ -920,6 +938,10 @@ struct Overlay;
 impl<R: Platform> Layout<R> for Overlay {
     type Item = TestItem;
 
+    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
+        override_test_item(item, width, height)
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let mut size = cx.measure_base(Constraints::loose(constraints.max));
         for child in cx.children() {
@@ -946,6 +968,10 @@ struct BaseOnly;
 impl<R: Platform> Layout<R> for BaseOnly {
     type Item = TestItem;
 
+    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
+        override_test_item(item, width, height)
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         let size = constraints.constrain(cx.measure_base(Constraints::loose(constraints.max)));
         for child in cx.children() {
@@ -966,10 +992,16 @@ fn resolve_child<R: Platform>(
     let intrinsic = cx.layout_child(child, Constraints::loose(available));
     let item = cx.item(child);
     let size = Size::new(
-        cx.resolve_sizing(child, Axis::Horizontal, item.width)
-            .resolve(intrinsic.width, available.width, width_cross),
-        cx.resolve_sizing(child, Axis::Vertical, item.height)
-            .resolve(intrinsic.height, available.height, height_cross),
+        cx.resolve_sizing(Axis::Horizontal, item.width).resolve(
+            intrinsic.width,
+            available.width,
+            width_cross,
+        ),
+        cx.resolve_sizing(Axis::Vertical, item.height).resolve(
+            intrinsic.height,
+            available.height,
+            height_cross,
+        ),
     );
     cx.constrain_child(child, Constraints::tight(size))
 }

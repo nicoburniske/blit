@@ -9,6 +9,9 @@ use crate::{
 pub trait Layout<R: Platform>: 'static {
     type Item: Copy + 'static;
 
+    /// applies an animated size to a temporary layout item
+    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>);
+
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size;
 }
 

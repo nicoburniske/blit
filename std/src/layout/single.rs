@@ -1,6 +1,6 @@
 use blit::{Axis, Constraints, Layout, LayoutCx, Platform, Point, Sides, Size, Sizing};
 
-use super::{flow_constraints, sizing_range};
+use super::{flow_constraints, override_sizing, sizing_range};
 
 blit::builder! {
     /// sizing policy for the child of a single layout
@@ -36,6 +36,10 @@ blit::builder! {
 impl<P: Platform> Layout<P> for Single {
     type Item = SingleItem;
 
+    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
+        override_sizing(&mut item.width, &mut item.height, width, height);
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
         fn range(sizing: Sizing, minimum: f32, maximum: f32) -> (f32, f32) {
             if matches!(sizing, Sizing::Percent(_)) {
@@ -67,12 +71,12 @@ impl<P: Platform> Layout<P> for Single {
         let content = constraints.shrink(padding_size);
         let item = cx.item(child);
         let width = range(
-            cx.resolve_sizing(child, Axis::Horizontal, item.width),
+            cx.resolve_sizing(Axis::Horizontal, item.width),
             content.min.width,
             content.max.width,
         );
         let height = range(
-            cx.resolve_sizing(child, Axis::Vertical, item.height),
+            cx.resolve_sizing(Axis::Vertical, item.height),
             content.min.height,
             content.max.height,
         );

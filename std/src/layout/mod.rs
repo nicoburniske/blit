@@ -63,6 +63,20 @@ fn sizing_range(sizing: Sizing, available: f32) -> (f32, f32) {
     }
 }
 
+fn override_sizing(
+    width: &mut Sizing,
+    height: &mut Sizing,
+    override_width: Option<f32>,
+    override_height: Option<f32>,
+) {
+    if let Some(value) = override_width {
+        *width = Sizing::fixed(value);
+    }
+    if let Some(value) = override_height {
+        *height = Sizing::fixed(value);
+    }
+}
+
 fn flow_constraints(axis: Axis, main: (f32, f32), cross: (f32, f32)) -> Constraints {
     let (width, height) = match axis {
         Axis::Horizontal => (main, cross),

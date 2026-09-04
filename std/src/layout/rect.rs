@@ -7,6 +7,15 @@ pub struct RectLayout;
 impl<P: Platform> Layout<P> for RectLayout {
     type Item = Rect;
 
+    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>) {
+        if let Some(width) = width {
+            item.width = width;
+        }
+        if let Some(height) = height {
+            item.height = height;
+        }
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
         let mut natural = Size::default();
         for node in cx.children() {

@@ -203,6 +203,8 @@ enum SplitItem {
 impl<R: Platform> Layout<R> for SplitLayout {
     type Item = SplitItem;
 
+    fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
+
     fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
         fn extent(size: Size, axis: Axis) -> f32 {
             match axis {

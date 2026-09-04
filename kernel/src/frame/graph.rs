@@ -227,7 +227,7 @@ impl<R: Platform> Frame<R> {
         // layout mutates graph state while frame data remains immutable
         // todo/hack: is there a better way to do this
         let mut data = std::mem::take(&mut self.data);
-        transition::resolve(self, &data, platform, frame.size);
+        transition::resolve(self, &mut data, platform, frame.size);
         position::resolve(self);
         paint::resolve_order(self);
         paint::resolve_clips(self);
@@ -338,6 +338,7 @@ impl<R: Platform> Frame<R> {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
                     layout: layout::run::<R, L>,
+                    size_override: layout::override_item::<R, L>,
                 });
                 self.layout_kinds.len() - 1
             });
@@ -625,6 +626,8 @@ struct AtomKind<R: Platform> {
 struct LayoutKind<R: Platform> {
     type_id: TypeId,
     layout: fn(&DataArena, &mut Frame<R>, NodeId, &mut R, DataId, Constraints) -> Size,
+    size_override:
+        fn(&mut DataArena, DataId, DataId, Option<f32>, Option<f32>) -> DataId,
 }
 
 struct ClipKind<R: Platform> {

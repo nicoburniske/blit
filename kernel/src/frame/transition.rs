@@ -4,12 +4,17 @@ use super::{Frame, NodeId, position};
 use crate::{
     Platform,
     animation::{Transition, TransitionProperties},
-    arena::DataArena,
+    arena::{DataArena, DataId},
     geometry::{Rect, Size},
     interact::WidgetId,
 };
 
-pub fn resolve<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mut R, size: Size) {
+pub fn resolve<R: Platform>(
+    frame: &mut Frame<R>,
+    data: &mut DataArena,
+    platform: &mut R,
+    size: Size,
+) {
     for index in 0..frame.geometry.len() {
         let record = frame.geometry[index];
         let (Some(id), Some(config)) = (record.id, record.transition) else {
@@ -42,15 +47,46 @@ pub fn resolve<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &m
     }
 
     if active.intersects(TransitionProperties::SIZE) {
-        for state in frame.transitions.iter().filter(|state| state.seen) {
-            let geometry = frame.nodes[state.node.index()].geometry.index().unwrap();
-            frame.geometry[geometry].transition_size = state.current.size();
-            frame.geometry[geometry].transition_properties =
-                state.active.intersection(TransitionProperties::SIZE);
+        for index in 0..frame.transitions.len() {
+            let state = &frame.transitions[index];
+            if !state.seen {
+                continue;
+            }
+            let node = state.node;
+            let current = state.current;
+            let properties = state.active.intersection(TransitionProperties::SIZE);
+            let geometry = frame.nodes[node.index()].geometry.index().unwrap();
+            frame.geometry[geometry].transition_size = current.size();
+            frame.geometry[geometry].transition_properties = properties;
+            if properties.is_empty() || frame.nodes[node.index()].positioned.index().is_some() {
+                continue;
+            }
+            let parent = frame.nodes[node.index()].parent;
+            if parent == node {
+                continue;
+            }
+            let layout = frame.layouts[frame.nodes[parent.index()].layout.index().unwrap()];
+            let kind = layout.kind as usize;
+            let item = frame.nodes[node.index()].item;
+            let width = properties
+                .intersects(TransitionProperties::WIDTH)
+                .then_some(current.width);
+            let height = properties
+                .intersects(TransitionProperties::HEIGHT)
+                .then_some(current.height);
+            frame.nodes[node.index()].item =
+                (frame.layout_kinds[kind].size_override)(data, layout.data, item, width, height);
+            frame.transitions[index].item = item;
         }
         frame.resolving_size_transition = true;
         position::layout(frame, data, platform, size);
         frame.resolving_size_transition = false;
+        for state in frame.transitions.iter_mut().filter(|state| state.seen) {
+            if state.item.offset().is_some() {
+                frame.nodes[state.node.index()].item = state.item;
+                state.item = DataId::NONE;
+            }
+        }
     }
 
     if active.intersects(TransitionProperties::POSITION) {
@@ -78,6 +114,7 @@ pub struct TransitionState {
     pub config: Transition,
     pub initialized: bool,
     pub seen: bool,
+    item: DataId,
 }
 
 impl TransitionState {
@@ -93,6 +130,7 @@ impl TransitionState {
             config,
             initialized: false,
             seen: true,
+            item: DataId::NONE,
         }
     }
 

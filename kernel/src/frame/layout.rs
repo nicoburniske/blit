@@ -79,34 +79,9 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
         area.y = position.y + self.offset.y;
     }
 
-    /// resolves a layout-owned sizing policy for frame resolution and size transitions
+    /// resolves a sizing policy for continuous or discrete layout
     #[inline]
-    pub fn resolve_sizing(&self, child: NodeId, axis: Axis, sizing: Sizing) -> Sizing {
-        if !self.frame.resolving_size_transition {
-            return self.resolution.sizing(axis, sizing);
-        }
-        self.assert_child(child);
-        let sizing = self.frame.nodes[child.index()]
-            .geometry
-            .index()
-            .and_then(|index| {
-                let geometry = self.frame.geometry[index];
-                let (property, size) = match axis {
-                    Axis::Horizontal => (
-                        crate::TransitionProperties::WIDTH,
-                        geometry.transition_size.width,
-                    ),
-                    Axis::Vertical => (
-                        crate::TransitionProperties::HEIGHT,
-                        geometry.transition_size.height,
-                    ),
-                };
-                geometry
-                    .transition_properties
-                    .intersects(property)
-                    .then_some(Sizing::fixed(size))
-            })
-            .unwrap_or(sizing);
+    pub fn resolve_sizing(&self, axis: Axis, sizing: Sizing) -> Sizing {
         self.resolution.sizing(axis, sizing)
     }
 
@@ -221,4 +196,17 @@ pub fn run<R: Platform, L: Layout<R>>(
         },
         constraints,
     )
+}
+
+pub fn override_item<R: Platform, L: Layout<R>>(
+    data: &mut DataArena,
+    layout: DataId,
+    item: DataId,
+    width: Option<f32>,
+    height: Option<f32>,
+) -> DataId {
+    let mut item = *data.load::<L::Item>(item);
+    data.load::<L>(layout)
+        .size_override(&mut item, width, height);
+    data.store(item)
 }
