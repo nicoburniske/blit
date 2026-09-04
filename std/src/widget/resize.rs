@@ -1,6 +1,6 @@
 use blit::{
-    Axis, Constraints, Interaction, Layout, LayoutCx, Place, Platform, Point, Sense, Size, Ui,
-    Widget, WidgetId,
+    Axis, Constraints, Interaction, Layout, LayoutCx, Platform, Point, Sense, Size, Ui, Widget,
+    WidgetId,
 };
 
 #[derive(Debug, Default)]
@@ -118,14 +118,14 @@ where
                 grip_size,
             })
             .widget_id(id);
-        shell.child(Place::item(ResizeItem::Content)).build(content);
+        shell.child(ResizeItem::Content).build(content);
         for (item, edge, grip_id, interaction) in [
             (ResizeItem::Right, Edge::Right, right_id, right),
             (ResizeItem::Bottom, Edge::Bottom, bottom_id, bottom),
             (ResizeItem::Corner, Edge::Corner, corner_id, corner),
         ] {
             shell
-                .child(Place::item(item))
+                .child(item)
                 .widget_id(grip_id)
                 .build(grip(Grip { edge, interaction }));
         }

@@ -4,7 +4,7 @@ children require a layout
 use blit::*;
 
 fn child_before_layout<R: Platform>(mut ui: Ui<'_, R>) {
-    ui.child(Place::new());
+    ui.child(());
 }
 ```
 
@@ -48,7 +48,7 @@ where
     R: Platform,
     L: Layout<R>,
 {
-    ui.child(Place::new());
+    ui.child(());
 }
 ```
 

@@ -1,6 +1,6 @@
 use blit::{
-    Axis, Constraints, Interaction, Layout, LayoutCx, Place, Platform, Point, Sense, Size, Ui,
-    Widget, WidgetId,
+    Axis, Constraints, Interaction, Layout, LayoutCx, Platform, Point, Sense, Size, Ui, Widget,
+    WidgetId,
 };
 
 blit::builder! {
@@ -171,15 +171,15 @@ where
             })
             .widget_id(id);
         panes
-            .child(Place::item(SplitItem::Leading))
+            .child(SplitItem::Leading)
             .widget_id(leading_id)
             .build(leading);
         panes
-            .child(Place::item(SplitItem::Divider))
+            .child(SplitItem::Divider)
             .widget_id(divider_id)
             .build(divider.into_widget(config.axis, interaction));
         panes
-            .child(Place::item(SplitItem::Trailing))
+            .child(SplitItem::Trailing)
             .widget_id(trailing_id)
             .build(trailing);
     }

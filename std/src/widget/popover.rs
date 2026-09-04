@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use blit::{
-    Absolute, Anchor, Input, Interaction, Place, Platform, Point, Sense, Sides, Sizing, Ui, Widget,
+    Absolute, Anchor, Input, Interaction, Platform, Point, Sense, Sides, Sizing, Ui, Widget,
     WidgetId,
 };
 
@@ -113,7 +113,7 @@ where
         }
         let mut root = ui.layout(single::layout());
         let anchor = root
-            .child(Place::new())
+            .child(single::item())
             .widget_id(trigger_id)
             .build(|ui: Ui<'_, R>| {
                 let anchor = ui.id();
@@ -150,27 +150,23 @@ where
             return None;
         }
 
-        root.child(
-            Place::absolute(
-                Absolute::screen(0.0, 0.0)
-                    .width(Sizing::grow())
-                    .height(Sizing::grow()),
-            )
-            .layer(layer),
+        root.absolute(
+            Absolute::screen(0.0, 0.0)
+                .width(Sizing::grow())
+                .height(Sizing::grow()),
         )
+        .layer(layer)
         .widget_id(backdrop_id)
         .build(());
         let response = root
-            .child(
-                Place::absolute(
-                    Absolute::attach(self.config.target_anchor, self.config.child_anchor)
-                        .relative_to(anchor)
-                        .offset(self.config.offset.x, self.config.offset.y)
-                        .width(self.config.width)
-                        .height(self.config.height),
-                )
-                .layer(layer),
+            .absolute(
+                Absolute::attach(self.config.target_anchor, self.config.child_anchor)
+                    .relative_to(anchor)
+                    .offset(self.config.offset.x, self.config.offset.y)
+                    .width(self.config.width)
+                    .height(self.config.height),
             )
+            .layer(layer)
             .hit(
                 Sides::new()
                     .top(self.config.offset.y.max(0.0))

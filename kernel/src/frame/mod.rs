@@ -73,6 +73,33 @@ impl<'ui, R: Platform, S> Ui<'ui, R, S> {
         self
     }
 
+    /// places this node in a paint layer
+    pub fn layer(self, layer: LayerId) -> Self {
+        let node = self.inner.node;
+        let frame = self.inner.context.frame_mut();
+        let index = layer.index();
+        assert!(
+            index < frame.layers.len(),
+            "layer does not belong to this frame"
+        );
+        assert!(
+            frame.layers[index].owner.index() < node.index(),
+            "a layer can only contain nodes declared after its owner"
+        );
+        frame.needs_paint_order = true;
+        frame.nodes[node.index()].layer = Some(layer);
+        self
+    }
+
+    /// sets this node's paint order within its layer
+    pub fn z_index(self, z_index: i16) -> Self {
+        let node = self.inner.node;
+        let frame = self.inner.context.frame_mut();
+        frame.needs_paint_order |= z_index != 0;
+        frame.nodes[node.index()].z_index = z_index;
+        self
+    }
+
     /// inserts content into the current node
     pub fn insert<C: Content<R>>(&mut self, content: C) -> C::Response {
         content.append(Ui {
@@ -126,24 +153,20 @@ impl<'ui, R: Platform, L: Layout<R>> Ui<'ui, R, state::Open<L>> {
         self
     }
 
-    /// creates a fresh child from the parent layout's item or a decorated [`Place`]
-    pub fn child(&mut self, place: impl Into<Place<L::Item>>) -> Ui<'_, R> {
-        let Place {
-            kind,
-            layer,
-            z_index,
-        } = place.into();
+    /// creates a flow child with an item interpreted by this layout
+    pub fn child(&mut self, item: L::Item) -> Ui<'_, R> {
         let node = self.inner.context.frame_mut().push_node();
         let frame = self.inner.context.frame_mut();
-        match kind {
-            PlaceKind::Layout(item) => {
-                frame.nodes[node.index()].item = frame.data.store(item);
-            }
-            PlaceKind::Absolute(absolute) => {
-                frame.set_absolute(node, absolute);
-            }
-        }
-        frame.set_place(node, layer, z_index);
+        frame.nodes[node.index()].item = frame.data.store(item);
+        frame.current_parent = Some(node);
+        Ui::new(&mut *self.inner.context, node)
+    }
+
+    /// creates an absolutely positioned child that bypasses this layout
+    pub fn absolute(&mut self, absolute: Absolute) -> Ui<'_, R> {
+        let node = self.inner.context.frame_mut().push_node();
+        let frame = self.inner.context.frame_mut();
+        frame.set_absolute(node, absolute);
         frame.current_parent = Some(node);
         Ui::new(&mut *self.inner.context, node)
     }
@@ -280,77 +303,6 @@ pub struct LayerId {
     value: NonZeroU16,
     #[cfg(debug_assertions)]
     generation: u16,
-}
-
-/// universal placement metadata around a layout item or absolute placement
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Place<I = ()> {
-    pub kind: PlaceKind<I>,
-    pub layer: Option<LayerId>,
-    pub z_index: i16,
-}
-
-/// relationship between a child and its parent layout
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PlaceKind<I = ()> {
-    Layout(I),
-    Absolute(Absolute),
-}
-
-impl<I: Default> Place<I> {
-    pub fn new() -> Self {
-        Self {
-            kind: PlaceKind::Layout(I::default()),
-            layer: None,
-            z_index: 0,
-        }
-    }
-}
-
-impl Place<()> {
-    pub fn item<I>(item: I) -> Place<I> {
-        Place {
-            kind: PlaceKind::Layout(item),
-            layer: None,
-            z_index: 0,
-        }
-    }
-}
-
-impl<I: Default> Default for Place<I> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<I> Place<I> {
-    pub const fn absolute(absolute: Absolute) -> Self {
-        Self {
-            kind: PlaceKind::Absolute(absolute),
-            layer: None,
-            z_index: 0,
-        }
-    }
-
-    pub const fn layer(mut self, layer: LayerId) -> Self {
-        self.layer = Some(layer);
-        self
-    }
-
-    pub const fn z_index(mut self, z_index: i16) -> Self {
-        self.z_index = z_index;
-        self
-    }
-}
-
-impl<I> From<I> for Place<I> {
-    fn from(item: I) -> Self {
-        Self {
-            kind: PlaceKind::Layout(item),
-            layer: None,
-            z_index: 0,
-        }
-    }
 }
 
 /// placement and sizing of a child outside its parent layout

@@ -1,8 +1,8 @@
 use std::{marker::PhantomData, time::Duration};
 
 use blit::{
-    Axis, Clip, Constraints, Content, Layout, LayoutCx, Place, Platform, Point, ScrollPhase, Sense,
-    Size, Ui, Widget, WidgetId,
+    Axis, Clip, Constraints, Content, Layout, LayoutCx, Platform, Point, ScrollPhase, Sense, Size,
+    Ui, Widget, WidgetId,
 };
 
 blit::builder! {
@@ -297,7 +297,7 @@ where
         let content = move |ui: Ui<'_, R>| {
             let mut list = ui.layout(layout);
             for (offset, value) in items.enumerate() {
-                item(list.child(Place::item(first + offset)), value);
+                item(list.child(first + offset), value);
             }
         };
         build_scroll(
@@ -654,16 +654,16 @@ fn build_scroll<R, C, X, S>(
     let thumb_id = id.child("scroll thumb");
     let mut viewport = ui.layout(layout).widget_id(id).clip(clip);
     viewport
-        .child(Place::item(ScrollItem::Content))
+        .child(ScrollItem::Content)
         .widget_id(content_id)
         .build(content);
     let (track, thumb) = scrollbar.into_content(thumb_active);
     if S::HAS_TRACK {
-        viewport.child(Place::item(ScrollItem::Track)).insert(track);
+        viewport.child(ScrollItem::Track).insert(track);
     }
     if S::HAS_THUMB {
         viewport
-            .child(Place::item(ScrollItem::Thumb))
+            .child(ScrollItem::Thumb)
             .widget_id(thumb_id)
             .insert(thumb);
     }

@@ -456,23 +456,6 @@ impl<R: Platform> Frame<R> {
             .map_or(self.screen, |clip| self.resolved_clips[clip].bounds)
     }
 
-    fn set_place(&mut self, node: NodeId, layer: Option<LayerId>, z_index: i16) {
-        if let Some(layer) = layer {
-            let layer = layer.index();
-            assert!(
-                layer < self.layers.len(),
-                "layer does not belong to this frame"
-            );
-            assert!(
-                self.layers[layer].owner.index() < node.index(),
-                "a layer can only contain nodes declared after its owner"
-            );
-        }
-        self.needs_paint_order |= z_index != 0 || layer.is_some();
-        self.nodes[node.index()].layer = layer;
-        self.nodes[node.index()].z_index = z_index;
-    }
-
     fn node_id(&self, index: usize) -> NodeId {
         NodeId::new(index)
     }
