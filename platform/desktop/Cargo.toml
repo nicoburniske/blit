@@ -1,0 +1,43 @@
+[package]
+name = "blit-desktop"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+autoexamples = false
+
+[features]
+cosmic = ["dep:blit-text-cosmic"]
+fontdue = ["dep:blit-text-fontdue"]
+
+[dependencies]
+blit.workspace = true
+blit-cpu = { path = "../../render/cpu" }
+blit-diff.workspace = true
+blit-executor.workspace = true
+blit-std.workspace = true
+blit-text-cosmic = { workspace = true, optional = true }
+blit-text-fontdue = { workspace = true, optional = true }
+
+[dev-dependencies]
+blit-showcase.workspace = true
+blit-text.workspace = true
+blit-text-cosmic.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+softbuffer = { version = "0.4.8", default-features = false, features = ["wayland", "wayland-dlopen"] }
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "wayland", "wayland-dlopen", "wayland-csd-adwaita-notitle"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+softbuffer = { version = "0.4.8", default-features = false }
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
+
+[[example]]
+name = "desktop-showcase"
+path = "examples/showcase.rs"
+required-features = ["cosmic"]
+
+[[example]]
+name = "desktop-showcase-fontdue"
+path = "examples/showcase-fontdue.rs"
+required-features = ["fontdue"]

@@ -79,8 +79,17 @@ where
     }
 
     pub fn trim_to_weight(&mut self) {
+        self.trim_to_weight_if(|_, _| true);
+    }
+
+    pub fn trim_to_weight_if(&mut self, mut removable: impl FnMut(&K, &V) -> bool) {
         while self.weight > self.max_weight {
-            let (entry, index) = self.entries.pop_with_index().unwrap();
+            let Some((entry, index)) = self
+                .entries
+                .pop_with_index_if(|entry| removable(&entry.key, &entry.value))
+            else {
+                break;
+            };
             let hash = self.hash_builder.hash_one(&entry.key);
             self.table
                 .find_entry(hash, |candidate| *candidate == index)

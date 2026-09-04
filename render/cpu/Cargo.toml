@@ -1,0 +1,26 @@
+[package]
+name = "blit-cpu"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+blit = { workspace = true }
+blit_cache = { path = "../../cache" }
+blit-text = { workspace = true }
+slotmap = "1"
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+blit-text-cosmic.workspace = true
+blit-text-fontdue.workspace = true
+divan = "0.1"
+
+[[bench]]
+name = "cpu"
+harness = false
+
+[[bench]]
+name = "memory"
+harness = false

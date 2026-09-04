@@ -1,0 +1,20 @@
+[package]
+name = "blit-tui"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+autoexamples = false
+
+[dependencies]
+blit.workspace = true
+blit-std.workspace = true
+blit-tui-render = { path = "../../render/tui" }
+termina = "0.3.3"
+
+[dev-dependencies]
+blit-showcase.workspace = true
+
+[[example]]
+name = "tui-showcase"
+path = "examples/showcase.rs"
