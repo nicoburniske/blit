@@ -989,15 +989,16 @@ fn resolve_child<R: Platform>(
     width_cross: bool,
     height_cross: bool,
 ) -> Size {
+    let res = cx.layout_resolution();
     let intrinsic = cx.layout_child(child, Constraints::loose(available));
     let item = cx.item(child);
     let size = Size::new(
-        cx.resolve_sizing(Axis::Horizontal, item.width).resolve(
+        res.sizing(Axis::Horizontal, item.width).resolve(
             intrinsic.width,
             available.width,
             width_cross,
         ),
-        cx.resolve_sizing(Axis::Vertical, item.height).resolve(
+        res.sizing(Axis::Vertical, item.height).resolve(
             intrinsic.height,
             available.height,
             height_cross,

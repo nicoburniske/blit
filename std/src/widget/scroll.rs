@@ -263,8 +263,9 @@ where
     fn build(self, mut ui: Ui<'_, R>) {
         assert!(self.item_extent.is_finite() && self.item_extent > 0.0);
         assert!(self.gap.is_finite() && self.gap >= 0.0);
-        let item_extent = ui.resolve_extent(self.axis, self.item_extent);
-        let gap = ui.resolve_extent(self.axis, self.gap);
+        let res = ui.layout_resolution();
+        let item_extent = res.extent(self.axis, self.item_extent);
+        let gap = res.extent(self.axis, self.gap);
         let stride = item_extent + gap;
         let count = self.items.len();
         let (thumb_active, viewport_known) =
@@ -383,6 +384,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
     fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
 
     fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+        let res = ui.layout_resolution();
         let mut content = None;
         let mut track = None;
         let mut thumb = None;
@@ -399,7 +401,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
                 Axis::Horizontal => constraints.max.height,
                 Axis::Vertical => constraints.max.width,
             };
-            ui.resolve_extent(
+            res.extent(
                 match self.axis {
                     Axis::Horizontal => Axis::Vertical,
                     Axis::Vertical => Axis::Horizontal,
@@ -473,9 +475,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
         }
 
         if let Some(thumb) = thumb {
-            let minimum_extent = ui
-                .resolve_extent(self.axis, self.minimum_thumb_extent)
-                .max(0.0);
+            let minimum_extent = res.extent(self.axis, self.minimum_thumb_extent).max(0.0);
             let thumb_extent = if content_extent > viewport_extent && content_extent > 0.0 {
                 (viewport_extent * viewport_extent / content_extent)
                     .max(minimum_extent)

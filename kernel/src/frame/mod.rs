@@ -200,13 +200,9 @@ impl<R: Platform, S> Ui<'_, R, S> {
         self.inner.context.frame().screen
     }
 
-    /// resolves an extent using the frame's layout resolution
-    pub fn resolve_extent(&self, axis: Axis, value: f32) -> f32 {
-        self.inner
-            .context
-            .frame()
-            .layout_resolution
-            .extent(axis, value)
+    /// returns the frame's layout resolution
+    pub fn layout_resolution(&self) -> LayoutResolution {
+        self.inner.context.frame().layout_resolution
     }
 
     pub fn time(&self) -> Duration {

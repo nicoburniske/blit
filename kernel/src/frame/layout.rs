@@ -4,8 +4,7 @@ use super::{Frame, NodeId, StoredNode};
 use crate::{
     Platform,
     arena::{DataArena, DataId},
-    frame::Sizing,
-    geometry::{Constraints, Point, Sides, Size},
+    geometry::{Constraints, Point, Size},
     layout::{Axis, Layout, LayoutResolution},
 };
 
@@ -79,25 +78,10 @@ impl<'a, R: Platform, I: Copy + 'static> LayoutCx<'a, R, I> {
         area.y = position.y + self.offset.y;
     }
 
-    /// resolves a sizing policy for continuous or discrete layout
+    /// returns the frame's layout resolution
     #[inline]
-    pub fn resolve_sizing(&self, axis: Axis, sizing: Sizing) -> Sizing {
-        self.resolution.sizing(axis, sizing)
-    }
-
-    #[inline]
-    pub fn resolve_extent(&self, axis: Axis, value: f32) -> f32 {
-        self.resolution.extent(axis, value)
-    }
-
-    #[inline]
-    pub fn resolve_sides(&self, sides: Sides) -> Sides {
-        Sides {
-            top: self.resolve_extent(Axis::Vertical, sides.top),
-            right: self.resolve_extent(Axis::Horizontal, sides.right),
-            bottom: self.resolve_extent(Axis::Vertical, sides.bottom),
-            left: self.resolve_extent(Axis::Horizontal, sides.left),
-        }
+    pub fn layout_resolution(&self) -> LayoutResolution {
+        self.resolution
     }
 
     #[inline]
@@ -180,7 +164,7 @@ pub fn run<R: Platform, L: Layout<R>>(
     let first_child = frame.node_id(node.index() + 1);
     let children_end = frame.nodes[node.index()].subtree_end as usize;
     let offset = frame.layout_offset(node);
-    let resolution = frame.layout_resolution;
+    let res = frame.layout_resolution;
     layout.layout(
         &mut LayoutCx {
             frame,
@@ -192,7 +176,7 @@ pub fn run<R: Platform, L: Layout<R>>(
             first_child,
             children_end,
             offset,
-            resolution,
+            resolution: res,
         },
         constraints,
     )

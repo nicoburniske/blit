@@ -3,16 +3,26 @@ pub use crate::frame::layout::{Children, LayoutCx};
 use crate::{
     Platform,
     frame::Sizing,
-    geometry::{Constraints, Size},
+    geometry::{Constraints, Sides, Size},
 };
 
 pub trait Layout<R: Platform>: 'static {
+    /// per-child data interpreted by this layout
     type Item: Copy + 'static;
 
-    /// applies an animated size to a temporary layout item
-    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>);
-
+    /// lays out direct non-absolute children within parent constraints
+    ///
+    /// - use `cx` to measure, size, and position children
+    /// - call [`LayoutCx::measure_base`] when this node's atoms contribute
+    /// - return the desired size, which the kernel constrains
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size;
+
+    /// applies animated outer dimensions to a temporary child item
+    ///
+    /// - values are the current interpolated dimensions
+    /// - `None` leaves that axis unchanged
+    /// - leaving the item unchanged disables animated reflow
+    fn size_override(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>);
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -32,6 +42,9 @@ pub enum LayoutResolution {
 }
 
 impl LayoutResolution {
+    /// adapts an extent to this resolution
+    ///
+    /// continuous values are unchanged. discrete values round up by `step`.
     #[inline]
     pub fn extent(self, axis: Axis, value: f32) -> f32 {
         let Self::Discrete { step } = self else {
@@ -48,6 +61,9 @@ impl LayoutResolution {
         (value / step).ceil() * step
     }
 
+    /// adapts absolute extents in a sizing policy to this resolution
+    ///
+    /// percentage policies are unchanged.
     #[inline]
     pub fn sizing(self, axis: Axis, sizing: Sizing) -> Sizing {
         match sizing {
@@ -61,6 +77,17 @@ impl LayoutResolution {
             },
             Sizing::Fixed(size) => Sizing::Fixed(self.extent(axis, size)),
             Sizing::Percent(fraction) => Sizing::Percent(fraction),
+        }
+    }
+
+    /// adapts horizontal and vertical sides on their respective axes
+    #[inline]
+    pub fn sides(self, sides: Sides) -> Sides {
+        Sides {
+            top: self.extent(Axis::Vertical, sides.top),
+            right: self.extent(Axis::Horizontal, sides.right),
+            bottom: self.extent(Axis::Vertical, sides.bottom),
+            left: self.extent(Axis::Horizontal, sides.left),
         }
     }
 }

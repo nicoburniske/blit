@@ -57,7 +57,8 @@ impl<P: Platform> Layout<P> for Single {
             range
         }
 
-        let padding = cx.resolve_sides(self.padding);
+        let res = cx.layout_resolution();
+        let padding = res.sides(self.padding);
         let padding_size = padding.size();
         let mut children = cx.children();
         let Some(child) = children.next() else {
@@ -71,12 +72,12 @@ impl<P: Platform> Layout<P> for Single {
         let content = constraints.shrink(padding_size);
         let item = cx.item(child);
         let width = range(
-            cx.resolve_sizing(Axis::Horizontal, item.width),
+            res.sizing(Axis::Horizontal, item.width),
             content.min.width,
             content.max.width,
         );
         let height = range(
-            cx.resolve_sizing(Axis::Vertical, item.height),
+            res.sizing(Axis::Vertical, item.height),
             content.min.height,
             content.max.height,
         );

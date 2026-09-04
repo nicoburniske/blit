@@ -233,6 +233,7 @@ impl<R: Platform> Layout<R> for SplitLayout {
 
         let config = self.config;
         let axis = config.axis;
+        let res = ui.layout_resolution();
         let mut leading = None;
         let mut divider = None;
         let mut trailing = None;
@@ -256,10 +257,10 @@ impl<R: Platform> Layout<R> for SplitLayout {
         let cross_min = extent(constraints.min, cross_axis);
         let cross_max = extent(constraints.max, cross_axis);
         let cross_range = (cross_min, cross_max);
-        let minimum_leading = ui.resolve_extent(axis, self.minimum_leading).max(0.0);
-        let minimum_trailing = ui.resolve_extent(axis, self.minimum_trailing).max(0.0);
-        let desired = ui.resolve_extent(axis, self.extent).max(0.0);
-        let divider_extent = ui.resolve_extent(axis, config.divider_extent).max(0.0);
+        let minimum_leading = res.extent(axis, self.minimum_leading).max(0.0);
+        let minimum_trailing = res.extent(axis, self.minimum_trailing).max(0.0);
+        let desired = res.extent(axis, self.extent).max(0.0);
+        let divider_extent = res.extent(axis, config.divider_extent).max(0.0);
 
         let natural_trailing = if main_max.is_finite() {
             0.0

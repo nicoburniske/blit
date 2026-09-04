@@ -154,21 +154,22 @@ impl<P: Platform> Layout<P> for ResizeLayout {
     fn size_override(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) {}
 
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
+        let res = cx.layout_resolution();
         let maximum = self.maximum.max(self.minimum);
         let size = constraints.constrain(Size::new(
-            cx.resolve_extent(
+            res.extent(
                 Axis::Horizontal,
                 self.size.width.clamp(self.minimum.width, maximum.width),
             ),
-            cx.resolve_extent(
+            res.extent(
                 Axis::Vertical,
                 self.size.height.clamp(self.minimum.height, maximum.height),
             ),
         ));
         let grip = Size::new(
-            cx.resolve_extent(Axis::Horizontal, self.grip_size.width)
+            res.extent(Axis::Horizontal, self.grip_size.width)
                 .min(size.width),
-            cx.resolve_extent(Axis::Vertical, self.grip_size.height)
+            res.extent(Axis::Vertical, self.grip_size.height)
                 .min(size.height),
         );
         for child in cx.children() {
