@@ -14,7 +14,6 @@ pub trait Layout<R: Platform>: 'static {
     /// layout may run more than once per frame, including during size
     /// transitions. every call must:
     ///
-    /// - measure any contributing atoms with [`LayoutCx::measure_atoms`]
     /// - call [`LayoutCx::layout_child`] with every flow child's final constraints
     /// - call [`LayoutCx::set_child_position`] for every flow child
     /// - adapt layout-owned physical lengths through [`LayoutCx::resolution`]

@@ -101,6 +101,8 @@ impl<'ui, R: Platform, S> Ui<'ui, R, S> {
     }
 
     /// inserts content into the current node
+    ///
+    /// atoms contribute to sizing only when the node has no layout.
     pub fn insert<C: Content<R>>(&mut self, content: C) -> C::Response {
         content.append(Ui {
             inner: UiInner {

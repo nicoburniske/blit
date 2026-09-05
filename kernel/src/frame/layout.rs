@@ -42,12 +42,6 @@ impl<'a, R: Platform, I: 'static> LayoutCx<'a, R, I> {
         self.data.load(self.frame.nodes[child.index()].item)
     }
 
-    /// measures this node's atoms under `constraints`
-    pub fn measure_atoms(&mut self, constraints: Constraints) -> Size {
-        self.frame
-            .measure_base(self.data, self.node, self.platform, constraints)
-    }
-
     /// lays out `child` and returns its size
     ///
     /// repeating this recomputes its subtree and requires positioning it again

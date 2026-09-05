@@ -30,8 +30,7 @@ fn animations_and_timers_schedule_frames() {
             |mut ui: Ui<'_>| {
                 value = ui.animate(animation, target, Duration::from_secs(1), Easing::Linear);
                 fired = ui.timer(timer, Duration::from_millis(500));
-                ui.layout(BaseOnly)
-                    .insert(Fill::new('X', Size::uniform(1.0)));
+                ui.insert(Fill::new('X', Size::uniform(1.0)));
             },
         );
     }
@@ -98,7 +97,7 @@ fn culls_only_atoms_with_disjoint_known_paint_bounds() {
 }
 
 #[test]
-fn layout_atoms_measure_and_paint_in_order() {
+fn leaf_atoms_measure_and_paint_in_order() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
 
@@ -107,8 +106,7 @@ fn layout_atoms_measure_and_paint_in_order() {
         FrameInfo::new(Size::new(5.0, 4.0)),
         |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
-            root.child(TestItem::default()).build(|ui: Ui<'_>| {
-                let mut ui = ui.layout(BaseOnly);
+            root.child(TestItem::default()).build(|mut ui: Ui<'_>| {
                 ui.insert(());
                 ui.insert(FillContent);
                 ui.insert(Fill::new('B', Size::new(1.0, 2.0)));
@@ -198,11 +196,9 @@ fn resolves_absolute_targets_and_layer_order() {
                 ui.insert(Fill::new('T', Size::uniform(2.0)));
                 id
             });
-            let mut absolute = overlay
-                .absolute(
-                    Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target),
-                )
-                .layout(Overlay);
+            let mut absolute = overlay.absolute(
+                Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target),
+            );
             absolute.insert(Fill::new('A', Size::uniform(1.0)));
         },
     );
@@ -244,8 +240,8 @@ fn resolves_absolute_targets_and_layer_order() {
             let mut root = ui.layout(Overlay);
             let layer = root.root_layer();
             root.child(TestItem::default()).build(|ui: Ui<'_>| {
-                let mut panel = ui.layout(BaseOnly).clip(DiamondClip);
-                panel.insert(Fill::new('p', Size::uniform(3.0)));
+                let mut panel = ui.layout(Fixed(Size::uniform(3.0))).clip(DiamondClip);
+                panel.insert(Fill::new('p', Size::ZERO));
                 panel
                     .child(TestItem::default())
                     .layer(layer)
@@ -261,8 +257,8 @@ fn resolves_absolute_targets_and_layer_order() {
         |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
             root.child(TestItem::default()).build(|ui: Ui<'_>| {
-                let mut panel = ui.layout(BaseOnly).clip(DiamondClip);
-                panel.insert(Fill::new('p', Size::uniform(3.0)));
+                let mut panel = ui.layout(Fixed(Size::uniform(3.0))).clip(DiamondClip);
+                panel.insert(Fill::new('p', Size::ZERO));
                 let layer = panel.new_layer();
                 panel
                     .child(TestItem::default())
@@ -520,7 +516,7 @@ fn absolute_places_position_against_the_target_and_size_against_the_parent() {
                 )
                 .build(|ui: Ui<'_>| {
                     let mut absolute = ui.layout(Overlay).widget_id(id);
-                    absolute.insert(Fill::new('A', Size::uniform(1.0)));
+                    absolute.insert(Fill::new('A', Size::ZERO));
                 });
         },
     );
@@ -677,7 +673,9 @@ fn transition_scene(
                     .layout(Overlay)
                     .widget_id(id)
                     .transition(Transition::new(Duration::from_secs(1)).height());
-                child.insert(Fill::new('X', Size::new(1.0, height)));
+                child
+                    .child(TestItem::default())
+                    .insert(Fill::new('X', Size::new(1.0, height)));
             });
             column
                 .child(TestItem::new(0.0))
@@ -702,7 +700,9 @@ fn unidentified_transition_scene(
                 let mut child = ui
                     .layout(Overlay)
                     .transition(Transition::new(Duration::from_secs(1)).width());
-                child.insert(Fill::new('X', Size::new(width, 1.0)));
+                child
+                    .child(TestItem::default())
+                    .insert(Fill::new('X', Size::new(width, 1.0)));
             });
         },
     );
@@ -727,7 +727,9 @@ fn position_transition_scene(
                     .layout(Overlay)
                     .widget_id(id)
                     .transition(Transition::new(Duration::from_secs(1)).y());
-                child.insert(Fill::new('X', Size::uniform(1.0)));
+                child
+                    .child(TestItem::default())
+                    .insert(Fill::new('X', Size::uniform(1.0)));
             });
         },
     );
@@ -737,8 +739,8 @@ fn clipped_button(mut ui: Ui<'_>, id: WidgetId) -> Interaction {
     let interaction = ui.interact(id, Sense::CLICK);
     let mut root = ui.layout(Overlay);
     root.child(TestItem::default()).build(|ui: Ui<'_>| {
-        let mut panel = ui.layout(BaseOnly).clip(DiamondClip);
-        panel.insert(Fill::new('P', Size::new(3.0, 1.0)));
+        let mut panel = ui.layout(Fixed(Size::new(3.0, 1.0))).clip(DiamondClip);
+        panel.insert(Fill::new('P', Size::ZERO));
         panel
             .child(TestItem::default())
             .widget_id(id)
@@ -754,7 +756,9 @@ fn scene(ui: Ui<'_>) {
         .insert(Fill::new('A', Size::new(3.0, 1.0)));
     column.child(TestItem::new(1.0)).build(|ui: Ui<'_>| {
         let mut panel = ui.layout(Overlay).clip(DiamondClip);
-        panel.insert(Fill::new('b', Size::new(5.0, 3.0)));
+        panel
+            .child(TestItem::default())
+            .insert(Fill::new('b', Size::new(5.0, 3.0)));
         panel
             .child(TestItem::default())
             .insert(Fill::new('C', Size::uniform(1.0)));
@@ -792,8 +796,8 @@ struct OwnedValue {
 impl<R: Platform> Layout<R> for OwnedValue {
     type Item = ();
 
-    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
-        constraints.constrain(cx.measure_atoms(Constraints::loose(constraints.max)))
+    fn layout(&self, _: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+        constraints.min
     }
 
     fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
@@ -977,7 +981,6 @@ impl<R: Platform> Layout<R> for Column {
     type Item = TestItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
-        let base = cx.measure_atoms(Constraints::loose(constraints.max));
         let mut children = Size::ZERO;
         for child in cx.children() {
             let item = cx.item(child);
@@ -986,7 +989,7 @@ impl<R: Platform> Layout<R> for Column {
             children.height += item.gap_before + size.height;
         }
 
-        let size = constraints.constrain(base.max(children));
+        let size = constraints.constrain(children);
         let mut y = 0.0;
         for child in cx.children() {
             y += cx.item(child).gap_before;
@@ -1013,7 +1016,7 @@ impl<R: Platform> Layout<R> for Overlay {
     type Item = TestItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
-        let mut size = cx.measure_atoms(Constraints::loose(constraints.max));
+        let mut size = Size::ZERO;
         for child in cx.children() {
             size = size.max(resolve_child(cx, child, constraints.max, true, true));
         }
@@ -1042,13 +1045,13 @@ impl<R: Platform> Layout<R> for Overlay {
 }
 
 #[derive(Clone, Copy)]
-struct BaseOnly;
+struct Fixed(Size);
 
-impl<R: Platform> Layout<R> for BaseOnly {
+impl<R: Platform> Layout<R> for Fixed {
     type Item = TestItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
-        let size = constraints.constrain(cx.measure_atoms(Constraints::loose(constraints.max)));
+        let size = constraints.constrain(self.0);
         for child in cx.children() {
             resolve_child(cx, child, constraints.max, true, true);
             cx.set_child_position(child, Point::ZERO);
