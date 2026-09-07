@@ -50,6 +50,28 @@ fn render_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
         });
 }
 
+#[divan::bench(args = [(96, 32), (240, 80), (400, 200)])]
+fn tint_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
+    let mut renderer = TuiRenderer::new(RendererConfig::new().columns(columns).rows(rows));
+    let screen = renderer.screen().to_logical(Scale2::IDENTITY);
+    renderer.begin_frame();
+    renderer.cells(screen, screen).clear(
+        Cell::new('x').style(
+            CellStyle::new()
+                .foreground(Color::Rgb(220, 220, 220))
+                .background(Color::Rgb(20, 30, 40)),
+        ),
+    );
+    bencher
+        .counter(ItemsCount::new(usize::from(columns) * usize::from(rows)))
+        .bench_local(|| {
+            renderer
+                .cells(screen, screen)
+                .tint(black_box([0, 0, 0]), black_box(150));
+            black_box(&renderer);
+        });
+}
+
 #[divan::bench]
 fn render_scene(bencher: divan::Bencher) {
     let mut renderer = renderer();

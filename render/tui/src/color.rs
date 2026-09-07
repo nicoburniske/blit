@@ -24,3 +24,28 @@ impl Color {
     pub const LIGHT_CYAN: Self = Self::Indexed(14);
     pub const WHITE: Self = Self::Indexed(15);
 }
+
+/// terminal colors known to the renderer. unknown colors are left unchanged when tinting.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Palette {
+    pub foreground: Option<[u8; 3]>,
+    pub background: Option<[u8; 3]>,
+    pub indexed: [Option<[u8; 3]>; 256],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaletteSlot {
+    Foreground,
+    Background,
+    Indexed(u8),
+}
+
+impl Default for Palette {
+    fn default() -> Self {
+        Self {
+            foreground: None,
+            background: None,
+            indexed: [None; 256],
+        }
+    }
+}

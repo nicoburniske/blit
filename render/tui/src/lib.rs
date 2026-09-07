@@ -13,7 +13,7 @@ mod present;
 pub mod text;
 
 use crate::{
-    color::Color,
+    color::{Color, Palette, PaletteSlot},
     image::{ImageData, ImageHandle, ImageId},
     text::{Span, TextAttributes, TextLayoutRequest, TextRequest, TextRunId, TextWrap},
 };
@@ -38,6 +38,8 @@ blit::builder! {
 pub struct TuiRenderer {
     columns: usize,
     rows: usize,
+    palette: Palette,
+    needs_palette: bool,
     text_runs: DeferredCache<RunKey, CachedRun, RunScale>,
     text_layouts: DeferredCache<LayoutKey, TextLayout, LayoutScale>,
     next_text_run: u32,
@@ -63,6 +65,8 @@ impl TuiRenderer {
         Self {
             columns,
             rows,
+            palette: Palette::default(),
+            needs_palette: false,
             text_runs: DeferredCache::new(RunScale, TEXT_RUN_CACHE_CAPACITY),
             text_layouts: DeferredCache::new(LayoutScale, TEXT_LAYOUT_CACHE_CAPACITY),
             next_text_run: 1,
@@ -88,6 +92,30 @@ impl TuiRenderer {
             width: self.columns as i32,
             height: self.rows as i32,
         }
+    }
+
+    /// sets the terminal colors used by cell tinting and reports whether they changed
+    pub fn set_palette(&mut self, palette: Palette) -> bool {
+        if self.palette == palette {
+            return false;
+        }
+        self.palette = palette;
+        true
+    }
+
+    /// updates one terminal color and reports whether it changed
+    pub fn set_palette_color(&mut self, slot: PaletteSlot, rgb: [u8; 3]) -> bool {
+        let color = match slot {
+            PaletteSlot::Foreground => &mut self.palette.foreground,
+            PaletteSlot::Background => &mut self.palette.background,
+            PaletteSlot::Indexed(index) => &mut self.palette.indexed[index as usize],
+        };
+        color.replace(rgb) != Some(rgb)
+    }
+
+    /// whether this frame's tinting depends on terminal colors
+    pub fn needs_palette(&self) -> bool {
+        self.needs_palette
     }
 
     pub fn resize(&mut self, config: RendererConfig) {
@@ -826,6 +854,130 @@ mod tests {
 
     fn renderer(columns: u16, rows: u16) -> TuiRenderer {
         TuiRenderer::new(RendererConfig::new().columns(columns).rows(rows))
+    }
+
+    #[test]
+    fn tint_preserves_text_and_blends_terminal_colors() {
+        let mut renderer = renderer(5, 1);
+        let screen = renderer.screen().to_logical(SCALE);
+        let mut palette = Palette::default();
+        palette.indexed[1] = Some([200, 100, 50]);
+        palette.foreground = Some([100, 80, 60]);
+        palette.background = Some([20, 40, 60]);
+        renderer.set_palette(palette);
+
+        for frame in 0..3 {
+            renderer.begin_frame();
+            renderer.cells(screen, screen).write(
+                0,
+                0,
+                "A界e\u{301}B",
+                CellStyle::new()
+                    .foreground(Color::RED)
+                    .attributes(TextAttributes::BOLD),
+            );
+            renderer.cells(screen, screen).tint([255, 0, 0], 0);
+            assert_eq!(renderer.frame_cells.foreground[0], Color::RED.packed());
+            if frame < 2 {
+                renderer.cells(screen, screen).tint([0, 0, 0], 128);
+                assert!(
+                    renderer
+                        .frame_cells
+                        .foreground
+                        .iter()
+                        .all(|color| { *color == Color::Rgb(100, 50, 25).packed() })
+                );
+                assert!(
+                    renderer
+                        .frame_cells
+                        .background
+                        .iter()
+                        .all(|color| { *color == Color::Rgb(10, 20, 30).packed() })
+                );
+                renderer
+                    .cells(screen, LogicalRect::new(3.0, 0.0, 1.0, 1.0))
+                    .tint([0, 0, 0], 128);
+                assert_eq!(
+                    renderer.frame_cells.foreground[3],
+                    Color::Rgb(50, 25, 12).packed()
+                );
+            }
+            renderer.end_frame();
+            assert_eq!(renderer.plain_text(), "A界e\u{301}B\n");
+            assert!(
+                renderer
+                    .cells
+                    .attributes
+                    .iter()
+                    .all(|attributes| { *attributes == TextAttributes::BOLD.0 })
+            );
+            assert_eq!(renderer.output().is_empty(), frame == 1);
+        }
+
+        renderer.begin_frame();
+        renderer
+            .cells(screen, screen)
+            .write(0, 0, "X", CellStyle::new());
+        renderer.cells(screen, screen).tint([0, 0, 0], 128);
+        assert_eq!(
+            renderer.frame_cells.foreground[0],
+            Color::Rgb(50, 40, 30).packed()
+        );
+        renderer.cells(screen, screen).tint([3, 5, 7], 255);
+        assert_eq!(
+            renderer.frame_cells.foreground[0],
+            Color::Rgb(3, 5, 7).packed()
+        );
+        assert_eq!(
+            renderer.frame_cells.background[0],
+            Color::Rgb(3, 5, 7).packed()
+        );
+    }
+
+    #[test]
+    fn tint_leaves_partially_clipped_glyphs_unchanged() {
+        let mut renderer = renderer(4, 1);
+        let screen = renderer.screen().to_logical(SCALE);
+        renderer.begin_frame();
+        renderer
+            .cells(screen, screen)
+            .write(0, 0, "界界", CellStyle::new());
+        renderer
+            .cells(screen, LogicalRect::new(1.0, 0.0, 2.0, 1.0))
+            .tint([0, 0, 0], 255);
+        assert!(
+            renderer
+                .frame_cells
+                .foreground
+                .iter()
+                .all(|color| *color == Color::Reset.packed())
+        );
+        assert!(
+            renderer
+                .frame_cells
+                .background
+                .iter()
+                .all(|color| *color == Color::Reset.packed())
+        );
+    }
+
+    #[test]
+    fn tint_preserves_unknown_colors_and_tracks_palette_use() {
+        let mut renderer = renderer(1, 1);
+        let screen = renderer.screen().to_logical(SCALE);
+        renderer.begin_frame();
+        renderer
+            .cells(screen, screen)
+            .write(0, 0, "x", CellStyle::new().foreground(Color::RED));
+        renderer.cells(screen, screen).tint([0, 0, 0], 150);
+        assert!(renderer.needs_palette());
+        assert_eq!(renderer.frame_cells.foreground[0], Color::RED.packed());
+        assert_eq!(renderer.frame_cells.background[0], Color::Reset.packed());
+        renderer.begin_frame();
+        renderer.cells(screen, screen).tint([0, 0, 0], 255);
+        assert!(!renderer.needs_palette());
+        renderer.cells(screen, screen).tint([0, 0, 0], 150);
+        assert!(!renderer.needs_palette());
     }
 
     #[test]

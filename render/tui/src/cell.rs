@@ -75,6 +75,65 @@ impl CellBuffer<'_> {
         self.rows
     }
 
+    /// blends rgb into existing foregrounds and backgrounds without replacing text
+    ///
+    /// opacity ranges from zero to 255. terminal colors use the renderer's palette.
+    /// glyphs crossing the clip edges are left unchanged. Kitty images are unaffected.
+    pub fn tint(&mut self, color: [u8; 3], opacity: u8) {
+        if opacity == 0 {
+            return;
+        }
+        let [left, top, right, bottom] = self.bounds;
+        let palette = &self.renderer.palette;
+        let cells = &mut self.renderer.frame_cells;
+        let alpha = u32::from(opacity);
+        for y in top..bottom {
+            let row = y as usize * self.renderer.columns;
+            let mut start = row + left as usize;
+            let mut end = row + right as usize;
+            while start < end && cells.glyph[start] == Glyph::CONTINUATION.0 {
+                start += 1;
+            }
+            if end < row + self.renderer.columns {
+                while end > start && cells.glyph[end] == Glyph::CONTINUATION.0 {
+                    end -= 1;
+                }
+            }
+            for (colors, default) in [
+                (&mut cells.foreground, palette.foreground),
+                (&mut cells.background, palette.background),
+            ] {
+                if opacity == 255 {
+                    colors[start..end].fill(Color::Rgb(color[0], color[1], color[2]).packed());
+                    continue;
+                }
+                for packed in &mut colors[start..end] {
+                    let destination = match Color::from_packed(*packed) {
+                        Color::Reset => {
+                            self.renderer.needs_palette = true;
+                            default
+                        }
+                        Color::Indexed(index) => {
+                            self.renderer.needs_palette = true;
+                            palette.indexed[index as usize]
+                        }
+                        Color::Rgb(red, green, blue) => Some([red, green, blue]),
+                    };
+                    let Some(destination) = destination else {
+                        continue;
+                    };
+                    let blended: [u8; 3] = std::array::from_fn(|channel| {
+                        ((u32::from(color[channel]) * alpha
+                            + u32::from(destination[channel]) * (255 - alpha)
+                            + 127)
+                            / 255) as u8
+                    });
+                    *packed = Color::Rgb(blended[0], blended[1], blended[2]).packed();
+                }
+            }
+        }
+    }
+
     pub fn clear(&mut self, cell: Cell) {
         let width = cell
             .character
