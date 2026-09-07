@@ -946,6 +946,7 @@ impl Widget<DesktopPlatform> for Canvas {
             .background(colors::CANVAS)
             .border(Border::solid(sz::BORDER_STRONG, colors::CANVAS_BORDER))
             .radius(BorderRadius::uniform(sz::XS));
+        let ui = ui.widget_id(WidgetId::new("desktop canvas"));
         match self.config.layout {
             CanvasLayout::Flex => {
                 let mut canvas = ui
@@ -958,13 +959,12 @@ impl Widget<DesktopPlatform> for Canvas {
                     )
                     .clip(BoundsClip);
                 canvas.insert(background);
-                let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
                         .child(flex::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
-                            canvas_item(ui, index, spec, badges, self.config);
+                            canvas_item(ui, index, spec, self.config);
                         });
                 }
             }
@@ -984,13 +984,12 @@ impl Widget<DesktopPlatform> for Canvas {
                     )
                     .clip(BoundsClip);
                 canvas.insert(background);
-                let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
                         .child(wrap::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
-                            canvas_item(ui, index, spec, badges, self.config);
+                            canvas_item(ui, index, spec, self.config);
                         });
                 }
             }
@@ -1002,7 +1001,6 @@ impl Widget<DesktopPlatform> for Canvas {
                     .row_gap(self.config.gap(Axis::Vertical, self.unit));
                 let mut canvas = ui.layout(grid).clip(BoundsClip);
                 canvas.insert(background);
-                let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child(
@@ -1012,7 +1010,7 @@ impl Widget<DesktopPlatform> for Canvas {
                                 .preferred_height(5.0 * self.unit.height * self.config.zoom),
                         )
                         .build(|ui: Ui<'_>| {
-                            canvas_item(ui, index, spec, badges, self.config);
+                            canvas_item(ui, index, spec, self.config);
                         });
                 }
             }
@@ -1020,13 +1018,7 @@ impl Widget<DesktopPlatform> for Canvas {
     }
 }
 
-fn canvas_item(
-    ui: Ui<'_>,
-    index: usize,
-    spec: blit_showcase::ItemSpec,
-    badges: blit::LayerId,
-    config: CanvasConfig,
-) {
+fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_showcase::ItemSpec, config: CanvasConfig) {
     let mut item = ui.layout(
         flex::column()
             .align(Align::Center)
@@ -1061,7 +1053,7 @@ fn canvas_item(
                 .width(Sizing::fixed(sz::BADGE_WIDTH * config.zoom))
                 .height(Sizing::fixed(sz::LG * config.zoom)),
         )
-        .layer(badges)
+        .parent(WidgetId::new("desktop canvas"))
         .z_index(1)
         .build(|ui: Ui<'_>| {
             let mut badge = ui.layout(

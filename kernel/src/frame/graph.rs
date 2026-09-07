@@ -1,4 +1,4 @@
-/// retained memory used by a frame after its buffers have grown
+/// estimated retained memory used by a frame after its buffers have grown
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FrameMemory {
     pub node_size: usize,
@@ -18,8 +18,8 @@ pub struct Frame<R: Platform> {
     layout_kinds: Vec<LayoutKind<R>>,
     clip_kinds: Vec<ClipKind<R>>,
     data: DataArena,
-    layers: Vec<Layer>,
-    root_layer: LayerId,
+    named_nodes: HashMap<WidgetId, Option<NodeId>, BuildHasherDefault<WidgetIdHasher>>,
+    paint_links: Vec<PaintLinks>,
     paint_order: Vec<NodeId>,
     order_stack: Vec<NodeId>,
     resolved_clips: Vec<ResolvedClip>,
@@ -53,8 +53,8 @@ impl<R: Platform> Default for Frame<R> {
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
             data: DataArena::default(),
-            layers: Vec::new(),
-            root_layer: LayerId::UNINITIALIZED,
+            named_nodes: HashMap::default(),
+            paint_links: Vec::new(),
             paint_order: Vec::new(),
             order_stack: Vec::new(),
             resolved_clips: Vec::new(),
@@ -155,7 +155,8 @@ impl<R: Platform> Frame<R> {
                 + self.layout_kinds.capacity() * size_of::<LayoutKind<R>>()
                 + self.clip_kinds.capacity() * size_of::<ClipKind<R>>()
                 + self.data.heap_bytes()
-                + self.layers.capacity() * size_of::<Layer>()
+                + self.named_nodes.capacity() * size_of::<(WidgetId, Option<NodeId>)>()
+                + self.paint_links.capacity() * size_of::<PaintLinks>()
                 + self.paint_order.capacity() * size_of::<NodeId>()
                 + self.order_stack.capacity() * size_of::<NodeId>()
                 + self.resolved_clips.capacity() * size_of::<ResolvedClip>()
@@ -188,8 +189,10 @@ impl<R: Platform> Frame<R> {
         self.positioned.clear();
         self.geometry.clear();
         self.data.clear();
-        self.layers.clear();
-        self.root_layer = LayerId::UNINITIALIZED;
+        // retain names but require fresh bindings for each build
+        for node in self.named_nodes.values_mut() {
+            *node = None;
+        }
         self.paint_order.clear();
         self.resolved_clips.clear();
         self.active_clips.clear();
@@ -212,7 +215,6 @@ impl<R: Platform> Frame<R> {
         let output = {
             let root = self.push_node();
             self.current_parent = Some(root);
-            self.root_layer = self.add_layer();
             let mut context = Context {
                 frame: NonNull::from(&mut *self),
                 platform: NonNull::from(&mut *platform),
@@ -238,6 +240,7 @@ impl<R: Platform> Frame<R> {
         self.animations.retain(|animation| animation.seen);
         self.transitions.retain(|state| state.seen);
         self.timers.retain(|timer| timer.seen);
+        self.named_nodes.retain(|_, node| node.is_some());
         if render {
             paint::render(self, &data, platform, frame);
         }
@@ -365,7 +368,9 @@ impl<R: Platform> Frame<R> {
     fn push_node(&mut self) -> NodeId {
         let id = self.node_id(self.nodes.len());
         self.nodes.push(StoredNode {
+            widget_id: None,
             parent: self.current_parent.unwrap_or(id),
+            visual_parent: self.current_parent.unwrap_or(id),
             subtree_end: id.value,
             first_atom: StoredAtomId::NONE,
             last_atom: StoredAtomId::NONE,
@@ -374,7 +379,6 @@ impl<R: Platform> Frame<R> {
             item: DataId::NONE,
             area: Rect::default(),
             positioned: PositionedId::NONE,
-            layer: None,
             z_index: 0,
             geometry: GeometryId::NONE,
             resolved_clip: ResolvedClipId::NONE,
@@ -384,28 +388,8 @@ impl<R: Platform> Frame<R> {
         id
     }
 
-    fn add_layer(&mut self) -> LayerId {
-        let owner = self
-            .current_parent
-            .expect("layer declaration requires a node");
-        let id = LayerId::new(self.layers.len());
-        self.layers.push(Layer { owner });
-        id
-    }
-
     fn set_absolute(&mut self, node: NodeId, absolute: Absolute) {
-        let parent = self.nodes[node.index()].parent;
-        let target = match absolute.target {
-            PositionTarget::Parent => parent,
-            PositionTarget::Node(target) => {
-                assert!(
-                    target.index() < node.index(),
-                    "absolute target must be declared first"
-                );
-                target
-            }
-            PositionTarget::Screen => self.node_id(0),
-        };
+        let target = self.resolve_target(node, absolute.target);
         let positioned = PositionedId::new(self.positioned.len());
         self.nodes[node.index()].item = self.data.store(AbsoluteSizing {
             width: self
@@ -417,12 +401,30 @@ impl<R: Platform> Frame<R> {
         });
         self.positioned.push(Positioned {
             target,
-            uses_target_content_origin: matches!(absolute.target, PositionTarget::Parent),
+            uses_target_content_origin: matches!(absolute.target, NodeTarget::Parent),
             target_anchor: absolute.target_anchor,
             child_anchor: absolute.child_anchor,
             offset: absolute.offset,
         });
         self.nodes[node.index()].positioned = positioned;
+    }
+
+    fn resolve_target(&self, node: NodeId, target: NodeTarget) -> NodeId {
+        let target = match target {
+            NodeTarget::Parent => self.nodes[node.index()].parent,
+            NodeTarget::Root => self.node_id(0),
+            NodeTarget::Widget(id) => self
+                .named_nodes
+                .get(&id)
+                .copied()
+                .flatten()
+                .expect("target widget id must already be assigned"),
+        };
+        assert!(
+            target.index() < node.index(),
+            "target must be declared before its node"
+        );
+        target
     }
 
     fn geometry_mut(&mut self, node: NodeId) -> &mut GeometryRecord {
@@ -433,7 +435,6 @@ impl<R: Platform> Frame<R> {
             self.nodes[node.index()].geometry = id;
             self.geometry.push(GeometryRecord {
                 node,
-                id: None,
                 hit: Sides::all(0.0),
                 transition: None,
                 transition_size: Size::ZERO,
@@ -490,7 +491,9 @@ mod generation {
 
 #[derive(Clone, Copy)]
 struct StoredNode {
+    widget_id: Option<WidgetId>,
     parent: NodeId,
+    visual_parent: NodeId,
     subtree_end: u32,
     first_atom: StoredAtomId,
     last_atom: StoredAtomId,
@@ -499,7 +502,6 @@ struct StoredNode {
     item: DataId,
     area: Rect,
     positioned: PositionedId,
-    layer: Option<LayerId>,
     z_index: i16,
     geometry: GeometryId,
     resolved_clip: ResolvedClipId,
@@ -533,16 +535,16 @@ struct AbsoluteSizing {
 #[derive(Clone, Copy)]
 struct GeometryRecord {
     node: NodeId,
-    id: Option<WidgetId>,
     hit: Sides,
     transition: Option<Transition>,
     transition_size: Size,
     transition_properties: crate::TransitionProperties,
 }
 
-#[derive(Clone, Copy)]
-struct Layer {
-    owner: NodeId,
+#[derive(Clone, Copy, Default)]
+struct PaintLinks {
+    first_child: u32,
+    next_sibling: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -606,13 +608,7 @@ struct AtomKind<R: Platform> {
     paint: fn(&DataArena, DataId, &mut R, Rect),
 }
 
-type OverrideSize = fn(
-    &mut DataArena,
-    DataId,
-    DataId,
-    Option<f32>,
-    Option<f32>,
-) -> bool;
+type OverrideSize = fn(&mut DataArena, DataId, DataId, Option<f32>, Option<f32>) -> bool;
 
 struct LayoutKind<R: Platform> {
     type_id: TypeId,
@@ -635,11 +631,7 @@ fn measure_atom<R: Platform, A: Atom<R>>(
     data.load::<A>(id).measure(platform, constraints)
 }
 
-fn paint_bounds_atom<R: Platform, A: Atom<R>>(
-    data: &DataArena,
-    id: DataId,
-    area: Rect,
-) -> Rect {
+fn paint_bounds_atom<R: Platform, A: Atom<R>>(data: &DataArena, id: DataId, area: Rect) -> Rect {
     data.load::<A>(id).paint_bounds(area)
 }
 
@@ -653,4 +645,22 @@ fn push_clip<R: Platform, C: Clip<R>>(data: &DataArena, id: DataId, platform: &m
 
 fn pop_clip<R: Platform, C: Clip<R>>(data: &DataArena, id: DataId, platform: &mut R) {
     data.load::<C>(id).pop(platform)
+}
+
+// WidgetId already contains a hash
+#[derive(Default)]
+struct WidgetIdHasher(u64);
+
+impl Hasher for WidgetIdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.0 = value;
+    }
+
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("WidgetId hashes one u64")
+    }
 }

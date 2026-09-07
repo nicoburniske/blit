@@ -17,7 +17,10 @@ pub fn resolve<R: Platform>(
 ) {
     for index in 0..frame.geometry.len() {
         let record = frame.geometry[index];
-        let (Some(id), Some(config)) = (record.id, record.transition) else {
+        let (Some(id), Some(config)) = (
+            frame.nodes[record.node.index()].widget_id,
+            record.transition,
+        ) else {
             continue;
         };
         match frame

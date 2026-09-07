@@ -6,7 +6,14 @@ pub mod position;
 pub mod timer;
 pub mod transition;
 
-use std::{any::TypeId, marker::PhantomData, num::NonZeroU16, ptr::NonNull, time::Duration};
+use std::{
+    any::TypeId,
+    collections::HashMap,
+    hash::{BuildHasherDefault, Hasher},
+    marker::PhantomData,
+    ptr::NonNull,
+    time::Duration,
+};
 
 use crate::{
     Atom, Clip, Content, FrameInfo, Platform, Widget,
@@ -55,9 +62,18 @@ impl<'ui, R: Platform, S> Ui<'ui, R, S> {
         self
     }
 
+    /// names this node for interaction, geometry and references
     pub fn widget_id(self, id: WidgetId) -> Self {
         let node = self.inner.node;
-        self.inner.context.frame_mut().geometry_mut(node).id = Some(id);
+        let frame = self.inner.context.frame_mut();
+        if let Some(previous) = frame.nodes[node.index()].widget_id.replace(id) {
+            // release the old name so another node can claim it
+            *frame.named_nodes.get_mut(&previous).unwrap() = None;
+        }
+        assert!(
+            frame.named_nodes.insert(id, Some(node)).flatten().is_none(),
+            "widget ids must identify unique nodes"
+        );
         self
     }
 
@@ -73,25 +89,19 @@ impl<'ui, R: Platform, S> Ui<'ui, R, S> {
         self
     }
 
-    /// places this node in a paint layer
-    pub fn layer(self, layer: LayerId) -> Self {
+    /// selects the parent for stacking, clipping and absolute sizing
+    ///
+    /// named targets must already be registered. positioning stays with its anchor.
+    pub fn parent(self, target: impl Into<NodeTarget>) -> Self {
         let node = self.inner.node;
         let frame = self.inner.context.frame_mut();
-        let index = layer.index();
-        assert!(
-            index < frame.layers.len(),
-            "layer does not belong to this frame"
-        );
-        assert!(
-            frame.layers[index].owner.index() < node.index(),
-            "a layer can only contain nodes declared after its owner"
-        );
-        frame.needs_paint_order = true;
-        frame.nodes[node.index()].layer = Some(layer);
+        let parent = frame.resolve_target(node, target.into());
+        frame.needs_paint_order |= parent != frame.nodes[node.index()].parent;
+        frame.nodes[node.index()].visual_parent = parent;
         self
     }
 
-    /// sets this node's paint order within its layer
+    /// sets this node's paint order among its visual siblings
     pub fn z_index(self, z_index: i16) -> Self {
         let node = self.inner.node;
         let frame = self.inner.context.frame_mut();
@@ -112,18 +122,6 @@ impl<'ui, R: Platform, S> Ui<'ui, R, S> {
             },
             marker: PhantomData,
         })
-    }
-
-    /// returns the layer owned by the frame root
-    pub fn root_layer(&self) -> LayerId {
-        let layer = self.inner.context.frame().root_layer;
-        #[cfg(debug_assertions)]
-        generation::assert(layer.generation);
-        layer
-    }
-
-    pub fn new_layer(&mut self) -> LayerId {
-        self.inner.context.frame_mut().add_layer()
     }
 }
 
@@ -296,21 +294,10 @@ pub struct NodeId {
     generation: u16,
 }
 
-/// frame-local paint layer
-///
-/// do not store this across renders
-#[cfg_attr(not(debug_assertions), repr(transparent))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LayerId {
-    value: NonZeroU16,
-    #[cfg(debug_assertions)]
-    generation: u16,
-}
-
 /// placement and sizing of a child outside its parent layout
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Absolute {
-    pub target: PositionTarget,
+    pub target: NodeTarget,
     pub target_anchor: Anchor,
     pub child_anchor: Anchor,
     pub offset: Point,
@@ -318,12 +305,22 @@ pub struct Absolute {
     pub height: Sizing,
 }
 
+/// selects a node for visual parenting or absolute positioning
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum PositionTarget {
+pub enum NodeTarget {
+    /// the node's structural parent
     #[default]
     Parent,
-    Node(NodeId),
-    Screen,
+    /// an earlier node whose unique widget id is already assigned
+    Widget(WidgetId),
+    /// the frame root
+    Root,
+}
+
+impl From<WidgetId> for NodeTarget {
+    fn from(id: WidgetId) -> Self {
+        Self::Widget(id)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -343,7 +340,7 @@ pub enum Anchor {
 impl Absolute {
     pub const fn at(x: f32, y: f32) -> Self {
         Self {
-            target: PositionTarget::Parent,
+            target: NodeTarget::Parent,
             target_anchor: Anchor::TopLeft,
             child_anchor: Anchor::TopLeft,
             offset: Point::new(x, y),
@@ -354,7 +351,7 @@ impl Absolute {
 
     pub const fn screen(x: f32, y: f32) -> Self {
         Self {
-            target: PositionTarget::Screen,
+            target: NodeTarget::Root,
             ..Self::at(x, y)
         }
     }
@@ -363,8 +360,9 @@ impl Absolute {
         Self::at(0.0, 0.0).anchors(target, child)
     }
 
-    pub const fn relative_to(mut self, target: NodeId) -> Self {
-        self.target = PositionTarget::Node(target);
+    /// anchors to an earlier node whose widget id is already assigned
+    pub const fn relative_to(mut self, target: WidgetId) -> Self {
+        self.target = NodeTarget::Widget(target);
         self
     }
 
@@ -442,35 +440,6 @@ impl NodeId {
         #[cfg(debug_assertions)]
         generation::assert(self.generation);
         self.value as usize
-    }
-}
-
-impl LayerId {
-    const UNINITIALIZED: Self = Self {
-        value: NonZeroU16::MIN,
-        #[cfg(debug_assertions)]
-        generation: 0,
-    };
-
-    fn new(index: usize) -> Self {
-        let value = u16::try_from(index + 1).expect("too many layers in one frame");
-        Self {
-            value: NonZeroU16::new(value).unwrap(),
-            #[cfg(debug_assertions)]
-            generation: generation::get(),
-        }
-    }
-
-    fn index(self) -> usize {
-        #[cfg(debug_assertions)]
-        generation::assert(self.generation);
-        self.value.get() as usize - 1
-    }
-
-    fn order(self) -> u16 {
-        #[cfg(debug_assertions)]
-        generation::assert(self.generation);
-        self.value.get()
     }
 }
 

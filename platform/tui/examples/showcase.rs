@@ -1005,6 +1005,7 @@ impl Widget<TuiPlatform> for Canvas {
         let background = Block::new()
             .background(colors::CANVAS)
             .border(Border::new(colors::CANVAS_BORDER).style(BorderStyle::Rounded));
+        let ui = ui.widget_id(WidgetId::new("tui canvas"));
         match self.config.layout {
             CanvasLayout::Flex => {
                 let mut canvas = ui
@@ -1017,13 +1018,12 @@ impl Widget<TuiPlatform> for Canvas {
                     )
                     .clip(BoundsClip);
                 canvas.insert(background);
-                let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, unit);
                     canvas
                         .child(flex::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
-                            canvas_item(ui, index, spec, badges, self.config, unit);
+                            canvas_item(ui, index, spec, self.config, unit);
                         });
                 }
             }
@@ -1043,13 +1043,12 @@ impl Widget<TuiPlatform> for Canvas {
                     )
                     .clip(BoundsClip);
                 canvas.insert(background);
-                let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, unit);
                     canvas
                         .child(wrap::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
-                            canvas_item(ui, index, spec, badges, self.config, unit);
+                            canvas_item(ui, index, spec, self.config, unit);
                         });
                 }
             }
@@ -1061,7 +1060,6 @@ impl Widget<TuiPlatform> for Canvas {
                     .row_gap(self.config.gap(Axis::Vertical, unit));
                 let mut canvas = ui.layout(grid).clip(BoundsClip);
                 canvas.insert(background);
-                let badges = canvas.new_layer();
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child(
@@ -1071,7 +1069,7 @@ impl Widget<TuiPlatform> for Canvas {
                                 .preferred_height(3.0 * self.config.zoom),
                         )
                         .build(|ui: Ui<'_>| {
-                            canvas_item(ui, index, spec, badges, self.config, unit);
+                            canvas_item(ui, index, spec, self.config, unit);
                         });
                 }
             }
@@ -1083,7 +1081,6 @@ fn canvas_item(
     ui: Ui<'_>,
     index: usize,
     spec: blit_showcase::ItemSpec,
-    badges: blit::LayerId,
     config: CanvasConfig,
     unit: Size,
 ) {
@@ -1110,7 +1107,7 @@ fn canvas_item(
                 .width(Sizing::fixed(unit.width * 2.0))
                 .height(Sizing::fixed(unit.height)),
         )
-        .layer(badges)
+        .parent(WidgetId::new("tui canvas"))
         .z_index(1)
         .build(|ui: Ui<'_>| {
             let mut badge = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));

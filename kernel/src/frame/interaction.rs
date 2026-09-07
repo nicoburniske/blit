@@ -1,6 +1,6 @@
 use crate::{
     Platform,
-    geometry::{Point, Rect},
+    geometry::{Point, Rect, Sides},
     input::{Input, PointerButton},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
 };
@@ -10,31 +10,26 @@ use super::Frame;
 const DRAG_THRESHOLD: f32 = 6.0;
 
 pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &R) {
-    frame.interaction.sort_requests();
-    if !frame.paint_order.is_empty() {
-        frame
-            .order_stack
-            .resize(frame.nodes.len(), frame.node_id(0));
-        for (rank, node) in frame.paint_order.iter().copied().enumerate() {
-            frame.order_stack[node.index()] = frame.node_id(rank);
-        }
-        let ranks = &frame.order_stack;
-        frame
-            .geometry
-            .sort_unstable_by_key(|record| ranks[record.node.index()].index());
-    }
-    for index in 0..frame.geometry.len() {
-        let record = frame.geometry[index];
-        let Some(id) = record.id else {
+    frame
+        .interaction
+        .requests
+        .sort_unstable_by_key(|request| request.0);
+    for index in 0..frame.nodes.len() {
+        let node = frame.paint_order.get(index).map_or(index, |id| id.index());
+        let stored = &frame.nodes[node];
+        let Some(id) = stored.widget_id else {
             continue;
         };
-        let stored = frame.nodes[record.node.index()];
+        let hit = stored
+            .geometry
+            .index()
+            .map_or(Sides::all(0.0), |index| frame.geometry[index].hit);
         frame.geometry_current.push((id, stored.area));
         let area = Rect::new(
-            stored.area.x - record.hit.left,
-            stored.area.y - record.hit.top,
-            stored.area.width + record.hit.left + record.hit.right,
-            stored.area.height + record.hit.top + record.hit.bottom,
+            stored.area.x - hit.left,
+            stored.area.y - hit.top,
+            stored.area.width + hit.left + hit.right,
+            stored.area.height + hit.top + hit.bottom,
         );
         let clip_bounds = frame.clip_bounds(stored.resolved_clip);
         // todo: test interaction against the actual custom clip chain
@@ -234,10 +229,6 @@ impl InteractionState {
                 sense: self.requests[index].1,
             });
         }
-    }
-
-    pub fn sort_requests(&mut self) {
-        self.requests.sort_unstable_by_key(|request| request.0);
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {

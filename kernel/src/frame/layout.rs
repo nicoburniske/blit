@@ -117,7 +117,7 @@ impl<'a, R: Platform, I: 'static> LayoutCx<'a, R, I> {
         self.platform
     }
 
-    /// sets a child's paint order within its layer
+    /// sets a child's paint order among its visual siblings
     #[inline]
     pub fn set_child_z_index(&mut self, child: NodeId, z_index: i16) {
         #[cfg(debug_assertions)]

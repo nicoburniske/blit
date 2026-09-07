@@ -2,8 +2,8 @@ use std::{cell::Cell, rc::Rc, time::Duration};
 
 use blit::{
     Absolute, Anchor, Atom, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input,
-    Interaction, Layout, LayoutCx, LayoutResolution, Modifiers, NodeId, Platform, Point,
-    PointerButton, Rect, Sense, Size, Sizing, Transition, WidgetId,
+    Interaction, Layout, LayoutCx, LayoutResolution, Modifiers, NodeId, NodeTarget, Platform,
+    Point, PointerButton, Rect, Sense, Size, Sizing, Transition, WidgetId,
 };
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, AsciiPlatform, S>;
@@ -182,7 +182,7 @@ fn owned_frame_values_use_resolved_area_and_drop() {
 }
 
 #[test]
-fn resolves_absolute_targets_and_layer_order() {
+fn resolves_named_anchors_and_clipping() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
 
@@ -191,11 +191,11 @@ fn resolves_absolute_targets_and_layer_order() {
         FrameInfo::new(Size::new(8.0, 5.0)),
         |ui: Ui<'_>| {
             let mut overlay = ui.layout(Overlay);
-            let target = overlay.child(TestItem::default()).build(|mut ui: Ui<'_>| {
-                let id = ui.id();
-                ui.insert(Fill::new('T', Size::uniform(2.0)));
-                id
-            });
+            let target = WidgetId::new("anchor");
+            overlay
+                .child(TestItem::default())
+                .widget_id(target)
+                .insert(Fill::new('T', Size::uniform(2.0)));
             let mut absolute = overlay.absolute(
                 Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target),
             );
@@ -216,35 +216,15 @@ fn resolves_absolute_targets_and_layer_order() {
 
     frame.render(
         &mut platform,
-        FrameInfo::new(Size::new(3.0, 1.0)),
-        |ui: Ui<'_>| {
-            let mut overlay = ui.layout(Overlay);
-            let layer = overlay.new_layer();
-            overlay
-                .child(TestItem::default())
-                .layer(layer)
-                .insert(Fill::new('A', Size::new(3.0, 1.0)));
-            overlay
-                .child(TestItem::default())
-                .z_index(100)
-                .insert(Fill::new('B', Size::new(3.0, 1.0)));
-        },
-    );
-
-    assert_eq!(platform.contents(), "AAA");
-
-    frame.render(
-        &mut platform,
         FrameInfo::new(Size::uniform(3.0)),
         |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
-            let layer = root.root_layer();
             root.child(TestItem::default()).build(|ui: Ui<'_>| {
                 let mut panel = ui.layout(Fixed(Size::uniform(3.0))).clip(DiamondClip);
                 panel.insert(Fill::new('p', Size::ZERO));
                 panel
                     .child(TestItem::default())
-                    .layer(layer)
+                    .parent(NodeTarget::Root)
                     .insert(Fill::new('L', Size::uniform(3.0)));
             });
         },
@@ -257,12 +237,15 @@ fn resolves_absolute_targets_and_layer_order() {
         |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
             root.child(TestItem::default()).build(|ui: Ui<'_>| {
-                let mut panel = ui.layout(Fixed(Size::uniform(3.0))).clip(DiamondClip);
+                let panel_id = WidgetId::new("panel");
+                let mut panel = ui
+                    .layout(Fixed(Size::uniform(3.0)))
+                    .widget_id(panel_id)
+                    .clip(DiamondClip);
                 panel.insert(Fill::new('p', Size::ZERO));
-                let layer = panel.new_layer();
                 panel
                     .child(TestItem::default())
-                    .layer(layer)
+                    .parent(panel_id)
                     .insert(Fill::new('L', Size::uniform(3.0)));
             });
         },
@@ -271,48 +254,166 @@ fn resolves_absolute_targets_and_layer_order() {
 }
 
 #[test]
-fn interaction_uses_resolved_paint_order() {
+fn visual_parent_preserves_outer_clip_and_supplies_absolute_size() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
-    let bottom = WidgetId::new("bottom");
-    let top = WidgetId::new("top");
-
-    frame.render(
-        &mut platform,
-        FrameInfo::new(Size::new(3.0, 1.0)),
-        |ui: Ui<'_>| {
-            buttons(ui, bottom, top);
-        },
+    let info = FrameInfo::new(Size::new(7.0, 5.0));
+    let outer_id = WidgetId::new("outer");
+    let popup_id = WidgetId::new("popup");
+    let build = |mut ui: Ui<'_>| {
+        let response = ui.interact(popup_id, Sense::CLICK);
+        let mut root = ui.layout(Overlay);
+        root.absolute(
+            Absolute::at(1.0, 0.0)
+                .width(Sizing::fixed(5.0))
+                .height(Sizing::fixed(5.0)),
+        )
+        .widget_id(outer_id)
+        .clip(DiamondClip)
+        .build(|ui: Ui<'_>| {
+            let mut outer = ui.layout(Overlay);
+            outer
+                .absolute(
+                    Absolute::at(2.0, 2.0)
+                        .width(Sizing::fixed(1.0))
+                        .height(Sizing::fixed(1.0)),
+                )
+                .clip(DiamondClip)
+                .build(|ui: Ui<'_>| {
+                    ui.layout(Overlay)
+                        .absolute(
+                            Absolute::at(-2.0, -2.0)
+                                .width(Sizing::grow())
+                                .height(Sizing::grow()),
+                        )
+                        .parent(outer_id)
+                        .z_index(1)
+                        .widget_id(popup_id)
+                        .insert(Fill::new('P', Size::ZERO));
+                });
+        });
+        response
+    };
+    frame.render(&mut platform, info, &build);
+    assert_eq!(
+        frame.geometry(popup_id),
+        Some(Rect::new(1.0, 0.0, 5.0, 5.0))
     );
-    assert_eq!(frame.geometry(top), Some(Rect::new(0.0, 0.0, 3.0, 1.0)));
+    assert_eq!(
+        platform.contents(),
+        "   P   \n  PPP  \n PPPPP \n  PPP  \n   P   "
+    );
 
-    let mut responses = Vec::new();
+    let mut active = Vec::new();
     frame.render_inputs(
         &mut platform,
-        FrameInfo::new(Size::new(3.0, 1.0)),
+        info,
         Duration::ZERO,
         [
             Input::PointerDown {
-                position: Point::new(1.0, 0.5),
+                position: Point::new(0.5, 2.5),
                 button: PointerButton::Primary,
                 modifiers: Modifiers::NONE,
             },
             Input::PointerUp {
-                position: Point::new(1.0, 0.5),
+                position: Point::new(0.5, 2.5),
                 button: PointerButton::Primary,
                 modifiers: Modifiers::NONE,
                 leave: false,
             },
+            Input::PointerDown {
+                position: Point::new(1.5, 2.5),
+                button: PointerButton::Primary,
+                modifiers: Modifiers::NONE,
+            },
         ],
-        |ui: Ui<'_>| responses.push(buttons(ui, bottom, top)),
+        |ui| active.push(build(ui).active),
     );
+    assert_eq!(active, [false, false, true]);
+}
 
-    assert!(!responses[0][0].active);
-    assert!(responses[0][1].active);
-    assert!(responses[0][1].activated);
-    assert!(!responses[1][0].clicked);
-    assert!(responses[1][1].clicked);
-    assert!(responses[1][1].deactivated);
+#[test]
+fn paint_and_interaction_follow_visual_groups() {
+    let mut frame = Frame::default();
+    let mut platform = AsciiPlatform::default();
+    let ids = ["background", "badge", "popup"].map(WidgetId::new);
+    let canvas_id = WidgetId::new("canvas");
+    let size = Size::new(3.0, 1.0);
+    let info = FrameInfo::new(size);
+
+    for open in [false, true, false] {
+        let build = |mut ui: Ui<'_>| {
+            let responses = ids.map(|id| ui.interact(id, Sense::CLICK));
+            let mut root = ui.layout(Overlay);
+            if open {
+                let mut modal = root
+                    .absolute(
+                        Absolute::at(0.0, 0.0)
+                            .width(Sizing::grow())
+                            .height(Sizing::grow()),
+                    )
+                    .z_index(1)
+                    .layout(Overlay);
+                modal.insert(Fill::new('D', Size::ZERO));
+                modal
+                    .absolute(Absolute::at(0.0, 0.0))
+                    .widget_id(ids[2])
+                    .insert(Fill::new('M', Size::uniform(1.0)));
+            }
+            root.child(TestItem::fixed(3.0, 1.0))
+                .widget_id(canvas_id)
+                .build(|ui: Ui<'_>| {
+                    ui.layout(Overlay)
+                        .child(TestItem::fixed(3.0, 1.0))
+                        .build(|ui: Ui<'_>| {
+                            let mut rect = ui.layout(Overlay);
+                            let mut badge = rect.absolute(Absolute::at(0.0, 0.0)).widget_id(ids[1]);
+                            if open {
+                                badge = badge.parent(canvas_id).z_index(i16::MAX);
+                            }
+                            badge.insert(Fill::new('A', size));
+                        });
+                });
+            root.widget_id(ids[0]).insert(Fill::new('R', size));
+            responses
+        };
+        frame.render(&mut platform, info, build);
+        assert_eq!(
+            platform.contents(),
+            if open { "MDD" } else { "AAA" },
+            "the badge stays below the modal backdrop, and content paints above it",
+        );
+        frame.render_inputs(
+            &mut platform,
+            info,
+            Duration::ZERO,
+            [
+                Input::PointerDown {
+                    position: Point::new(0.5, 0.5),
+                    button: PointerButton::Primary,
+                    modifiers: Modifiers::NONE,
+                },
+                Input::PointerUp {
+                    position: Point::new(0.5, 0.5),
+                    button: PointerButton::Primary,
+                    modifiers: Modifiers::NONE,
+                    leave: false,
+                },
+            ],
+            |ui: Ui<'_>| {
+                let down = matches!(ui.input(), Input::PointerDown { .. });
+                assert_eq!(
+                    build(ui).map(|response| if down {
+                        response.activated
+                    } else {
+                        response.clicked
+                    }),
+                    [false, !open, open],
+                    "clicks follow paint order even when the background is named last",
+                );
+            },
+        );
+    }
 }
 
 #[test]
@@ -502,11 +603,11 @@ fn absolute_places_position_against_the_target_and_size_against_the_parent() {
         FrameInfo::new(Size::new(10.0, 4.0)),
         |ui: Ui<'_>| {
             let mut overlay = ui.layout(Overlay);
-            let target = overlay.child(TestItem::default()).build(|mut ui: Ui<'_>| {
-                let id = ui.id();
-                ui.insert(Fill::new('T', Size::new(6.0, 2.0)));
-                id
-            });
+            let target = WidgetId::new("anchor");
+            overlay
+                .child(TestItem::default())
+                .widget_id(target)
+                .insert(Fill::new('T', Size::new(6.0, 2.0)));
             overlay
                 .absolute(
                     Absolute::attach(Anchor::BottomRight, Anchor::TopLeft)
@@ -536,61 +637,103 @@ fn transitions_without_ids_are_ignored() {
     assert!(!frame.has_pending_redraw());
 }
 
-#[cfg(debug_assertions)]
 #[test]
-fn frame_ids_reject_cross_frame_use() {
+fn named_targets_reject_invalid_references() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
-    let mut frame = Frame::<AsciiPlatform>::default();
-    let mut platform = AsciiPlatform::default();
-    let mut node = None;
-    let mut layer = None;
-    frame.render(
-        &mut platform,
-        FrameInfo::new(Size::uniform(1.0)),
-        |ui: Ui<'_>| {
+    let cases: [fn(Ui<'_>, WidgetId); 6] = [
+        |ui, id| {
             let mut root = ui.layout(Overlay);
-            layer = Some(root.new_layer());
-            node = Some(root.child(TestItem::default()).build(|mut ui: Ui<'_>| {
-                let id = ui.id();
-                ui.insert(Fill::new('X', Size::uniform(1.0)));
-                id
-            }));
+            root.child(TestItem::default()).parent(id).insert(());
+            root.widget_id(id).insert(());
         },
-    );
-
-    let node = node.unwrap();
-    assert!(
-        catch_unwind(AssertUnwindSafe(|| {
+        |ui, id| {
+            let mut root = ui.layout(Overlay);
+            root.absolute(Absolute::at(0.0, 0.0).relative_to(id))
+                .insert(());
+            root.widget_id(id).insert(());
+        },
+        |ui, id| ui.widget_id(id).parent(id).insert(()),
+        |ui, id| {
+            let mut root = ui.layout(Overlay);
+            root.child(TestItem::default()).widget_id(id).insert(());
+            root.parent(id).insert(());
+        },
+        |ui, id| {
+            ui.widget_id(id)
+                .layout(Overlay)
+                .child(TestItem::default())
+                .widget_id(id)
+                .insert(());
+        },
+        |ui, id| {
+            ui.widget_id(id)
+                .widget_id(id.child("renamed"))
+                .layout(Overlay)
+                .child(TestItem::default())
+                .parent(id)
+                .insert(());
+        },
+    ];
+    for (case, build) in cases.into_iter().enumerate() {
+        let mut frame = Frame::default();
+        let mut platform = AsciiPlatform::default();
+        // a previous build must not satisfy a current reference
+        frame.render(
+            &mut platform,
+            FrameInfo::new(Size::uniform(1.0)),
+            |ui: Ui<'_>| ui.widget_id(WidgetId::new("target")).insert(()),
+        );
+        let result = catch_unwind(AssertUnwindSafe(|| {
             frame.render(
                 &mut platform,
                 FrameInfo::new(Size::uniform(1.0)),
-                |ui: Ui<'_>| {
-                    let mut root = ui.layout(Overlay);
-                    root.child(TestItem::default());
-                    root.absolute(Absolute::at(0.0, 0.0).relative_to(node));
-                },
+                |ui: Ui<'_>| build(ui, WidgetId::new("target")),
             );
-        }))
-        .is_err()
-    );
+        }));
+        assert!(result.is_err(), "case {case}");
+    }
+}
 
-    let layer = layer.unwrap();
-    assert!(
-        catch_unwind(AssertUnwindSafe(|| {
-            frame.render(
-                &mut platform,
-                FrameInfo::new(Size::uniform(1.0)),
-                |ui: Ui<'_>| {
-                    let mut root = ui.layout(Overlay);
-                    root.child(TestItem::default())
-                        .layer(layer)
-                        .insert(Fill::new('X', Size::uniform(1.0)));
-                },
-            );
-        }))
-        .is_err()
-    );
+#[test]
+fn named_bindings_follow_each_build() {
+    let mut frame = Frame::default();
+    let mut platform = AsciiPlatform::default();
+    let a = WidgetId::new("a");
+    let b = WidgetId::new("b");
+    let info = FrameInfo::new(Size::uniform(10.0));
+    // change node indices and remove names before bringing them back
+    for count in [0, 3, 1, 0, 2] {
+        frame.render_inputs(
+            &mut platform,
+            info,
+            Duration::ZERO,
+            [Input::None; 2],
+            |ui: Ui<'_>| {
+                let mut root = ui.layout(Overlay);
+                for _ in 0..count {
+                    root.child(TestItem::default()).insert(());
+                }
+                if count == 0 {
+                    return;
+                }
+                root.child(TestItem::default())
+                    .widget_id(a)
+                    .widget_id(a)
+                    .widget_id(b)
+                    .insert(());
+                // renaming releases the old name for another node
+                root.child(TestItem::default())
+                    .widget_id(a)
+                    .parent(b)
+                    .insert(());
+                root.absolute(Absolute::at(0.0, 0.0).relative_to(a))
+                    .insert(());
+            },
+        );
+        assert_eq!(frame.geometry(a).is_some(), count != 0);
+        assert_eq!(frame.geometry(b).is_some(), count != 0);
+    }
 }
 
 #[test]
@@ -634,24 +777,6 @@ fn interaction_is_bounded_by_clip_rectangles() {
     );
 
     assert_eq!(active, [false, false, true]);
-}
-
-fn buttons(mut ui: Ui<'_>, bottom: WidgetId, top: WidgetId) -> [Interaction; 2] {
-    let responses = [
-        ui.interact(bottom, Sense::CLICK),
-        ui.interact(top, Sense::CLICK),
-    ];
-    let mut overlay = ui.layout(Overlay);
-    overlay
-        .child(TestItem::default())
-        .widget_id(bottom)
-        .insert(Fill::new('B', Size::new(3.0, 1.0)));
-    overlay
-        .child(TestItem::default())
-        .z_index(1)
-        .widget_id(top)
-        .insert(Fill::new('T', Size::new(3.0, 1.0)));
-    responses
 }
 
 fn transition_scene(

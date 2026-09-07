@@ -16,11 +16,7 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
         let positioned = frame.positioned[positioned];
         let node = frame.node_id(index);
         let target = frame.nodes[positioned.target.index()].area;
-        let containing = frame.nodes[index]
-            .layer
-            .map_or(frame.nodes[index].parent, |layer| {
-                frame.layers[layer.index()].owner
-            });
+        let containing = frame.nodes[index].visual_parent;
         let available = frame.nodes[containing.index()].area.size();
         let range = |sizing: Sizing, available: f32| match sizing {
             Sizing::Fit { min, max } => {

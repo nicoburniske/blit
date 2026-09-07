@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use blit::{
-    Absolute, Anchor, Input, Interaction, Platform, Point, Sense, Sides, Sizing, Ui, Widget,
-    WidgetId,
+    Absolute, Anchor, Input, Interaction, NodeTarget, Platform, Point, Sense, Sides, Sizing, Ui,
+    Widget, WidgetId,
 };
 
 use crate::layout::single;
@@ -19,6 +19,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Config {
         new(),
+        parent: NodeTarget = NodeTarget::Root,
         target_anchor: Anchor = Anchor::BottomLeft,
         child_anchor: Anchor = Anchor::TopLeft,
         offset: Point = Point::ZERO,
@@ -39,7 +40,9 @@ blit::builder! {
     }
 }
 
-/// displays content on the root layer relative to a trigger
+/// displays content relative to a trigger in the selected visual parent
+///
+/// the state's id names the popover's visual group
 pub struct Popover<'a, R, T = (), C = ()> {
     state: &'a mut State,
     trigger: T,
@@ -112,19 +115,18 @@ where
             self.state.open = !self.state.open;
         }
         let mut root = ui.layout(single::layout());
-        let anchor = root
-            .child(single::item())
+        // the wrapper keeps our anchor id separate from the trigger widget's id
+        root.child(single::item())
             .widget_id(trigger_id)
+            .layout(single::layout())
+            .child(single::item().grow())
             .build(|ui: Ui<'_, R>| {
-                let anchor = ui.id();
                 (self.trigger)(ui, interaction, self.state.open);
-                anchor
             });
         if !self.state.open {
             return None;
         }
 
-        let layer = root.root_layer();
         let backdrop_id = self.state.id.child("popover backdrop");
         let content_id = self.state.id.child("popover content");
         let backdrop = root.interact(backdrop_id, Sense::ALL);
@@ -150,23 +152,35 @@ where
             return None;
         }
 
-        root.absolute(
-            Absolute::screen(0.0, 0.0)
+        let mut popup = root
+            .absolute(
+                Absolute {
+                    target: self.config.parent,
+                    ..Absolute::at(0.0, 0.0)
+                }
                 .width(Sizing::grow())
                 .height(Sizing::grow()),
-        )
-        .layer(layer)
-        .widget_id(backdrop_id)
-        .build(());
-        let response = root
+            )
+            .parent(self.config.parent)
+            .z_index(1)
+            .widget_id(self.state.id)
+            .layout(single::layout());
+        popup
+            .absolute(
+                Absolute::at(0.0, 0.0)
+                    .width(Sizing::grow())
+                    .height(Sizing::grow()),
+            )
+            .widget_id(backdrop_id)
+            .insert(());
+        let response = popup
             .absolute(
                 Absolute::attach(self.config.target_anchor, self.config.child_anchor)
-                    .relative_to(anchor)
+                    .relative_to(trigger_id)
                     .offset(self.config.offset.x, self.config.offset.y)
                     .width(self.config.width)
                     .height(self.config.height),
             )
-            .layer(layer)
             .hit(
                 Sides::new()
                     .top(self.config.offset.y.max(0.0))
@@ -175,6 +189,8 @@ where
                     .left(self.config.offset.x.max(0.0)),
             )
             .widget_id(content_id)
+            .layout(single::layout())
+            .child(single::item().grow())
             .build(self.content);
         Some(response)
     }
@@ -203,12 +219,14 @@ mod tests {
                 Popover::new(state)
                     .config(config)
                     .trigger(|ui: Ui<'_, TestPlatform>, _, _| {
-                        ui.layout(single::layout())
+                        ui.widget_id(WidgetId::new("named trigger"))
+                            .layout(single::layout())
                             .child(single::item().fixed(2.0, 1.0))
                             .build(())
                     })
                     .build(|ui: Ui<'_, TestPlatform>| {
-                        ui.layout(single::layout())
+                        ui.widget_id(WidgetId::new("named content"))
+                            .layout(single::layout())
                             .child(single::item().fixed(4.0, 3.0))
                             .build(())
                     }),
@@ -280,11 +298,25 @@ mod tests {
             |ui: Ui<'_, TestPlatform>| {
                 if matches!(ui.input(), Input::PointerUp { .. }) {
                     content_geometry = ui.geometry(content_id);
+                    assert_eq!(
+                        ui.geometry(WidgetId::new("named content")),
+                        content_geometry,
+                    );
+                    assert_eq!(
+                        ui.geometry(WidgetId::new("named trigger")),
+                        Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
+                    );
                 }
-                build(ui, &mut state, Config::new());
+                build(
+                    ui,
+                    &mut state,
+                    Config::new()
+                        .width(Sizing::fixed(5.0))
+                        .height(Sizing::fixed(4.0)),
+                );
                 assert_eq!(state.open, expected.next().unwrap());
             },
         );
-        assert_eq!(content_geometry, Some(Rect::new(0.0, 1.0, 4.0, 3.0)));
+        assert_eq!(content_geometry, Some(Rect::new(0.0, 1.0, 5.0, 4.0)));
     }
 }
