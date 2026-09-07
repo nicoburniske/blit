@@ -8,7 +8,8 @@ use blit_showcase::{CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiPlatform, Ui,
     atom::{
-        Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, TitlePosition,
+        Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, Tint,
+        TitlePosition,
     },
     color::Color,
     layout::{Align, Justify, flex, grid, single, wrap},
@@ -31,6 +32,7 @@ struct Showcase {
     atoms: AtomsPage,
     scroll: ScrollPage,
     settings: popover::State,
+    modal: Modal,
     fps: FpsBadge,
     show_fps: bool,
 }
@@ -45,6 +47,7 @@ impl Default for Showcase {
             atoms: AtomsPage::default(),
             scroll: ScrollPage::default(),
             settings: popover::State::new(),
+            modal: Modal::default(),
             fps: FpsBadge::default(),
             show_fps: true,
         }
@@ -53,9 +56,9 @@ impl Default for Showcase {
 
 impl Showcase {
     fn show(&mut self, mut ui: Ui<'_>) {
-        if matches!(ui.input(), Input::Text('q'))
-            || matches!(ui.input(), Input::Key(key) if key.key == Key::Escape)
-        {
+        let escape = matches!(ui.input(), Input::Key(key)
+            if key.key == Key::Escape && key.pressed && !key.repeat);
+        if !self.modal.open && (escape || matches!(ui.input(), Input::Text('q'))) {
             ui.platform().quit();
             return;
         }
@@ -89,6 +92,9 @@ impl Showcase {
                 )) {
                     self.page = page;
                 }
+            }
+            if header.child(flex::item()).build(&mut self.modal) {
+                self.settings.open = false;
             }
             header.child(flex::item().grow()).insert(());
             let reset = header.child(flex::item()).build(
@@ -151,6 +157,150 @@ impl Showcase {
             )
             .build(&mut self.fps);
         }
+    }
+}
+
+struct Modal {
+    open: bool,
+    palette: popover::State,
+    accent: usize,
+    dim: bool,
+}
+
+impl Default for Modal {
+    fn default() -> Self {
+        Self {
+            open: false,
+            palette: popover::State::new(),
+            accent: 0,
+            dim: true,
+        }
+    }
+}
+
+impl Widget<TuiPlatform> for &mut Modal {
+    type Response = bool;
+
+    fn build(self, ui: Ui<'_>) -> bool {
+        if matches!(ui.input(), Input::Key(key)
+            if key.key == Key::Escape && key.pressed && !key.repeat)
+        {
+            if self.palette.open {
+                self.palette.open = false;
+            } else {
+                self.open = false;
+            }
+        }
+        let mut root = ui.layout(single::layout());
+        let opened = root.child(single::item()).build(Button::new(
+            WidgetId::new("tui open modal"),
+            " modal ",
+            self.open,
+        ));
+        if opened {
+            self.open = true;
+            self.palette.open = false;
+        }
+        let backdrop_id = WidgetId::new("tui modal backdrop");
+        if self.open && root.interact(backdrop_id, Sense::ALL).clicked {
+            self.open = false;
+        }
+        if !self.open {
+            return opened;
+        }
+        let palettes = [
+            (" ocean ", Color::Rgb(100, 210, 255)),
+            (" ember ", Color::Rgb(255, 165, 100)),
+            (" orchid ", Color::Rgb(205, 155, 255)),
+        ];
+        let (_, accent) = palettes[self.accent];
+        let panel_id = WidgetId::new("tui modal panel");
+        root.interact(panel_id, Sense::ALL);
+        let mut modal = root
+            .absolute(
+                Absolute::screen(0.0, 0.0)
+                    .width(Sizing::grow())
+                    .height(Sizing::grow()),
+            )
+            .parent(blit::NodeTarget::Root)
+            .z_index(1)
+            .widget_id(backdrop_id)
+            .layout(single::layout());
+        modal.insert(Tint::new([0, 0, 0], if self.dim { 180 } else { 80 }));
+        let mut panel = modal
+            .absolute(Absolute::attach(Anchor::Center, Anchor::Center))
+            .widget_id(panel_id)
+            .layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
+        panel.insert(
+            Block::new()
+                .background(colors::SURFACE)
+                .border(Border::new(accent).style(BorderStyle::Rounded)),
+        );
+        panel.child(flex::item()).insert(
+            Text::new("Appearance")
+                .color(accent)
+                .attributes(TextAttributes::BOLD),
+        );
+        panel.child(flex::item()).build(|ui: Ui<'_>| {
+            let mut preview = ui.layout(flex::column().padding(Sides::all(1.0)));
+            preview.insert(
+                Block::new()
+                    .background(Color::Rgb(24, 28, 38))
+                    .border(Border::new(accent).style(BorderStyle::Rounded)),
+            );
+            preview.child(flex::item()).insert(
+                Text::new("██  Preview")
+                    .color(accent)
+                    .attributes(TextAttributes::BOLD),
+            );
+        });
+        let selected = panel.child(flex::item()).build(
+            popover::Popover::new(&mut self.palette)
+                .config(popover::Config::new().parent(backdrop_id.into()))
+                .trigger(|ui, interaction, open| {
+                    draw_button(ui, " Accent color ▾ ", open, interaction);
+                })
+                .build(|ui: Ui<'_>| {
+                    let mut menu = ui.layout(flex::column().padding(Sides::all(1.0)));
+                    menu.insert(
+                        Block::new()
+                            .background(colors::SURFACE)
+                            .border(Border::new(accent).style(BorderStyle::Rounded)),
+                    );
+                    let mut selected = None;
+                    for (index, (name, _)) in palettes.into_iter().enumerate() {
+                        if menu.child(flex::item()).build(Button::new(
+                            WidgetId::new(("tui modal palette", index)),
+                            name,
+                            self.accent == index,
+                        )) {
+                            selected = Some(index);
+                        }
+                    }
+                    selected
+                }),
+        );
+        if let Some(Some(index)) = selected {
+            self.accent = index;
+            self.palette.open = false;
+        }
+        let mut actions = panel.child(flex::item()).layout(flex::row().gap(2.0));
+        if actions.child(flex::item()).build(Button::new(
+            WidgetId::new("tui modal dim"),
+            " Dim background ",
+            self.dim,
+        )) {
+            self.dim = !self.dim;
+        }
+        if actions.child(flex::item()).build(Button::new(
+            WidgetId::new("tui close modal"),
+            " Done ",
+            false,
+        )) {
+            self.open = false;
+        }
+
+        opened
     }
 }
 
