@@ -123,7 +123,6 @@ impl<'a, R: Platform, I: 'static> LayoutCx<'a, R, I> {
         #[cfg(debug_assertions)]
         self.assert_child(child);
         self.frame.nodes[child.index()].z_index = z_index;
-        self.frame.needs_paint_order |= z_index != 0;
     }
 
     #[track_caller]

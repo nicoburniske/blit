@@ -3,7 +3,11 @@ use crate::{FrameInfo, Platform, arena::DataArena};
 
 pub fn resolve_order<R: Platform>(frame: &mut Frame<R>) {
     frame.paint_order.clear();
-    if !frame.needs_paint_order {
+    if !frame
+        .nodes
+        .iter()
+        .any(|node| node.z_index != 0 || node.visual_parent != node.parent)
+    {
         return;
     }
 

@@ -97,7 +97,6 @@ impl<'ui, R: Platform, S> Ui<'ui, R, S> {
         let node = self.inner.node;
         let frame = self.inner.context.frame_mut();
         let parent = frame.resolve_target(node, target.into());
-        frame.needs_paint_order |= parent != frame.nodes[node.index()].parent;
         frame.nodes[node.index()].visual_parent = parent;
         self
     }
@@ -106,7 +105,6 @@ impl<'ui, R: Platform, S> Ui<'ui, R, S> {
     pub fn z_index(self, z_index: i16) -> Self {
         let node = self.inner.node;
         let frame = self.inner.context.frame_mut();
-        frame.needs_paint_order |= z_index != 0;
         frame.nodes[node.index()].z_index = z_index;
         self
     }

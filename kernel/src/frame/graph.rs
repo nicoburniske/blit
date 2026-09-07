@@ -35,7 +35,6 @@ pub struct Frame<R: Platform> {
     time: Duration,
     screen: Rect,
     layout_resolution: LayoutResolution,
-    needs_paint_order: bool,
     frame_requested: bool,
 }
 
@@ -70,7 +69,6 @@ impl<R: Platform> Default for Frame<R> {
             time: Duration::ZERO,
             screen: Rect::default(),
             layout_resolution: LayoutResolution::Continuous,
-            needs_paint_order: false,
             frame_requested: true,
         }
     }
@@ -196,7 +194,6 @@ impl<R: Platform> Frame<R> {
         self.paint_order.clear();
         self.resolved_clips.clear();
         self.active_clips.clear();
-        self.needs_paint_order = false;
         self.input = input;
         self.time = time;
         self.screen = Rect::new(0.0, 0.0, frame.size.width, frame.size.height);
