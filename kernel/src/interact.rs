@@ -1,11 +1,10 @@
 use std::{
-    collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     num::NonZeroU64,
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::{geometry::Point, input::ScrollPhase};
+use crate::{geometry::Point, hash::FxHasher, input::ScrollPhase};
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 
@@ -14,7 +13,7 @@ pub struct WidgetId(NonZeroU64);
 
 impl WidgetId {
     pub fn new(source: impl Hash) -> Self {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = FxHasher::default();
         source.hash(&mut hasher);
         Self(NonZeroU64::new(hasher.finish()).unwrap_or(NonZeroU64::MIN))
     }

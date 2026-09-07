@@ -38,6 +38,7 @@
 
 mod arena;
 mod frame;
+mod hash;
 mod macros;
 
 pub mod animation;
