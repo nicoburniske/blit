@@ -116,13 +116,17 @@ where
         }
         let mut root = ui.layout(single::layout());
         // the wrapper keeps our anchor id separate from the trigger widget's id
-        root.child(single::item())
-            .widget_id(trigger_id)
-            .layout(single::layout())
-            .child(single::item().grow())
-            .build(|ui: Ui<'_, R>| {
+        let anchor = {
+            let mut trigger = root
+                .child(single::item())
+                .widget_id(trigger_id)
+                .layout(single::layout());
+            let anchor = trigger.id();
+            trigger.child(single::item().grow()).build(|ui: Ui<'_, R>| {
                 (self.trigger)(ui, interaction, self.state.open);
             });
+            anchor
+        };
         if !self.state.open {
             return None;
         }
@@ -176,7 +180,7 @@ where
         let response = popup
             .absolute(
                 Absolute::attach(self.config.target_anchor, self.config.child_anchor)
-                    .relative_to(trigger_id)
+                    .relative_to(anchor)
                     .offset(self.config.offset.x, self.config.offset.y)
                     .width(self.config.width)
                     .height(self.config.height),

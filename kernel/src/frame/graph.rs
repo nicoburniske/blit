@@ -413,6 +413,7 @@ impl<R: Platform> Frame<R> {
         let target = match target {
             NodeTarget::Parent => self.nodes[node.index()].parent,
             NodeTarget::Root => self.node_id(0),
+            NodeTarget::Node(id) => id,
             NodeTarget::Widget(id) => self
                 .named_nodes
                 .get(&id)

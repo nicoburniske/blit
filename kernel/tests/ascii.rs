@@ -258,7 +258,6 @@ fn visual_parent_preserves_outer_clip_and_supplies_absolute_size() {
     let mut frame = Frame::<AsciiPlatform>::default();
     let mut platform = AsciiPlatform::default();
     let info = FrameInfo::new(Size::new(7.0, 5.0));
-    let outer_id = WidgetId::new("outer");
     let popup_id = WidgetId::new("popup");
     let build = |mut ui: Ui<'_>| {
         let response = ui.interact(popup_id, Sense::CLICK);
@@ -268,9 +267,9 @@ fn visual_parent_preserves_outer_clip_and_supplies_absolute_size() {
                 .width(Sizing::fixed(5.0))
                 .height(Sizing::fixed(5.0)),
         )
-        .widget_id(outer_id)
         .clip(DiamondClip)
         .build(|ui: Ui<'_>| {
+            let outer_id = ui.id();
             let mut outer = ui.layout(Overlay);
             outer
                 .absolute(
@@ -603,11 +602,10 @@ fn absolute_places_position_against_the_target_and_size_against_the_parent() {
         FrameInfo::new(Size::new(10.0, 4.0)),
         |ui: Ui<'_>| {
             let mut overlay = ui.layout(Overlay);
-            let target = WidgetId::new("anchor");
-            overlay
-                .child(TestItem::default())
-                .widget_id(target)
-                .insert(Fill::new('T', Size::new(6.0, 2.0)));
+            let target = overlay.child(TestItem::default()).build(|mut ui: Ui<'_>| {
+                ui.insert(Fill::new('T', Size::new(6.0, 2.0)));
+                ui.id()
+            });
             overlay
                 .absolute(
                     Absolute::attach(Anchor::BottomRight, Anchor::TopLeft)
@@ -638,10 +636,19 @@ fn transitions_without_ids_are_ignored() {
 }
 
 #[test]
-fn named_targets_reject_invalid_references() {
+fn targets_reject_invalid_references() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
-    let cases: [fn(Ui<'_>, WidgetId); 6] = [
+    let cases: [fn(Ui<'_>, WidgetId); 8] = [
+        |ui, _| {
+            let id = ui.id();
+            ui.parent(id).insert(());
+        },
+        |ui, _| {
+            let mut root = ui.layout(Overlay);
+            let child = root.child(TestItem::default()).build(|ui: Ui<'_>| ui.id());
+            root.parent(child).insert(());
+        },
         |ui, id| {
             let mut root = ui.layout(Overlay);
             root.child(TestItem::default()).parent(id).insert(());
@@ -692,6 +699,33 @@ fn named_targets_reject_invalid_references() {
             );
         }));
         assert!(result.is_err(), "case {case}");
+    }
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn node_targets_reject_previous_renders() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    for anchor in [false, true] {
+        let mut frame = Frame::default();
+        let mut platform = AsciiPlatform::default();
+        let info = FrameInfo::new(Size::uniform(1.0));
+        let previous = frame.render(&mut platform, info, |ui: Ui<'_>| ui.id());
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| {
+                frame.render(&mut platform, info, |ui: Ui<'_>| {
+                    let mut root = ui.layout(Overlay);
+                    if anchor {
+                        root.absolute(Absolute::at(0.0, 0.0).relative_to(previous))
+                            .insert(());
+                    } else {
+                        root.child(TestItem::default()).parent(previous).insert(());
+                    }
+                });
+            }))
+            .is_err()
+        );
     }
 }
 

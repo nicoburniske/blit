@@ -50,6 +50,7 @@ pub struct Ui<'ui, R: Platform, S = state::Build> {
 }
 
 impl<'ui, R: Platform, S> Ui<'ui, R, S> {
+    /// identifies this node for references within the current render
     pub fn id(&self) -> NodeId {
         self.inner.node
     }
@@ -311,6 +312,8 @@ pub enum NodeTarget {
     /// the node's structural parent
     #[default]
     Parent,
+    /// an earlier node in the current render
+    Node(NodeId),
     /// an earlier node whose unique widget id is already assigned
     Widget(WidgetId),
     /// the frame root
@@ -320,6 +323,12 @@ pub enum NodeTarget {
 impl From<WidgetId> for NodeTarget {
     fn from(id: WidgetId) -> Self {
         Self::Widget(id)
+    }
+}
+
+impl From<NodeId> for NodeTarget {
+    fn from(id: NodeId) -> Self {
+        Self::Node(id)
     }
 }
 
@@ -360,9 +369,9 @@ impl Absolute {
         Self::at(0.0, 0.0).anchors(target, child)
     }
 
-    /// anchors to an earlier node whose widget id is already assigned
-    pub const fn relative_to(mut self, target: WidgetId) -> Self {
-        self.target = NodeTarget::Widget(target);
+    /// anchors to an earlier node by id or registered widget name
+    pub fn relative_to(mut self, target: impl Into<NodeTarget>) -> Self {
+        self.target = target.into();
         self
     }
 
