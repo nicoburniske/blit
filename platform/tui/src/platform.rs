@@ -1,6 +1,7 @@
 use blit::{Clip, FrameInfo, LogicalRect, Platform, Scale2};
 use blit_tui_render::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 
+/// rendering resources independent of terminal io and event loop ownership
 pub struct TuiPlatform {
     renderer: TuiRenderer,
     clip: LogicalRect,

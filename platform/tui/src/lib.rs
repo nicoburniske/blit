@@ -1,3 +1,15 @@
+//! build terminal interfaces with blit's layouts, widgets and drawing atoms
+//!
+//! start with [`run`] and a closure that builds your ui using [`layout`],
+//! [`widget`] and [`atom`]. the runner handles terminal setup, input and drawing.
+//!
+//! to own the event loop, use [`Session`] for terminal handling. to bring your
+//! own backend, use [`TuiPlatform`] with [`blit::Frame`] and write the renderer's
+//! output yourself.
+//!
+//! the built in runner targets Unix terminals with the kitty keyboard protocol,
+//! such as Kitty and Ghostty. Windows and legacy terminals are not supported.
+
 mod platform;
 mod protocol;
 mod terminal;
@@ -5,7 +17,7 @@ mod terminal;
 pub mod atom;
 pub mod widget;
 pub use blit_std::layout;
-pub use blit_tui_render::{cell, color, image, text};
+pub use blit_tui_render::{RendererConfig, TuiRenderer, cell, color, image, text};
 pub use platform::{BoundsClip, TuiPlatform};
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiPlatform, S>;
@@ -16,15 +28,16 @@ use blit::{
     Frame, FrameInfo, LayoutResolution, LogicalPoint, LogicalSize,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
-use blit_tui_render::{RendererConfig, TuiRenderer};
 use terminal::{Size, Terminal, colors::Colors};
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
 
+/// runs the ui with the built in terminal and event loop
 pub fn run(mut render: impl FnMut(Ui<'_>)) -> io::Result<()> {
     run_with(|_| (), move |_, ui| render(ui))
 }
 
+/// initializes application state before entering the built in event loop
 pub fn run_with<S>(
     initialize: impl FnOnce(&mut TuiPlatform) -> S,
     mut render: impl FnMut(&mut S, Ui<'_>),
@@ -88,6 +101,9 @@ pub fn run_with<S>(
     result.and(finish)
 }
 
+/// terminal setup, input and presentation for an application owned event loop
+///
+/// use [`TuiPlatform`] directly when supplying your own terminal backend
 pub struct Session {
     terminal: Terminal,
     platform: TuiPlatform,
