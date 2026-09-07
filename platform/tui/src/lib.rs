@@ -1,4 +1,6 @@
 mod platform;
+mod protocol;
+mod terminal;
 
 pub mod atom;
 pub mod widget;
@@ -15,13 +17,7 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use blit_tui_render::{RendererConfig, TuiRenderer};
-use termina::{
-    Event as TerminalEvent, PlatformTerminal, Terminal, WindowSize,
-    event::{
-        KeyCode as TerminalKeyCode, KeyEventKind as TerminalKeyEventKind,
-        Modifiers as TerminalModifiers, MouseButton as TerminalMouseButton, MouseEventKind,
-    },
-};
+use terminal::{Size, Terminal, colors::Colors};
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
 
@@ -75,7 +71,11 @@ pub fn run_with<S>(
                 let timer_due = frame
                     .next_timer_deadline()
                     .is_some_and(|deadline| deadline <= now);
-                if poll.resized || poll.input_count != 0 || frame.has_pending_redraw() || timer_due
+                if poll.resized
+                    || poll.redraw
+                    || poll.input_count != 0
+                    || frame.has_pending_redraw()
+                    || timer_due
                 {
                     input_count = poll.input_count;
                     break;
@@ -89,30 +89,23 @@ pub fn run_with<S>(
 }
 
 pub struct Session {
-    terminal: PlatformTerminal,
+    terminal: Terminal,
     platform: TuiPlatform,
     active: bool,
+    colors: Colors,
 }
 
 impl Session {
-    const ENTER: &str =
-        "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h";
-    const LEAVE: &str =
-        "\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l";
-
     pub fn new() -> io::Result<Self> {
-        let mut terminal = PlatformTerminal::new()?;
-        let renderer = TuiRenderer::new(renderer_config(terminal.get_dimensions()?)?);
+        let terminal = Terminal::new()?;
+        let renderer = TuiRenderer::new(renderer_config(terminal.size()?)?);
         let platform = TuiPlatform::new(renderer);
-        terminal.enter_raw_mode()?;
-        let mut session = Self {
+        Ok(Self {
             terminal,
             platform,
             active: true,
-        };
-        session.terminal.write_all(Self::ENTER.as_bytes())?;
-        session.terminal.flush()?;
-        Ok(session)
+            colors: Colors::new(Instant::now()),
+        })
     }
 
     pub fn platform(&self) -> &TuiPlatform {
@@ -132,119 +125,133 @@ impl Session {
     }
 
     pub fn poll(&mut self, timeout: Option<Duration>, inputs: &mut [Input]) -> io::Result<Poll> {
-        if inputs.is_empty() || !self.terminal.poll(|_| true, timeout)? {
+        if inputs.is_empty() {
             return Ok(Poll::default());
         }
-
-        let mut input_count = 0;
-        let mut event_count = 0;
-        loop {
-            let terminal_event = self.terminal.read(|_| true)?;
-            event_count += 1;
-            let input = match terminal_event {
-                TerminalEvent::WindowResized(size) => {
+        let now = Instant::now();
+        self.colors
+            .update(&mut self.terminal, self.platform.renderer(), now)?;
+        let mut result = Poll::default();
+        let mut timeout = match (timeout, self.colors.deadline(self.platform.renderer())) {
+            (timeout, Some(deadline)) => Some(
+                timeout.map_or(deadline.saturating_duration_since(now), |timeout| {
+                    timeout.min(deadline.saturating_duration_since(now))
+                }),
+            ),
+            (timeout, None) => timeout,
+        };
+        for _ in 0..inputs.len() {
+            let Some(event) = self.terminal.read(timeout)? else {
+                break;
+            };
+            timeout = Some(Duration::ZERO);
+            let event = match event {
+                terminal::Event::Resize(size) => {
                     self.platform.renderer_mut().resize(renderer_config(size)?);
-                    return Ok(Poll {
-                        input_count,
-                        resized: true,
-                    });
+                    result.resized = true;
+                    break;
                 }
-                TerminalEvent::Key(key) if key.kind == TerminalKeyEventKind::Press => {
+                terminal::Event::Protocol(event) => event,
+            };
+            result.redraw |=
+                self.colors
+                    .observe(&event, self.platform.renderer_mut(), Instant::now());
+            let input = match event {
+                protocol::Event::Text(character) => Some(Input::Text(character)),
+                protocol::Event::Key(key) => {
                     let modifiers = Modifiers::new(
-                        key.modifiers.contains(TerminalModifiers::SHIFT),
-                        key.modifiers.contains(TerminalModifiers::CONTROL),
-                        key.modifiers.contains(TerminalModifiers::ALT),
-                        key.modifiers.contains(TerminalModifiers::SUPER),
+                        key.modifiers.shift,
+                        key.modifiers.control,
+                        key.modifiers.alt,
+                        key.modifiers.super_key,
                     );
                     let logical = match key.code {
-                        TerminalKeyCode::Char(character)
-                            if modifiers.control() || modifiers.alt() || modifiers.super_key() =>
-                        {
-                            Some(Key::Character(character))
+                        protocol::KeyCode::Character(character) => {
+                            Some(Key::Character(if modifiers.shift() {
+                                key.shifted.unwrap_or(character)
+                            } else {
+                                character
+                            }))
                         }
-                        TerminalKeyCode::Char(character) => {
-                            inputs[input_count] = Input::Text(character);
-                            input_count += 1;
-                            None
-                        }
-                        TerminalKeyCode::Backspace => Some(Key::Backspace),
-                        TerminalKeyCode::Delete => Some(Key::Delete),
-                        TerminalKeyCode::Left => Some(Key::ArrowLeft),
-                        TerminalKeyCode::Right => Some(Key::ArrowRight),
-                        TerminalKeyCode::Up => Some(Key::ArrowUp),
-                        TerminalKeyCode::Down => Some(Key::ArrowDown),
-                        TerminalKeyCode::Enter => Some(Key::Enter),
-                        TerminalKeyCode::Tab | TerminalKeyCode::BackTab => Some(Key::Tab),
-                        TerminalKeyCode::Escape => Some(Key::Escape),
-                        TerminalKeyCode::Home => Some(Key::Home),
-                        TerminalKeyCode::End => Some(Key::End),
-                        TerminalKeyCode::PageUp => Some(Key::PageUp),
-                        TerminalKeyCode::PageDown => Some(Key::PageDown),
-                        TerminalKeyCode::Insert => Some(Key::Insert),
-                        TerminalKeyCode::Function(function) => Some(Key::Function(function)),
-                        _ => None,
+                        protocol::KeyCode::Escape => Some(Key::Escape),
+                        protocol::KeyCode::Enter => Some(Key::Enter),
+                        protocol::KeyCode::Tab => Some(Key::Tab),
+                        protocol::KeyCode::Backspace => Some(Key::Backspace),
+                        protocol::KeyCode::Insert => Some(Key::Insert),
+                        protocol::KeyCode::Delete => Some(Key::Delete),
+                        protocol::KeyCode::Left => Some(Key::ArrowLeft),
+                        protocol::KeyCode::Right => Some(Key::ArrowRight),
+                        protocol::KeyCode::Up => Some(Key::ArrowUp),
+                        protocol::KeyCode::Down => Some(Key::ArrowDown),
+                        protocol::KeyCode::PageUp => Some(Key::PageUp),
+                        protocol::KeyCode::PageDown => Some(Key::PageDown),
+                        protocol::KeyCode::Home => Some(Key::Home),
+                        protocol::KeyCode::End => Some(Key::End),
+                        protocol::KeyCode::Function(number) => Some(Key::Function(number)),
+                        protocol::KeyCode::Unknown => None,
                     };
-                    logical.map(|key| {
-                        Input::Key(KeyInput {
-                            key,
+                    match logical {
+                        Some(Key::Character(character))
+                            if !modifiers.control()
+                                && !modifiers.alt()
+                                && !modifiers.super_key() =>
+                        {
+                            (!key.text && key.kind != protocol::KeyKind::Release)
+                                .then_some(Input::Text(character))
+                        }
+                        Some(key_code) => Some(Input::Key(KeyInput {
+                            key: key_code,
                             modifiers,
-                            pressed: true,
-                            repeat: false,
-                        })
-                    })
+                            pressed: key.kind != protocol::KeyKind::Release,
+                            repeat: key.kind == protocol::KeyKind::Repeat,
+                        })),
+                        None => None,
+                    }
                 }
-                TerminalEvent::Mouse(mouse) => {
+                protocol::Event::Mouse {
+                    kind,
+                    modifiers,
+                    column,
+                    row,
+                } => {
                     let position = LogicalPoint {
-                        x: f32::from(mouse.column) + 0.5,
-                        y: f32::from(mouse.row) + 0.5,
+                        x: f32::from(column) + 0.5,
+                        y: f32::from(row) + 0.5,
                     };
                     let modifiers = Modifiers::new(
-                        mouse.modifiers.contains(TerminalModifiers::SHIFT),
-                        mouse.modifiers.contains(TerminalModifiers::CONTROL),
-                        mouse.modifiers.contains(TerminalModifiers::ALT),
-                        mouse.modifiers.contains(TerminalModifiers::SUPER),
+                        modifiers.shift,
+                        modifiers.control,
+                        modifiers.alt,
+                        modifiers.super_key,
                     );
-                    let button = match mouse.kind {
-                        MouseEventKind::Down(button)
-                        | MouseEventKind::Up(button)
-                        | MouseEventKind::Drag(button) => match button {
-                            TerminalMouseButton::Left => PointerButton::Primary,
-                            TerminalMouseButton::Right => PointerButton::Secondary,
-                            TerminalMouseButton::Middle => PointerButton::Middle,
-                        },
-                        _ => PointerButton::Primary,
+                    let button = |button| match button {
+                        protocol::MouseButton::Left => PointerButton::Primary,
+                        protocol::MouseButton::Middle => PointerButton::Middle,
+                        protocol::MouseButton::Right => PointerButton::Secondary,
+                        protocol::MouseButton::Back => PointerButton::Back,
+                        protocol::MouseButton::Forward => PointerButton::Forward,
+                        protocol::MouseButton::Other(number) => PointerButton::Other(number),
                     };
-                    Some(match mouse.kind {
-                        MouseEventKind::Down(_) => Input::PointerDown {
+                    Some(match kind {
+                        protocol::MouseKind::Down(value) => Input::PointerDown {
                             position,
-                            button,
+                            button: button(value),
                             modifiers,
                         },
-                        MouseEventKind::Up(_) => Input::PointerUp {
+                        protocol::MouseKind::Up(value) => Input::PointerUp {
                             position,
-                            button,
+                            button: button(value),
                             modifiers,
                             leave: false,
                         },
-                        MouseEventKind::Drag(_) | MouseEventKind::Moved => Input::PointerMove {
+                        protocol::MouseKind::Move => Input::PointerMove {
                             position,
                             modifiers,
                         },
-                        MouseEventKind::ScrollUp
-                        | MouseEventKind::ScrollDown
-                        | MouseEventKind::ScrollLeft
-                        | MouseEventKind::ScrollRight => Input::Scroll {
+                        protocol::MouseKind::Scroll { x, y } => Input::Scroll {
                             position,
-                            delta_x: match mouse.kind {
-                                MouseEventKind::ScrollLeft => -3.0,
-                                MouseEventKind::ScrollRight => 3.0,
-                                _ => 0.0,
-                            },
-                            delta_y: match mouse.kind {
-                                MouseEventKind::ScrollUp => -3.0,
-                                MouseEventKind::ScrollDown => 3.0,
-                                _ => 0.0,
-                            },
+                            delta_x: f32::from(x) * 3.0,
+                            delta_y: f32::from(y) * 3.0,
                             modifiers,
                             continuous: false,
                             phase: ScrollPhase::Moved,
@@ -254,24 +261,20 @@ impl Session {
                 _ => None,
             };
             if let Some(input) = input {
-                if input_count != 0
+                if result.input_count != 0
                     && matches!(input, Input::PointerMove { .. })
-                    && matches!(inputs[input_count - 1], Input::PointerMove { .. })
+                    && matches!(inputs[result.input_count - 1], Input::PointerMove { .. })
                 {
-                    inputs[input_count - 1] = input;
+                    inputs[result.input_count - 1] = input;
                 } else {
-                    inputs[input_count] = input;
-                    input_count += 1;
+                    inputs[result.input_count] = input;
+                    result.input_count += 1;
                 }
             }
-            if event_count == inputs.len() || !self.terminal.poll(|_| true, Some(Duration::ZERO))? {
-                break;
-            }
         }
-        Ok(Poll {
-            input_count,
-            resized: false,
-        })
+        self.colors
+            .update(&mut self.terminal, self.platform.renderer(), Instant::now())?;
+        Ok(result)
     }
 
     pub fn present(&mut self) -> io::Result<()> {
@@ -293,10 +296,8 @@ impl Session {
             .platform
             .renderer_mut()
             .clear_kitty_graphics(&mut self.terminal);
-        let leave = self.terminal.write_all(Self::LEAVE.as_bytes());
-        let flush = self.terminal.flush();
-        let cooked = self.terminal.enter_cooked_mode();
-        clear.and(leave).and(flush).and(cooked)
+        let finish = self.terminal.finish();
+        clear.and(finish)
     }
 }
 
@@ -310,9 +311,11 @@ impl Drop for Session {
 pub struct Poll {
     pub input_count: usize,
     pub resized: bool,
+    /// terminal colors changed and the frame needs rebuilding
+    pub redraw: bool,
 }
 
-fn renderer_config(size: WindowSize) -> io::Result<RendererConfig> {
+fn renderer_config(size: Size) -> io::Result<RendererConfig> {
     if size.cols == 0 || size.rows == 0 {
         return Err(io::Error::other("terminal reported an empty window"));
     }
