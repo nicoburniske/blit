@@ -35,6 +35,7 @@ impl<P: Platform> blit::Layout<P> for Layout {
     type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
+        #[inline]
         fn range(sizing: Sizing, available: f32, stretch: bool) -> (f32, f32) {
             if stretch {
                 let size = match sizing {
@@ -44,26 +45,6 @@ impl<P: Platform> blit::Layout<P> for Layout {
                 return (size, size);
             }
             sizing_range(sizing, available)
-        }
-
-        fn allocated(
-            sizing: Sizing,
-            natural: f32,
-            available: f32,
-            shrink: f32,
-            growth: f32,
-        ) -> f32 {
-            let base = match sizing {
-                Sizing::Percent(fraction) => percentage(fraction, available),
-                _ => natural,
-            };
-            match sizing {
-                Sizing::Grow { min, .. } if shrink > 0.0 => base - (base - min.max(0.0)) * shrink,
-                Sizing::Grow { .. } => {
-                    base + growth.min((sizing.clamp(f32::INFINITY) - base).max(0.0))
-                }
-                _ => base,
-            }
         }
 
         let res = cx.resolution();
@@ -128,8 +109,10 @@ impl<P: Platform> blit::Layout<P> for Layout {
         for child in cx.children() {
             let sizing = res.sizing(self.axis, cx.item(child).sizing(self.axis));
             let natural = size_on_axis(cx.child_size(child), self.axis);
-            let allocated = allocated(sizing, natural, percentage_available, 0.0, 0.0);
-            used += allocated;
+            used += match sizing {
+                Sizing::Percent(fraction) => percentage(fraction, percentage_available),
+                _ => natural,
+            };
             if let Sizing::Grow { min, .. } = sizing {
                 shrink_capacity += natural - min.max(0.0);
                 let capacity = (sizing.clamp(f32::INFINITY) - natural).max(0.0);
@@ -169,13 +152,16 @@ impl<P: Platform> blit::Layout<P> for Layout {
             let item = cx.item(child);
             let main_sizing = res.sizing(self.axis, item.sizing(self.axis));
             let cross_sizing = res.sizing(cross_axis, item.sizing(cross_axis));
-            let main_size = allocated(
-                main_sizing,
-                natural_main,
-                percentage_available,
-                shrink,
-                growth,
-            );
+            let main_size = match main_sizing {
+                Sizing::Percent(fraction) => percentage(fraction, percentage_available),
+                Sizing::Grow { min, .. } if shrink > 0.0 => {
+                    natural_main - (natural_main - min.max(0.0)) * shrink
+                }
+                Sizing::Grow { .. } => {
+                    natural_main + growth.min((main_sizing.clamp(f32::INFINITY) - natural_main).max(0.0))
+                }
+                _ => natural_main,
+            };
             used += main_size;
             let stretch = tight_cross
                 && (matches!(cross_sizing, Sizing::Grow { .. })
@@ -213,8 +199,11 @@ impl<P: Platform> blit::Layout<P> for Layout {
         }
         let available_cross = (resolved_cross - cross_padding).max(0.0);
 
-        let remaining = (available_main - used - gaps).max(0.0);
-        let (offset, extra_gap) = justify_offset(self.justify, remaining, count);
+        let (offset, extra_gap) = if self.justify == Justify::Start {
+            (0.0, 0.0)
+        } else {
+            justify_offset(self.justify, (available_main - used - gaps).max(0.0), count)
+        };
         let (main_leading, cross_leading) = match self.axis {
             Axis::Horizontal => (padding.left, padding.top),
             Axis::Vertical => (padding.top, padding.left),

@@ -42,6 +42,7 @@ fn flow_size(main: f32, cross: f32, axis: Axis) -> Size {
     }
 }
 
+#[inline]
 fn sizing_range(sizing: Sizing, available: f32) -> (f32, f32) {
     match sizing {
         Sizing::Fit { min, max } | Sizing::Grow { min, max } => {

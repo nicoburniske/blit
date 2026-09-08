@@ -117,8 +117,11 @@ impl LayoutResolution {
     /// adapts absolute extents in a sizing policy to this resolution
     ///
     /// percentage policies are unchanged.
-    #[inline]
+    #[inline(always)]
     pub fn sizing(self, axis: Axis, sizing: Sizing) -> Sizing {
+        if self == Self::Continuous {
+            return sizing;
+        }
         match sizing {
             Sizing::Fit { min, max } => Sizing::Fit {
                 min: self.extent(axis, min),
