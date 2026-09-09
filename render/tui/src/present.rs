@@ -13,7 +13,6 @@ impl TuiRenderer {
         self.output.clear();
         self.frame_cells.clear();
         self.kitty_placements.clear();
-        self.next_placement = 1;
     }
     pub fn place_image(&mut self, request: ImagePlacement, clip: LogicalRect) {
         if let Some(area) = request.area.intersection(clip) {
@@ -22,18 +21,12 @@ impl TuiRenderer {
             let right = (area.x + area.width).ceil().min(self.columns as f32) as usize;
             let bottom = (area.y + area.height).ceil().min(self.rows as f32) as usize;
             if right > x && bottom > y {
-                let id = self.next_placement;
-                self.next_placement = self
-                    .next_placement
-                    .checked_add(1)
-                    .expect("too many tui image placements");
                 self.kitty_placements.push(KittyPlacement {
-                    id,
                     image: request.image.0 as u32,
-                    x,
-                    y,
-                    width: right - x,
-                    height: bottom - y,
+                    x: x as u16,
+                    y: y as u16,
+                    width: (right - x) as u16,
+                    height: (bottom - y) as u16,
                 });
             }
         }
@@ -82,7 +75,7 @@ impl TuiRenderer {
                     x += 1;
                     continue;
                 }
-                write!(self.output, "\x1b[{};{}H", y + 1, x + 1).unwrap();
+                uwrite!(self.output, "\x1b[{};{}H", y + 1, x + 1);
                 while x < self.columns {
                     let index = y * self.columns + x;
                     if !self.changed[index] {
@@ -120,32 +113,11 @@ impl TuiRenderer {
                         } else {
                             let attributes = TextAttributes(next_style.2);
                             self.output.push_str("\x1b[0");
-                            if attributes.contains(TextAttributes::BOLD) {
-                                self.output.push_str(";1");
-                            }
-                            if attributes.contains(TextAttributes::DIM) {
-                                self.output.push_str(";2");
-                            }
-                            if attributes.contains(TextAttributes::ITALIC) {
-                                self.output.push_str(";3");
-                            }
-                            if attributes.contains(TextAttributes::UNDERLINE) {
-                                self.output.push_str(";4");
-                            }
-                            if attributes.contains(TextAttributes::SLOW_BLINK) {
-                                self.output.push_str(";5");
-                            }
-                            if attributes.contains(TextAttributes::RAPID_BLINK) {
-                                self.output.push_str(";6");
-                            }
-                            if attributes.contains(TextAttributes::INVERSE) {
-                                self.output.push_str(";7");
-                            }
-                            if attributes.contains(TextAttributes::HIDDEN) {
-                                self.output.push_str(";8");
-                            }
-                            if attributes.contains(TextAttributes::STRIKETHROUGH) {
-                                self.output.push_str(";9");
+                            // attribute bits map directly to sgr codes 1 through 9
+                            for index in 0..9 {
+                                if attributes.0 & 1 << index != 0 {
+                                    uwrite!(self.output, ";{}", index + 1);
+                                }
                             }
                             self.output.push(';');
                             write_color(
@@ -176,23 +148,24 @@ impl TuiRenderer {
             self.output.push_str("\x1b[0m");
         }
 
-        for placement in &self.presented_kitty_placements {
-            if !self.kitty_placements.contains(placement) {
-                write!(
+        for (index, placement) in self.presented_kitty_placements.iter().enumerate() {
+            if self.kitty_placements.get(index) != Some(placement) {
+                uwrite!(
                     self.output,
                     "\x1b_Ga=d,d=i,i={},p={},q=2\x1b\\",
-                    placement.image, placement.id
-                )
-                .unwrap();
+                    placement.image,
+                    index + 1
+                );
             }
         }
-        for placement in &self.kitty_placements {
+        for (index, placement) in self.kitty_placements.iter().enumerate() {
             let image = self
                 .images
                 .iter_mut()
                 .find(|image| image.handle.id().0 == u64::from(placement.image))
                 .expect("invalid terminal image");
             if !image.transmitted {
+                let size = image.handle.size();
                 let bytes = image.pixels.bytes();
                 for (index, chunk) in bytes.chunks(3072).enumerate() {
                     let more = usize::from((index + 1) * 3072 < bytes.len());
@@ -201,36 +174,34 @@ impl TuiRenderer {
                             crate::image::ImageFormat::Rgb8 => 24,
                             crate::image::ImageFormat::Rgba8 => 32,
                         };
-                        write!(
+                        uwrite!(
                             self.output,
                             "\x1b_Ga=t,f={format},s={},v={},i={},m={more},q=2;",
-                            image.width, image.height, placement.image
-                        )
-                        .unwrap();
+                            size.width,
+                            size.height,
+                            placement.image
+                        );
                     } else {
-                        write!(self.output, "\x1b_Gm={more},q=2;").unwrap();
+                        uwrite!(self.output, "\x1b_Gm={more},q=2;");
                     }
                     BASE64.encode_string(chunk, &mut self.output);
                     self.output.push_str("\x1b\\");
                 }
                 image.transmitted = true;
             }
-            if !self.presented_kitty_placements.contains(placement) {
-                write!(
+            if self.presented_kitty_placements.get(index) != Some(placement) {
+                uwrite!(
                     self.output,
                     "\x1b[{};{}H\x1b_Ga=p,i={},p={},c={},r={},C=1,z=1,q=2\x1b\\",
                     placement.y + 1,
                     placement.x + 1,
                     placement.image,
-                    placement.id,
+                    index + 1,
                     placement.width,
                     placement.height,
-                )
-                .unwrap();
+                );
             }
         }
-        self.presented_kitty_placements
-            .clone_from(&self.kitty_placements);
         let mut image = 0;
         while image < self.images.len() {
             let id = self.images[image].handle.id().0 as u32;
@@ -244,12 +215,14 @@ impl TuiRenderer {
                 continue;
             }
             if self.images[image].transmitted {
-                write!(self.output, "\x1b_Ga=d,d=I,i={id},q=2\x1b\\").unwrap();
+                uwrite!(self.output, "\x1b_Ga=d,d=I,i={id},q=2\x1b\\");
             }
             self.images.swap_remove(image);
-            self.presented_kitty_placements
-                .retain(|placement| placement.image != id);
         }
+        std::mem::swap(
+            &mut self.presented_kitty_placements,
+            &mut self.kitty_placements,
+        );
         self.text_layouts.trim_to_weight();
         self.text_runs
             .trim_to_weight_if(|_, run| run.screen_references == 0);

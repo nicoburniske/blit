@@ -6,6 +6,12 @@ use std::{
     mem::size_of,
 };
 
+macro_rules! uwrite {
+    ($($token:tt)*) => {
+        write!($($token)*).unwrap()
+    };
+}
+
 pub mod cell;
 pub mod color;
 pub mod image;
@@ -47,13 +53,14 @@ pub struct TuiRenderer {
     layout_graphemes: Vec<LayoutGrapheme>,
     images: Vec<StoredImage>,
     next_image: u32,
+    // placements requested by the frame being built
     kitty_placements: Vec<KittyPlacement>,
+    // placements currently displayed
     presented_kitty_placements: Vec<KittyPlacement>,
     frame_cells: Cells,
     cells: Cells,
     changed: Vec<bool>,
     output: String,
-    next_placement: u32,
     invalidated: bool,
 }
 
@@ -80,7 +87,6 @@ impl TuiRenderer {
             cells: Cells::new(columns * rows),
             changed: vec![true; columns * rows],
             output: String::new(),
-            next_placement: 1,
             invalidated: true,
         }
     }
@@ -203,8 +209,6 @@ impl TuiRenderer {
             handle: handle.clone(),
             pixels: data.pixels,
             format: data.format,
-            width: data.size.width as usize,
-            height: data.size.height as usize,
             transmitted: false,
         });
         handle
@@ -217,17 +221,16 @@ impl TuiRenderer {
     pub fn rich_text(&mut self, spans: &[Span<'_>]) -> TextRunId {
         let mut hasher = DefaultHasher::new();
         spans.hash(&mut hasher);
-        let query = RunKey {
-            digest: hasher.finish(),
-            len: spans.iter().map(|span| span.text.len()).sum(),
-            spans: spans.len(),
-        };
-        assert!(u32::try_from(query.len).is_ok(), "tui text run too long");
+        let digest = hasher.finish();
+        let len = spans.iter().map(|span| span.text.len()).sum();
+        assert!(u32::try_from(len).is_ok(), "tui text run too long");
         let next = self.next_text_run;
         let (_, index) = self.text_runs.get_or_insert_by(
-            &query,
+            &digest,
             |key, run| {
-                *key == query
+                *key == digest
+                    && run.text.len() == len
+                    && run.spans.len() == spans.len()
                     && run.spans.iter().zip(spans).all(|(resolved, span)| {
                         run.text[resolved.start..resolved.end] == *span.text
                             && resolved.color == span.color
@@ -237,7 +240,7 @@ impl TuiRenderer {
                     })
             },
             || {
-                let mut text = String::with_capacity(query.len);
+                let mut text = String::with_capacity(len);
                 let mut resolved = Vec::with_capacity(spans.len());
                 for span in spans {
                     let start = text.len();
@@ -252,7 +255,7 @@ impl TuiRenderer {
                     });
                 }
                 (
-                    query,
+                    digest,
                     CachedRun {
                         id: TextRunId(u64::from(next) << 32),
                         graphemes: Box::default(),
@@ -327,19 +330,16 @@ struct StoredImage {
     handle: ImageHandle,
     pixels: crate::image::ImagePixels,
     format: crate::image::ImageFormat,
-    width: usize,
-    height: usize,
     transmitted: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct KittyPlacement {
-    id: u32,
     image: u32,
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
 }
 
 // scalars use their Unicode value, bit 62 marks continuations, and bit 63 marks
@@ -364,7 +364,6 @@ impl Color {
     fn from_packed(packed: u32) -> Self {
         debug_assert!(matches!(packed as u8, 0..=2));
         match packed as u8 {
-            0 => Self::Reset,
             1 => Self::Indexed((packed >> 8) as u8),
             2 => Self::Rgb(
                 (packed >> 8) as u8,
@@ -398,25 +397,6 @@ impl Glyph {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Cell {
-    glyph: Glyph,
-    foreground: Color,
-    background: Color,
-    attributes: TextAttributes,
-}
-
-impl Default for Cell {
-    fn default() -> Self {
-        Self {
-            glyph: Glyph::SPACE,
-            foreground: Color::Reset,
-            background: Color::Reset,
-            attributes: TextAttributes::NONE,
-        }
-    }
-}
-
 struct Cells {
     glyph: Vec<u64>,
     foreground: Vec<u32>,
@@ -434,19 +414,28 @@ impl Cells {
         }
     }
 
-    fn len(&self) -> usize {
-        self.glyph.len()
-    }
-
-    fn fill(&mut self, range: std::ops::Range<usize>, cell: Cell) {
-        self.glyph[range.clone()].fill(cell.glyph.0);
-        self.foreground[range.clone()].fill(cell.foreground.packed());
-        self.background[range.clone()].fill(cell.background.packed());
-        self.attributes[range].fill(cell.attributes.0);
+    fn fill(
+        &mut self,
+        range: std::ops::Range<usize>,
+        glyph: Glyph,
+        foreground: Color,
+        background: Color,
+        attributes: TextAttributes,
+    ) {
+        self.glyph[range.clone()].fill(glyph.0);
+        self.foreground[range.clone()].fill(foreground.packed());
+        self.background[range.clone()].fill(background.packed());
+        self.attributes[range].fill(attributes.0);
     }
 
     fn clear(&mut self) {
-        self.fill(0..self.len(), Cell::default());
+        self.fill(
+            0..self.glyph.len(),
+            Glyph::SPACE,
+            Color::Reset,
+            Color::Reset,
+            TextAttributes::NONE,
+        );
     }
 
     fn resize(&mut self, len: usize) {
@@ -503,12 +492,7 @@ struct ResolvedSpan {
     remove_attributes: TextAttributes,
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
-struct RunKey {
-    digest: u64,
-    len: usize,
-    spans: usize,
-}
+type RunKey = u64;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct LayoutKey {
@@ -521,7 +505,6 @@ struct LayoutKey {
 #[derive(Clone, Copy, Default)]
 struct Line {
     start: usize,
-    end: usize,
     width: usize,
 }
 
@@ -643,7 +626,6 @@ impl TuiRenderer {
             }
             lines.push(Line {
                 start: grapheme,
-                end: grapheme,
                 width: 0,
             });
             true
@@ -709,7 +691,7 @@ impl TuiRenderer {
                             })
                         {
                             let current = lines.last_mut().unwrap();
-                            while current.end != current.start
+                            while graphemes.len() != current.start
                                 && if let Some(character) = graphemes.last().unwrap().scalar() {
                                     character.is_whitespace()
                                 } else {
@@ -721,7 +703,6 @@ impl TuiRenderer {
                                 }
                             {
                                 let grapheme = graphemes.pop().unwrap();
-                                current.end -= 1;
                                 current.width -= usize::from(grapheme.width);
                             }
                             if !start_line(lines, graphemes.len(), max_lines) {
@@ -763,9 +744,7 @@ impl TuiRenderer {
                                 glyph: layout_glyph(grapheme, run_index),
                                 width: u16::try_from(width).expect("tui grapheme is too wide"),
                             });
-                            let current = lines.last_mut().unwrap();
-                            current.end += 1;
-                            current.width += width;
+                            lines.last_mut().unwrap().width += width;
                         }
                     }
                 }
@@ -800,9 +779,7 @@ impl TuiRenderer {
                             glyph: layout_glyph(grapheme, run_index),
                             width: u16::try_from(width).expect("tui grapheme is too wide"),
                         });
-                        let current = lines.last_mut().unwrap();
-                        current.end += 1;
-                        current.width += width;
+                        lines.last_mut().unwrap().width += width;
                     }
                 }
             }
@@ -822,19 +799,19 @@ fn write_color(output: &mut String, color: Color, foreground: bool) {
         Color::Reset => output.push_str(if foreground { "39" } else { "49" }),
         Color::Indexed(index @ 0..=7) => {
             let base = if foreground { 30 } else { 40 };
-            write!(output, "{}", base + index).unwrap();
+            uwrite!(output, "{}", base + index);
         }
         Color::Indexed(index @ 8..=15) => {
             let base = if foreground { 90 } else { 100 };
-            write!(output, "{}", base + index - 8).unwrap();
+            uwrite!(output, "{}", base + index - 8);
         }
         Color::Indexed(index) => {
             let prefix = if foreground { 38 } else { 48 };
-            write!(output, "{prefix};5;{index}").unwrap();
+            uwrite!(output, "{prefix};5;{index}");
         }
         Color::Rgb(red, green, blue) => {
             let prefix = if foreground { 38 } else { 48 };
-            write!(output, "{prefix};2;{red};{green};{blue}").unwrap();
+            uwrite!(output, "{prefix};2;{red};{green};{blue}");
         }
     }
 }
@@ -847,7 +824,7 @@ mod tests {
 
     use crate::{
         cell::{Cell as SurfaceCell, CellStyle},
-        text::{HorizontalAlign, TextOptions, VerticalAlign},
+        text::{HorizontalAlign, TextOptions, TextOverflow, VerticalAlign},
     };
 
     const SCALE: Scale2 = Scale2::IDENTITY;
@@ -1159,6 +1136,25 @@ mod tests {
                     == (TextAttributes::ITALIC | TextAttributes::RAPID_BLINK).0
         }));
         assert!(String::from_utf8_lossy(renderer.output()).contains(";6"));
+    }
+
+    #[test]
+    fn ellipsis_follows_last_line_overflow_and_style() {
+        let mut renderer = renderer(4, 2);
+        let screen = renderer.screen().to_logical(SCALE);
+        let overflow = TextOptions::new().overflow(TextOverflow::Ellipsis);
+        let text = renderer.text_run("abcdef\nx");
+        renderer.begin_frame();
+        renderer.paint_text(TextRequest::new(text, screen).options(overflow), screen);
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), "abcd\nx\n");
+
+        let text = renderer.rich_text(&[Span::new("abcdef").color(Color::RED)]);
+        renderer.begin_frame();
+        renderer.paint_text(TextRequest::new(text, screen).options(overflow), screen);
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), "abc…\n\n");
+        assert_eq!(renderer.cells.foreground[3], Color::RED.packed());
     }
 
     #[test]

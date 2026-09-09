@@ -4,7 +4,7 @@ use blit::LogicalRect;
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
-    Cell as ScreenCell, Cells, Glyph, TuiRenderer,
+    Cells, Glyph, TuiRenderer,
     color::Color,
     text::{
         HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest,
@@ -149,12 +149,9 @@ impl CellBuffer<'_> {
             let character = cell
                 .character
                 .filter(|character| character.width() == Some(1));
-            let fill = ScreenCell {
-                glyph: Glyph::scalar(character.unwrap_or(' ')),
-                foreground: character.map_or(Color::Reset, |_| cell.style.foreground),
-                background,
-                attributes: character.map_or(TextAttributes::NONE, |_| cell.style.attributes),
-            };
+            let glyph = Glyph::scalar(character.unwrap_or(' '));
+            let foreground = character.map_or(Color::Reset, |_| cell.style.foreground);
+            let attributes = character.map_or(TextAttributes::NONE, |_| cell.style.attributes);
             for y in top..bottom {
                 let start = y as usize * self.renderer.columns + left as usize;
                 let end = y as usize * self.renderer.columns + right as usize;
@@ -172,7 +169,13 @@ impl CellBuffer<'_> {
                         end - 1,
                     );
                 }
-                self.renderer.frame_cells.fill(start..end, fill);
+                self.renderer.frame_cells.fill(
+                    start..end,
+                    glyph,
+                    foreground,
+                    background,
+                    attributes,
+                );
             }
             return;
         }
@@ -289,8 +292,7 @@ impl TuiRenderer {
             }
         };
         let mut span_style = spans.first().map_or(base_style, resolve_style);
-        let ellipsis = request.options.overflow == TextOverflow::Ellipsis
-            && (layout.truncated || layout.width as f32 > request.area.width);
+        let ellipsis = request.options.overflow == TextOverflow::Ellipsis;
         let maximum = request.area.width.floor().max(1.0) as usize;
         let area_width = area_right as isize - area_left as isize;
         let area_height = area_bottom as isize - area_top as isize;
@@ -305,9 +307,14 @@ impl TuiRenderer {
             if y < top as isize || y >= bottom as isize {
                 continue;
             }
-            let mut line_end = line.end;
+            let mut line_end = layout
+                .lines
+                .get(line_index + 1)
+                .map_or(layout.graphemes.len(), |line| line.start);
             let mut line_width = line.width;
-            let line_ellipsis = ellipsis && line_index + 1 == layout.lines.len();
+            let line_ellipsis = ellipsis
+                && line_index + 1 == layout.lines.len()
+                && (layout.truncated || line.width as f32 > request.area.width);
             if line_ellipsis {
                 while line_width >= maximum && line_end != line.start {
                     line_end -= 1;
@@ -323,6 +330,15 @@ impl TuiRenderer {
                 HorizontalAlign::Right => area_right as isize - line_width as isize,
             };
             let mut column = 0;
+            let ellipsis_offset = layout
+                .graphemes
+                .get(line_end)
+                .or_else(|| {
+                    line_end
+                        .checked_sub(1)
+                        .and_then(|end| layout.graphemes.get(end))
+                })
+                .map(|grapheme| grapheme.start as usize);
             let graphemes = layout.graphemes[line.start..line_end]
                 .iter()
                 .map(|grapheme| {
@@ -332,7 +348,7 @@ impl TuiRenderer {
                         Some(grapheme.start as usize),
                     )
                 })
-                .chain(line_ellipsis.then_some((Glyph::scalar('…'), 1, None)));
+                .chain(line_ellipsis.then_some((Glyph::scalar('…'), 1, ellipsis_offset)));
             for (grapheme, width, byte_offset) in graphemes {
                 let style = if let Some(byte_offset) = byte_offset {
                     let previous = span_index;
