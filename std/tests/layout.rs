@@ -73,6 +73,35 @@ fn flex_remeasures_constraint_dependent_atoms() {
 }
 
 #[test]
+fn flex_cross_grow_uses_natural_size_under_loose_constraints() {
+    let mut frame = Frame::default();
+    let header = WidgetId::new("header");
+    let body = WidgetId::new("body");
+    frame.render(
+        &mut TestPlatform,
+        FrameInfo::new(Size::new(100.0, 100.0)),
+        |ui: Ui<'_, TestPlatform>| {
+            let mut column = ui.layout(flex::column());
+            column
+                .child(flex::item())
+                .widget_id(header)
+                .build(|ui: Ui<'_, TestPlatform>| {
+                    let mut row = ui.layout(flex::row());
+                    row.child(flex::item().grow())
+                        .insert(BoxAtom(Size::uniform(10.0)));
+                    row.child(flex::item()).insert(BoxAtom(Size::uniform(10.0)));
+                });
+            column
+                .child(flex::item().height(Sizing::grow()))
+                .widget_id(body)
+                .insert(BoxAtom(Size::ZERO));
+        },
+    );
+    assert_eq!(frame.geometry(header).unwrap().height, 10.0);
+    assert_eq!(frame.geometry(body).unwrap().height, 90.0);
+}
+
+#[test]
 fn flex_distributes_growing_space() {
     let mut frame = Frame::default();
     let mut platform = TestPlatform;

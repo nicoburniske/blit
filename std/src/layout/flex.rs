@@ -122,10 +122,9 @@ impl<P: Platform> blit::Layout<P> for Layout {
         let mut cross: f32 = 0.0;
         let cross_bounds = |sizing| {
             let range = sizing_range(sizing, cross_max);
-            if matches!(sizing, Sizing::Grow { .. })
-                || tight_cross
-                    && self.align == Align::Stretch
-                    && matches!(sizing, Sizing::Fit { .. })
+            if tight_cross
+                && (matches!(sizing, Sizing::Grow { .. })
+                    || self.align == Align::Stretch && matches!(sizing, Sizing::Fit { .. }))
             {
                 let extent = sizing.clamp(cross_max);
                 assert!(
