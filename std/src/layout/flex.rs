@@ -1,13 +1,14 @@
 use blit::{Axis, Constraints, LayoutCx, Platform, Point, Sides, Size, Sizing};
 
-pub use super::sizing::{Item, item};
 use super::{
-    Align, Justify, capped_growth, flow_constraints, flow_size, justify_offset, override_sizing,
-    percentage, size_on_axis, sizing_range,
+    Align, Justify, flow_constraints, flow_size, justify_offset, override_sizing, sizing_range,
 };
 
 blit::builder! {
-    /// flex layout of a container's direct children
+    /// lays out children in a row or column
+    ///
+    /// fixed and fit children are sized first, then grow children share what is left
+    /// grow does not account for the preferred sizes of nested content
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Layout {
         new(axis: Axis),
@@ -19,240 +20,212 @@ blit::builder! {
     }
 }
 
+blit::builder! {
+    /// sizing and growth weight for a flex child
+    ///
+    /// weight only affects how grow children share leftover space
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Item {
+        new(),
+        width: Sizing = Sizing::fit(),
+        height: Sizing = Sizing::fit(),
+        weight: f32 = 1.0,
+    }
+}
+
+impl Item {
+    pub fn fixed(mut self, width: f32, height: f32) -> Self {
+        self.width = Sizing::fixed(width);
+        self.height = Sizing::fixed(height);
+        self
+    }
+    pub fn grow(mut self) -> Self {
+        self.width = Sizing::grow();
+        self.height = Sizing::grow();
+        self
+    }
+    pub fn sizing(&self, axis: Axis) -> Sizing {
+        match axis {
+            Axis::Horizontal => self.width,
+            Axis::Vertical => self.height,
+        }
+    }
+}
+
 pub fn layout(axis: Axis) -> Layout {
     Layout::new(axis)
 }
-
 pub fn row() -> Layout {
     layout(Axis::Horizontal)
 }
-
 pub fn column() -> Layout {
     layout(Axis::Vertical)
+}
+pub fn item() -> Item {
+    Item::new()
 }
 
 impl<P: Platform> blit::Layout<P> for Layout {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
-        #[inline]
-        fn range(sizing: Sizing, available: f32, stretch: bool) -> (f32, f32) {
-            if stretch {
-                let size = match sizing {
-                    Sizing::Percent(fraction) => percentage(fraction, available),
-                    _ => sizing.clamp(available),
-                };
-                return (size, size);
-            }
-            sizing_range(sizing, available)
-        }
-
+    fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, bounds: Constraints) -> Size {
         let res = cx.resolution();
         let padding = res.sides(self.padding);
-        let cross_axis = match self.axis {
-            Axis::Horizontal => Axis::Vertical,
-            Axis::Vertical => Axis::Horizontal,
-        };
+        let cross_axis = self.axis.other();
         let gap = res.extent(self.axis, self.gap).max(0.0);
-        let (main_padding, cross_padding) = match self.axis {
-            Axis::Horizontal => (padding.left + padding.right, padding.top + padding.bottom),
-            Axis::Vertical => (padding.top + padding.bottom, padding.left + padding.right),
-        };
-        let max_cross = (size_on_axis(constraints.max, cross_axis) - cross_padding).max(0.0);
-        let tight_cross =
-            size_on_axis(constraints.min, cross_axis) == size_on_axis(constraints.max, cross_axis);
-
-        let mut natural_main = 0.0;
-        let mut natural_cross: f32 = 0.0;
+        let main_padding = self.axis.extent(padding.size());
+        let cross_padding = cross_axis.extent(padding.size());
+        let leading = Size::new(padding.left, padding.top);
+        let main_leading = self.axis.extent(leading);
+        let cross_leading = cross_axis.extent(leading);
+        let main_max = (self.axis.extent(bounds.max) - main_padding).max(0.0);
+        let cross_max = (cross_axis.extent(bounds.max) - cross_padding).max(0.0);
+        let tight_cross = cross_axis.extent(bounds.min) == cross_axis.extent(bounds.max);
         let mut count = 0usize;
+        let mut grows = 0usize;
+        let mut minimums = 0.0;
+        let mut weights = 0.0;
+        // only capped shares need scratch storage and sorting
+        let mut caps = Vec::new();
         for child in cx.children() {
             count += 1;
             let item = cx.item(child);
-            let main_sizing = res.sizing(self.axis, item.sizing(self.axis));
-            let cross_sizing = res.sizing(cross_axis, item.sizing(cross_axis));
-            let cross_stretch = tight_cross
-                && (matches!(cross_sizing, Sizing::Grow { .. })
-                    || self.align == Align::Stretch && matches!(cross_sizing, Sizing::Fit { .. }));
-            let constraints = flow_constraints(
-                self.axis,
-                range(main_sizing, f32::INFINITY, false),
-                range(
-                    cross_sizing,
-                    if matches!(cross_sizing, Sizing::Percent(_)) && !cross_stretch {
-                        f32::INFINITY
-                    } else {
-                        max_cross
-                    },
-                    cross_stretch,
-                ),
-            );
-            let child_size = cx.layout_child(child, constraints);
-            natural_main += size_on_axis(child_size, self.axis);
-            natural_cross = natural_cross.max(size_on_axis(child_size, cross_axis));
+            if let Sizing::Grow { min, max } = res.sizing(self.axis, item.sizing(self.axis)) {
+                assert!(
+                    item.weight.is_finite() && item.weight > 0.0,
+                    "flex weight must be finite and positive"
+                );
+                let min = min.max(0.0);
+                let capacity = (max.max(min) - min).max(0.0);
+                assert!(min.is_finite(), "flex minimum must be finite");
+                grows += 1;
+                minimums += min;
+                if capacity > 0.0 {
+                    weights += item.weight;
+                    if capacity.is_finite() {
+                        caps.push((capacity / item.weight, capacity, item.weight));
+                    }
+                }
+            }
         }
         if count == 0 {
-            return constraints.constrain(padding.size());
+            return bounds.constrain(padding.size());
         }
+        assert!(
+            grows == 0 || main_max.is_finite(),
+            "main axis grow requires a finite budget"
+        );
         let gaps = gap * count.saturating_sub(1) as f32;
-        let natural = flow_size(
-            natural_main + gaps + main_padding,
-            natural_cross + cross_padding,
-            self.axis,
-        );
-        let mut size = constraints.constrain(natural);
-        let available_main = (size_on_axis(size, self.axis) - main_padding).max(0.0);
-        let percentage_available = (available_main - gaps).max(0.0);
+        let pool = (main_max - gaps).max(0.0);
+        let mut remaining = (pool - minimums).max(0.0);
         let mut used = 0.0;
-        let mut shrink_capacity = 0.0;
-        let mut grow = 0usize;
-        let mut minimum_growth = f32::INFINITY;
-        for child in cx.children() {
-            let sizing = res.sizing(self.axis, cx.item(child).sizing(self.axis));
-            let natural = size_on_axis(cx.child_size(child), self.axis);
-            used += match sizing {
-                Sizing::Percent(fraction) => percentage(fraction, percentage_available),
-                _ => natural,
-            };
-            if let Sizing::Grow { min, .. } = sizing {
-                shrink_capacity += natural - min.max(0.0);
-                let capacity = (sizing.clamp(f32::INFINITY) - natural).max(0.0);
-                if capacity > 0.0 {
-                    grow += 1;
-                    minimum_growth = minimum_growth.min(capacity);
-                }
-            }
-        }
-        let free = available_main - used - gaps;
-
-        let mut shrink = 0.0;
-        if free < 0.0 && !self.overflow && shrink_capacity > 0.0 {
-            let deficit = (-free).min(shrink_capacity);
-            shrink = deficit / shrink_capacity;
-            used -= deficit;
-        }
-
-        let free = (available_main - used - gaps).max(0.0);
-        let growth = capped_growth(
-            free,
-            grow,
-            minimum_growth,
-            cx.children().filter_map(|child| {
-                let sizing = res.sizing(self.axis, cx.item(child).sizing(self.axis));
-                matches!(sizing, Sizing::Grow { .. }).then(|| {
-                    let natural = size_on_axis(cx.child_size(child), self.axis);
-                    (sizing.clamp(f32::INFINITY) - natural).max(0.0)
-                })
-            }),
-        );
-        let available_cross = (size_on_axis(size, cross_axis) - cross_padding).max(0.0);
-        used = 0.0;
-        natural_cross = 0.0;
-        for child in cx.children() {
-            let natural_main = size_on_axis(cx.child_size(child), self.axis);
-            let item = cx.item(child);
-            let main_sizing = res.sizing(self.axis, item.sizing(self.axis));
-            let cross_sizing = res.sizing(cross_axis, item.sizing(cross_axis));
-            let main_size = match main_sizing {
-                Sizing::Percent(fraction) => percentage(fraction, percentage_available),
-                Sizing::Grow { min, .. } if shrink > 0.0 => {
-                    natural_main - (natural_main - min.max(0.0)) * shrink
-                }
-                Sizing::Grow { .. } => {
-                    natural_main + growth.min((main_sizing.clamp(f32::INFINITY) - natural_main).max(0.0))
-                }
-                _ => natural_main,
-            };
-            used += main_size;
-            let stretch = tight_cross
-                && (matches!(cross_sizing, Sizing::Grow { .. })
-                    || self.align == Align::Stretch && matches!(cross_sizing, Sizing::Fit { .. }));
-            let cross = range(
-                cross_sizing,
-                if tight_cross {
-                    available_cross
-                } else {
-                    max_cross
-                },
-                stretch,
-            );
-            let cross_changed =
-                cross.0 == cross.1 && cross.0 != size_on_axis(cx.child_size(child), cross_axis);
-            if main_size != natural_main || cross_changed {
-                cx.layout_child(
-                    child,
-                    flow_constraints(self.axis, (main_size, main_size), cross),
+        let mut cross: f32 = 0.0;
+        let cross_bounds = |sizing| {
+            let range = sizing_range(sizing, cross_max);
+            if matches!(sizing, Sizing::Grow { .. })
+                || tight_cross
+                    && self.align == Align::Stretch
+                    && matches!(sizing, Sizing::Fit { .. })
+            {
+                let extent = sizing.clamp(cross_max);
+                assert!(
+                    extent.is_finite(),
+                    "cross axis grow requires a finite budget"
                 );
+                (extent, extent)
+            } else {
+                range
             }
-            natural_cross = natural_cross.max(size_on_axis(cx.child_size(child), cross_axis));
-        }
-        let resolved_cross = size_on_axis(
-            constraints.constrain(flow_size(
-                size_on_axis(size, self.axis),
-                natural_cross + cross_padding,
+        };
+        for child in cx.children() {
+            let item = cx.item(child);
+            let sizing = res.sizing(self.axis, item.sizing(self.axis));
+            if matches!(sizing, Sizing::Grow { .. }) {
+                continue;
+            }
+            let budget = if matches!(sizing, Sizing::Percent(_)) {
+                pool
+            } else if self.overflow {
+                f32::INFINITY
+            } else {
+                remaining
+            };
+            let child_bounds = flow_constraints(
                 self.axis,
-            )),
-            cross_axis,
-        );
-        match cross_axis {
-            Axis::Horizontal => size.width = resolved_cross,
-            Axis::Vertical => size.height = resolved_cross,
+                sizing_range(sizing, budget),
+                cross_bounds(res.sizing(cross_axis, item.sizing(cross_axis))),
+            );
+            let size = cx.layout_child(child, child_bounds);
+            let main = self.axis.extent(size);
+            used += main;
+            remaining = (remaining - main).max(0.0);
+            cross = cross.max(cross_axis.extent(size));
         }
-        let available_cross = (resolved_cross - cross_padding).max(0.0);
-
-        let (offset, extra_gap) = if self.justify == Justify::Start {
-            (0.0, 0.0)
-        } else {
-            justify_offset(self.justify, (available_main - used - gaps).max(0.0), count)
-        };
-        let (main_leading, cross_leading) = match self.axis {
-            Axis::Horizontal => (padding.left, padding.top),
-            Axis::Vertical => (padding.top, padding.left),
-        };
+        if grows != 0 {
+            // saturate caps in threshold order without revisiting a child layout
+            caps.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+            let mut unit = if weights > 0.0 {
+                remaining / weights
+            } else {
+                0.0
+            };
+            for (limit, capacity, weight) in caps {
+                if limit >= unit {
+                    break;
+                }
+                remaining = (remaining - capacity).max(0.0);
+                weights = (weights - weight).max(0.0);
+                unit = if weights > 0.0 {
+                    remaining / weights
+                } else {
+                    f32::INFINITY
+                };
+            }
+            for child in cx.children() {
+                let item = cx.item(child);
+                let sizing = res.sizing(self.axis, item.sizing(self.axis));
+                let Sizing::Grow { min, max } = sizing else {
+                    continue;
+                };
+                let min = min.max(0.0);
+                let capacity = (max.max(min) - min).max(0.0);
+                let main = min + (unit * item.weight).min(capacity);
+                let child_bounds = flow_constraints(
+                    self.axis,
+                    (main, main),
+                    cross_bounds(res.sizing(cross_axis, item.sizing(cross_axis))),
+                );
+                let size = cx.layout_child(child, child_bounds);
+                used += self.axis.extent(size);
+                cross = cross.max(cross_axis.extent(size));
+            }
+        }
+        let size = bounds.constrain(flow_size(
+            used + gaps + main_padding,
+            cross + cross_padding,
+            self.axis,
+        ));
+        let available_main = (self.axis.extent(size) - main_padding).max(0.0);
+        let available_cross = (cross_axis.extent(size) - cross_padding).max(0.0);
+        let (offset, extra_gap) =
+            justify_offset(self.justify, (available_main - used - gaps).max(0.0), count);
         let mut cursor = main_leading + offset;
         for child in cx.children() {
-            let cross_sizing = res.sizing(cross_axis, cx.item(child).sizing(cross_axis));
-            let assigned_cross = match cross_sizing {
-                Sizing::Percent(fraction) => Some(percentage(fraction, available_cross)),
-                Sizing::Grow { .. } => Some(cross_sizing.clamp(available_cross)),
-                Sizing::Fit { .. } if self.align == Align::Stretch => {
-                    Some(cross_sizing.clamp(available_cross))
-                }
-                _ => None,
-            };
-            let mut child_size = cx.child_size(child);
-            let main_size = size_on_axis(child_size, self.axis);
-            if let Some(assigned_cross) = assigned_cross
-                && size_on_axis(child_size, cross_axis) != assigned_cross
-            {
-                child_size = cx.layout_child(
-                    child,
-                    flow_constraints(
-                        self.axis,
-                        (main_size, main_size),
-                        (assigned_cross, assigned_cross),
-                    ),
-                );
-            }
-            let cross_size = size_on_axis(child_size, cross_axis);
-            let cross_offset = match self.align {
+            let child_size = cx.child_size(child);
+            let child_cross = cross_axis.extent(child_size);
+            let offset = match self.align {
                 Align::Start | Align::Stretch => 0.0,
-                Align::Center => (available_cross - cross_size).max(0.0) / 2.0,
-                Align::End => (available_cross - cross_size).max(0.0),
+                Align::Center => (available_cross - child_cross).max(0.0) / 2.0,
+                Align::End => (available_cross - child_cross).max(0.0),
             };
-            let position = flow_size(cursor, cross_leading + cross_offset, self.axis);
-            cx.set_child_position(child, Point::new(position.width, position.height));
-            cursor += main_size + gap + extra_gap;
+            let pos = flow_size(cursor, cross_leading + offset, self.axis);
+            cx.set_child_position(child, Point::new(pos.width, pos.height));
+            cursor += self.axis.extent(child_size) + gap + extra_gap;
         }
-
         size
     }
 
-    fn override_size(
-        &self,
-        item: &mut Self::Item,
-        width: Option<f32>,
-        height: Option<f32>,
-    ) -> bool {
+    fn override_size(&self, item: &mut Item, width: Option<f32>, height: Option<f32>) -> bool {
         override_sizing(&mut item.width, &mut item.height, width, height)
     }
 }

@@ -203,129 +203,67 @@ enum SplitItem {
 impl<R: Platform> Layout<R> for SplitLayout {
     type Item = SplitItem;
 
-    fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
-        fn extent(size: Size, axis: Axis) -> f32 {
-            match axis {
-                Axis::Horizontal => size.width,
-                Axis::Vertical => size.height,
-            }
-        }
-
-        fn flow_size(main: f32, cross: f32, axis: Axis) -> Size {
-            match axis {
-                Axis::Horizontal => Size::new(main, cross),
-                Axis::Vertical => Size::new(cross, main),
-            }
-        }
-
-        fn flow_constraints(axis: Axis, main: (f32, f32), cross: (f32, f32)) -> Constraints {
-            let (width, height) = match axis {
-                Axis::Horizontal => (main, cross),
-                Axis::Vertical => (cross, main),
-            };
-            Constraints {
-                min: Size::new(width.0, height.0),
-                max: Size::new(width.1, height.1),
-            }
-        }
-
-        let config = self.config;
-        let axis = config.axis;
-        let res = ui.resolution();
+    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, bounds: Constraints) -> Size {
+        let axis = self.config.axis;
+        let cross_axis = axis.other();
+        let res = cx.resolution();
+        let main = axis.extent(bounds.max);
+        assert!(main.is_finite(), "split needs a finite main axis budget");
         let mut leading = None;
-        let mut divider = None;
         let mut trailing = None;
-        for child in ui.children() {
-            match *ui.item(child) {
+        let mut divider = None;
+        for child in cx.children() {
+            match cx.item(child) {
                 SplitItem::Leading => leading = Some(child),
-                SplitItem::Divider => divider = Some(child),
                 SplitItem::Trailing => trailing = Some(child),
+                SplitItem::Divider => divider = Some(child),
             }
         }
-        let leading = leading.expect("split pane leading content is missing");
-        let divider = divider.expect("split pane divider is missing");
-        let trailing = trailing.expect("split pane trailing content is missing");
-
-        let cross_axis = match axis {
-            Axis::Horizontal => Axis::Vertical,
-            Axis::Vertical => Axis::Horizontal,
-        };
-        let main_min = extent(constraints.min, axis);
-        let main_max = extent(constraints.max, axis);
-        let cross_min = extent(constraints.min, cross_axis);
-        let cross_max = extent(constraints.max, cross_axis);
-        let cross_range = (cross_min, cross_max);
-        let minimum_leading = res.extent(axis, self.minimum_leading).max(0.0);
-        let minimum_trailing = res.extent(axis, self.minimum_trailing).max(0.0);
-        let desired = res.extent(axis, self.extent).max(0.0);
-        let divider_extent = res.extent(axis, config.divider_extent).max(0.0);
-
-        let natural_trailing = if main_max.is_finite() {
-            0.0
-        } else {
-            let size = ui.layout_child(
-                trailing,
-                flow_constraints(axis, (minimum_trailing, f32::INFINITY), cross_range),
-            );
-            extent(size, axis)
-        };
-        let natural_main = desired.max(minimum_leading) + divider_extent + natural_trailing;
-        let main = natural_main.max(main_min).min(main_max);
-        let divider_extent = divider_extent.min(main);
+        let leading = leading.expect("missing split leading content");
+        let trailing = trailing.expect("missing split trailing content");
+        let divider = divider.expect("missing split divider");
+        let divider_extent = res
+            .extent(axis, self.config.divider_extent)
+            .max(0.0)
+            .min(main);
         let available = (main - divider_extent).max(0.0);
-        let minimum_total = minimum_leading + minimum_trailing;
-        let leading_extent = if minimum_total <= available {
-            desired.clamp(minimum_leading, available - minimum_trailing)
-        } else if minimum_total > 0.0 {
-            available * minimum_leading / minimum_total
+        let min_leading = res.extent(axis, self.minimum_leading).max(0.0);
+        let min_trailing = res.extent(axis, self.minimum_trailing).max(0.0);
+        let desired = res.extent(axis, self.extent).max(0.0);
+        let leading_extent = if min_leading + min_trailing <= available {
+            desired.clamp(min_leading, available - min_trailing)
+        } else if min_leading + min_trailing > 0.0 {
+            available * min_leading / (min_leading + min_trailing)
         } else {
             desired.min(available)
         };
-        let trailing_extent = available - leading_extent;
-
-        let leading_size = ui.layout_child(
-            leading,
-            flow_constraints(axis, (leading_extent, leading_extent), cross_range),
-        );
-        let divider_size = ui.layout_child(
-            divider,
-            flow_constraints(axis, (divider_extent, divider_extent), cross_range),
-        );
-        let trailing_size = ui.layout_child(
-            trailing,
-            flow_constraints(axis, (trailing_extent, trailing_extent), cross_range),
-        );
-        let cross = extent(leading_size, cross_axis)
-            .max(extent(divider_size, cross_axis))
-            .max(extent(trailing_size, cross_axis))
-            .max(cross_min)
-            .min(cross_max);
-        for (child, main) in [
-            (leading, leading_extent),
-            (divider, divider_extent),
-            (trailing, trailing_extent),
+        let mut cross = cross_axis.extent(bounds.min);
+        for (child, extent, offset) in [
+            (leading, leading_extent, 0.0),
+            (
+                trailing,
+                available - leading_extent,
+                leading_extent + divider_extent,
+            ),
         ] {
-            if extent(ui.child_size(child), cross_axis) != cross {
-                ui.layout_child(child, flow_constraints(axis, (main, main), (cross, cross)));
-            }
+            let mut child_bounds = bounds;
+            axis.set_extent(&mut child_bounds.min, extent);
+            axis.set_extent(&mut child_bounds.max, extent);
+            let size = cx.layout_child(child, child_bounds);
+            cross = cross.max(cross_axis.extent(size));
+            let mut point = Size::ZERO;
+            axis.set_extent(&mut point, offset);
+            cx.set_child_position(child, Point::new(point.width, point.height));
         }
-
-        ui.set_child_position(leading, Point::ZERO);
-        ui.set_child_position(
-            divider,
-            match axis {
-                Axis::Horizontal => Point::new(leading_extent, 0.0),
-                Axis::Vertical => Point::new(0.0, leading_extent),
-            },
-        );
-        ui.set_child_position(
-            trailing,
-            match axis {
-                Axis::Horizontal => Point::new(leading_extent + divider_extent, 0.0),
-                Axis::Vertical => Point::new(0.0, leading_extent + divider_extent),
-            },
-        );
-        flow_size(main, cross, axis)
+        let mut size = Size::ZERO;
+        axis.set_extent(&mut size, divider_extent);
+        cross_axis.set_extent(&mut size, cross);
+        cx.layout_child(divider, Constraints::tight(size));
+        let mut point = Size::ZERO;
+        axis.set_extent(&mut point, leading_extent);
+        cx.set_child_position(divider, Point::new(point.width, point.height));
+        axis.set_extent(&mut size, main);
+        bounds.constrain(size)
     }
 
     fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {

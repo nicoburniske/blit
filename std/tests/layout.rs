@@ -237,7 +237,7 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
         Size::new(11.0, 4.0)
     );
     assert_eq!(frame.geometry(ids[0]), Some(Rect::new(0.0, 0.0, 5.0, 3.0)));
-    assert_eq!(frame.geometry(ids[1]), Some(Rect::new(5.0, 0.0, 6.0, 3.0)));
+    assert_eq!(frame.geometry(ids[1]), Some(Rect::new(5.0, 0.0, 5.5, 3.0)));
     assert_eq!(frame.geometry(ids[2]), Some(Rect::new(0.0, 3.0, 11.0, 1.0)));
 }
 
@@ -308,7 +308,7 @@ fn wrap_shrinkwraps_animated_target_runs() {
 }
 
 #[test]
-fn single_resolves_nested_percentage_sizing() {
+fn single_percentages_use_the_incoming_budget() {
     let mut frame = Frame::default();
     let percent = WidgetId::new("percentage child");
     frame.render(
@@ -326,7 +326,10 @@ fn single_resolves_nested_percentage_sizing() {
             .insert(BoxAtom(Size::new(4.0, 2.0)));
         },
     );
-    assert_eq!(frame.geometry(percent), Some(Rect::new(0.0, 0.0, 2.0, 1.0)));
+    assert_eq!(
+        frame.geometry(percent),
+        Some(Rect::new(0.0, 0.0, 10.0, 5.0))
+    );
 }
 
 #[test]

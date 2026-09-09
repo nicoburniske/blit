@@ -13,8 +13,8 @@ pub fn layout() -> Layout {
 impl<P: Platform> blit::Layout<P> for Layout {
     type Item = Rect;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
-        let mut natural = Size::default();
+    fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, bounds: Constraints) -> Size {
+        let mut natural = Size::ZERO;
         for child in cx.children() {
             let rect = cx.item(child);
             natural.width = natural.width.max((rect.x + rect.width.max(0.0)).max(0.0));
@@ -22,20 +22,15 @@ impl<P: Platform> blit::Layout<P> for Layout {
             cx.layout_child(child, Constraints::tight(rect.size().max(Size::ZERO)));
             cx.set_child_position(child, Point::new(rect.x, rect.y));
         }
-        constraints.constrain(natural)
+        bounds.constrain(natural)
     }
 
-    fn override_size(
-        &self,
-        item: &mut Self::Item,
-        width: Option<f32>,
-        height: Option<f32>,
-    ) -> bool {
-        if let Some(extent) = width {
-            item.width = extent;
+    fn override_size(&self, item: &mut Rect, width: Option<f32>, height: Option<f32>) -> bool {
+        if let Some(width) = width {
+            item.width = width;
         }
-        if let Some(extent) = height {
-            item.height = extent;
+        if let Some(height) = height {
+            item.height = height;
         }
         true
     }

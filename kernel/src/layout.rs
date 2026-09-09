@@ -39,6 +39,32 @@ pub enum Axis {
     Vertical,
 }
 
+impl Axis {
+    #[inline]
+    pub const fn other(self) -> Self {
+        match self {
+            Self::Horizontal => Self::Vertical,
+            Self::Vertical => Self::Horizontal,
+        }
+    }
+
+    #[inline]
+    pub const fn extent(self, size: Size) -> f32 {
+        match self {
+            Self::Horizontal => size.width,
+            Self::Vertical => size.height,
+        }
+    }
+
+    #[inline]
+    pub fn set_extent(self, size: &mut Size, extent: f32) {
+        match self {
+            Self::Horizontal => size.width = extent,
+            Self::Vertical => size.height = extent,
+        }
+    }
+}
+
 /// one-dimensional sizing policy interpreted by a layout or absolute placement
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Sizing {
