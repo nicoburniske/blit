@@ -7,7 +7,7 @@ use blit_cpu::{
     text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId},
 };
 
-use super::DesktopPlatform;
+use crate::DesktopPlatform;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -26,20 +26,14 @@ impl Atom<DesktopPlatform> for Rectangle {
     }
 
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
-        let scale = platform.scale;
-        let clip = platform.clip;
         if self.background != Color::TRANSPARENT || !matches!(self.border, Border::None) {
-            platform.current.push_rectangle(
-                DrawRectangle {
-                    area,
-                    background: self.background,
-                    border: self.border,
-                    radius: self.radius,
-                    opacity: self.opacity,
-                },
-                area.to_physical(scale),
-                clip,
-            );
+            platform.paint_rectangle(DrawRectangle {
+                area,
+                background: self.background,
+                border: self.border,
+                radius: self.radius,
+                opacity: self.opacity,
+            });
         }
     }
 
@@ -79,9 +73,7 @@ impl Atom<DesktopPlatform> for Text {
             color: self.color,
             options: self.options,
         };
-        let bounds = area.to_physical(platform.scale);
-        let clip = platform.clip;
-        platform.current.push_text(request, bounds, clip);
+        platform.paint_text(request);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
@@ -119,9 +111,7 @@ impl Atom<DesktopPlatform> for Image {
             horizontal_tiling: self.horizontal_tiling,
             vertical_tiling: self.vertical_tiling,
         };
-        let bounds = area.to_physical(platform.scale);
-        let clip = platform.clip;
-        platform.current.push_image(request, bounds, clip);
+        platform.paint_image(request);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
@@ -165,10 +155,7 @@ impl Atom<DesktopPlatform> for Shadow {
     }
 
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
-        let shadow = self.command(area);
-        let bounds = shadow.bounds().to_physical(platform.scale);
-        let clip = platform.clip;
-        platform.current.push_box_shadow(shadow, bounds, clip);
+        platform.paint_shadow(self.command(area));
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {

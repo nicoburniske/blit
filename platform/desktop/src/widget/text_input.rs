@@ -8,8 +8,7 @@ use blit_cpu::{
 };
 pub use blit_std::widget::text_input::{Response, State};
 
-use super::super::DesktopPlatform;
-use crate::Ui;
+use crate::{DesktopPlatform, Ui};
 
 blit::builder! {
     pub struct TextInput<'a> {
@@ -137,14 +136,8 @@ impl Atom<DesktopPlatform> for InputAtom {
     }
 
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
-        let scale = platform.scale;
-        let clip = platform.clip;
         if self.background != Color::TRANSPARENT {
-            platform.current.push_rectangle(
-                Rectangle::new(area).background(self.background),
-                area.to_physical(scale),
-                clip,
-            );
+            platform.paint_rectangle(Rectangle::new(area).background(self.background));
         }
         let request = TextRequest {
             text: self.text,
@@ -161,10 +154,8 @@ impl Atom<DesktopPlatform> for InputAtom {
             if let Some(selection) =
                 LogicalRect::new(start.x, start.y, end.x - start.x, start.height).intersection(area)
             {
-                platform.current.push_rectangle(
+                platform.paint_rectangle(
                     Rectangle::new(selection).background(self.selection_background),
-                    selection.to_physical(scale),
-                    clip,
                 );
             }
         }
@@ -173,11 +164,7 @@ impl Atom<DesktopPlatform> for InputAtom {
                 .text_cursor_rect(&request, self.state.cursor)
                 .intersection(area)
             {
-                platform.current.push_rectangle(
-                    Rectangle::new(cursor).background(self.cursor_background),
-                    cursor.to_physical(scale),
-                    clip,
-                );
+                platform.paint_rectangle(Rectangle::new(cursor).background(self.cursor_background));
             }
         }
         let request = TextRequest {
@@ -189,9 +176,7 @@ impl Atom<DesktopPlatform> for InputAtom {
             },
             ..request
         };
-        platform
-            .current
-            .push_text(request, area.to_physical(scale), clip);
+        platform.paint_text(request);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {

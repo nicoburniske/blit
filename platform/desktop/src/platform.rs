@@ -1,11 +1,8 @@
-pub mod atom;
-pub mod widget;
-
 use blit::{Clip, FrameInfo, LogicalPoint, LogicalRect, PhysicalRect, Platform, Scale2, Size};
 use blit_cpu::{
     Renderer, Scanline,
-    command_list::{ClipId, CommandList},
-    image::{ImageData, ImageHandle},
+    command_list::{BoxShadow, ClipId, CommandList, Rectangle},
+    image::{ImageData, ImageHandle, ImageRequest},
     text_types::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit_diff::{Change, Myers, Reconciliation};
@@ -48,6 +45,26 @@ impl DesktopPlatform {
 
     pub fn text_cursor_rect(&mut self, request: &TextRequest, offset: usize) -> LogicalRect {
         self.renderer.text_cursor_rect(request, offset)
+    }
+
+    pub fn paint_rectangle(&mut self, rectangle: Rectangle<'_>) {
+        let bounds = rectangle.area.to_physical(self.scale);
+        self.current.push_rectangle(rectangle, bounds, self.clip);
+    }
+
+    pub fn paint_text(&mut self, text: TextRequest) {
+        let bounds = text.area.to_physical(self.scale);
+        self.current.push_text(text, bounds, self.clip);
+    }
+
+    pub fn paint_image(&mut self, image: ImageRequest) {
+        let bounds = image.area.to_physical(self.scale);
+        self.current.push_image(image, bounds, self.clip);
+    }
+
+    pub fn paint_shadow(&mut self, shadow: BoxShadow) {
+        let bounds = shadow.bounds().to_physical(self.scale);
+        self.current.push_box_shadow(shadow, bounds, self.clip);
     }
 
     pub fn invalidate_all(&mut self) {

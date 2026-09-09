@@ -9,8 +9,7 @@ use blit_cpu::{
     text_types::{TextOptions, TextStyle},
 };
 
-use super::{DesktopPlatform, atom};
-use crate::Ui;
+use crate::{DesktopPlatform, Ui, atom};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
