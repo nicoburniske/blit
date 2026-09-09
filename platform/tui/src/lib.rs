@@ -28,7 +28,7 @@ use blit::{
     Frame, FrameInfo, LayoutResolution, LogicalPoint, LogicalSize,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
-use terminal::{Size, Terminal, colors::Colors};
+use terminal::{Size, Terminal};
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
 
@@ -108,7 +108,7 @@ pub struct Session {
     terminal: Terminal,
     platform: TuiPlatform,
     active: bool,
-    colors: Colors,
+    query_colors: bool,
 }
 
 impl Session {
@@ -120,7 +120,7 @@ impl Session {
             terminal,
             platform,
             active: true,
-            colors: Colors::new(Instant::now()),
+            query_colors: true,
         })
     }
 
@@ -144,18 +144,9 @@ impl Session {
         if inputs.is_empty() {
             return Ok(Poll::default());
         }
-        let now = Instant::now();
-        self.colors
-            .update(&mut self.terminal, self.platform.renderer(), now)?;
+        self.update_colors()?;
         let mut result = Poll::default();
-        let mut timeout = match (timeout, self.colors.deadline(self.platform.renderer())) {
-            (timeout, Some(deadline)) => Some(
-                timeout.map_or(deadline.saturating_duration_since(now), |timeout| {
-                    timeout.min(deadline.saturating_duration_since(now))
-                }),
-            ),
-            (timeout, None) => timeout,
-        };
+        let mut timeout = timeout;
         for _ in 0..inputs.len() {
             let Some(event) = self.terminal.read(timeout)? else {
                 break;
@@ -169,9 +160,15 @@ impl Session {
                 }
                 terminal::Event::Protocol(event) => event,
             };
-            result.redraw |=
-                self.colors
-                    .observe(&event, self.platform.renderer_mut(), Instant::now());
+            match &event {
+                protocol::Event::Focus(true) | protocol::Event::Theme(_) => {
+                    self.query_colors = true;
+                }
+                protocol::Event::Color { slot, rgb } => {
+                    result.redraw |= self.platform.renderer_mut().set_palette_color(*slot, *rgb);
+                }
+                _ => {}
+            }
             let input = match event {
                 protocol::Event::Text(character) => Some(Input::Text(character)),
                 protocol::Event::Key(key) => {
@@ -288,8 +285,7 @@ impl Session {
                 }
             }
         }
-        self.colors
-            .update(&mut self.terminal, self.platform.renderer(), Instant::now())?;
+        self.update_colors()?;
         Ok(result)
     }
 
@@ -314,6 +310,15 @@ impl Session {
             .clear_kitty_graphics(&mut self.terminal);
         let finish = self.terminal.finish();
         clear.and(finish)
+    }
+
+    fn update_colors(&mut self) -> io::Result<()> {
+        if self.query_colors {
+            protocol::query_colors(&mut self.terminal)?;
+            self.terminal.flush()?;
+            self.query_colors = false;
+        }
+        Ok(())
     }
 }
 

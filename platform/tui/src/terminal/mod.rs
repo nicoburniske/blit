@@ -1,5 +1,3 @@
-pub mod colors;
-
 use std::{
     collections::VecDeque,
     fs::{File, OpenOptions},

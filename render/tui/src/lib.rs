@@ -45,7 +45,6 @@ pub struct TuiRenderer {
     columns: usize,
     rows: usize,
     palette: Palette,
-    needs_palette: bool,
     text_runs: DeferredCache<RunKey, CachedRun, RunScale>,
     text_layouts: DeferredCache<LayoutKey, TextLayout, LayoutScale>,
     next_text_run: u32,
@@ -73,7 +72,6 @@ impl TuiRenderer {
             columns,
             rows,
             palette: Palette::default(),
-            needs_palette: false,
             text_runs: DeferredCache::new(RunScale, TEXT_RUN_CACHE_CAPACITY),
             text_layouts: DeferredCache::new(LayoutScale, TEXT_LAYOUT_CACHE_CAPACITY),
             next_text_run: 1,
@@ -117,11 +115,6 @@ impl TuiRenderer {
             PaletteSlot::Indexed(index) => &mut self.palette.indexed[index as usize],
         };
         color.replace(rgb) != Some(rgb)
-    }
-
-    /// whether this frame's tinting depends on terminal colors
-    pub fn needs_palette(&self) -> bool {
-        self.needs_palette
     }
 
     pub fn resize(&mut self, config: RendererConfig) {
@@ -939,7 +932,7 @@ mod tests {
     }
 
     #[test]
-    fn tint_preserves_unknown_colors_and_tracks_palette_use() {
+    fn tint_preserves_unknown_colors() {
         let mut renderer = renderer(1, 1);
         let screen = renderer.screen().to_logical(SCALE);
         renderer.begin_frame();
@@ -947,14 +940,8 @@ mod tests {
             .cells(screen, screen)
             .write(0, 0, "x", CellStyle::new().foreground(Color::RED));
         renderer.cells(screen, screen).tint([0, 0, 0], 150);
-        assert!(renderer.needs_palette());
         assert_eq!(renderer.frame_cells.foreground[0], Color::RED.packed());
         assert_eq!(renderer.frame_cells.background[0], Color::Reset.packed());
-        renderer.begin_frame();
-        renderer.cells(screen, screen).tint([0, 0, 0], 255);
-        assert!(!renderer.needs_palette());
-        renderer.cells(screen, screen).tint([0, 0, 0], 150);
-        assert!(!renderer.needs_palette());
     }
 
     #[test]

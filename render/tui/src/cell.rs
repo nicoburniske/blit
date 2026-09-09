@@ -109,14 +109,8 @@ impl CellBuffer<'_> {
                 }
                 for packed in &mut colors[start..end] {
                     let destination = match Color::from_packed(*packed) {
-                        Color::Reset => {
-                            self.renderer.needs_palette = true;
-                            default
-                        }
-                        Color::Indexed(index) => {
-                            self.renderer.needs_palette = true;
-                            palette.indexed[index as usize]
-                        }
+                        Color::Reset => default,
+                        Color::Indexed(index) => palette.indexed[index as usize],
                         Color::Rgb(red, green, blue) => Some([red, green, blue]),
                     };
                     let Some(destination) = destination else {

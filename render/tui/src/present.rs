@@ -9,7 +9,6 @@ use crate::{
 
 impl TuiRenderer {
     pub fn begin_frame(&mut self) {
-        self.needs_palette = false;
         self.output.clear();
         self.frame_cells.clear();
         self.kitty_placements.clear();
