@@ -1,4 +1,7 @@
+pub mod text_input;
+
 pub use blit_std::widget::{popover, resize, scroll, split};
+pub use text_input::TextInput;
 
 use blit::{Content, state};
 use blit_cpu::{

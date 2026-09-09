@@ -16,7 +16,7 @@ use blit_tui::{
     text::{
         HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign,
     },
-    widget::{Block, Text, Title, popover, resize, scroll, split},
+    widget::{Block, Text, TextInput, Title, popover, resize, scroll, split, text_input},
 };
 
 fn main() -> io::Result<()> {
@@ -58,7 +58,9 @@ impl Showcase {
     fn show(&mut self, mut ui: Ui<'_>) {
         let escape = matches!(ui.input(), Input::Key(key)
             if key.key == Key::Escape && key.pressed && !key.repeat);
-        if !self.modal.open && (escape || matches!(ui.input(), Input::Text('q'))) {
+        let input_focused = ui.is_focused(WidgetId::new("tui text input"));
+        if !self.modal.open && !input_focused && (escape || matches!(ui.input(), Input::Text('q')))
+        {
             ui.platform().quit();
             return;
         }
@@ -491,6 +493,8 @@ impl Widget<TuiPlatform> for &mut LayoutPage {
 }
 
 struct TextPage {
+    input: String,
+    input_state: text_input::State,
     resize: resize::State,
     attributes: TextAttributes,
     wrap: TextWrap,
@@ -504,6 +508,8 @@ struct TextPage {
 impl Default for TextPage {
     fn default() -> Self {
         Self {
+            input: String::new(),
+            input_state: text_input::State::default(),
             resize: resize::State::default(),
             attributes: TextAttributes::NONE,
             wrap: TextWrap::Word,
@@ -521,6 +527,8 @@ impl Widget<TuiPlatform> for &mut TextPage {
 
     fn build(self, ui: Ui<'_>) {
         let TextPage {
+            input,
+            input_state,
             resize: text_resize,
             attributes: text_attributes,
             wrap: text_wrap,
@@ -643,17 +651,35 @@ impl Widget<TuiPlatform> for &mut TextPage {
             },
             |ui: Ui<'_>| {
                 let mut preview = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
-                preview.insert(
-                    panel(colors::SURFACE, " RESIZABLE TEXT ").title(
-                        Title::new(" DRAG TO REFLOW ")
-                            .color(colors::TEXT_DIM)
-                            .position(TitlePosition::BottomRight),
-                    ),
-                );
                 {
-                    let mut viewport = preview
+                    let mut input_preview = preview
+                        .child(flex::item().height(Sizing::fixed(3.0)))
+                        .layout(single::layout().padding(Sides::all(1.0)));
+                    input_preview.insert(panel(colors::SURFACE, " TEXT INPUT "));
+                    input_preview.child(single::item().width(Sizing::grow())).build(
+                        TextInput::new(input_state, WidgetId::new("tui text input"), input)
+                            .placeholder("type here")
+                            .color(colors::TEXT)
+                            .placeholder_color(colors::TEXT_DIM)
+                            .background(colors::TRACK)
+                            .selection_background(colors::SELECTED)
+                            .cursor_background(colors::ACCENT_DARK),
+                    );
+                }
+                {
+                    let mut resizable = preview
                         .child(flex::item().grow())
-                        .layout(single::layout().padding(Sides::all(1.0)))
+                        .layout(single::layout().padding(Sides::all(1.0)));
+                    resizable.insert(
+                        panel(colors::SURFACE, " RESIZABLE TEXT ").title(
+                            Title::new(" DRAG TO REFLOW ")
+                                .color(colors::TEXT_DIM)
+                                .position(TitlePosition::BottomRight),
+                        ),
+                    );
+                    let mut viewport = resizable
+                        .child(single::item().grow())
+                        .layout(single::layout())
                         .clip(BoundsClip);
                     viewport.insert(Block::new().background(colors::TRACK));
                     let mut options = TextOptions::new()

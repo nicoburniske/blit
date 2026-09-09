@@ -12,7 +12,7 @@ use blit_desktop::{
     layout::{Align, flex, grid, single, wrap},
     style::{Border, BorderRadius},
     text::{FontId, TextStyle},
-    widget::{Text, popover, resize, scroll, split},
+    widget::{Text, TextInput, popover, resize, scroll, split, text_input},
 };
 use blit_showcase::{CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing};
 
@@ -46,6 +46,7 @@ pub fn run(mut text: Box<dyn TextLayoutEngine>) {
 enum Page {
     #[default]
     Layout,
+    Input,
     Styles,
     Scroll,
 }
@@ -53,6 +54,7 @@ enum Page {
 struct App {
     page: Page,
     layout: LayoutPage,
+    input: InputPage,
     styles: StylesPage,
     scroll: ScrollPage,
     settings: popover::State,
@@ -65,6 +67,7 @@ impl Default for App {
         Self {
             page: Page::default(),
             layout: LayoutPage::default(),
+            input: InputPage::default(),
             styles: StylesPage::default(),
             scroll: ScrollPage::default(),
             settings: popover::State::new(),
@@ -123,6 +126,7 @@ impl Application for App {
             });
             for (page, label) in [
                 (Page::Layout, "layout"),
+                (Page::Input, "input"),
                 (Page::Styles, "styles"),
                 (Page::Scroll, "scroll"),
             ] {
@@ -177,6 +181,7 @@ impl Application for App {
         }
         match self.page {
             Page::Layout => root.child(flex::item().grow()).build(&mut self.layout),
+            Page::Input => root.child(flex::item().grow()).build(&mut self.input),
             Page::Styles => root.child(flex::item().grow()).build(&mut self.styles),
             Page::Scroll => root.child(flex::item().grow()).build(&mut self.scroll),
         };
@@ -188,6 +193,67 @@ impl Application for App {
             )
             .build(&mut self.fps);
         }
+    }
+}
+
+#[derive(Default)]
+struct InputPage {
+    value: String,
+    state: text_input::State,
+}
+
+impl Widget<DesktopPlatform> for &mut InputPage {
+    type Response = ();
+
+    fn build(self, ui: Ui<'_>) {
+        let mut body = ui.layout(flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
+        body.insert(panel(colors::SURFACE));
+        body.child(flex::item()).insert(
+            Text::new("TEXT INPUT")
+                .style(TextStyle {
+                    size: sz::LG,
+                    ..TextStyle::default()
+                })
+                .color(colors::ACCENT),
+        );
+        body.child(
+            flex::item()
+                .width(Sizing::fixed(560.0))
+                .height(Sizing::fixed(sz::XXXL)),
+        )
+        .build(|ui: Ui<'_>| {
+            let mut field = ui.layout(single::layout().padding(Sides::all(sz::SM)));
+            field.insert(
+                Rectangle::new()
+                    .background(colors::TRACK)
+                    .border(Border::solid(sz::BORDER, colors::BORDER))
+                    .radius(BorderRadius::uniform(sz::XS)),
+            );
+            field.child(single::item().grow()).build(
+                TextInput::new(
+                    &mut self.state,
+                    WidgetId::new("desktop text input"),
+                    &mut self.value,
+                )
+                .style(TextStyle {
+                    size: sz::LG,
+                    ..TextStyle::default()
+                })
+                .color(colors::TEXT)
+                .placeholder("Type here")
+                .placeholder_color(colors::TEXT_DIM)
+                .selection_background(colors::ACCENT_DARK)
+                .cursor_background(colors::ACCENT),
+            )
+        });
+        body.child(flex::item()).insert(
+            Text::new("Click to focus. Escape releases focus.")
+                .style(TextStyle {
+                    size: sz::MD,
+                    ..TextStyle::default()
+                })
+                .color(colors::TEXT_MUTED),
+        );
     }
 }
 

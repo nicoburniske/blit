@@ -147,6 +147,7 @@ name = "blit-std"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "unicode-segmentation",
 ]
 
 [[package]]

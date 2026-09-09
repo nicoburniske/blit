@@ -7,3 +7,4 @@ publish = false
 
 [dependencies]
 blit.workspace = true
+unicode-segmentation = "1"
