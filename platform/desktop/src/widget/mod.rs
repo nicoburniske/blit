@@ -1,3 +1,6 @@
+pub mod performance;
+pub use performance::Performance;
+
 pub mod text_input;
 
 pub use blit_std::widget::{popover, resize, scroll, split};

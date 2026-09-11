@@ -1,3 +1,6 @@
+pub mod performance;
+pub use performance::Performance;
+
 pub mod block;
 pub mod text;
 pub mod text_input;

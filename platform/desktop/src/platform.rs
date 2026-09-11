@@ -1,4 +1,8 @@
-use blit::{Clip, FrameInfo, LogicalPoint, LogicalRect, PhysicalRect, Platform, Scale2, Size};
+use std::time::Instant;
+
+use blit::{
+    Clip, FrameInfo, FrameStage, LogicalPoint, LogicalRect, PhysicalRect, Platform, Scale2, Size,
+};
 use blit_cpu::{
     Renderer, Scanline,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
@@ -6,10 +10,13 @@ use blit_cpu::{
     text_types::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit_diff::{Change, Myers, Reconciliation};
+use blit_std::widget::performance::{FrameProfiler, Profiled};
 
 use crate::pixel::DesktopBuffer;
 
 pub struct DesktopPlatform {
+    profiler: FrameProfiler,
+    clock: Instant,
     renderer: Renderer<DesktopBuffer, Scanline>,
     scale: Scale2,
     current: CommandList,
@@ -76,6 +83,8 @@ impl DesktopPlatform {
 impl DesktopPlatform {
     pub(crate) fn new(renderer: Renderer<DesktopBuffer, Scanline>) -> Self {
         Self {
+            profiler: FrameProfiler::default(),
+            clock: Instant::now(),
             renderer,
             scale: Scale2::IDENTITY,
             current: CommandList::default(),
@@ -153,7 +162,17 @@ impl DesktopPlatform {
     }
 }
 
+impl Profiled for DesktopPlatform {
+    fn profiler(&self) -> &FrameProfiler {
+        &self.profiler
+    }
+}
+
 impl Platform for DesktopPlatform {
+    fn begin_stage(&mut self, stage: FrameStage) {
+        self.profiler.begin_stage(stage, self.clock.elapsed());
+    }
+
     fn begin(&mut self, _: FrameInfo) {
         self.current.clear();
         self.clip = ClipId::default();

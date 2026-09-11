@@ -179,6 +179,7 @@ impl<R: Platform> Frame<R> {
     ) -> W::Response {
         #[cfg(debug_assertions)]
         generation::begin();
+        platform.begin_stage(crate::FrameStage::Build);
         self.nodes.clear();
         self.current_parent = None;
         self.atoms.clear();
@@ -226,6 +227,7 @@ impl<R: Platform> Frame<R> {
 
         // layout mutates graph state while frame data remains immutable
         // todo/hack: is there a better way to do this
+        platform.begin_stage(crate::FrameStage::Layout);
         let mut data = std::mem::take(&mut self.data);
         transition::resolve(self, &mut data, platform, frame.size);
         position::resolve(self);
@@ -239,10 +241,14 @@ impl<R: Platform> Frame<R> {
         self.timers.retain(|timer| timer.seen);
         self.named_nodes.retain(|_, node| node.is_some());
         if render {
+            platform.begin_stage(crate::FrameStage::Paint);
             paint::render(self, &data, platform, frame);
         }
         data.clear();
         self.data = data;
+        if render {
+            platform.begin_stage(crate::FrameStage::Complete);
+        }
         output
     }
 

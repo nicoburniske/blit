@@ -1,4 +1,4 @@
-use std::{fmt::Write as _, time::Duration};
+use std::time::Duration;
 
 use blit::{
     Absolute, Anchor, Axis, Easing, Interaction, Point, Sense, Sides, Size, Sizing, Transition,
@@ -12,9 +12,11 @@ use blit_desktop::{
     layout::{Align, flex, grid, single, wrap},
     style::{Border, BorderRadius},
     text::{FontId, TextStyle},
-    widget::{Text, TextInput, popover, resize, scroll, split, text_input},
+    widget::{
+        Performance, Text, TextInput, performance, popover, resize, scroll, split, text_input,
+    },
 };
-use blit_showcase::{CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing};
+use blit_showcase::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 
 pub fn run(mut text: Box<dyn TextLayoutEngine>) {
     let face = text
@@ -58,8 +60,8 @@ struct App {
     styles: StylesPage,
     scroll: ScrollPage,
     settings: popover::State,
-    fps: FpsBadge,
-    show_fps: bool,
+    performance: performance::State,
+    show_performance: bool,
 }
 
 impl Default for App {
@@ -71,8 +73,8 @@ impl Default for App {
             styles: StylesPage::default(),
             scroll: ScrollPage::default(),
             settings: popover::State::new(),
-            fps: FpsBadge::default(),
-            show_fps: true,
+            performance: performance::State::default(),
+            show_performance: true,
         }
     }
 }
@@ -162,11 +164,11 @@ impl Application for App {
                                 .radius(BorderRadius::uniform(sz::XS)),
                         );
                         if popup.child(flex::item()).build(Button::new(
-                            WidgetId::new("desktop settings show fps"),
-                            "Show FPS",
-                            self.show_fps,
+                            WidgetId::new("desktop settings show performance"),
+                            "Show performance",
+                            self.show_performance,
                         )) {
-                            self.show_fps = !self.show_fps;
+                            self.show_performance = !self.show_performance;
                         }
                         popup.child(flex::item()).build(Button::new(
                             WidgetId::new("reset desktop showcase"),
@@ -185,13 +187,20 @@ impl Application for App {
             Page::Styles => root.child(flex::item().grow()).build(&mut self.styles),
             Page::Scroll => root.child(flex::item().grow()).build(&mut self.scroll),
         };
-        if self.show_fps {
+        if self.show_performance {
             root.absolute(
                 Absolute::screen(0.0, 0.0)
                     .anchors(Anchor::BottomRight, Anchor::BottomRight)
                     .offset(-sz::LG, -sz::LG),
             )
-            .build(&mut self.fps);
+            .build(
+                Performance::new(&mut self.performance)
+                    .background(colors::SURFACE_HIGH)
+                    .graph_background(colors::CANVAS)
+                    .color(colors::TEXT)
+                    .muted_color(colors::TEXT_DIM)
+                    .accent(colors::ACCENT),
+            );
         }
     }
 }
@@ -767,64 +776,6 @@ impl Widget<DesktopPlatform> for &mut ScrollPage {
                 })
                 .axis(axis)
                 .gap(sz::XS),
-        );
-    }
-}
-
-struct FpsBadge {
-    counter: FpsCounter,
-    label: String,
-}
-
-impl Default for FpsBadge {
-    fn default() -> Self {
-        Self {
-            counter: FpsCounter::default(),
-            label: "FPS --".into(),
-        }
-    }
-}
-
-impl Widget<DesktopPlatform> for &mut FpsBadge {
-    type Response = ();
-
-    fn build(self, ui: Ui<'_>) {
-        if let Some(fps) = self.counter.update(ui.time()) {
-            self.label.clear();
-            let _ = write!(self.label, "FPS {fps:03.0}");
-        }
-        let mut badge = ui.layout(
-            flex::row()
-                .padding(Sides::xy(sz::SM, sz::XS))
-                .gap(sz::XS)
-                .align(Align::Center),
-        );
-        badge.insert(
-            Rectangle::new()
-                .background(colors::SURFACE_HIGH)
-                .border(Border::solid(sz::BORDER, colors::ACCENT))
-                .radius(BorderRadius::uniform(sz::XS)),
-        );
-        badge.child(flex::item().fixed(sz::XS, sz::XS)).insert(
-            Rectangle::new()
-                .background(colors::ACCENT)
-                .radius(BorderRadius::uniform(sz::XXS)),
-        );
-        badge.child(flex::item()).insert(
-            Text::new(&self.label)
-                .style(TextStyle {
-                    size: sz::MD,
-                    ..TextStyle::default()
-                })
-                .color(colors::TEXT),
-        );
-        badge.child(flex::item()).insert(
-            Text::new("SCREEN ABSOLUTE")
-                .style(TextStyle {
-                    size: sz::MD,
-                    ..TextStyle::default()
-                })
-                .color(colors::TEXT_DIM),
         );
     }
 }
