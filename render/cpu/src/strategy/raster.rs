@@ -94,17 +94,10 @@ pub fn draw_line<B: PixelBuffer>(
             }
         }
         Payload::Text(command) => {
-            let mut color = command.color;
-            if coverage != 255 {
-                color.alpha = (color.alpha as u16 * coverage as u16 / 255) as u8;
-            }
             let x = buffer.x_offset() as i32;
             text.draw_line(
-                command.glyph_start,
-                command.glyph_end,
-                command.lines,
-                command.area,
-                color,
+                command,
+                coverage,
                 line,
                 PixelSpan {
                     x,

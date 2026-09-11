@@ -177,7 +177,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             .area
             .to_physical(Scale2::uniform(self.context.scale_factor));
         let visible_area = area.intersection(bounds)?;
-        let (glyph_start, glyph_end, lines, paragraph_bounds) = self
+        let (glyph_start, glyph_end, runs, paragraph_bounds) = self
             .context
             .text
             .prepare(request, self.context.scale_factor);
@@ -186,7 +186,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             PreparedText {
                 glyph_start,
                 glyph_end,
-                lines,
+                runs,
                 area,
                 color: request.color,
             },
@@ -400,6 +400,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
 
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
         self.context.text.text_run(text, style)
+    }
+
+    pub fn rich_text(&mut self, spans: &[text_types::Span<'_>], style: TextStyle) -> TextRunId {
+        self.context.text.rich_text(spans, style)
     }
 
     pub fn text_offset_at_position(

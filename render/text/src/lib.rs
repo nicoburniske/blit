@@ -17,7 +17,37 @@ pub trait TextLayoutEngine: 'static {
 
     fn font_face(&self, face: FontFaceId) -> Option<&FontFace>;
 
-    fn layout(&mut self, text: &str, style: TextStyle, request: LayoutRequest) -> TextLayout;
+    fn layout(&mut self, text: Text<'_>, request: LayoutRequest) -> TextLayout;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Text<'a> {
+    pub text: &'a str,
+    pub size: f32,
+    pub spans: &'a [TextSpan],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TextSpan {
+    pub range: Range<usize>,
+    pub style: TextStyle,
+}
+
+impl Text<'_> {
+    pub fn segments(&self) -> impl Iterator<Item = (usize, Range<usize>, TextStyle)> + '_ {
+        assert!(!self.spans.is_empty());
+        let mut end = 0;
+        for span in self.spans {
+            assert_eq!(span.range.start, end);
+            assert!(self.text.is_char_boundary(span.range.end));
+            end = span.range.end;
+        }
+        assert_eq!(end, self.text.len());
+        self.spans
+            .iter()
+            .enumerate()
+            .map(|(index, span)| (index, span.range.clone(), span.style))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -73,10 +103,9 @@ pub enum FontStyle {
     Oblique,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TextStyle {
     pub font: FontSelectionId,
-    pub size: f32,
     pub weight: u16,
     pub stretch: u16,
     pub style: FontStyle,
@@ -107,6 +136,7 @@ pub struct LayoutRun {
     pub face: FontFaceId,
     pub size: f32,
     pub glyphs: Range<u32>,
+    pub span: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]

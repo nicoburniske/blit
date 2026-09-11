@@ -13,7 +13,9 @@ use crate::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
     style::{Border, BorderRadius, GradientStop, LinearGradient},
-    text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
+    text_types::{
+        Span, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap,
+    },
 };
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_text::{
@@ -123,7 +125,7 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
 #[test]
 fn renderer_supports_custom_pixel_layouts() {
     let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(32, 24), renderer_config());
-    let m = renderer.text_run("M", TextStyle::default());
+    let m = renderer.rich_text(&[Span::new("M").color(Color::WHITE)], TextStyle::default());
     let clip = PhysicalRect {
         x: 0,
         y: 0,
@@ -163,7 +165,7 @@ fn renderer_supports_custom_pixel_layouts() {
                 height: 24.0,
             },
             offset_x: 0.0,
-            color: Color::WHITE,
+            color: Color::TRANSPARENT,
             options: TextOptions::default(),
         },
         clip,
@@ -274,12 +276,7 @@ impl TextLayoutEngine for CountingBackend {
         None
     }
 
-    fn layout(
-        &mut self,
-        _text: &str,
-        _style: blit_text::TextStyle,
-        _request: LayoutRequest,
-    ) -> TextLayout {
+    fn layout(&mut self, _text: blit_text::Text<'_>, _request: LayoutRequest) -> TextLayout {
         self.0.fetch_add(1, Relaxed);
         TextLayout {
             size: LogicalSize::default(),

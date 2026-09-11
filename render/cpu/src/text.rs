@@ -9,7 +9,8 @@ use crate::{
     Pixel, PixelSpan, RendererConfig,
     color::Color,
     glyph::GlyphCache,
-    text_types::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    strategy::command::PreparedText,
+    text_types::{Span, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
@@ -25,7 +26,7 @@ pub struct TextRenderer {
     next_text: u32,
     glyphs: GlyphCache,
     prepared: Vec<PreparedGlyph>,
-    lines: Vec<PreparedLine>,
+    runs: Vec<PreparedRun>,
     coverage: Vec<u8>,
 }
 
@@ -48,7 +49,19 @@ struct TextKey {
 struct CachedText {
     id: TextRunId,
     text: Box<str>,
-    style: blit_text::TextStyle,
+    size: f32,
+    spans: CachedSpans,
+}
+
+enum CachedSpans {
+    One {
+        style: blit_text::TextStyle,
+        color: Option<Color>,
+    },
+    Many {
+        spans: Box<[blit_text::TextSpan]>,
+        colors: Box<[Option<Color>]>,
+    },
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -67,7 +80,14 @@ struct TextScale;
 
 impl Scale<TextKey, CachedText> for TextScale {
     fn weight(&self, _key: &TextKey, text: &CachedText) -> usize {
-        size_of::<TextKey>() + size_of::<CachedText>() + text.text.len()
+        let spans = match &text.spans {
+            CachedSpans::One { .. } => 0,
+            CachedSpans::Many { spans, colors } => {
+                spans.len() * size_of::<blit_text::TextSpan>()
+                    + colors.len() * size_of::<Option<Color>>()
+            }
+        };
+        size_of::<TextKey>() + size_of::<CachedText>() + text.text.len() + spans
     }
 }
 
@@ -81,7 +101,7 @@ struct CachedPaint {
     offset_x: u32,
     bounds: PhysicalRect,
     glyphs: Vec<PaintGlyph>,
-    lines: Vec<PreparedLine>,
+    runs: Vec<PreparedRun>,
 }
 
 #[derive(Clone, Copy)]
@@ -105,7 +125,7 @@ impl Scale<LayoutKey, CachedLayout> for LayoutScale {
             + cached.layout.carets.len() * size_of::<blit_text::Caret>()
             + cached.paint.as_ref().map_or(0, |paint| {
                 paint.glyphs.capacity() * size_of::<PaintGlyph>()
-                    + paint.lines.capacity() * size_of::<PreparedLine>()
+                    + paint.runs.capacity() * size_of::<PreparedRun>()
             })
     }
 }
@@ -118,20 +138,21 @@ pub struct PreparedGlyph {
     height: u32,
 }
 
-struct PreparedLine {
+struct PreparedRun {
     glyph_start: u32,
     glyph_end: u32,
     top: i32,
     bottom: i32,
+    color: Option<Color>,
 }
 
 #[derive(Clone, Copy)]
-pub struct PreparedLines {
+pub struct PreparedRuns {
     start: u32,
     end: u32,
 }
 
-impl PreparedLines {
+impl PreparedRuns {
     const NONE: Self = Self {
         start: u32::MAX,
         end: u32::MAX,
@@ -178,29 +199,50 @@ impl TextRenderer {
             next_text: 1,
             glyphs: GlyphCache::new(config.glyph_cache_capacity),
             prepared: Vec::new(),
-            lines: Vec::new(),
+            runs: Vec::new(),
             coverage: Vec::new(),
         }
     }
 
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.rich_text(&[Span::new(text)], style)
+    }
+
+    pub fn rich_text(&mut self, spans: &[Span<'_>], style: TextStyle) -> TextRunId {
+        let empty = [Span::new("")];
+        let spans = if spans.is_empty() { &empty } else { spans };
         let Some(font) = self.fonts.iter().find(|font| font.id == style.font) else {
             return TextRunId::default();
         };
+        if spans.iter().any(|span| {
+            span.font
+                .is_some_and(|id| !self.fonts.iter().any(|font| font.id == id))
+        }) {
+            return TextRunId::default();
+        }
+        let size = style.size;
         let style = blit_text::TextStyle {
             font: font.font,
-            size: style.size,
             weight: style.weight,
             stretch: style.stretch,
             style: style.style,
         };
+        let resolve = |span: &Span<'_>| blit_text::TextStyle {
+            font: span.font.map_or(style.font, |id| {
+                self.fonts.iter().find(|font| font.id == id).unwrap().font
+            }),
+            weight: span.weight.unwrap_or(style.weight),
+            stretch: span.stretch.unwrap_or(style.stretch),
+            style: span.style.unwrap_or(style.style),
+        };
         let mut hasher = DefaultHasher::new();
-        text.hash(&mut hasher);
+        spans.hash(&mut hasher);
+        let len = spans.iter().map(|span| span.text.len()).sum();
         let key = TextKey {
             digest: hasher.finish(),
-            len: text.len(),
+            len,
             font: style.font,
-            size: style.size.to_bits(),
+            size: size.to_bits(),
             weight: style.weight,
             stretch: style.stretch,
             style: style.style,
@@ -209,15 +251,66 @@ impl TextRenderer {
         let (_, index) = self.texts.get_or_insert_by(
             &key,
             |candidate, cached| {
-                *candidate == key && cached.text.as_ref() == text && cached.style == style
+                *candidate == key
+                    && match &cached.spans {
+                        CachedSpans::One { style, color } => {
+                            spans.len() == 1
+                                && cached.text.as_ref() == spans[0].text
+                                && *style == resolve(&spans[0])
+                                && *color == spans[0].color
+                        }
+                        CachedSpans::Many {
+                            spans: cached_spans,
+                            colors,
+                        } => {
+                            cached_spans.len() == spans.len()
+                                && cached_spans.iter().zip(colors).zip(spans).all(
+                                    |((cached_span, color), span)| {
+                                        &cached.text[cached_span.range.clone()] == span.text
+                                            && cached_span.style == resolve(span)
+                                            && *color == span.color
+                                    },
+                                )
+                        }
+                    }
             },
             || {
+                let (text, spans) = if spans.len() == 1 {
+                    (
+                        spans[0].text.into(),
+                        CachedSpans::One {
+                            style: resolve(&spans[0]),
+                            color: spans[0].color,
+                        },
+                    )
+                } else {
+                    let mut text = String::with_capacity(len);
+                    let mut resolved = Vec::with_capacity(spans.len());
+                    let mut colors = Vec::with_capacity(spans.len());
+                    for span in spans {
+                        let start = text.len();
+                        text.push_str(span.text);
+                        resolved.push(blit_text::TextSpan {
+                            range: start..text.len(),
+                            style: resolve(span),
+                        });
+                        colors.push(span.color);
+                    }
+                    (
+                        text.into(),
+                        CachedSpans::Many {
+                            spans: resolved.into_boxed_slice(),
+                            colors: colors.into_boxed_slice(),
+                        },
+                    )
+                };
                 (
                     key,
                     CachedText {
                         id: TextRunId(u64::from(next_text) << 32),
-                        text: text.into(),
-                        style,
+                        text,
+                        size,
+                        spans,
                     },
                 )
             },
@@ -249,7 +342,27 @@ impl TextRenderer {
         };
         let text_system = &mut self.text;
         let (_, index) = self.layouts.get_or_insert(key, || CachedLayout {
-            layout: text_system.layout(&cached.text, cached.style, request),
+            layout: {
+                let one;
+                let spans = match &cached.spans {
+                    CachedSpans::One { style, .. } => {
+                        one = blit_text::TextSpan {
+                            range: 0..cached.text.len(),
+                            style: *style,
+                        };
+                        std::slice::from_ref(&one)
+                    }
+                    CachedSpans::Many { spans, .. } => spans,
+                };
+                text_system.layout(
+                    blit_text::Text {
+                        text: &cached.text,
+                        size: cached.size,
+                        spans,
+                    },
+                    request,
+                )
+            },
             paint: None,
         });
         index
@@ -259,7 +372,7 @@ impl TextRenderer {
         &mut self,
         request: &TextRequest,
         scale_factor: f32,
-    ) -> (u32, u32, PreparedLines, PhysicalRect) {
+    ) -> (u32, u32, PreparedRuns, PhysicalRect) {
         let area = request.area.to_physical(Scale2::uniform(scale_factor));
         let layout_index = self.layout(request.text, Self::paint_request(request));
         let scale = scale_factor.to_bits();
@@ -279,23 +392,27 @@ impl TextRenderer {
                     offset_x,
                     bounds: PhysicalRect::default(),
                     glyphs: Vec::new(),
-                    lines: Vec::new(),
+                    runs: Vec::new(),
                 });
             paint.scale = scale;
             paint.offset_x = offset_x;
             paint.bounds = PhysicalRect::default();
             paint.glyphs.clear();
-            paint.lines.clear();
+            paint.runs.clear();
             let mut has_bounds = false;
             let width = area.width.max(0);
             let height = area.height.max(0);
             let text = self.text.as_ref();
             let layout = &self.layouts.get_index(layout_index).layout;
+            let spans = &self
+                .texts
+                .get_index((request.text.0 as u32 - 1) as usize)
+                .spans;
             let glyphs = &mut self.glyphs;
             for run in &layout.runs {
                 let start = u32::try_from(paint.glyphs.len()).expect("too many paint glyphs");
-                let mut line_top = i32::MAX;
-                let mut line_bottom = i32::MIN;
+                let mut top = i32::MAX;
+                let mut bottom = i32::MIN;
                 let size = (run.size * scale_factor).to_bits();
                 for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
                     let cached = glyphs.glyph(text, run.face, glyph.id, size);
@@ -311,13 +428,13 @@ impl TextRenderer {
                     let glyph_height =
                         i32::try_from(cached.metrics.height).expect("glyph is too tall");
                     let right = x.saturating_add(glyph_width);
-                    let bottom = y.saturating_add(glyph_height);
+                    let glyph_bottom = y.saturating_add(glyph_height);
                     if glyph_width == 0
                         || glyph_height == 0
                         || x >= width
                         || right <= 0
                         || y >= height
-                        || bottom <= 0
+                        || glyph_bottom <= 0
                     {
                         continue;
                     }
@@ -328,13 +445,13 @@ impl TextRenderer {
                         x,
                         y,
                     });
-                    line_top = line_top.min(y);
-                    line_bottom = line_bottom.max(bottom);
+                    top = top.min(y);
+                    bottom = bottom.max(glyph_bottom);
                     let glyph_bounds = PhysicalRect {
                         x: x.max(0),
                         y: y.max(0),
                         width: right.min(width) - x.max(0),
-                        height: bottom.min(height) - y.max(0),
+                        height: glyph_bottom.min(height) - y.max(0),
                     };
                     paint.bounds = if has_bounds {
                         paint.bounds.union(glyph_bounds)
@@ -345,11 +462,16 @@ impl TextRenderer {
                 }
                 let end = u32::try_from(paint.glyphs.len()).expect("too many paint glyphs");
                 if start != end {
-                    paint.lines.push(PreparedLine {
+                    let color = match spans {
+                        CachedSpans::One { color, .. } => *color,
+                        CachedSpans::Many { colors, .. } => colors[run.span],
+                    };
+                    paint.runs.push(PreparedRun {
                         glyph_start: start,
                         glyph_end: end,
-                        top: line_top,
-                        bottom: line_bottom,
+                        top,
+                        bottom,
+                        color,
                     });
                 }
             }
@@ -373,68 +495,56 @@ impl TextRenderer {
             });
         }
         let glyph_end = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
-        let lines = if paint.lines.len() > 1 {
-            let start = u32::try_from(self.lines.len()).expect("too many prepared lines");
-            for line in &paint.lines {
-                self.lines.push(PreparedLine {
-                    glyph_start: glyph_start
-                        .checked_add(line.glyph_start)
-                        .expect("too many prepared glyphs"),
-                    glyph_end: glyph_start
-                        .checked_add(line.glyph_end)
-                        .expect("too many prepared glyphs"),
-                    top: line.top,
-                    bottom: line.bottom,
-                });
-            }
-            PreparedLines {
-                start,
-                end: u32::try_from(self.lines.len()).expect("too many prepared lines"),
-            }
-        } else {
-            PreparedLines::NONE
-        };
+        let runs =
+            if paint.runs.len() > 1 || paint.runs.first().is_some_and(|run| run.color.is_some()) {
+                let start = u32::try_from(self.runs.len()).expect("too many prepared runs");
+                for run in &paint.runs {
+                    self.runs.push(PreparedRun {
+                        glyph_start: glyph_start
+                            .checked_add(run.glyph_start)
+                            .expect("too many prepared glyphs"),
+                        glyph_end: glyph_start
+                            .checked_add(run.glyph_end)
+                            .expect("too many prepared glyphs"),
+                        top: run.top,
+                        bottom: run.bottom,
+                        color: run.color,
+                    });
+                }
+                PreparedRuns {
+                    start,
+                    end: u32::try_from(self.runs.len()).expect("too many prepared runs"),
+                }
+            } else {
+                PreparedRuns::NONE
+            };
         let bounds = PhysicalRect {
             x: area.x.saturating_add(paint.bounds.x),
             y: area.y.saturating_add(paint.bounds.y),
             width: paint.bounds.width,
             height: paint.bounds.height,
         };
-        (glyph_start, glyph_end, lines, bounds)
+        (glyph_start, glyph_end, runs, bounds)
     }
 
     pub fn draw_line<P: Pixel>(
         &mut self,
-        glyph_start: u32,
-        glyph_end: u32,
-        lines: PreparedLines,
-        area: PhysicalRect,
-        color: Color,
+        command: &PreparedText,
+        clip_coverage: u8,
         line: i32,
         row: PixelSpan<'_, P>,
         clip: PhysicalRect,
     ) {
+        let PreparedText {
+            glyph_start,
+            glyph_end,
+            runs,
+            area,
+            color,
+        } = *command;
         if line < clip.y || line >= clip.y.saturating_add(clip.height) {
             return;
         }
-        let (glyph_start, glyph_end) = if lines.start == PreparedLines::NONE.start {
-            (glyph_start, glyph_end)
-        } else {
-            let mut start = glyph_end;
-            let mut end = glyph_start;
-            for prepared_line in &self.lines[lines.start as usize..lines.end as usize] {
-                if line >= area.y.saturating_add(prepared_line.top)
-                    && line < area.y.saturating_add(prepared_line.bottom)
-                {
-                    start = start.min(prepared_line.glyph_start);
-                    end = end.max(prepared_line.glyph_end);
-                }
-            }
-            if start >= end {
-                return;
-            }
-            (start, end)
-        };
         let row_end = row.x.saturating_add(row.pixels.len() as i32);
         if self.coverage.len() < row.pixels.len() {
             self.coverage.resize(row.pixels.len(), 0);
@@ -444,54 +554,68 @@ impl TextRenderer {
         let clear_end = (clip.x.saturating_add(clip.width) - row.x)
             .max(0)
             .min(row.pixels.len() as i32) as usize;
-        coverage[clear_start..clear_end].fill(0);
-        let mut touched_start = row.pixels.len();
-        let mut touched_end = 0usize;
-        for glyph in &self.prepared[glyph_start as usize..glyph_end as usize] {
-            let x = area.x.saturating_add(glyph.x);
-            let y = area.y.saturating_add(glyph.y);
-            if line < y || line >= y.saturating_add(glyph.height as i32) {
-                continue;
+        let mut draw = |glyph_start: u32, glyph_end: u32, mut color: Color| {
+            color.alpha = (color.alpha as u16 * clip_coverage as u16 / 255) as u8;
+            coverage[clear_start..clear_end].fill(0);
+            let mut touched_start = row.pixels.len();
+            let mut touched_end = 0usize;
+            for glyph in &self.prepared[glyph_start as usize..glyph_end as usize] {
+                let x = area.x.saturating_add(glyph.x);
+                let y = area.y.saturating_add(glyph.y);
+                if line < y || line >= y.saturating_add(glyph.height as i32) {
+                    continue;
+                }
+                let left = x.max(row.x).max(clip.x);
+                let right = x
+                    .saturating_add(glyph.width as i32)
+                    .min(row_end)
+                    .min(clip.x.saturating_add(clip.width));
+                if left >= right {
+                    continue;
+                }
+                let source_x = (left - x) as usize;
+                let source_y = (line - y) as usize;
+                let len = (right - left) as usize;
+                let source = source_y * glyph.width as usize + source_x;
+                // safety: glyph alpha allocations remain live until finish_frame
+                let alpha =
+                    unsafe { std::slice::from_raw_parts(glyph.alpha.as_ptr().add(source), len) };
+                let destination_start = (left - row.x) as usize;
+                let destination_end = destination_start + len;
+                let overlap = touched_end.saturating_sub(destination_start).min(len);
+                let destination = &mut coverage[destination_start..destination_end];
+                for (destination, source) in destination[..overlap].iter_mut().zip(alpha) {
+                    *destination =
+                        (*source as u16 + *destination as u16 * (255 - *source as u16) / 255) as u8;
+                }
+                destination[overlap..].copy_from_slice(&alpha[overlap..]);
+                touched_start = touched_start.min(destination_start);
+                touched_end = touched_end.max(destination_end);
             }
-            let left = x.max(row.x).max(clip.x);
-            let right = x
-                .saturating_add(glyph.width as i32)
-                .min(row_end)
-                .min(clip.x.saturating_add(clip.width));
-            if left >= right {
-                continue;
+            if touched_start < touched_end {
+                P::blend_alpha_slice(
+                    &mut row.pixels[touched_start..touched_end],
+                    color,
+                    &coverage[touched_start..touched_end],
+                );
             }
-            let source_x = (left - x) as usize;
-            let source_y = (line - y) as usize;
-            let len = (right - left) as usize;
-            let source = source_y * glyph.width as usize + source_x;
-            // safety: glyph alpha allocations remain live until finish_frame
-            let alpha =
-                unsafe { std::slice::from_raw_parts(glyph.alpha.as_ptr().add(source), len) };
-            let destination_start = (left - row.x) as usize;
-            let destination_end = destination_start + len;
-            let overlap = touched_end.saturating_sub(destination_start).min(len);
-            let destination = &mut coverage[destination_start..destination_end];
-            for (destination, source) in destination[..overlap].iter_mut().zip(alpha) {
-                *destination =
-                    (*source as u16 + *destination as u16 * (255 - *source as u16) / 255) as u8;
+        };
+        if runs.start == PreparedRuns::NONE.start {
+            draw(glyph_start, glyph_end, color);
+        } else {
+            for run in &self.runs[runs.start as usize..runs.end as usize] {
+                if line >= area.y.saturating_add(run.top)
+                    && line < area.y.saturating_add(run.bottom)
+                {
+                    draw(run.glyph_start, run.glyph_end, run.color.unwrap_or(color));
+                }
             }
-            destination[overlap..].copy_from_slice(&alpha[overlap..]);
-            touched_start = touched_start.min(destination_start);
-            touched_end = touched_end.max(destination_end);
-        }
-        if touched_start < touched_end {
-            P::blend_alpha_slice(
-                &mut row.pixels[touched_start..touched_end],
-                color,
-                &coverage[touched_start..touched_end],
-            );
         }
     }
 
     pub fn finish_frame(&mut self) {
         self.prepared.clear();
-        self.lines.clear();
+        self.runs.clear();
         self.layouts.trim_to_weight();
         self.texts.trim_to_weight();
         self.glyphs.finish_frame();

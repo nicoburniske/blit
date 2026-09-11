@@ -157,13 +157,21 @@ impl blit_text::TextLayoutEngine for Backend {
         self.faces.get(index).map(|face| &face.data)
     }
 
-    fn layout(&mut self, text: &str, style: TextStyle, request: LayoutRequest) -> TextLayout {
-        let selection_index = style.font.0.checked_sub(1).expect("invalid font selection") as usize;
-        let family = self
-            .selections
-            .get(selection_index)
-            .expect("expired font selection");
-        let line_height = style.size * 1.2;
+    fn layout(&mut self, text: blit_text::Text<'_>, request: LayoutRequest) -> TextLayout {
+        let attrs = |style: TextStyle| {
+            let index = style.font.0.checked_sub(1).expect("invalid font selection") as usize;
+            Attrs::new()
+                .family(Family::Name(&self.selections[index]))
+                .stretch(cosmic_stretch(style.stretch))
+                .style(cosmic_style(style.style))
+                .weight(fontdb::Weight(style.weight))
+        };
+        let default_attrs = text
+            .spans
+            .first()
+            .map(|span| attrs(span.style))
+            .unwrap_or_else(Attrs::new);
+        let line_height = text.size * 1.2;
         let height = match (request.max_height, request.max_lines) {
             (Some(height), Some(lines)) => Some(height.min(line_height * f32::from(lines))),
             (Some(height), None) => Some(height),
@@ -171,7 +179,7 @@ impl blit_text::TextLayoutEngine for Backend {
             (None, None) => None,
         };
         let buffer = &mut self.buffer;
-        buffer.set_metrics(Metrics::new(style.size, line_height));
+        buffer.set_metrics(Metrics::new(text.size, line_height));
         buffer.set_size(request.max_width, height);
         buffer.set_wrap(match request.wrap {
             TextWrap::None => Wrap::None,
@@ -185,14 +193,10 @@ impl blit_text::TextLayoutEngine for Backend {
                 None => EllipsizeHeightLimit::Height(request.max_height.unwrap_or(f32::MAX)),
             }),
         });
-        let attrs = Attrs::new()
-            .family(Family::Name(family))
-            .stretch(cosmic_stretch(style.stretch))
-            .style(cosmic_style(style.style))
-            .weight(fontdb::Weight(style.weight));
-        buffer.set_text(
-            text,
-            &attrs,
+        buffer.set_rich_text(
+            text.segments()
+                .map(|(index, range, style)| (&text.text[range], attrs(style).metadata(index))),
+            &default_attrs,
             Shaping::Advanced,
             Some(match request.horizontal_align {
                 HorizontalAlign::Left => Align::Left,
@@ -201,6 +205,7 @@ impl blit_text::TextLayoutEngine for Backend {
             }),
         );
         buffer.shape_until_scroll(&mut self.fonts, false);
+        let text = text.text;
 
         let mut width = 0.0f32;
         let mut content_height = if text.is_empty() { line_height } else { 0.0 };
@@ -215,12 +220,9 @@ impl blit_text::TextLayoutEngine for Backend {
                 VerticalAlign::Center => ((height - content_height) / 2.0).floor(),
                 VerticalAlign::Bottom => (height - content_height).floor(),
             });
-        let mut line_starts: Vec<_> = LineIter::new(text).map(|(range, _)| range.start).collect();
-        if line_starts.is_empty() {
-            line_starts.push(0);
-        } else if matches!(text.as_bytes().last(), Some(b'\r' | b'\n')) {
-            line_starts.push(text.len());
-        }
+        let mut line_starts = LineIter::new(text).map(|(range, _)| range.start);
+        let mut line_start = line_starts.next().unwrap_or(0);
+        let mut line_index = 0;
 
         let mut glyphs = Vec::new();
         let mut runs = Vec::new();
@@ -228,6 +230,10 @@ impl blit_text::TextLayoutEngine for Backend {
         let mut carets = Vec::new();
         let mut line_carets = Vec::new();
         for line in buffer.layout_runs() {
+            while line_index < line.line_i {
+                line_start = line_starts.next().unwrap_or(text.len());
+                line_index += 1;
+            }
             let bounds = LogicalRect {
                 x: 0.0,
                 y: line.line_top + offset_y,
@@ -241,6 +247,7 @@ impl blit_text::TextLayoutEngine for Backend {
                 while end < line.glyphs.len()
                     && line.glyphs[end].font_id == source.font_id
                     && line.glyphs[end].font_size.to_bits() == source.font_size.to_bits()
+                    && line.glyphs[end].metadata == source.metadata
                 {
                     end += 1;
                 }
@@ -263,6 +270,7 @@ impl blit_text::TextLayoutEngine for Backend {
                     face,
                     size: source.font_size,
                     glyphs: glyph_start..u32::try_from(glyphs.len()).expect("too many glyphs"),
+                    span: source.metadata,
                 });
                 start = end;
             }
@@ -272,8 +280,7 @@ impl blit_text::TextLayoutEngine for Backend {
                 line_carets.push((
                     false,
                     Caret {
-                        byte_offset: u32::try_from(line_starts[line.line_i])
-                            .expect("text is too long"),
+                        byte_offset: u32::try_from(line_start).expect("text is too long"),
                         position: LogicalPoint {
                             x: 0.0,
                             y: line.line_top + offset_y,
@@ -305,10 +312,8 @@ impl blit_text::TextLayoutEngine for Backend {
                         line_carets.push((
                             end,
                             Caret {
-                                byte_offset: u32::try_from(
-                                    line_starts[line.line_i].saturating_add(index),
-                                )
-                                .expect("text is too long"),
+                                byte_offset: u32::try_from(line_start.saturating_add(index))
+                                    .expect("text is too long"),
                                 position: LogicalPoint {
                                     x,
                                     y: line.line_top + offset_y,
@@ -413,14 +418,30 @@ mod tests {
                 },
             ])
             .unwrap();
+        let text = "regular bold";
+        let regular_style = TextStyle {
+            font,
+            weight: 400,
+            stretch: 100,
+            style: FontStyle::Normal,
+        };
         let layout = backend.layout(
-            "selection",
-            TextStyle {
-                font,
+            blit_text::Text {
+                text,
                 size: 16.0,
-                weight: 700,
-                stretch: 100,
-                style: FontStyle::Normal,
+                spans: &[
+                    blit_text::TextSpan {
+                        range: 0..8,
+                        style: regular_style,
+                    },
+                    blit_text::TextSpan {
+                        range: 8..text.len(),
+                        style: TextStyle {
+                            weight: 700,
+                            ..regular_style
+                        },
+                    },
+                ],
             },
             LayoutRequest {
                 max_width: None,
@@ -433,6 +454,17 @@ mod tests {
             },
         );
 
-        assert!(layout.runs.iter().all(|run| run.face == bold));
+        assert!(
+            layout
+                .runs
+                .iter()
+                .any(|run| run.span == 0 && run.face == regular)
+        );
+        assert!(
+            layout
+                .runs
+                .iter()
+                .any(|run| run.span == 1 && run.face == bold)
+        );
     }
 }
