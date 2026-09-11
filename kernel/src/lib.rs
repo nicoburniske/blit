@@ -62,9 +62,20 @@ pub trait Platform {
 
     fn end(&mut self);
 
+    /// build and layout may repeat for queued inputs before paint and complete
+    fn begin_stage(&mut self, _: FrameStage) {}
+
     fn interaction_area(&self, area: Rect, clip: Rect) -> Option<Rect> {
         area.intersection(clip)
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameStage {
+    Build,
+    Layout,
+    Paint,
+    Complete,
 }
 
 crate::builder! {

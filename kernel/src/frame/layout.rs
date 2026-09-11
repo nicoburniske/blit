@@ -111,6 +111,11 @@ impl<'a, R: Platform, I: 'static> LayoutCx<'a, R, I> {
         self.frame.layout_resolution
     }
 
+    /// requests another frame when layout changes cached geometry
+    pub fn request_frame(&mut self) {
+        self.frame.request_frame();
+    }
+
     /// accesses platform resources during layout
     #[inline]
     pub fn platform(&mut self) -> &mut R {

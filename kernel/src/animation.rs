@@ -21,6 +21,12 @@ impl Transition {
         self
     }
 
+    /// animate during window resize instead of snapping to the new layout
+    pub const fn resize(mut self) -> Self {
+        self.properties = self.properties.union(TransitionProperties::RESIZE);
+        self
+    }
+
     pub const fn x(mut self) -> Self {
         self.properties = self.properties.union(TransitionProperties::X);
         self
@@ -66,6 +72,7 @@ impl TransitionProperties {
     pub const Y: Self = Self(1 << 1);
     pub const WIDTH: Self = Self(1 << 2);
     pub const HEIGHT: Self = Self(1 << 3);
+    pub const RESIZE: Self = Self(1 << 4);
     pub const POSITION: Self = Self(Self::X.0 | Self::Y.0);
     pub const SIZE: Self = Self(Self::WIDTH.0 | Self::HEIGHT.0);
     pub const LAYOUT: Self = Self(Self::POSITION.0 | Self::SIZE.0);

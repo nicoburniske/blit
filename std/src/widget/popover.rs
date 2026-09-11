@@ -12,6 +12,7 @@ pub enum Close {
     #[default]
     Click,
     Exit,
+    Manual,
 }
 
 blit::builder! {
@@ -150,6 +151,7 @@ where
         let close = match self.config.close {
             Close::Click => backdrop.activated,
             Close::Exit => pointer_exited,
+            Close::Manual => false,
         };
         if close {
             self.state.open = false;
@@ -169,14 +171,16 @@ where
             .z_index(1)
             .widget_id(self.state.id)
             .layout(single::layout());
-        popup
-            .absolute(
-                Absolute::at(0.0, 0.0)
-                    .width(Sizing::grow())
-                    .height(Sizing::grow()),
-            )
-            .widget_id(backdrop_id)
-            .insert(());
+        if self.config.close != Close::Manual {
+            popup
+                .absolute(
+                    Absolute::at(0.0, 0.0)
+                        .width(Sizing::grow())
+                        .height(Sizing::grow()),
+                )
+                .widget_id(backdrop_id)
+                .insert(());
+        }
         let response = popup
             .absolute(
                 Absolute::attach(self.config.target_anchor, self.config.child_anchor)

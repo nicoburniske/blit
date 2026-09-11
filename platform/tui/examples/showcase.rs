@@ -1,10 +1,10 @@
-use std::{cell::RefCell, fmt::Write as _, io, rc::Rc, time::Duration};
+use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
 use blit::{
     Absolute, Anchor, Axis, Easing, Input, Interaction, Key, Sense, Sides, Size, Sizing,
     Transition, Widget, WidgetId,
 };
-use blit_showcase::{CanvasConfig, CanvasLayout, FpsCounter, ITEMS, ItemSizing};
+use blit_showcase::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiPlatform, Ui,
     atom::{
@@ -16,7 +16,10 @@ use blit_tui::{
     text::{
         HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign,
     },
-    widget::{Block, Text, TextInput, Title, popover, resize, scroll, split, text_input},
+    widget::{
+        Block, Performance, Text, TextInput, Title, performance, popover, resize, scroll, split,
+        text_input,
+    },
 };
 
 fn main() -> io::Result<()> {
@@ -33,8 +36,8 @@ struct Showcase {
     scroll: ScrollPage,
     settings: popover::State,
     modal: Modal,
-    fps: FpsBadge,
-    show_fps: bool,
+    performance: performance::State,
+    show_performance: bool,
 }
 
 impl Default for Showcase {
@@ -48,8 +51,8 @@ impl Default for Showcase {
             scroll: ScrollPage::default(),
             settings: popover::State::new(),
             modal: Modal::default(),
-            fps: FpsBadge::default(),
-            show_fps: true,
+            performance: performance::State::default(),
+            show_performance: true,
         }
     }
 }
@@ -119,11 +122,11 @@ impl Showcase {
                                 .border(Border::new(colors::ACCENT).style(BorderStyle::Rounded)),
                         );
                         if popup.child(flex::item()).build(Button::new(
-                            WidgetId::new("tui settings show fps"),
-                            " show fps ",
-                            self.show_fps,
+                            WidgetId::new("tui settings show performance"),
+                            " show performance ",
+                            self.show_performance,
                         )) {
-                            self.show_fps = !self.show_fps;
+                            self.show_performance = !self.show_performance;
                         }
                         let reset = popup.child(flex::item()).build(Button::new(
                             WidgetId::new("tui reset showcase"),
@@ -151,13 +154,20 @@ impl Showcase {
             Page::Atoms => root.child(flex::item().grow()).build(&mut self.atoms),
             Page::Scroll => root.child(flex::item().grow()).build(&mut self.scroll),
         };
-        if self.show_fps {
+        if self.show_performance {
             root.absolute(
                 Absolute::screen(0.0, 0.0)
                     .anchors(Anchor::BottomRight, Anchor::BottomRight)
                     .offset(-1.0, -1.0),
             )
-            .build(&mut self.fps);
+            .build(
+                Performance::new(&mut self.performance)
+                    .background(colors::SURFACE_HIGH)
+                    .graph_background(colors::TRACK)
+                    .color(colors::TEXT)
+                    .muted_color(colors::TEXT)
+                    .accent(colors::ACCENT),
+            );
         }
     }
 }
@@ -1023,53 +1033,6 @@ enum Page {
     Blocks,
     Atoms,
     Scroll,
-}
-
-struct FpsBadge {
-    counter: FpsCounter,
-    label: String,
-}
-
-impl Default for FpsBadge {
-    fn default() -> Self {
-        Self {
-            counter: FpsCounter::default(),
-            label: "FPS --".into(),
-        }
-    }
-}
-
-impl Widget<TuiPlatform> for &mut FpsBadge {
-    type Response = ();
-
-    fn build(self, ui: Ui<'_>) {
-        if let Some(fps) = self.counter.update(ui.time()) {
-            self.label.clear();
-            let _ = write!(self.label, "FPS {fps:03.0}");
-        }
-        let mut badge = ui.layout(
-            flex::row()
-                .padding(Sides::all(1.0))
-                .gap(1.0)
-                .align(Align::Center),
-        );
-        badge.insert(
-            Block::new()
-                .background(colors::SURFACE_HIGH)
-                .border(Border::new(colors::ACCENT).style(BorderStyle::Rounded)),
-        );
-        badge
-            .child(flex::item().fixed(1.0, 1.0))
-            .insert(Block::new().background(colors::ACCENT));
-        badge.child(flex::item()).insert(
-            Text::new(&self.label)
-                .color(colors::TEXT)
-                .attributes(TextAttributes::BOLD),
-        );
-        badge
-            .child(flex::item())
-            .insert(Text::new("SCREEN ABSOLUTE").color(colors::TEXT_DIM));
-    }
 }
 
 struct TuiGrip(resize::Grip);

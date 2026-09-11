@@ -14,6 +14,7 @@ pub fn resolve<R: Platform>(
     data: &mut DataArena,
     platform: &mut R,
     size: Size,
+    resized: bool,
 ) {
     for index in 0..frame.geometry.len() {
         let record = frame.geometry[index];
@@ -45,7 +46,7 @@ pub fn resolve<R: Platform>(
         let offset = position::offset(frame, node);
         target.x -= offset.x;
         target.y -= offset.y;
-        frame.transitions[index].advance(target, frame.time);
+        frame.transitions[index].advance(target, frame.time, resized);
         active = active.union(frame.transitions[index].active);
     }
 
@@ -167,12 +168,20 @@ impl TransitionState {
         }
     }
 
-    pub fn advance(&mut self, target: Rect, now: Duration) {
-        if !self.initialized {
+    pub fn advance(&mut self, target: Rect, now: Duration, resized: bool) {
+        if !self.initialized
+            || (resized
+                && !self
+                    .config
+                    .properties
+                    .intersects(TransitionProperties::RESIZE))
+        {
             self.current = target;
             self.initial = target;
             self.target = target;
             self.initialized = true;
+            self.started_at = None;
+            self.active = TransitionProperties::NONE;
             return;
         }
         self.active = self.active.intersection(self.config.properties);

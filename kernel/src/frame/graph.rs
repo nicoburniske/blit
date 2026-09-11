@@ -179,6 +179,7 @@ impl<R: Platform> Frame<R> {
     ) -> W::Response {
         #[cfg(debug_assertions)]
         generation::begin();
+        platform.begin_stage(crate::FrameStage::Build);
         self.nodes.clear();
         self.current_parent = None;
         self.atoms.clear();
@@ -196,6 +197,7 @@ impl<R: Platform> Frame<R> {
         self.active_clips.clear();
         self.input = input;
         self.time = time;
+        let resized = self.screen.size() != frame.size;
         self.screen = Rect::new(0.0, 0.0, frame.size.width, frame.size.height);
         self.layout_resolution = frame.layout_resolution;
         for animation in &mut self.animations {
@@ -226,8 +228,9 @@ impl<R: Platform> Frame<R> {
 
         // layout mutates graph state while frame data remains immutable
         // todo/hack: is there a better way to do this
+        platform.begin_stage(crate::FrameStage::Layout);
         let mut data = std::mem::take(&mut self.data);
-        transition::resolve(self, &mut data, platform, frame.size);
+        transition::resolve(self, &mut data, platform, frame.size, resized);
         position::resolve(self);
         paint::resolve_order(self);
         paint::resolve_clips(self);
@@ -239,10 +242,14 @@ impl<R: Platform> Frame<R> {
         self.timers.retain(|timer| timer.seen);
         self.named_nodes.retain(|_, node| node.is_some());
         if render {
+            platform.begin_stage(crate::FrameStage::Paint);
             paint::render(self, &data, platform, frame);
         }
         data.clear();
         self.data = data;
+        if render {
+            platform.begin_stage(crate::FrameStage::Complete);
+        }
         output
     }
 

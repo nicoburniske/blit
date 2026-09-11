@@ -1,8 +1,13 @@
-use blit::{Clip, FrameInfo, LogicalRect, Platform, Scale2};
+use std::time::Instant;
+
+use blit::{Clip, FrameInfo, FrameStage, LogicalRect, Platform, Scale2};
+use blit_std::widget::performance::{FrameProfiler, Profiled};
 use blit_tui_render::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 
 /// rendering resources independent of terminal io and event loop ownership
 pub struct TuiPlatform {
+    profiler: FrameProfiler,
+    clock: Instant,
     renderer: TuiRenderer,
     clip: LogicalRect,
     clips: Vec<LogicalRect>,
@@ -13,6 +18,8 @@ impl TuiPlatform {
     pub fn new(renderer: TuiRenderer) -> Self {
         let clip = renderer.screen().to_logical(Scale2::IDENTITY);
         Self {
+            profiler: FrameProfiler::default(),
+            clock: Instant::now(),
             renderer,
             clip,
             clips: Vec::new(),
@@ -51,7 +58,17 @@ impl TuiPlatform {
     }
 }
 
+impl Profiled for TuiPlatform {
+    fn profiler(&self) -> &FrameProfiler {
+        &self.profiler
+    }
+}
+
 impl Platform for TuiPlatform {
+    fn begin_stage(&mut self, stage: FrameStage) {
+        self.profiler.begin_stage(stage, self.clock.elapsed());
+    }
+
     fn begin(&mut self, _: FrameInfo) {
         self.renderer.begin_frame();
         self.clip = self.renderer.screen().to_logical(Scale2::IDENTITY);

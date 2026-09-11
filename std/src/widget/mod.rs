@@ -1,3 +1,4 @@
+pub mod performance;
 pub mod popover;
 pub mod resize;
 pub mod scroll;
