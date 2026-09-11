@@ -9,10 +9,12 @@ autoexamples = false
 [features]
 cosmic = ["dep:blit-text-cosmic"]
 fontdue = ["dep:blit-text-fontdue"]
+gpu = ["dep:blit-gpu"]
 
 [dependencies]
 blit.workspace = true
 blit-cpu = { path = "../../render/cpu" }
+blit-gpu = { path = "../../render/gpu", optional = true }
 blit-diff.workspace = true
 blit-executor.workspace = true
 blit-std.workspace = true

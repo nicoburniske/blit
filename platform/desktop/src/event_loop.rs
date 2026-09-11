@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, pin::Pin, rc::Rc, time::Instant};
+use std::{pin::Pin, sync::Arc, time::Instant};
 
 use blit::{
     Frame, FrameInfo, LogicalPoint, Size,
@@ -6,17 +6,19 @@ use blit::{
 };
 use blit_cpu::{Renderer, Scanline};
 use blit_executor::{LocalExecutor, TaskId};
-use softbuffer::{Context, Surface};
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize as WindowSize, PhysicalPosition, PhysicalSize},
     event::{ElementState, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key as WindowKey, NamedKey},
     window::{Window, WindowId},
 };
 
-use crate::{Application, Config, DesktopPlatform, EventLoopProxy, RunError, pixel::DesktopBuffer};
+use crate::{
+    Application, Config, DesktopPlatform, EventLoopProxy, RunError, pixel::DesktopBuffer,
+    present::Presenter,
+};
 
 pub enum Event<T> {
     Input(T),
@@ -25,7 +27,6 @@ pub enum Event<T> {
 
 pub fn run<A: Application>(config: Config) -> Result<(), RunError> {
     let event_loop = EventLoop::<Event<A::Input>>::with_user_event().build()?;
-    let context = Context::new(event_loop.owned_display_handle())?;
     let mut runner: Runner<A> = Runner {
         state: Some(State::Pending {
             config,
@@ -33,11 +34,12 @@ pub fn run<A: Application>(config: Config) -> Result<(), RunError> {
                 inner: event_loop.create_proxy(),
             },
         }),
-        context,
         inputs: Vec::new(),
         cursor: None,
         modifiers: Modifiers::NONE,
         started_at: Instant::now(),
+        frame_times: std::env::var_os("BLIT_FRAME_TIMES").is_some_and(|value| value != "0"),
+        needs_frame: false,
         error: None,
     };
     event_loop.run_app(&mut runner)?;
@@ -46,11 +48,13 @@ pub fn run<A: Application>(config: Config) -> Result<(), RunError> {
 
 struct Runner<A: Application> {
     state: Option<State<A>>,
-    context: Context<OwnedDisplayHandle>,
     inputs: Vec<Input>,
     cursor: Option<PhysicalPosition<f64>>,
     modifiers: Modifiers,
     started_at: Instant,
+    frame_times: bool,
+    /// the last frame never reached the window: render again on the next redraw
+    needs_frame: bool,
     error: Option<RunError>,
 }
 
@@ -67,8 +71,8 @@ struct Active<A: Application> {
     executor: Pin<Box<LocalExecutor<A>>>,
     platform: DesktopPlatform,
     frame: Frame<DesktopPlatform>,
-    surface: Surface<OwnedDisplayHandle, Rc<Window>>,
-    window: Rc<Window>,
+    presenter: Presenter,
+    window: Arc<Window>,
     ui_scale: f32,
 }
 
@@ -78,16 +82,10 @@ impl<A: Application> Active<A> {
     }
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), RunError> {
-        let (Some(width), Some(height)) =
-            (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
-        else {
+        if size.width == 0 || size.height == 0 {
             return Ok(());
-        };
-        self.surface.resize(width, height)?;
-        self.platform
-            .renderer_mut()
-            .buffer_mut()
-            .resize(size.width as usize, size.height as usize);
+        }
+        self.presenter.resize(size, &mut self.platform)?;
         self.platform.invalidate_all();
         Ok(())
     }
@@ -152,32 +150,47 @@ impl<A: Application> Runner<A> {
             .frame
             .next_timer_deadline()
             .is_some_and(|deadline| time >= deadline);
-        if self.inputs.is_empty() && !active.frame.has_pending_redraw() && !timer_due {
+        if !self.needs_frame && self.inputs.is_empty() && !active.frame.has_pending_redraw() && !timer_due {
             return;
         }
         let scale = active.scale();
         let size = active.window.inner_size();
-        let mut buffer = match active.surface.buffer_mut() {
-            Ok(buffer) => buffer,
-            Err(error) => return self.fail(event_loop, error),
-        };
-        if buffer.age() == 0 {
-            active.platform.invalidate_all();
+        let started = Instant::now();
+        let mut rendered = started;
+        let app = &mut active.app;
+        let frame = &mut active.frame;
+        let inputs = self.inputs.drain(..);
+        let window = active.window.clone();
+        let result = active
+            .presenter
+            .present(&window, &mut active.platform, |platform| {
+                frame.render_inputs(
+                    platform,
+                    FrameInfo::new(Size::new(
+                        size.width as f32 / scale,
+                        size.height as f32 / scale,
+                    )),
+                    time,
+                    inputs,
+                    |ui| app.render(ui),
+                );
+                rendered = Instant::now();
+            });
+        if self.frame_times {
+            eprintln!(
+                "blit frame render {:.3} ms present {:.3} ms",
+                (rendered - started).as_secs_f64() * 1000.0,
+                rendered.elapsed().as_secs_f64() * 1000.0,
+            );
         }
-        active.platform.renderer_mut().buffer_mut().set(&mut buffer);
-        active.frame.render_inputs(
-            &mut active.platform,
-            FrameInfo::new(Size::new(
-                size.width as f32 / scale,
-                size.height as f32 / scale,
-            )),
-            time,
-            self.inputs.drain(..),
-            |ui| active.app.render(ui),
-        );
-        active.window.pre_present_notify();
-        if let Err(error) = buffer.present() {
-            self.fail(event_loop, error);
+        match result {
+            Ok(presented) => {
+                self.needs_frame = !presented;
+                if !presented {
+                    window.request_redraw();
+                }
+            }
+            Err(error) => self.fail(event_loop, error),
         }
     }
 }
@@ -195,13 +208,17 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             .with_title(config.title)
             .with_inner_size(WindowSize::new(config.width, config.height));
         let window = match event_loop.create_window(attributes) {
-            Ok(window) => Rc::new(window),
+            Ok(window) => Arc::new(window),
             Err(error) => return self.fail(event_loop, error),
         };
         let size = window.inner_size();
         let size = PhysicalSize::new(size.width.max(1), size.height.max(1));
-        let surface = match Surface::new(&self.context, window.clone()) {
-            Ok(surface) => surface,
+        let presenter = match Presenter::new(
+            event_loop.owned_display_handle(),
+            window.clone(),
+            size,
+        ) {
+            Ok(presenter) => presenter,
             Err(error) => return self.fail(event_loop, error),
         };
         let renderer = Renderer::new(
@@ -225,7 +242,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             executor,
             platform,
             frame,
-            surface,
+            presenter,
             window,
             ui_scale: 1.0,
         });
