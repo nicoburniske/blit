@@ -89,6 +89,7 @@ impl<A: Application> Active<A> {
             .buffer_mut()
             .resize(size.width as usize, size.height as usize);
         self.platform.invalidate_all();
+        self.frame.request_frame();
         Ok(())
     }
 }

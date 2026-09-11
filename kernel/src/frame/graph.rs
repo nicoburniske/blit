@@ -197,6 +197,7 @@ impl<R: Platform> Frame<R> {
         self.active_clips.clear();
         self.input = input;
         self.time = time;
+        let resized = self.screen.size() != frame.size;
         self.screen = Rect::new(0.0, 0.0, frame.size.width, frame.size.height);
         self.layout_resolution = frame.layout_resolution;
         for animation in &mut self.animations {
@@ -229,7 +230,7 @@ impl<R: Platform> Frame<R> {
         // todo/hack: is there a better way to do this
         platform.begin_stage(crate::FrameStage::Layout);
         let mut data = std::mem::take(&mut self.data);
-        transition::resolve(self, &mut data, platform, frame.size);
+        transition::resolve(self, &mut data, platform, frame.size, resized);
         position::resolve(self);
         paint::resolve_order(self);
         paint::resolve_clips(self);
