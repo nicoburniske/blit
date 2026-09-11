@@ -2,8 +2,8 @@ use std::{iter, sync::Arc};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use cosmic_text::{
-    Align, Attrs, Buffer, Cursor, Ellipsize, EllipsizeHeightLimit, Family, FontSystem, LineIter,
-    Metrics, Shaping, Wrap,
+    Align, Attrs, Buffer, Ellipsize, EllipsizeHeightLimit, Family, FontSystem, LineIter, Metrics,
+    Shaping, Wrap,
     fontdb::{self, Query, Source},
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -15,6 +15,7 @@ use blit_text::{
 };
 
 pub struct Backend {
+    buffer: Buffer,
     fonts: FontSystem,
     faces: Vec<CosmicFace>,
     aliases: Vec<CosmicAlias>,
@@ -45,30 +46,12 @@ impl Backend {
 
     fn with_font_system(fonts: FontSystem) -> Self {
         Self {
+            buffer: Buffer::new_empty(Metrics::new(1.0, 1.0)),
             fonts,
             faces: Vec::new(),
             aliases: Vec::new(),
             selections: Vec::new(),
         }
-    }
-
-    fn face(&mut self, cosmic: fontdb::ID) -> Option<FontFaceId> {
-        if let Some(index) = self.faces.iter().position(|face| face.cosmic == cosmic) {
-            return Some(FontFaceId(u64::try_from(index + 1).ok()?));
-        }
-        if let Some(alias) = self.aliases.iter().find(|alias| alias.cosmic == cosmic) {
-            return Some(alias.face);
-        }
-        let data = self
-            .fonts
-            .db()
-            .with_face_data(cosmic, |data, face_index| FontFace {
-                data: FontData::Shared(Arc::from(data)),
-                face_index,
-            })?;
-        let id = FontFaceId(u64::try_from(self.faces.len() + 1).ok()?);
-        self.faces.push(CosmicFace { cosmic, data });
-        Some(id)
     }
 }
 
@@ -91,7 +74,7 @@ impl blit_text::TextLayoutEngine for Backend {
                 style: cosmic_style(request.style),
             })
             .ok_or(FontError::NotFound)?;
-        self.face(cosmic).ok_or(FontError::InvalidData)
+        face(self.fonts.db(), &mut self.faces, &self.aliases, cosmic).ok_or(FontError::InvalidData)
     }
 
     fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontFaceId, FontError> {
@@ -187,7 +170,8 @@ impl blit_text::TextLayoutEngine for Backend {
             (None, Some(lines)) => Some(line_height * f32::from(lines)),
             (None, None) => None,
         };
-        let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(style.size, line_height));
+        let buffer = &mut self.buffer;
+        buffer.set_metrics(Metrics::new(style.size, line_height));
         buffer.set_size(request.max_width, height);
         buffer.set_wrap(match request.wrap {
             TextWrap::None => Wrap::None,
@@ -260,9 +244,13 @@ impl blit_text::TextLayoutEngine for Backend {
                 {
                     end += 1;
                 }
-                let face = self
-                    .face(source.font_id)
-                    .expect("cosmic-text returned invalid font");
+                let face = face(
+                    self.fonts.db(),
+                    &mut self.faces,
+                    &self.aliases,
+                    source.font_id,
+                )
+                .expect("cosmic-text returned invalid font");
                 let glyph_start = u32::try_from(glyphs.len()).expect("too many glyphs");
                 glyphs.extend(line.glyphs[start..end].iter().map(|glyph| Glyph {
                     id: glyph.glyph_id,
@@ -281,50 +269,61 @@ impl blit_text::TextLayoutEngine for Backend {
 
             line_carets.clear();
             if line.glyphs.is_empty() {
-                line_carets.push(Caret {
-                    byte_offset: u32::try_from(line_starts[line.line_i]).expect("text is too long"),
-                    position: LogicalPoint {
-                        x: 0.0,
-                        y: line.line_top + offset_y,
+                line_carets.push((
+                    false,
+                    Caret {
+                        byte_offset: u32::try_from(line_starts[line.line_i])
+                            .expect("text is too long"),
+                        position: LogicalPoint {
+                            x: 0.0,
+                            y: line.line_top + offset_y,
+                        },
+                        height: line.line_height,
                     },
-                    height: line.line_height,
-                });
+                ));
             } else {
                 for glyph in line.glyphs {
                     let cluster = &line.text[glyph.start..glyph.end];
-                    for index in cluster
+                    let count = cluster.graphemes(true).count();
+                    for (position, index) in cluster
                         .grapheme_indices(true)
                         .map(|(index, _)| glyph.start + index)
                         .chain(iter::once(glyph.end))
+                        .enumerate()
                     {
-                        let Some(x) = line.cursor_position(&Cursor::new(line.line_i, index)) else {
-                            continue;
+                        let end = index == glyph.end;
+                        let offset = if end {
+                            glyph.w
+                        } else {
+                            glyph.w * (position as f32) / (count as f32)
                         };
-                        line_carets.push(Caret {
-                            byte_offset: u32::try_from(
-                                line_starts[line.line_i].saturating_add(index),
-                            )
-                            .expect("text is too long"),
-                            position: LogicalPoint {
-                                x,
-                                y: line.line_top + offset_y,
+                        let x = if glyph.level.is_rtl() {
+                            glyph.x + glyph.w - offset
+                        } else {
+                            glyph.x + offset
+                        };
+                        line_carets.push((
+                            end,
+                            Caret {
+                                byte_offset: u32::try_from(
+                                    line_starts[line.line_i].saturating_add(index),
+                                )
+                                .expect("text is too long"),
+                                position: LogicalPoint {
+                                    x,
+                                    y: line.line_top + offset_y,
+                                },
+                                height: line.line_height,
                             },
-                            height: line.line_height,
-                        });
+                        ));
                     }
                 }
-                line_carets.sort_by(|left, right| {
-                    left.byte_offset
-                        .cmp(&right.byte_offset)
-                        .then_with(|| left.position.x.total_cmp(&right.position.x))
-                });
-                line_carets.dedup_by(|left, right| {
-                    left.byte_offset == right.byte_offset
-                        && left.position.x.to_bits() == right.position.x.to_bits()
-                });
+                // prefer cluster interiors and starts then the first glyph in visual order
+                line_carets.sort_by_key(|(end, caret)| (caret.byte_offset, *end));
+                line_carets.dedup_by_key(|(_, caret)| caret.byte_offset);
             }
             let caret_start = u32::try_from(carets.len()).expect("too many carets");
-            carets.extend_from_slice(&line_carets);
+            carets.extend(line_carets.iter().map(|(_, caret)| *caret));
             lines.push(LayoutLine {
                 bounds,
                 carets: caret_start..u32::try_from(carets.len()).expect("too many carets"),
@@ -342,6 +341,27 @@ impl blit_text::TextLayoutEngine for Backend {
             carets: carets.into_boxed_slice(),
         }
     }
+}
+
+fn face(
+    db: &fontdb::Database,
+    faces: &mut Vec<CosmicFace>,
+    aliases: &[CosmicAlias],
+    cosmic: fontdb::ID,
+) -> Option<FontFaceId> {
+    if let Some(index) = faces.iter().position(|face| face.cosmic == cosmic) {
+        return Some(FontFaceId(u64::try_from(index + 1).ok()?));
+    }
+    if let Some(alias) = aliases.iter().find(|alias| alias.cosmic == cosmic) {
+        return Some(alias.face);
+    }
+    let data = db.with_face_data(cosmic, |data, face_index| FontFace {
+        data: FontData::Shared(Arc::from(data)),
+        face_index,
+    })?;
+    let id = FontFaceId(u64::try_from(faces.len() + 1).ok()?);
+    faces.push(CosmicFace { cosmic, data });
+    Some(id)
 }
 
 fn cosmic_stretch(stretch: u16) -> fontdb::Stretch {
