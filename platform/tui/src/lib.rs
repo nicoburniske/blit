@@ -31,8 +31,9 @@ use blit::{
 use terminal::{Size, Terminal};
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
+const FRAME_INTERVAL: Duration = Duration::from_nanos(4_166_667);
 
-/// runs the ui with the built in terminal and event loop
+/// runs the ui with the built in terminal and event loop at up to 240 frames per second
 pub fn run(mut render: impl FnMut(Ui<'_>)) -> io::Result<()> {
     run_with(|_| (), move |_, ui| render(ui))
 }
@@ -67,30 +68,37 @@ pub fn run_with<S>(
                 break;
             }
             session.present()?;
+            let next_frame = now + FRAME_INTERVAL;
+            input_count = 0;
+            let mut redraw = frame.has_pending_redraw();
             loop {
                 now = start.elapsed();
-                let timeout = if frame.has_pending_redraw() {
-                    Some(Duration::ZERO)
+                let deadline = if redraw || input_count != 0 {
+                    Some(next_frame)
                 } else {
                     frame
                         .next_timer_deadline()
-                        .map(|deadline| deadline.saturating_sub(now))
+                        .map(|deadline| deadline.max(next_frame))
                 };
-                let poll = session.poll(timeout, &mut inputs)?;
+                if input_count == inputs.len() {
+                    std::thread::sleep(next_frame.saturating_sub(now));
+                    now = start.elapsed();
+                    break;
+                }
+                let poll = session.poll(
+                    deadline.map(|deadline| deadline.saturating_sub(now)),
+                    &mut inputs[input_count..],
+                )?;
+                input_count += poll.input_count;
                 if poll.resized {
                     session.platform_mut().renderer_mut().invalidate();
                 }
+                redraw |= poll.resized || poll.redraw;
                 now = start.elapsed();
                 let timer_due = frame
                     .next_timer_deadline()
                     .is_some_and(|deadline| deadline <= now);
-                if poll.resized
-                    || poll.redraw
-                    || poll.input_count != 0
-                    || frame.has_pending_redraw()
-                    || timer_due
-                {
-                    input_count = poll.input_count;
+                if (redraw || input_count != 0 || timer_due) && now >= next_frame {
                     break;
                 }
             }
