@@ -109,6 +109,21 @@ impl<R: Platform> Layout<R> for ScrollLayout {
     type Item = ScrollItem;
 
     fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+        self.layout_with_offset(ui, constraints, |_| self.offset)
+    }
+
+    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
+        false
+    }
+}
+
+impl ScrollLayout {
+    fn layout_with_offset<R: Platform>(
+        &self,
+        ui: &mut LayoutCx<'_, R, ScrollItem>,
+        constraints: Constraints,
+        offset: impl FnOnce(f32) -> f32,
+    ) -> Size {
         let res = ui.resolution();
         let mut content = None;
         let mut track = None;
@@ -146,7 +161,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
         let content_extent = self.axis.extent(content_size);
         let viewport_extent = self.axis.extent(content_viewport_size);
         let maximum = (content_extent - viewport_extent).max(0.0);
-        let offset = self.offset.clamp(0.0, maximum);
+        let offset = offset(maximum).clamp(0.0, maximum);
         ui.set_child_position(
             content,
             match self.axis {
@@ -200,10 +215,6 @@ impl<R: Platform> Layout<R> for ScrollLayout {
         }
 
         viewport_size
-    }
-
-    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-        false
     }
 }
 
@@ -327,7 +338,7 @@ pub fn update<R: Platform>(
 fn build_scroll<R, C, X, S>(
     ui: Ui<'_, R>,
     id: WidgetId,
-    layout: ScrollLayout,
+    layout: impl Layout<R, Item = ScrollItem>,
     clip: X,
     content: C,
     scrollbar: S,

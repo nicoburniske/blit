@@ -102,48 +102,9 @@ where
         if state.screen.replace(screen) != Some(screen) {
             ui.request_frame();
         }
-        {
-            let mut measured = state.measurements.borrow_mut();
-            if measured.ready && !state.dirty {
-                let anchor = state
-                    .rows
-                    .partition_point(|row| row.top + row.height <= state.scroll.offset);
-                let within = state
-                    .rows
-                    .get(anchor)
-                    .map(|row| state.scroll.offset - row.top);
-                let mut changed = None;
-                for (index, &height) in measured.heights.iter().enumerate() {
-                    let index = measured.first + index;
-                    let row = &mut state.rows[index];
-                    if state.pending || row.height != height {
-                        state.heights.insert(row.id, height);
-                        row.height = height;
-                        changed.get_or_insert(index);
-                    }
-                }
-                if let Some(first) = changed {
-                    let mut top = state.rows[first].top;
-                    for row in &mut state.rows[first..] {
-                        row.top = top;
-                        top += row.height;
-                    }
-                    state.total = top;
-                    if let Some(within) = within {
-                        let row = &state.rows[anchor];
-                        state.scroll.offset = row.top + within.min(row.height);
-                    }
-                    if let Some((id, within)) = state.anchor.take()
-                        && let Some(row) = state.rows.iter().find(|row| row.id == id)
-                    {
-                        state.scroll.offset = row.top + within.min(row.height);
-                    }
-                }
-                state.pending = false;
-                state.scroll.content_extent = state.total;
-            }
-            measured.ready = false;
-        }
+        let mut table = state.table.borrow_mut();
+        state.scroll.offset = table.offset;
+        state.scroll.content_extent = table.total;
         let previous = state.scroll.offset;
         let elapsed = state.scroll.last_frame.map_or(0.0, |previous| {
             ui.time().saturating_sub(previous).as_secs_f32()
@@ -155,51 +116,56 @@ where
             config,
             S::HAS_THUMB,
         );
-        if state.rows.len() != rows.len() || state.dirty {
-            if state.anchor.is_none() {
-                let index = state
-                    .rows
-                    .partition_point(|row| row.top + row.height <= previous);
-                state.anchor = state
-                    .rows
-                    .get(index)
-                    .map(|row| (row.id, previous - row.top));
-            }
-            state.rows.clear();
+        let index = table
+            .rows
+            .partition_point(|row| row.top + row.height <= state.scroll.offset);
+        let mut target = table
+            .rows
+            .get(index)
+            .map(|row| (index, state.scroll.offset - row.top));
+        let mut full = false;
+        if table.rows.len() != rows.len() || state.dirty {
+            let anchor = target.map(|(index, within)| (table.rows[index].id, within));
+            table.rows.clear();
+            target = None;
             let mut top = 0.0;
-            let mut complete = true;
             for value in rows {
                 let id = key(value);
-                let height = state.heights.get(&id).copied();
-                complete &= height.is_some();
+                let height = table.heights.get(&id).copied();
+                full |= height.is_none();
                 let height = height.unwrap_or(0.0);
-                state.rows.push(Row { id, top, height });
+                if let Some((anchor, within)) = anchor
+                    && anchor == id
+                {
+                    target = Some((table.rows.len(), within));
+                }
+                table.rows.push(Row { id, top, height });
                 top += height;
             }
-            state.total = top;
-            state.pending = !complete;
+            table.total = top;
             state.dirty = false;
-            if complete {
-                if let Some((id, within)) = state.anchor.take()
-                    && let Some(row) = state.rows.iter().find(|row| row.id == id)
-                {
-                    state.scroll.offset = row.top + within.min(row.height);
-                }
-            }
             ui.request_frame();
+        }
+        let reveal = state.reveal.take();
+        if let Some(id) = reveal {
+            target = table
+                .rows
+                .iter()
+                .position(|row| row.id == id)
+                .map(|index| (index, 0.0));
+        }
+        if let Some((index, within)) = target {
+            state.scroll.offset = table.rows[index].top + within.min(table.rows[index].height);
+        }
+        if reveal.is_some() {
+            state.scroll.velocity = 0.0;
+            state.scroll.tracking = false;
         }
         let mut visible = 0..0;
         let mut pointer_row = None;
-        if !state.pending
-            && let Some(viewport) = viewport
-        {
-            state.scroll.content_extent = state.total;
+        if !full && let Some(viewport) = viewport {
+            state.scroll.content_extent = table.total;
             state.scroll.viewport_extent = viewport.height;
-            if let Some(id) = state.reveal.take()
-                && let Some(row) = state.rows.iter().find(|row| row.id == id)
-            {
-                state.scroll.scroll_to(row.top);
-            }
             state.scroll.offset = state
                 .scroll
                 .offset
@@ -229,16 +195,16 @@ where
             {
                 let y = state.scroll.offset + (pointer.y - viewport.y).clamp(0.0, viewport.height);
                 pointer_row = Some(
-                    state
+                    table
                         .rows
                         .partition_point(|row| row.top + row.height <= y)
                         .min(rows.len() - 1),
                 );
             }
-            let first = state
+            let first = table
                 .rows
                 .partition_point(|row| row.top + row.height <= state.scroll.offset);
-            let end = state
+            let end = table
                 .rows
                 .partition_point(|row| row.top < state.scroll.offset + viewport.height);
             state.visible = first..end;
@@ -249,37 +215,42 @@ where
         if state.scroll.offset != previous {
             ui.request_frame();
         }
-        let full = state.pending;
-        if full {
+        let target = if full {
             visible = 0..rows.len();
             ui.request_frame();
-        }
+            target
+        } else {
+            table
+                .rows
+                .get(state.visible.start)
+                .map(|row| (state.visible.start, state.scroll.offset - row.top))
+        };
         let offset = state.scroll.offset;
-        let total = state.total;
-        let measurements = Rc::clone(&state.measurements);
+        table.offset = offset;
+        drop(table);
+        let table = Rc::clone(&state.table);
         let first = visible.start;
-        let anchor = state.visible.start;
-        let geometry = &state.rows;
         build_scroll(
             ui,
             state.scroll.id,
-            ScrollLayout {
-                axis: Axis::Vertical,
-                offset,
-                scrollbar_thickness: config.scrollbar_thickness,
-                minimum_thumb_extent: config.minimum_thumb_extent,
+            MeasuredScrollLayout {
+                scroll: ScrollLayout {
+                    axis: Axis::Vertical,
+                    offset,
+                    scrollbar_thickness: config.scrollbar_thickness,
+                    minimum_thumb_extent: config.minimum_thumb_extent,
+                },
+                table: Rc::clone(&table),
             },
             clip,
             move |ui: Ui<'_, R>| {
                 let mut list = ui.layout(MeasuredLayout {
-                    total,
                     first,
-                    anchor,
-                    measurements,
+                    target,
+                    table,
                 });
                 for index in visible {
-                    let row = &geometry[index];
-                    item(list.child((row.top, row.height)), &rows[index]);
+                    item(list.child(()), &rows[index]);
                 }
             },
             scrollbar,
@@ -298,14 +269,9 @@ pub struct VirtualListResponse {
 #[derive(Default)]
 pub struct MeasuredState {
     scroll: State,
-    rows: Vec<Row>,
-    heights: HashMap<WidgetId, f32>,
+    table: Rc<RefCell<RowTable>>,
     screen: Option<Size>,
-    total: f32,
     dirty: bool,
-    pending: bool,
-    measurements: Rc<RefCell<Measurements>>,
-    anchor: Option<(WidgetId, f32)>,
     reveal: Option<WidgetId>,
     visible: Range<usize>,
 }
@@ -324,19 +290,15 @@ impl MeasuredState {
     }
 
     pub fn invalidate(&mut self, id: WidgetId) {
-        self.pending = false;
-        self.measurements.borrow_mut().ready = false;
-        self.heights.remove(&id);
+        self.table.borrow_mut().heights.remove(&id);
         self.dirty = true;
     }
     pub fn invalidate_all(&mut self) {
-        self.pending = false;
-        self.measurements.borrow_mut().ready = false;
-        self.heights.clear();
+        self.table.borrow_mut().heights.clear();
         self.dirty = true;
     }
     pub fn is_visible(&self, id: WidgetId) -> bool {
-        self.rows[self.visible.clone()]
+        self.table.borrow().rows[self.visible.clone()]
             .iter()
             .any(|row| row.id == id)
     }
@@ -348,32 +310,47 @@ struct Row {
     height: f32,
 }
 #[derive(Default)]
-struct Measurements {
-    first: usize,
-    heights: Vec<f32>,
-    ready: bool,
+struct RowTable {
+    rows: Vec<Row>,
+    heights: HashMap<WidgetId, f32>,
+    total: f32,
+    offset: f32,
+}
+
+struct MeasuredScrollLayout {
+    scroll: ScrollLayout,
+    table: Rc<RefCell<RowTable>>,
+}
+
+impl<R: Platform> Layout<R> for MeasuredScrollLayout {
+    type Item = super::ScrollItem;
+
+    fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+        self.scroll.layout_with_offset(ui, constraints, |maximum| {
+            let mut table = self.table.borrow_mut();
+            table.offset = table.offset.clamp(0.0, maximum);
+            table.offset
+        })
+    }
+
+    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
+        false
+    }
 }
 
 struct MeasuredLayout {
-    total: f32,
     first: usize,
-    anchor: usize,
-    measurements: Rc<RefCell<Measurements>>,
+    target: Option<(usize, f32)>,
+    table: Rc<RefCell<RowTable>>,
 }
 
 impl<R: Platform> Layout<R> for MeasuredLayout {
-    type Item = (f32, f32);
+    type Item = ();
 
     fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
-        let mut measured = self.measurements.borrow_mut();
-        measured.first = self.first;
-        measured.heights.clear();
-        measured.ready = false;
-        let mut delta = 0.0;
-        let mut shift = 0.0;
-        let mut changed = false;
+        let mut table = self.table.borrow_mut();
+        let mut changed = None;
         for (index, child) in ui.children().enumerate() {
-            let (_, height) = *ui.item(child);
             let size = ui.layout_child(
                 child,
                 Constraints {
@@ -382,29 +359,126 @@ impl<R: Platform> Layout<R> for MeasuredLayout {
                 },
             );
             assert!(size.height.is_finite() && size.height >= 0.0);
-            measured.heights.push(size.height);
-            changed |= size.height != height;
-            delta += size.height - height;
-            if self.first + index < self.anchor {
-                shift += size.height - height;
+            let row = &mut table.rows[self.first + index];
+            if row.height != size.height {
+                changed.get_or_insert(self.first + index);
+                row.height = size.height;
             }
+            let id = row.id;
+            table.heights.insert(id, size.height);
         }
-        let mut top = ui.children().next().map_or(0.0, |child| ui.item(child).0) - shift;
-        for (child, &height) in ui.children().zip(&measured.heights) {
-            ui.set_child_position(child, Point::new(0.0, top));
-            top += height;
-        }
-        measured.ready = true;
-        if changed {
+        if let Some(first) = changed {
+            let mut top = table.rows[first].top;
+            for row in &mut table.rows[first..] {
+                row.top = top;
+                top += row.height;
+            }
+            table.total = top;
             ui.request_frame();
         }
-        constraints.constrain(Size::new(
-            constraints.max.width,
-            (self.total + delta).max(0.0),
-        ))
+        if let Some((index, within)) = self.target {
+            let row = &table.rows[index];
+            table.offset = row.top + within.min(row.height);
+        }
+        for (index, child) in ui.children().enumerate() {
+            ui.set_child_position(child, Point::new(0.0, table.rows[self.first + index].top));
+        }
+        constraints.constrain(Size::new(constraints.max.width, table.total))
     }
 
     fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use blit::{Frame, FrameInfo, Rect};
+
+    struct TestPlatform;
+    impl Platform for TestPlatform {
+        fn begin(&mut self, _: FrameInfo) {}
+        fn end(&mut self) {}
+    }
+
+    struct TestClip;
+    impl Clip<TestPlatform> for TestClip {
+        fn push(&self, _: &mut TestPlatform, _: Rect) {}
+        fn pop(&self, _: &mut TestPlatform) {}
+    }
+
+    #[test]
+    fn remeasured_rows_resolve_scroll_before_the_first_paint() {
+        use super::super::{MeasuredState, VirtualList};
+        use blit::{Sides, WidgetId};
+
+        fn render(frame: &mut Frame<TestPlatform>, state: &mut MeasuredState, rows: &[(u32, f32)]) {
+            frame.render(
+                &mut TestPlatform,
+                FrameInfo::new(Size::new(80.0, 50.0)),
+                VirtualList::<_, _, _, NoScrollbar>::new(state, TestClip, rows)
+                    .key(|row| WidgetId::new(row.0))
+                    .build(|ui, row| {
+                        ui.widget_id(WidgetId::new(row.0))
+                            .layout(crate::layout::single::layout().padding(Sides::y(row.1 / 2.0)));
+                    }),
+            );
+        }
+
+        let mut frame = Frame::default();
+        let mut state = MeasuredState::default();
+        let mut rows: Vec<_> = (0..40u32).map(|id| (id, 10.0 + (id % 3) as f32)).collect();
+        state.scroll_to(WidgetId::new(20u32));
+        render(&mut frame, &mut state, &rows);
+        assert_eq!(frame.geometry(WidgetId::new(20u32)).unwrap().y, 0.0);
+        render(&mut frame, &mut state, &rows);
+
+        rows.retain(|row| row.0 % 2 == 0);
+        for row in &mut rows {
+            row.1 *= 2.0;
+        }
+        state.invalidate_all();
+        state.scroll_to(WidgetId::new(30u32));
+        render(&mut frame, &mut state, &rows);
+        let first = frame.geometry(WidgetId::new(30u32)).unwrap();
+        assert_eq!(first.y, 0.0);
+        render(&mut frame, &mut state, &rows);
+        assert_eq!(frame.geometry(WidgetId::new(30u32)).unwrap(), first);
+
+        rows.reverse();
+        state.invalidate_all();
+        render(&mut frame, &mut state, &rows);
+        assert_eq!(frame.geometry(WidgetId::new(30u32)).unwrap().y, 0.0);
+        render(&mut frame, &mut state, &rows);
+        assert_eq!(frame.geometry(WidgetId::new(30u32)).unwrap().y, 0.0);
+
+        state.invalidate_all();
+        state.scroll_to(WidgetId::new(0u32));
+        render(&mut frame, &mut state, &rows);
+        let last = frame.geometry(WidgetId::new(0u32)).unwrap();
+        assert_eq!(last.y + last.height, 50.0);
+        render(&mut frame, &mut state, &rows);
+        assert_eq!(frame.geometry(WidgetId::new(0u32)).unwrap(), last);
+
+        state.scroll_to(WidgetId::new(30u32));
+        render(&mut frame, &mut state, &rows);
+        state.table.borrow_mut().offset += 5.0;
+        render(&mut frame, &mut state, &rows);
+        for row in &mut rows {
+            if row.0 == 32 || row.0 == 30 {
+                row.1 *= 2.0;
+            }
+        }
+        render(&mut frame, &mut state, &rows);
+        let anchor = frame.geometry(WidgetId::new(30u32)).unwrap();
+        assert_eq!(anchor.y, -5.0);
+        render(&mut frame, &mut state, &rows);
+        assert_eq!(frame.geometry(WidgetId::new(30u32)).unwrap(), anchor);
+
+        rows.clear();
+        state.mark_dirty();
+        render(&mut frame, &mut state, &rows);
+        assert_eq!(state.table.borrow().offset, 0.0);
     }
 }
