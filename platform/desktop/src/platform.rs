@@ -93,6 +93,14 @@ impl DesktopPlatform {
         &mut self.renderer
     }
 
+    /// the command list of the frame that just ended, with the renderer holding its text
+    #[cfg(feature = "gpu")]
+    pub(crate) fn frame(
+        &mut self,
+    ) -> (&CommandList, &mut Renderer<DesktopBuffer, Scanline>, f32) {
+        (&self.previous, &mut self.renderer, self.scale.x)
+    }
+
     pub(crate) fn set_scale(&mut self, scale: f32) {
         let scale = Scale2::uniform(scale);
         if self.scale != scale {
@@ -145,6 +153,9 @@ impl DesktopPlatform {
         }
         let current_damage = self.damage.len();
         self.damage.extend_from_slice(&self.previous_damage);
+        // the GPU presenter draws the list itself and ends the frame afterwards:
+        // rendering here would trim the text caches before it reads them
+        #[cfg(not(feature = "gpu"))]
         self.renderer.render(&self.current, &self.damage);
         self.previous_damage.clear();
         self.previous_damage

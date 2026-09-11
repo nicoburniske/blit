@@ -63,8 +63,8 @@ impl GlyphCache {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct GlyphKey {
-    face: FontFaceId,
-    glyph: u16,
-    size: u32,
+pub struct GlyphKey {
+    pub(crate) face: FontFaceId,
+    pub(crate) glyph: u16,
+    pub(crate) size: u32,
 }

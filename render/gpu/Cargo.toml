@@ -1,0 +1,19 @@
+[package]
+name = "blit-gpu"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+blit = { workspace = true }
+blit-cpu = { path = "../cpu" }
+pollster = "1"
+raw-window-handle = "0.6"
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "wgsl", "wgpu-core"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+wgpu = { version = "30.0.1", default-features = false, features = ["vulkan"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+wgpu = { version = "30.0.1", default-features = false, features = ["metal"] }

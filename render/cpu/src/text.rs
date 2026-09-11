@@ -8,7 +8,7 @@ use std::{
 use crate::{
     Pixel, PixelSpan, RendererConfig,
     color::Color,
-    glyph::GlyphCache,
+    glyph::{GlyphCache, GlyphKey},
     text_types::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
@@ -116,6 +116,16 @@ pub struct PreparedGlyph {
     y: i32,
     width: u32,
     height: u32,
+}
+
+/// a rasterized glyph placed by [`TextRenderer::glyphs`]
+pub struct Glyph<'a> {
+    pub key: GlyphKey,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub alpha: &'a [u8],
 }
 
 struct PreparedLine {
@@ -255,11 +265,8 @@ impl TextRenderer {
         index
     }
 
-    pub fn prepare(
-        &mut self,
-        request: &TextRequest,
-        scale_factor: f32,
-    ) -> (u32, u32, PreparedLines, PhysicalRect) {
+    /// lays the request out and places its glyphs, returning the cached layout
+    fn paint(&mut self, request: &TextRequest, scale_factor: f32) -> usize {
         let area = request.area.to_physical(Scale2::uniform(scale_factor));
         let layout_index = self.layout(request.text, Self::paint_request(request));
         let scale = scale_factor.to_bits();
@@ -356,7 +363,16 @@ impl TextRenderer {
             self.layouts
                 .update_index(layout_index, |cached| cached.paint = Some(paint));
         }
+        layout_index
+    }
 
+    pub fn prepare(
+        &mut self,
+        request: &TextRequest,
+        scale_factor: f32,
+    ) -> (u32, u32, PreparedLines, PhysicalRect) {
+        let area = request.area.to_physical(Scale2::uniform(scale_factor));
+        let layout_index = self.paint(request, scale_factor);
         let paint = self.layouts.get_index(layout_index).paint.as_ref().unwrap();
         let glyph_start = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
         for glyph in &paint.glyphs {
@@ -401,6 +417,39 @@ impl TextRenderer {
             height: paint.bounds.height,
         };
         (glyph_start, glyph_end, lines, bounds)
+    }
+
+    /// visits the glyphs of `request`, positioned relative to its physical area
+    pub fn glyphs(
+        &mut self,
+        request: &TextRequest,
+        scale_factor: f32,
+        visit: &mut dyn FnMut(Glyph<'_>),
+    ) {
+        let layout_index = self.paint(request, scale_factor);
+        let Self {
+            text,
+            layouts,
+            glyphs,
+            ..
+        } = self;
+        let paint = layouts.get_index(layout_index).paint.as_ref().unwrap();
+        for glyph in &paint.glyphs {
+            let cached = glyphs.glyph(text.as_ref(), glyph.face, glyph.glyph, glyph.size);
+            let cached = glyphs.get(cached);
+            visit(Glyph {
+                key: GlyphKey {
+                    face: glyph.face,
+                    glyph: glyph.glyph,
+                    size: glyph.size,
+                },
+                x: glyph.x,
+                y: glyph.y,
+                width: cached.metrics.width as u32,
+                height: cached.metrics.height as u32,
+                alpha: &cached.alpha,
+            });
+        }
     }
 
     pub fn draw_line<P: Pixel>(

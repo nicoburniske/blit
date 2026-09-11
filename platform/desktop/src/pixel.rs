@@ -23,6 +23,7 @@ impl DesktopBuffer {
         self.height = height;
     }
 
+    #[cfg_attr(feature = "gpu", allow(dead_code))]
     pub fn set(&mut self, pixels: &mut [u32]) {
         assert!(pixels.len() >= self.width * self.height);
         self.pixels = NonNull::new(pixels.as_mut_ptr().cast()).expect("softbuffer pixels");

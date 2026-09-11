@@ -10,6 +10,7 @@ pub mod widget;
 mod event_loop;
 mod pixel;
 mod platform;
+mod present;
 
 pub use blit_cpu::{color, image, style, text_types as text};
 pub use blit_std::layout;
@@ -72,11 +73,16 @@ pub fn run<A: Application>(config: Config) -> Result<(), RunError> {
     event_loop::run::<A>(config)
 }
 
+#[cfg(not(feature = "gpu"))]
+pub type SurfaceError = softbuffer::SoftBufferError;
+#[cfg(feature = "gpu")]
+pub type SurfaceError = blit_gpu::Error;
+
 #[derive(Debug)]
 pub enum RunError {
     EventLoop(winit::error::EventLoopError),
     Window(winit::error::OsError),
-    Surface(softbuffer::SoftBufferError),
+    Surface(SurfaceError),
 }
 
 impl fmt::Display for RunError {
@@ -103,8 +109,8 @@ impl From<winit::error::OsError> for RunError {
     }
 }
 
-impl From<softbuffer::SoftBufferError> for RunError {
-    fn from(error: softbuffer::SoftBufferError) -> Self {
+impl From<SurfaceError> for RunError {
+    fn from(error: SurfaceError) -> Self {
         Self::Surface(error)
     }
 }

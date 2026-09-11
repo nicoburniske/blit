@@ -20,6 +20,8 @@ use crate::{
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
 pub use blit_text::{FontData, FontError, FontFaceId as BackendFontFaceId, TextLayoutEngine};
+pub use glyph::GlyphKey;
+pub use text::Glyph;
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
@@ -394,6 +396,13 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         self.context.finish_frame();
     }
 
+    /// ends a frame drawn elsewhere: trims the caches the frame filled. text
+    /// run ids and glyph slices handed out during the frame expire here
+    pub fn finish_frame(&mut self) {
+        assert!(self.context.commands.is_empty());
+        self.context.finish_frame();
+    }
+
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
         StoredImage::insert(&mut self.context.images, data)
     }
@@ -418,6 +427,18 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         self.context
             .text
             .cursor_rect(request, byte_offset, self.context.scale_factor)
+    }
+
+    /// visits the glyphs of `request`, positioned relative to its physical area
+    pub fn text_glyphs(&mut self, request: &TextRequest, visit: &mut dyn FnMut(Glyph<'_>)) {
+        self.context
+            .text
+            .glyphs(request, self.context.scale_factor, visit)
+    }
+
+    pub fn image(&self, image: ImageId) -> Option<&ImageData> {
+        let image = RendererImageId::from(KeyData::from_ffi(image.0));
+        self.context.images.get(image).map(|image| &image.data)
     }
 }
 
