@@ -220,12 +220,11 @@ impl ScrollLayout {
 
 /// updates scroll input and motion returning thumb activity and viewport availability
 /// uses children named `content` and `scroll thumb` for geometry when present
-pub fn update<R: Platform>(
+pub fn update<R: Platform, S: Scrollbar>(
     state: &mut State,
     ui: &mut Ui<'_, R>,
     axis: Axis,
     config: Config,
-    has_thumb: bool,
 ) -> (bool, bool) {
     let id = state.id;
     let content_id = id.child("content");
@@ -241,29 +240,44 @@ pub fn update<R: Platform>(
     }
 
     let interaction = ui.interact(id, config.sense);
-    let thumb_interaction = has_thumb.then(|| ui.interact(thumb_id, Sense::DRAG));
+    let thumb_interaction = S::HAS_THUMB.then(|| ui.interact(thumb_id, Sense::DRAG));
+    let track_id = id.child("scroll track");
+    let track_interaction = S::HAS_TRACK.then(|| ui.interact(track_id, Sense::DRAG));
     let now = ui.time();
     let elapsed = state
         .last_frame
         .replace(now)
         .map_or(0.0, |previous| now.saturating_sub(previous).as_secs_f32());
     let maximum = state.maximum_offset();
-    if let Some(interaction) = thumb_interaction
-        && interaction.dragging
+    let drag = thumb_interaction.filter(|interaction| interaction.dragging);
+    if drag.is_some()
+        || track_interaction
+            .is_some_and(|interaction| interaction.activated || interaction.dragging)
     {
-        let delta = match axis {
-            Axis::Horizontal => interaction.drag_delta.x,
-            Axis::Vertical => interaction.drag_delta.y,
-        };
         let thumb = ui
             .geometry(thumb_id)
-            .map_or(state.viewport_extent, |area| axis.extent(area.size()));
+            .map_or(0.0, |area| axis.extent(area.size()));
         let travel = state.viewport_extent - thumb;
         if travel > 0.0 {
-            state.offset = (state.offset + delta * maximum / travel).clamp(0.0, maximum);
+            let offset = if let Some(drag) = drag {
+                let delta = match axis {
+                    Axis::Horizontal => drag.drag_delta.x,
+                    Axis::Vertical => drag.drag_delta.y,
+                };
+                state.offset + delta * maximum / travel
+            } else if let Some((track, pointer)) = ui.geometry(track_id).zip(ui.pointer_position())
+            {
+                let position = match axis {
+                    Axis::Horizontal => pointer.x - track.x,
+                    Axis::Vertical => pointer.y - track.y,
+                };
+                (position - thumb / 2.0) * maximum / travel
+            } else {
+                state.offset
+            };
+            state.scroll_to(offset);
+            ui.request_frame();
         }
-        state.velocity = 0.0;
-        state.tracking = false;
     } else {
         let mut direct_delta = 0.0;
         let mut sample_velocity = false;
@@ -330,7 +344,8 @@ pub fn update<R: Platform>(
         }
     }
     (
-        thumb_interaction.is_some_and(|interaction| interaction.active),
+        thumb_interaction.is_some_and(|interaction| interaction.active)
+            || track_interaction.is_some_and(|interaction| interaction.active),
         viewport_known,
     )
 }
@@ -360,7 +375,10 @@ fn build_scroll<R, C, X, S>(
         .build(content);
     let (track, thumb) = scrollbar.into_content(thumb_active);
     if S::HAS_TRACK {
-        viewport.child(ScrollItem::Track).insert(track);
+        viewport
+            .child(ScrollItem::Track)
+            .widget_id(id.child("scroll track"))
+            .insert(track);
     }
     if S::HAS_THUMB {
         viewport

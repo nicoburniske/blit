@@ -74,7 +74,7 @@ where
     type Response = ();
 
     fn build(self, mut ui: Ui<'_, R>) {
-        let (thumb_active, _) = update(self.state, &mut ui, self.axis, self.config, S::HAS_THUMB);
+        let (thumb_active, _) = update::<_, S>(self.state, &mut ui, self.axis, self.config);
         build_scroll(
             ui,
             self.state.id,

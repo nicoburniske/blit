@@ -109,13 +109,7 @@ where
         let elapsed = state.scroll.last_frame.map_or(0.0, |previous| {
             ui.time().saturating_sub(previous).as_secs_f32()
         });
-        let (thumb_active, _) = update(
-            &mut state.scroll,
-            &mut ui,
-            Axis::Vertical,
-            config,
-            S::HAS_THUMB,
-        );
+        let (thumb_active, _) = update::<_, S>(&mut state.scroll, &mut ui, Axis::Vertical, config);
         let index = table
             .rows
             .partition_point(|row| row.top + row.height <= state.scroll.offset);

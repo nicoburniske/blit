@@ -100,7 +100,7 @@ where
         let stride = item_extent + gap;
         let count = self.items.len();
         let (thumb_active, viewport_known) =
-            update(self.state, &mut ui, self.axis, self.config, S::HAS_THUMB);
+            update::<_, S>(self.state, &mut ui, self.axis, self.config);
         let viewport_extent = if viewport_known {
             self.state.viewport_extent
         } else {
