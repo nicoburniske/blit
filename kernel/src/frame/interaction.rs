@@ -222,10 +222,11 @@ impl InteractionState {
     }
 
     pub fn register(&mut self, id: WidgetId, area: Option<Rect>) {
+        let Some(area) = area else { return };
         if let Ok(index) = self.requests.binary_search_by_key(&id, |request| request.0) {
             self.current_hits.push(HitItem {
                 id,
-                area: area.unwrap_or_default(),
+                area,
                 sense: self.requests[index].1,
             });
         }
