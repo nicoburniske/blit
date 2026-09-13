@@ -15,7 +15,8 @@ use crate::{
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use blit_text::{
-    FontCandidate, FontFaceId, FontSelectionId, LayoutRequest, TextLayout, TextLayoutEngine,
+    FontCandidate, FontError, FontFaceId, FontSelectionId, FontStyle, LayoutRequest, TextLayout,
+    TextLayoutEngine,
 };
 
 pub struct TextRenderer {
@@ -159,38 +160,59 @@ impl PreparedRuns {
 }
 
 impl TextRenderer {
-    pub fn new(config: RendererConfig, mut text: Box<dyn TextLayoutEngine>) -> Self {
+    pub fn new(
+        config: RendererConfig,
+        mut text: Box<dyn TextLayoutEngine>,
+    ) -> Result<Self, FontError> {
         let mut fonts = Vec::new();
         let mut candidates = Vec::new();
-        for configured in &config.fonts {
+        for configured in config.fonts {
             if fonts
                 .iter()
                 .any(|font: &ConfiguredFont| font.id == configured.id)
             {
-                continue;
+                return Err(FontError::InvalidData);
             }
             candidates.clear();
-            candidates.extend(
-                config
-                    .fonts
-                    .iter()
-                    .filter(|face| face.id == configured.id)
-                    .map(|face| FontCandidate {
-                        face: face.face,
-                        weight: face.weight,
-                        stretch: face.stretch,
-                        style: face.style,
-                    }),
-            );
-            let font = text
-                .register_font_selection(&candidates)
-                .expect("invalid configured font");
+            for data in configured.fonts {
+                for backend_face in text.register_font(data)? {
+                    let registered = text.font_face(backend_face).ok_or(FontError::InvalidData)?;
+                    let face =
+                        ttf_parser::Face::parse(registered.data.as_ref(), registered.face_index)
+                            .map_err(|_| FontError::InvalidData)?;
+                    let weight = face.weight().to_number();
+                    // rounded percentages defined for OS/2 usWidthClass values
+                    let stretch = match face.width() {
+                        ttf_parser::Width::UltraCondensed => 50,
+                        ttf_parser::Width::ExtraCondensed => 63,
+                        ttf_parser::Width::Condensed => 75,
+                        ttf_parser::Width::SemiCondensed => 88,
+                        ttf_parser::Width::Normal => 100,
+                        ttf_parser::Width::SemiExpanded => 113,
+                        ttf_parser::Width::Expanded => 125,
+                        ttf_parser::Width::ExtraExpanded => 150,
+                        ttf_parser::Width::UltraExpanded => 200,
+                    };
+                    let style = match face.style() {
+                        ttf_parser::Style::Normal => FontStyle::Normal,
+                        ttf_parser::Style::Italic => FontStyle::Italic,
+                        ttf_parser::Style::Oblique => FontStyle::Oblique,
+                    };
+                    candidates.push(FontCandidate {
+                        face: backend_face,
+                        weight,
+                        stretch,
+                        style,
+                    });
+                }
+            }
+            let font = text.register_font_selection(&candidates)?;
             fonts.push(ConfiguredFont {
                 id: configured.id,
                 font,
             });
         }
-        Self {
+        Ok(Self {
             text,
             fonts: fonts.into_boxed_slice(),
             texts: DeferredCache::new(TextScale, config.text_cache_capacity),
@@ -200,7 +222,7 @@ impl TextRenderer {
             prepared: Vec::new(),
             runs: Vec::new(),
             coverage: Vec::new(),
-        }
+        })
     }
 
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {

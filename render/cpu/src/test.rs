@@ -19,8 +19,8 @@ use crate::{
 };
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_text::{
-    FontCandidate, FontError, FontFace as BackendFontFace, FontSelectionId, LayoutRequest,
-    TextLayout, TextLayoutEngine,
+    FontCandidate, FontError, FontFace as BackendFontFace, FontFaceId as BackendFontFaceId,
+    FontSelectionId, LayoutRequest, TextLayout, TextLayoutEngine,
 };
 
 use super::*;
@@ -108,18 +108,11 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
     mut config: RendererConfig,
     backend: T,
 ) -> Renderer<B> {
-    let mut text: Box<dyn TextLayoutEngine> = Box::new(backend);
-    let face = text
-        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
-        .unwrap()[0];
-    config.fonts.push(FontFace {
+    config.fonts.push(FontFamily {
         id: FontId::default(),
-        weight: 400,
-        stretch: 100,
-        style: Default::default(),
-        face,
+        fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
     });
-    Renderer::new(buffer, config, text)
+    Renderer::new(buffer, config, Box::new(backend)).unwrap()
 }
 
 #[test]
@@ -261,7 +254,7 @@ struct CountingBackend(Arc<AtomicUsize>);
 
 impl TextLayoutEngine for CountingBackend {
     fn register_font(&mut self, _data: FontData) -> Result<Vec<BackendFontFaceId>, FontError> {
-        Err(FontError::Unsupported)
+        Ok(vec![BackendFontFaceId(1)])
     }
 
     fn register_font_selection(
@@ -272,7 +265,11 @@ impl TextLayoutEngine for CountingBackend {
     }
 
     fn font_face(&self, _face: BackendFontFaceId) -> Option<&BackendFontFace> {
-        None
+        static FACE: BackendFontFace = BackendFontFace {
+            data: FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))),
+            face_index: 0,
+        };
+        Some(&FACE)
     }
 
     fn layout(&mut self, _text: blit_text::Text<'_>, _request: LayoutRequest) -> TextLayout {
@@ -293,12 +290,9 @@ fn layout_eviction_is_deferred_until_frame_end() {
     let mut renderer = Renderer::new(
         VecBuffer::<Xrgb8888>::new(1, 1),
         RendererConfig {
-            fonts: vec![FontFace {
+            fonts: vec![FontFamily {
                 id: FontId::default(),
-                weight: 400,
-                stretch: 100,
-                style: Default::default(),
-                face: BackendFontFaceId(1),
+                fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
             }],
             text_cache_capacity: 1024,
             layout_cache_capacity: 0,
@@ -306,7 +300,8 @@ fn layout_eviction_is_deferred_until_frame_end() {
             shadow_cache_capacity: 0,
         },
         Box::new(CountingBackend(layouts.clone())),
-    );
+    )
+    .unwrap();
     let request = TextLayoutRequest {
         text: renderer.text_run("cached", TextStyle::default()),
         wrap: TextWrap::None,

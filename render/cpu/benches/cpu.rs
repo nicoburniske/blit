@@ -2,8 +2,8 @@ use std::hint::black_box;
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
-    Direct, FontData, FontFace, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
-    RendererConfig, Scanline, TextLayoutEngine, VecBuffer, Xrgb8888,
+    Direct, FontData, FontFamily, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
+    RendererConfig, Scanline, VecBuffer, Xrgb8888,
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     image::{
@@ -605,27 +605,20 @@ fn renderer_with_shadow_cache<S>(
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
-    let mut text: Box<dyn TextLayoutEngine> =
-        Box::new(blit_text_cosmic::Backend::without_system_fonts());
-    let face = text
-        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
-        .unwrap()[0];
     Renderer::new(
         VecBuffer::new(width, height),
         RendererConfig {
-            fonts: vec![FontFace {
+            fonts: vec![FontFamily {
                 id: FontId::default(),
-                weight: 400,
-                stretch: 100,
-                style: Default::default(),
-                face,
+                fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
             }],
             text_cache_capacity: 512 * 1024,
             layout_cache_capacity: 512 * 1024,
             glyph_cache_capacity: 512 * 1024,
             shadow_cache_capacity,
         },
-        text,
+        Box::new(blit_text_cosmic::Backend::without_system_fonts()),
     )
+    .unwrap()
     .strategy(strategy)
 }

@@ -4,7 +4,7 @@ use blit::{
     Absolute, Anchor, Axis, Easing, Interaction, Point, Sense, Sides, Size, Sizing, Transition,
     Widget, WidgetId,
 };
-use blit_cpu::{FontData, FontFace, RendererConfig, TextLayoutEngine};
+use blit_cpu::{FontData, FontFamily, RendererConfig, TextLayoutEngine};
 use blit_desktop::{
     Application, BoundsClip, Config, DesktopPlatform, EventLoopProxy, Root, Ui,
     atom::{Rectangle, Shadow},
@@ -18,21 +18,15 @@ use blit_desktop::{
 };
 use blit_showcase::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 
-pub fn run(mut text: Box<dyn TextLayoutEngine>) {
-    let face = text
-        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
-        .unwrap()[0];
+pub fn run(text: Box<dyn TextLayoutEngine>) {
     blit_desktop::run::<App>(Config {
         title: "Blit layout playground".into(),
         width: 1120,
         height: 800,
         renderer: RendererConfig {
-            fonts: vec![FontFace {
+            fonts: vec![FontFamily {
                 id: FontId::default(),
-                weight: 400,
-                stretch: 100,
-                style: Default::default(),
-                face,
+                fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
             }],
             text_cache_capacity: 1024 * 1024,
             layout_cache_capacity: 2 * 1024 * 1024,

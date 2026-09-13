@@ -5,7 +5,7 @@ use std::{
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
-    FontData, FontFace, Renderer, RendererConfig, Scanline, TextLayoutEngine, VecBuffer, Xrgb8888,
+    FontData, FontFamily, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888,
     color::Color,
     command_list::{ClipId, CommandList, Rectangle},
     text_types::FontId,
@@ -39,28 +39,21 @@ fn main() {
         width: SIDE as i32,
         height: SIDE as i32,
     }];
-    let mut text: Box<dyn TextLayoutEngine> =
-        Box::new(blit_text_cosmic::Backend::without_system_fonts());
-    let face = text
-        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
-        .unwrap()[0];
     let mut renderer = Renderer::new(
         VecBuffer::<Xrgb8888>::new(SIDE, SIDE),
         RendererConfig {
-            fonts: vec![FontFace {
+            fonts: vec![FontFamily {
                 id: FontId::default(),
-                weight: 400,
-                stretch: 100,
-                style: Default::default(),
-                face,
+                fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
             }],
             text_cache_capacity: 1,
             layout_cache_capacity: 1,
             glyph_cache_capacity: 1,
             shadow_cache_capacity: 0,
         },
-        text,
+        Box::new(blit_text_cosmic::Backend::without_system_fonts()),
     )
+    .unwrap()
     .strategy(Scanline::default());
     let baseline = CURRENT.load(Relaxed);
     GROSS.store(0, Relaxed);

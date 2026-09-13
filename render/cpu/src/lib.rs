@@ -16,10 +16,10 @@ use crate::{
     command_list::{BoxShadow, Command, CommandList as ResolvedCommandList, Rectangle},
     image::{ImageData, ImageHandle, ImageId, ImageRequest},
     style::Border,
-    text_types::{FontId, FontStyle, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    text_types::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
-pub use blit_text::{FontData, FontError, FontFaceId as BackendFontFaceId, TextLayoutEngine};
+pub use blit_text::{FontData, FontError, TextLayoutEngine};
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
@@ -31,19 +31,16 @@ use strategy::{
 };
 
 pub struct RendererConfig {
-    pub fonts: Vec<FontFace>,
+    pub fonts: Vec<FontFamily>,
     pub text_cache_capacity: usize,
     pub layout_cache_capacity: usize,
     pub glyph_cache_capacity: usize,
     pub shadow_cache_capacity: usize,
 }
 
-pub struct FontFace {
+pub struct FontFamily {
     pub id: FontId,
-    pub weight: u16,
-    pub stretch: u16,
-    pub style: FontStyle,
-    pub face: BackendFontFaceId,
+    pub fonts: Vec<FontData>,
 }
 
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
@@ -52,20 +49,24 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
 }
 
 impl<B: PixelBuffer> Renderer<B, Direct> {
-    pub fn new(buffer: B, config: RendererConfig, text: Box<dyn TextLayoutEngine>) -> Self {
+    pub fn new(
+        buffer: B,
+        config: RendererConfig,
+        text: Box<dyn TextLayoutEngine>,
+    ) -> Result<Self, FontError> {
         let shadow_cache_capacity = config.shadow_cache_capacity;
-        Self {
+        Ok(Self {
             context: RenderContext {
                 buffer,
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
                 shadows: shadow::Cache::new(shadow_cache_capacity),
-                text: TextRenderer::new(config, text),
+                text: TextRenderer::new(config, text)?,
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
             },
             strategy: Direct::default(),
-        }
+        })
     }
 
     pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T> {

@@ -235,36 +235,27 @@ mod tests {
     use crate::atom::Rectangle;
     use crate::widget::{RichText, Span};
     use blit::{Frame, Sides, Size};
-    use blit_cpu::{
-        FontData, FontFace, RendererConfig, TextLayoutEngine, color::Color, text_types::FontId,
-    };
+    use blit_cpu::{FontData, FontFamily, RendererConfig, color::Color, text_types::FontId};
     use blit_std::layout::flex;
 
     #[test]
     fn nested_content_renders_at_device_scale() {
         let mut pixels = vec![0; 16 * 16];
-        let mut text: Box<dyn TextLayoutEngine> =
-            Box::new(blit_text_cosmic::Backend::without_system_fonts());
-        let face = text
-            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
-            .unwrap()[0];
         let mut renderer = Renderer::new(
             DesktopBuffer::new(16, 16),
             RendererConfig {
-                fonts: vec![FontFace {
+                fonts: vec![FontFamily {
                     id: FontId::default(),
-                    weight: 400,
-                    stretch: 100,
-                    style: Default::default(),
-                    face,
+                    fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
                 }],
                 text_cache_capacity: 0,
                 layout_cache_capacity: 0,
                 glyph_cache_capacity: 0,
                 shadow_cache_capacity: 0,
             },
-            text,
+            Box::new(blit_text_cosmic::Backend::without_system_fonts()),
         )
+        .unwrap()
         .strategy(Scanline::default());
         renderer.buffer_mut().set(&mut pixels);
         let mut platform = DesktopPlatform::new(renderer);
