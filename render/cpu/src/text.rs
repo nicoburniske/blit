@@ -49,7 +49,6 @@ struct TextKey {
 struct CachedText {
     id: TextRunId,
     text: Box<str>,
-    size: f32,
     spans: CachedSpans,
 }
 
@@ -220,9 +219,9 @@ impl TextRenderer {
         }) {
             return TextRunId::default();
         }
-        let size = style.size;
         let style = blit_text::TextStyle {
             font: font.font,
+            size: style.size,
             weight: style.weight,
             stretch: style.stretch,
             style: style.style,
@@ -231,18 +230,29 @@ impl TextRenderer {
             font: span.font.map_or(style.font, |id| {
                 self.fonts.iter().find(|font| font.id == id).unwrap().font
             }),
+            size: span.size.unwrap_or(style.size),
             weight: span.weight.unwrap_or(style.weight),
             stretch: span.stretch.unwrap_or(style.stretch),
             style: span.style.unwrap_or(style.style),
         };
         let mut hasher = DefaultHasher::new();
-        spans.hash(&mut hasher);
-        let len = spans.iter().map(|span| span.text.len()).sum();
+        let mut len = 0;
+        for span in spans {
+            let style = resolve(span);
+            len += span.text.len();
+            span.text.hash(&mut hasher);
+            style.font.hash(&mut hasher);
+            style.size.to_bits().hash(&mut hasher);
+            style.weight.hash(&mut hasher);
+            style.stretch.hash(&mut hasher);
+            style.style.hash(&mut hasher);
+            span.color.hash(&mut hasher);
+        }
         let key = TextKey {
             digest: hasher.finish(),
             len,
             font: style.font,
-            size: size.to_bits(),
+            size: style.size.to_bits(),
             weight: style.weight,
             stretch: style.stretch,
             style: style.style,
@@ -309,7 +319,6 @@ impl TextRenderer {
                     CachedText {
                         id: TextRunId(u64::from(next_text) << 32),
                         text,
-                        size,
                         spans,
                     },
                 )
@@ -357,7 +366,6 @@ impl TextRenderer {
                 text_system.layout(
                     blit_text::Text {
                         text: &cached.text,
-                        size: cached.size,
                         spans,
                     },
                     request,

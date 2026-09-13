@@ -116,7 +116,8 @@ impl TextLayoutEngine for Backend {
                 .checked_sub(1)
                 .expect("invalid font")
         };
-        let face_index = resolve(text.spans.first().expect("text requires a span").style);
+        let default_style = text.spans.first().expect("text requires a span").style;
+        let face_index = resolve(default_style);
         let face = &self.faces[face_index];
         let wrap = request.wrap != TextWrap::None;
         self.layout.reset(&FontdueLayoutSettings {
@@ -136,20 +137,19 @@ impl TextLayoutEngine for Backend {
                 &self.faces,
                 &FontdueTextStyle::with_user_data(
                     &text.text[range.clone()],
-                    text.size,
+                    style.size,
                     resolve(style),
                     (range.start, index),
                 ),
             );
         }
 
-        let size = text.size;
         let text = text.text;
 
         let empty_height = face
             .font
-            .horizontal_line_metrics(size)
-            .map_or(size.max(0.0), |metrics| {
+            .horizontal_line_metrics(default_style.size)
+            .map_or(default_style.size.max(0.0), |metrics| {
                 metrics.new_line_size.ceil().max(0.0)
             });
         let Some(source_lines) = self.layout.lines() else {
@@ -261,6 +261,7 @@ impl TextLayoutEngine for Backend {
             let mut ellipsis = 0;
             let mut ellipsis_face = face_index;
             let mut ellipsis_span = 0;
+            let mut ellipsis_size = default_style.size;
             let mut ellipsis_advance = 0.0;
             let mut source_len = source.len();
             let mut displayed_width = source_width;
@@ -274,12 +275,16 @@ impl TextLayoutEngine for Backend {
                     if let Some(glyph) = last.or_else(|| source.first()) {
                         ellipsis_face = glyph.font_index;
                         ellipsis_span = glyph.user_data.1;
+                        ellipsis_size = glyph.key.px;
                     }
                     let font = &self.faces[ellipsis_face].font;
                     ellipsis = font.lookup_glyph_index('…');
-                    ellipsis_advance = font.metrics_indexed(ellipsis, size).advance_width.ceil();
+                    ellipsis_advance = font
+                        .metrics_indexed(ellipsis, ellipsis_size)
+                        .advance_width
+                        .ceil();
                     displayed_width = last.map_or(0.0, |glyph| {
-                        let metrics = font.metrics_indexed(glyph.key.glyph_index, size);
+                        let metrics = font.metrics_indexed(glyph.key.glyph_index, glyph.key.px);
                         glyph.x - metrics.bounds.xmin.floor() + metrics.advance_width.ceil()
                     }) + ellipsis_advance;
                     if source_len == 0 || displayed_width <= available {
@@ -343,13 +348,16 @@ impl TextLayoutEngine for Backend {
                 let face = FontFaceId(source.font_index as u64 + 1);
                 let span = source.user_data.1;
                 if let Some(run) = runs.last_mut().filter(|run: &&mut LayoutRun| {
-                    run.face == face && run.span == span && run.glyphs.start >= line_start
+                    run.face == face
+                        && run.size.to_bits() == source.key.px.to_bits()
+                        && run.span == span
+                        && run.glyphs.start >= line_start
                 }) {
                     run.glyphs.end = index + 1;
                 } else {
                     runs.push(LayoutRun {
                         face,
-                        size,
+                        size: source.key.px,
                         span,
                         glyphs: index..index + 1,
                     });
@@ -366,7 +374,7 @@ impl TextLayoutEngine for Backend {
                 let index = u32::try_from(glyphs.len()).expect("too many glyphs");
                 runs.push(LayoutRun {
                     face: FontFaceId(ellipsis_face as u64 + 1),
-                    size,
+                    size: ellipsis_size,
                     span: ellipsis_span,
                     glyphs: index..index + 1,
                 });
@@ -445,6 +453,7 @@ mod tests {
         let text = "secure approval";
         let regular_style = TextStyle {
             font,
+            size: 16.0,
             weight: 400,
             stretch: 100,
             style: FontStyle::Normal,
@@ -452,7 +461,6 @@ mod tests {
         let layout = backend.layout(
             blit_text::Text {
                 text,
-                size: 16.0,
                 spans: &[
                     blit_text::TextSpan {
                         range: 0..7,
@@ -461,6 +469,7 @@ mod tests {
                     blit_text::TextSpan {
                         range: 7..text.len(),
                         style: TextStyle {
+                            size: 24.0,
                             weight: 700,
                             ..regular_style
                         },
@@ -490,7 +499,7 @@ mod tests {
             layout
                 .runs
                 .iter()
-                .any(|run| run.span == 1 && run.face == bold)
+                .any(|run| run.span == 1 && run.face == bold && run.size == 24.0)
         );
         assert_eq!(backend.font_face(bold).unwrap().face_index, 0);
         assert_eq!(
@@ -520,6 +529,7 @@ mod tests {
             .unwrap();
         let style = TextStyle {
             font,
+            size: 16.0,
             weight: 400,
             stretch: 100,
             style: FontStyle::Normal,
@@ -527,7 +537,6 @@ mod tests {
         let layout = backend.layout(
             blit_text::Text {
                 text: "one two three",
-                size: 16.0,
                 spans: &[blit_text::TextSpan {
                     range: 0.."one two three".len(),
                     style,
@@ -555,7 +564,6 @@ mod tests {
         let layout = backend.layout(
             blit_text::Text {
                 text: "one two three",
-                size: 16.0,
                 spans: &[blit_text::TextSpan {
                     range: 0.."one two three".len(),
                     style,

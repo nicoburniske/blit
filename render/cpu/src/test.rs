@@ -125,7 +125,10 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
 #[test]
 fn renderer_supports_custom_pixel_layouts() {
     let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(32, 24), renderer_config());
-    let m = renderer.rich_text(&[Span::new("M").color(Color::WHITE)], TextStyle::default());
+    let m = renderer.rich_text(
+        &[Span::new("M").size(20.0).color(Color::WHITE)],
+        TextStyle::default(),
+    );
     let clip = PhysicalRect {
         x: 0,
         y: 0,
@@ -234,7 +237,7 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
     let mut commands = CommandList::default();
     commands.push_text(
         TextRequest {
-            text: renderer.text_run("M", TextStyle::default()),
+            text: renderer.rich_text(&[Span::new("M").size(20.0)], TextStyle::default()),
             area,
             offset_x: 0.0,
             color: Color::WHITE,
@@ -351,6 +354,25 @@ fn text_measurement_reports_wrapped_layout_size() {
         max_lines: None,
     };
     let unwrapped = renderer.measure_text(&request);
+    let mixed = renderer.rich_text(
+        &[Span::new("hello\n"), Span::new("world").size(32.0)],
+        TextStyle::default(),
+    );
+    let mixed_size = renderer.measure_text(&TextLayoutRequest {
+        text: mixed,
+        ..request
+    });
+    assert!(mixed_size.height > unwrapped.height);
+    assert_eq!(
+        renderer
+            .measure_text(&TextLayoutRequest {
+                text: mixed,
+                max_lines: Some(1),
+                ..request
+            })
+            .height,
+        unwrapped.height
+    );
     let wrapped = renderer.measure_text(&TextLayoutRequest {
         wrap: TextWrap::Word,
         max_width: Some(unwrapped.width / 2.0),
@@ -1548,6 +1570,10 @@ fn text_runs_are_keyed_by_content_and_style() {
     let first = renderer.text_run("same", style);
 
     assert_eq!(renderer.text_run("same", style), first);
+    assert_eq!(
+        renderer.rich_text(&[Span::new("same").size(style.size)], style),
+        first
+    );
     assert_ne!(renderer.text_run("changed", style), first);
     assert_ne!(
         renderer.text_run(

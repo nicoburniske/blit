@@ -162,25 +162,17 @@ impl blit_text::TextLayoutEngine for Backend {
             let index = style.font.0.checked_sub(1).expect("invalid font selection") as usize;
             Attrs::new()
                 .family(Family::Name(&self.selections[index]))
+                .metrics(Metrics::relative(style.size, 1.2))
                 .stretch(cosmic_stretch(style.stretch))
                 .style(cosmic_style(style.style))
                 .weight(fontdb::Weight(style.weight))
         };
-        let default_attrs = text
-            .spans
-            .first()
-            .map(|span| attrs(span.style))
-            .unwrap_or_else(Attrs::new);
-        let line_height = text.size * 1.2;
-        let height = match (request.max_height, request.max_lines) {
-            (Some(height), Some(lines)) => Some(height.min(line_height * f32::from(lines))),
-            (Some(height), None) => Some(height),
-            (None, Some(lines)) => Some(line_height * f32::from(lines)),
-            (None, None) => None,
-        };
+        let default_style = text.spans.first().expect("text requires a span").style;
+        let default_attrs = attrs(default_style);
+        let line_height = default_style.size * 1.2;
         let buffer = &mut self.buffer;
-        buffer.set_metrics(Metrics::new(text.size, line_height));
-        buffer.set_size(request.max_width, height);
+        buffer.set_metrics(Metrics::relative(default_style.size, 1.2));
+        buffer.set_size(request.max_width, request.max_height);
         buffer.set_wrap(match request.wrap {
             TextWrap::None => Wrap::None,
             TextWrap::Word => Wrap::Word,
@@ -206,10 +198,11 @@ impl blit_text::TextLayoutEngine for Backend {
         );
         buffer.shape_until_scroll(&mut self.fonts, false);
         let text = text.text;
+        let max_lines = request.max_lines.map_or(usize::MAX, usize::from);
 
         let mut width = 0.0f32;
         let mut content_height = if text.is_empty() { line_height } else { 0.0 };
-        for run in buffer.layout_runs() {
+        for run in buffer.layout_runs().take(max_lines) {
             width = width.max(run.line_w);
             content_height = content_height.max(run.line_top + run.line_height);
         }
@@ -229,7 +222,7 @@ impl blit_text::TextLayoutEngine for Backend {
         let mut lines = Vec::new();
         let mut carets = Vec::new();
         let mut line_carets = Vec::new();
-        for line in buffer.layout_runs() {
+        for line in buffer.layout_runs().take(max_lines) {
             while line_index < line.line_i {
                 line_start = line_starts.next().unwrap_or(text.len());
                 line_index += 1;
@@ -397,7 +390,7 @@ mod tests {
     use blit_text::TextLayoutEngine as _;
 
     #[test]
-    fn selection_resolves_to_matching_face() {
+    fn selection_and_size_resolve_per_span() {
         let mut backend = Backend::without_system_fonts();
         let data = FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")));
         let regular = backend.register_font(data.clone(), 0).unwrap();
@@ -421,6 +414,7 @@ mod tests {
         let text = "regular bold";
         let regular_style = TextStyle {
             font,
+            size: 16.0,
             weight: 400,
             stretch: 100,
             style: FontStyle::Normal,
@@ -428,7 +422,6 @@ mod tests {
         let layout = backend.layout(
             blit_text::Text {
                 text,
-                size: 16.0,
                 spans: &[
                     blit_text::TextSpan {
                         range: 0..8,
@@ -437,6 +430,7 @@ mod tests {
                     blit_text::TextSpan {
                         range: 8..text.len(),
                         style: TextStyle {
+                            size: 24.0,
                             weight: 700,
                             ..regular_style
                         },
@@ -464,7 +458,8 @@ mod tests {
             layout
                 .runs
                 .iter()
-                .any(|run| run.span == 1 && run.face == bold)
+                .any(|run| run.span == 1 && run.face == bold && run.size == 24.0)
         );
+        assert!(layout.lines[0].bounds.height > 16.0 * 1.2);
     }
 }

@@ -23,11 +23,10 @@ pub trait TextLayoutEngine: 'static {
 #[derive(Clone, Copy, Debug)]
 pub struct Text<'a> {
     pub text: &'a str,
-    pub size: f32,
     pub spans: &'a [TextSpan],
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TextSpan {
     pub range: Range<usize>,
     pub style: TextStyle,
@@ -103,9 +102,10 @@ pub enum FontStyle {
     Oblique,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextStyle {
     pub font: FontSelectionId,
+    pub size: f32,
     pub weight: u16,
     pub stretch: u16,
     pub style: FontStyle,
