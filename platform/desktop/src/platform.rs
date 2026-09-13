@@ -246,8 +246,8 @@ mod tests {
         let mut text: Box<dyn TextLayoutEngine> =
             Box::new(blit_text_cosmic::Backend::without_system_fonts());
         let face = text
-            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-            .unwrap();
+            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
+            .unwrap()[0];
         let mut renderer = Renderer::new(
             DesktopBuffer::new(16, 16),
             RendererConfig {

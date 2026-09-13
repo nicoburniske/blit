@@ -20,8 +20,8 @@ use blit_showcase::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 
 pub fn run(mut text: Box<dyn TextLayoutEngine>) {
     let face = text
-        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-        .unwrap();
+        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
+        .unwrap()[0];
     blit_desktop::run::<App>(Config {
         title: "Blit layout playground".into(),
         width: 1120,

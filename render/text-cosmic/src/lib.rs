@@ -77,27 +77,35 @@ impl blit_text::TextLayoutEngine for Backend {
         face(self.fonts.db(), &mut self.faces, &self.aliases, cosmic).ok_or(FontError::InvalidData)
     }
 
-    fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontFaceId, FontError> {
-        let ids = self
+    fn register_font(&mut self, data: FontData) -> Result<Vec<FontFaceId>, FontError> {
+        let faces = self
             .fonts
             .db_mut()
             .load_font_source(Source::Binary(Arc::new(data.clone())));
-        let cosmic = ids
-            .into_iter()
-            .find(|id| {
-                self.fonts
-                    .db()
-                    .face(*id)
-                    .is_some_and(|face| face.index == face_index)
-            })
-            .ok_or(FontError::InvalidData)?;
-        let id =
-            FontFaceId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
-        self.faces.push(CosmicFace {
-            cosmic,
-            data: FontFace { data, face_index },
-        });
-        Ok(id)
+        if faces.is_empty() {
+            return Err(FontError::InvalidData);
+        }
+        let mut registered = Vec::new();
+        for cosmic in faces {
+            let face_index = self
+                .fonts
+                .db()
+                .face(cosmic)
+                .ok_or(FontError::InvalidData)?
+                .index;
+            let id = FontFaceId(
+                u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?,
+            );
+            self.faces.push(CosmicFace {
+                cosmic,
+                data: FontFace {
+                    data: data.clone(),
+                    face_index,
+                },
+            });
+            registered.push(id);
+        }
+        Ok(registered)
     }
 
     fn register_font_selection(
@@ -393,8 +401,8 @@ mod tests {
     fn selection_and_size_resolve_per_span() {
         let mut backend = Backend::without_system_fonts();
         let data = FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")));
-        let regular = backend.register_font(data.clone(), 0).unwrap();
-        let bold = backend.register_font(data, 0).unwrap();
+        let regular = backend.register_font(data.clone()).unwrap()[0];
+        let bold = backend.register_font(data).unwrap()[0];
         let font = backend
             .register_font_selection(&[
                 FontCandidate {

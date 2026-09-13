@@ -2,8 +2,8 @@ use std::{borrow::Borrow, cmp::Reverse};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use blit_text::{
-    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, Glyph,
-    HorizontalAlign, LayoutLine, LayoutRequest, LayoutRun, TextLayout, TextLayoutEngine,
+    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle,
+    Glyph, HorizontalAlign, LayoutLine, LayoutRequest, LayoutRun, TextLayout, TextLayoutEngine,
     TextOverflow, TextStyle, TextWrap, VerticalAlign,
 };
 use fontdue::{
@@ -49,23 +49,35 @@ impl Default for Backend {
 }
 
 impl TextLayoutEngine for Backend {
-    fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontFaceId, FontError> {
-        let font = Font::from_bytes(
-            data.as_ref(),
-            FontSettings {
-                collection_index: face_index,
-                load_substitutions: false,
-                ..FontSettings::default()
-            },
-        )
-        .map_err(|_| FontError::InvalidData)?;
-        let id =
-            FontFaceId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
-        self.faces.push(Face {
-            data: FontFace { data, face_index },
-            font,
-        });
-        Ok(id)
+    fn register_font(&mut self, data: FontData) -> Result<Vec<FontFaceId>, FontError> {
+        let face_count = ttf_parser::fonts_in_collection(data.as_ref()).unwrap_or(1);
+        let mut registered = Vec::new();
+        for face_index in 0..face_count {
+            let font = Font::from_bytes(
+                data.as_ref(),
+                FontSettings {
+                    collection_index: face_index,
+                    load_substitutions: false,
+                    ..FontSettings::default()
+                },
+            )
+            .map_err(|_| FontError::InvalidData)?;
+            let id = FontFaceId(
+                u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?,
+            );
+            self.faces.push(Face {
+                data: FontFace {
+                    data: data.clone(),
+                    face_index,
+                },
+                font,
+            });
+            registered.push(id);
+        }
+        if registered.is_empty() {
+            return Err(FontError::InvalidData);
+        }
+        Ok(registered)
     }
 
     fn register_font_selection(
@@ -104,7 +116,12 @@ impl TextLayoutEngine for Backend {
                 .iter()
                 .min_by_key(|candidate| {
                     (
-                        candidate.style != style.style,
+                        match (style.style, candidate.style) {
+                            (requested, candidate) if requested == candidate => 0,
+                            (FontStyle::Italic, FontStyle::Oblique)
+                            | (FontStyle::Oblique, FontStyle::Italic) => 1,
+                            _ => 2,
+                        },
                         candidate.stretch.abs_diff(style.stretch),
                         candidate.weight.abs_diff(style.weight),
                         Reverse(candidate.weight),
@@ -429,11 +446,11 @@ mod tests {
     fn registered_font_produces_common_layout() {
         let mut backend = Backend::new();
         let face = backend
-            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-            .unwrap();
+            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
+            .unwrap()[0];
         let bold = backend
-            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-            .unwrap();
+            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
+            .unwrap()[0];
         let font = backend
             .register_font_selection(&[
                 FontCandidate {
@@ -517,8 +534,8 @@ mod tests {
     fn layout_wraps_and_exposes_valid_ranges() {
         let mut backend = Backend::new();
         let face = backend
-            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-            .unwrap();
+            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
+            .unwrap()[0];
         let font = backend
             .register_font_selection(&[FontCandidate {
                 face,

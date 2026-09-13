@@ -8,7 +8,7 @@ pub trait TextLayoutEngine: 'static {
         Err(FontError::Unsupported)
     }
 
-    fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontFaceId, FontError>;
+    fn register_font(&mut self, data: FontData) -> Result<Vec<FontFaceId>, FontError>;
 
     fn register_font_selection(
         &mut self,

@@ -110,8 +110,8 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
 ) -> Renderer<B> {
     let mut text: Box<dyn TextLayoutEngine> = Box::new(backend);
     let face = text
-        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-        .unwrap();
+        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
+        .unwrap()[0];
     config.fonts.push(FontFace {
         id: FontId::default(),
         weight: 400,
@@ -260,11 +260,7 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
 struct CountingBackend(Arc<AtomicUsize>);
 
 impl TextLayoutEngine for CountingBackend {
-    fn register_font(
-        &mut self,
-        _data: FontData,
-        _face_index: u32,
-    ) -> Result<BackendFontFaceId, FontError> {
+    fn register_font(&mut self, _data: FontData) -> Result<Vec<BackendFontFaceId>, FontError> {
         Err(FontError::Unsupported)
     }
 
