@@ -38,6 +38,14 @@ impl DesktopPlatform {
         self.renderer.text_run(text, style)
     }
 
+    pub fn rich_text(
+        &mut self,
+        spans: &[blit_cpu::text_types::Span<'_>],
+        style: TextStyle,
+    ) -> TextRunId {
+        self.renderer.rich_text(spans, style)
+    }
+
     pub fn measure_text(&mut self, request: &TextLayoutRequest) -> Size {
         self.renderer.measure_text(request)
     }
@@ -225,37 +233,29 @@ impl Clip<DesktopPlatform> for BoundsClip {
 mod tests {
     use super::*;
     use crate::atom::Rectangle;
+    use crate::widget::{RichText, Span};
     use blit::{Frame, Sides, Size};
-    use blit_cpu::{
-        FontData, FontFace, RendererConfig, TextLayoutEngine, color::Color, text_types::FontId,
-    };
+    use blit_cpu::{FontData, FontFamily, RendererConfig, color::Color, text_types::FontId};
     use blit_std::layout::flex;
 
     #[test]
     fn nested_content_renders_at_device_scale() {
         let mut pixels = vec![0; 16 * 16];
-        let mut text: Box<dyn TextLayoutEngine> =
-            Box::new(blit_text_cosmic::Backend::without_system_fonts());
-        let face = text
-            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-            .unwrap();
         let mut renderer = Renderer::new(
             DesktopBuffer::new(16, 16),
             RendererConfig {
-                fonts: vec![FontFace {
+                fonts: vec![FontFamily {
                     id: FontId::default(),
-                    weight: 400,
-                    stretch: 100,
-                    style: Default::default(),
-                    face,
+                    fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
                 }],
                 text_cache_capacity: 0,
                 layout_cache_capacity: 0,
                 glyph_cache_capacity: 0,
                 shadow_cache_capacity: 0,
             },
-            text,
+            Box::new(blit_text_cosmic::Backend::without_system_fonts()),
         )
+        .unwrap()
         .strategy(Scanline::default());
         renderer.buffer_mut().set(&mut pixels);
         let mut platform = DesktopPlatform::new(renderer);
@@ -269,6 +269,7 @@ mod tests {
                 root.insert(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
                 root.child(flex::item().fixed(2.0, 2.0))
                     .insert(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
+                root.insert(RichText::new(&[Span::new("")]));
             },
         );
         assert_eq!(pixels[7 * 16 + 7], 0x0046_6edc);

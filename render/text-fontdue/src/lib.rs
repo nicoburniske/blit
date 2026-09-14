@@ -2,8 +2,8 @@ use std::{borrow::Borrow, cmp::Reverse};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use blit_text::{
-    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, Glyph,
-    HorizontalAlign, LayoutLine, LayoutRequest, LayoutRun, TextLayout, TextLayoutEngine,
+    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle,
+    Glyph, HorizontalAlign, LayoutLine, LayoutRequest, LayoutRun, TextLayout, TextLayoutEngine,
     TextOverflow, TextStyle, TextWrap, VerticalAlign,
 };
 use fontdue::{
@@ -18,7 +18,7 @@ use fontdue::{
 pub struct Backend {
     faces: Vec<Face>,
     selections: Vec<Box<[FontCandidate]>>,
-    layout: Layout,
+    layout: Layout<(usize, usize)>,
 }
 
 struct Face {
@@ -49,23 +49,35 @@ impl Default for Backend {
 }
 
 impl TextLayoutEngine for Backend {
-    fn register_font(&mut self, data: FontData, face_index: u32) -> Result<FontFaceId, FontError> {
-        let font = Font::from_bytes(
-            data.as_ref(),
-            FontSettings {
-                collection_index: face_index,
-                load_substitutions: false,
-                ..FontSettings::default()
-            },
-        )
-        .map_err(|_| FontError::InvalidData)?;
-        let id =
-            FontFaceId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
-        self.faces.push(Face {
-            data: FontFace { data, face_index },
-            font,
-        });
-        Ok(id)
+    fn register_font(&mut self, data: FontData) -> Result<Vec<FontFaceId>, FontError> {
+        let face_count = ttf_parser::fonts_in_collection(data.as_ref()).unwrap_or(1);
+        let mut registered = Vec::new();
+        for face_index in 0..face_count {
+            let font = Font::from_bytes(
+                data.as_ref(),
+                FontSettings {
+                    collection_index: face_index,
+                    load_substitutions: false,
+                    ..FontSettings::default()
+                },
+            )
+            .map_err(|_| FontError::InvalidData)?;
+            let id = FontFaceId(
+                u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?,
+            );
+            self.faces.push(Face {
+                data: FontFace {
+                    data: data.clone(),
+                    face_index,
+                },
+                font,
+            });
+            registered.push(id);
+        }
+        if registered.is_empty() {
+            return Err(FontError::InvalidData);
+        }
+        Ok(registered)
     }
 
     fn register_font_selection(
@@ -91,30 +103,39 @@ impl TextLayoutEngine for Backend {
         self.faces.get(index).map(|face| &face.data)
     }
 
-    fn layout(&mut self, text: &str, style: TextStyle, request: LayoutRequest) -> TextLayout {
-        let selection_index = usize::try_from(style.font.0)
-            .expect("invalid font selection")
-            .checked_sub(1)
-            .expect("invalid font selection");
-        let candidate = *self
-            .selections
-            .get(selection_index)
-            .expect("expired font selection")
-            .iter()
-            .min_by_key(|candidate| {
-                (
-                    candidate.style != style.style,
-                    candidate.stretch.abs_diff(style.stretch),
-                    candidate.weight.abs_diff(style.weight),
-                    Reverse(candidate.weight),
-                )
-            })
-            .expect("empty font selection");
-        let face_index = usize::try_from(candidate.face.0)
-            .expect("invalid font")
-            .checked_sub(1)
-            .expect("invalid font");
-        let face = self.faces.get(face_index).expect("expired font");
+    fn layout(&mut self, text: blit_text::Text<'_>, request: LayoutRequest) -> TextLayout {
+        let resolve = |style: TextStyle| {
+            let selection_index = usize::try_from(style.font.0)
+                .expect("invalid font selection")
+                .checked_sub(1)
+                .expect("invalid font selection");
+            let candidate = *self
+                .selections
+                .get(selection_index)
+                .expect("expired font selection")
+                .iter()
+                .min_by_key(|candidate| {
+                    (
+                        match (style.style, candidate.style) {
+                            (requested, candidate) if requested == candidate => 0,
+                            (FontStyle::Italic, FontStyle::Oblique)
+                            | (FontStyle::Oblique, FontStyle::Italic) => 1,
+                            _ => 2,
+                        },
+                        candidate.stretch.abs_diff(style.stretch),
+                        candidate.weight.abs_diff(style.weight),
+                        Reverse(candidate.weight),
+                    )
+                })
+                .expect("empty font selection");
+            usize::try_from(candidate.face.0)
+                .expect("invalid font")
+                .checked_sub(1)
+                .expect("invalid font")
+        };
+        let default_style = text.spans.first().expect("text requires a span").style;
+        let face_index = resolve(default_style);
+        let face = &self.faces[face_index];
         let wrap = request.wrap != TextWrap::None;
         self.layout.reset(&FontdueLayoutSettings {
             max_width: wrap.then(|| request.max_width.unwrap_or(f32::MAX).max(0.0)),
@@ -128,15 +149,24 @@ impl TextLayoutEngine for Backend {
             },
             ..FontdueLayoutSettings::default()
         });
-        self.layout.append(
-            &self.faces,
-            &FontdueTextStyle::new(text, style.size, face_index),
-        );
+        for (index, range, style) in text.segments() {
+            self.layout.append(
+                &self.faces,
+                &FontdueTextStyle::with_user_data(
+                    &text.text[range.clone()],
+                    style.size,
+                    resolve(style),
+                    (range.start, index),
+                ),
+            );
+        }
+
+        let text = text.text;
 
         let empty_height = face
             .font
-            .horizontal_line_metrics(style.size)
-            .map_or(style.size.max(0.0), |metrics| {
+            .horizontal_line_metrics(default_style.size)
+            .map_or(default_style.size.max(0.0), |metrics| {
                 metrics.new_line_size.ceil().max(0.0)
             });
         let Some(source_lines) = self.layout.lines() else {
@@ -230,6 +260,9 @@ impl TextLayoutEngine for Backend {
                 .unwrap_or(&[]);
             let mut source_width = 0.0f32;
             for glyph in source {
+                if glyph.char_data.is_control() {
+                    continue;
+                }
                 let font = &self.faces[glyph.font_index].font;
                 let metrics = font.metrics_indexed(glyph.key.glyph_index, glyph.key.px);
                 let pen = glyph.x - metrics.bounds.xmin.floor();
@@ -242,33 +275,40 @@ impl TextLayoutEngine for Backend {
                     || request
                         .max_width
                         .is_some_and(|max_width| source_width > max_width.max(0.0)));
-            let ellipsis = face.font.lookup_glyph_index('…');
-            let ellipsis_metrics = face.font.metrics_indexed(ellipsis, style.size);
-            let ellipsis_advance = ellipsis_metrics.advance_width.ceil();
+            let mut ellipsis = 0;
+            let mut ellipsis_face = face_index;
+            let mut ellipsis_span = 0;
+            let mut ellipsis_size = default_style.size;
+            let mut ellipsis_advance = 0.0;
             let mut source_len = source.len();
             let mut displayed_width = source_width;
             if ellipsize {
-                let available =
-                    request.max_width.unwrap_or(source_width).max(0.0) - ellipsis_advance;
-                source_len = 0;
-                for glyph in source {
-                    let font = &self.faces[glyph.font_index].font;
-                    let metrics = font.metrics_indexed(glyph.key.glyph_index, glyph.key.px);
-                    let pen = glyph.x - metrics.bounds.xmin.floor();
-                    let end = pen + metrics.advance_width.ceil();
-                    if end > available {
+                let available = request.max_width.unwrap_or(source_width).max(0.0);
+                loop {
+                    while source_len != 0 && source[source_len - 1].parent.is_whitespace() {
+                        source_len -= 1;
+                    }
+                    let last = source[..source_len].last();
+                    if let Some(glyph) = last.or_else(|| source.first()) {
+                        ellipsis_face = glyph.font_index;
+                        ellipsis_span = glyph.user_data.1;
+                        ellipsis_size = glyph.key.px;
+                    }
+                    let font = &self.faces[ellipsis_face].font;
+                    ellipsis = font.lookup_glyph_index('…');
+                    ellipsis_advance = font
+                        .metrics_indexed(ellipsis, ellipsis_size)
+                        .advance_width
+                        .ceil();
+                    displayed_width = last.map_or(0.0, |glyph| {
+                        let metrics = font.metrics_indexed(glyph.key.glyph_index, glyph.key.px);
+                        glyph.x - metrics.bounds.xmin.floor() + metrics.advance_width.ceil()
+                    }) + ellipsis_advance;
+                    if source_len == 0 || displayed_width <= available {
                         break;
                     }
-                    source_len += 1;
-                }
-                while source_len != 0 && source[source_len - 1].parent.is_whitespace() {
                     source_len -= 1;
                 }
-                displayed_width = source[..source_len].last().map_or(0.0, |glyph| {
-                    let font = &self.faces[glyph.font_index].font;
-                    let metrics = font.metrics_indexed(glyph.key.glyph_index, glyph.key.px);
-                    glyph.x - metrics.bounds.xmin.floor() + metrics.advance_width.ceil()
-                }) + ellipsis_advance;
             }
             let align_x =
                 request
@@ -285,16 +325,23 @@ impl TextLayoutEngine for Backend {
                 width: displayed_width,
                 height: line.max_new_line_size,
             };
-            let glyph_start = u32::try_from(glyphs.len()).expect("too many glyphs");
             let caret_start = u32::try_from(carets.len()).expect("too many carets");
-            let mut final_offset = source.first().map_or(text.len(), |glyph| glyph.byte_offset);
+            let line_start = u32::try_from(glyphs.len()).expect("too many glyphs");
+            let mut final_offset = source
+                .first()
+                .map_or(text.len(), |glyph| glyph.user_data.0 + glyph.byte_offset);
             let mut final_x = 0.0;
             for source in &source[..source_len] {
                 let font = &self.faces[source.font_index].font;
-                let metrics = font.metrics_indexed(source.key.glyph_index, source.key.px);
+                let metrics = if source.char_data.is_control() {
+                    fontdue::Metrics::default()
+                } else {
+                    font.metrics_indexed(source.key.glyph_index, source.key.px)
+                };
                 let pen = source.x - metrics.bounds.xmin.floor();
                 let advance = metrics.advance_width.ceil();
-                let byte_offset = u32::try_from(source.byte_offset).expect("text is too long");
+                let byte_offset = u32::try_from(source.user_data.0 + source.byte_offset)
+                    .expect("text is too long");
                 let caret = Caret {
                     byte_offset,
                     position: LogicalPoint {
@@ -309,6 +356,29 @@ impl TextLayoutEngine for Backend {
                 }) {
                     carets.push(caret);
                 }
+                final_offset = source.user_data.0 + source.byte_offset + source.parent.len_utf8();
+                final_x = pen + advance;
+                if source.char_data.is_control() {
+                    continue;
+                }
+                let index = u32::try_from(glyphs.len()).expect("too many glyphs");
+                let face = FontFaceId(source.font_index as u64 + 1);
+                let span = source.user_data.1;
+                if let Some(run) = runs.last_mut().filter(|run: &&mut LayoutRun| {
+                    run.face == face
+                        && run.size.to_bits() == source.key.px.to_bits()
+                        && run.span == span
+                        && run.glyphs.start >= line_start
+                }) {
+                    run.glyphs.end = index + 1;
+                } else {
+                    runs.push(LayoutRun {
+                        face,
+                        size: source.key.px,
+                        span,
+                        glyphs: index..index + 1,
+                    });
+                }
                 glyphs.push(Glyph {
                     id: source.key.glyph_index,
                     position: LogicalPoint {
@@ -316,10 +386,15 @@ impl TextLayoutEngine for Backend {
                         y: line.baseline_y + offset_y,
                     },
                 });
-                final_offset = source.byte_offset + source.parent.len_utf8();
-                final_x = pen + advance;
             }
             if ellipsize {
+                let index = u32::try_from(glyphs.len()).expect("too many glyphs");
+                runs.push(LayoutRun {
+                    face: FontFaceId(ellipsis_face as u64 + 1),
+                    size: ellipsis_size,
+                    span: ellipsis_span,
+                    glyphs: index..index + 1,
+                });
                 glyphs.push(Glyph {
                     id: ellipsis,
                     position: LogicalPoint {
@@ -342,14 +417,6 @@ impl TextLayoutEngine for Backend {
                     || previous.position.x.to_bits() != final_caret.position.x.to_bits()
             }) {
                 carets.push(final_caret);
-            }
-            let glyph_end = u32::try_from(glyphs.len()).expect("too many glyphs");
-            if glyph_start != glyph_end {
-                runs.push(LayoutRun {
-                    face: candidate.face,
-                    size: style.size,
-                    glyphs: glyph_start..glyph_end,
-                });
             }
             lines.push(LayoutLine {
                 bounds,
@@ -379,11 +446,11 @@ mod tests {
     fn registered_font_produces_common_layout() {
         let mut backend = Backend::new();
         let face = backend
-            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-            .unwrap();
+            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
+            .unwrap()[0];
         let bold = backend
-            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-            .unwrap();
+            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
+            .unwrap()[0];
         let font = backend
             .register_font_selection(&[
                 FontCandidate {
@@ -400,14 +467,31 @@ mod tests {
                 },
             ])
             .unwrap();
+        let text = "secure approval";
+        let regular_style = TextStyle {
+            font,
+            size: 16.0,
+            weight: 400,
+            stretch: 100,
+            style: FontStyle::Normal,
+        };
         let layout = backend.layout(
-            "secure approval",
-            TextStyle {
-                font,
-                size: 16.0,
-                weight: 700,
-                stretch: 100,
-                style: FontStyle::Normal,
+            blit_text::Text {
+                text,
+                spans: &[
+                    blit_text::TextSpan {
+                        range: 0..7,
+                        style: regular_style,
+                    },
+                    blit_text::TextSpan {
+                        range: 7..text.len(),
+                        style: TextStyle {
+                            size: 24.0,
+                            weight: 700,
+                            ..regular_style
+                        },
+                    },
+                ],
             },
             LayoutRequest {
                 max_width: None,
@@ -422,7 +506,18 @@ mod tests {
 
         assert!(!layout.glyphs.is_empty());
         assert_eq!(layout.lines.len(), 1);
-        assert!(layout.runs.iter().all(|run| run.face == bold));
+        assert!(
+            layout
+                .runs
+                .iter()
+                .any(|run| run.span == 0 && run.face == face)
+        );
+        assert!(
+            layout
+                .runs
+                .iter()
+                .any(|run| run.span == 1 && run.face == bold && run.size == 24.0)
+        );
         assert_eq!(backend.font_face(bold).unwrap().face_index, 0);
         assert_eq!(
             layout
@@ -439,8 +534,8 @@ mod tests {
     fn layout_wraps_and_exposes_valid_ranges() {
         let mut backend = Backend::new();
         let face = backend
-            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-            .unwrap();
+            .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
+            .unwrap()[0];
         let font = backend
             .register_font_selection(&[FontCandidate {
                 face,
@@ -457,8 +552,13 @@ mod tests {
             style: FontStyle::Normal,
         };
         let layout = backend.layout(
-            "one two three",
-            style,
+            blit_text::Text {
+                text: "one two three",
+                spans: &[blit_text::TextSpan {
+                    range: 0.."one two three".len(),
+                    style,
+                }],
+            },
             LayoutRequest {
                 max_width: Some(40.0),
                 max_height: None,
@@ -479,8 +579,13 @@ mod tests {
         }
 
         let layout = backend.layout(
-            "one two three",
-            style,
+            blit_text::Text {
+                text: "one two three",
+                spans: &[blit_text::TextSpan {
+                    range: 0.."one two three".len(),
+                    style,
+                }],
+            },
             LayoutRequest {
                 max_width: Some(40.0),
                 max_height: None,

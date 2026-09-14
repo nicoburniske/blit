@@ -13,12 +13,14 @@ use crate::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
     style::{Border, BorderRadius, GradientStop, LinearGradient},
-    text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
+    text_types::{
+        Span, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap,
+    },
 };
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_text::{
-    FontCandidate, FontError, FontFace as BackendFontFace, FontSelectionId, LayoutRequest,
-    TextLayout, TextLayoutEngine,
+    FontCandidate, FontError, FontFace as BackendFontFace, FontFaceId as BackendFontFaceId,
+    FontSelectionId, LayoutRequest, TextLayout, TextLayoutEngine,
 };
 
 use super::*;
@@ -106,24 +108,20 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
     mut config: RendererConfig,
     backend: T,
 ) -> Renderer<B> {
-    let mut text: Box<dyn TextLayoutEngine> = Box::new(backend);
-    let face = text
-        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-        .unwrap();
-    config.fonts.push(FontFace {
+    config.fonts.push(FontFamily {
         id: FontId::default(),
-        weight: 400,
-        stretch: 100,
-        style: Default::default(),
-        face,
+        fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
     });
-    Renderer::new(buffer, config, text)
+    Renderer::new(buffer, config, Box::new(backend)).unwrap()
 }
 
 #[test]
 fn renderer_supports_custom_pixel_layouts() {
     let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(32, 24), renderer_config());
-    let m = renderer.text_run("M", TextStyle::default());
+    let m = renderer.rich_text(
+        &[Span::new("M").size(20.0).color(Color::WHITE)],
+        TextStyle::default(),
+    );
     let clip = PhysicalRect {
         x: 0,
         y: 0,
@@ -163,7 +161,7 @@ fn renderer_supports_custom_pixel_layouts() {
                 height: 24.0,
             },
             offset_x: 0.0,
-            color: Color::WHITE,
+            color: Color::TRANSPARENT,
             options: TextOptions::default(),
         },
         clip,
@@ -232,7 +230,7 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
     let mut commands = CommandList::default();
     commands.push_text(
         TextRequest {
-            text: renderer.text_run("M", TextStyle::default()),
+            text: renderer.rich_text(&[Span::new("M").size(20.0)], TextStyle::default()),
             area,
             offset_x: 0.0,
             color: Color::WHITE,
@@ -255,12 +253,8 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
 struct CountingBackend(Arc<AtomicUsize>);
 
 impl TextLayoutEngine for CountingBackend {
-    fn register_font(
-        &mut self,
-        _data: FontData,
-        _face_index: u32,
-    ) -> Result<BackendFontFaceId, FontError> {
-        Err(FontError::Unsupported)
+    fn register_font(&mut self, _data: FontData) -> Result<Vec<BackendFontFaceId>, FontError> {
+        Ok(vec![BackendFontFaceId(1)])
     }
 
     fn register_font_selection(
@@ -271,15 +265,14 @@ impl TextLayoutEngine for CountingBackend {
     }
 
     fn font_face(&self, _face: BackendFontFaceId) -> Option<&BackendFontFace> {
-        None
+        static FACE: BackendFontFace = BackendFontFace {
+            data: FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))),
+            face_index: 0,
+        };
+        Some(&FACE)
     }
 
-    fn layout(
-        &mut self,
-        _text: &str,
-        _style: blit_text::TextStyle,
-        _request: LayoutRequest,
-    ) -> TextLayout {
+    fn layout(&mut self, _text: blit_text::Text<'_>, _request: LayoutRequest) -> TextLayout {
         self.0.fetch_add(1, Relaxed);
         TextLayout {
             size: LogicalSize::default(),
@@ -297,12 +290,9 @@ fn layout_eviction_is_deferred_until_frame_end() {
     let mut renderer = Renderer::new(
         VecBuffer::<Xrgb8888>::new(1, 1),
         RendererConfig {
-            fonts: vec![FontFace {
+            fonts: vec![FontFamily {
                 id: FontId::default(),
-                weight: 400,
-                stretch: 100,
-                style: Default::default(),
-                face: BackendFontFaceId(1),
+                fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
             }],
             text_cache_capacity: 1024,
             layout_cache_capacity: 0,
@@ -310,7 +300,8 @@ fn layout_eviction_is_deferred_until_frame_end() {
             shadow_cache_capacity: 0,
         },
         Box::new(CountingBackend(layouts.clone())),
-    );
+    )
+    .unwrap();
     let request = TextLayoutRequest {
         text: renderer.text_run("cached", TextStyle::default()),
         wrap: TextWrap::None,
@@ -354,6 +345,25 @@ fn text_measurement_reports_wrapped_layout_size() {
         max_lines: None,
     };
     let unwrapped = renderer.measure_text(&request);
+    let mixed = renderer.rich_text(
+        &[Span::new("hello\n"), Span::new("world").size(32.0)],
+        TextStyle::default(),
+    );
+    let mixed_size = renderer.measure_text(&TextLayoutRequest {
+        text: mixed,
+        ..request
+    });
+    assert!(mixed_size.height > unwrapped.height);
+    assert_eq!(
+        renderer
+            .measure_text(&TextLayoutRequest {
+                text: mixed,
+                max_lines: Some(1),
+                ..request
+            })
+            .height,
+        unwrapped.height
+    );
     let wrapped = renderer.measure_text(&TextLayoutRequest {
         wrap: TextWrap::Word,
         max_width: Some(unwrapped.width / 2.0),
@@ -1551,6 +1561,10 @@ fn text_runs_are_keyed_by_content_and_style() {
     let first = renderer.text_run("same", style);
 
     assert_eq!(renderer.text_run("same", style), first);
+    assert_eq!(
+        renderer.rich_text(&[Span::new("same").size(style.size)], style),
+        first
+    );
     assert_ne!(renderer.text_run("changed", style), first);
     assert_ne!(
         renderer.text_run(

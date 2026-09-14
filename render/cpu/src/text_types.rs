@@ -2,6 +2,21 @@ use crate::color::Color;
 use blit::geometry::LogicalRect;
 pub use blit_text::FontStyle;
 
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Span<'a> {
+        new(text: &'a str),
+        @optional {
+            font: FontId,
+            size: f32,
+            weight: u16,
+            stretch: u16,
+            style: FontStyle,
+            color: Color,
+        },
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum TextWrap {
     #[default]

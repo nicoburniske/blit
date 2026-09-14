@@ -12,7 +12,7 @@ use crate::{
             SolidPair as PreparedSolidPair,
         },
     },
-    text::PreparedLines,
+    text::PreparedRuns,
 };
 
 pub type CommandId = u32;
@@ -40,7 +40,7 @@ pub enum Payload<'a> {
 pub struct PreparedText {
     pub glyph_start: u32,
     pub glyph_end: u32,
-    pub lines: PreparedLines,
+    pub runs: PreparedRuns,
     pub area: PhysicalRect,
     pub color: Color,
 }

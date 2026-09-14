@@ -261,7 +261,7 @@ impl Cache {
                 bytes,
                 nine_slice,
             };
-            let (cached, _) = self.entries.get_or_insert(key, || cached);
+            let (cached, _) = self.entries.get_or_insert(key, |key| (key, cached));
             (cached.image.id(), cached.nine_slice)
         };
         Some(Prepared::Image(ImageRequest {

@@ -1,5 +1,4 @@
 use std::{
-    collections::hash_map::DefaultHasher,
     fmt::Write as _,
     hash::{Hash, Hasher},
     io,
@@ -25,7 +24,7 @@ use crate::{
 };
 use base64::engine::general_purpose::STANDARD as BASE64;
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect};
-use blit_cache::{DeferredCache, Scale};
+use blit_cache::{DeferredCache, Equivalent, Scale};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -212,53 +211,36 @@ impl TuiRenderer {
     }
 
     pub fn rich_text(&mut self, spans: &[Span<'_>]) -> TextRunId {
-        let mut hasher = DefaultHasher::new();
-        spans.hash(&mut hasher);
-        let digest = hasher.finish();
         let len = spans.iter().map(|span| span.text.len()).sum();
         assert!(u32::try_from(len).is_ok(), "tui text run too long");
         let next = self.next_text_run;
-        let (_, index) = self.text_runs.get_or_insert_by(
-            &digest,
-            |key, run| {
-                *key == digest
-                    && run.text.len() == len
-                    && run.spans.len() == spans.len()
-                    && run.spans.iter().zip(spans).all(|(resolved, span)| {
-                        run.text[resolved.start..resolved.end] == *span.text
-                            && resolved.color == span.color
-                            && resolved.background == span.background
-                            && resolved.attributes == span.attributes
-                            && resolved.remove_attributes == span.remove_attributes
-                    })
-            },
-            || {
-                let mut text = String::with_capacity(len);
-                let mut resolved = Vec::with_capacity(spans.len());
-                for span in spans {
-                    let start = text.len();
-                    text.push_str(span.text);
-                    resolved.push(ResolvedSpan {
-                        start,
-                        end: text.len(),
-                        color: span.color,
-                        background: span.background,
-                        attributes: span.attributes,
-                        remove_attributes: span.remove_attributes,
-                    });
-                }
-                (
-                    digest,
-                    CachedRun {
-                        id: TextRunId(u64::from(next) << 32),
-                        graphemes: Box::default(),
-                        text: text.into_boxed_str(),
-                        screen_references: 0,
-                        spans: resolved.into_boxed_slice(),
-                    },
-                )
-            },
-        );
+        let (_, index) = self.text_runs.get_or_insert(RunQuery(spans), |query| {
+            let mut text = String::with_capacity(len);
+            let mut resolved = Vec::with_capacity(query.0.len());
+            for span in query.0 {
+                let start = text.len();
+                text.push_str(span.text);
+                resolved.push(ResolvedSpan {
+                    start,
+                    end: text.len(),
+                    color: span.color,
+                    background: span.background,
+                    attributes: span.attributes,
+                    remove_attributes: span.remove_attributes,
+                });
+            }
+            (
+                RunKey {
+                    text: text.into_boxed_str(),
+                    spans: resolved.into_boxed_slice(),
+                },
+                CachedRun {
+                    id: TextRunId(u64::from(next) << 32),
+                    graphemes: Box::default(),
+                    screen_references: 0,
+                },
+            )
+        });
         if self.text_runs.get_index(index).id.0 as u32 == 0 {
             let slot = u32::try_from(index + 1).expect("too many tui text runs");
             self.text_runs
@@ -278,7 +260,7 @@ impl TuiRenderer {
     ) -> usize {
         let text = &self
             .text_runs
-            .get_index(self.text_run_index(request.text))
+            .get_key_index(self.text_run_index(request.text))
             .text;
         let target = (position.x - request.area.x + request.offset_x)
             .round()
@@ -306,7 +288,7 @@ impl TuiRenderer {
     pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
         let text = &self
             .text_runs
-            .get_index(self.text_run_index(request.text))
+            .get_key_index(self.text_run_index(request.text))
             .text;
         let before = &text[..text.floor_char_boundary(byte_offset.min(text.len()))];
         let line = before.rsplit_once('\n').map_or(before, |(_, line)| line);
@@ -449,11 +431,12 @@ impl Cells {
 struct RunScale;
 
 impl Scale<RunKey, CachedRun> for RunScale {
-    fn weight(&self, _key: &RunKey, run: &CachedRun) -> usize {
+    fn weight(&self, key: &RunKey, run: &CachedRun) -> usize {
         size_of::<CachedRun>()
-            + run.text.len()
+            + size_of::<RunKey>()
+            + key.text.len()
             + run.graphemes.len() * size_of::<u32>()
-            + run.spans.len() * size_of::<ResolvedSpan>()
+            + key.spans.len() * size_of::<ResolvedSpan>()
     }
 }
 
@@ -469,10 +452,8 @@ impl Scale<LayoutKey, TextLayout> for LayoutScale {
 
 struct CachedRun {
     id: TextRunId,
-    text: Box<str>,
     graphemes: Box<[u32]>,
     screen_references: usize,
-    spans: Box<[ResolvedSpan]>,
 }
 
 #[derive(Clone, Copy)]
@@ -485,7 +466,72 @@ struct ResolvedSpan {
     remove_attributes: TextAttributes,
 }
 
-type RunKey = u64;
+struct RunKey {
+    text: Box<str>,
+    spans: Box<[ResolvedSpan]>,
+}
+
+struct RunQuery<'a>(&'a [Span<'a>]);
+
+fn hash_run_span(
+    text: &str,
+    color: Option<Color>,
+    background: Option<Color>,
+    attributes: TextAttributes,
+    remove_attributes: TextAttributes,
+    state: &mut impl Hasher,
+) {
+    text.hash(state);
+    color.hash(state);
+    background.hash(state);
+    attributes.hash(state);
+    remove_attributes.hash(state);
+}
+
+impl Hash for RunQuery<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.len().hash(state);
+        for span in self.0 {
+            hash_run_span(
+                span.text,
+                span.color,
+                span.background,
+                span.attributes,
+                span.remove_attributes,
+                state,
+            );
+        }
+    }
+}
+
+impl Equivalent<RunKey> for RunQuery<'_> {
+    fn equivalent(&self, key: &RunKey) -> bool {
+        key.spans.len() == self.0.len()
+            && key.spans.iter().zip(self.0).all(|(resolved, span)| {
+                key.text[resolved.start..resolved.end] == *span.text
+                    && resolved.color == span.color
+                    && resolved.background == span.background
+                    && resolved.attributes == span.attributes
+                    && resolved.remove_attributes == span.remove_attributes
+            })
+    }
+}
+
+impl Hash for RunKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.spans.len().hash(state);
+        for span in &self.spans {
+            hash_run_span(
+                &self.text[span.start..span.end],
+                span.color,
+                span.background,
+                span.attributes,
+                span.remove_attributes,
+                state,
+            );
+        }
+    }
+}
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct LayoutKey {
@@ -564,13 +610,15 @@ impl TuiRenderer {
         else {
             return false;
         };
+        let left_key = text_runs.get_key_index(left_run as usize);
+        let right_key = text_runs.get_key_index(right_run as usize);
         let left = text_runs.get_index(left_run as usize);
         let right = text_runs.get_index(right_run as usize);
         let left_grapheme = left_grapheme as usize;
         let right_grapheme = right_grapheme as usize;
-        left.text
+        left_key.text
             [left.graphemes[left_grapheme] as usize..left.graphemes[left_grapheme + 1] as usize]
-            == right.text[right.graphemes[right_grapheme] as usize
+            == right_key.text[right.graphemes[right_grapheme] as usize
                 ..right.graphemes[right_grapheme + 1] as usize]
     }
 
@@ -582,10 +630,11 @@ impl TuiRenderer {
         if let Some(character) = glyph.scalar_value() {
             output.push(character);
         } else if let Some((run, grapheme)) = glyph.run() {
+            let text = &text_runs.get_key_index(run as usize).text;
             let run = text_runs.get_index(run as usize);
             let grapheme = grapheme as usize;
             output.push_str(
-                &run.text[run.graphemes[grapheme] as usize..run.graphemes[grapheme + 1] as usize],
+                &text[run.graphemes[grapheme] as usize..run.graphemes[grapheme + 1] as usize],
             );
         }
     }
@@ -636,21 +685,21 @@ impl TuiRenderer {
         };
         let run = self.text_run_index(request.text);
         if self.text_runs.get_index(run).graphemes.is_empty() {
-            self.text_runs.update_index(run, |run| {
-                run.graphemes = run
-                    .text
-                    .grapheme_indices(true)
-                    .map(|(start, _)| u32::try_from(start).unwrap())
-                    .chain(std::iter::once(u32::try_from(run.text.len()).unwrap()))
-                    .collect();
-            });
+            let text = &self.text_runs.get_key_index(run).text;
+            let graphemes = text
+                .grapheme_indices(true)
+                .map(|(start, _)| u32::try_from(start).unwrap())
+                .chain(std::iter::once(u32::try_from(text.len()).unwrap()))
+                .collect();
+            self.text_runs
+                .update_index(run, |run| run.graphemes = graphemes);
         }
+        let text = &self.text_runs.get_key_index(run).text;
         let run = self.text_runs.get_index(run);
-        let text = &run.text;
         let run_graphemes = &run.graphemes;
         let lines = &mut self.layout_lines;
         let graphemes = &mut self.layout_graphemes;
-        let (_, index) = self.text_layouts.get_or_insert(key, || {
+        let (_, index) = self.text_layouts.get_or_insert(key, |key| {
             lines.clear();
             graphemes.clear();
             start_line(lines, 0, max_lines);
@@ -776,12 +825,15 @@ impl TuiRenderer {
                     }
                 }
             }
-            TextLayout {
-                width: lines.iter().map(|line| line.width).max().unwrap_or(0),
-                lines: lines.as_slice().into(),
-                graphemes: graphemes.as_slice().into(),
-                truncated,
-            }
+            (
+                key,
+                TextLayout {
+                    width: lines.iter().map(|line| line.width).max().unwrap_or(0),
+                    lines: lines.as_slice().into(),
+                    graphemes: graphemes.as_slice().into(),
+                    truncated,
+                },
+            )
         });
         index
     }

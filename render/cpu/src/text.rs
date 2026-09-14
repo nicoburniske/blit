@@ -1,5 +1,4 @@
 use std::{
-    collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     mem::size_of,
     ptr::NonNull,
@@ -9,23 +8,25 @@ use crate::{
     Pixel, PixelSpan, RendererConfig,
     color::Color,
     glyph::GlyphCache,
-    text_types::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    strategy::command::PreparedText,
+    text_types::{Span, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
-use blit_cache::{DeferredCache, Scale};
+use blit_cache::{DeferredCache, Equivalent, Scale};
 use blit_text::{
-    FontCandidate, FontFaceId, FontSelectionId, LayoutRequest, TextLayout, TextLayoutEngine,
+    FontCandidate, FontError, FontFaceId, FontSelectionId, FontStyle, LayoutRequest, TextLayout,
+    TextLayoutEngine,
 };
 
 pub struct TextRenderer {
     text: Box<dyn TextLayoutEngine>,
     fonts: Box<[ConfiguredFont]>,
-    texts: DeferredCache<TextKey, CachedText, TextScale>,
+    texts: DeferredCache<TextKey, TextRunId, TextScale>,
     layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
     next_text: u32,
     glyphs: GlyphCache,
     prepared: Vec<PreparedGlyph>,
-    lines: Vec<PreparedLine>,
+    runs: Vec<PreparedRun>,
     coverage: Vec<u8>,
 }
 
@@ -34,21 +35,99 @@ struct ConfiguredFont {
     font: FontSelectionId,
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct TextKey {
-    digest: u64,
-    len: usize,
-    font: FontSelectionId,
-    size: u32,
-    weight: u16,
-    stretch: u16,
-    style: blit_text::FontStyle,
+    text: Box<str>,
+    spans: CachedSpans,
 }
 
-struct CachedText {
-    id: TextRunId,
-    text: Box<str>,
+enum CachedSpans {
+    One {
+        style: blit_text::TextStyle,
+        color: Option<Color>,
+    },
+    Many {
+        spans: Box<[blit_text::TextSpan]>,
+        colors: Box<[Option<Color>]>,
+    },
+}
+
+struct TextQuery<'a> {
+    spans: &'a [Span<'a>],
     style: blit_text::TextStyle,
+    fonts: &'a [ConfiguredFont],
+}
+
+impl TextQuery<'_> {
+    fn resolve(&self, span: &Span<'_>) -> blit_text::TextStyle {
+        blit_text::TextStyle {
+            font: span.font.map_or(self.style.font, |id| {
+                self.fonts.iter().find(|font| font.id == id).unwrap().font
+            }),
+            size: span.size.unwrap_or(self.style.size),
+            weight: span.weight.unwrap_or(self.style.weight),
+            stretch: span.stretch.unwrap_or(self.style.stretch),
+            style: span.style.unwrap_or(self.style.style),
+        }
+    }
+}
+
+fn hash_span(
+    text: &str,
+    style: blit_text::TextStyle,
+    color: Option<Color>,
+    state: &mut impl Hasher,
+) {
+    text.hash(state);
+    style.font.hash(state);
+    style.size.to_bits().hash(state);
+    style.weight.hash(state);
+    style.stretch.hash(state);
+    style.style.hash(state);
+    color.hash(state);
+}
+
+impl Hash for TextQuery<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for span in self.spans {
+            hash_span(span.text, self.resolve(span), span.color, state);
+        }
+    }
+}
+
+impl Equivalent<TextKey> for TextQuery<'_> {
+    fn equivalent(&self, key: &TextKey) -> bool {
+        match &key.spans {
+            CachedSpans::One { style, color } => {
+                self.spans.len() == 1
+                    && key.text.as_ref() == self.spans[0].text
+                    && *style == self.resolve(&self.spans[0])
+                    && *color == self.spans[0].color
+            }
+            CachedSpans::Many { spans, colors } => {
+                spans.len() == self.spans.len()
+                    && spans.iter().zip(colors).zip(self.spans).all(
+                        |((cached_span, color), span)| {
+                            &key.text[cached_span.range.clone()] == span.text
+                                && cached_span.style == self.resolve(span)
+                                && *color == span.color
+                        },
+                    )
+            }
+        }
+    }
+}
+
+impl Hash for TextKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match &self.spans {
+            CachedSpans::One { style, color } => hash_span(&self.text, *style, *color, state),
+            CachedSpans::Many { spans, colors } => {
+                for (span, color) in spans.iter().zip(colors) {
+                    hash_span(&self.text[span.range.clone()], span.style, *color, state);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -65,9 +144,16 @@ struct LayoutKey {
 
 struct TextScale;
 
-impl Scale<TextKey, CachedText> for TextScale {
-    fn weight(&self, _key: &TextKey, text: &CachedText) -> usize {
-        size_of::<TextKey>() + size_of::<CachedText>() + text.text.len()
+impl Scale<TextKey, TextRunId> for TextScale {
+    fn weight(&self, key: &TextKey, _text: &TextRunId) -> usize {
+        let spans = match &key.spans {
+            CachedSpans::One { .. } => 0,
+            CachedSpans::Many { spans, colors } => {
+                spans.len() * size_of::<blit_text::TextSpan>()
+                    + colors.len() * size_of::<Option<Color>>()
+            }
+        };
+        size_of::<TextKey>() + size_of::<TextRunId>() + key.text.len() + spans
     }
 }
 
@@ -81,7 +167,7 @@ struct CachedPaint {
     offset_x: u32,
     bounds: PhysicalRect,
     glyphs: Vec<PaintGlyph>,
-    lines: Vec<PreparedLine>,
+    runs: Vec<PreparedRun>,
 }
 
 #[derive(Clone, Copy)]
@@ -105,7 +191,7 @@ impl Scale<LayoutKey, CachedLayout> for LayoutScale {
             + cached.layout.carets.len() * size_of::<blit_text::Caret>()
             + cached.paint.as_ref().map_or(0, |paint| {
                 paint.glyphs.capacity() * size_of::<PaintGlyph>()
-                    + paint.lines.capacity() * size_of::<PreparedLine>()
+                    + paint.runs.capacity() * size_of::<PreparedRun>()
             })
     }
 }
@@ -118,20 +204,21 @@ pub struct PreparedGlyph {
     height: u32,
 }
 
-struct PreparedLine {
+struct PreparedRun {
     glyph_start: u32,
     glyph_end: u32,
     top: i32,
     bottom: i32,
+    color: Option<Color>,
 }
 
 #[derive(Clone, Copy)]
-pub struct PreparedLines {
+pub struct PreparedRuns {
     start: u32,
     end: u32,
 }
 
-impl PreparedLines {
+impl PreparedRuns {
     const NONE: Self = Self {
         start: u32::MAX,
         end: u32::MAX,
@@ -139,38 +226,59 @@ impl PreparedLines {
 }
 
 impl TextRenderer {
-    pub fn new(config: RendererConfig, mut text: Box<dyn TextLayoutEngine>) -> Self {
+    pub fn new(
+        config: RendererConfig,
+        mut text: Box<dyn TextLayoutEngine>,
+    ) -> Result<Self, FontError> {
         let mut fonts = Vec::new();
         let mut candidates = Vec::new();
-        for configured in &config.fonts {
+        for configured in config.fonts {
             if fonts
                 .iter()
                 .any(|font: &ConfiguredFont| font.id == configured.id)
             {
-                continue;
+                return Err(FontError::InvalidData);
             }
             candidates.clear();
-            candidates.extend(
-                config
-                    .fonts
-                    .iter()
-                    .filter(|face| face.id == configured.id)
-                    .map(|face| FontCandidate {
-                        face: face.face,
-                        weight: face.weight,
-                        stretch: face.stretch,
-                        style: face.style,
-                    }),
-            );
-            let font = text
-                .register_font_selection(&candidates)
-                .expect("invalid configured font");
+            for data in configured.fonts {
+                for backend_face in text.register_font(data)? {
+                    let registered = text.font_face(backend_face).ok_or(FontError::InvalidData)?;
+                    let face =
+                        ttf_parser::Face::parse(registered.data.as_ref(), registered.face_index)
+                            .map_err(|_| FontError::InvalidData)?;
+                    let weight = face.weight().to_number();
+                    // rounded percentages defined for OS/2 usWidthClass values
+                    let stretch = match face.width() {
+                        ttf_parser::Width::UltraCondensed => 50,
+                        ttf_parser::Width::ExtraCondensed => 63,
+                        ttf_parser::Width::Condensed => 75,
+                        ttf_parser::Width::SemiCondensed => 88,
+                        ttf_parser::Width::Normal => 100,
+                        ttf_parser::Width::SemiExpanded => 113,
+                        ttf_parser::Width::Expanded => 125,
+                        ttf_parser::Width::ExtraExpanded => 150,
+                        ttf_parser::Width::UltraExpanded => 200,
+                    };
+                    let style = match face.style() {
+                        ttf_parser::Style::Normal => FontStyle::Normal,
+                        ttf_parser::Style::Italic => FontStyle::Italic,
+                        ttf_parser::Style::Oblique => FontStyle::Oblique,
+                    };
+                    candidates.push(FontCandidate {
+                        face: backend_face,
+                        weight,
+                        stretch,
+                        style,
+                    });
+                }
+            }
+            let font = text.register_font_selection(&candidates)?;
             fonts.push(ConfiguredFont {
                 id: configured.id,
                 font,
             });
         }
-        Self {
+        Ok(Self {
             text,
             fonts: fonts.into_boxed_slice(),
             texts: DeferredCache::new(TextScale, config.text_cache_capacity),
@@ -178,15 +286,27 @@ impl TextRenderer {
             next_text: 1,
             glyphs: GlyphCache::new(config.glyph_cache_capacity),
             prepared: Vec::new(),
-            lines: Vec::new(),
+            runs: Vec::new(),
             coverage: Vec::new(),
-        }
+        })
     }
 
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.rich_text(&[Span::new(text)], style)
+    }
+
+    pub fn rich_text(&mut self, spans: &[Span<'_>], style: TextStyle) -> TextRunId {
+        let empty = [Span::new("")];
+        let spans = if spans.is_empty() { &empty } else { spans };
         let Some(font) = self.fonts.iter().find(|font| font.id == style.font) else {
             return TextRunId::default();
         };
+        if spans.iter().any(|span| {
+            span.font
+                .is_some_and(|id| !self.fonts.iter().any(|font| font.id == id))
+        }) {
+            return TextRunId::default();
+        }
         let style = blit_text::TextStyle {
             font: font.font,
             size: style.size,
@@ -194,49 +314,63 @@ impl TextRenderer {
             stretch: style.stretch,
             style: style.style,
         };
-        let mut hasher = DefaultHasher::new();
-        text.hash(&mut hasher);
-        let key = TextKey {
-            digest: hasher.finish(),
-            len: text.len(),
-            font: style.font,
-            size: style.size.to_bits(),
-            weight: style.weight,
-            stretch: style.stretch,
-            style: style.style,
+        let query = TextQuery {
+            spans,
+            style,
+            fonts: &self.fonts,
         };
+        let len = spans.iter().map(|span| span.text.len()).sum();
         let next_text = self.next_text;
-        let (_, index) = self.texts.get_or_insert_by(
-            &key,
-            |candidate, cached| {
-                *candidate == key && cached.text.as_ref() == text && cached.style == style
-            },
-            || {
+        let (_, index) = self.texts.get_or_insert(query, |query| {
+            let (text, spans) = if query.spans.len() == 1 {
                 (
-                    key,
-                    CachedText {
-                        id: TextRunId(u64::from(next_text) << 32),
-                        text: text.into(),
-                        style,
+                    query.spans[0].text.into(),
+                    CachedSpans::One {
+                        style: query.resolve(&query.spans[0]),
+                        color: query.spans[0].color,
                     },
                 )
-            },
-        );
-        if self.texts.get_index(index).id.0 as u32 == 0 {
+            } else {
+                let mut text = String::with_capacity(len);
+                let mut resolved = Vec::with_capacity(query.spans.len());
+                let mut colors = Vec::with_capacity(query.spans.len());
+                for span in query.spans {
+                    let start = text.len();
+                    text.push_str(span.text);
+                    resolved.push(blit_text::TextSpan {
+                        range: start..text.len(),
+                        style: query.resolve(span),
+                    });
+                    colors.push(span.color);
+                }
+                (
+                    text.into(),
+                    CachedSpans::Many {
+                        spans: resolved.into_boxed_slice(),
+                        colors: colors.into_boxed_slice(),
+                    },
+                )
+            };
+            (
+                TextKey { text, spans },
+                TextRunId(u64::from(next_text) << 32),
+            )
+        });
+        if self.texts.get_index(index).0 as u32 == 0 {
             let slot = u32::try_from(index + 1).expect("too many cached texts");
             self.texts
-                .update_index(index, |text| text.id.0 |= u64::from(slot));
+                .update_index(index, |text| text.0 |= u64::from(slot));
             self.next_text = self.next_text.checked_add(1).expect("too many texts");
         }
-        self.texts.get_index(index).id
+        *self.texts.get_index(index)
     }
 
     fn layout(&mut self, text: TextRunId, request: LayoutRequest) -> usize {
         let text_index = (text.0 as u32).checked_sub(1).expect("invalid text") as usize;
         self.texts.update_index(text_index, |cached| {
-            assert_eq!(cached.id, text, "expired text")
+            assert_eq!(*cached, text, "expired text")
         });
-        let cached = self.texts.get_index(text_index);
+        let cached = self.texts.get_key_index(text_index);
         let key = LayoutKey {
             text,
             max_width: request.max_width.map(f32::to_bits),
@@ -248,9 +382,33 @@ impl TextRenderer {
             vertical_align: request.vertical_align,
         };
         let text_system = &mut self.text;
-        let (_, index) = self.layouts.get_or_insert(key, || CachedLayout {
-            layout: text_system.layout(&cached.text, cached.style, request),
-            paint: None,
+        let (_, index) = self.layouts.get_or_insert(key, |key| {
+            (
+                key,
+                CachedLayout {
+                    layout: {
+                        let one;
+                        let spans = match &cached.spans {
+                            CachedSpans::One { style, .. } => {
+                                one = blit_text::TextSpan {
+                                    range: 0..cached.text.len(),
+                                    style: *style,
+                                };
+                                std::slice::from_ref(&one)
+                            }
+                            CachedSpans::Many { spans, .. } => spans,
+                        };
+                        text_system.layout(
+                            blit_text::Text {
+                                text: &cached.text,
+                                spans,
+                            },
+                            request,
+                        )
+                    },
+                    paint: None,
+                },
+            )
         });
         index
     }
@@ -259,7 +417,7 @@ impl TextRenderer {
         &mut self,
         request: &TextRequest,
         scale_factor: f32,
-    ) -> (u32, u32, PreparedLines, PhysicalRect) {
+    ) -> (u32, u32, PreparedRuns, PhysicalRect) {
         let area = request.area.to_physical(Scale2::uniform(scale_factor));
         let layout_index = self.layout(request.text, Self::paint_request(request));
         let scale = scale_factor.to_bits();
@@ -279,23 +437,27 @@ impl TextRenderer {
                     offset_x,
                     bounds: PhysicalRect::default(),
                     glyphs: Vec::new(),
-                    lines: Vec::new(),
+                    runs: Vec::new(),
                 });
             paint.scale = scale;
             paint.offset_x = offset_x;
             paint.bounds = PhysicalRect::default();
             paint.glyphs.clear();
-            paint.lines.clear();
+            paint.runs.clear();
             let mut has_bounds = false;
             let width = area.width.max(0);
             let height = area.height.max(0);
             let text = self.text.as_ref();
             let layout = &self.layouts.get_index(layout_index).layout;
+            let spans = &self
+                .texts
+                .get_key_index((request.text.0 as u32 - 1) as usize)
+                .spans;
             let glyphs = &mut self.glyphs;
             for run in &layout.runs {
                 let start = u32::try_from(paint.glyphs.len()).expect("too many paint glyphs");
-                let mut line_top = i32::MAX;
-                let mut line_bottom = i32::MIN;
+                let mut top = i32::MAX;
+                let mut bottom = i32::MIN;
                 let size = (run.size * scale_factor).to_bits();
                 for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
                     let cached = glyphs.glyph(text, run.face, glyph.id, size);
@@ -311,13 +473,13 @@ impl TextRenderer {
                     let glyph_height =
                         i32::try_from(cached.metrics.height).expect("glyph is too tall");
                     let right = x.saturating_add(glyph_width);
-                    let bottom = y.saturating_add(glyph_height);
+                    let glyph_bottom = y.saturating_add(glyph_height);
                     if glyph_width == 0
                         || glyph_height == 0
                         || x >= width
                         || right <= 0
                         || y >= height
-                        || bottom <= 0
+                        || glyph_bottom <= 0
                     {
                         continue;
                     }
@@ -328,13 +490,13 @@ impl TextRenderer {
                         x,
                         y,
                     });
-                    line_top = line_top.min(y);
-                    line_bottom = line_bottom.max(bottom);
+                    top = top.min(y);
+                    bottom = bottom.max(glyph_bottom);
                     let glyph_bounds = PhysicalRect {
                         x: x.max(0),
                         y: y.max(0),
                         width: right.min(width) - x.max(0),
-                        height: bottom.min(height) - y.max(0),
+                        height: glyph_bottom.min(height) - y.max(0),
                     };
                     paint.bounds = if has_bounds {
                         paint.bounds.union(glyph_bounds)
@@ -345,11 +507,16 @@ impl TextRenderer {
                 }
                 let end = u32::try_from(paint.glyphs.len()).expect("too many paint glyphs");
                 if start != end {
-                    paint.lines.push(PreparedLine {
+                    let color = match spans {
+                        CachedSpans::One { color, .. } => *color,
+                        CachedSpans::Many { colors, .. } => colors[run.span],
+                    };
+                    paint.runs.push(PreparedRun {
                         glyph_start: start,
                         glyph_end: end,
-                        top: line_top,
-                        bottom: line_bottom,
+                        top,
+                        bottom,
+                        color,
                     });
                 }
             }
@@ -373,68 +540,56 @@ impl TextRenderer {
             });
         }
         let glyph_end = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
-        let lines = if paint.lines.len() > 1 {
-            let start = u32::try_from(self.lines.len()).expect("too many prepared lines");
-            for line in &paint.lines {
-                self.lines.push(PreparedLine {
-                    glyph_start: glyph_start
-                        .checked_add(line.glyph_start)
-                        .expect("too many prepared glyphs"),
-                    glyph_end: glyph_start
-                        .checked_add(line.glyph_end)
-                        .expect("too many prepared glyphs"),
-                    top: line.top,
-                    bottom: line.bottom,
-                });
-            }
-            PreparedLines {
-                start,
-                end: u32::try_from(self.lines.len()).expect("too many prepared lines"),
-            }
-        } else {
-            PreparedLines::NONE
-        };
+        let runs =
+            if paint.runs.len() > 1 || paint.runs.first().is_some_and(|run| run.color.is_some()) {
+                let start = u32::try_from(self.runs.len()).expect("too many prepared runs");
+                for run in &paint.runs {
+                    self.runs.push(PreparedRun {
+                        glyph_start: glyph_start
+                            .checked_add(run.glyph_start)
+                            .expect("too many prepared glyphs"),
+                        glyph_end: glyph_start
+                            .checked_add(run.glyph_end)
+                            .expect("too many prepared glyphs"),
+                        top: run.top,
+                        bottom: run.bottom,
+                        color: run.color,
+                    });
+                }
+                PreparedRuns {
+                    start,
+                    end: u32::try_from(self.runs.len()).expect("too many prepared runs"),
+                }
+            } else {
+                PreparedRuns::NONE
+            };
         let bounds = PhysicalRect {
             x: area.x.saturating_add(paint.bounds.x),
             y: area.y.saturating_add(paint.bounds.y),
             width: paint.bounds.width,
             height: paint.bounds.height,
         };
-        (glyph_start, glyph_end, lines, bounds)
+        (glyph_start, glyph_end, runs, bounds)
     }
 
     pub fn draw_line<P: Pixel>(
         &mut self,
-        glyph_start: u32,
-        glyph_end: u32,
-        lines: PreparedLines,
-        area: PhysicalRect,
-        color: Color,
+        command: &PreparedText,
+        clip_coverage: u8,
         line: i32,
         row: PixelSpan<'_, P>,
         clip: PhysicalRect,
     ) {
+        let PreparedText {
+            glyph_start,
+            glyph_end,
+            runs,
+            area,
+            color,
+        } = *command;
         if line < clip.y || line >= clip.y.saturating_add(clip.height) {
             return;
         }
-        let (glyph_start, glyph_end) = if lines.start == PreparedLines::NONE.start {
-            (glyph_start, glyph_end)
-        } else {
-            let mut start = glyph_end;
-            let mut end = glyph_start;
-            for prepared_line in &self.lines[lines.start as usize..lines.end as usize] {
-                if line >= area.y.saturating_add(prepared_line.top)
-                    && line < area.y.saturating_add(prepared_line.bottom)
-                {
-                    start = start.min(prepared_line.glyph_start);
-                    end = end.max(prepared_line.glyph_end);
-                }
-            }
-            if start >= end {
-                return;
-            }
-            (start, end)
-        };
         let row_end = row.x.saturating_add(row.pixels.len() as i32);
         if self.coverage.len() < row.pixels.len() {
             self.coverage.resize(row.pixels.len(), 0);
@@ -444,54 +599,68 @@ impl TextRenderer {
         let clear_end = (clip.x.saturating_add(clip.width) - row.x)
             .max(0)
             .min(row.pixels.len() as i32) as usize;
-        coverage[clear_start..clear_end].fill(0);
-        let mut touched_start = row.pixels.len();
-        let mut touched_end = 0usize;
-        for glyph in &self.prepared[glyph_start as usize..glyph_end as usize] {
-            let x = area.x.saturating_add(glyph.x);
-            let y = area.y.saturating_add(glyph.y);
-            if line < y || line >= y.saturating_add(glyph.height as i32) {
-                continue;
+        let mut draw = |glyph_start: u32, glyph_end: u32, mut color: Color| {
+            color.alpha = (color.alpha as u16 * clip_coverage as u16 / 255) as u8;
+            coverage[clear_start..clear_end].fill(0);
+            let mut touched_start = row.pixels.len();
+            let mut touched_end = 0usize;
+            for glyph in &self.prepared[glyph_start as usize..glyph_end as usize] {
+                let x = area.x.saturating_add(glyph.x);
+                let y = area.y.saturating_add(glyph.y);
+                if line < y || line >= y.saturating_add(glyph.height as i32) {
+                    continue;
+                }
+                let left = x.max(row.x).max(clip.x);
+                let right = x
+                    .saturating_add(glyph.width as i32)
+                    .min(row_end)
+                    .min(clip.x.saturating_add(clip.width));
+                if left >= right {
+                    continue;
+                }
+                let source_x = (left - x) as usize;
+                let source_y = (line - y) as usize;
+                let len = (right - left) as usize;
+                let source = source_y * glyph.width as usize + source_x;
+                // safety: glyph alpha allocations remain live until finish_frame
+                let alpha =
+                    unsafe { std::slice::from_raw_parts(glyph.alpha.as_ptr().add(source), len) };
+                let destination_start = (left - row.x) as usize;
+                let destination_end = destination_start + len;
+                let overlap = touched_end.saturating_sub(destination_start).min(len);
+                let destination = &mut coverage[destination_start..destination_end];
+                for (destination, source) in destination[..overlap].iter_mut().zip(alpha) {
+                    *destination =
+                        (*source as u16 + *destination as u16 * (255 - *source as u16) / 255) as u8;
+                }
+                destination[overlap..].copy_from_slice(&alpha[overlap..]);
+                touched_start = touched_start.min(destination_start);
+                touched_end = touched_end.max(destination_end);
             }
-            let left = x.max(row.x).max(clip.x);
-            let right = x
-                .saturating_add(glyph.width as i32)
-                .min(row_end)
-                .min(clip.x.saturating_add(clip.width));
-            if left >= right {
-                continue;
+            if touched_start < touched_end {
+                P::blend_alpha_slice(
+                    &mut row.pixels[touched_start..touched_end],
+                    color,
+                    &coverage[touched_start..touched_end],
+                );
             }
-            let source_x = (left - x) as usize;
-            let source_y = (line - y) as usize;
-            let len = (right - left) as usize;
-            let source = source_y * glyph.width as usize + source_x;
-            // safety: glyph alpha allocations remain live until finish_frame
-            let alpha =
-                unsafe { std::slice::from_raw_parts(glyph.alpha.as_ptr().add(source), len) };
-            let destination_start = (left - row.x) as usize;
-            let destination_end = destination_start + len;
-            let overlap = touched_end.saturating_sub(destination_start).min(len);
-            let destination = &mut coverage[destination_start..destination_end];
-            for (destination, source) in destination[..overlap].iter_mut().zip(alpha) {
-                *destination =
-                    (*source as u16 + *destination as u16 * (255 - *source as u16) / 255) as u8;
+        };
+        if runs.start == PreparedRuns::NONE.start {
+            draw(glyph_start, glyph_end, color);
+        } else {
+            for run in &self.runs[runs.start as usize..runs.end as usize] {
+                if line >= area.y.saturating_add(run.top)
+                    && line < area.y.saturating_add(run.bottom)
+                {
+                    draw(run.glyph_start, run.glyph_end, run.color.unwrap_or(color));
+                }
             }
-            destination[overlap..].copy_from_slice(&alpha[overlap..]);
-            touched_start = touched_start.min(destination_start);
-            touched_end = touched_end.max(destination_end);
-        }
-        if touched_start < touched_end {
-            P::blend_alpha_slice(
-                &mut row.pixels[touched_start..touched_end],
-                color,
-                &coverage[touched_start..touched_end],
-            );
         }
     }
 
     pub fn finish_frame(&mut self) {
         self.prepared.clear();
-        self.lines.clear();
+        self.runs.clear();
         self.layouts.trim_to_weight();
         self.texts.trim_to_weight();
         self.glyphs.finish_frame();

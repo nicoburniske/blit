@@ -40,15 +40,18 @@ impl GlyphCache {
     ) -> usize {
         let key = GlyphKey { face, glyph, size };
         let Self { glyphs, rasterizer } = self;
-        let (_, index) = glyphs.get_or_insert(key, || {
+        let (_, index) = glyphs.get_or_insert(key, |key| {
             let face = text
                 .font_face(key.face)
                 .expect("text backend returned an unknown font");
             let (metrics, alpha) = rasterizer.rasterize(face, key.glyph, f32::from_bits(key.size));
-            CachedGlyph {
-                metrics,
-                alpha: alpha.into_boxed_slice(),
-            }
+            (
+                key,
+                CachedGlyph {
+                    metrics,
+                    alpha: alpha.into_boxed_slice(),
+                },
+            )
         });
         index
     }

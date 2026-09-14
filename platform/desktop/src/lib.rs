@@ -74,6 +74,7 @@ pub fn run<A: Application>(config: Config) -> Result<(), RunError> {
 
 #[derive(Debug)]
 pub enum RunError {
+    Font(blit_cpu::FontError),
     EventLoop(winit::error::EventLoopError),
     Window(winit::error::OsError),
     Surface(softbuffer::SoftBufferError),
@@ -82,6 +83,7 @@ pub enum RunError {
 impl fmt::Display for RunError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Font(error) => error.fmt(formatter),
             Self::EventLoop(error) => error.fmt(formatter),
             Self::Window(error) => error.fmt(formatter),
             Self::Surface(error) => error.fmt(formatter),
@@ -90,6 +92,12 @@ impl fmt::Display for RunError {
 }
 
 impl Error for RunError {}
+
+impl From<blit_cpu::FontError> for RunError {
+    fn from(error: blit_cpu::FontError) -> Self {
+        Self::Font(error)
+    }
+}
 
 impl From<winit::error::EventLoopError> for RunError {
     fn from(error: winit::error::EventLoopError) -> Self {
