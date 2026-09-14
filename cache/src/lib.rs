@@ -6,6 +6,8 @@ mod list;
 
 use std::hash::BuildHasher;
 
+pub use hashbrown::Equivalent;
+
 pub trait Scale<K, V> {
     fn weight(&self, key: &K, value: &V) -> usize;
 }
@@ -29,7 +31,7 @@ struct Entry<K, V> {
 
 impl<K, V, S, const TRIM_ON_INSERT: bool> LruCache<K, V, S, TRIM_ON_INSERT>
 where
-    K: std::hash::Hash + PartialEq,
+    K: std::hash::Hash,
     S: Scale<K, V>,
 {
     pub fn new(scale: S, max_weight: usize) -> Self {
@@ -43,10 +45,17 @@ where
         }
     }
 
-    pub fn get(&mut self, key: &K) -> Option<&V> {
-        let hash = self.hash_builder.hash_one(key);
-        let index = self.find(hash, |candidate, _| candidate == key)?;
+    pub fn get<Q>(&mut self, query: &Q) -> Option<&V>
+    where
+        Q: Equivalent<K> + std::hash::Hash + ?Sized,
+    {
+        let hash = self.hash_builder.hash_one(query);
+        let index = self.find(hash, |candidate, _| query.equivalent(candidate))?;
         Some(&self.entries.get(index).value)
+    }
+
+    pub fn get_key_index(&self, index: usize) -> &K {
+        &self.entries.get(index).key
     }
 
     pub fn get_index(&self, index: usize) -> &V {
@@ -102,27 +111,14 @@ where
 
 impl<K, V, S> LruCache<K, V, S, false>
 where
-    K: std::hash::Hash + PartialEq,
+    K: std::hash::Hash,
     S: Scale<K, V>,
 {
-    pub fn get_or_insert_by<Q>(
-        &mut self,
-        query: &Q,
-        equivalent: impl Fn(&K, &V) -> bool,
-        insert: impl FnOnce() -> (K, V),
-    ) -> (&V, usize)
+    pub fn get_or_insert<Q>(&mut self, query: Q, insert: impl FnOnce(Q) -> (K, V)) -> (&V, usize)
     where
-        Q: std::hash::Hash + ?Sized,
+        Q: Equivalent<K> + std::hash::Hash,
     {
-        match self.get_or_insert_inner(query, |_, key, value| equivalent(key, value), |_| insert())
-        {
-            Ok(entry) => entry,
-            Err(_) => unreachable!("deferred cache rejected an entry"),
-        }
-    }
-
-    pub fn get_or_insert(&mut self, key: K, insert: impl FnOnce() -> V) -> (&V, usize) {
-        match self.get_or_insert_inner(key, |query, key, _| query == key, |key| (key, insert())) {
+        match self.get_or_insert_inner(query, insert) {
             Ok(entry) => entry,
             Err(_) => unreachable!("deferred cache rejected an entry"),
         }
@@ -131,42 +127,36 @@ where
 
 impl<K, V, S> LruCache<K, V, S, true>
 where
-    K: std::hash::Hash + PartialEq,
+    K: std::hash::Hash,
     S: Scale<K, V>,
 {
-    pub fn get_or_insert_by<Q>(
+    pub fn get_or_insert<Q>(
         &mut self,
-        query: &Q,
-        equivalent: impl Fn(&K, &V) -> bool,
-        insert: impl FnOnce() -> (K, V),
+        query: Q,
+        insert: impl FnOnce(Q) -> (K, V),
     ) -> Result<(&V, usize), V>
     where
-        Q: std::hash::Hash + ?Sized,
+        Q: Equivalent<K> + std::hash::Hash,
     {
-        self.get_or_insert_inner(query, |_, key, value| equivalent(key, value), |_| insert())
-    }
-
-    pub fn get_or_insert(&mut self, key: K, insert: impl FnOnce() -> V) -> Result<(&V, usize), V> {
-        self.get_or_insert_inner(key, |query, key, _| query == key, |key| (key, insert()))
+        self.get_or_insert_inner(query, insert)
     }
 }
 
 impl<K, V, S, const TRIM_ON_INSERT: bool> LruCache<K, V, S, TRIM_ON_INSERT>
 where
-    K: std::hash::Hash + PartialEq,
+    K: std::hash::Hash,
     S: Scale<K, V>,
 {
     fn get_or_insert_inner<Q>(
         &mut self,
         query: Q,
-        equivalent: impl Fn(&Q, &K, &V) -> bool,
         insert: impl FnOnce(Q) -> (K, V),
     ) -> Result<(&V, usize), V>
     where
-        Q: std::hash::Hash,
+        Q: Equivalent<K> + std::hash::Hash,
     {
         let hash = self.hash_builder.hash_one(&query);
-        if let Some(index) = self.find(hash, |key, value| equivalent(&query, key, value)) {
+        if let Some(index) = self.find(hash, |key, _| query.equivalent(key)) {
             return Ok((&self.entries.get(index).value, index));
         }
         let (key, value) = insert(query);
@@ -225,10 +215,10 @@ mod test {
     fn deferred_eviction() {
         let mut cache = DeferredCache::new(UnitWeight, 2);
 
-        let (value, index) = cache.get_or_insert(1, || 10);
+        let (value, index) = cache.get_or_insert(1, |key| (key, 10));
         assert_eq!((*value, index), (10, 0));
-        cache.get_or_insert(2, || 20);
-        cache.get_or_insert(3, || 30);
+        cache.get_or_insert(2, |key| (key, 20));
+        cache.get_or_insert(3, |key| (key, 30));
 
         assert_eq!(cache.table.len(), 3);
         assert_eq!(cache.weight, 3);
@@ -245,10 +235,10 @@ mod test {
     fn immediate_eviction() {
         let mut cache = Cache::new(UnitWeight, 2);
 
-        cache.get_or_insert(1, || 10).unwrap();
-        cache.get_or_insert(2, || 20).unwrap();
+        cache.get_or_insert(1, |key| (key, 10)).unwrap();
+        cache.get_or_insert(2, |key| (key, 20)).unwrap();
         assert_eq!(cache.get(&1), Some(&10));
-        cache.get_or_insert(3, || 30).unwrap();
+        cache.get_or_insert(3, |key| (key, 30)).unwrap();
 
         assert_eq!(cache.get(&1), Some(&10));
         assert_eq!(cache.get(&2), None);
@@ -260,8 +250,8 @@ mod test {
     fn index_access_updates_weight() {
         let mut cache = DeferredCache::new(ValueWeight, 2);
 
-        let (_, first) = cache.get_or_insert(1, || 1);
-        cache.get_or_insert(2, || 1);
+        let (_, first) = cache.get_or_insert(1, |key| (key, 1));
+        cache.get_or_insert(2, |key| (key, 1));
         cache.update_index(first, |value| *value = 2);
 
         assert_eq!(cache.get_index(first), &2);

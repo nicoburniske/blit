@@ -1,5 +1,4 @@
 use std::{
-    collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     mem::size_of,
     ptr::NonNull,
@@ -13,7 +12,7 @@ use crate::{
     text_types::{Span, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
-use blit_cache::{DeferredCache, Scale};
+use blit_cache::{DeferredCache, Equivalent, Scale};
 use blit_text::{
     FontCandidate, FontError, FontFaceId, FontSelectionId, FontStyle, LayoutRequest, TextLayout,
     TextLayoutEngine,
@@ -22,7 +21,7 @@ use blit_text::{
 pub struct TextRenderer {
     text: Box<dyn TextLayoutEngine>,
     fonts: Box<[ConfiguredFont]>,
-    texts: DeferredCache<TextKey, CachedText, TextScale>,
+    texts: DeferredCache<TextKey, TextRunId, TextScale>,
     layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
     next_text: u32,
     glyphs: GlyphCache,
@@ -36,19 +35,7 @@ struct ConfiguredFont {
     font: FontSelectionId,
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct TextKey {
-    digest: u64,
-    len: usize,
-    font: FontSelectionId,
-    size: u32,
-    weight: u16,
-    stretch: u16,
-    style: blit_text::FontStyle,
-}
-
-struct CachedText {
-    id: TextRunId,
     text: Box<str>,
     spans: CachedSpans,
 }
@@ -62,6 +49,85 @@ enum CachedSpans {
         spans: Box<[blit_text::TextSpan]>,
         colors: Box<[Option<Color>]>,
     },
+}
+
+struct TextQuery<'a> {
+    spans: &'a [Span<'a>],
+    style: blit_text::TextStyle,
+    fonts: &'a [ConfiguredFont],
+}
+
+impl TextQuery<'_> {
+    fn resolve(&self, span: &Span<'_>) -> blit_text::TextStyle {
+        blit_text::TextStyle {
+            font: span.font.map_or(self.style.font, |id| {
+                self.fonts.iter().find(|font| font.id == id).unwrap().font
+            }),
+            size: span.size.unwrap_or(self.style.size),
+            weight: span.weight.unwrap_or(self.style.weight),
+            stretch: span.stretch.unwrap_or(self.style.stretch),
+            style: span.style.unwrap_or(self.style.style),
+        }
+    }
+}
+
+fn hash_span(
+    text: &str,
+    style: blit_text::TextStyle,
+    color: Option<Color>,
+    state: &mut impl Hasher,
+) {
+    text.hash(state);
+    style.font.hash(state);
+    style.size.to_bits().hash(state);
+    style.weight.hash(state);
+    style.stretch.hash(state);
+    style.style.hash(state);
+    color.hash(state);
+}
+
+impl Hash for TextQuery<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for span in self.spans {
+            hash_span(span.text, self.resolve(span), span.color, state);
+        }
+    }
+}
+
+impl Equivalent<TextKey> for TextQuery<'_> {
+    fn equivalent(&self, key: &TextKey) -> bool {
+        match &key.spans {
+            CachedSpans::One { style, color } => {
+                self.spans.len() == 1
+                    && key.text.as_ref() == self.spans[0].text
+                    && *style == self.resolve(&self.spans[0])
+                    && *color == self.spans[0].color
+            }
+            CachedSpans::Many { spans, colors } => {
+                spans.len() == self.spans.len()
+                    && spans.iter().zip(colors).zip(self.spans).all(
+                        |((cached_span, color), span)| {
+                            &key.text[cached_span.range.clone()] == span.text
+                                && cached_span.style == self.resolve(span)
+                                && *color == span.color
+                        },
+                    )
+            }
+        }
+    }
+}
+
+impl Hash for TextKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match &self.spans {
+            CachedSpans::One { style, color } => hash_span(&self.text, *style, *color, state),
+            CachedSpans::Many { spans, colors } => {
+                for (span, color) in spans.iter().zip(colors) {
+                    hash_span(&self.text[span.range.clone()], span.style, *color, state);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -78,16 +144,16 @@ struct LayoutKey {
 
 struct TextScale;
 
-impl Scale<TextKey, CachedText> for TextScale {
-    fn weight(&self, _key: &TextKey, text: &CachedText) -> usize {
-        let spans = match &text.spans {
+impl Scale<TextKey, TextRunId> for TextScale {
+    fn weight(&self, key: &TextKey, _text: &TextRunId) -> usize {
+        let spans = match &key.spans {
             CachedSpans::One { .. } => 0,
             CachedSpans::Many { spans, colors } => {
                 spans.len() * size_of::<blit_text::TextSpan>()
                     + colors.len() * size_of::<Option<Color>>()
             }
         };
-        size_of::<TextKey>() + size_of::<CachedText>() + text.text.len() + spans
+        size_of::<TextKey>() + size_of::<TextRunId>() + key.text.len() + spans
     }
 }
 
@@ -248,119 +314,63 @@ impl TextRenderer {
             stretch: style.stretch,
             style: style.style,
         };
-        let resolve = |span: &Span<'_>| blit_text::TextStyle {
-            font: span.font.map_or(style.font, |id| {
-                self.fonts.iter().find(|font| font.id == id).unwrap().font
-            }),
-            size: span.size.unwrap_or(style.size),
-            weight: span.weight.unwrap_or(style.weight),
-            stretch: span.stretch.unwrap_or(style.stretch),
-            style: span.style.unwrap_or(style.style),
+        let query = TextQuery {
+            spans,
+            style,
+            fonts: &self.fonts,
         };
-        let mut hasher = DefaultHasher::new();
-        let mut len = 0;
-        for span in spans {
-            let style = resolve(span);
-            len += span.text.len();
-            span.text.hash(&mut hasher);
-            style.font.hash(&mut hasher);
-            style.size.to_bits().hash(&mut hasher);
-            style.weight.hash(&mut hasher);
-            style.stretch.hash(&mut hasher);
-            style.style.hash(&mut hasher);
-            span.color.hash(&mut hasher);
-        }
-        let key = TextKey {
-            digest: hasher.finish(),
-            len,
-            font: style.font,
-            size: style.size.to_bits(),
-            weight: style.weight,
-            stretch: style.stretch,
-            style: style.style,
-        };
+        let len = spans.iter().map(|span| span.text.len()).sum();
         let next_text = self.next_text;
-        let (_, index) = self.texts.get_or_insert_by(
-            &key,
-            |candidate, cached| {
-                *candidate == key
-                    && match &cached.spans {
-                        CachedSpans::One { style, color } => {
-                            spans.len() == 1
-                                && cached.text.as_ref() == spans[0].text
-                                && *style == resolve(&spans[0])
-                                && *color == spans[0].color
-                        }
-                        CachedSpans::Many {
-                            spans: cached_spans,
-                            colors,
-                        } => {
-                            cached_spans.len() == spans.len()
-                                && cached_spans.iter().zip(colors).zip(spans).all(
-                                    |((cached_span, color), span)| {
-                                        &cached.text[cached_span.range.clone()] == span.text
-                                            && cached_span.style == resolve(span)
-                                            && *color == span.color
-                                    },
-                                )
-                        }
-                    }
-            },
-            || {
-                let (text, spans) = if spans.len() == 1 {
-                    (
-                        spans[0].text.into(),
-                        CachedSpans::One {
-                            style: resolve(&spans[0]),
-                            color: spans[0].color,
-                        },
-                    )
-                } else {
-                    let mut text = String::with_capacity(len);
-                    let mut resolved = Vec::with_capacity(spans.len());
-                    let mut colors = Vec::with_capacity(spans.len());
-                    for span in spans {
-                        let start = text.len();
-                        text.push_str(span.text);
-                        resolved.push(blit_text::TextSpan {
-                            range: start..text.len(),
-                            style: resolve(span),
-                        });
-                        colors.push(span.color);
-                    }
-                    (
-                        text.into(),
-                        CachedSpans::Many {
-                            spans: resolved.into_boxed_slice(),
-                            colors: colors.into_boxed_slice(),
-                        },
-                    )
-                };
+        let (_, index) = self.texts.get_or_insert(query, |query| {
+            let (text, spans) = if query.spans.len() == 1 {
                 (
-                    key,
-                    CachedText {
-                        id: TextRunId(u64::from(next_text) << 32),
-                        text,
-                        spans,
+                    query.spans[0].text.into(),
+                    CachedSpans::One {
+                        style: query.resolve(&query.spans[0]),
+                        color: query.spans[0].color,
                     },
                 )
-            },
-        );
-        if self.texts.get_index(index).id.0 as u32 == 0 {
+            } else {
+                let mut text = String::with_capacity(len);
+                let mut resolved = Vec::with_capacity(query.spans.len());
+                let mut colors = Vec::with_capacity(query.spans.len());
+                for span in query.spans {
+                    let start = text.len();
+                    text.push_str(span.text);
+                    resolved.push(blit_text::TextSpan {
+                        range: start..text.len(),
+                        style: query.resolve(span),
+                    });
+                    colors.push(span.color);
+                }
+                (
+                    text.into(),
+                    CachedSpans::Many {
+                        spans: resolved.into_boxed_slice(),
+                        colors: colors.into_boxed_slice(),
+                    },
+                )
+            };
+            (
+                TextKey { text, spans },
+                TextRunId(u64::from(next_text) << 32),
+            )
+        });
+        if self.texts.get_index(index).0 as u32 == 0 {
             let slot = u32::try_from(index + 1).expect("too many cached texts");
             self.texts
-                .update_index(index, |text| text.id.0 |= u64::from(slot));
+                .update_index(index, |text| text.0 |= u64::from(slot));
             self.next_text = self.next_text.checked_add(1).expect("too many texts");
         }
-        self.texts.get_index(index).id
+        *self.texts.get_index(index)
     }
 
     fn layout(&mut self, text: TextRunId, request: LayoutRequest) -> usize {
         let text_index = (text.0 as u32).checked_sub(1).expect("invalid text") as usize;
         self.texts.update_index(text_index, |cached| {
-            assert_eq!(cached.id, text, "expired text")
+            assert_eq!(*cached, text, "expired text")
         });
-        let cached = self.texts.get_index(text_index);
+        let cached = self.texts.get_key_index(text_index);
         let key = LayoutKey {
             text,
             max_width: request.max_width.map(f32::to_bits),
@@ -372,28 +382,33 @@ impl TextRenderer {
             vertical_align: request.vertical_align,
         };
         let text_system = &mut self.text;
-        let (_, index) = self.layouts.get_or_insert(key, || CachedLayout {
-            layout: {
-                let one;
-                let spans = match &cached.spans {
-                    CachedSpans::One { style, .. } => {
-                        one = blit_text::TextSpan {
-                            range: 0..cached.text.len(),
-                            style: *style,
+        let (_, index) = self.layouts.get_or_insert(key, |key| {
+            (
+                key,
+                CachedLayout {
+                    layout: {
+                        let one;
+                        let spans = match &cached.spans {
+                            CachedSpans::One { style, .. } => {
+                                one = blit_text::TextSpan {
+                                    range: 0..cached.text.len(),
+                                    style: *style,
+                                };
+                                std::slice::from_ref(&one)
+                            }
+                            CachedSpans::Many { spans, .. } => spans,
                         };
-                        std::slice::from_ref(&one)
-                    }
-                    CachedSpans::Many { spans, .. } => spans,
-                };
-                text_system.layout(
-                    blit_text::Text {
-                        text: &cached.text,
-                        spans,
+                        text_system.layout(
+                            blit_text::Text {
+                                text: &cached.text,
+                                spans,
+                            },
+                            request,
+                        )
                     },
-                    request,
-                )
-            },
-            paint: None,
+                    paint: None,
+                },
+            )
         });
         index
     }
@@ -436,7 +451,7 @@ impl TextRenderer {
             let layout = &self.layouts.get_index(layout_index).layout;
             let spans = &self
                 .texts
-                .get_index((request.text.0 as u32 - 1) as usize)
+                .get_key_index((request.text.0 as u32 - 1) as usize)
                 .spans;
             let glyphs = &mut self.glyphs;
             for run in &layout.runs {
