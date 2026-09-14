@@ -44,6 +44,14 @@ impl Size {
     }
 }
 
+impl std::ops::Add for Size {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self::new(self.width + other.width, self.height + other.height)
+    }
+}
+
 impl std::ops::Sub for Size {
     type Output = Self;
 

@@ -664,17 +664,20 @@ impl Widget<TuiPlatform> for &mut TextPage {
                 {
                     let mut input_preview = preview
                         .child(flex::item().height(Sizing::fixed(3.0)))
-                        .layout(single::layout().padding(Sides::all(1.0)));
+                        .layout(single::layout());
                     input_preview.insert(panel(colors::SURFACE, " TEXT INPUT "));
-                    input_preview.child(single::item().width(Sizing::grow())).build(
-                        TextInput::new(input_state, WidgetId::new("tui text input"), input)
-                            .placeholder("type here")
-                            .color(colors::TEXT)
-                            .placeholder_color(colors::TEXT_DIM)
-                            .background(colors::TRACK)
-                            .selection_background(colors::SELECTED)
-                            .cursor_background(colors::ACCENT_DARK),
-                    );
+                    input_preview
+                        .child(single::item().width(Sizing::grow()))
+                        .build(
+                            TextInput::new(input_state, WidgetId::new("tui text input"), input)
+                                .placeholder("type here")
+                                .padding(Sides::all(1.0))
+                                .color(colors::TEXT)
+                                .placeholder_color(colors::TEXT_DIM)
+                                .background(colors::TRACK)
+                                .selection_background(colors::SELECTED)
+                                .cursor_background(colors::ACCENT_DARK),
+                        );
                 }
                 {
                     let mut resizable = preview

@@ -455,7 +455,7 @@ impl Widget<DesktopPlatform> for &mut InputPage {
                 .height(Sizing::fixed(sz::XXXL)),
         )
         .build(|ui: Ui<'_>| {
-            let mut field = ui.layout(single::layout().padding(Sides::all(sz::SM)));
+            let mut field = ui.layout(single::layout());
             field.insert(
                 Rectangle::new()
                     .background(colors::TRACK)
@@ -472,6 +472,7 @@ impl Widget<DesktopPlatform> for &mut InputPage {
                     size: sz::LG,
                     ..TextStyle::default()
                 })
+                .padding(Sides::all(sz::SM))
                 .color(colors::TEXT)
                 .placeholder("Type here")
                 .placeholder_color(colors::TEXT_DIM)

@@ -1,5 +1,5 @@
 use blit::{
-    Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Size, Widget, WidgetId,
+    Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Widget, WidgetId,
 };
 use blit_cpu::{
     color::Color,
@@ -14,6 +14,7 @@ blit::builder! {
     pub struct TextInput<'a> {
         new(state: &'a mut State, id: WidgetId, value: &'a mut String),
         style: TextStyle = TextStyle::default(),
+        padding: Sides = Sides::all(0.0),
         background: Color = Color::TRANSPARENT,
         color: Color = Color::BLACK,
         placeholder: &'a str = "",
@@ -32,6 +33,7 @@ impl Widget<DesktopPlatform> for TextInput<'_> {
             id,
             value,
             style,
+            padding,
             background,
             color,
             placeholder,
@@ -39,7 +41,13 @@ impl Widget<DesktopPlatform> for TextInput<'_> {
             selection_background,
             cursor_background,
         } = self;
-        let interaction = ui.interact(id, Sense::FOCUS);
+        let interaction = ui.interact(
+            id,
+            Sense {
+                drag: true,
+                ..Sense::FOCUS
+            },
+        );
         let input = *ui.input();
         match input {
             Input::Key(key) if ui.is_focused(id) && key.key == Key::Escape && key.pressed => {
@@ -68,6 +76,7 @@ impl Widget<DesktopPlatform> for TextInput<'_> {
             None
         };
         if let Some(area) = ui.geometry(id) {
+            let area = content_area(area, padding);
             let request = TextRequest {
                 text,
                 area,
@@ -101,6 +110,7 @@ impl Widget<DesktopPlatform> for TextInput<'_> {
             display,
             state: *state,
             options,
+            padding,
             focused,
             background,
             color,
@@ -117,6 +127,7 @@ struct InputAtom {
     display: TextRunId,
     state: State,
     options: TextOptions,
+    padding: Sides,
     focused: bool,
     background: Color,
     color: Color,
@@ -127,15 +138,17 @@ struct InputAtom {
 
 impl Atom<DesktopPlatform> for InputAtom {
     fn measure(&self, platform: &mut DesktopPlatform, constraints: Constraints) -> Size {
-        constraints.constrain(platform.measure_text(&TextLayoutRequest {
+        let size = platform.measure_text(&TextLayoutRequest {
             text: self.display,
             wrap: TextWrap::None,
             max_width: None,
             max_lines: Some(1),
-        }))
+        });
+        constraints.constrain(size + self.padding.size())
     }
 
     fn paint(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
+        let area = content_area(area, self.padding);
         if self.background != Color::TRANSPARENT {
             platform.paint_rectangle(Rectangle::new(area).background(self.background));
         }
@@ -182,4 +195,13 @@ impl Atom<DesktopPlatform> for InputAtom {
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
         area
     }
+}
+
+fn content_area(area: LogicalRect, padding: Sides) -> LogicalRect {
+    LogicalRect::new(
+        area.x + padding.left,
+        area.y + padding.top,
+        (area.width - padding.left - padding.right).max(0.0),
+        (area.height - padding.top - padding.bottom).max(0.0),
+    )
 }
