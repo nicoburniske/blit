@@ -4,35 +4,38 @@ use blit::{
     Absolute, Anchor, Axis, Easing, Interaction, Point, Sense, Sides, Size, Sizing, Transition,
     Widget, WidgetId,
 };
-use blit_cpu::{FontData, FontFace, RendererConfig, TextLayoutEngine};
+use blit_cpu::{FontData, FontFamily, RendererConfig, TextLayoutEngine};
 use blit_desktop::{
     Application, BoundsClip, Config, DesktopPlatform, EventLoopProxy, Root, Ui,
     atom::{Rectangle, Shadow},
     color::Color,
     layout::{Align, flex, grid, single, wrap},
     style::{Border, BorderRadius},
-    text::{FontId, TextStyle},
+    text::{
+        FontId, FontStyle, HorizontalAlign, Span, TextOptions, TextOverflow, TextStyle, TextWrap,
+        VerticalAlign,
+    },
     widget::{
-        Performance, Text, TextInput, performance, popover, resize, scroll, split, text_input,
+        Performance, RichText, Text, TextInput, performance, popover, resize, scroll, split,
+        text_input,
     },
 };
 use blit_showcase::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 
-pub fn run(mut text: Box<dyn TextLayoutEngine>) {
-    let face = text
-        .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))), 0)
-        .unwrap();
+pub fn run(text: Box<dyn TextLayoutEngine>) {
+    let fonts = std::fs::read_dir(std::path::Path::new(env!("BLIT_TEST_FONT")).with_file_name(""))
+        .unwrap()
+        .filter_map(|entry| std::fs::read(entry.ok()?.path()).ok())
+        .map(|data| FontData::Shared(data.into()))
+        .collect();
     blit_desktop::run::<App>(Config {
         title: "Blit layout playground".into(),
         width: 1120,
         height: 800,
         renderer: RendererConfig {
-            fonts: vec![FontFace {
+            fonts: vec![FontFamily {
                 id: FontId::default(),
-                weight: 400,
-                stretch: 100,
-                style: Default::default(),
-                face,
+                fonts,
             }],
             text_cache_capacity: 1024 * 1024,
             layout_cache_capacity: 2 * 1024 * 1024,
@@ -48,6 +51,7 @@ pub fn run(mut text: Box<dyn TextLayoutEngine>) {
 enum Page {
     #[default]
     Layout,
+    Text,
     Input,
     Styles,
     Scroll,
@@ -56,6 +60,7 @@ enum Page {
 struct App {
     page: Page,
     layout: LayoutPage,
+    text: TextPage,
     input: InputPage,
     styles: StylesPage,
     scroll: ScrollPage,
@@ -69,6 +74,7 @@ impl Default for App {
         Self {
             page: Page::default(),
             layout: LayoutPage::default(),
+            text: TextPage::default(),
             input: InputPage::default(),
             styles: StylesPage::default(),
             scroll: ScrollPage::default(),
@@ -128,6 +134,7 @@ impl Application for App {
             });
             for (page, label) in [
                 (Page::Layout, "layout"),
+                (Page::Text, "text"),
                 (Page::Input, "input"),
                 (Page::Styles, "styles"),
                 (Page::Scroll, "scroll"),
@@ -183,6 +190,7 @@ impl Application for App {
         }
         match self.page {
             Page::Layout => root.child(flex::item().grow()).build(&mut self.layout),
+            Page::Text => root.child(flex::item().grow()).build(&mut self.text),
             Page::Input => root.child(flex::item().grow()).build(&mut self.input),
             Page::Styles => root.child(flex::item().grow()).build(&mut self.styles),
             Page::Scroll => root.child(flex::item().grow()).build(&mut self.scroll),
@@ -202,6 +210,222 @@ impl Application for App {
                     .accent(colors::ACCENT),
             );
         }
+    }
+}
+
+struct TextPage {
+    resize: resize::State,
+    wrap: TextWrap,
+    overflow: TextOverflow,
+    horizontal: HorizontalAlign,
+    vertical: VerticalAlign,
+    max_lines: Option<u16>,
+    split: split::State,
+}
+
+impl Default for TextPage {
+    fn default() -> Self {
+        Self {
+            resize: resize::State::default(),
+            wrap: TextWrap::Word,
+            overflow: TextOverflow::Clip,
+            horizontal: HorizontalAlign::Left,
+            vertical: VerticalAlign::Top,
+            max_lines: None,
+            split: split::State::default(),
+        }
+    }
+}
+
+impl Widget<DesktopPlatform> for &mut TextPage {
+    type Response = ();
+
+    fn build(self, ui: Ui<'_>) {
+        let TextPage {
+            resize,
+            wrap,
+            overflow,
+            horizontal,
+            vertical,
+            max_lines,
+            split,
+        } = self;
+        let options = TextOptions {
+            wrap: *wrap,
+            overflow: *overflow,
+            horizontal_align: *horizontal,
+            vertical_align: *vertical,
+            max_lines: *max_lines,
+        };
+        let screen = ui.screen().size();
+        let mut body = ui.layout(flex::row());
+        body.child(flex::item().grow()).build(SplitPane::new(
+            split,
+            WidgetId::new("text page split"),
+            sz::SIDEBAR,
+            |ui: Ui<'_>| {
+                let mut controls =
+                    ui.layout(flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
+                controls.insert(panel(colors::SURFACE));
+                controls.child(flex::item()).insert(
+                    Text::new("TEXT OPTIONS")
+                        .style(TextStyle {
+                            size: sz::LG,
+                            ..TextStyle::default()
+                        })
+                        .color(colors::ACCENT),
+                );
+                controls.child(flex::item()).build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "wrap",
+                        wrap,
+                        &[
+                            ("None", TextWrap::None),
+                            ("Word", TextWrap::Word),
+                            ("Character", TextWrap::Character),
+                        ],
+                    );
+                });
+                controls.child(flex::item()).build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "overflow",
+                        overflow,
+                        &[("Clip", TextOverflow::Clip), ("Ellipsis", TextOverflow::Ellipsis)],
+                    );
+                });
+                controls.child(flex::item()).build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "horizontal",
+                        horizontal,
+                        &[
+                            ("Left", HorizontalAlign::Left),
+                            ("Center", HorizontalAlign::Center),
+                            ("Right", HorizontalAlign::Right),
+                        ],
+                    );
+                });
+                controls.child(flex::item()).build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "vertical",
+                        vertical,
+                        &[
+                            ("Top", VerticalAlign::Top),
+                            ("Center", VerticalAlign::Center),
+                            ("Bottom", VerticalAlign::Bottom),
+                        ],
+                    );
+                });
+                controls.child(flex::item()).build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "maximum lines",
+                        max_lines,
+                        &[("All", None), ("3", Some(3)), ("6", Some(6))],
+                    );
+                });
+                controls.child(flex::item()).insert(
+                    Text::new("Drag the right edge, bottom edge, or corner of the paragraph to reflow it.")
+                        .style(TextStyle {
+                            size: sz::MD,
+                            ..TextStyle::default()
+                        })
+                        .color(colors::TEXT_DIM)
+                        .options(TextOptions {
+                            wrap: TextWrap::Word,
+                            ..TextOptions::default()
+                        }),
+                );
+            },
+            |ui: Ui<'_>| {
+                let mut preview =
+                    ui.layout(flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
+                preview.insert(panel(colors::SURFACE));
+                preview.child(flex::item()).insert(
+                    Text::new("RESIZABLE RICH TEXT")
+                        .style(TextStyle {
+                            size: sz::MD,
+                            ..TextStyle::default()
+                        })
+                        .color(colors::ACCENT),
+                );
+                preview.child(flex::item().grow()).build(|ui: Ui<'_>| {
+                    let mut viewport = ui
+                        .layout(single::layout().padding(Sides::all(sz::SM)))
+                        .clip(BoundsClip);
+                    viewport.insert(
+                        Rectangle::new()
+                            .background(colors::TRACK)
+                            .radius(BorderRadius::uniform(sz::XS)),
+                    );
+                    viewport.child(single::item()).build(
+                        resize::Area::new(
+                            resize,
+                            WidgetId::new("rich text preview"),
+                            Size::new(560.0, 360.0),
+                            |ui: Ui<'_>| {
+                                let mut paragraph = ui
+                                    .layout(single::layout().padding(Sides::all(sz::LG)))
+                                    .clip(BoundsClip);
+                                paragraph.insert(
+                                    Rectangle::new()
+                                        .background(colors::CANVAS)
+                                        .border(Border::solid(
+                                            sz::BORDER,
+                                            colors::CANVAS_BORDER,
+                                        ))
+                                        .radius(BorderRadius::uniform(sz::XS)),
+                                );
+                                let sample = [
+                                    Span::new("Rich text\n")
+                                        .size(sz::XXL)
+                                        .weight(700)
+                                        .style(FontStyle::Italic)
+                                        .color(colors::ACCENT),
+                                    Span::new("One paragraph can mix inherited body text with "),
+                                    Span::new("large type")
+                                        .size(sz::XL)
+                                        .color(colors::TEXT),
+                                    Span::new(", "),
+                                    Span::new("bold").weight(700).color(colors::TEXT),
+                                    Span::new(", "),
+                                    Span::new("italic")
+                                        .style(FontStyle::Italic)
+                                        .color(colors::TEXT),
+                                    Span::new(", "),
+                                    Span::new("oblique")
+                                        .style(FontStyle::Oblique)
+                                        .color(colors::TEXT),
+                                    Span::new(", and "),
+                                    Span::new("small details")
+                                        .size(sz::SM)
+                                        .color(colors::TEXT_MUTED),
+                                    Span::new(
+                                        ". Every styled span participates in the same wrapping, alignment, measurement, clipping, and ellipsis behavior. Resize the panel to watch the whole paragraph reflow.",
+                                    ),
+                                ];
+                                paragraph.child(single::item().grow()).insert(
+                                    RichText::new(&sample)
+                                        .style(TextStyle {
+                                            size: sz::LG,
+                                            ..TextStyle::default()
+                                        })
+                                        .color(colors::TEXT_MUTED)
+                                        .options(options),
+                                );
+                            },
+                            DesktopGrip,
+                        )
+                        .minimum(Size::new(260.0, 160.0))
+                        .maximum(screen)
+                        .grip_size(Size::uniform(sz::MD)),
+                    );
+                });
+            },
+        ));
     }
 }
 
@@ -231,7 +455,7 @@ impl Widget<DesktopPlatform> for &mut InputPage {
                 .height(Sizing::fixed(sz::XXXL)),
         )
         .build(|ui: Ui<'_>| {
-            let mut field = ui.layout(single::layout().padding(Sides::all(sz::SM)));
+            let mut field = ui.layout(single::layout());
             field.insert(
                 Rectangle::new()
                     .background(colors::TRACK)
@@ -248,6 +472,7 @@ impl Widget<DesktopPlatform> for &mut InputPage {
                     size: sz::LG,
                     ..TextStyle::default()
                 })
+                .padding(Sides::all(sz::SM))
                 .color(colors::TEXT)
                 .placeholder("Type here")
                 .placeholder_color(colors::TEXT_DIM)

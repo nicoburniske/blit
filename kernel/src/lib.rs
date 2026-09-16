@@ -58,12 +58,8 @@ pub use interact::{Interaction, ScrollInteraction, Sense, WidgetId};
 pub use layout::{Axis, Layout, LayoutCx, LayoutResolution, Sizing};
 
 pub trait Platform {
-    fn begin(&mut self, frame: FrameInfo);
-
-    fn end(&mut self);
-
     /// build and layout may repeat for queued inputs before paint and complete
-    fn begin_stage(&mut self, _: FrameStage) {}
+    fn frame_stage(&mut self, _: FrameStage) {}
 
     fn interaction_area(&self, area: Rect, clip: Rect) -> Option<Rect> {
         area.intersection(clip)

@@ -269,7 +269,7 @@ impl TuiRenderer {
         let cell_run = u32::try_from(run).expect("too many tui text runs");
         let layout = self.layout_text(&layout_request);
         let layout = self.text_layouts.get_index(layout);
-        let spans = &self.text_runs.get_index(run).spans;
+        let spans = &self.text_runs.get_key_index(run).spans;
         let mut span_index = 0;
         let base_style = CellStyle {
             background,

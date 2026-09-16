@@ -1,5 +1,5 @@
 use super::{ClipKind, Frame, ResolvedClip, ResolvedClipId, StoredClip};
-use crate::{FrameInfo, Platform, arena::DataArena};
+use crate::{Platform, arena::DataArena};
 
 pub fn resolve_order<R: Platform>(frame: &mut Frame<R>) {
     frame.paint_order.clear();
@@ -76,13 +76,7 @@ pub fn resolve_clips<R: Platform>(frame: &mut Frame<R>) {
     }
 }
 
-pub fn render<R: Platform>(
-    frame: &mut Frame<R>,
-    data: &DataArena,
-    platform: &mut R,
-    info: FrameInfo,
-) {
-    platform.begin(info);
+pub fn render<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mut R) {
     frame.active_clips.clear();
     if frame.paint_order.is_empty() {
         for node in 0..frame.nodes.len() {
@@ -103,7 +97,6 @@ pub fn render<R: Platform>(
         platform,
         ResolvedClipId::NONE,
     );
-    platform.end();
 }
 
 #[allow(clippy::too_many_arguments)]

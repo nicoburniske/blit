@@ -55,10 +55,7 @@ impl<P: Platform> blit::Layout<P> for Layout {
         );
         let size = cx.layout_child(child, child_bounds);
         cx.set_child_position(child, Point::new(padding.left, padding.top));
-        bounds.constrain(Size::new(
-            size.width + padding.left + padding.right,
-            size.height + padding.top + padding.bottom,
-        ))
+        bounds.constrain(size + padding.size())
     }
 
     fn override_size(&self, item: &mut Item, width: Option<f32>, height: Option<f32>) -> bool {

@@ -391,10 +391,7 @@ mod tests {
     use blit::{Frame, FrameInfo, Rect};
 
     struct TestPlatform;
-    impl Platform for TestPlatform {
-        fn begin(&mut self, _: FrameInfo) {}
-        fn end(&mut self) {}
-    }
+    impl Platform for TestPlatform {}
 
     struct TestClip;
     impl Clip<TestPlatform> for TestClip {

@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use blit::{Clip, FrameInfo, FrameStage, LogicalRect, Platform, Scale2};
+use blit::{Clip, FrameStage, LogicalRect, Platform, Scale2};
 use blit_std::widget::performance::{FrameProfiler, Profiled};
 use blit_tui_render::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 
@@ -65,18 +65,17 @@ impl Profiled for TuiPlatform {
 }
 
 impl Platform for TuiPlatform {
-    fn begin_stage(&mut self, stage: FrameStage) {
+    fn frame_stage(&mut self, stage: FrameStage) {
+        match stage {
+            FrameStage::Paint => {
+                self.renderer.begin_frame();
+                self.clip = self.renderer.screen().to_logical(Scale2::IDENTITY);
+                self.clips.clear();
+            }
+            FrameStage::Complete => self.renderer.end_frame(),
+            FrameStage::Build | FrameStage::Layout => {}
+        }
         self.profiler.begin_stage(stage, self.clock.elapsed());
-    }
-
-    fn begin(&mut self, _: FrameInfo) {
-        self.renderer.begin_frame();
-        self.clip = self.renderer.screen().to_logical(Scale2::IDENTITY);
-        self.clips.clear();
-    }
-
-    fn end(&mut self) {
-        self.renderer.end_frame();
     }
 
     fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {

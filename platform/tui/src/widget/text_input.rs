@@ -1,4 +1,7 @@
-use blit::{Atom, Constraints, Input, Key, PointerButton, Sense, Size, Ui, Widget, WidgetId};
+use blit::{
+    Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Ui, Widget,
+    WidgetId,
+};
 pub use blit_std::widget::text_input::{Response, State};
 use blit_tui_render::{
     cell::{Cell, CellStyle},
@@ -15,6 +18,7 @@ blit::builder! {
             background: Color,
         },
         placeholder: &'a str = "",
+        padding: Sides = Sides::all(0.0),
         color: Color = Color::Reset,
         placeholder_color: Color = Color::DARK_GRAY,
         selection_background: Color = Color::BLUE,
@@ -33,13 +37,20 @@ impl Widget<TuiPlatform> for TextInput<'_> {
             value,
             background,
             placeholder,
+            padding,
             color,
             placeholder_color,
             selection_background,
             cursor_background,
             attributes,
         } = self;
-        let interaction = ui.interact(id, Sense::FOCUS);
+        let interaction = ui.interact(
+            id,
+            Sense {
+                drag: true,
+                ..Sense::FOCUS
+            },
+        );
         let input = *ui.input();
         match input {
             Input::Key(key) if ui.is_focused(id) && key.key == Key::Escape && key.pressed => {
@@ -65,6 +76,7 @@ impl Widget<TuiPlatform> for TextInput<'_> {
             None
         };
         if let Some(area) = ui.geometry(id) {
+            let area = content_area(area, padding);
             let request = TextRequest::new(text, area)
                 .offset_x(state.offset_x)
                 .options(options);
@@ -100,6 +112,7 @@ impl Widget<TuiPlatform> for TextInput<'_> {
             display,
             state: *state,
             options,
+            padding,
             focused,
             background,
             color,
@@ -117,6 +130,7 @@ struct InputAtom {
     display: TextRunId,
     state: State,
     options: TextOptions,
+    padding: Sides,
     background: Option<Color>,
     color: Color,
     placeholder_color: Color,
@@ -128,14 +142,14 @@ struct InputAtom {
 
 impl Atom<TuiPlatform> for InputAtom {
     fn measure(&self, platform: &mut TuiPlatform, constraints: Constraints) -> Size {
-        constraints.constrain(
-            platform
-                .renderer_mut()
-                .measure_text(&TextLayoutRequest::new(self.display).max_lines(1)),
-        )
+        let size = platform
+            .renderer_mut()
+            .measure_text(&TextLayoutRequest::new(self.display).max_lines(1));
+        constraints.constrain(size + self.padding.size())
     }
 
-    fn paint(&self, platform: &mut TuiPlatform, area: blit::LogicalRect) {
+    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
+        let area = content_area(area, self.padding);
         if let Some(background) = self.background {
             platform
                 .cells(area)
@@ -181,7 +195,16 @@ impl Atom<TuiPlatform> for InputAtom {
         );
     }
 
-    fn paint_bounds(&self, area: blit::LogicalRect) -> blit::LogicalRect {
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
         area
     }
+}
+
+fn content_area(area: LogicalRect, padding: Sides) -> LogicalRect {
+    LogicalRect::new(
+        area.x + padding.left,
+        area.y + padding.top,
+        (area.width - padding.left - padding.right).max(0.0),
+        (area.height - padding.top - padding.bottom).max(0.0),
+    )
 }

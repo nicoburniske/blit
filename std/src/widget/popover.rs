@@ -214,11 +214,7 @@ mod tests {
 
     struct TestPlatform;
 
-    impl Platform for TestPlatform {
-        fn begin(&mut self, _: FrameInfo) {}
-
-        fn end(&mut self) {}
-    }
+    impl Platform for TestPlatform {}
 
     #[test]
     fn popover_uses_root_constraints_and_close_behavior() {

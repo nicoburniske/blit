@@ -13,13 +13,14 @@ mod text;
 pub mod text_types;
 
 use crate::{
+    color::Color,
     command_list::{BoxShadow, Command, CommandList as ResolvedCommandList, Rectangle},
     image::{ImageData, ImageHandle, ImageId, ImageRequest},
     style::Border,
-    text_types::{FontId, FontStyle, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    text_types::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
-pub use blit_text::{FontData, FontError, FontFaceId as BackendFontFaceId, TextLayoutEngine};
+pub use blit_text::{FontData, FontError, TextLayoutEngine};
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
@@ -31,19 +32,16 @@ use strategy::{
 };
 
 pub struct RendererConfig {
-    pub fonts: Vec<FontFace>,
+    pub fonts: Vec<FontFamily>,
     pub text_cache_capacity: usize,
     pub layout_cache_capacity: usize,
     pub glyph_cache_capacity: usize,
     pub shadow_cache_capacity: usize,
 }
 
-pub struct FontFace {
+pub struct FontFamily {
     pub id: FontId,
-    pub weight: u16,
-    pub stretch: u16,
-    pub style: FontStyle,
-    pub face: BackendFontFaceId,
+    pub fonts: Vec<FontData>,
 }
 
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
@@ -52,20 +50,24 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
 }
 
 impl<B: PixelBuffer> Renderer<B, Direct> {
-    pub fn new(buffer: B, config: RendererConfig, text: Box<dyn TextLayoutEngine>) -> Self {
+    pub fn new(
+        buffer: B,
+        config: RendererConfig,
+        text: Box<dyn TextLayoutEngine>,
+    ) -> Result<Self, FontError> {
         let shadow_cache_capacity = config.shadow_cache_capacity;
-        Self {
+        Ok(Self {
             context: RenderContext {
                 buffer,
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
                 shadows: shadow::Cache::new(shadow_cache_capacity),
-                text: TextRenderer::new(config, text),
+                text: TextRenderer::new(config, text)?,
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
             },
             strategy: Direct::default(),
-        }
+        })
     }
 
     pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T> {
@@ -170,6 +172,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     fn prepare_text(
         &mut self,
         request: &TextRequest,
+        colors: &[Option<Color>],
         bounds: PhysicalRect,
         clip: u32,
     ) -> Option<PhysicalRect> {
@@ -177,16 +180,16 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             .area
             .to_physical(Scale2::uniform(self.context.scale_factor));
         let visible_area = area.intersection(bounds)?;
-        let (glyph_start, glyph_end, lines, paragraph_bounds) = self
-            .context
-            .text
-            .prepare(request, self.context.scale_factor);
+        let (glyph_start, glyph_end, runs, paragraph_bounds) =
+            self.context
+                .text
+                .prepare(request, colors, self.context.scale_factor);
         let bounds = paragraph_bounds.intersection(visible_area)?;
         self.context.commands.push_text(
             PreparedText {
                 glyph_start,
                 glyph_end,
-                lines,
+                runs,
                 area,
                 color: request.color,
             },
@@ -379,8 +382,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                     Command::Image(image) => {
                         self.prepare_image(&image, record.bounds, record.clip.0)
                     }
-                    Command::Text(text) => {
-                        self.prepare_text(&text, record.bounds, record.clip.0);
+                    Command::Text(text, colors) => {
+                        self.prepare_text(&text, colors, record.bounds, record.clip.0);
                     }
                     Command::BoxShadow(shadow) => {
                         self.prepare_box_shadow(&shadow, record.bounds, record.clip.0)
@@ -400,6 +403,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
 
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
         self.context.text.text_run(text, style)
+    }
+
+    pub fn rich_text(&mut self, spans: &[text_types::Span<'_>], style: TextStyle) -> TextRunId {
+        self.context.text.rich_text(spans, style)
     }
 
     pub fn text_offset_at_position(
