@@ -2,12 +2,13 @@ use std::{
     collections::VecDeque,
     fs::{File, OpenOptions},
     io::{self, BufWriter, Read, Write},
+    os::fd::AsFd as _,
     os::unix::net::UnixStream,
     time::{Duration, Instant},
 };
 
 use rustix::{
-    event::{PollFd, PollFlags, Timespec, poll},
+    event::Timespec,
     termios::{self, OptionalActions, Termios},
 };
 
@@ -21,6 +22,7 @@ pub struct Terminal {
     signal: signal_hook::SigId,
     parser: Parser,
     events: VecDeque<protocol::Event>,
+    poll: poll::Poll,
     active: bool,
 }
 
@@ -42,6 +44,7 @@ impl Terminal {
         let (resize, writer) = UnixStream::pair()?;
         resize.set_nonblocking(true)?;
         let signal = signal_hook::low_level::pipe::register(signal_hook::consts::SIGWINCH, writer)?;
+        let poll = poll::Poll::new([input.as_fd(), resize.as_fd()]);
         let mut terminal = Self {
             input,
             output,
@@ -50,6 +53,7 @@ impl Terminal {
             signal,
             parser: Parser::default(),
             events: VecDeque::new(),
+            poll,
             active: false,
         };
         let mut raw = terminal.original.clone();
@@ -81,18 +85,16 @@ impl Terminal {
                     tv_nsec: 0,
                 })
             });
-            let mut fds = [
-                PollFd::new(&self.input, PollFlags::IN),
-                PollFd::new(&self.resize, PollFlags::IN),
-            ];
-            match poll(&mut fds, remaining.as_ref()) {
-                Ok(0) => return Ok(None),
-                Ok(_) => {}
+            let [input, resize] = match self.poll.wait(
+                [self.input.as_fd(), self.resize.as_fd()],
+                remaining.as_ref(),
+            ) {
+                Ok([false, false]) => return Ok(None),
+                Ok(ready) => ready,
                 Err(rustix::io::Errno::INTR) => continue,
                 Err(error) => return Err(error.into()),
-            }
-            let [input, resize] = fds.map(|fd| fd.revents());
-            if resize.contains(PollFlags::IN) {
+            };
+            if resize {
                 let mut bytes = [0; 128];
                 loop {
                     match self.resize.read(&mut bytes) {
@@ -105,7 +107,7 @@ impl Terminal {
                 }
                 return self.size().map(|size| Some(Event::Resize(size)));
             }
-            if input.intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR) {
+            if input {
                 let mut bytes = [0; 4096];
                 match self.input.read(&mut bytes) {
                     Ok(0) => {
@@ -152,5 +154,77 @@ impl Drop for Terminal {
     fn drop(&mut self) {
         let _ = self.finish();
         signal_hook::low_level::unregister(self.signal);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod poll {
+    use std::os::fd::BorrowedFd;
+
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+
+    pub type Fd<'a> = BorrowedFd<'a>;
+
+    pub struct Poll;
+
+    impl Poll {
+        pub fn new(_: [Fd<'_>; 2]) -> Self {
+            Self
+        }
+
+        pub fn wait(
+            &mut self,
+            fds: [Fd<'_>; 2],
+            timeout: Option<&Timespec>,
+        ) -> rustix::io::Result<[bool; 2]> {
+            let mut pollfds = fds.each_ref().map(|fd| PollFd::new(fd, PollFlags::IN));
+            poll(&mut pollfds, timeout)?;
+            Ok(pollfds.map(|fd| {
+                fd.revents()
+                    .intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR)
+            }))
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod poll {
+    //! `poll` does not reliably report `/dev/tty` readiness on macos, so use `select`
+
+    use std::os::fd::{AsRawFd as _, BorrowedFd, RawFd};
+
+    use rustix::event::{
+        FdSetElement, FdSetIter, Timespec, fd_set_insert, fd_set_num_elements, select,
+    };
+
+    pub type Fd<'a> = BorrowedFd<'a>;
+
+    pub struct Poll {
+        readfds: Vec<FdSetElement>,
+        nfds: RawFd,
+    }
+
+    impl Poll {
+        pub fn new(fds: [Fd<'_>; 2]) -> Self {
+            let nfds = fds.map(|fd| fd.as_raw_fd()).into_iter().max().unwrap() + 1;
+            Self {
+                readfds: vec![FdSetElement::default(); fd_set_num_elements(fds.len(), nfds)],
+                nfds,
+            }
+        }
+
+        pub fn wait(
+            &mut self,
+            fds: [Fd<'_>; 2],
+            timeout: Option<&Timespec>,
+        ) -> rustix::io::Result<[bool; 2]> {
+            let fds = fds.map(|fd| fd.as_raw_fd());
+            self.readfds.fill(FdSetElement::default());
+            for fd in fds {
+                fd_set_insert(&mut self.readfds, fd);
+            }
+            unsafe { select(self.nfds, Some(&mut self.readfds), None, None, timeout) }?;
+            Ok(fds.map(|fd| FdSetIter::new(&self.readfds).any(|ready| ready == fd)))
+        }
     }
 }
