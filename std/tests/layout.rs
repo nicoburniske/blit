@@ -12,10 +12,7 @@ use blit_std::{
 #[derive(Default)]
 struct TestPlatform;
 
-impl Platform for TestPlatform {
-    fn begin(&mut self, _: FrameInfo) {}
-    fn end(&mut self) {}
-}
+impl Platform for TestPlatform {}
 
 #[derive(Clone, Copy)]
 struct BoxAtom(Size);

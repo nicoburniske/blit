@@ -195,11 +195,7 @@ mod tests {
 
     struct TestPlatform;
 
-    impl Platform for TestPlatform {
-        fn begin(&mut self, _: FrameInfo) {}
-
-        fn end(&mut self) {}
-    }
+    impl Platform for TestPlatform {}
 
     #[derive(Clone, Copy)]
     struct TestClip;

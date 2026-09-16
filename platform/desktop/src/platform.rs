@@ -1,8 +1,6 @@
 use std::time::Instant;
 
-use blit::{
-    Clip, FrameInfo, FrameStage, LogicalPoint, LogicalRect, PhysicalRect, Platform, Scale2, Size,
-};
+use blit::{Clip, FrameStage, LogicalPoint, LogicalRect, PhysicalRect, Platform, Scale2, Size};
 use blit_cpu::{
     Renderer, Scanline,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle, TextPalette},
@@ -185,18 +183,17 @@ impl Profiled for DesktopPlatform {
 }
 
 impl Platform for DesktopPlatform {
-    fn begin_stage(&mut self, stage: FrameStage) {
+    fn frame_stage(&mut self, stage: FrameStage) {
+        match stage {
+            FrameStage::Build => self.current.clear(),
+            FrameStage::Paint => {
+                self.clip = ClipId::default();
+                self.clips.clear();
+            }
+            FrameStage::Complete => self.reconcile(),
+            FrameStage::Layout => {}
+        }
         self.profiler.begin_stage(stage, self.clock.elapsed());
-    }
-
-    fn begin(&mut self, _: FrameInfo) {
-        self.current.clear();
-        self.clip = ClipId::default();
-        self.clips.clear();
-    }
-
-    fn end(&mut self) {
-        self.reconcile();
     }
 }
 
@@ -242,7 +239,7 @@ mod tests {
     use super::*;
     use crate::atom::Rectangle;
     use crate::widget::{RichText, Span};
-    use blit::{Frame, Sides, Size};
+    use blit::{Frame, FrameInfo, Sides, Size};
     use blit_cpu::{FontData, FontFamily, RendererConfig, color::Color, text_types::FontId};
     use blit_std::layout::flex;
 
@@ -277,7 +274,7 @@ mod tests {
                 root.insert(Rectangle::new().background(Color::from_rgba8(20, 24, 32, 255)));
                 root.child(flex::item().fixed(2.0, 2.0))
                     .insert(Rectangle::new().background(Color::from_rgba8(70, 110, 220, 255)));
-                root.insert(RichText::new(&[Span::new("")]));
+                root.insert(RichText::new(&[Span::new("").color(Color::WHITE)]));
             },
         );
         assert_eq!(pixels[7 * 16 + 7], 0x0046_6edc);
