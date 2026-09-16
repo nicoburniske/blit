@@ -13,6 +13,7 @@ mod text;
 pub mod text_types;
 
 use crate::{
+    color::Color,
     command_list::{BoxShadow, Command, CommandList as ResolvedCommandList, Rectangle},
     image::{ImageData, ImageHandle, ImageId, ImageRequest},
     style::Border,
@@ -171,6 +172,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     fn prepare_text(
         &mut self,
         request: &TextRequest,
+        colors: &[Option<Color>],
         bounds: PhysicalRect,
         clip: u32,
     ) -> Option<PhysicalRect> {
@@ -178,10 +180,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             .area
             .to_physical(Scale2::uniform(self.context.scale_factor));
         let visible_area = area.intersection(bounds)?;
-        let (glyph_start, glyph_end, runs, paragraph_bounds) = self
-            .context
-            .text
-            .prepare(request, self.context.scale_factor);
+        let (glyph_start, glyph_end, runs, paragraph_bounds) =
+            self.context
+                .text
+                .prepare(request, colors, self.context.scale_factor);
         let bounds = paragraph_bounds.intersection(visible_area)?;
         self.context.commands.push_text(
             PreparedText {
@@ -380,8 +382,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                     Command::Image(image) => {
                         self.prepare_image(&image, record.bounds, record.clip.0)
                     }
-                    Command::Text(text) => {
-                        self.prepare_text(&text, record.bounds, record.clip.0);
+                    Command::Text(text, colors) => {
+                        self.prepare_text(&text, colors, record.bounds, record.clip.0);
                     }
                     Command::BoxShadow(shadow) => {
                         self.prepare_box_shadow(&shadow, record.bounds, record.clip.0)

@@ -1,7 +1,7 @@
 use blit::{Atom, Constraints, LogicalRect, Size};
 use blit_cpu::{
     color::Color,
-    command_list::{BoxShadow, Rectangle as DrawRectangle},
+    command_list::{BoxShadow, Rectangle as DrawRectangle, TextPalette},
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
     style::{Border, BorderRadius},
     text_types::{TextLayoutRequest, TextOptions, TextRequest, TextRunId},
@@ -46,6 +46,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Text {
         new(text: TextRunId),
+        palette: TextPalette = TextPalette::NONE,
         color: Color = Color::BLACK,
         offset_x: f32 = 0.0,
         options: TextOptions = TextOptions::default(),
@@ -73,7 +74,7 @@ impl Atom<DesktopPlatform> for Text {
             color: self.color,
             options: self.options,
         };
-        platform.paint_text(request);
+        platform.paint_text_palette(request, self.palette);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {

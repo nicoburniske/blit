@@ -55,9 +55,10 @@ impl Content<DesktopPlatform> for RichText<'_> {
     type Response = ();
 
     fn append(self, mut ui: Ui<'_, state::Node>) {
-        let run = ui.platform().rich_text(self.spans, self.style);
+        let (run, palette) = ui.platform().rich_text(self.spans, self.style);
         ui.insert(
             atom::Text::new(run)
+                .palette(palette)
                 .color(self.color)
                 .offset_x(self.offset_x)
                 .options(self.options),

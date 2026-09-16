@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     color::Color,
-    command_list::{BoxShadow, ClipId, CommandList, Rectangle},
+    command_list::{BoxShadow, ClipId, Command, CommandList, Rectangle},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
@@ -118,10 +118,6 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
 #[test]
 fn renderer_supports_custom_pixel_layouts() {
     let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(32, 24), renderer_config());
-    let m = renderer.rich_text(
-        &[Span::new("M").size(20.0).color(Color::WHITE)],
-        TextStyle::default(),
-    );
     let clip = PhysicalRect {
         x: 0,
         y: 0,
@@ -151,7 +147,10 @@ fn renderer_supports_custom_pixel_layouts() {
     );
 
     paint.clear();
-    paint.push_text(
+    let spans = [Span::new("M").size(20.0).color(Color::WHITE)];
+    let m = renderer.rich_text(&spans, TextStyle::default());
+    let palette = paint.text_palette(&spans);
+    paint.push_text_palette(
         TextRequest {
             text: m,
             area: LogicalRect {
@@ -164,6 +163,7 @@ fn renderer_supports_custom_pixel_layouts() {
             color: Color::TRANSPARENT,
             options: TextOptions::default(),
         },
+        palette,
         clip,
         ClipId::default(),
     );
@@ -228,9 +228,10 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
         height: 24.0,
     };
     let mut commands = CommandList::default();
+    let text = renderer.rich_text(&[Span::new("M").size(20.0)], TextStyle::default());
     commands.push_text(
         TextRequest {
-            text: renderer.rich_text(&[Span::new("M").size(20.0)], TextStyle::default()),
+            text,
             area,
             offset_x: 0.0,
             color: Color::WHITE,
@@ -1559,7 +1560,6 @@ fn text_runs_are_keyed_by_content_and_style() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
     let style = TextStyle::default();
     let first = renderer.text_run("same", style);
-
     assert_eq!(renderer.text_run("same", style), first);
     assert_eq!(
         renderer.rich_text(&[Span::new("same").size(style.size)], style),
@@ -1586,4 +1586,40 @@ fn text_runs_are_keyed_by_content_and_style() {
         ),
         first
     );
+    let white = [Span::new("same").color(Color::WHITE)];
+    let black = [Span::new("same").color(Color::BLACK)];
+    let text = renderer.rich_text(&white, style);
+    assert_eq!(renderer.rich_text(&black, style), text);
+
+    let request = TextRequest {
+        text,
+        area: LogicalRect::default(),
+        offset_x: 0.0,
+        color: Color::TRANSPARENT,
+        options: TextOptions::default(),
+    };
+    let mut white_commands = CommandList::default();
+    let palette = white_commands.text_palette(&white);
+    white_commands.push_text_palette(request, palette, PhysicalRect::default(), ClipId::default());
+    let mut black_commands = CommandList::default();
+    let palette = black_commands.text_palette(&black);
+    black_commands.push_text_palette(request, palette, PhysicalRect::default(), ClipId::default());
+    assert!(!white_commands.equivalent(0, &black_commands, 0));
+
+    let mixed = [
+        Span::new("a"),
+        Span::new("b").color(Color::WHITE),
+        Span::new("c"),
+    ];
+    let request = TextRequest {
+        text: renderer.rich_text(&mixed, style),
+        ..request
+    };
+    white_commands.clear();
+    let palette = white_commands.text_palette(&mixed);
+    white_commands.push_text_palette(request, palette, PhysicalRect::default(), ClipId::default());
+    let Command::Text(_, colors) = white_commands.get(0).command else {
+        unreachable!()
+    };
+    assert_eq!(colors, &[None, Some(Color::WHITE), None]);
 }

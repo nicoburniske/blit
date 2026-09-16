@@ -41,14 +41,8 @@ struct TextKey {
 }
 
 enum CachedSpans {
-    One {
-        style: blit_text::TextStyle,
-        color: Option<Color>,
-    },
-    Many {
-        spans: Box<[blit_text::TextSpan]>,
-        colors: Box<[Option<Color>]>,
-    },
+    One(blit_text::TextStyle),
+    Many(Box<[blit_text::TextSpan]>),
 }
 
 struct TextQuery<'a> {
@@ -71,25 +65,19 @@ impl TextQuery<'_> {
     }
 }
 
-fn hash_span(
-    text: &str,
-    style: blit_text::TextStyle,
-    color: Option<Color>,
-    state: &mut impl Hasher,
-) {
+fn hash_span(text: &str, style: blit_text::TextStyle, state: &mut impl Hasher) {
     text.hash(state);
     style.font.hash(state);
     style.size.to_bits().hash(state);
     style.weight.hash(state);
     style.stretch.hash(state);
     style.style.hash(state);
-    color.hash(state);
 }
 
 impl Hash for TextQuery<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for span in self.spans {
-            hash_span(span.text, self.resolve(span), span.color, state);
+            hash_span(span.text, self.resolve(span), state);
         }
     }
 }
@@ -97,21 +85,17 @@ impl Hash for TextQuery<'_> {
 impl Equivalent<TextKey> for TextQuery<'_> {
     fn equivalent(&self, key: &TextKey) -> bool {
         match &key.spans {
-            CachedSpans::One { style, color } => {
+            CachedSpans::One(style) => {
                 self.spans.len() == 1
                     && key.text.as_ref() == self.spans[0].text
                     && *style == self.resolve(&self.spans[0])
-                    && *color == self.spans[0].color
             }
-            CachedSpans::Many { spans, colors } => {
+            CachedSpans::Many(spans) => {
                 spans.len() == self.spans.len()
-                    && spans.iter().zip(colors).zip(self.spans).all(
-                        |((cached_span, color), span)| {
-                            &key.text[cached_span.range.clone()] == span.text
-                                && cached_span.style == self.resolve(span)
-                                && *color == span.color
-                        },
-                    )
+                    && spans.iter().zip(self.spans).all(|(cached_span, span)| {
+                        &key.text[cached_span.range.clone()] == span.text
+                            && cached_span.style == self.resolve(span)
+                    })
             }
         }
     }
@@ -120,10 +104,10 @@ impl Equivalent<TextKey> for TextQuery<'_> {
 impl Hash for TextKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match &self.spans {
-            CachedSpans::One { style, color } => hash_span(&self.text, *style, *color, state),
-            CachedSpans::Many { spans, colors } => {
-                for (span, color) in spans.iter().zip(colors) {
-                    hash_span(&self.text[span.range.clone()], span.style, *color, state);
+            CachedSpans::One(style) => hash_span(&self.text, *style, state),
+            CachedSpans::Many(spans) => {
+                for span in spans {
+                    hash_span(&self.text[span.range.clone()], span.style, state);
                 }
             }
         }
@@ -147,11 +131,8 @@ struct TextScale;
 impl Scale<TextKey, TextRunId> for TextScale {
     fn weight(&self, key: &TextKey, _text: &TextRunId) -> usize {
         let spans = match &key.spans {
-            CachedSpans::One { .. } => 0,
-            CachedSpans::Many { spans, colors } => {
-                spans.len() * size_of::<blit_text::TextSpan>()
-                    + colors.len() * size_of::<Option<Color>>()
-            }
+            CachedSpans::One(_) => 0,
+            CachedSpans::Many(spans) => spans.len() * size_of::<blit_text::TextSpan>(),
         };
         size_of::<TextKey>() + size_of::<TextRunId>() + key.text.len() + spans
     }
@@ -167,7 +148,7 @@ struct CachedPaint {
     offset_x: u32,
     bounds: PhysicalRect,
     glyphs: Vec<PaintGlyph>,
-    runs: Vec<PreparedRun>,
+    runs: Vec<PaintRun>,
 }
 
 #[derive(Clone, Copy)]
@@ -191,7 +172,7 @@ impl Scale<LayoutKey, CachedLayout> for LayoutScale {
             + cached.layout.carets.len() * size_of::<blit_text::Caret>()
             + cached.paint.as_ref().map_or(0, |paint| {
                 paint.glyphs.capacity() * size_of::<PaintGlyph>()
-                    + paint.runs.capacity() * size_of::<PreparedRun>()
+                    + paint.runs.capacity() * size_of::<PaintRun>()
             })
     }
 }
@@ -204,12 +185,20 @@ pub struct PreparedGlyph {
     height: u32,
 }
 
+struct PaintRun {
+    glyph_start: u32,
+    glyph_end: u32,
+    top: i32,
+    bottom: i32,
+    span: u32,
+}
+
 struct PreparedRun {
     glyph_start: u32,
     glyph_end: u32,
     top: i32,
     bottom: i32,
-    color: Option<Color>,
+    color: Color,
 }
 
 #[derive(Clone, Copy)]
@@ -325,15 +314,11 @@ impl TextRenderer {
             let (text, spans) = if query.spans.len() == 1 {
                 (
                     query.spans[0].text.into(),
-                    CachedSpans::One {
-                        style: query.resolve(&query.spans[0]),
-                        color: query.spans[0].color,
-                    },
+                    CachedSpans::One(query.resolve(&query.spans[0])),
                 )
             } else {
                 let mut text = String::with_capacity(len);
                 let mut resolved = Vec::with_capacity(query.spans.len());
-                let mut colors = Vec::with_capacity(query.spans.len());
                 for span in query.spans {
                     let start = text.len();
                     text.push_str(span.text);
@@ -341,15 +326,8 @@ impl TextRenderer {
                         range: start..text.len(),
                         style: query.resolve(span),
                     });
-                    colors.push(span.color);
                 }
-                (
-                    text.into(),
-                    CachedSpans::Many {
-                        spans: resolved.into_boxed_slice(),
-                        colors: colors.into_boxed_slice(),
-                    },
-                )
+                (text.into(), CachedSpans::Many(resolved.into_boxed_slice()))
             };
             (
                 TextKey { text, spans },
@@ -389,14 +367,14 @@ impl TextRenderer {
                     layout: {
                         let one;
                         let spans = match &cached.spans {
-                            CachedSpans::One { style, .. } => {
+                            CachedSpans::One(style) => {
                                 one = blit_text::TextSpan {
                                     range: 0..cached.text.len(),
                                     style: *style,
                                 };
                                 std::slice::from_ref(&one)
                             }
-                            CachedSpans::Many { spans, .. } => spans,
+                            CachedSpans::Many(spans) => spans,
                         };
                         text_system.layout(
                             blit_text::Text {
@@ -416,6 +394,7 @@ impl TextRenderer {
     pub fn prepare(
         &mut self,
         request: &TextRequest,
+        colors: &[Option<Color>],
         scale_factor: f32,
     ) -> (u32, u32, PreparedRuns, PhysicalRect) {
         let area = request.area.to_physical(Scale2::uniform(scale_factor));
@@ -449,10 +428,6 @@ impl TextRenderer {
             let height = area.height.max(0);
             let text = self.text.as_ref();
             let layout = &self.layouts.get_index(layout_index).layout;
-            let spans = &self
-                .texts
-                .get_key_index((request.text.0 as u32 - 1) as usize)
-                .spans;
             let glyphs = &mut self.glyphs;
             for run in &layout.runs {
                 let start = u32::try_from(paint.glyphs.len()).expect("too many paint glyphs");
@@ -507,16 +482,12 @@ impl TextRenderer {
                 }
                 let end = u32::try_from(paint.glyphs.len()).expect("too many paint glyphs");
                 if start != end {
-                    let color = match spans {
-                        CachedSpans::One { color, .. } => *color,
-                        CachedSpans::Many { colors, .. } => colors[run.span],
-                    };
-                    paint.runs.push(PreparedRun {
+                    paint.runs.push(PaintRun {
                         glyph_start: start,
                         glyph_end: end,
                         top,
                         bottom,
-                        color,
+                        span: u32::try_from(run.span).expect("too many text spans"),
                     });
                 }
             }
@@ -540,8 +511,9 @@ impl TextRenderer {
             });
         }
         let glyph_end = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
+        let color = |run: &PaintRun| colors.get(run.span as usize).copied().flatten();
         let runs =
-            if paint.runs.len() > 1 || paint.runs.first().is_some_and(|run| run.color.is_some()) {
+            if paint.runs.len() > 1 || paint.runs.first().is_some_and(|run| color(run).is_some()) {
                 let start = u32::try_from(self.runs.len()).expect("too many prepared runs");
                 for run in &paint.runs {
                     self.runs.push(PreparedRun {
@@ -553,7 +525,7 @@ impl TextRenderer {
                             .expect("too many prepared glyphs"),
                         top: run.top,
                         bottom: run.bottom,
-                        color: run.color,
+                        color: color(run).unwrap_or(request.color),
                     });
                 }
                 PreparedRuns {
@@ -652,7 +624,7 @@ impl TextRenderer {
                 if line >= area.y.saturating_add(run.top)
                     && line < area.y.saturating_add(run.bottom)
                 {
-                    draw(run.glyph_start, run.glyph_end, run.color.unwrap_or(color));
+                    draw(run.glyph_start, run.glyph_end, run.color);
                 }
             }
         }

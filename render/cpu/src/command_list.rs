@@ -4,7 +4,7 @@ use crate::{
     color::Color,
     image::ImageRequest,
     style::{Border, BorderRadius, GradientStop, LinearGradient},
-    text_types::TextRequest,
+    text_types::{Span, TextRequest},
 };
 use blit::geometry::{LogicalRect, PhysicalRect};
 
@@ -13,6 +13,7 @@ pub struct CommandList {
     commands: Vec<StoredCommand>,
     clips: Vec<ClipNode>,
     gradient_stops: Vec<GradientStop>,
+    text_colors: Vec<Option<Color>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,7 +29,7 @@ pub enum Command<'a> {
     Clear,
     Rectangle(Rectangle<'a>),
     Image(ImageRequest),
-    Text(TextRequest),
+    Text(TextRequest, &'a [Option<Color>]),
     BoxShadow(BoxShadow),
 }
 
@@ -159,7 +160,35 @@ impl CommandList {
     }
 
     pub fn push_text(&mut self, text: TextRequest, bounds: PhysicalRect, clip: ClipId) {
-        self.push(bounds, clip, CommandKind::Text(text))
+        self.push_text_palette(text, TextPalette::NONE, bounds, clip)
+    }
+
+    pub fn text_palette(&mut self, spans: &[Span<'_>]) -> TextPalette {
+        if spans.iter().all(|span| span.color.is_none()) {
+            return TextPalette::NONE;
+        }
+        let start = u32::try_from(self.text_colors.len()).expect("too many text colors");
+        self.text_colors.extend(spans.iter().map(|span| span.color));
+        let len = u32::try_from(self.text_colors.len()).expect("too many text colors") - start;
+        TextPalette { start, len }
+    }
+
+    pub fn push_text_palette(
+        &mut self,
+        text: TextRequest,
+        palette: TextPalette,
+        bounds: PhysicalRect,
+        clip: ClipId,
+    ) {
+        self.text_colors(palette);
+        self.push(
+            bounds,
+            clip,
+            CommandKind::Text(StoredText {
+                request: text,
+                palette,
+            }),
+        )
     }
 
     pub fn push_box_shadow(&mut self, shadow: BoxShadow, bounds: PhysicalRect, clip: ClipId) {
@@ -197,7 +226,7 @@ impl CommandList {
                 })
             }
             CommandKind::Image(image) => Command::Image(*image),
-            CommandKind::Text(text) => Command::Text(*text),
+            CommandKind::Text(text) => Command::Text(text.request, self.text_colors(text.palette)),
             CommandKind::BoxShadow(shadow) => Command::BoxShadow(*shadow),
         };
         Record {
@@ -219,11 +248,7 @@ impl CommandList {
         self.commands.clear();
         self.clips.clear();
         self.gradient_stops.clear();
-    }
-
-    fn push(&mut self, bounds: PhysicalRect, clip: ClipId, kind: CommandKind) {
-        self.assert_clip(clip);
-        self.commands.push(StoredCommand { bounds, clip, kind });
+        self.text_colors.clear();
     }
 
     pub fn equivalent(&self, index: usize, other: &Self, other_index: usize) -> bool {
@@ -277,10 +302,20 @@ impl CommandList {
                     }
             }
             (CommandKind::Image(left), CommandKind::Image(right)) => left == right,
-            (CommandKind::Text(left), CommandKind::Text(right)) => left == right,
+            (CommandKind::Text(left), CommandKind::Text(right)) => {
+                left.request == right.request
+                    && self.text_colors(left.palette) == other.text_colors(right.palette)
+            }
             (CommandKind::BoxShadow(left), CommandKind::BoxShadow(right)) => left == right,
             _ => false,
         }
+    }
+}
+
+impl CommandList {
+    fn push(&mut self, bounds: PhysicalRect, clip: ClipId, kind: CommandKind) {
+        self.assert_clip(clip);
+        self.commands.push(StoredCommand { bounds, clip, kind });
     }
 
     fn clips_equal(&self, mut clip: ClipId, other: &Self, mut other_clip: ClipId) -> bool {
@@ -306,6 +341,21 @@ impl CommandList {
             "invalid command list clip"
         );
     }
+
+    fn text_colors(&self, palette: TextPalette) -> &[Option<Color>] {
+        let start = palette.start as usize;
+        &self.text_colors[start..start + palette.len as usize]
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TextPalette {
+    start: u32,
+    len: u32,
+}
+
+impl TextPalette {
+    pub const NONE: Self = Self { start: 0, len: 0 };
 }
 
 struct StoredCommand {
@@ -318,8 +368,13 @@ enum CommandKind {
     Clear,
     Rectangle(StoredRectangle),
     Image(ImageRequest),
-    Text(TextRequest),
+    Text(StoredText),
     BoxShadow(BoxShadow),
+}
+
+struct StoredText {
+    request: TextRequest,
+    palette: TextPalette,
 }
 
 struct StoredRectangle {

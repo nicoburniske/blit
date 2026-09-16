@@ -5,7 +5,7 @@ use blit::{
 };
 use blit_cpu::{
     Renderer, Scanline,
-    command_list::{BoxShadow, ClipId, CommandList, Rectangle},
+    command_list::{BoxShadow, ClipId, CommandList, Rectangle, TextPalette},
     image::{ImageData, ImageHandle, ImageRequest},
     text_types::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
@@ -38,14 +38,6 @@ impl DesktopPlatform {
         self.renderer.text_run(text, style)
     }
 
-    pub fn rich_text(
-        &mut self,
-        spans: &[blit_cpu::text_types::Span<'_>],
-        style: TextStyle,
-    ) -> TextRunId {
-        self.renderer.rich_text(spans, style)
-    }
-
     pub fn measure_text(&mut self, request: &TextLayoutRequest) -> Size {
         self.renderer.measure_text(request)
     }
@@ -68,8 +60,7 @@ impl DesktopPlatform {
     }
 
     pub fn paint_text(&mut self, text: TextRequest) {
-        let bounds = text.area.to_physical(self.scale);
-        self.current.push_text(text, bounds, self.clip);
+        self.paint_text_palette(text, TextPalette::NONE);
     }
 
     pub fn paint_image(&mut self, image: ImageRequest) {
@@ -89,6 +80,23 @@ impl DesktopPlatform {
 }
 
 impl DesktopPlatform {
+    pub(crate) fn rich_text(
+        &mut self,
+        spans: &[blit_cpu::text_types::Span<'_>],
+        style: TextStyle,
+    ) -> (TextRunId, TextPalette) {
+        (
+            self.renderer.rich_text(spans, style),
+            self.current.text_palette(spans),
+        )
+    }
+
+    pub(crate) fn paint_text_palette(&mut self, text: TextRequest, palette: TextPalette) {
+        let bounds = text.area.to_physical(self.scale);
+        self.current
+            .push_text_palette(text, palette, bounds, self.clip);
+    }
+
     pub(crate) fn new(renderer: Renderer<DesktopBuffer, Scanline>) -> Self {
         Self {
             profiler: FrameProfiler::default(),
