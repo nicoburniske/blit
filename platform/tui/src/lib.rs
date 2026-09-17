@@ -1,11 +1,12 @@
-//! build terminal interfaces with blit's layouts, widgets and drawing atoms
+//! a cell based terminal platform for blit
 //!
-//! start with [`run`] and a closure that builds your ui using [`layout`],
-//! [`widget`] and [`atom`]. the runner handles terminal setup, input and drawing.
+//! frames are painted into a terminal cell grid. the renderer compares each
+//! frame with the previous one and emits escape sequences only for changed
+//! cells and Kitty graphics.
 //!
-//! to own the event loop, use [`Session`] for terminal handling. to bring your
-//! own backend, use [`TuiPlatform`] with [`blit::Frame`] and write the renderer's
-//! output yourself.
+//! [`Session`] owns `/dev/tty`, raw mode, keyboard and mouse input, resize
+//! handling, frame timing, and presentation. call [`Session::pump`] when the
+//! application owns its loop, or use [`run`] to drive a render closure.
 //!
 //! the built in runner targets Unix terminals with the kitty keyboard protocol,
 //! such as Kitty and Ghostty. Windows and legacy terminals are not supported.
@@ -22,7 +23,9 @@ pub use platform::{BoundsClip, TuiPlatform};
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiPlatform, S>;
 
-use std::{io, io::Write as _, time::Duration, time::Instant};
+use std::{
+    io, io::Write as _, os::unix::net::UnixStream, sync::Arc, time::Duration, time::Instant,
+};
 
 use blit::{
     Frame, FrameInfo, LayoutResolution, LogicalPoint, LogicalSize,
@@ -31,105 +34,127 @@ use blit::{
 use terminal::{Size, Terminal};
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
-const FRAME_INTERVAL: Duration = Duration::from_nanos(4_166_667);
 
 /// runs the ui with the built in terminal and event loop at up to 240 frames per second
-pub fn run(mut render: impl FnMut(Ui<'_>)) -> io::Result<()> {
-    run_with(|_| (), move |_, ui| render(ui))
-}
-
-/// initializes application state before entering the built in event loop
-pub fn run_with<S>(
-    initialize: impl FnOnce(&mut TuiPlatform) -> S,
-    mut render: impl FnMut(&mut S, Ui<'_>),
-) -> io::Result<()> {
+pub fn run(render: impl FnMut(Ui<'_>)) -> io::Result<()> {
     let mut session = Session::new()?;
-    let mut state = initialize(session.platform_mut());
-    let mut frame = Frame::default();
-    let result = (|| -> io::Result<()> {
-        let start = Instant::now();
-        let mut now = Duration::ZERO;
-        let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
-        let mut input_count = 0;
-        loop {
-            let info = session.frame_info();
-            frame.render_inputs(
-                session.platform_mut(),
-                info,
-                now,
-                inputs[..input_count].iter().copied(),
-                |mut ui| {
-                    if !ui.platform().should_quit() {
-                        render(&mut state, ui);
-                    }
-                },
-            );
-            if session.platform().should_quit() {
-                break;
-            }
-            session.present()?;
-            let next_frame = now + FRAME_INTERVAL;
-            input_count = 0;
-            let mut redraw = frame.has_pending_redraw();
-            loop {
-                now = start.elapsed();
-                let deadline = if redraw || input_count != 0 {
-                    Some(next_frame)
-                } else {
-                    frame
-                        .next_timer_deadline()
-                        .map(|deadline| deadline.max(next_frame))
-                };
-                if input_count == inputs.len() {
-                    std::thread::sleep(next_frame.saturating_sub(now));
-                    now = start.elapsed();
-                    break;
-                }
-                let poll = session.poll(
-                    deadline.map(|deadline| deadline.saturating_sub(now)),
-                    &mut inputs[input_count..],
-                )?;
-                input_count += poll.input_count;
-                if poll.resized {
-                    session.platform_mut().renderer_mut().invalidate();
-                }
-                redraw |= poll.resized || poll.redraw;
-                now = start.elapsed();
-                let timer_due = frame
-                    .next_timer_deadline()
-                    .is_some_and(|deadline| deadline <= now);
-                if (redraw || input_count != 0 || timer_due) && now >= next_frame {
-                    break;
-                }
-            }
-        }
-        Ok(())
-    })();
-    let finish = session.finish();
-    result.and(finish)
+    let mut render = render;
+    while session.pump(&mut render)? {}
+    Ok(())
 }
 
-/// terminal setup, input and presentation for an application owned event loop
+/// owns terminal setup, input, presentation and frame timing
 ///
-/// use [`TuiPlatform`] directly when supplying your own terminal backend
+/// call [`Session::pump`] to drive it from an application owned loop
 pub struct Session {
     terminal: Terminal,
     platform: TuiPlatform,
+    wake: WakeHandle,
+    frame: Frame<TuiPlatform>,
+    started: Instant,
+    next_frame: Duration,
+    frame_interval: Duration,
     active: bool,
     query_colors: bool,
 }
 
 impl Session {
     pub fn new() -> io::Result<Self> {
-        let terminal = Terminal::new()?;
+        let (wake, wake_writer) = UnixStream::pair()?;
+        wake.set_nonblocking(true)?;
+        wake_writer.set_nonblocking(true)?;
+        let terminal = Terminal::new(wake)?;
         let renderer = TuiRenderer::new(renderer_config(terminal.size()?)?);
         let platform = TuiPlatform::new(renderer);
         Ok(Self {
             terminal,
             platform,
+            wake: WakeHandle {
+                writer: Arc::new(wake_writer),
+            },
+            frame: Frame::default(),
+            started: Instant::now(),
+            next_frame: Duration::ZERO,
+            frame_interval: Duration::from_nanos(4_166_667),
             active: true,
             query_colors: true,
         })
+    }
+
+    /// waits for and renders one event loop iteration
+    /// returns false when quit
+    pub fn pump(&mut self, mut render: impl FnMut(Ui<'_>)) -> io::Result<bool> {
+        let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
+        let mut input_count = 0;
+        let mut pending = self.frame.has_pending_redraw();
+        let needs_frame =
+            |poll: Poll| poll.input_count != 0 || poll.resized || poll.redraw || poll.woken;
+
+        // buffer events until another frame is allowed
+        loop {
+            let now = self.started.elapsed();
+            if now >= self.next_frame {
+                break;
+            }
+            let remaining = self.next_frame - now;
+            if input_count == inputs.len() {
+                std::thread::sleep(remaining);
+                break;
+            }
+            let events = self.poll(Some(remaining), &mut inputs[input_count..])?;
+            input_count += events.input_count;
+            pending |= needs_frame(events);
+        }
+
+        // once allowed, wait for a reason to render
+        while !pending {
+            let now = self.started.elapsed();
+            let timer = self.frame.next_timer_deadline();
+            if timer.is_some_and(|deadline| deadline <= now) {
+                break;
+            }
+            let events = self.poll(
+                timer.map(|deadline| deadline - now),
+                &mut inputs[input_count..],
+            )?;
+            input_count += events.input_count;
+            pending |= needs_frame(events);
+        }
+
+        // replay the collected inputs and draw the final resulting tree
+        let now = self.started.elapsed();
+        let info = self.frame_info();
+        self.frame.render_inputs(
+            &mut self.platform,
+            info,
+            now,
+            inputs[..input_count].iter().copied(),
+            |mut ui| {
+                if !ui.platform().should_quit() {
+                    render(ui);
+                }
+            },
+        );
+        if self.platform().should_quit() {
+            self.finish()?;
+            return Ok(false);
+        }
+        self.present()?;
+        // establish the earliest time for the following frame
+        self.next_frame = now + self.frame_interval;
+        Ok(true)
+    }
+
+    /// sets the minimum interval between rendered frames
+    ///
+    /// calculate it with `Duration::from_secs_f64(1.0 / frames_per_second)`
+    pub fn set_frame_interval(&mut self, interval: Duration) {
+        self.frame_interval = interval;
+    }
+
+    /// returns a handle that interrupts a pending [`Session::poll`]
+    pub fn wake_handle(&self) -> WakeHandle {
+        self.wake.clone()
     }
 
     pub fn platform(&self) -> &TuiPlatform {
@@ -161,6 +186,10 @@ impl Session {
             };
             timeout = Some(Duration::ZERO);
             let event = match event {
+                terminal::Event::Wake => {
+                    result.woken = true;
+                    break;
+                }
                 terminal::Event::Resize(size) => {
                     self.platform.renderer_mut().resize(renderer_config(size)?);
                     result.resized = true;
@@ -330,6 +359,24 @@ impl Session {
     }
 }
 
+/// interrupts a [`Session`] waiting for terminal events
+#[derive(Clone)]
+pub struct WakeHandle {
+    writer: Arc<UnixStream>,
+}
+
+impl WakeHandle {
+    /// interrupts the session poll, coalescing with any pending wake
+    pub fn wake(&self) {
+        loop {
+            match (&*self.writer).write(&[1]) {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                _ => return,
+            }
+        }
+    }
+}
+
 impl Drop for Session {
     fn drop(&mut self) {
         let _ = self.finish();
@@ -342,6 +389,8 @@ pub struct Poll {
     pub resized: bool,
     /// terminal colors changed and the frame needs rebuilding
     pub redraw: bool,
+    /// a [`WakeHandle`] interrupted the poll
+    pub woken: bool,
 }
 
 fn renderer_config(size: Size) -> io::Result<RendererConfig> {

@@ -19,6 +19,7 @@ pub struct Terminal {
     output: BufWriter<File>,
     original: Termios,
     resize: UnixStream,
+    wake: UnixStream,
     signal: signal_hook::SigId,
     parser: Parser,
     events: VecDeque<protocol::Event>,
@@ -29,6 +30,7 @@ pub struct Terminal {
 pub enum Event {
     Protocol(protocol::Event),
     Resize(Size),
+    Wake,
 }
 
 pub struct Size {
@@ -37,19 +39,20 @@ pub struct Size {
 }
 
 impl Terminal {
-    pub fn new() -> io::Result<Self> {
+    pub fn new(wake: UnixStream) -> io::Result<Self> {
         let input = OpenOptions::new().read(true).write(true).open("/dev/tty")?;
         let output = BufWriter::new(input.try_clone()?);
         let original = termios::tcgetattr(&input)?;
         let (resize, writer) = UnixStream::pair()?;
         resize.set_nonblocking(true)?;
         let signal = signal_hook::low_level::pipe::register(signal_hook::consts::SIGWINCH, writer)?;
-        let poll = poll::Poll::new([input.as_fd(), resize.as_fd()]);
+        let poll = poll::Poll::new([input.as_fd(), resize.as_fd(), wake.as_fd()]);
         let mut terminal = Self {
             input,
             output,
             original,
             resize,
+            wake,
             signal,
             parser: Parser::default(),
             events: VecDeque::new(),
@@ -85,15 +88,28 @@ impl Terminal {
                     tv_nsec: 0,
                 })
             });
-            let [input, resize] = match self.poll.wait(
-                [self.input.as_fd(), self.resize.as_fd()],
+            let [input, resize, wake] = match self.poll.wait(
+                [self.input.as_fd(), self.resize.as_fd(), self.wake.as_fd()],
                 remaining.as_ref(),
             ) {
-                Ok([false, false]) => return Ok(None),
+                Ok([false, false, false]) => return Ok(None),
                 Ok(ready) => ready,
                 Err(rustix::io::Errno::INTR) => continue,
                 Err(error) => return Err(error.into()),
             };
+            if wake {
+                let mut bytes = [0; 128];
+                loop {
+                    match self.wake.read(&mut bytes) {
+                        Ok(0) => break,
+                        Ok(_) => {}
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                        Err(error) => return Err(error),
+                    }
+                }
+                return Ok(Some(Event::Wake));
+            }
             if resize {
                 let mut bytes = [0; 128];
                 loop {
@@ -168,15 +184,15 @@ mod poll {
     pub struct Poll;
 
     impl Poll {
-        pub fn new(_: [Fd<'_>; 2]) -> Self {
+        pub fn new(_: [Fd<'_>; 3]) -> Self {
             Self
         }
 
         pub fn wait(
             &mut self,
-            fds: [Fd<'_>; 2],
+            fds: [Fd<'_>; 3],
             timeout: Option<&Timespec>,
-        ) -> rustix::io::Result<[bool; 2]> {
+        ) -> rustix::io::Result<[bool; 3]> {
             let mut pollfds = fds.each_ref().map(|fd| PollFd::new(fd, PollFlags::IN));
             poll(&mut pollfds, timeout)?;
             Ok(pollfds.map(|fd| {
@@ -205,7 +221,7 @@ mod poll {
     }
 
     impl Poll {
-        pub fn new(fds: [Fd<'_>; 2]) -> Self {
+        pub fn new(fds: [Fd<'_>; 3]) -> Self {
             let nfds = fds.map(|fd| fd.as_raw_fd()).into_iter().max().unwrap() + 1;
             Self {
                 readfds: vec![FdSetElement::default(); fd_set_num_elements(fds.len(), nfds)],
@@ -215,9 +231,9 @@ mod poll {
 
         pub fn wait(
             &mut self,
-            fds: [Fd<'_>; 2],
+            fds: [Fd<'_>; 3],
             timeout: Option<&Timespec>,
-        ) -> rustix::io::Result<[bool; 2]> {
+        ) -> rustix::io::Result<[bool; 3]> {
             let fds = fds.map(|fd| fd.as_raw_fd());
             self.readfds.fill(FdSetElement::default());
             for fd in fds {
