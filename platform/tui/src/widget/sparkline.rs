@@ -1,6 +1,5 @@
-use std::{cell::RefCell, rc::Rc};
-
 use blit::{Atom, Constraints, LogicalRect, Size};
+use blit_std::ReadSlice;
 use blit_tui_render::{
     cell::{Cell, CellStyle},
     color::Color,
@@ -8,47 +7,29 @@ use blit_tui_render::{
 
 use crate::TuiPlatform;
 
-pub struct Sparkline {
-    pub data: Rc<RefCell<Vec<u64>>>,
-    pub maximum: Option<u64>,
-    pub color: Color,
-    pub background: Option<Color>,
-}
-
-impl Sparkline {
-    pub fn new(data: Rc<RefCell<Vec<u64>>>) -> Self {
-        Self {
-            data,
-            maximum: None,
-            color: Color::Reset,
-            background: None,
-        }
-    }
-
-    pub const fn maximum(mut self, maximum: u64) -> Self {
-        self.maximum = Some(maximum);
-        self
-    }
-
-    pub const fn color(mut self, color: Color) -> Self {
-        self.color = color;
-        self
-    }
-
-    pub const fn background(mut self, color: Color) -> Self {
-        self.background = Some(color);
-        self
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Sparkline<D> {
+        new(data: D),
+        @optional {
+            maximum: u64,
+            background: Color,
+        },
+        color: Color = Color::Reset,
     }
 }
 
-impl Atom<TuiPlatform> for Sparkline {
+impl<D> Atom<TuiPlatform> for Sparkline<D>
+where
+    D: ReadSlice<Item = u64> + 'static,
+{
     fn measure(&self, _: &mut TuiPlatform, constraints: Constraints) -> Size {
-        constraints.constrain(Size::new(self.data.borrow().len() as f32, 1.0))
+        constraints.constrain(Size::new(self.data.read().len() as f32, 1.0))
     }
 
     fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
         const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-        let data = self.data.borrow();
+        let data = self.data.read();
         let mut cells = platform.cells(area);
         let width = cells.columns();
         let rows = cells.rows();

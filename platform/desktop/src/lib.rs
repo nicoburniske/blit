@@ -12,7 +12,7 @@ mod pixel;
 mod platform;
 
 pub use blit_cpu::{color, image, style, text_types as text};
-pub use blit_std::layout;
+pub use blit_std::{ReadSlice, layout};
 pub use platform::{BoundsClip, DesktopPlatform};
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, DesktopPlatform, S>;

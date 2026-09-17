@@ -1,6 +1,9 @@
 pub mod performance;
 pub use performance::Performance;
 
+mod polyline;
+pub use polyline::Polyline;
+
 pub mod text_input;
 
 pub use blit_std::widget::{popover, resize, scroll, split};

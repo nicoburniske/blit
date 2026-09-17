@@ -1,6 +1,5 @@
-use std::{cell::RefCell, rc::Rc};
-
 use blit::{Atom, Constraints, LogicalRect, Size};
+use blit_std::ReadSlice;
 use blit_tui_render::{
     cell::{Cell, CellStyle},
     color::Color,
@@ -8,6 +7,7 @@ use blit_tui_render::{
 
 use crate::TuiPlatform;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bar {
     pub value: u64,
     pub label: String,
@@ -19,65 +19,29 @@ impl Bar {
     }
 }
 
-pub struct BarChart {
-    pub bars: Rc<RefCell<Vec<Bar>>>,
-    pub maximum: Option<u64>,
-    pub bar_width: usize,
-    pub gap: usize,
-    pub color: Color,
-    pub label_color: Color,
-    pub background: Option<Color>,
-}
-
-impl BarChart {
-    pub fn new(bars: Rc<RefCell<Vec<Bar>>>) -> Self {
-        Self {
-            bars,
-            maximum: None,
-            bar_width: 3,
-            gap: 1,
-            color: Color::Reset,
-            label_color: Color::Reset,
-            background: None,
-        }
-    }
-
-    pub const fn maximum(mut self, maximum: u64) -> Self {
-        self.maximum = Some(maximum);
-        self
-    }
-
-    pub const fn bar_width(mut self, width: usize) -> Self {
-        self.bar_width = width;
-        self
-    }
-
-    pub const fn gap(mut self, gap: usize) -> Self {
-        self.gap = gap;
-        self
-    }
-
-    pub const fn color(mut self, color: Color) -> Self {
-        self.color = color;
-        self
-    }
-
-    pub const fn label_color(mut self, color: Color) -> Self {
-        self.label_color = color;
-        self
-    }
-
-    pub const fn background(mut self, color: Color) -> Self {
-        self.background = Some(color);
-        self
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct BarChart<D> {
+        new(bars: D),
+        @optional {
+            maximum: u64,
+            background: Color,
+        },
+        bar_width: usize = 3,
+        gap: usize = 1,
+        color: Color = Color::Reset,
+        label_color: Color = Color::Reset,
     }
 }
 
-impl Atom<TuiPlatform> for BarChart {
+impl<D> Atom<TuiPlatform> for BarChart<D>
+where
+    D: ReadSlice<Item = Bar> + 'static,
+{
     fn measure(&self, _: &mut TuiPlatform, constraints: Constraints) -> Size {
         let width = self
             .bars
-            .borrow()
+            .read()
             .len()
             .saturating_mul(self.bar_width + self.gap)
             .saturating_sub(self.gap);
@@ -86,7 +50,7 @@ impl Atom<TuiPlatform> for BarChart {
 
     fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
         const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-        let bars = self.bars.borrow();
+        let bars = self.bars.read();
         let mut cells = platform.cells(area);
         let width = cells.columns();
         let rows = cells.rows();

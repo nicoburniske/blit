@@ -1,4 +1,4 @@
-use std::{cell::RefCell, io, rc::Rc, time::Duration};
+use std::{io, time::Duration};
 
 use blit::{
     Absolute, Anchor, Axis, Easing, Input, Interaction, Key, Sense, Sides, Size, Sizing,
@@ -7,18 +7,15 @@ use blit::{
 use blit_showcase::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiPlatform, Ui,
-    atom::{
-        Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, Tint,
-        TitlePosition,
-    },
+    atom::{Border, BorderSides, BorderStyle, Gauge, Shadow, Tint, TitlePosition},
     color::Color,
     layout::{Align, Justify, flex, grid, single, wrap},
     text::{
         HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign,
     },
     widget::{
-        Block, Performance, Text, TextInput, Title, performance, popover, resize, scroll, split,
-        text_input,
+        Bar, BarChart, Block, Performance, Sparkline, Text, TextInput, Title, performance, popover,
+        resize, scroll, split, text_input,
     },
 };
 
@@ -875,15 +872,15 @@ impl Widget<TuiPlatform> for &mut BlocksPage {
 }
 
 struct AtomsPage {
-    sparkline: Rc<RefCell<Vec<u64>>>,
-    bars: Rc<RefCell<Vec<Bar>>>,
+    sparkline: Vec<u64>,
+    bars: Vec<Bar>,
 }
 
 impl Default for AtomsPage {
     fn default() -> Self {
         Self {
-            sparkline: Rc::new(RefCell::new(vec![0; 80])),
-            bars: Rc::new(RefCell::new(vec![
+            sparkline: vec![0; 80],
+            bars: vec![
                 Bar::new(32, "Mon".into()),
                 Bar::new(67, "Tue".into()),
                 Bar::new(45, "Wed".into()),
@@ -891,7 +888,7 @@ impl Default for AtomsPage {
                 Bar::new(58, "Fri".into()),
                 Bar::new(93, "Sat".into()),
                 Bar::new(74, "Sun".into()),
-            ])),
+            ],
         }
     }
 }
@@ -906,7 +903,7 @@ impl Widget<TuiPlatform> for &mut AtomsPage {
             Easing::Linear,
         );
         let ratio = (phase * std::f32::consts::TAU).sin() * 0.25 + 0.5;
-        for (x, value) in self.sparkline.borrow_mut().iter_mut().enumerate() {
+        for (x, value) in self.sparkline.iter_mut().enumerate() {
             *value =
                 (((x as f32 * 0.24 + phase * std::f32::consts::TAU).sin() + 1.0) * 50.0) as u64;
         }

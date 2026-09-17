@@ -16,7 +16,7 @@ mod terminal;
 
 pub mod atom;
 pub mod widget;
-pub use blit_std::layout;
+pub use blit_std::{ReadSlice, layout};
 pub use blit_tui_render::{RendererConfig, TuiRenderer, cell, color, image, text};
 pub use platform::{BoundsClip, TuiPlatform};
 

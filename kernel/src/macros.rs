@@ -1,16 +1,16 @@
 #[macro_export]
 macro_rules! builder {
-    (@default $name:ident $(<$lifetime:lifetime>)?;) => {
-        impl $(<$lifetime>)? Default for $name $(<$lifetime>)? {
+    (@default $name:ident $(<$generic:tt>)?;) => {
+        impl $(<$generic>)? Default for $name $(<$generic>)? {
             fn default() -> Self {
                 Self::new()
             }
         }
     };
-    (@default $name:ident $(<$lifetime:lifetime>)?; $required:ident $(, $rest:ident)*) => {};
+    (@default $name:ident $(<$generic:tt>)?; $required:ident $(, $rest:ident)*) => {};
     (
         $(#[$attribute:meta])*
-        $visibility:vis struct $name:ident $(<$lifetime:lifetime>)? {
+        $visibility:vis struct $name:ident $(<$generic:tt>)? {
             new($($required:ident: $required_type:ty),* $(,)?),
             $(
                 @optional {
@@ -25,13 +25,13 @@ macro_rules! builder {
         }
     ) => {
         $(#[$attribute])*
-        $visibility struct $name $(<$lifetime>)? {
+        $visibility struct $name $(<$generic>)? {
             $(pub $required: $required_type,)*
             $($(pub $optional_field: Option<$optional_type>,)*)?
             $(pub $field: $field_type,)*
         }
 
-        impl $(<$lifetime>)? $name $(<$lifetime>)? {
+        impl $(<$generic>)? $name $(<$generic>)? {
             #[doc = concat!("creates a new [`", stringify!($name), "`]")]
             $visibility fn new($($required: $required_type),*) -> Self {
                 Self {
@@ -43,7 +43,7 @@ macro_rules! builder {
 
             $(
                 #[doc = concat!("sets [`", stringify!($name), "::", stringify!($required), "`]")]
-                $visibility const fn $required(mut self, value: $required_type) -> Self {
+                $visibility fn $required(mut self, value: $required_type) -> Self {
                     self.$required = value;
                     self
                 }
@@ -51,7 +51,7 @@ macro_rules! builder {
 
             $($(
                 #[doc = concat!("sets [`", stringify!($name), "::", stringify!($optional_field), "`]")]
-                $visibility const fn $optional_field(mut self, value: $optional_type) -> Self {
+                $visibility fn $optional_field(mut self, value: $optional_type) -> Self {
                     self.$optional_field = Some(value);
                     self
                 }
@@ -59,13 +59,13 @@ macro_rules! builder {
 
             $(
                 #[doc = concat!("sets [`", stringify!($name), "::", stringify!($field), "`]")]
-                $visibility const fn $field(mut self, value: $field_type) -> Self {
+                $visibility fn $field(mut self, value: $field_type) -> Self {
                     self.$field = value;
                     self
                 }
             )*
         }
 
-        $crate::builder!(@default $name $(<$lifetime>)?; $($required),*);
+        $crate::builder!(@default $name $(<$generic>)?; $($required),*);
     };
 }
