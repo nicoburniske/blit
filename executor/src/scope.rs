@@ -1,11 +1,16 @@
-use std::{marker::PhantomData, ops::AsyncFnOnce, panic::Location, ptr::NonNull, rc::Rc};
+use std::{
+    ops::AsyncFnOnce,
+    panic::Location,
+    ptr::NonNull,
+    rc::{Rc, Weak},
+};
 
-use crate::{AppMut, ExecutorCore, TaskId, task::TaskHandle};
+use crate::{AppAccess, AppMut, ExecutorCore, TaskId};
 
 /// owns tasks that access state mapped from the root application
 pub struct Scope<T: 'static> {
     handle: ScopeHandle<T>,
-    tasks: Vec<TaskHandle>,
+    tasks: Vec<TaskId>,
 }
 
 /// state access available only within a scoped async function
@@ -19,46 +24,63 @@ impl<T: 'static> Scope<T> {
     where
         F: for<'a> AsyncFnOnce(ScopeRef<'a, T>) -> () + 'static,
     {
-        self.tasks.retain(|task| !task.is_finished());
-        let handle = self.handle;
-        let task = handle.executor().tasks.spawn(async move {
+        let executor = self.handle.executor();
+        self.tasks.retain(|task| executor.tasks.contains(*task));
+        let handle = self.handle.clone();
+        let id = executor.tasks.spawn(async move {
             task(ScopeRef { handle: &handle }).await;
         });
-        let id = task.id();
-        self.tasks.push(task);
+        self.tasks.push(id);
         id
     }
 
     /// cancels a task owned by this scope
     pub fn cancel(&mut self, id: TaskId) -> bool {
-        let Some(index) = self.tasks.iter().position(|task| task.id() == id) else {
+        let Some(index) = self.tasks.iter().position(|task| *task == id) else {
             return false;
         };
-        drop(self.tasks.swap_remove(index));
+        self.tasks.swap_remove(index);
+        if let Some(executor) = self.handle.executor.upgrade() {
+            executor.tasks.cancel(id);
+        }
         true
+    }
+}
+
+impl<T: 'static> Drop for Scope<T> {
+    fn drop(&mut self) {
+        let Some(executor) = self.handle.executor.upgrade() else {
+            return;
+        };
+        for task in self.tasks.drain(..) {
+            executor.tasks.cancel(task);
+        }
     }
 }
 
 impl<T: 'static> ScopeRef<'_, T> {
     #[track_caller]
     /// provides mutable mapped state access for the remainder of the current task poll
-    pub fn app(&self) -> AppMut<T> {
+    pub fn app(&self) -> AppMut<'_, T> {
         let executor = self.handle.executor();
-        let Some(root) = executor.root.get() else {
-            panic!("application access outside task poll");
+        let root = match executor.access.get() {
+            AppAccess::Available(root) => root,
+            AppAccess::Borrowed(location) => {
+                panic!("application already borrowed at {location}")
+            }
+            AppAccess::Inactive => panic!("application access outside task poll"),
         };
-        if let Some(location) = executor.borrowed_at.get() {
-            panic!("application already borrowed at {location}");
-        }
-        executor.borrowed_at.set(Some(Location::caller()));
-        let Some(app) = self.handle.access(root) else {
-            executor.borrowed_at.set(None);
+        executor.access.set(AppAccess::Borrowed(Location::caller()));
+        // safety: `map` pairs this function with its static mapper and root type
+        let Some(app) = (unsafe { (self.handle.access)(self.handle.mapper, root) }) else {
+            executor.access.set(AppAccess::Available(root));
             panic!("scoped application state unavailable");
         };
         AppMut {
-            executor: self.handle.executor,
+            executor,
+            root,
             app,
-            local: PhantomData,
+            borrow: std::marker::PhantomData,
         }
     }
 }
@@ -67,13 +89,12 @@ impl<T: 'static> ScopeRef<'_, T> {
 // internal
 //
 
-pub fn identity<T: 'static>(executor: NonNull<ExecutorCore>) -> Scope<T> {
+pub fn identity<T: 'static>(executor: Weak<ExecutorCore>) -> Scope<T> {
     Scope {
         handle: ScopeHandle {
             executor,
             mapper: std::ptr::null(),
             access: |_, app| Some(app.cast()),
-            local: PhantomData,
         },
         tasks: Vec::new(),
     }
@@ -87,39 +108,35 @@ where
 {
     Scope {
         handle: ScopeHandle {
-            executor: root.handle.executor,
+            executor: root.handle.executor.clone(),
             mapper: mapper as *const M as *const (),
             access: mapped_access::<A, T, M>,
-            local: PhantomData,
         },
         tasks: Vec::new(),
     }
 }
 
 struct ScopeHandle<T: 'static> {
-    executor: NonNull<ExecutorCore>,
+    executor: Weak<ExecutorCore>,
     mapper: *const (),
     access: unsafe fn(*const (), NonNull<()>) -> Option<NonNull<T>>,
-    local: PhantomData<Rc<()>>,
 }
-
-impl<T> Copy for ScopeHandle<T> {}
 
 impl<T> Clone for ScopeHandle<T> {
     fn clone(&self) -> Self {
-        *self
+        Self {
+            executor: self.executor.clone(),
+            mapper: self.mapper,
+            access: self.access,
+        }
     }
 }
 
 impl<T: 'static> ScopeHandle<T> {
-    fn executor(&self) -> &ExecutorCore {
-        // safety: the platform keeps the pinned executor alive while scoped tasks can run
-        unsafe { self.executor.as_ref() }
-    }
-
-    fn access(&self, root: NonNull<()>) -> Option<NonNull<T>> {
-        // safety: `map` pairs this function with its static mapper and root type
-        unsafe { (self.access)(self.mapper, root) }
+    fn executor(&self) -> Rc<ExecutorCore> {
+        self.executor
+            .upgrade()
+            .expect("task executor has been dropped")
     }
 }
 
@@ -136,10 +153,9 @@ where
 mod tests {
     use std::{
         cell::Cell,
-        collections::VecDeque,
         future::pending,
+        panic::{AssertUnwindSafe, catch_unwind},
         rc::Rc,
-        sync::{Arc, Mutex},
     };
 
     use crate::LocalExecutor;
@@ -156,36 +172,31 @@ mod tests {
         count: u32,
     }
 
-    struct DropFlag(Rc<Cell<bool>>);
+    struct DropCount(Rc<Cell<usize>>);
 
-    impl Drop for DropFlag {
+    impl Drop for DropCount {
         fn drop(&mut self) {
-            self.0.set(true);
+            self.0.set(self.0.get() + 1);
         }
     }
 
     #[test]
     fn scope_accesses_state_and_cancels_tasks() {
-        let ready = Arc::new(Mutex::new(VecDeque::new()));
-        let executor = Box::pin(LocalExecutor::<App>::new({
-            let ready = ready.clone();
-            move |task| ready.lock().unwrap().push_back(task)
-        }));
-        let mut root = unsafe { executor.as_ref().root() };
+        let executor = LocalExecutor::<App>::new(|| {});
+        let mut root = executor.root();
         root.spawn(async |cx| {
             cx.app().count += 1;
         });
         let mut scope = root.map(&|app: &mut App| app.page.as_mut());
-        let first_dropped = Rc::new(Cell::new(false));
-        let future_dropped = first_dropped.clone();
+        let dropped = Rc::new(Cell::new(0));
+        let future_dropped = dropped.clone();
         let first = scope.spawn(async move |_| {
-            let _drop = DropFlag(future_dropped);
+            let _drop = DropCount(future_dropped);
             pending::<()>().await;
         });
-        let second_dropped = Rc::new(Cell::new(false));
-        let future_dropped = second_dropped.clone();
+        let future_dropped = dropped.clone();
         scope.spawn(async move |cx| {
-            let _drop = DropFlag(future_dropped);
+            let _drop = DropCount(future_dropped);
             cx.app().count += 1;
             pending::<()>().await;
         });
@@ -194,24 +205,57 @@ mod tests {
             count: 0,
         };
 
-        let task = ready.lock().unwrap().pop_front().unwrap();
-        assert!(executor.as_ref().run(&mut app, task));
+        assert!(executor.run_ready(&mut app));
         assert_eq!(app.count, 1);
-
-        let task = ready.lock().unwrap().pop_front().unwrap();
-        assert_eq!(task, first);
-        assert!(executor.as_ref().run(&mut app, task));
-        assert!(!first_dropped.get());
-        assert!(app.page.as_mut().unwrap().scope.cancel(first));
-        assert!(first_dropped.get());
-        assert!(!second_dropped.get());
-
-        let task = ready.lock().unwrap().pop_front().unwrap();
-        assert!(executor.as_ref().run(&mut app, task));
         assert_eq!(app.page.as_ref().unwrap().count, 1);
-        assert!(!second_dropped.get());
+        assert_eq!(dropped.get(), 0);
+
+        assert!(app.page.as_mut().unwrap().scope.cancel(first));
+        assert_eq!(dropped.get(), 1);
 
         drop(app.page.take());
-        assert!(second_dropped.get());
+        assert_eq!(dropped.get(), 2);
+    }
+
+    #[test]
+    #[allow(must_not_suspend)]
+    fn borrow_across_await_drops_task_before_panicking() {
+        let executor = LocalExecutor::<App>::new(|| {});
+        let mut root = executor.root();
+        let dropped = Rc::new(Cell::new(0));
+        let future_dropped = dropped.clone();
+        root.spawn(async move |cx| {
+            let _app = cx.app();
+            let _drop = DropCount(future_dropped);
+            pending::<()>().await;
+        });
+        let mut app = App {
+            page: None,
+            count: 0,
+        };
+
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            executor.run_ready(&mut app);
+        }));
+        assert!(panic.is_err());
+        assert_eq!(dropped.get(), 1);
+        assert!(!executor.run_ready(&mut app));
+    }
+
+    #[test]
+    fn escaped_root_rejects_use_after_executor_drop() {
+        let executor = LocalExecutor::<App>::new(|| {});
+        let mut root = executor.root();
+        let dropped = Rc::new(Cell::new(0));
+        let future_drop = DropCount(dropped.clone());
+        root.spawn(async move |_| {
+            let _drop = future_drop;
+            pending::<()>().await;
+        });
+
+        drop(executor);
+        assert_eq!(dropped.get(), 1);
+        let panic = catch_unwind(AssertUnwindSafe(|| root.spawn(async |_| {})));
+        assert!(panic.is_err());
     }
 }

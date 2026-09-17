@@ -1,11 +1,11 @@
-use std::{num::NonZeroU32, pin::Pin, rc::Rc, time::Instant};
+use std::{num::NonZeroU32, rc::Rc, time::Instant};
 
 use blit::{
     Frame, FrameInfo, LogicalPoint, Size,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use blit_cpu::{Renderer, Scanline};
-use blit_executor::{LocalExecutor, TaskId};
+use blit_executor::LocalExecutor;
 use softbuffer::{Context, Surface};
 use winit::{
     application::ApplicationHandler,
@@ -20,7 +20,7 @@ use crate::{Application, Config, DesktopPlatform, EventLoopProxy, RunError, pixe
 
 pub enum Event<T> {
     Input(T),
-    TaskReady(TaskId),
+    TasksReady,
 }
 
 pub fn run<A: Application>(config: Config) -> Result<(), RunError> {
@@ -64,7 +64,7 @@ enum State<A: Application> {
 
 struct Active<A: Application> {
     app: A,
-    executor: Pin<Box<LocalExecutor<A>>>,
+    executor: LocalExecutor<A>,
     platform: DesktopPlatform,
     frame: Frame<DesktopPlatform>,
     surface: Surface<OwnedDisplayHandle, Rc<Window>>,
@@ -217,11 +217,10 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
         platform.set_scale(window.scale_factor() as f32);
         let frame = Frame::default();
         let wake = input.inner.clone();
-        let executor = Box::pin(LocalExecutor::new(move |task| {
-            let _ = wake.send_event(Event::TaskReady(task));
-        }));
-        // safety: executor remains pinned and is dropped after app
-        let root = unsafe { executor.as_ref().root() };
+        let executor = LocalExecutor::new(move || {
+            let _ = wake.send_event(Event::TasksReady);
+        });
+        let root = executor.root();
         let app = A::new(input, root, &mut platform);
         let mut active = Box::new(Active {
             app,
@@ -248,7 +247,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 active.app.input(input);
                 true
             }
-            Event::TaskReady(task) => active.executor.as_ref().run(&mut active.app, task),
+            Event::TasksReady => active.executor.run_ready(&mut active.app),
         };
         if request_frame {
             active.frame.request_frame();

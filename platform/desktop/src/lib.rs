@@ -49,7 +49,7 @@ impl<T> EventLoopProxy<T> {
             .send_event(event_loop::Event::Input(input))
             .map_err(|error| match error.0 {
                 event_loop::Event::Input(input) => EventLoopClosed(input),
-                event_loop::Event::TaskReady(_) => unreachable!(),
+                event_loop::Event::TasksReady => unreachable!(),
             })
     }
 }
