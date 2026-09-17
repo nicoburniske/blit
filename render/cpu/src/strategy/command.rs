@@ -134,6 +134,18 @@ impl CommandList {
             }));
         let end = u32::try_from(self.polyline_segments.len())
             .expect("too many prepared polyline segments");
+        let segments = &mut self.polyline_segments[start as usize..end as usize];
+        segments.sort_unstable_by(|left, right| left.minimum_y.total_cmp(&right.minimum_y));
+        for segments in segments.chunks_mut(8) {
+            segments[0].block_minimum_y = segments
+                .iter()
+                .map(|segment| segment.minimum_y)
+                .fold(f32::INFINITY, f32::min);
+            segments[0].block_maximum_y = segments
+                .iter()
+                .map(|segment| segment.maximum_y)
+                .fold(f32::NEG_INFINITY, f32::max);
+        }
         self.push(
             StoredPayload::Polyline {
                 polyline,

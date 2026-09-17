@@ -27,8 +27,11 @@ pub struct Segment {
     delta_x: f32,
     delta_y: f32,
     inverse_length_squared: f32,
-    minimum_y: f32,
-    maximum_y: f32,
+    pub minimum_y: f32,
+    pub maximum_y: f32,
+    // block bounds are stored on the first segment in each chunk
+    pub block_minimum_y: f32,
+    pub block_maximum_y: f32,
 }
 
 impl Segment {
@@ -42,6 +45,8 @@ impl Segment {
             inverse_length_squared: 1.0 / (delta_x * delta_x + delta_y * delta_y),
             minimum_y: start.y.min(end.y),
             maximum_y: start.y.max(end.y),
+            block_minimum_y: start.y.min(end.y),
+            block_maximum_y: start.y.max(end.y),
         }
     }
 }
@@ -84,128 +89,137 @@ impl Prepared {
         let mut first = width;
         let mut last = 0;
 
-        for segment in segments {
-            if y <= segment.minimum_y - outer || y >= segment.maximum_y + outer {
+        for segments in segments.chunks(8) {
+            if y <= segments[0].block_minimum_y - outer {
+                break;
+            }
+            if y >= segments[0].block_maximum_y + outer {
                 continue;
             }
-            let mut low = 0.0;
-            let mut high = 1.0;
-            if segment.delta_y == 0.0 {
-                if (y - segment.start.y).abs() >= outer {
+            for segment in segments {
+                if y <= segment.minimum_y - outer || y >= segment.maximum_y + outer {
                     continue;
                 }
-            } else {
-                low = (y - outer - segment.start.y) / segment.delta_y;
-                high = (y + outer - segment.start.y) / segment.delta_y;
-                if low > high {
-                    std::mem::swap(&mut low, &mut high);
-                }
-                low = low.max(0.0);
-                high = high.min(1.0);
-                if low >= high {
-                    continue;
-                }
-            }
-            let low_x = segment.start.x + segment.delta_x * low;
-            let high_x = segment.start.x + segment.delta_x * high;
-            let left = ((low_x.min(high_x) - outer - 0.5).ceil() as i32).max(clip.x);
-            let right =
-                ((low_x.max(high_x) + outer - 0.5).floor() as i32).min(clip.x + clip.width - 1);
-            if left > right {
-                continue;
-            }
-            let mut x = left;
-            let end = right + 1;
-            if segment.inverse_length_squared.is_finite() {
-                // broadcast segment values across the lanes
-                let start_x = F32x8::splat(segment.start.x);
-                let start_y = F32x8::splat(segment.start.y);
-                let delta_x = F32x8::splat(segment.delta_x);
-                let delta_y = F32x8::splat(segment.delta_y);
-                let inverse_length_squared = F32x8::splat(segment.inverse_length_squared);
-                let pixel_y = F32x8::splat(y);
-                let inner_squared = F32x8::splat(inner_squared);
-                let outer_squared = F32x8::splat(outer_squared);
-                let outer = F32x8::splat(outer);
-                while x + 8 <= end {
-                    let pixel_x = F32x8::from_array([0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5])
-                        + F32x8::splat(x as f32);
-                    // clamping the projection produces round caps
-                    let projection = (((pixel_x - start_x) * delta_x
-                        + (pixel_y - start_y) * delta_y)
-                        * inverse_length_squared)
-                        .simd_max(F32x8::splat(0.0))
-                        .simd_min(F32x8::splat(1.0));
-                    let distance_x = pixel_x - (start_x + delta_x * projection);
-                    let distance_y = pixel_y - (start_y + delta_y * projection);
-                    let distance_squared = distance_x * distance_x + distance_y * distance_y;
-                    // fade the one pixel antialiasing band
-                    let coverage = distance_squared.simd_le(inner_squared).select(
-                        F32x8::splat(255.0),
-                        distance_squared.simd_ge(outer_squared).select(
-                            F32x8::splat(0.0),
-                            ((outer - distance_squared.sqrt()) * F32x8::splat(255.0)).round(),
-                        ),
-                    );
-                    let coverage = coverage.cast::<u8>();
-                    let offset = (x - clip.x) as usize;
-                    let old_coverage = U8x8::from_slice(&rasterizer.coverage[offset..offset + 8]);
-                    let old_generations =
-                        U32x8::from_slice(&rasterizer.generations[offset..offset + 8]);
-                    let active = coverage.simd_ne(U8x8::splat(0));
-                    let lanes = active.to_bitmask();
-                    // generations ignore values left by earlier rows
-                    let current = old_generations.simd_eq(U32x8::splat(rasterizer.generation));
-                    // count unique pixels to detect dense spans below
-                    rasterizer.covered += (lanes & !current.to_bitmask()).count_ones() as usize;
-                    // union segment coverage so joins blend once
-                    active
-                        .select(
-                            current.select(old_coverage.simd_max(coverage), coverage),
-                            old_coverage,
-                        )
-                        .copy_to_slice(&mut rasterizer.coverage[offset..offset + 8]);
-                    active
-                        .select(U32x8::splat(rasterizer.generation), old_generations)
-                        .copy_to_slice(&mut rasterizer.generations[offset..offset + 8]);
-                    if lanes != 0 {
-                        // bound the span composited below
-                        first = first.min(offset + lanes.trailing_zeros() as usize);
-                        last = last.max(offset + lanes.ilog2() as usize + 1);
+                let mut low = 0.0;
+                let mut high = 1.0;
+                if segment.delta_y == 0.0 {
+                    if (y - segment.start.y).abs() >= outer {
+                        continue;
                     }
-                    x += 8;
-                }
-            }
-            // finish with the scalar path
-            for x in x..end {
-                let pixel_x = x as f32 + 0.5;
-                let projection = if segment.inverse_length_squared.is_finite() {
-                    ((pixel_x - segment.start.x) * segment.delta_x
-                        + (y - segment.start.y) * segment.delta_y)
-                        * segment.inverse_length_squared
                 } else {
-                    0.0
+                    low = (y - outer - segment.start.y) / segment.delta_y;
+                    high = (y + outer - segment.start.y) / segment.delta_y;
+                    if low > high {
+                        std::mem::swap(&mut low, &mut high);
+                    }
+                    low = low.max(0.0);
+                    high = high.min(1.0);
+                    if low >= high {
+                        continue;
+                    }
                 }
-                .clamp(0.0, 1.0);
-                let nearest_x = segment.start.x + segment.delta_x * projection;
-                let nearest_y = segment.start.y + segment.delta_y * projection;
-                let distance_x = pixel_x - nearest_x;
-                let distance_y = y - nearest_y;
-                let distance_squared = distance_x * distance_x + distance_y * distance_y;
-                let coverage = if distance_squared <= inner_squared {
-                    255
-                } else if distance_squared >= outer_squared {
-                    0
-                } else {
-                    ((outer - distance_squared.sqrt()) * 255.0).round() as u8
-                };
-                if coverage == 0 {
+                let low_x = segment.start.x + segment.delta_x * low;
+                let high_x = segment.start.x + segment.delta_x * high;
+                let left = ((low_x.min(high_x) - outer - 0.5).ceil() as i32).max(clip.x);
+                let right =
+                    ((low_x.max(high_x) + outer - 0.5).floor() as i32).min(clip.x + clip.width - 1);
+                if left > right {
                     continue;
                 }
-                let offset = (x - clip.x) as usize;
-                rasterizer.cover(offset, coverage);
-                first = first.min(offset);
-                last = last.max(offset + 1);
+                let mut x = left;
+                let end = right + 1;
+                if segment.inverse_length_squared.is_finite() {
+                    // broadcast segment values across the lanes
+                    let start_x = F32x8::splat(segment.start.x);
+                    let start_y = F32x8::splat(segment.start.y);
+                    let delta_x = F32x8::splat(segment.delta_x);
+                    let delta_y = F32x8::splat(segment.delta_y);
+                    let inverse_length_squared = F32x8::splat(segment.inverse_length_squared);
+                    let pixel_y = F32x8::splat(y);
+                    let inner_squared = F32x8::splat(inner_squared);
+                    let outer_squared = F32x8::splat(outer_squared);
+                    let outer = F32x8::splat(outer);
+                    while x + 8 <= end {
+                        let pixel_x = F32x8::from_array([0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5])
+                            + F32x8::splat(x as f32);
+                        // clamping the projection produces round caps
+                        let projection = (((pixel_x - start_x) * delta_x
+                            + (pixel_y - start_y) * delta_y)
+                            * inverse_length_squared)
+                            .simd_max(F32x8::splat(0.0))
+                            .simd_min(F32x8::splat(1.0));
+                        let distance_x = pixel_x - (start_x + delta_x * projection);
+                        let distance_y = pixel_y - (start_y + delta_y * projection);
+                        let distance_squared = distance_x * distance_x + distance_y * distance_y;
+                        // fade the one pixel antialiasing band
+                        let coverage = distance_squared.simd_le(inner_squared).select(
+                            F32x8::splat(255.0),
+                            distance_squared.simd_ge(outer_squared).select(
+                                F32x8::splat(0.0),
+                                ((outer - distance_squared.sqrt()) * F32x8::splat(255.0)).round(),
+                            ),
+                        );
+                        let coverage = coverage.cast::<u8>();
+                        let offset = (x - clip.x) as usize;
+                        let old_coverage =
+                            U8x8::from_slice(&rasterizer.coverage[offset..offset + 8]);
+                        let old_generations =
+                            U32x8::from_slice(&rasterizer.generations[offset..offset + 8]);
+                        let active = coverage.simd_ne(U8x8::splat(0));
+                        let lanes = active.to_bitmask();
+                        // generations ignore values left by earlier rows
+                        let current = old_generations.simd_eq(U32x8::splat(rasterizer.generation));
+                        // count unique pixels to detect dense spans below
+                        rasterizer.covered += (lanes & !current.to_bitmask()).count_ones() as usize;
+                        // union segment coverage so joins blend once
+                        active
+                            .select(
+                                current.select(old_coverage.simd_max(coverage), coverage),
+                                old_coverage,
+                            )
+                            .copy_to_slice(&mut rasterizer.coverage[offset..offset + 8]);
+                        active
+                            .select(U32x8::splat(rasterizer.generation), old_generations)
+                            .copy_to_slice(&mut rasterizer.generations[offset..offset + 8]);
+                        if lanes != 0 {
+                            // bound the span composited below
+                            first = first.min(offset + lanes.trailing_zeros() as usize);
+                            last = last.max(offset + lanes.ilog2() as usize + 1);
+                        }
+                        x += 8;
+                    }
+                }
+                // finish with the scalar path
+                for x in x..end {
+                    let pixel_x = x as f32 + 0.5;
+                    let projection = if segment.inverse_length_squared.is_finite() {
+                        ((pixel_x - segment.start.x) * segment.delta_x
+                            + (y - segment.start.y) * segment.delta_y)
+                            * segment.inverse_length_squared
+                    } else {
+                        0.0
+                    }
+                    .clamp(0.0, 1.0);
+                    let nearest_x = segment.start.x + segment.delta_x * projection;
+                    let nearest_y = segment.start.y + segment.delta_y * projection;
+                    let distance_x = pixel_x - nearest_x;
+                    let distance_y = y - nearest_y;
+                    let distance_squared = distance_x * distance_x + distance_y * distance_y;
+                    let coverage = if distance_squared <= inner_squared {
+                        255
+                    } else if distance_squared >= outer_squared {
+                        0
+                    } else {
+                        ((outer - distance_squared.sqrt()) * 255.0).round() as u8
+                    };
+                    if coverage == 0 {
+                        continue;
+                    }
+                    let offset = (x - clip.x) as usize;
+                    rasterizer.cover(offset, coverage);
+                    first = first.min(offset);
+                    last = last.max(offset + 1);
+                }
             }
         }
 
