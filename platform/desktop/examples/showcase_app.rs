@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use blit::{
     Absolute, Anchor, Axis, Easing, Interaction, Point, Sense, Sides, Size, Sizing, Transition,
@@ -16,8 +16,8 @@ use blit_desktop::{
         VerticalAlign,
     },
     widget::{
-        Performance, RichText, Text, TextInput, performance, popover, resize, scroll, split,
-        text_input,
+        Performance, Polyline, RichText, Text, TextInput, performance, popover, resize, scroll,
+        split, text_input,
     },
 };
 use blit_showcase::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
@@ -54,6 +54,7 @@ enum Page {
     Text,
     Input,
     Styles,
+    Polyline,
     Scroll,
 }
 
@@ -63,6 +64,7 @@ struct App {
     text: TextPage,
     input: InputPage,
     styles: StylesPage,
+    polyline: PolylinePage,
     scroll: ScrollPage,
     settings: popover::State,
     performance: performance::State,
@@ -77,6 +79,7 @@ impl Default for App {
             text: TextPage::default(),
             input: InputPage::default(),
             styles: StylesPage::default(),
+            polyline: PolylinePage::default(),
             scroll: ScrollPage::default(),
             settings: popover::State::new(),
             performance: performance::State::default(),
@@ -137,6 +140,7 @@ impl Application for App {
                 (Page::Text, "text"),
                 (Page::Input, "input"),
                 (Page::Styles, "styles"),
+                (Page::Polyline, "polyline"),
                 (Page::Scroll, "scroll"),
             ] {
                 if header.child(flex::item()).build(Button::new(
@@ -193,6 +197,7 @@ impl Application for App {
             Page::Text => root.child(flex::item().grow()).build(&mut self.text),
             Page::Input => root.child(flex::item().grow()).build(&mut self.input),
             Page::Styles => root.child(flex::item().grow()).build(&mut self.styles),
+            Page::Polyline => root.child(flex::item().grow()).build(&mut self.polyline),
             Page::Scroll => root.child(flex::item().grow()).build(&mut self.scroll),
         };
         if self.show_performance {
@@ -762,7 +767,7 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                     );
                     sidebar.insert(panel(colors::SURFACE));
                     sidebar.child(flex::item()).insert(
-                        Text::new("SHADOW ATOM")
+                        Text::new("STYLE ATOMS")
                             .style(TextStyle {
                                 size: sz::LG,
                                 ..TextStyle::default()
@@ -897,7 +902,9 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                                         .color(colors::TEXT),
                                 );
                                 card.child(flex::item()).insert(
-                                    Text::new("outer and inset shadows share the node's resolved bounds")
+                                    Text::new(
+                                        "outer and inset shadows share the node's resolved bounds",
+                                    )
                                         .style(TextStyle {
                                             size: sz::MD,
                                             ..TextStyle::default()
@@ -909,6 +916,99 @@ impl Widget<DesktopPlatform> for &mut StylesPage {
                 },
             ),
         );
+    }
+}
+
+struct PolylinePage {
+    points: Rc<RefCell<Vec<Point>>>,
+}
+
+impl Default for PolylinePage {
+    fn default() -> Self {
+        Self {
+            points: Rc::new(RefCell::new(vec![Point::ZERO; 512])),
+        }
+    }
+}
+
+impl Widget<DesktopPlatform> for &mut PolylinePage {
+    type Response = ();
+
+    fn build(self, mut ui: Ui<'_>) {
+        let plot_id = WidgetId::new("desktop polyline plot");
+        let plot_size = ui
+            .geometry(plot_id)
+            .map(|area| area.size())
+            .unwrap_or(Size::new(656.0, 336.0));
+        let phase = ui.animate_loop(
+            WidgetId::new("desktop polyline animation"),
+            Duration::from_secs(5),
+            Easing::Linear,
+        ) * std::f32::consts::TAU;
+        let mut points = self.points.borrow_mut();
+        let last = points.len() - 1;
+        for (index, point) in points.iter_mut().enumerate() {
+            let progress = index as f32 / last as f32;
+            let angle = progress * std::f32::consts::TAU;
+            *point = Point::new(
+                progress * plot_size.width,
+                plot_size.height * 0.5
+                    + (angle * 3.0 + phase).sin() * plot_size.height * 0.26
+                    + (angle * 11.0 - phase * 0.7).sin() * plot_size.height * 0.07,
+            );
+        }
+        drop(points);
+
+        let mut page = ui.layout(flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
+        page.insert(panel(colors::SURFACE));
+        page.child(flex::item()).insert(
+            Text::new("POLYLINE")
+                .style(TextStyle {
+                    size: sz::LG,
+                    ..TextStyle::default()
+                })
+                .color(colors::ACCENT),
+        );
+        page.child(flex::item()).insert(
+            Text::new("512 animated points and long-span guides")
+                .style(TextStyle {
+                    size: sz::MD,
+                    ..TextStyle::default()
+                })
+                .color(colors::TEXT_MUTED),
+        );
+        page.child(flex::item().grow()).build(|ui: Ui<'_>| {
+            let mut stage = ui
+                .layout(flex::row().padding(Sides::all(sz::XXXL)))
+                .clip(BoundsClip);
+            stage.child(flex::item().grow()).build(|ui: Ui<'_>| {
+                let mut chart = ui.layout(flex::column().padding(Sides::all(sz::XXL)));
+                chart.insert(
+                    Rectangle::new()
+                        .background(colors::CANVAS)
+                        .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
+                        .radius(BorderRadius::uniform(sz::XS)),
+                );
+                let mut plot = chart.child(flex::item().grow()).widget_id(plot_id);
+                for y in [
+                    0.0,
+                    plot_size.height * 0.25,
+                    plot_size.height * 0.5,
+                    plot_size.height * 0.75,
+                    plot_size.height,
+                ] {
+                    plot.insert(
+                        Polyline::new([Point::new(0.0, y), Point::new(plot_size.width, y)])
+                            .color(colors::CANVAS_BORDER),
+                    );
+                }
+                plot.insert(
+                    Polyline::new(Rc::clone(&self.points))
+                        .color(colors::ACCENT)
+                        .width(sz::BORDER_STRONG),
+                );
+            });
+        });
     }
 }
 
