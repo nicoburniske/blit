@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 blit = { workspace = true }
+blit-graphics.workspace = true
 blit_cache = { path = "../../cache" }
 blit-text = { workspace = true }
 slotmap = "1"

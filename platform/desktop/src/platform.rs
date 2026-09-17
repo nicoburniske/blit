@@ -1,43 +1,31 @@
 use std::time::Instant;
 
-use blit::{Clip, FrameStage, LogicalPoint, LogicalRect, PhysicalRect, Platform, Scale2, Size};
-use blit_cpu::{
-    Renderer, Scanline,
-    command_list::{BoxShadow, ClipId, CommandList, Rectangle, TextPalette},
+use blit::{Clip, FrameStage, LogicalPoint, LogicalRect, Platform, Size};
+use blit_graphics::{
+    GuiContext,
     image::{ImageData, ImageHandle, ImageRequest},
-    text_types::{TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    scene::{BoxShadow, Rectangle, TextPalette},
+    text::{Span, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
-use blit_diff::{Change, Myers, Reconciliation};
 use blit_std::widget::performance::{FrameProfiler, Profiled};
 
-use crate::pixel::DesktopBuffer;
-
 pub struct DesktopPlatform {
+    gui: GuiContext,
     profiler: FrameProfiler,
     clock: Instant,
-    renderer: Renderer<DesktopBuffer, Scanline>,
-    scale: Scale2,
-    current: CommandList,
-    previous: CommandList,
-    diff: Myers,
-    damage: Vec<PhysicalRect>,
-    previous_damage: Vec<PhysicalRect>,
-    clip: ClipId,
-    clips: Vec<ClipId>,
-    invalidated: bool,
 }
 
 impl DesktopPlatform {
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        self.renderer.create_image(data)
+        self.gui.create_image(data)
     }
 
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.renderer.text_run(text, style)
+        self.gui.text_run(text, style)
     }
 
     pub fn measure_text(&mut self, request: &TextLayoutRequest) -> Size {
-        self.renderer.measure_text(request)
+        self.gui.measure_text(request)
     }
 
     pub fn text_offset_at_position(
@@ -45,134 +33,57 @@ impl DesktopPlatform {
         request: &TextRequest,
         position: LogicalPoint,
     ) -> usize {
-        self.renderer.text_offset_at_position(request, position)
+        self.gui.text_offset_at_position(request, position)
     }
 
     pub fn text_cursor_rect(&mut self, request: &TextRequest, offset: usize) -> LogicalRect {
-        self.renderer.text_cursor_rect(request, offset)
+        self.gui.text_cursor_rect(request, offset)
     }
 
     pub fn paint_rectangle(&mut self, rectangle: Rectangle<'_>) {
-        let bounds = rectangle.area.to_physical(self.scale);
-        self.current.push_rectangle(rectangle, bounds, self.clip);
+        self.gui.paint_rectangle(rectangle)
     }
 
     pub fn paint_text(&mut self, text: TextRequest) {
-        self.paint_text_palette(text, TextPalette::NONE);
+        self.gui.paint_text(text)
     }
 
     pub fn paint_image(&mut self, image: ImageRequest) {
-        let bounds = image.area.to_physical(self.scale);
-        self.current.push_image(image, bounds, self.clip);
+        self.gui.paint_image(image)
     }
 
     pub fn paint_shadow(&mut self, shadow: BoxShadow) {
-        let bounds = shadow.bounds().to_physical(self.scale);
-        self.current.push_box_shadow(shadow, bounds, self.clip);
-    }
-
-    pub fn invalidate_all(&mut self) {
-        self.invalidated = true;
-        self.previous_damage.clear();
+        self.gui.paint_shadow(shadow)
     }
 }
 
 impl DesktopPlatform {
+    pub(crate) fn new(gui: GuiContext) -> Self {
+        Self {
+            gui,
+            profiler: FrameProfiler::default(),
+            clock: Instant::now(),
+        }
+    }
+
     pub(crate) fn rich_text(
         &mut self,
-        spans: &[blit_cpu::text_types::Span<'_>],
+        spans: &[Span<'_>],
         style: TextStyle,
     ) -> (TextRunId, TextPalette) {
-        (
-            self.renderer.rich_text(spans, style),
-            self.current.text_palette(spans),
-        )
+        self.gui.rich_text(spans, style)
     }
 
     pub(crate) fn paint_text_palette(&mut self, text: TextRequest, palette: TextPalette) {
-        let bounds = text.area.to_physical(self.scale);
-        self.current
-            .push_text_palette(text, palette, bounds, self.clip);
-    }
-
-    pub(crate) fn new(renderer: Renderer<DesktopBuffer, Scanline>) -> Self {
-        Self {
-            profiler: FrameProfiler::default(),
-            clock: Instant::now(),
-            renderer,
-            scale: Scale2::IDENTITY,
-            current: CommandList::default(),
-            previous: CommandList::default(),
-            diff: Myers::default(),
-            damage: Vec::new(),
-            previous_damage: Vec::new(),
-            clip: ClipId::default(),
-            clips: Vec::new(),
-            invalidated: true,
-        }
-    }
-
-    pub(crate) fn renderer_mut(&mut self) -> &mut Renderer<DesktopBuffer, Scanline> {
-        &mut self.renderer
+        self.gui.paint_text_palette(text, palette)
     }
 
     pub(crate) fn set_scale(&mut self, scale: f32) {
-        let scale = Scale2::uniform(scale);
-        if self.scale != scale {
-            self.renderer.set_scale(scale);
-            self.scale = scale;
-            self.invalidate_all();
-        }
+        self.gui.set_scale(scale)
     }
 
-    fn reconcile(&mut self) {
-        self.damage.clear();
-        if std::mem::take(&mut self.invalidated) {
-            self.damage.push(self.renderer.screen());
-        } else {
-            match self
-                .diff
-                .reconcile(self.previous.len(), self.current.len(), |old, new| {
-                    self.previous.equivalent(old, &self.current, new)
-                }) {
-                Reconciliation::Exact(changes) => {
-                    for change in changes.iter().copied() {
-                        let bounds = match change {
-                            Change::Remove(index) => self.previous.get(index).bounds,
-                            Change::Insert(index) => self.current.get(index).bounds,
-                        };
-                        push_damage(&mut self.damage, bounds);
-                    }
-                }
-                Reconciliation::LimitExceeded { old, new } => {
-                    let paired = old.len().min(new.len());
-                    for offset in 0..paired {
-                        let old = old.start + offset;
-                        let new = new.start + offset;
-                        if !self.previous.equivalent(old, &self.current, new) {
-                            push_damage(&mut self.damage, self.previous.get(old).bounds);
-                            let bounds = self.current.get(new).bounds;
-                            if bounds != self.previous.get(old).bounds {
-                                push_damage(&mut self.damage, bounds);
-                            }
-                        }
-                    }
-                    for index in old.start + paired..old.end {
-                        push_damage(&mut self.damage, self.previous.get(index).bounds);
-                    }
-                    for index in new.start + paired..new.end {
-                        push_damage(&mut self.damage, self.current.get(index).bounds);
-                    }
-                }
-            }
-        }
-        let current_damage = self.damage.len();
-        self.damage.extend_from_slice(&self.previous_damage);
-        self.renderer.render(&self.current, &self.damage);
-        self.previous_damage.clear();
-        self.previous_damage
-            .extend_from_slice(&self.damage[..current_damage]);
-        std::mem::swap(&mut self.current, &mut self.previous);
+    pub(crate) fn gui_mut(&mut self) -> &mut GuiContext {
+        &mut self.gui
     }
 }
 
@@ -184,15 +95,7 @@ impl Profiled for DesktopPlatform {
 
 impl Platform for DesktopPlatform {
     fn frame_stage(&mut self, stage: FrameStage) {
-        match stage {
-            FrameStage::Build => self.current.clear(),
-            FrameStage::Paint => {
-                self.clip = ClipId::default();
-                self.clips.clear();
-            }
-            FrameStage::Complete => self.reconcile(),
-            FrameStage::Layout => {}
-        }
+        self.gui.frame_stage(stage);
         self.profiler.begin_stage(stage, self.clock.elapsed());
     }
 }
@@ -200,70 +103,54 @@ impl Platform for DesktopPlatform {
 #[derive(Clone, Copy)]
 pub struct BoundsClip;
 
-fn push_damage(damage: &mut Vec<PhysicalRect>, bounds: PhysicalRect) {
-    if bounds.width <= 0 || bounds.height <= 0 {
-        return;
-    }
-    const MAX_DAMAGE: usize = 32;
-    if damage.len() < MAX_DAMAGE {
-        damage.push(bounds);
-        return;
-    }
-    let len = damage.len();
-    for index in 0..len / 2 {
-        damage[index] = damage[index * 2].union(damage[index * 2 + 1]);
-    }
-    if len % 2 == 1 {
-        damage[len / 2] = damage[len - 1];
-    }
-    damage.truncate(len.div_ceil(2));
-    damage.push(bounds);
-}
-
 impl Clip<DesktopPlatform> for BoundsClip {
     fn push(&self, platform: &mut DesktopPlatform, area: LogicalRect) {
-        let previous = platform.clip;
-        platform.clip = platform
-            .current
-            .push_clip(previous, area, Default::default());
-        platform.clips.push(previous);
+        blit_graphics::BoundsClip.push(&mut platform.gui, area)
     }
 
     fn pop(&self, platform: &mut DesktopPlatform) {
-        platform.clip = platform.clips.pop().unwrap();
+        blit_graphics::BoundsClip.pop(&mut platform.gui)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::atom::Rectangle;
     use crate::widget::{RichText, Span};
+    use crate::{atom::Rectangle, graphics_renderer::CpuGraphicsRenderer, pixel::DesktopBuffer};
     use blit::{Frame, FrameInfo, Sides, Size};
-    use blit_cpu::{FontData, FontFamily, RendererConfig, color::Color, text_types::FontId};
+    use blit_cpu::{Renderer, RendererConfig, Scanline};
+    use blit_graphics::{FontData, FontFamily, TextConfig, TextSystem, color::Color, text::FontId};
     use blit_std::layout::flex;
 
     #[test]
     fn nested_content_renders_at_device_scale() {
         let mut pixels = vec![0; 16 * 16];
-        let mut renderer = Renderer::new(
-            DesktopBuffer::new(16, 16),
-            RendererConfig {
+        let text = TextSystem::new(
+            TextConfig {
                 fonts: vec![FontFamily {
                     id: FontId::default(),
                     fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
                 }],
                 text_cache_capacity: 0,
                 layout_cache_capacity: 0,
-                glyph_cache_capacity: 0,
-                shadow_cache_capacity: 0,
             },
             Box::new(blit_text_cosmic::Backend::without_system_fonts()),
         )
-        .unwrap()
+        .unwrap();
+        let renderer = Renderer::new(
+            DesktopBuffer::new(16, 16),
+            RendererConfig {
+                paint_cache_capacity: 0,
+                glyph_cache_capacity: 0,
+                shadow_cache_capacity: 0,
+            },
+        )
         .strategy(Scanline::default());
+        let mut renderer = CpuGraphicsRenderer::new(renderer);
         renderer.buffer_mut().set(&mut pixels);
-        let mut platform = DesktopPlatform::new(renderer);
+        renderer.set_scale(2.0);
+        let mut platform = DesktopPlatform::new(GuiContext::new(text));
         platform.set_scale(2.0);
         let mut frame = Frame::default();
         frame.render(
@@ -277,6 +164,7 @@ mod tests {
                 root.insert(RichText::new(&[Span::new("").color(Color::WHITE)]));
             },
         );
+        renderer.render(platform.gui_mut());
         assert_eq!(pixels[7 * 16 + 7], 0x0046_6edc);
         assert_eq!(pixels[14 * 16 + 14], 0x0014_1820);
     }

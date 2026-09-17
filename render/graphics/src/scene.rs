@@ -4,7 +4,7 @@ use crate::{
     color::Color,
     image::ImageRequest,
     style::{Border, BorderRadius, GradientStop, LinearGradient},
-    text_types::{Span, TextRequest},
+    text::{Span, TextRequest},
 };
 use blit::geometry::{LogicalRect, PhysicalRect};
 

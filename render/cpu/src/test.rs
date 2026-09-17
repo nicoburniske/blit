@@ -1,5 +1,5 @@
 use std::{
-    ops::Range,
+    ops::{Deref, DerefMut, Range},
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering::Relaxed},
@@ -17,7 +17,12 @@ use crate::{
         Span, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap,
     },
 };
-use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
+use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
+use blit_graphics::{
+    FontData, FontFamily, TextConfig, TextSystem,
+    image::{ImageHandle, ImageId},
+    text::FontId,
+};
 use blit_text::{
     FontCandidate, FontError, FontFace as BackendFontFace, FontFaceId as BackendFontFaceId,
     FontSelectionId, LayoutRequest, TextLayout, TextLayoutEngine,
@@ -87,15 +92,89 @@ impl PixelBuffer for TrackingBuffer {
 
 fn renderer_config() -> RendererConfig {
     RendererConfig {
-        fonts: Vec::new(),
-        text_cache_capacity: 1024 * 1024,
-        layout_cache_capacity: 1024 * 1024,
+        paint_cache_capacity: 1024 * 1024,
         glyph_cache_capacity: 1024 * 1024,
         shadow_cache_capacity: 1024 * 1024,
     }
 }
 
-fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {
+struct TestRenderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
+    renderer: Renderer<B, S>,
+    text: TextSystem,
+    image_uploads: Vec<(ImageHandle, ImageData)>,
+    next_image: u64,
+    scale: f32,
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>> TestRenderer<B, S> {
+    fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
+        self.renderer
+            .render(&mut self.text, &mut self.image_uploads, commands, damage);
+        self.text.finish_frame();
+    }
+
+    fn create_image(&mut self, data: ImageData) -> ImageHandle {
+        data.validate();
+        self.next_image = self.next_image.checked_add(1).unwrap();
+        let image = ImageHandle::new(ImageId(self.next_image), data.size);
+        self.image_uploads.push((image.clone(), data));
+        image
+    }
+
+    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.text.text_run(text, style)
+    }
+
+    fn rich_text(&mut self, spans: &[Span<'_>], style: TextStyle) -> TextRunId {
+        self.text.rich_text(spans, style)
+    }
+
+    fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
+        self.text.offset_at_position(request, position)
+    }
+
+    fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
+        self.text.measure(request)
+    }
+
+    fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
+        self.text
+            .cursor_rect(request, byte_offset, self.scale.recip())
+    }
+
+    fn set_scale(&mut self, scale: Scale2) {
+        self.scale = scale.x;
+        self.renderer.set_scale(scale);
+    }
+}
+
+impl<B: PixelBuffer> TestRenderer<B> {
+    fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> TestRenderer<B, T> {
+        TestRenderer {
+            renderer: self.renderer.strategy(strategy),
+            text: self.text,
+            image_uploads: self.image_uploads,
+            next_image: self.next_image,
+            scale: self.scale,
+        }
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>> Deref for TestRenderer<B, S> {
+    type Target = Renderer<B, S>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.renderer
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>> DerefMut for TestRenderer<B, S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.renderer
+    }
+}
+
+fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> TestRenderer<B> {
     new_renderer_with_backend(
         buffer,
         config,
@@ -105,14 +184,27 @@ fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B
 
 fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
     buffer: B,
-    mut config: RendererConfig,
+    config: RendererConfig,
     backend: T,
-) -> Renderer<B> {
-    config.fonts.push(FontFamily {
-        id: FontId::default(),
-        fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
-    });
-    Renderer::new(buffer, config, Box::new(backend)).unwrap()
+) -> TestRenderer<B> {
+    TestRenderer {
+        renderer: Renderer::new(buffer, config),
+        text: TextSystem::new(
+            TextConfig {
+                fonts: vec![FontFamily {
+                    id: FontId::default(),
+                    fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+                }],
+                text_cache_capacity: 1024 * 1024,
+                layout_cache_capacity: 1024 * 1024,
+            },
+            Box::new(backend),
+        )
+        .unwrap(),
+        image_uploads: Vec::new(),
+        next_image: 0,
+        scale: 1.0,
+    }
 }
 
 #[test]
@@ -288,21 +380,31 @@ impl TextLayoutEngine for CountingBackend {
 #[test]
 fn layout_eviction_is_deferred_until_frame_end() {
     let layouts = Arc::new(AtomicUsize::new(0));
-    let mut renderer = Renderer::new(
-        VecBuffer::<Xrgb8888>::new(1, 1),
-        RendererConfig {
-            fonts: vec![FontFamily {
-                id: FontId::default(),
-                fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
-            }],
-            text_cache_capacity: 1024,
-            layout_cache_capacity: 0,
-            glyph_cache_capacity: 0,
-            shadow_cache_capacity: 0,
-        },
-        Box::new(CountingBackend(layouts.clone())),
-    )
-    .unwrap();
+    let mut renderer = TestRenderer {
+        renderer: Renderer::new(
+            VecBuffer::<Xrgb8888>::new(1, 1),
+            RendererConfig {
+                paint_cache_capacity: 0,
+                glyph_cache_capacity: 0,
+                shadow_cache_capacity: 0,
+            },
+        ),
+        text: TextSystem::new(
+            TextConfig {
+                fonts: vec![FontFamily {
+                    id: FontId::default(),
+                    fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+                }],
+                text_cache_capacity: 1024,
+                layout_cache_capacity: 0,
+            },
+            Box::new(CountingBackend(layouts.clone())),
+        )
+        .unwrap(),
+        image_uploads: Vec::new(),
+        next_image: 0,
+        scale: 1.0,
+    };
     let request = TextLayoutRequest {
         text: renderer.text_run("cached", TextStyle::default()),
         wrap: TextWrap::None,
@@ -483,8 +585,10 @@ fn dropped_image_is_removed_after_last_handle() {
     let first = renderer.create_image(texture);
     let retained = first.clone();
     let first_id = first.id();
+    renderer.render(&CommandList::default(), &[]);
+    let first_key = renderer.context.image_map[&first_id];
+
     drop(first);
-    let first_key = RendererImageId::from(KeyData::from_ffi(first_id.0));
     renderer.render(&CommandList::default(), &[]);
     assert!(renderer.context.images.contains_key(first_key));
 
@@ -545,7 +649,8 @@ fn image_alpha_rows_are_cached_and_used() {
         6,
         4,
     ));
-    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
+    renderer.render(&CommandList::default(), &[]);
+    let key = renderer.context.image_map[&image.id()];
     let rows = &renderer.context.images[key].alpha_rows;
     let rows: [_; 4] =
         std::array::from_fn(|index| rows.get(ImageFormat::Rgba8Premultiplied, index).unwrap());
@@ -603,7 +708,8 @@ fn image_alpha_rows_are_cached_and_used() {
         6,
         4,
     ));
-    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
+    renderer.render(&CommandList::default(), &[]);
+    let key = renderer.context.image_map[&image.id()];
     let rows = &renderer.context.images[key].alpha_rows;
     let rows: [_; 4] =
         std::array::from_fn(|index| rows.get(ImageFormat::Alpha8(Color::WHITE), index).unwrap());
@@ -633,7 +739,8 @@ fn image_alpha_rows_are_cached_and_used() {
         6,
         4,
     ));
-    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
+    renderer.render(&CommandList::default(), &[]);
+    let key = renderer.context.image_map[&image.id()];
     let image = &renderer.context.images[key];
     assert!(image.opaque);
     assert!(
@@ -649,7 +756,8 @@ fn image_alpha_rows_are_cached_and_used() {
         6,
         4,
     ));
-    let key = RendererImageId::from(KeyData::from_ffi(image.id().0));
+    renderer.render(&CommandList::default(), &[]);
+    let key = renderer.context.image_map[&image.id()];
     let image = &renderer.context.images[key];
     assert!(image.opaque);
     assert!(
@@ -1279,7 +1387,7 @@ fn cached_dirty_ranges_match_direct_rendering() {
 fn box_shadows_match_between_strategies_and_cache_sizes() {
     fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(
         strategy: S,
-    ) -> Renderer<VecBuffer<Xrgb8888>, S> {
+    ) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer =
             new_renderer(VecBuffer::<Xrgb8888>::new(128, 96), renderer_config()).strategy(strategy);
         renderer.set_scale(Scale2::uniform(2.0));
@@ -1364,7 +1472,7 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
 fn gradient_borders_match_between_strategies_and_rounded_clips() {
     fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(
         strategy: S,
-    ) -> Renderer<VecBuffer<Xrgb8888>, S> {
+    ) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer =
             new_renderer(VecBuffer::<Xrgb8888>::new(48, 36), renderer_config()).strategy(strategy);
         let screen = renderer.screen();
@@ -1422,7 +1530,7 @@ fn rounded_clips_match_between_strategies() {
     static PIXEL: [u8; 3] = [0, 255, 0];
     fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(
         strategy: S,
-    ) -> Renderer<VecBuffer<Xrgb8888>, S> {
+    ) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer =
             new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(strategy);
         let image = renderer.create_image(ImageData::new(
@@ -1551,8 +1659,8 @@ fn dropped_image_remains_valid_until_frame_end() {
     renderer.render(&paint, &damage);
 
     assert_eq!(renderer.buffer().pixels()[0].raw(), 0x00ff_0000);
-    let image = RendererImageId::from(KeyData::from_ffi(image_id.0));
-    assert!(!renderer.context.images.contains_key(image));
+    assert!(!renderer.context.image_map.contains_key(&image_id));
+    assert!(renderer.context.images.is_empty());
 }
 
 #[test]

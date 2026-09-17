@@ -97,6 +97,7 @@ name = "blit-cpu"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-graphics",
  "blit-text",
  "blit-text-cosmic",
  "blit-text-fontdue",
@@ -114,6 +115,7 @@ dependencies = [
  "blit-cpu",
  "blit-diff",
  "blit-executor",
+ "blit-graphics",
  "blit-showcase",
  "blit-std",
  "blit-text",
@@ -132,6 +134,16 @@ name = "blit-executor"
 version = "0.1.0"
 dependencies = [
  "slotmap",
+]
+
+[[package]]
+name = "blit-graphics"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-text",
+ "blit_cache",
+ "ttf-parser",
 ]
 
 [[package]]

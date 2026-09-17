@@ -1,154 +1,33 @@
-use std::{
-    hash::{Hash, Hasher},
-    mem::size_of,
-    ptr::NonNull,
-};
+use std::{mem::size_of, ptr::NonNull};
 
 use crate::{
-    Pixel, PixelSpan, RendererConfig,
-    color::Color,
-    glyph::GlyphCache,
-    strategy::command::PreparedText,
-    text_types::{Span, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    Pixel, PixelSpan, RendererConfig, color::Color, glyph::GlyphCache,
+    strategy::command::PreparedText, text_types::TextRequest,
 };
-use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
-use blit_cache::{DeferredCache, Equivalent, Scale};
-use blit_text::{
-    FontCandidate, FontError, FontFaceId, FontSelectionId, FontStyle, LayoutRequest, TextLayout,
-    TextLayoutEngine,
-};
+use blit::{PhysicalRect, Scale2};
+use blit_cache::{DeferredCache, Scale};
+use blit_graphics::{TextLayoutId, TextSystem};
+use blit_text::FontFaceId;
 
 pub struct TextRenderer {
-    text: Box<dyn TextLayoutEngine>,
-    fonts: Box<[ConfiguredFont]>,
-    texts: DeferredCache<TextKey, TextRunId, TextScale>,
-    layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
-    next_text: u32,
+    paints: DeferredCache<PaintKey, CachedPaint, PaintScale>,
     glyphs: GlyphCache,
     prepared: Vec<PreparedGlyph>,
     runs: Vec<PreparedRun>,
     coverage: Vec<u8>,
 }
 
-struct ConfiguredFont {
-    id: crate::text_types::FontId,
-    font: FontSelectionId,
-}
-
-struct TextKey {
-    text: Box<str>,
-    spans: CachedSpans,
-}
-
-enum CachedSpans {
-    One(blit_text::TextStyle),
-    Many(Box<[blit_text::TextSpan]>),
-}
-
-struct TextQuery<'a> {
-    spans: &'a [Span<'a>],
-    style: blit_text::TextStyle,
-    fonts: &'a [ConfiguredFont],
-}
-
-impl TextQuery<'_> {
-    fn resolve(&self, span: &Span<'_>) -> blit_text::TextStyle {
-        blit_text::TextStyle {
-            font: span.font.map_or(self.style.font, |id| {
-                self.fonts.iter().find(|font| font.id == id).unwrap().font
-            }),
-            size: span.size.unwrap_or(self.style.size),
-            weight: span.weight.unwrap_or(self.style.weight),
-            stretch: span.stretch.unwrap_or(self.style.stretch),
-            style: span.style.unwrap_or(self.style.style),
-        }
-    }
-}
-
-fn hash_span(text: &str, style: blit_text::TextStyle, state: &mut impl Hasher) {
-    text.hash(state);
-    style.font.hash(state);
-    style.size.to_bits().hash(state);
-    style.weight.hash(state);
-    style.stretch.hash(state);
-    style.style.hash(state);
-}
-
-impl Hash for TextQuery<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        for span in self.spans {
-            hash_span(span.text, self.resolve(span), state);
-        }
-    }
-}
-
-impl Equivalent<TextKey> for TextQuery<'_> {
-    fn equivalent(&self, key: &TextKey) -> bool {
-        match &key.spans {
-            CachedSpans::One(style) => {
-                self.spans.len() == 1
-                    && key.text.as_ref() == self.spans[0].text
-                    && *style == self.resolve(&self.spans[0])
-            }
-            CachedSpans::Many(spans) => {
-                spans.len() == self.spans.len()
-                    && spans.iter().zip(self.spans).all(|(cached_span, span)| {
-                        &key.text[cached_span.range.clone()] == span.text
-                            && cached_span.style == self.resolve(span)
-                    })
-            }
-        }
-    }
-}
-
-impl Hash for TextKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match &self.spans {
-            CachedSpans::One(style) => hash_span(&self.text, *style, state),
-            CachedSpans::Many(spans) => {
-                for span in spans {
-                    hash_span(&self.text[span.range.clone()], span.style, state);
-                }
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
-struct LayoutKey {
-    text: TextRunId,
-    max_width: Option<u32>,
-    max_height: Option<u32>,
-    max_lines: Option<u16>,
-    wrap: blit_text::TextWrap,
-    overflow: blit_text::TextOverflow,
-    horizontal_align: blit_text::HorizontalAlign,
-    vertical_align: blit_text::VerticalAlign,
-}
-
-struct TextScale;
-
-impl Scale<TextKey, TextRunId> for TextScale {
-    fn weight(&self, key: &TextKey, _text: &TextRunId) -> usize {
-        let spans = match &key.spans {
-            CachedSpans::One(_) => 0,
-            CachedSpans::Many(spans) => spans.len() * size_of::<blit_text::TextSpan>(),
-        };
-        size_of::<TextKey>() + size_of::<TextRunId>() + key.text.len() + spans
-    }
-}
-
-struct CachedLayout {
-    layout: TextLayout,
-    paint: Option<CachedPaint>,
-}
-
 struct CachedPaint {
-    scale: u32,
-    offset_x: u32,
     bounds: PhysicalRect,
     glyphs: Vec<PaintGlyph>,
     runs: Vec<PaintRun>,
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct PaintKey {
+    layout: TextLayoutId,
+    scale: u32,
+    offset_x: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -160,20 +39,14 @@ struct PaintGlyph {
     y: i32,
 }
 
-struct LayoutScale;
+struct PaintScale;
 
-impl Scale<LayoutKey, CachedLayout> for LayoutScale {
-    fn weight(&self, _key: &LayoutKey, cached: &CachedLayout) -> usize {
-        size_of::<LayoutKey>()
-            + size_of::<CachedLayout>()
-            + cached.layout.glyphs.len() * size_of::<blit_text::Glyph>()
-            + cached.layout.runs.len() * size_of::<blit_text::LayoutRun>()
-            + cached.layout.lines.len() * size_of::<blit_text::LayoutLine>()
-            + cached.layout.carets.len() * size_of::<blit_text::Caret>()
-            + cached.paint.as_ref().map_or(0, |paint| {
-                paint.glyphs.capacity() * size_of::<PaintGlyph>()
-                    + paint.runs.capacity() * size_of::<PaintRun>()
-            })
+impl Scale<PaintKey, CachedPaint> for PaintScale {
+    fn weight(&self, _key: &PaintKey, paint: &CachedPaint) -> usize {
+        size_of::<PaintKey>()
+            + size_of::<CachedPaint>()
+            + paint.glyphs.capacity() * size_of::<PaintGlyph>()
+            + paint.runs.capacity() * size_of::<PaintRun>()
     }
 }
 
@@ -215,227 +88,49 @@ impl PreparedRuns {
 }
 
 impl TextRenderer {
-    pub fn new(
-        config: RendererConfig,
-        mut text: Box<dyn TextLayoutEngine>,
-    ) -> Result<Self, FontError> {
-        let mut fonts = Vec::new();
-        let mut candidates = Vec::new();
-        for configured in config.fonts {
-            if fonts
-                .iter()
-                .any(|font: &ConfiguredFont| font.id == configured.id)
-            {
-                return Err(FontError::InvalidData);
-            }
-            candidates.clear();
-            for data in configured.fonts {
-                for backend_face in text.register_font(data)? {
-                    let registered = text.font_face(backend_face).ok_or(FontError::InvalidData)?;
-                    let face =
-                        ttf_parser::Face::parse(registered.data.as_ref(), registered.face_index)
-                            .map_err(|_| FontError::InvalidData)?;
-                    let weight = face.weight().to_number();
-                    // rounded percentages defined for OS/2 usWidthClass values
-                    let stretch = match face.width() {
-                        ttf_parser::Width::UltraCondensed => 50,
-                        ttf_parser::Width::ExtraCondensed => 63,
-                        ttf_parser::Width::Condensed => 75,
-                        ttf_parser::Width::SemiCondensed => 88,
-                        ttf_parser::Width::Normal => 100,
-                        ttf_parser::Width::SemiExpanded => 113,
-                        ttf_parser::Width::Expanded => 125,
-                        ttf_parser::Width::ExtraExpanded => 150,
-                        ttf_parser::Width::UltraExpanded => 200,
-                    };
-                    let style = match face.style() {
-                        ttf_parser::Style::Normal => FontStyle::Normal,
-                        ttf_parser::Style::Italic => FontStyle::Italic,
-                        ttf_parser::Style::Oblique => FontStyle::Oblique,
-                    };
-                    candidates.push(FontCandidate {
-                        face: backend_face,
-                        weight,
-                        stretch,
-                        style,
-                    });
-                }
-            }
-            let font = text.register_font_selection(&candidates)?;
-            fonts.push(ConfiguredFont {
-                id: configured.id,
-                font,
-            });
-        }
-        Ok(Self {
-            text,
-            fonts: fonts.into_boxed_slice(),
-            texts: DeferredCache::new(TextScale, config.text_cache_capacity),
-            layouts: DeferredCache::new(LayoutScale, config.layout_cache_capacity),
-            next_text: 1,
+    pub fn new(config: &RendererConfig) -> Self {
+        Self {
+            paints: DeferredCache::new(PaintScale, config.paint_cache_capacity),
             glyphs: GlyphCache::new(config.glyph_cache_capacity),
             prepared: Vec::new(),
             runs: Vec::new(),
             coverage: Vec::new(),
-        })
-    }
-
-    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.rich_text(&[Span::new(text)], style)
-    }
-
-    pub fn rich_text(&mut self, spans: &[Span<'_>], style: TextStyle) -> TextRunId {
-        let empty = [Span::new("")];
-        let spans = if spans.is_empty() { &empty } else { spans };
-        let Some(font) = self.fonts.iter().find(|font| font.id == style.font) else {
-            return TextRunId::default();
-        };
-        if spans.iter().any(|span| {
-            span.font
-                .is_some_and(|id| !self.fonts.iter().any(|font| font.id == id))
-        }) {
-            return TextRunId::default();
         }
-        let style = blit_text::TextStyle {
-            font: font.font,
-            size: style.size,
-            weight: style.weight,
-            stretch: style.stretch,
-            style: style.style,
-        };
-        let query = TextQuery {
-            spans,
-            style,
-            fonts: &self.fonts,
-        };
-        let len = spans.iter().map(|span| span.text.len()).sum();
-        let next_text = self.next_text;
-        let (_, index) = self.texts.get_or_insert(query, |query| {
-            let (text, spans) = if query.spans.len() == 1 {
-                (
-                    query.spans[0].text.into(),
-                    CachedSpans::One(query.resolve(&query.spans[0])),
-                )
-            } else {
-                let mut text = String::with_capacity(len);
-                let mut resolved = Vec::with_capacity(query.spans.len());
-                for span in query.spans {
-                    let start = text.len();
-                    text.push_str(span.text);
-                    resolved.push(blit_text::TextSpan {
-                        range: start..text.len(),
-                        style: query.resolve(span),
-                    });
-                }
-                (text.into(), CachedSpans::Many(resolved.into_boxed_slice()))
-            };
-            (
-                TextKey { text, spans },
-                TextRunId(u64::from(next_text) << 32),
-            )
-        });
-        if self.texts.get_index(index).0 as u32 == 0 {
-            let slot = u32::try_from(index + 1).expect("too many cached texts");
-            self.texts
-                .update_index(index, |text| text.0 |= u64::from(slot));
-            self.next_text = self.next_text.checked_add(1).expect("too many texts");
-        }
-        *self.texts.get_index(index)
-    }
-
-    fn layout(&mut self, text: TextRunId, request: LayoutRequest) -> usize {
-        let text_index = (text.0 as u32).checked_sub(1).expect("invalid text") as usize;
-        self.texts.update_index(text_index, |cached| {
-            assert_eq!(*cached, text, "expired text")
-        });
-        let cached = self.texts.get_key_index(text_index);
-        let key = LayoutKey {
-            text,
-            max_width: request.max_width.map(f32::to_bits),
-            max_height: request.max_height.map(f32::to_bits),
-            max_lines: request.max_lines,
-            wrap: request.wrap,
-            overflow: request.overflow,
-            horizontal_align: request.horizontal_align,
-            vertical_align: request.vertical_align,
-        };
-        let text_system = &mut self.text;
-        let (_, index) = self.layouts.get_or_insert(key, |key| {
-            (
-                key,
-                CachedLayout {
-                    layout: {
-                        let one;
-                        let spans = match &cached.spans {
-                            CachedSpans::One(style) => {
-                                one = blit_text::TextSpan {
-                                    range: 0..cached.text.len(),
-                                    style: *style,
-                                };
-                                std::slice::from_ref(&one)
-                            }
-                            CachedSpans::Many(spans) => spans,
-                        };
-                        text_system.layout(
-                            blit_text::Text {
-                                text: &cached.text,
-                                spans,
-                            },
-                            request,
-                        )
-                    },
-                    paint: None,
-                },
-            )
-        });
-        index
     }
 
     pub fn prepare(
         &mut self,
+        text: &mut TextSystem,
         request: &TextRequest,
         colors: &[Option<Color>],
         scale_factor: f32,
     ) -> (u32, u32, PreparedRuns, PhysicalRect) {
         let area = request.area.to_physical(Scale2::uniform(scale_factor));
-        let layout_index = self.layout(request.text, Self::paint_request(request));
-        let scale = scale_factor.to_bits();
-        let offset_x = request.offset_x.to_bits();
-        let rebuild = self
-            .layouts
-            .get_index(layout_index)
-            .paint
-            .as_ref()
-            .is_none_or(|paint| paint.scale != scale || paint.offset_x != offset_x);
-        if rebuild {
-            let mut paint = self
-                .layouts
-                .update_index(layout_index, |cached| cached.paint.take())
-                .unwrap_or_else(|| CachedPaint {
-                    scale,
-                    offset_x,
-                    bounds: PhysicalRect::default(),
-                    glyphs: Vec::new(),
-                    runs: Vec::new(),
-                });
-            paint.scale = scale;
-            paint.offset_x = offset_x;
-            paint.bounds = PhysicalRect::default();
-            paint.glyphs.clear();
-            paint.runs.clear();
+        let resolved = text.paint_layout(request);
+        let key = PaintKey {
+            layout: resolved.id,
+            scale: scale_factor.to_bits(),
+            offset_x: request.offset_x.to_bits(),
+        };
+        let glyphs = &mut self.glyphs;
+        let (_, paint_index) = self.paints.get_or_insert(key, |key| {
+            let mut paint = CachedPaint {
+                bounds: PhysicalRect::default(),
+                glyphs: Vec::new(),
+                runs: Vec::new(),
+            };
             let mut has_bounds = false;
             let width = area.width.max(0);
             let height = area.height.max(0);
-            let text = self.text.as_ref();
-            let layout = &self.layouts.get_index(layout_index).layout;
-            let glyphs = &mut self.glyphs;
-            for run in &layout.runs {
+            for run in &resolved.layout.runs {
                 let start = u32::try_from(paint.glyphs.len()).expect("too many paint glyphs");
                 let mut top = i32::MAX;
                 let mut bottom = i32::MIN;
                 let size = (run.size * scale_factor).to_bits();
-                for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
-                    let cached = glyphs.glyph(text, run.face, glyph.id, size);
+                for glyph in
+                    &resolved.layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize]
+                {
+                    let cached = glyphs.glyph(resolved.engine, run.face, glyph.id, size);
                     let cached = glyphs.get(cached);
                     let x = ((glyph.position.x - request.offset_x) * scale_factor
                         + cached.metrics.bounds.xmin.floor())
@@ -491,16 +186,15 @@ impl TextRenderer {
                     });
                 }
             }
-            self.layouts
-                .update_index(layout_index, |cached| cached.paint = Some(paint));
-        }
+            (key, paint)
+        });
 
-        let paint = self.layouts.get_index(layout_index).paint.as_ref().unwrap();
+        let paint = self.paints.get_index(paint_index);
         let glyph_start = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
         for glyph in &paint.glyphs {
             let cached = self
                 .glyphs
-                .glyph(self.text.as_ref(), glyph.face, glyph.glyph, glyph.size);
+                .glyph(resolved.engine, glyph.face, glyph.glyph, glyph.size);
             let cached = self.glyphs.get(cached);
             self.prepared.push(PreparedGlyph {
                 alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),
@@ -633,113 +327,7 @@ impl TextRenderer {
     pub fn finish_frame(&mut self) {
         self.prepared.clear();
         self.runs.clear();
-        self.layouts.trim_to_weight();
-        self.texts.trim_to_weight();
+        self.paints.trim_to_weight();
         self.glyphs.finish_frame();
-    }
-
-    pub fn offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
-        let layout = self.layout(request.text, Self::paint_request(request));
-        let layout = &self.layouts.get_index(layout).layout;
-        let position = LogicalPoint {
-            x: position.x - request.area.x + request.offset_x,
-            y: position.y - request.area.y,
-        };
-        let Some(line) = layout.lines.iter().min_by(|left, right| {
-            let left_distance = if position.y < left.bounds.y {
-                left.bounds.y - position.y
-            } else if position.y > left.bounds.y + left.bounds.height {
-                position.y - left.bounds.y - left.bounds.height
-            } else {
-                0.0
-            };
-            let right_distance = if position.y < right.bounds.y {
-                right.bounds.y - position.y
-            } else if position.y > right.bounds.y + right.bounds.height {
-                position.y - right.bounds.y - right.bounds.height
-            } else {
-                0.0
-            };
-            left_distance.total_cmp(&right_distance)
-        }) else {
-            return 0;
-        };
-        layout.carets[line.carets.start as usize..line.carets.end as usize]
-            .iter()
-            .min_by(|left, right| {
-                (left.position.x - position.x)
-                    .abs()
-                    .total_cmp(&(right.position.x - position.x).abs())
-            })
-            .map_or(0, |caret| caret.byte_offset as usize)
-    }
-
-    pub fn measure(&mut self, request: &TextLayoutRequest) -> LogicalSize {
-        let layout = self.layout(
-            request.text,
-            LayoutRequest {
-                max_width: request.max_width,
-                max_height: None,
-                max_lines: request.max_lines,
-                wrap: match request.wrap {
-                    crate::text_types::TextWrap::None => blit_text::TextWrap::None,
-                    crate::text_types::TextWrap::Word => blit_text::TextWrap::Word,
-                    crate::text_types::TextWrap::Character => blit_text::TextWrap::Character,
-                },
-                overflow: blit_text::TextOverflow::Clip,
-                horizontal_align: blit_text::HorizontalAlign::Left,
-                vertical_align: blit_text::VerticalAlign::Top,
-            },
-        );
-        self.layouts.get_index(layout).layout.size
-    }
-
-    pub fn cursor_rect(
-        &mut self,
-        request: &TextRequest,
-        byte_offset: usize,
-        scale_factor: f32,
-    ) -> LogicalRect {
-        let layout = self.layout(request.text, Self::paint_request(request));
-        let caret = self
-            .layouts
-            .get_index(layout)
-            .layout
-            .carets
-            .iter()
-            .min_by_key(|caret| (caret.byte_offset as usize).abs_diff(byte_offset));
-        LogicalRect {
-            x: request.area.x + caret.map_or(0.0, |caret| caret.position.x) - request.offset_x,
-            y: request.area.y + caret.map_or(0.0, |caret| caret.position.y),
-            width: scale_factor.recip(),
-            height: caret.map_or(0.0, |caret| caret.height),
-        }
-    }
-
-    fn paint_request(request: &TextRequest) -> LayoutRequest {
-        LayoutRequest {
-            max_width: Some(request.area.width.max(0.0)),
-            max_height: Some(request.area.height.max(0.0)),
-            max_lines: request.options.max_lines,
-            wrap: match request.options.wrap {
-                crate::text_types::TextWrap::None => blit_text::TextWrap::None,
-                crate::text_types::TextWrap::Word => blit_text::TextWrap::Word,
-                crate::text_types::TextWrap::Character => blit_text::TextWrap::Character,
-            },
-            overflow: match request.options.overflow {
-                crate::text_types::TextOverflow::Clip => blit_text::TextOverflow::Clip,
-                crate::text_types::TextOverflow::Ellipsis => blit_text::TextOverflow::Ellipsis,
-            },
-            horizontal_align: match request.options.horizontal_align {
-                crate::text_types::HorizontalAlign::Left => blit_text::HorizontalAlign::Left,
-                crate::text_types::HorizontalAlign::Center => blit_text::HorizontalAlign::Center,
-                crate::text_types::HorizontalAlign::Right => blit_text::HorizontalAlign::Right,
-            },
-            vertical_align: match request.options.vertical_align {
-                crate::text_types::VerticalAlign::Top => blit_text::VerticalAlign::Top,
-                crate::text_types::VerticalAlign::Center => blit_text::VerticalAlign::Center,
-                crate::text_types::VerticalAlign::Bottom => blit_text::VerticalAlign::Bottom,
-            },
-        }
     }
 }

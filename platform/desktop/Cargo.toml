@@ -13,6 +13,7 @@ fontdue = ["dep:blit-text-fontdue"]
 [dependencies]
 blit.workspace = true
 blit-cpu = { path = "../../render/cpu" }
+blit-graphics.workspace = true
 blit-diff.workspace = true
 blit-executor.workspace = true
 blit-std.workspace = true

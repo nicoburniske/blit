@@ -9,6 +9,7 @@ members = [
     "platform/desktop",
     "platform/tui",
     "render/cpu",
+    "render/graphics",
     "render/text",
     "render/text-cosmic",
     "render/text-fontdue",
@@ -23,6 +24,7 @@ license = "MIT"
 blit = { path = "kernel" }
 blit-diff = { path = "diff" }
 blit-executor = { path = "executor" }
+blit-graphics = { path = "render/graphics" }
 blit-showcase = { path = "examples/showcase" }
 blit-std = { path = "std" }
 blit-text = { path = "render/text" }

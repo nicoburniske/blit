@@ -4,7 +4,7 @@ use blit::{
     Absolute, Anchor, Axis, Easing, Interaction, Point, Sense, Sides, Size, Sizing, Transition,
     Widget, WidgetId,
 };
-use blit_cpu::{FontData, FontFamily, RendererConfig, TextLayoutEngine};
+use blit_cpu::RendererConfig;
 use blit_desktop::{
     Application, BoundsClip, Config, DesktopPlatform, EventLoopProxy, Root, Ui,
     atom::{Rectangle, Shadow},
@@ -20,6 +20,7 @@ use blit_desktop::{
         text_input,
     },
 };
+use blit_graphics::{FontData, FontFamily, TextConfig, TextLayoutEngine};
 use blit_showcase::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 
 pub fn run(text: Box<dyn TextLayoutEngine>) {
@@ -33,14 +34,17 @@ pub fn run(text: Box<dyn TextLayoutEngine>) {
         width: 1120,
         height: 800,
         renderer: RendererConfig {
+            paint_cache_capacity: 2 * 1024 * 1024,
+            glyph_cache_capacity: 1024 * 1024,
+            shadow_cache_capacity: 512 * 1024,
+        },
+        text_config: TextConfig {
             fonts: vec![FontFamily {
                 id: FontId::default(),
                 fonts,
             }],
             text_cache_capacity: 1024 * 1024,
             layout_cache_capacity: 2 * 1024 * 1024,
-            glyph_cache_capacity: 1024 * 1024,
-            shadow_cache_capacity: 512 * 1024,
         },
         text,
     })

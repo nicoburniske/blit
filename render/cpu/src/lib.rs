@@ -1,26 +1,28 @@
 #![feature(portable_simd)]
 
-pub mod color;
-pub mod command_list;
+use std::collections::HashMap;
+
+pub use blit_graphics::{color, image, style, text as text_types};
+
+pub mod command_list {
+    pub use blit_graphics::scene::*;
+}
 mod glyph;
-pub mod image;
 mod pixel;
 mod raster;
 pub mod render;
 mod strategy;
-pub mod style;
 mod text;
-pub mod text_types;
 
 use crate::{
     color::Color,
     command_list::{BoxShadow, Command, CommandList as ResolvedCommandList, Rectangle},
     image::{ImageData, ImageHandle, ImageId, ImageRequest},
     style::Border,
-    text_types::{FontId, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    text_types::TextRequest,
 };
-use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
-pub use blit_text::{FontData, FontError, TextLayoutEngine};
+use blit::{PhysicalRect, Scale2};
+use blit_graphics::TextSystem;
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
@@ -32,16 +34,9 @@ use strategy::{
 };
 
 pub struct RendererConfig {
-    pub fonts: Vec<FontFamily>,
-    pub text_cache_capacity: usize,
-    pub layout_cache_capacity: usize,
+    pub paint_cache_capacity: usize,
     pub glyph_cache_capacity: usize,
     pub shadow_cache_capacity: usize,
-}
-
-pub struct FontFamily {
-    pub id: FontId,
-    pub fonts: Vec<FontData>,
 }
 
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
@@ -50,24 +45,21 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
 }
 
 impl<B: PixelBuffer> Renderer<B, Direct> {
-    pub fn new(
-        buffer: B,
-        config: RendererConfig,
-        text: Box<dyn TextLayoutEngine>,
-    ) -> Result<Self, FontError> {
+    pub fn new(buffer: B, config: RendererConfig) -> Self {
         let shadow_cache_capacity = config.shadow_cache_capacity;
-        Ok(Self {
+        Self {
             context: RenderContext {
                 buffer,
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
+                image_map: HashMap::new(),
                 shadows: shadow::Cache::new(shadow_cache_capacity),
-                text: TextRenderer::new(config, text)?,
+                text: TextRenderer::new(&config),
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
             },
             strategy: Direct::default(),
-        })
+        }
     }
 
     pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T> {
@@ -149,10 +141,14 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     }
 
     fn prepare_image(&mut self, request: &ImageRequest, bounds: PhysicalRect, clip: u32) {
-        let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
+        let Some(&image) = self.context.image_map.get(&request.image) else {
+            return;
+        };
         if let Some(texture) = self.context.images.get(image) {
+            let mut request = *request;
+            request.image = ImageId(image.data().as_ffi());
             render_image::prepare(
-                request,
+                &request,
                 &texture.data,
                 bounds,
                 self.context.scale_factor,
@@ -171,6 +167,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
 
     fn prepare_text(
         &mut self,
+        text: &mut TextSystem,
         request: &TextRequest,
         colors: &[Option<Color>],
         bounds: PhysicalRect,
@@ -183,7 +180,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         let (glyph_start, glyph_end, runs, paragraph_bounds) =
             self.context
                 .text
-                .prepare(request, colors, self.context.scale_factor);
+                .prepare(text, request, colors, self.context.scale_factor);
         let bounds = paragraph_bounds.intersection(visible_area)?;
         self.context.commands.push_text(
             PreparedText {
@@ -213,6 +210,7 @@ pub struct RenderContext<B: PixelBuffer> {
     buffer: B,
     scale_factor: f32,
     images: SlotMap<RendererImageId, StoredImage>,
+    image_map: HashMap<ImageId, RendererImageId>,
     shadows: shadow::Cache,
     text: TextRenderer,
     commands: CommandList,
@@ -344,8 +342,15 @@ impl<B: PixelBuffer> RenderContext<B> {
     fn finish_frame(&mut self) {
         self.shadows.finish_frame();
         self.text.finish_frame();
-        self.images
-            .retain(|_, image| !image.handle.is_uniquely_owned());
+        let images = &mut self.images;
+        self.image_map.retain(|_, image| {
+            let remove = images[*image].handle.is_uniquely_owned();
+            if remove {
+                images.remove(*image);
+            }
+            !remove
+        });
+        images.retain(|_, image| !image.handle.is_uniquely_owned());
     }
 }
 
@@ -356,7 +361,21 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         self.context.scale_factor = scale.x;
     }
 
-    pub fn render(&mut self, commands: &ResolvedCommandList, damage: &[PhysicalRect]) {
+    pub fn render(
+        &mut self,
+        text: &mut TextSystem,
+        image_uploads: &mut Vec<(ImageHandle, ImageData)>,
+        commands: &ResolvedCommandList,
+        damage: &[PhysicalRect],
+    ) {
+        for (handle, data) in image_uploads.drain(..) {
+            let id = handle.id();
+            let image = self.context.images.insert(StoredImage::new(handle, data));
+            assert!(
+                self.context.image_map.insert(id, image).is_none(),
+                "duplicate image resource"
+            );
+        }
         assert!(self.context.commands.is_empty());
         if !damage.is_empty() {
             for clip in commands.clips() {
@@ -382,8 +401,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                     Command::Image(image) => {
                         self.prepare_image(&image, record.bounds, record.clip.0)
                     }
-                    Command::Text(text, colors) => {
-                        self.prepare_text(&text, colors, record.bounds, record.clip.0);
+                    Command::Text(request, colors) => {
+                        self.prepare_text(text, &request, colors, record.bounds, record.clip.0);
                     }
                     Command::BoxShadow(shadow) => {
                         self.prepare_box_shadow(&shadow, record.bounds, record.clip.0)
@@ -395,36 +414,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         self.context.commands.clear();
         self.context.clips.clear();
         self.context.finish_frame();
-    }
-
-    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        StoredImage::insert(&mut self.context.images, data)
-    }
-
-    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.context.text.text_run(text, style)
-    }
-
-    pub fn rich_text(&mut self, spans: &[text_types::Span<'_>], style: TextStyle) -> TextRunId {
-        self.context.text.rich_text(spans, style)
-    }
-
-    pub fn text_offset_at_position(
-        &mut self,
-        request: &TextRequest,
-        position: LogicalPoint,
-    ) -> usize {
-        self.context.text.offset_at_position(request, position)
-    }
-
-    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
-        self.context.text.measure(request)
-    }
-
-    pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        self.context
-            .text
-            .cursor_rect(request, byte_offset, self.context.scale_factor)
     }
 }
 

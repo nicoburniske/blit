@@ -8,10 +8,11 @@ pub mod atom;
 pub mod widget;
 
 mod event_loop;
+mod graphics_renderer;
 mod pixel;
 mod platform;
 
-pub use blit_cpu::{color, image, style, text_types as text};
+pub use blit_graphics::{color, image, style, text};
 pub use blit_std::layout;
 pub use platform::{BoundsClip, DesktopPlatform};
 
@@ -19,7 +20,8 @@ pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, DesktopPlatform, S>;
 
 use std::{error::Error, fmt};
 
-use blit_cpu::{RendererConfig, TextLayoutEngine};
+use blit_cpu::RendererConfig;
+use blit_graphics::{TextConfig, TextLayoutEngine};
 use winit::event_loop::EventLoopProxy as WinitEventLoopProxy;
 
 pub struct Config {
@@ -27,6 +29,7 @@ pub struct Config {
     pub width: u32,
     pub height: u32,
     pub renderer: RendererConfig,
+    pub text_config: TextConfig,
     pub text: Box<dyn TextLayoutEngine>,
 }
 
@@ -74,7 +77,7 @@ pub fn run<A: Application>(config: Config) -> Result<(), RunError> {
 
 #[derive(Debug)]
 pub enum RunError {
-    Font(blit_cpu::FontError),
+    Font(blit_graphics::FontError),
     EventLoop(winit::error::EventLoopError),
     Window(winit::error::OsError),
     Surface(softbuffer::SoftBufferError),
@@ -93,8 +96,8 @@ impl fmt::Display for RunError {
 
 impl Error for RunError {}
 
-impl From<blit_cpu::FontError> for RunError {
-    fn from(error: blit_cpu::FontError) -> Self {
+impl From<blit_graphics::FontError> for RunError {
+    fn from(error: blit_graphics::FontError) -> Self {
         Self::Font(error)
     }
 }

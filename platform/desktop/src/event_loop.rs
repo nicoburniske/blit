@@ -6,6 +6,7 @@ use blit::{
 };
 use blit_cpu::{Renderer, Scanline};
 use blit_executor::LocalExecutor;
+use blit_graphics::{GuiContext, TextSystem};
 use softbuffer::{Context, Surface};
 use winit::{
     application::ApplicationHandler,
@@ -16,7 +17,10 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{Application, Config, DesktopPlatform, EventLoopProxy, RunError, pixel::DesktopBuffer};
+use crate::{
+    Application, Config, DesktopPlatform, EventLoopProxy, RunError,
+    graphics_renderer::CpuGraphicsRenderer, pixel::DesktopBuffer,
+};
 
 pub enum Event<T> {
     Input(T),
@@ -66,6 +70,7 @@ struct Active<A: Application> {
     app: A,
     executor: LocalExecutor<A>,
     platform: DesktopPlatform,
+    renderer: CpuGraphicsRenderer,
     frame: Frame<DesktopPlatform>,
     surface: Surface<OwnedDisplayHandle, Rc<Window>>,
     window: Rc<Window>,
@@ -84,11 +89,10 @@ impl<A: Application> Active<A> {
             return Ok(());
         };
         self.surface.resize(width, height)?;
-        self.platform
-            .renderer_mut()
+        self.renderer
             .buffer_mut()
             .resize(size.width as usize, size.height as usize);
-        self.platform.invalidate_all();
+        self.renderer.invalidate_all();
         self.frame.request_frame();
         Ok(())
     }
@@ -163,9 +167,9 @@ impl<A: Application> Runner<A> {
             Err(error) => return self.fail(event_loop, error),
         };
         if buffer.age() == 0 {
-            active.platform.invalidate_all();
+            active.renderer.invalidate_all();
         }
-        active.platform.renderer_mut().buffer_mut().set(&mut buffer);
+        active.renderer.buffer_mut().set(&mut buffer);
         active.frame.render_inputs(
             &mut active.platform,
             FrameInfo::new(Size::new(
@@ -176,6 +180,7 @@ impl<A: Application> Runner<A> {
             self.inputs.drain(..),
             |ui| active.app.render(ui),
         );
+        active.renderer.render(active.platform.gui_mut());
         active.window.pre_present_notify();
         if let Err(error) = buffer.present() {
             self.fail(event_loop, error);
@@ -205,16 +210,19 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Ok(surface) => surface,
             Err(error) => return self.fail(event_loop, error),
         };
-        let renderer = match Renderer::new(
-            DesktopBuffer::new(size.width as usize, size.height as usize),
-            config.renderer,
-            config.text,
-        ) {
-            Ok(renderer) => renderer.strategy(Scanline::default()),
+        let text = match TextSystem::new(config.text_config, config.text) {
+            Ok(text) => text,
             Err(error) => return self.fail(event_loop, error),
         };
-        let mut platform = DesktopPlatform::new(renderer);
+        let renderer = Renderer::new(
+            DesktopBuffer::new(size.width as usize, size.height as usize),
+            config.renderer,
+        )
+        .strategy(Scanline::default());
+        let mut renderer = CpuGraphicsRenderer::new(renderer);
+        let mut platform = DesktopPlatform::new(GuiContext::new(text));
         platform.set_scale(window.scale_factor() as f32);
+        renderer.set_scale(window.scale_factor() as f32);
         let frame = Frame::default();
         let wake = input.inner.clone();
         let executor = LocalExecutor::new(move || {
@@ -226,6 +234,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             app,
             executor,
             platform,
+            renderer,
             frame,
             surface,
             window,
@@ -279,6 +288,9 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 active
                     .platform
+                    .set_scale(scale_factor as f32 * active.ui_scale);
+                active
+                    .renderer
                     .set_scale(scale_factor as f32 * active.ui_scale);
                 if let Err(error) = active.resize(active.window.inner_size()) {
                     self.fail(event_loop, error);
@@ -421,6 +433,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                             active.ui_scale = scale.clamp(0.5, 4.0);
                             let scale = active.scale();
                             active.platform.set_scale(scale);
+                            active.renderer.set_scale(scale);
                         }
                     }
                     self.push_input(Input::Key(KeyInput {

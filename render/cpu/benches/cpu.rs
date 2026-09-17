@@ -2,15 +2,20 @@ use std::hint::black_box;
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
-    Direct, FontData, FontFamily, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer,
-    RendererConfig, Scanline, VecBuffer, Xrgb8888,
+    Direct, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer, RendererConfig, Scanline,
+    VecBuffer, Xrgb8888,
     color::Color,
     command_list::{BoxShadow, ClipId, CommandList, Rectangle},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
     style::{Border, BorderRadius, GradientStop, LinearGradient},
-    text_types::{FontId, TextOptions, TextRequest, TextStyle, TextWrap},
+    text_types::{TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
+};
+use blit_graphics::{
+    FontData, FontFamily, TextConfig, TextSystem,
+    image::{ImageHandle, ImageId},
+    text::FontId,
 };
 use divan::counter::ItemsCount;
 
@@ -589,7 +594,34 @@ where
         .bench_local(|| renderer.render(black_box(&commands), black_box(&damage)));
 }
 
-fn renderer<S>(width: usize, height: usize, strategy: S) -> Renderer<VecBuffer<Xrgb8888>, S>
+struct BenchRenderer<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> {
+    renderer: Renderer<B, S>,
+    text: TextSystem,
+    image_uploads: Vec<(ImageHandle, ImageData)>,
+    next_image: u64,
+}
+
+impl<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> BenchRenderer<B, S> {
+    fn render(&mut self, commands: &CommandList, damage: &[PhysicalRect]) {
+        self.renderer
+            .render(&mut self.text, &mut self.image_uploads, commands, damage);
+        self.text.finish_frame();
+    }
+
+    fn create_image(&mut self, data: ImageData) -> ImageHandle {
+        data.validate();
+        self.next_image = self.next_image.checked_add(1).unwrap();
+        let image = ImageHandle::new(ImageId(self.next_image), data.size);
+        self.image_uploads.push((image.clone(), data));
+        image
+    }
+
+    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
+        self.text.text_run(text, style)
+    }
+}
+
+fn renderer<S>(width: usize, height: usize, strategy: S) -> BenchRenderer<VecBuffer<Xrgb8888>, S>
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
@@ -601,24 +633,35 @@ fn renderer_with_shadow_cache<S>(
     height: usize,
     strategy: S,
     shadow_cache_capacity: usize,
-) -> Renderer<VecBuffer<Xrgb8888>, S>
+) -> BenchRenderer<VecBuffer<Xrgb8888>, S>
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
-    Renderer::new(
+    let renderer = Renderer::new(
         VecBuffer::new(width, height),
         RendererConfig {
+            paint_cache_capacity: 512 * 1024,
+            glyph_cache_capacity: 512 * 1024,
+            shadow_cache_capacity,
+        },
+    )
+    .strategy(strategy);
+    let text = TextSystem::new(
+        TextConfig {
             fonts: vec![FontFamily {
                 id: FontId::default(),
                 fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
             }],
             text_cache_capacity: 512 * 1024,
             layout_cache_capacity: 512 * 1024,
-            glyph_cache_capacity: 512 * 1024,
-            shadow_cache_capacity,
         },
         Box::new(blit_text_cosmic::Backend::without_system_fonts()),
     )
-    .unwrap()
-    .strategy(strategy)
+    .unwrap();
+    BenchRenderer {
+        renderer,
+        text,
+        image_uploads: Vec::new(),
+        next_image: 0,
+    }
 }

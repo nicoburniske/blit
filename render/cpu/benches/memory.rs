@@ -5,11 +5,11 @@ use std::{
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
-    FontData, FontFamily, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888,
+    Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888,
     color::Color,
     command_list::{ClipId, CommandList, Rectangle},
-    text_types::FontId,
 };
+use blit_graphics::{FontData, FontFamily, TextConfig, TextSystem, text::FontId};
 
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
 static GROSS: AtomicUsize = AtomicUsize::new(0);
@@ -42,25 +42,31 @@ fn main() {
     let mut renderer = Renderer::new(
         VecBuffer::<Xrgb8888>::new(SIDE, SIDE),
         RendererConfig {
+            paint_cache_capacity: 1,
+            glyph_cache_capacity: 1,
+            shadow_cache_capacity: 0,
+        },
+    )
+    .strategy(Scanline::default());
+    let mut text = TextSystem::new(
+        TextConfig {
             fonts: vec![FontFamily {
                 id: FontId::default(),
                 fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
             }],
             text_cache_capacity: 1,
             layout_cache_capacity: 1,
-            glyph_cache_capacity: 1,
-            shadow_cache_capacity: 0,
         },
         Box::new(blit_text_cosmic::Backend::without_system_fonts()),
     )
-    .unwrap()
-    .strategy(Scanline::default());
+    .unwrap();
+    let mut image_uploads = Vec::new();
     let baseline = CURRENT.load(Relaxed);
     GROSS.store(0, Relaxed);
-    renderer.render(&commands, &damage);
+    renderer.render(&mut text, &mut image_uploads, &commands, &damage);
     let warm = GROSS.load(Relaxed);
     GROSS.store(0, Relaxed);
-    renderer.render(&commands, &damage);
+    renderer.render(&mut text, &mut image_uploads, &commands, &damage);
     let retained = CURRENT.load(Relaxed) - baseline;
     let steady = GROSS.load(Relaxed);
 

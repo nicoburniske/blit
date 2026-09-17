@@ -99,4 +99,4 @@ pub enum TextOverflow {
 pub struct FontId(pub u16);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct TextRunId(pub(crate) u64);
+pub struct TextRunId(#[doc(hidden)] pub u64);
