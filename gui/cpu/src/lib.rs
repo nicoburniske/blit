@@ -10,6 +10,7 @@ mod strategy;
 mod text;
 
 use blit::{PhysicalRect, Scale2};
+use blit_arrayvec::ArrayVec;
 use blit_diff::{Change, Myers, Reconciliation};
 use blit_gui::{
     RenderInput, TextSystem,
@@ -29,6 +30,8 @@ use strategy::{
     command::{CommandList, PreparedText},
 };
 
+const MAX_DAMAGE: usize = 32;
+
 #[derive(Clone, Copy, Debug)]
 pub struct RendererConfig {
     pub paint_cache_capacity: usize,
@@ -41,8 +44,8 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
     strategy: S,
     previous: DisplayList,
     diff: Myers,
-    damage: Vec<PhysicalRect>,
-    previous_damage: Vec<PhysicalRect>,
+    damage: ArrayVec<PhysicalRect, { MAX_DAMAGE * 2 }>,
+    previous_damage: ArrayVec<PhysicalRect, MAX_DAMAGE>,
     invalidated: bool,
     scale: Scale2,
 }
@@ -64,8 +67,8 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
             strategy: Direct::default(),
             previous: DisplayList::default(),
             diff: Myers::default(),
-            damage: Vec::new(),
-            previous_damage: Vec::new(),
+            damage: ArrayVec::new(),
+            previous_damage: ArrayVec::new(),
             invalidated: true,
             scale: Scale2::IDENTITY,
         }
@@ -506,11 +509,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     }
 }
 
-fn push_damage(damage: &mut Vec<PhysicalRect>, bounds: PhysicalRect) {
+fn push_damage(damage: &mut ArrayVec<PhysicalRect, { MAX_DAMAGE * 2 }>, bounds: PhysicalRect) {
     if bounds.width <= 0 || bounds.height <= 0 {
         return;
     }
-    const MAX_DAMAGE: usize = 32;
     if damage.len() < MAX_DAMAGE {
         damage.push(bounds);
         return;

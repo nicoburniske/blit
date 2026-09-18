@@ -1,11 +1,12 @@
+use blit_arrayvec::ArrayVec;
+
 use super::{Event, Key, KeyCode, KeyKind, Modifiers, MouseButton, MouseKind, PaletteSlot};
 
 #[derive(Default)]
 pub struct Parser {
     state: State,
-    sequence: Vec<u8>,
-    utf8: [u8; 4],
-    utf8_len: usize,
+    sequence: ArrayVec<u8, MAX_SEQUENCE>,
+    utf8: ArrayVec<u8, 4>,
 }
 
 impl Parser {
@@ -16,7 +17,7 @@ impl Parser {
                     const END: &[u8] = b"\x1b[201~";
                     if byte == END[matched] {
                         self.state = if matched + 1 == END.len() {
-                            self.utf8_len = 0;
+                            self.utf8.clear();
                             State::Ground
                         } else {
                             State::Paste(matched + 1)
@@ -34,11 +35,11 @@ impl Parser {
                 }
                 State::Ground => match byte {
                     0x1b => {
-                        self.utf8_len = 0;
+                        self.utf8.clear();
                         self.state = State::Escape;
                     }
                     b'\r' | b'\t' | 0x7f => {
-                        self.utf8_len = 0;
+                        self.utf8.clear();
                         emit(Event::Key(Key {
                             code: codepoint(u32::from(byte)).unwrap(),
                             shifted: None,
@@ -47,7 +48,7 @@ impl Parser {
                             text: false,
                         }));
                     }
-                    0x00..=0x1f => self.utf8_len = 0,
+                    0x00..=0x1f => self.utf8.clear(),
                     _ => self.text(byte, &mut emit),
                 },
                 State::Escape => {
@@ -64,7 +65,7 @@ impl Parser {
                 State::Csi => match byte {
                     0x40..=0x7e => {
                         self.state = State::Ground;
-                        if byte == b'~' && self.sequence == b"200" {
+                        if byte == b'~' && &*self.sequence == b"200" {
                             self.state = State::Paste(0);
                         } else {
                             csi(&self.sequence, byte, &mut emit);
@@ -72,7 +73,7 @@ impl Parser {
                     }
                     0x1b => self.state = State::Escape,
                     0x18 | 0x1a => self.state = State::Ground,
-                    0x20..=0x3f if self.sequence.len() < MAX_SEQUENCE => self.sequence.push(byte),
+                    0x20..=0x3f if !self.sequence.is_full() => self.sequence.push(byte),
                     _ => self.state = State::DiscardCsi,
                 },
                 State::DiscardCsi => match byte {
@@ -87,7 +88,7 @@ impl Parser {
                     }
                     0x1b => self.state = State::StringEnd(true),
                     0x18 | 0x1a => self.state = State::Ground,
-                    _ if self.sequence.len() < MAX_SEQUENCE => self.sequence.push(byte),
+                    _ if !self.sequence.is_full() => self.sequence.push(byte),
                     _ => self.state = State::Discard,
                 },
                 State::Discard => match byte {
@@ -278,16 +279,15 @@ impl Parser {
 
     fn text(&mut self, byte: u8, emit: &mut impl FnMut(Event)) {
         if byte & 0xc0 != 0x80 {
-            self.utf8_len = 0;
+            self.utf8.clear();
         }
-        self.utf8[self.utf8_len] = byte;
-        self.utf8_len += 1;
-        match std::str::from_utf8(&self.utf8[..self.utf8_len]) {
+        self.utf8.push(byte);
+        match std::str::from_utf8(&self.utf8) {
             Ok(text) => {
                 emit(Event::Text(text.chars().next().unwrap()));
-                self.utf8_len = 0;
+                self.utf8.clear();
             }
-            Err(error) if error.error_len().is_some() => self.utf8_len = 0,
+            Err(error) if error.error_len().is_some() => self.utf8.clear(),
             Err(_) => {}
         }
     }

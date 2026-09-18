@@ -11,6 +11,7 @@ members = [
     "gui/text/fontdue",
     "internal/cache",
     "internal/diff",
+    "internal/arrayvec",
     "kernel",
     "layout",
     "internal/widgets",
@@ -30,3 +31,4 @@ blit-widgets = { path = "internal/widgets" }
 blit-text = { path = "gui/text" }
 blit-text-cosmic = { path = "gui/text/cosmic" }
 blit-text-fontdue = { path = "gui/text/fontdue" }
+blit-arrayvec = { path = "internal/arrayvec" }

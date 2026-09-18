@@ -1,12 +1,13 @@
 use std::{
     collections::VecDeque,
     fs::{File, OpenOptions},
-    io::{self, BufWriter, Read, Write},
-    os::fd::AsFd as _,
+    io::{self, BufWriter, Write},
+    os::fd::AsFd,
     os::unix::net::UnixStream,
     time::{Duration, Instant},
 };
 
+use blit_arrayvec::ArrayVec;
 use rustix::{
     event::Timespec,
     termios::{self, OptionalActions, Termios},
@@ -98,9 +99,9 @@ impl Terminal {
                 Err(error) => return Err(error.into()),
             };
             if wake {
-                let mut bytes = [0; 128];
+                let mut bytes = ArrayVec::<u8, 128>::new();
                 loop {
-                    match self.wake.read(&mut bytes) {
+                    match read_into(&self.wake, &mut bytes) {
                         Ok(0) => break,
                         Ok(_) => {}
                         Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
@@ -111,9 +112,9 @@ impl Terminal {
                 return Ok(Some(Event::Wake));
             }
             if resize {
-                let mut bytes = [0; 128];
+                let mut bytes = ArrayVec::<u8, 128>::new();
                 loop {
-                    match self.resize.read(&mut bytes) {
+                    match read_into(&self.resize, &mut bytes) {
                         Ok(0) => break,
                         Ok(_) => {}
                         Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
@@ -124,17 +125,17 @@ impl Terminal {
                 return self.size().map(|size| Some(Event::Resize(size)));
             }
             if input {
-                let mut bytes = [0; 4096];
-                match self.input.read(&mut bytes) {
+                let mut bytes = ArrayVec::<u8, 4096>::new();
+                match read_into(&self.input, &mut bytes) {
                     Ok(0) => {
                         return Err(io::Error::new(
                             io::ErrorKind::UnexpectedEof,
                             "terminal closed",
                         ));
                     }
-                    Ok(count) => self
+                    Ok(_) => self
                         .parser
-                        .parse(&bytes[..count], |event| self.events.push_back(event)),
+                        .parse(&bytes, |event| self.events.push_back(event)),
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                     Err(error) => return Err(error),
                 }
@@ -155,6 +156,17 @@ impl Terminal {
         let restore = termios::tcsetattr(&self.input, OptionalActions::Now, &self.original);
         leave.and(flush).and(restore.map_err(Into::into))
     }
+}
+
+fn read_into<const N: usize>(fd: impl AsFd, bytes: &mut ArrayVec<u8, N>) -> io::Result<usize> {
+    bytes.clear();
+    let count = {
+        let (initialized, _) = rustix::io::read(fd, bytes.spare_capacity_mut())?;
+        initialized.len()
+    };
+    // safety: rustix returns the initialized prefix
+    unsafe { bytes.set_len(count) };
+    Ok(count)
 }
 
 impl Write for Terminal {
