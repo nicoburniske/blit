@@ -75,10 +75,6 @@ impl Context for TuiContext {
         }
         self.profiler.begin_stage(stage, self.clock.elapsed());
     }
-
-    fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
-        self.renderer.interaction_area(area, clip)
-    }
 }
 
 #[derive(Clone, Copy)]

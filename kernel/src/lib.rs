@@ -61,10 +61,6 @@ pub use layout::{Axis, Layout, LayoutCx, LayoutResolution, Sizing};
 pub trait Context {
     /// build and layout may repeat for queued inputs before paint and complete
     fn frame_stage(&mut self, _: FrameStage) {}
-
-    fn interaction_area(&self, area: Rect, clip: Rect) -> Option<Rect> {
-        area.intersection(clip)
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

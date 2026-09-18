@@ -167,28 +167,6 @@ impl TuiRenderer {
         output
     }
 
-    pub fn interaction_area(&self, area: LogicalRect, clip: LogicalRect) -> Option<LogicalRect> {
-        let (mut left, mut top, mut right, mut bottom) = self.cell_bounds(area);
-        left = left.max((clip.x - 0.5).ceil().clamp(0.0, self.columns as f32) as usize);
-        top = top.max((clip.y - 0.5).ceil().clamp(0.0, self.rows as f32) as usize);
-        right = right.min(
-            (clip.x + clip.width - 0.5)
-                .ceil()
-                .clamp(0.0, self.columns as f32) as usize,
-        );
-        bottom = bottom.min(
-            (clip.y + clip.height - 0.5)
-                .ceil()
-                .clamp(0.0, self.rows as f32) as usize,
-        );
-        (right > left && bottom > top).then(|| LogicalRect {
-            x: left as f32,
-            y: top as f32,
-            width: (right - left) as f32,
-            height: (bottom - top) as f32,
-        })
-    }
-
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
         data.validate();
         let id = self.next_image;
@@ -1227,17 +1205,5 @@ mod tests {
         assert_eq!(layout.lines.len(), 2);
         assert_eq!(layout.lines[0].width, 5);
         assert_eq!(layout.lines[1].width, 5);
-    }
-
-    #[test]
-    fn disjoint_interaction_clip_is_empty() {
-        let renderer = renderer(4, 3);
-        assert_eq!(
-            renderer.interaction_area(
-                LogicalRect::new(0.0, 0.0, 1.0, 1.0),
-                LogicalRect::new(3.0, 0.0, 1.0, 1.0),
-            ),
-            None
-        );
     }
 }

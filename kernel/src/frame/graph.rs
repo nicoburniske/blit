@@ -230,7 +230,7 @@ impl<C: Context> Frame<C> {
         position::resolve(self);
         paint::resolve_order(self);
         paint::resolve_clips(self);
-        interaction::resolve(self, context);
+        interaction::resolve(self);
         std::mem::swap(&mut self.geometry_previous, &mut self.geometry_current);
         self.geometry_current.clear();
         self.animations.retain(|animation| animation.seen);
