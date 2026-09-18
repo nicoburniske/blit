@@ -5,8 +5,7 @@ blit is an experimental immediate-mode ui toolkit for rust.
 in under 4k lines, blit's kernel provides a fast, composable api for layout,
 interaction, animation and transitions.
 
-the same kernel can drive terminal cells or a pixel framebuffer. custom layouts and new platforms are part of the
-design, not escape hatches.
+the same kernel can drive terminal cells or a pixel framebuffer
 
 https://github.com/user-attachments/assets/0350260c-592f-4337-b541-9762faf7a96d
 
@@ -15,13 +14,13 @@ https://github.com/user-attachments/assets/0350260c-592f-4337-b541-9762faf7a96d
 terminal:
 
 ```sh
-nix develop --command cargo run -p blit-tui --example tui-showcase
+nix develop --command cargo run --example tui-demo
 ```
 
 desktop:
 
 ```sh
-nix develop --command cargo run -p blit-desktop --features cosmic --example desktop-showcase
+nix develop --command env RUSTFLAGS="-C target-cpu=native" cargo run --release --example desktop-demo
 ```
 
 ## example
@@ -82,7 +81,7 @@ fn main() -> std::io::Result<()> {
                     })
             });
         if quit || matches!(root.input(), Input::Text('q')) {
-            root.platform().quit();
+            root.context().quit();
         }
     })
 }
@@ -90,13 +89,9 @@ fn main() -> std::io::Result<()> {
 
 ## design
 
-blit separates shared ui mechanics from presentation. each frame, the kernel
-builds a tree, runs its layouts, routes input and animates position and size. it
-knows nothing about terminal cells, fonts or graphics apis.
+blit is a set of focused building blocks:
 
-`blit-std` provides cross-platform layouts (flex, grid) and widgets
-(scroll area, popover).
-
-the workspace includes `blit-tui` for terminals and `blit-desktop` for Wayland
-and macOS. custom platforms can use the same kernel while keeping their own
-native rendering model.
+- `blit` provides the core ui model
+- `blit-layout` provides layouts like flex, grid and wrap
+- `blit-gui` and `blit-tui` are graphical and terminal ui toolkits
+- `blit-desktop` runs graphical applications in native windows (macos + wayland)
