@@ -2,10 +2,8 @@ use std::{
     cmp::Reverse,
     collections::{BinaryHeap, VecDeque},
     fmt::Write as _,
-    time::Duration,
+    time::{Duration, Instant},
 };
-
-use blit::FrameStage;
 
 #[derive(Debug)]
 pub struct State {
@@ -177,26 +175,63 @@ impl Measurements {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stage {
+    Build,
+    Layout,
+    Paint,
+    Complete,
+}
+
+#[derive(Debug)]
 pub struct FrameProfiler {
+    clock: Instant,
     completed: Option<FrameTimings>,
     current: FrameTimings,
-    active: Option<(FrameStage, Duration)>,
+    active: Option<(Stage, Duration)>,
     started_at: Option<Duration>,
 }
 
+impl Default for FrameProfiler {
+    fn default() -> Self {
+        Self {
+            clock: Instant::now(),
+            completed: None,
+            current: FrameTimings::default(),
+            active: None,
+            started_at: None,
+        }
+    }
+}
+
 impl FrameProfiler {
-    /// timestamps must use the same monotonic clock
-    pub fn begin_stage(&mut self, stage: FrameStage, now: Duration) {
+    pub fn begin_build(&mut self) {
+        self.begin(Stage::Build);
+    }
+
+    pub fn begin_layout(&mut self) {
+        self.begin(Stage::Layout);
+    }
+
+    pub fn begin_paint(&mut self) {
+        self.begin(Stage::Paint);
+    }
+
+    pub fn finish(&mut self) {
+        self.begin(Stage::Complete);
+    }
+
+    fn begin(&mut self, stage: Stage) {
+        let now = self.clock.elapsed();
         if let Some((previous, started)) = self.active {
             let elapsed = now.saturating_sub(started);
             match previous {
-                FrameStage::Build => self.current.build += elapsed,
-                FrameStage::Layout => self.current.layout += elapsed,
-                FrameStage::Paint => self.current.paint += elapsed,
-                FrameStage::Complete => unreachable!(),
+                Stage::Build => self.current.build += elapsed,
+                Stage::Layout => self.current.layout += elapsed,
+                Stage::Paint => self.current.paint += elapsed,
+                Stage::Complete => unreachable!(),
             }
-        } else if stage == FrameStage::Build {
+        } else if stage == Stage::Build {
             self.current = FrameTimings {
                 sequence: self
                     .completed
@@ -208,7 +243,7 @@ impl FrameProfiler {
         } else {
             return;
         }
-        if stage == FrameStage::Complete {
+        if stage == Stage::Complete {
             self.completed = Some(self.current);
             self.active = None;
         } else {

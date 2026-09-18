@@ -1,6 +1,5 @@
 use blit::{
-    Axis, Constraints, Context, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget,
-    WidgetId,
+    Axis, Constraints, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget, WidgetId,
 };
 
 blit::builder! {
@@ -47,7 +46,6 @@ pub fn new<'a, C, L, T, D, W>(
     trailing: T,
 ) -> impl Widget<C> + 'a
 where
-    C: Context,
     L: Widget<C> + 'a,
     T: Widget<C> + 'a,
     D: FnOnce(Axis, blit::Interaction) -> W + 'a,
@@ -123,7 +121,7 @@ struct Layout {
     minimum_trailing: f32,
 }
 
-impl<C: Context> LayoutTrait<C> for Layout {
+impl<C> LayoutTrait<C> for Layout {
     type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
@@ -201,8 +199,6 @@ mod tests {
     use super::*;
 
     struct TestContext;
-
-    impl Context for TestContext {}
 
     struct BoxAtom;
 

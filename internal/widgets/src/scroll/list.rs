@@ -2,7 +2,7 @@ pub use super::shared::{Behavior, State};
 
 use super::shared::{ScrollLayout, build_scroll, update};
 use blit::{Axis, Constraints, Layout, LayoutCx, Point, Size};
-use blit::{Clip, Content, Context, Ui};
+use blit::{Clip, Content, Ui};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug)]
@@ -26,7 +26,6 @@ pub fn build<C, I, F, X, T, H>(
     clip: X,
     scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
 ) where
-    C: Context,
     I: ExactSizeIterator,
     F: FnMut(Ui<'_, C>, I::Item),
     X: Clip<C>,
@@ -96,7 +95,7 @@ struct ListLayout {
     total_extent: f32,
 }
 
-impl<C: Context> Layout<C> for ListLayout {
+impl<C> Layout<C> for ListLayout {
     type Item = usize;
 
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -137,8 +136,6 @@ mod tests {
     use super::*;
 
     struct TestContext;
-
-    impl Context for TestContext {}
 
     #[derive(Clone, Copy)]
     struct TestClip;

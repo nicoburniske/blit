@@ -15,7 +15,7 @@ use std::{
 };
 
 use crate::{
-    Atom, Clip, Content, Context, FrameInfo, Widget,
+    Atom, Clip, Content, FrameInfo, Widget,
     animation::{Easing, Transition},
     arena::{DataArena, DataId},
     geometry::{Constraints, Point, Rect, Sides, Size},
@@ -43,12 +43,12 @@ pub mod state {
 /// scoped handle for building a frame node
 ///
 /// its [`state`] mode determines which operations are available
-pub struct Ui<'ui, C: Context, S = state::Build> {
+pub struct Ui<'ui, C, S = state::Build> {
     inner: UiInner<'ui, C>,
     marker: PhantomData<S>,
 }
 
-impl<'ui, C: Context, S> Ui<'ui, C, S> {
+impl<'ui, C, S> Ui<'ui, C, S> {
     /// identifies this node for references within the current render
     pub fn id(&self) -> NodeId {
         self.inner.node
@@ -124,7 +124,7 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     }
 }
 
-impl<'ui, C: Context> Ui<'ui, C, state::Build> {
+impl<'ui, C> Ui<'ui, C, state::Build> {
     /// transfers this fresh node to a widget
     pub fn build<W: Widget<C>>(self, widget: W) -> W::Response {
         widget.build(self)
@@ -144,7 +144,7 @@ impl<'ui, C: Context> Ui<'ui, C, state::Build> {
     }
 }
 
-impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
+impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     pub fn offset(mut self, offset: Point) -> Self {
         let node = self.inner.node;
         let frame = self.inner.frame_mut();
@@ -172,7 +172,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     }
 }
 
-impl<C: Context, S> Ui<'_, C, S> {
+impl<C, S> Ui<'_, C, S> {
     pub fn geometry(&self, id: WidgetId) -> Option<Rect> {
         self.inner.frame.geometry(id)
     }
@@ -274,7 +274,7 @@ impl<C: Context, S> Ui<'_, C, S> {
 }
 
 // all atoms are content
-impl<C: Context, A: Atom<C>> Content<C> for A {
+impl<C, A: Atom<C>> Content<C> for A {
     type Response = ();
 
     fn append(self, ui: Ui<'_, C, state::Node>) {
@@ -402,21 +402,21 @@ impl Absolute {
 
 include!("graph.rs");
 
-struct UiInner<'ui, C: Context> {
+struct UiInner<'ui, C> {
     frame: &'ui mut Frame<C>,
     context: &'ui mut C,
     node: NodeId,
     owns_node: bool,
 }
 
-impl<C: Context> UiInner<'_, C> {
+impl<C> UiInner<'_, C> {
     #[inline]
     fn frame_mut(&mut self) -> &mut Frame<C> {
         self.frame
     }
 }
 
-impl<'ui, C: Context> Ui<'ui, C, state::Build> {
+impl<'ui, C> Ui<'ui, C, state::Build> {
     fn new(frame: &'ui mut Frame<C>, context: &'ui mut C, node: NodeId) -> Self {
         Self {
             inner: UiInner {
@@ -430,7 +430,7 @@ impl<'ui, C: Context> Ui<'ui, C, state::Build> {
     }
 }
 
-impl<C: Context> Drop for UiInner<'_, C> {
+impl<C> Drop for UiInner<'_, C> {
     fn drop(&mut self) {
         if !self.owns_node {
             return;

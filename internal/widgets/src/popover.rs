@@ -1,6 +1,6 @@
 use blit::{
-    Absolute, Anchor, Context, Input, Interaction, NodeTarget, Point, Sense, Sides, Sizing, Ui,
-    Widget, WidgetId,
+    Absolute, Anchor, Input, Interaction, NodeTarget, Point, Sense, Sides, Sizing, Ui, Widget,
+    WidgetId,
 };
 use blit_layout::single;
 
@@ -45,7 +45,6 @@ pub fn new<'a, C, T, W>(
     content: W,
 ) -> impl Widget<C, Response = Option<W::Response>> + 'a
 where
-    C: Context,
     T: FnOnce(Ui<'_, C>, Interaction, bool) + 'a,
     W: Widget<C> + 'a,
 {
@@ -156,8 +155,6 @@ mod tests {
     use super::*;
 
     struct TestContext;
-
-    impl Context for TestContext {}
 
     fn render(ui: Ui<'_, TestContext>, state: &mut State, config: Config) {
         ui.build(new(

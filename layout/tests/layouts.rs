@@ -1,15 +1,13 @@
 use std::time::Duration;
 
 use blit::{
-    Atom, Constraints, Context, Frame, FrameInfo, Input, LayoutResolution, Rect, Sides, Size,
-    Sizing, Transition, Ui, WidgetId,
+    Atom, Constraints, Frame, FrameInfo, Input, LayoutResolution, Rect, Sides, Size, Sizing,
+    Transition, Ui, WidgetId,
 };
 use blit_layout::{Align, flex, grid, single, wrap};
 
 #[derive(Default)]
 struct TestContext;
-
-impl Context for TestContext {}
 
 #[derive(Clone, Copy)]
 struct BoxAtom(Size);

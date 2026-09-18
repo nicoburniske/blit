@@ -1,9 +1,7 @@
 pub use super::shared::Behavior;
 
 use super::shared::{self, ScrollItem, ScrollLayout, build_scroll, update};
-use blit::{
-    Axis, Clip, Constraints, Content, Context, Layout, LayoutCx, Point, Size, Ui, WidgetId,
-};
+use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, Size, Ui, WidgetId};
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
 blit::builder! {
@@ -27,7 +25,6 @@ pub fn build<C, R, X, K, F, T, H>(
     mut item: F,
 ) -> Response
 where
-    C: Context,
     X: Clip<C>,
     T: Content<C>,
     H: Content<C>,
@@ -255,7 +252,7 @@ struct MeasuredScrollLayout {
     table: Rc<RefCell<RowTable>>,
 }
 
-impl<C: Context> Layout<C> for MeasuredScrollLayout {
+impl<C> Layout<C> for MeasuredScrollLayout {
     type Item = ScrollItem;
 
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -277,7 +274,7 @@ struct MeasuredLayout {
     table: Rc<RefCell<RowTable>>,
 }
 
-impl<C: Context> Layout<C> for MeasuredLayout {
+impl<C> Layout<C> for MeasuredLayout {
     type Item = ();
 
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -330,7 +327,6 @@ mod tests {
     use blit::{Frame, FrameInfo, Rect};
 
     struct TestContext;
-    impl Context for TestContext {}
 
     struct TestClip;
     impl Clip<TestContext> for TestClip {

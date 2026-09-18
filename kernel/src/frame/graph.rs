@@ -6,7 +6,7 @@ pub struct FrameMemory {
     pub heap_bytes: usize,
 }
 
-pub struct Frame<C: Context> {
+pub struct Frame<C> {
     nodes: Vec<StoredNode>,
     current_parent: Option<NodeId>,
     atoms: Vec<StoredAtom>,
@@ -35,10 +35,11 @@ pub struct Frame<C: Context> {
     time: Duration,
     screen: Rect,
     layout_resolution: LayoutResolution,
+    resized: bool,
     frame_requested: bool,
 }
 
-impl<C: Context> Default for Frame<C> {
+impl<C> Default for Frame<C> {
     fn default() -> Self {
         Self {
             nodes: Vec::new(),
@@ -69,20 +70,61 @@ impl<C: Context> Default for Frame<C> {
             time: Duration::ZERO,
             screen: Rect::default(),
             layout_resolution: LayoutResolution::Continuous,
+            resized: false,
             frame_requested: true,
         }
     }
 }
 
-impl<C: Context> Frame<C> {
+impl<C> Frame<C> {
+    /// rebuilds the frame graph for one input
+    pub fn build<W: Widget<C>>(
+        &mut self,
+        context: &mut C,
+        frame: FrameInfo,
+        time: Duration,
+        input: Input,
+        widget: W,
+    ) -> W::Response {
+        self.frame_requested = false;
+        self.record(context, frame, time, input, widget)
+    }
+
+    /// resolves layout, positioning, clipping and interaction for the built graph
+    pub fn layout(&mut self, context: &mut C) {
+        let mut data = std::mem::take(&mut self.data);
+        transition::resolve(self, &mut data, context, self.screen.size(), self.resized);
+        position::resolve(self);
+        paint::resolve_order(self);
+        paint::resolve_clips(self);
+        interaction::resolve(self);
+        std::mem::swap(&mut self.geometry_previous, &mut self.geometry_current);
+        self.geometry_current.clear();
+        self.animations.retain(|animation| animation.seen);
+        self.transitions.retain(|state| state.seen);
+        self.timers.retain(|timer| timer.seen);
+        self.named_nodes.retain(|_, node| node.is_some());
+        self.data = data;
+    }
+
+    /// paints the resolved graph and releases its retained values
+    pub fn paint(&mut self, context: &mut C) {
+        let mut data = std::mem::take(&mut self.data);
+        paint::render(self, &data, context);
+        data.clear();
+        self.data = data;
+    }
+
     pub fn render<W: Widget<C>>(
         &mut self,
         context: &mut C,
         frame: FrameInfo,
         widget: W,
     ) -> W::Response {
-        self.frame_requested = false;
-        self.record(context, frame, Duration::ZERO, Input::None, true, widget)
+        let output = self.build(context, frame, Duration::ZERO, Input::None, widget);
+        self.layout(context);
+        self.paint(context);
+        output
     }
 
     pub fn render_inputs<O>(
@@ -93,21 +135,20 @@ impl<C: Context> Frame<C> {
         inputs: impl IntoIterator<Item = Input>,
         mut build: impl FnMut(Ui<'_, C>) -> O,
     ) {
-        self.frame_requested = false;
         let mut inputs = inputs.into_iter();
         let Some(first) = inputs.next() else {
-            self.record(context, frame, time, Input::None, true, &mut build);
+            self.build(context, frame, time, Input::None, &mut build);
+            self.layout(context);
+            self.paint(context);
             return;
         };
-        let mut input = first;
-        loop {
-            let next = inputs.next();
-            self.record(context, frame, time, input, next.is_none(), &mut build);
-            let Some(next) = next else {
-                break;
-            };
-            input = next;
+        self.build(context, frame, time, first, &mut build);
+        self.layout(context);
+        for input in inputs {
+            self.build(context, frame, time, input, &mut build);
+            self.layout(context);
         }
+        self.paint(context);
     }
 
     pub fn has_pending_redraw(&self) -> bool {
@@ -174,12 +215,10 @@ impl<C: Context> Frame<C> {
         frame: FrameInfo,
         time: Duration,
         input: Input,
-        render: bool,
         widget: W,
     ) -> W::Response {
         #[cfg(debug_assertions)]
         generation::begin();
-        context.frame_stage(crate::FrameStage::Build);
         self.nodes.clear();
         self.current_parent = None;
         self.atoms.clear();
@@ -197,7 +236,7 @@ impl<C: Context> Frame<C> {
         self.active_clips.clear();
         self.input = input;
         self.time = time;
-        let resized = self.screen.size() != frame.size;
+        self.resized = self.screen.size() != frame.size;
         self.screen = Rect::new(0.0, 0.0, frame.size.width, frame.size.height);
         self.layout_resolution = frame.layout_resolution;
         for animation in &mut self.animations {
@@ -222,30 +261,6 @@ impl<C: Context> Frame<C> {
             "a frame must have exactly one root"
         );
 
-        // layout mutates graph state while frame data remains immutable
-        // todo/hack: is there a better way to do this
-        context.frame_stage(crate::FrameStage::Layout);
-        let mut data = std::mem::take(&mut self.data);
-        transition::resolve(self, &mut data, context, frame.size, resized);
-        position::resolve(self);
-        paint::resolve_order(self);
-        paint::resolve_clips(self);
-        interaction::resolve(self);
-        std::mem::swap(&mut self.geometry_previous, &mut self.geometry_current);
-        self.geometry_current.clear();
-        self.animations.retain(|animation| animation.seen);
-        self.transitions.retain(|state| state.seen);
-        self.timers.retain(|timer| timer.seen);
-        self.named_nodes.retain(|_, node| node.is_some());
-        if render {
-            context.frame_stage(crate::FrameStage::Paint);
-            paint::render(self, &data, context);
-        }
-        data.clear();
-        self.data = data;
-        if render {
-            context.frame_stage(crate::FrameStage::Complete);
-        }
         output
     }
 
@@ -602,7 +617,7 @@ type PositionedId = Index<Positioned>;
 type GeometryId = Index<GeometryRecord>;
 type ResolvedClipId = Index<ResolvedClip>;
 
-struct AtomKind<C: Context> {
+struct AtomKind<C> {
     type_id: TypeId,
     measure: fn(&DataArena, DataId, &mut C, Constraints) -> Size,
     paint_bounds: fn(&DataArena, DataId, Rect) -> Rect,
@@ -611,19 +626,19 @@ struct AtomKind<C: Context> {
 
 type OverrideSize = fn(&mut DataArena, DataId, DataId, Option<f32>, Option<f32>) -> bool;
 
-struct LayoutKind<C: Context> {
+struct LayoutKind<C> {
     type_id: TypeId,
     layout: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, Constraints) -> Size,
     override_size: OverrideSize,
 }
 
-struct ClipKind<C: Context> {
+struct ClipKind<C> {
     type_id: TypeId,
     push: fn(&DataArena, DataId, &mut C, Rect),
     pop: fn(&DataArena, DataId, &mut C),
 }
 
-fn measure_atom<C: Context, A: Atom<C>>(
+fn measure_atom<C, A: Atom<C>>(
     data: &DataArena,
     id: DataId,
     context: &mut C,
@@ -632,19 +647,19 @@ fn measure_atom<C: Context, A: Atom<C>>(
     data.load::<A>(id).measure(context, constraints)
 }
 
-fn paint_bounds_atom<C: Context, A: Atom<C>>(data: &DataArena, id: DataId, area: Rect) -> Rect {
+fn paint_bounds_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, area: Rect) -> Rect {
     data.load::<A>(id).paint_bounds(area)
 }
 
-fn paint_atom<C: Context, A: Atom<C>>(data: &DataArena, id: DataId, context: &mut C, area: Rect) {
+fn paint_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, context: &mut C, area: Rect) {
     data.load::<A>(id).paint(context, area)
 }
 
-fn push_clip<C: Context, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C, area: Rect) {
+fn push_clip<C, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C, area: Rect) {
     data.load::<X>(id).push(context, area)
 }
 
-fn pop_clip<C: Context, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C) {
+fn pop_clip<C, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C) {
     data.load::<X>(id).pop(context)
 }
 

@@ -1,13 +1,10 @@
-use std::time::Instant;
-
 use crate::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
-use blit::{Clip, Context, FrameStage, LogicalRect, Scale2};
+use blit::{Clip, LogicalRect, Scale2};
 use blit_widgets::performance::FrameProfiler;
 
 /// rendering resources independent of terminal io and event loop ownership
 pub struct TuiContext {
     profiler: FrameProfiler,
-    clock: Instant,
     renderer: TuiRenderer,
     clip: LogicalRect,
     clips: Vec<LogicalRect>,
@@ -19,7 +16,6 @@ impl TuiContext {
         let clip = renderer.screen().to_logical(Scale2::IDENTITY);
         Self {
             profiler: FrameProfiler::default(),
-            clock: Instant::now(),
             renderer,
             clip,
             clips: Vec::new(),
@@ -60,20 +56,19 @@ impl TuiContext {
     pub fn profiler(&self) -> &FrameProfiler {
         &self.profiler
     }
-}
 
-impl Context for TuiContext {
-    fn frame_stage(&mut self, stage: FrameStage) {
-        match stage {
-            FrameStage::Paint => {
-                self.renderer.begin_frame();
-                self.clip = self.renderer.screen().to_logical(Scale2::IDENTITY);
-                self.clips.clear();
-            }
-            FrameStage::Complete => self.renderer.end_frame(),
-            FrameStage::Build | FrameStage::Layout => {}
-        }
-        self.profiler.begin_stage(stage, self.clock.elapsed());
+    pub fn profiler_mut(&mut self) -> &mut FrameProfiler {
+        &mut self.profiler
+    }
+
+    pub fn begin_paint(&mut self) {
+        self.renderer.begin_frame();
+        self.clip = self.renderer.screen().to_logical(Scale2::IDENTITY);
+        self.clips.clear();
+    }
+
+    pub fn finish_paint(&mut self) {
+        self.renderer.end_frame();
     }
 }
 

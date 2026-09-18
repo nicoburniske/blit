@@ -1,6 +1,6 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use blit::{Clip, Context, FrameStage, LogicalPoint, LogicalRect, LogicalSize, Scale2};
+use blit::{Clip, LogicalPoint, LogicalRect, LogicalSize, Scale2};
 use blit_widgets::performance::FrameProfiler;
 
 use crate::{
@@ -19,7 +19,6 @@ pub struct GuiContext {
     clip: ClipId,
     clips: Vec<ClipId>,
     profiler: FrameProfiler,
-    clock: Instant,
 }
 
 /// data needed to render one frame
@@ -41,7 +40,6 @@ impl GuiContext {
             clip: ClipId::default(),
             clips: Vec::new(),
             profiler: FrameProfiler::default(),
-            clock: Instant::now(),
         }
     }
 
@@ -111,6 +109,12 @@ impl GuiContext {
         self.scale = Scale2::uniform(scale);
     }
 
+    pub fn begin_paint(&mut self) {
+        self.display_list.clear();
+        self.clip = ClipId::default();
+        self.clips.clear();
+    }
+
     pub fn render_input(&mut self) -> RenderInput<'_> {
         RenderInput {
             display_list: &mut self.display_list,
@@ -128,19 +132,9 @@ impl GuiContext {
     pub fn profiler(&self) -> &FrameProfiler {
         &self.profiler
     }
-}
 
-impl Context for GuiContext {
-    fn frame_stage(&mut self, stage: FrameStage) {
-        match stage {
-            FrameStage::Build => self.display_list.clear(),
-            FrameStage::Paint => {
-                self.clip = ClipId::default();
-                self.clips.clear();
-            }
-            FrameStage::Layout | FrameStage::Complete => {}
-        }
-        self.profiler.begin_stage(stage, self.clock.elapsed());
+    pub fn profiler_mut(&mut self) -> &mut FrameProfiler {
+        &mut self.profiler
     }
 }
 

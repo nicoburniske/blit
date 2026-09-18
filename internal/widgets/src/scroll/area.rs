@@ -1,4 +1,4 @@
-use blit::{Axis, Clip, Content, Context, Ui, Widget};
+use blit::{Axis, Clip, Content, Ui, Widget};
 
 pub use super::shared::{Behavior, State};
 
@@ -21,7 +21,6 @@ pub fn build<C, W, X, T, H>(
     content: W,
     scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
 ) where
-    C: Context,
     W: Widget<C>,
     X: Clip<C>,
     T: Content<C>,

@@ -125,21 +125,28 @@ impl Session {
         // replay the collected inputs and draw the final resulting tree
         let now = self.started.elapsed();
         let info = self.frame_info();
-        self.frame.render_inputs(
-            &mut self.context,
-            info,
-            now,
-            inputs[..input_count].iter().copied(),
-            |mut ui| {
-                if !ui.context().should_quit() {
-                    render(ui);
-                }
-            },
-        );
+        // the prefilled Input::None runs one pass when no events were collected
+        for &input in &inputs[..input_count.max(1)] {
+            self.context.profiler_mut().begin_build();
+            self.frame
+                .build(&mut self.context, info, now, input, |mut ui: Ui<'_>| {
+                    if !ui.context().should_quit() {
+                        render(ui);
+                    }
+                });
+            self.context.profiler_mut().begin_layout();
+            self.frame.layout(&mut self.context);
+        }
         if self.context().should_quit() {
+            self.context.profiler_mut().finish();
             self.finish()?;
             return Ok(false);
         }
+        self.context.profiler_mut().begin_paint();
+        self.context.begin_paint();
+        self.frame.paint(&mut self.context);
+        self.context.finish_paint();
+        self.context.profiler_mut().finish();
         self.present()?;
         // establish the earliest time for the following frame
         self.next_frame = now + self.frame_interval;

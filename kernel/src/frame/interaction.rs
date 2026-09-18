@@ -1,5 +1,4 @@
 use crate::{
-    Context,
     geometry::{Point, Rect, Sides},
     input::{Input, PointerButton},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
@@ -9,7 +8,7 @@ use super::Frame;
 
 const DRAG_THRESHOLD: f32 = 6.0;
 
-pub fn resolve<C: Context>(frame: &mut Frame<C>) {
+pub fn resolve<C>(frame: &mut Frame<C>) {
     frame
         .interaction
         .requests

@@ -333,6 +333,7 @@ mod tests {
         let renderer = TuiRenderer::new(RendererConfig::new().columns(20).rows(5));
         let mut context = TuiContext::new(renderer);
         let mut frame = Frame::default();
+        context.begin_paint();
         frame.render(
             &mut context,
             FrameInfo::new(Size::new(20.0, 5.0)),
@@ -355,6 +356,7 @@ mod tests {
                 );
             },
         );
+        context.finish_paint();
 
         assert_eq!(
             context.renderer().plain_text(),

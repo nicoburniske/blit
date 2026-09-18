@@ -19,14 +19,14 @@
 //! # frame lifecycle
 //!
 //! ```text
-//! Widget::build
+//! Frame::build
 //!     │ records nodes, Layouts, and Atoms
 //!     ▼
 //! retained frame graph
-//!     │ Layout measures Atoms and arranges children
+//!     │ Frame::layout measures Atoms and arranges children
 //!     ▼
 //! resolved node positions and sizes
-//!     │ Atom::paint
+//!     │ Frame::paint invokes Atom::paint
 //!     ▼
 //! output
 //! ```
@@ -57,20 +57,6 @@ pub use input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase};
 pub use interact::{Interaction, ScrollInteraction, Sense, WidgetId};
 pub use layout::{Axis, Layout, LayoutCx, LayoutResolution, Sizing};
 
-/// state and services available while a frame is built, laid out and painted
-pub trait Context {
-    /// build and layout may repeat for queued inputs before paint and complete
-    fn frame_stage(&mut self, _: FrameStage) {}
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FrameStage {
-    Build,
-    Layout,
-    Paint,
-    Complete,
-}
-
 crate::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct FrameInfo {
@@ -80,14 +66,14 @@ crate::builder! {
 }
 
 /// immediate builder that owns and populates a new frame node
-pub trait Widget<C: Context> {
+pub trait Widget<C> {
     type Response;
 
     fn build(self, ui: Ui<'_, C>) -> Self::Response;
 }
 
 /// immediate content that augments an existing node without changing its structure
-pub trait Content<C: Context> {
+pub trait Content<C> {
     type Response;
 
     fn append(self, ui: Ui<'_, C, state::Node>) -> Self::Response;
@@ -96,7 +82,7 @@ pub trait Content<C: Context> {
 /// retained visual content that measures and paints after building
 ///
 /// every atom implements [`Content`]
-pub trait Atom<C: Context>: 'static {
+pub trait Atom<C>: 'static {
     /// returns the size requested by this atom under `constraints`
     ///
     /// measurement may be skipped under tight constraints. painting must not
@@ -113,7 +99,6 @@ pub trait Atom<C: Context>: 'static {
 
 impl<C, F, O> Widget<C> for F
 where
-    C: Context,
     F: FnOnce(Ui<'_, C>) -> O,
 {
     type Response = O;
@@ -123,7 +108,7 @@ where
     }
 }
 
-impl<C: Context> Widget<C> for () {
+impl<C> Widget<C> for () {
     type Response = ();
 
     fn build(self, mut ui: Ui<'_, C>) {
@@ -131,7 +116,7 @@ impl<C: Context> Widget<C> for () {
     }
 }
 
-impl<C: Context> Atom<C> for () {
+impl<C> Atom<C> for () {
     fn measure(&self, _: &mut C, constraints: Constraints) -> Size {
         constraints.constrain(Size::ZERO)
     }
@@ -143,7 +128,7 @@ impl<C: Context> Atom<C> for () {
     }
 }
 
-pub trait Clip<C: Context>: 'static {
+pub trait Clip<C>: 'static {
     fn push(&self, context: &mut C, area: Rect);
 
     fn pop(&self, context: &mut C);

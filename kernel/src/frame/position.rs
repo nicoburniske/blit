@@ -1,12 +1,11 @@
 use super::{Frame, NodeId};
 use crate::{
-    Context,
     arena::DataArena,
     geometry::{Constraints, Point, Size},
     layout::{Axis, Sizing},
 };
 
-pub fn layout<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size) {
+pub fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size) {
     let root = frame.node_id(0);
     frame.layout_node(data, root, context, Constraints::tight(size));
     for index in 1..frame.nodes.len() {
@@ -93,7 +92,7 @@ pub fn layout<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut 
     }
 }
 
-pub fn offset<C: Context>(frame: &Frame<C>, node: NodeId) -> Point {
+pub fn offset<C>(frame: &Frame<C>, node: NodeId) -> Point {
     if let Some(positioned) = frame.nodes[node.index()].positioned.index() {
         let positioned = frame.positioned[positioned];
         return if positioned.uses_target_content_origin {
@@ -110,7 +109,7 @@ pub fn offset<C: Context>(frame: &Frame<C>, node: NodeId) -> Point {
     }
 }
 
-pub fn resolve<C: Context>(frame: &mut Frame<C>) {
+pub fn resolve<C>(frame: &mut Frame<C>) {
     for index in 1..frame.nodes.len() {
         let reference = frame.nodes[index]
             .positioned

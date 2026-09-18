@@ -5,7 +5,7 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use blit_executor::LocalExecutor;
-use blit_gui::{GuiContext, TextSystem};
+use blit_gui::{GuiContext, TextSystem, Ui};
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize as WindowSize, PhysicalPosition, PhysicalSize},
@@ -163,16 +163,25 @@ impl<A: Application> Runner<A> {
         }
         let scale = active.scale();
         let size = active.window.inner_size();
-        active.frame.render_inputs(
-            &mut active.gui,
-            FrameInfo::new(Size::new(
-                size.width as f32 / scale,
-                size.height as f32 / scale,
-            )),
-            time,
-            self.inputs.drain(..),
-            |ui| active.app.render(ui),
-        );
+        let info = FrameInfo::new(Size::new(
+            size.width as f32 / scale,
+            size.height as f32 / scale,
+        ));
+        let no_input = self.inputs.is_empty().then_some(Input::None);
+        for input in self.inputs.drain(..).chain(no_input) {
+            active.gui.profiler_mut().begin_build();
+            active
+                .frame
+                .build(&mut active.gui, info, time, input, |ui: Ui<'_>| {
+                    active.app.render(ui)
+                });
+            active.gui.profiler_mut().begin_layout();
+            active.frame.layout(&mut active.gui);
+        }
+        active.gui.profiler_mut().begin_paint();
+        active.gui.begin_paint();
+        active.frame.paint(&mut active.gui);
+        active.gui.profiler_mut().finish();
         let result = active.graphics.render(active.gui.render_input());
         active
             .gui

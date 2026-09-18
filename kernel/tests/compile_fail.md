@@ -3,7 +3,7 @@ children require a layout
 ```compile_fail
 use blit::*;
 
-fn child_before_layout<C: Context>(mut ui: Ui<'_, C>) {
+fn child_before_layout<C>(mut ui: Ui<'_, C>) {
     ui.child(());
 }
 ```
@@ -15,7 +15,6 @@ use blit::*;
 
 fn second_layout<C, L, M>(ui: Ui<'_, C, state::Open<L>>, next: M)
 where
-    C: Context,
     L: Layout<C>,
     M: Layout<C>,
 {
@@ -30,7 +29,6 @@ use blit::*;
 
 fn build_into_open<C, L, W>(ui: Ui<'_, C, state::Open<L>>, widget: W)
 where
-    C: Context,
     L: Layout<C>,
     W: Widget<C>,
 {
@@ -45,7 +43,6 @@ use blit::*;
 
 fn omit_layout_item<C, L>(mut ui: Ui<'_, C, state::Open<L>>)
 where
-    C: Context,
     L: Layout<C>,
 {
     ui.child(());
@@ -59,7 +56,6 @@ use blit::*;
 
 fn layout_from_content<C, L>(ui: Ui<'_, C, state::Node>, layout: L)
 where
-    C: Context,
     L: Layout<C>,
 {
     ui.layout(layout);

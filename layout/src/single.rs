@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, Context, LayoutCx, Point, Sides, Size, Sizing};
+use blit::{Axis, Constraints, LayoutCx, Point, Sides, Size, Sizing};
 
 pub use super::sizing::{Item, item};
 use super::{flow_constraints, override_sizing, sizing_range};
@@ -18,7 +18,7 @@ pub fn layout() -> Layout {
     Layout::new()
 }
 
-impl<C: Context> blit::Layout<C> for Layout {
+impl<C> blit::Layout<C> for Layout {
     type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {

@@ -1,6 +1,6 @@
 use blit::{
-    Axis, Constraints, Context, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size,
-    Ui, Widget, WidgetId,
+    Axis, Constraints, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui,
+    Widget, WidgetId,
 };
 
 #[derive(Debug, Default)]
@@ -39,7 +39,6 @@ pub fn new<'a, C, W, F, G>(
     mut grip: F,
 ) -> impl Widget<C> + 'a
 where
-    C: Context,
     W: Widget<C> + 'a,
     F: FnMut(Grip) -> G + 'a,
     G: Widget<C>,
@@ -113,7 +112,7 @@ struct Layout {
     grip_size: Size,
 }
 
-impl<C: Context> LayoutTrait<C> for Layout {
+impl<C> LayoutTrait<C> for Layout {
     type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {

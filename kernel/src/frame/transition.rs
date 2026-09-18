@@ -2,14 +2,13 @@ use std::time::Duration;
 
 use super::{Frame, NodeId, position};
 use crate::{
-    Context,
     animation::{Transition, TransitionProperties},
     arena::DataArena,
     geometry::{Rect, Size},
     interact::WidgetId,
 };
 
-pub fn resolve<C: Context>(
+pub fn resolve<C>(
     frame: &mut Frame<C>,
     data: &mut DataArena,
     context: &mut C,

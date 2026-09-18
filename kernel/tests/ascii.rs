@@ -1,9 +1,9 @@
 use std::{cell::Cell, rc::Rc, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Atom, Axis, Clip, Constraints, Content, Context, Easing, Frame, FrameInfo,
-    FrameStage, Input, Interaction, Layout, LayoutCx, LayoutResolution, Modifiers, NodeId,
-    NodeTarget, Point, PointerButton, Rect, Sense, Size, Sizing, Transition, Widget, WidgetId,
+    Absolute, Anchor, Atom, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input,
+    Interaction, Layout, LayoutCx, LayoutResolution, Modifiers, NodeId, NodeTarget, Point,
+    PointerButton, Rect, Sense, Size, Sizing, Transition, Widget, WidgetId,
 };
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, AsciiContext, S>;
@@ -396,7 +396,7 @@ fn transitions_relayout_animated_sizes() {
 fn unsupported_size_transitions_finish_immediately() {
     struct Unsupported;
 
-    impl<C: Context> Layout<C> for Unsupported {
+    impl<C> Layout<C> for Unsupported {
         type Item = ();
 
         fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -869,7 +869,7 @@ struct OwnedValue {
     drops: Rc<Cell<usize>>,
 }
 
-impl<C: Context> Layout<C> for OwnedValue {
+impl<C> Layout<C> for OwnedValue {
     type Item = ();
 
     fn layout(&self, _: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -1053,7 +1053,7 @@ fn override_test_item(item: &mut TestItem, width: Option<f32>, height: Option<f3
 #[derive(Clone, Copy)]
 struct Column;
 
-impl<C: Context> Layout<C> for Column {
+impl<C> Layout<C> for Column {
     type Item = TestItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -1088,7 +1088,7 @@ impl<C: Context> Layout<C> for Column {
 #[derive(Clone, Copy)]
 struct Overlay;
 
-impl<C: Context> Layout<C> for Overlay {
+impl<C> Layout<C> for Overlay {
     type Item = TestItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -1123,7 +1123,7 @@ impl<C: Context> Layout<C> for Overlay {
 #[derive(Clone, Copy)]
 struct Fixed(Size);
 
-impl<C: Context> Layout<C> for Fixed {
+impl<C> Layout<C> for Fixed {
     type Item = TestItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -1145,7 +1145,7 @@ impl<C: Context> Layout<C> for Fixed {
     }
 }
 
-fn resolve_child<C: Context>(
+fn resolve_child<C>(
     cx: &mut LayoutCx<'_, C, TestItem>,
     child: NodeId,
     available: Size,
@@ -1221,20 +1221,6 @@ impl AsciiContext {
     }
 }
 
-impl Context for AsciiContext {
-    fn frame_stage(&mut self, stage: FrameStage) {
-        match stage {
-            FrameStage::Paint => {
-                self.cells.clear();
-                self.cells.resize(self.width * self.height, ' ');
-                assert!(self.diamond_clips.is_empty());
-            }
-            FrameStage::Complete => assert!(self.diamond_clips.is_empty()),
-            FrameStage::Build | FrameStage::Layout => {}
-        }
-    }
-}
-
 fn frame(size: Size) -> (Frame<AsciiContext>, AsciiContext) {
     frame_info(FrameInfo::new(size))
 }
@@ -1249,7 +1235,12 @@ fn render<W: Widget<AsciiContext>>(
     widget: W,
 ) -> W::Response {
     let info = context.info;
-    frame.render(context, info, widget)
+    context.cells.clear();
+    context.cells.resize(context.width * context.height, ' ');
+    assert!(context.diamond_clips.is_empty());
+    let output = frame.render(context, info, widget);
+    assert!(context.diamond_clips.is_empty());
+    output
 }
 
 fn render_inputs<O>(
@@ -1260,5 +1251,9 @@ fn render_inputs<O>(
     build: impl FnMut(Ui<'_>) -> O,
 ) {
     let info = context.info;
+    context.cells.clear();
+    context.cells.resize(context.width * context.height, ' ');
+    assert!(context.diamond_clips.is_empty());
     frame.render_inputs(context, info, time, inputs, build);
+    assert!(context.diamond_clips.is_empty());
 }

@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Content, Context, Layout, LayoutCx, Point, ScrollPhase, Sense, Size,
-    Ui, Widget, WidgetId,
+    Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, ScrollPhase, Sense, Size, Ui,
+    Widget, WidgetId,
 };
 
 blit::builder! {
@@ -68,7 +68,7 @@ pub enum ScrollItem {
     Thumb,
 }
 
-impl<C: Context> Layout<C> for ScrollLayout {
+impl<C> Layout<C> for ScrollLayout {
     type Item = ScrollItem;
 
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -81,7 +81,7 @@ impl<C: Context> Layout<C> for ScrollLayout {
 }
 
 impl ScrollLayout {
-    pub fn layout_with_offset<C: Context>(
+    pub fn layout_with_offset<C>(
         &self,
         ui: &mut LayoutCx<'_, C, ScrollItem>,
         constraints: Constraints,
@@ -183,7 +183,7 @@ impl ScrollLayout {
 
 /// updates scroll input and motion returning thumb activity and viewport availability
 /// uses children named `content` and `scroll thumb` for geometry when present
-pub fn update<C: Context>(
+pub fn update<C>(
     state: &mut State,
     ui: &mut Ui<'_, C>,
     axis: Axis,
@@ -318,7 +318,6 @@ pub fn build_scroll<C, W, X, T, H>(
     track: Option<T>,
     thumb: Option<H>,
 ) where
-    C: Context,
     W: Widget<C>,
     X: Clip<C>,
     T: Content<C>,

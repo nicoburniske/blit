@@ -4,14 +4,13 @@ use std::marker::PhantomData;
 use super::LayoutState;
 use super::{Frame, NodeId, StoredNode};
 use crate::{
-    Context,
     arena::{DataArena, DataId},
     geometry::{Constraints, Point, Size},
     layout::{Layout, LayoutResolution},
 };
 
 /// context for measuring and positioning a layout's children
-pub struct LayoutCx<'a, C: Context, I> {
+pub struct LayoutCx<'a, C, I> {
     frame: &'a mut Frame<C>,
     data: &'a DataArena,
     context: &'a mut C,
@@ -23,7 +22,7 @@ pub struct LayoutCx<'a, C: Context, I> {
     offset: Point,
 }
 
-impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
+impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     /// iterates direct flow children in declaration order
     #[inline]
     pub fn children(&self) -> Children<'a> {
@@ -167,7 +166,7 @@ impl Iterator for Children<'_> {
     }
 }
 
-pub fn run<C: Context, L: Layout<C>>(
+pub fn run<C, L: Layout<C>>(
     data: &DataArena,
     frame: &mut Frame<C>,
     node: NodeId,
@@ -212,7 +211,7 @@ pub fn run<C: Context, L: Layout<C>>(
     size
 }
 
-pub fn override_item<C: Context, L: Layout<C>>(
+pub fn override_item<C, L: Layout<C>>(
     data: &mut DataArena,
     layout: DataId,
     item: DataId,

@@ -1,11 +1,8 @@
 pub use crate::frame::layout::{Children, LayoutCx};
 
-use crate::{
-    Context,
-    geometry::{Constraints, Sides, Size},
-};
+use crate::geometry::{Constraints, Sides, Size};
 
-pub trait Layout<C: Context>: 'static {
+pub trait Layout<C>: 'static {
     /// per-child data interpreted by this layout
     type Item: 'static;
 

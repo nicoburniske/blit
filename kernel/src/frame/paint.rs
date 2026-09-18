@@ -1,7 +1,7 @@
 use super::{ClipKind, Frame, ResolvedClip, ResolvedClipId, StoredClip};
-use crate::{Context, arena::DataArena};
+use crate::arena::DataArena;
 
-pub fn resolve_order<C: Context>(frame: &mut Frame<C>) {
+pub fn resolve_order<C>(frame: &mut Frame<C>) {
     frame.paint_order.clear();
     if !frame
         .nodes
@@ -45,7 +45,7 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>) {
     debug_assert_eq!(frame.paint_order.len(), frame.nodes.len());
 }
 
-pub fn resolve_clips<C: Context>(frame: &mut Frame<C>) {
+pub fn resolve_clips<C>(frame: &mut Frame<C>) {
     frame.resolved_clips.clear();
     for index in 0..frame.nodes.len() {
         let parent = if index == 0 {
@@ -76,7 +76,7 @@ pub fn resolve_clips<C: Context>(frame: &mut Frame<C>) {
     }
 }
 
-pub fn render<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C) {
+pub fn render<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C) {
     frame.active_clips.clear();
     if frame.paint_order.is_empty() {
         for node in 0..frame.nodes.len() {
@@ -100,7 +100,7 @@ pub fn render<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut 
 }
 
 #[allow(clippy::too_many_arguments)]
-fn push<C: Context>(
+fn push<C>(
     data: &DataArena,
     clips: &[StoredClip],
     kinds: &[ClipKind<C>],
@@ -129,7 +129,7 @@ fn push<C: Context>(
     active.push(clip);
 }
 
-fn set<C: Context>(
+fn set<C>(
     data: &DataArena,
     clips: &[StoredClip],
     kinds: &[ClipKind<C>],
@@ -157,7 +157,7 @@ fn set<C: Context>(
     );
 }
 
-fn paint_node<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, node: usize) {
+fn paint_node<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, node: usize) {
     if frame.nodes[node].first_atom.index().is_none() {
         return;
     }
