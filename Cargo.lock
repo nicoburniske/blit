@@ -97,7 +97,8 @@ name = "blit-cpu"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-graphics",
+ "blit-diff",
+ "blit-gui",
  "blit-text",
  "blit-text-cosmic",
  "blit-text-fontdue",
@@ -108,19 +109,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "blit-demo"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-desktop",
+ "blit-gui",
+ "blit-std",
+ "blit-text-cosmic",
+ "blit-text-fontdue",
+ "blit-tui",
+]
+
+[[package]]
 name = "blit-desktop"
 version = "0.1.0"
 dependencies = [
  "blit",
  "blit-cpu",
- "blit-diff",
  "blit-executor",
- "blit-graphics",
- "blit-showcase",
- "blit-std",
- "blit-text",
- "blit-text-cosmic",
- "blit-text-fontdue",
+ "blit-gui",
  "softbuffer",
  "winit",
 ]
@@ -137,21 +145,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "blit-graphics"
-version = "0.1.0"
-dependencies = [
- "blit",
- "blit-text",
- "blit_cache",
- "ttf-parser",
-]
-
-[[package]]
-name = "blit-showcase"
+name = "blit-gui"
 version = "0.1.0"
 dependencies = [
  "blit",
  "blit-std",
+ "blit-text",
+ "blit_cache",
+ "ttf-parser",
 ]
 
 [[package]]
@@ -193,22 +194,13 @@ dependencies = [
 name = "blit-tui"
 version = "0.1.0"
 dependencies = [
- "blit",
- "blit-showcase",
- "blit-std",
- "blit-tui-render",
- "rustix 1.1.4",
- "signal-hook",
-]
-
-[[package]]
-name = "blit-tui-render"
-version = "0.1.0"
-dependencies = [
  "base64",
  "blit",
+ "blit-std",
  "blit_cache",
  "divan",
+ "rustix 1.1.4",
+ "signal-hook",
  "unicode-segmentation",
  "unicode-width",
 ]

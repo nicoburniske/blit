@@ -1,0 +1,35 @@
+[package]
+name = "blit-demo"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+autoexamples = false
+
+[lib]
+path = "demo.rs"
+
+[dependencies]
+blit.workspace = true
+blit-desktop = { path = "../desktop" }
+blit-gui.workspace = true
+blit-std.workspace = true
+blit-text-cosmic.workspace = true
+blit-text-fontdue.workspace = true
+blit-tui = { path = "../tui" }
+
+[[example]]
+name = "desktop-demo"
+path = "desktop.rs"
+
+[[example]]
+name = "desktop-demo-fontdue"
+path = "desktop_fontdue.rs"
+
+[[example]]
+name = "tui-demo"
+path = "tui.rs"
+
+[[example]]
+name = "readme"
+path = "readme.rs"
