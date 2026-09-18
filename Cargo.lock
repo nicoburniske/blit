@@ -102,7 +102,6 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "blit-arrayvec",
- "blit-diff",
  "blit-gui",
  "blit-text",
  "blit-text-cosmic",
@@ -137,10 +136,6 @@ dependencies = [
  "softbuffer",
  "winit",
 ]
-
-[[package]]
-name = "blit-diff"
-version = "0.1.0"
 
 [[package]]
 name = "blit-executor"

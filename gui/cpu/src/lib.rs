@@ -11,7 +11,6 @@ mod text;
 
 use blit::{PhysicalRect, Scale2};
 use blit_arrayvec::ArrayVec;
-use blit_diff::{Change, Myers, Reconciliation};
 use blit_gui::{
     RenderInput, TextSystem,
     color::Color,
@@ -43,7 +42,6 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
     context: RenderContext<B>,
     strategy: S,
     previous: DisplayList,
-    diff: Myers,
     damage: ArrayVec<PhysicalRect, { MAX_DAMAGE * 2 }>,
     previous_damage: ArrayVec<PhysicalRect, MAX_DAMAGE>,
     invalidated: bool,
@@ -66,7 +64,6 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
             },
             strategy: Direct::default(),
             previous: DisplayList::default(),
-            diff: Myers::default(),
             damage: ArrayVec::new(),
             previous_damage: ArrayVec::new(),
             invalidated: true,
@@ -78,7 +75,6 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
         let Self {
             context,
             previous,
-            diff,
             damage,
             previous_damage,
             invalidated,
@@ -89,7 +85,6 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
             context,
             strategy,
             previous,
-            diff,
             damage,
             previous_damage,
             invalidated,
@@ -117,40 +112,40 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         if std::mem::take(&mut self.invalidated) {
             damage.push(self.screen());
         } else {
-            match self
-                .diff
-                .reconcile(self.previous.len(), display_list.len(), |old, new| {
-                    self.previous.equivalent(old, display_list, new)
-                }) {
-                Reconciliation::Exact(changes) => {
-                    for change in changes.iter().copied() {
-                        let bounds = match change {
-                            Change::Remove(index) => self.previous.get(index).bounds,
-                            Change::Insert(index) => display_list.get(index).bounds,
-                        };
-                        push_damage(&mut damage, bounds);
+            let mut start = 0;
+            let common = self.previous.len().min(display_list.len());
+            while start < common && self.previous.equivalent(start, display_list, start) {
+                start += 1;
+            }
+            let mut old_end = self.previous.len();
+            let mut new_end = display_list.len();
+            while old_end > start
+                && new_end > start
+                && self
+                    .previous
+                    .equivalent(old_end - 1, display_list, new_end - 1)
+            {
+                old_end -= 1;
+                new_end -= 1;
+            }
+            let paired = (old_end - start).min(new_end - start);
+            for offset in 0..paired {
+                let old = start + offset;
+                let new = start + offset;
+                if !self.previous.equivalent(old, display_list, new) {
+                    let old_bounds = self.previous.get(old).bounds;
+                    push_damage(&mut damage, old_bounds);
+                    let new_bounds = display_list.get(new).bounds;
+                    if new_bounds != old_bounds {
+                        push_damage(&mut damage, new_bounds);
                     }
                 }
-                Reconciliation::LimitExceeded { old, new } => {
-                    let paired = old.len().min(new.len());
-                    for offset in 0..paired {
-                        let old = old.start + offset;
-                        let new = new.start + offset;
-                        if !self.previous.equivalent(old, display_list, new) {
-                            push_damage(&mut damage, self.previous.get(old).bounds);
-                            let bounds = display_list.get(new).bounds;
-                            if bounds != self.previous.get(old).bounds {
-                                push_damage(&mut damage, bounds);
-                            }
-                        }
-                    }
-                    for index in old.start + paired..old.end {
-                        push_damage(&mut damage, self.previous.get(index).bounds);
-                    }
-                    for index in new.start + paired..new.end {
-                        push_damage(&mut damage, display_list.get(index).bounds);
-                    }
-                }
+            }
+            for index in start + paired..old_end {
+                push_damage(&mut damage, self.previous.get(index).bounds);
+            }
+            for index in start + paired..new_end {
+                push_damage(&mut damage, display_list.get(index).bounds);
             }
         }
         let current_damage = damage.len();

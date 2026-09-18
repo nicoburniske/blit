@@ -10,7 +10,6 @@ members = [
     "gui/text/cosmic",
     "gui/text/fontdue",
     "internal/cache",
-    "internal/diff",
     "internal/arrayvec",
     "kernel",
     "layout",
@@ -23,7 +22,6 @@ license = "MIT"
 
 [workspace.dependencies]
 blit = { path = "kernel" }
-blit-diff = { path = "internal/diff" }
 blit-executor = { path = "executor" }
 blit-gui = { path = "gui" }
 blit-layout = { path = "layout" }
