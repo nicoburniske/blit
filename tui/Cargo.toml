@@ -1,0 +1,25 @@
+[package]
+name = "blit-tui"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+base64 = "0.22"
+blit.workspace = true
+blit-layout.workspace = true
+blit-widgets.workspace = true
+blit-arrayvec.workspace = true
+blit_cache = { path = "../internal/cache" }
+rustix = { version = "1", features = ["termios", "event"] }
+signal-hook = "0.3"
+unicode-segmentation = "1.12"
+unicode-width = "0.2"
+
+[dev-dependencies]
+divan = "0.1"
+
+[[bench]]
+name = "tui"
+harness = false

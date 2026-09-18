@@ -1,11 +1,12 @@
 use std::{
     cell::RefCell,
+    collections::VecDeque,
     future::Future,
-    marker::PhantomData,
     pin::Pin,
-    ptr::NonNull,
-    rc::Rc,
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     task::{Context, Poll, Wake, Waker},
 };
 
@@ -16,122 +17,104 @@ new_key_type! {
     pub struct TaskId;
 }
 
-#[must_use = "dropping this handle cancels the task"]
-/// a local task that is cancelled when dropped
-pub struct TaskHandle {
-    executor: NonNull<TaskExecutor>,
-    id: TaskId,
-    local: PhantomData<Rc<()>>,
-}
-
-impl TaskHandle {
-    pub fn id(&self) -> TaskId {
-        self.id
-    }
-
-    pub fn is_finished(&self) -> bool {
-        // safety: handles cannot outlive the pinned executor that created them
-        !unsafe { self.executor.as_ref() }
-            .tasks
-            .borrow()
-            .contains_key(self.id)
-    }
-}
-
-impl Drop for TaskHandle {
-    fn drop(&mut self) {
-        // safety: handles cannot outlive the pinned executor that created them
-        let _ = unsafe { self.executor.as_ref() }
-            .tasks
-            .borrow_mut()
-            .remove(self.id);
-    }
-}
-
 pub struct TaskExecutor {
     tasks: RefCell<SlotMap<TaskId, Task>>,
-    wake: Arc<dyn Fn(TaskId) + Send + Sync>,
+    ready: Arc<ReadyQueue>,
+    batch: RefCell<VecDeque<TaskId>>,
 }
 
 impl TaskExecutor {
-    pub fn new(wake: impl Fn(TaskId) + Send + Sync + 'static) -> Self {
+    pub fn new(wake: impl Fn() + Send + Sync + 'static) -> Self {
         Self {
             tasks: RefCell::new(SlotMap::with_key()),
-            wake: Arc::new(wake),
+            ready: Arc::new(ReadyQueue {
+                tasks: Mutex::new(VecDeque::new()),
+                wake: Box::new(wake),
+            }),
+            batch: RefCell::new(VecDeque::new()),
         }
     }
 
-    pub fn spawn(&self, future: impl Future<Output = ()> + 'static) -> TaskHandle {
+    pub fn spawn(&self, future: impl Future<Output = ()> + 'static) -> TaskId {
         let mut tasks = self.tasks.borrow_mut();
         let id = tasks.insert_with_key(|id| Task {
             future: Some(Box::pin(future)),
-            wake: TaskWake {
+            wake: Arc::new(TaskWake {
                 id,
-                wake: self.wake.clone(),
-            },
+                queued: AtomicBool::new(false),
+                ready: self.ready.clone(),
+            }),
         });
         let wake = tasks[id].wake.clone();
         drop(tasks);
         wake.notify();
-        TaskHandle {
-            executor: NonNull::from(self),
-            id,
-            local: PhantomData,
-        }
+        id
     }
 
-    pub fn run(&self, id: TaskId) -> bool {
-        let Some(ready) = self.take_ready(id) else {
-            return false;
-        };
-        let ReadyTask { mut future, wake } = ready;
-        let waker = Waker::from(Arc::new(wake));
-        let mut context = Context::from_waker(&waker);
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(()) => {
-                self.tasks.borrow_mut().remove(id);
-            }
-            Poll::Pending => {
+    pub fn run_ready(&self, mut polled: impl FnMut(TaskId)) -> bool {
+        let mut batch = self.batch.borrow_mut();
+        {
+            let mut ready = self.ready.tasks.lock().unwrap();
+            // wakes during polling remain queued for the next run
+            std::mem::swap(&mut *batch, &mut ready);
+        }
+        let mut ran = false;
+        while let Some(id) = batch.pop_front() {
+            let Some((mut future, wake)) = ({
                 let mut tasks = self.tasks.borrow_mut();
-                if let Some(task) = tasks.get_mut(id) {
-                    task.future = Some(future);
+                tasks.get_mut(id).map(|task| {
+                    (
+                        task.future.take().expect("task already running"),
+                        task.wake.clone(),
+                    )
+                })
+            }) else {
+                continue;
+            };
+            wake.queued.swap(false, Ordering::Acquire);
+            let waker = Waker::from(wake);
+            let mut context = Context::from_waker(&waker);
+            match future.as_mut().poll(&mut context) {
+                Poll::Ready(()) => {
+                    self.cancel(id);
+                }
+                Poll::Pending => {
+                    let mut tasks = self.tasks.borrow_mut();
+                    if let Some(task) = tasks.get_mut(id) {
+                        task.future = Some(future);
+                    }
                 }
             }
+            ran = true;
+            polled(id);
         }
-        true
+        ran
     }
 
-    fn take_ready(&self, id: TaskId) -> Option<ReadyTask> {
-        let mut tasks = self.tasks.borrow_mut();
-        let task = tasks.get_mut(id)?;
-        Some(ReadyTask {
-            future: task.future.take().expect("task already running"),
-            wake: task.wake.clone(),
-        })
+    pub fn cancel(&self, id: TaskId) {
+        let task = self.tasks.borrow_mut().remove(id);
+        drop(task);
     }
-}
 
-impl Drop for TaskExecutor {
-    fn drop(&mut self) {
-        let tasks = std::mem::replace(self.tasks.get_mut(), SlotMap::with_key());
-        drop(tasks);
+    pub fn contains(&self, id: TaskId) -> bool {
+        self.tasks.borrow().contains_key(id)
     }
 }
 
 struct Task {
     future: Option<Pin<Box<dyn Future<Output = ()>>>>,
-    wake: TaskWake,
+    wake: Arc<TaskWake>,
 }
 
-struct ReadyTask {
-    future: Pin<Box<dyn Future<Output = ()>>>,
-    wake: TaskWake,
-}
-
-#[derive(Clone)]
 struct TaskWake {
     id: TaskId,
-    wake: Arc<dyn Fn(TaskId) + Send + Sync>,
+    queued: AtomicBool,
+    ready: Arc<ReadyQueue>,
+}
+
+struct ReadyQueue {
+    tasks: Mutex<VecDeque<TaskId>>,
+    wake: Box<dyn Fn() + Send + Sync>,
 }
 
 impl Wake for TaskWake {
@@ -146,38 +129,71 @@ impl Wake for TaskWake {
 
 impl TaskWake {
     fn notify(&self) {
-        (self.wake)(self.id);
+        if self.queued.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let wake = {
+            let mut tasks = self.ready.tasks.lock().unwrap();
+            let wake = tasks.is_empty();
+            tasks.push_back(self.id);
+            wake
+        };
+        if wake {
+            (self.ready.wake)();
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
     use std::{
-        collections::VecDeque,
-        future::pending,
-        sync::{Arc, Mutex},
+        future::{pending, poll_fn},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        },
+        task::Poll,
     };
 
     use super::*;
 
     #[test]
-    fn canceled_slots_reject_stale_ids() {
-        let ready = Arc::new(Mutex::new(VecDeque::new()));
+    fn ready_queue_skips_canceled_tasks_and_coalesces_wakes() {
+        let wakes = Arc::new(AtomicUsize::new(0));
         let executor = TaskExecutor::new({
-            let ready = ready.clone();
-            move |task| ready.lock().unwrap().push_back(task)
+            let wakes = wakes.clone();
+            move || {
+                wakes.fetch_add(1, Ordering::Relaxed);
+            }
         });
-        let task = executor.spawn(pending::<()>());
-        let stale = ready.lock().unwrap().pop_front().unwrap();
-        drop(task);
-        assert!(!executor.run(stale));
-        assert!(ready.lock().unwrap().is_empty());
+        let canceled = executor.spawn(pending::<()>());
+        executor.cancel(canceled);
+        let polls = Arc::new(AtomicUsize::new(0));
+        let stored = Arc::new(Mutex::new(None));
+        let task = executor.spawn(poll_fn({
+            let polls = polls.clone();
+            let stored = stored.clone();
+            move |context| {
+                if polls.fetch_add(1, Ordering::Relaxed) == 1 {
+                    context.waker().wake_by_ref();
+                }
+                *stored.lock().unwrap() = Some(context.waker().clone());
+                Poll::Pending
+            }
+        }));
 
-        let task = executor.spawn(async {});
-        let current = ready.lock().unwrap().pop_front().unwrap();
-        assert_ne!(stale, current);
-        assert!(!executor.run(stale));
-        assert!(executor.run(current));
-        assert!(task.is_finished());
+        assert_eq!(wakes.load(Ordering::Relaxed), 1);
+        assert!(executor.run_ready(|_| {}));
+        assert_eq!(polls.load(Ordering::Relaxed), 1);
+        let waker = stored.lock().unwrap().take().unwrap();
+        waker.wake_by_ref();
+        waker.wake_by_ref();
+        assert_eq!(wakes.load(Ordering::Relaxed), 2);
+        assert!(executor.run_ready(|_| {}));
+        assert_eq!(polls.load(Ordering::Relaxed), 2);
+        assert_eq!(wakes.load(Ordering::Relaxed), 3);
+        assert!(executor.run_ready(|_| {}));
+        assert_eq!(polls.load(Ordering::Relaxed), 3);
+        executor.cancel(task);
     }
 }

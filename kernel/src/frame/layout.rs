@@ -4,17 +4,16 @@ use std::marker::PhantomData;
 use super::LayoutState;
 use super::{Frame, NodeId, StoredNode};
 use crate::{
-    Platform,
     arena::{DataArena, DataId},
     geometry::{Constraints, Point, Size},
     layout::{Layout, LayoutResolution},
 };
 
 /// context for measuring and positioning a layout's children
-pub struct LayoutCx<'a, R: Platform, I> {
-    frame: &'a mut Frame<R>,
+pub struct LayoutCx<'a, C, I> {
+    frame: &'a mut Frame<C>,
     data: &'a DataArena,
-    platform: &'a mut R,
+    context: &'a mut C,
     node: NodeId,
     nodes: *const StoredNode,
     item: PhantomData<fn() -> I>,
@@ -23,7 +22,7 @@ pub struct LayoutCx<'a, R: Platform, I> {
     offset: Point,
 }
 
-impl<'a, R: Platform, I: 'static> LayoutCx<'a, R, I> {
+impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     /// iterates direct flow children in declaration order
     #[inline]
     pub fn children(&self) -> Children<'a> {
@@ -50,7 +49,7 @@ impl<'a, R: Platform, I: 'static> LayoutCx<'a, R, I> {
         self.assert_child(child);
         let size = self
             .frame
-            .layout_node(self.data, child, self.platform, constraints);
+            .layout_node(self.data, child, self.context, constraints);
         #[cfg(debug_assertions)]
         {
             self.frame.nodes[child.index()].layout_state = LayoutState::Laid;
@@ -116,10 +115,10 @@ impl<'a, R: Platform, I: 'static> LayoutCx<'a, R, I> {
         self.frame.request_frame();
     }
 
-    /// accesses platform resources during layout
+    /// accesses context resources during layout
     #[inline]
-    pub fn platform(&mut self) -> &mut R {
-        self.platform
+    pub fn context(&mut self) -> &mut C {
+        self.context
     }
 
     /// sets a child's paint order among its visual siblings
@@ -167,11 +166,11 @@ impl Iterator for Children<'_> {
     }
 }
 
-pub fn run<R: Platform, L: Layout<R>>(
+pub fn run<C, L: Layout<C>>(
     data: &DataArena,
-    frame: &mut Frame<R>,
+    frame: &mut Frame<C>,
     node: NodeId,
-    platform: &mut R,
+    context: &mut C,
     id: DataId,
     constraints: Constraints,
 ) -> Size {
@@ -183,7 +182,7 @@ pub fn run<R: Platform, L: Layout<R>>(
     let mut cx = LayoutCx {
         frame,
         data,
-        platform,
+        context,
         node,
         nodes,
         item: PhantomData,
@@ -212,7 +211,7 @@ pub fn run<R: Platform, L: Layout<R>>(
     size
 }
 
-pub fn override_item<R: Platform, L: Layout<R>>(
+pub fn override_item<C, L: Layout<C>>(
     data: &mut DataArena,
     layout: DataId,
     item: DataId,

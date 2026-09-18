@@ -4,10 +4,9 @@
 
 use std::{
     cell::Cell,
-    marker::{PhantomData, PhantomPinned},
+    marker::PhantomData,
     ops::{AsyncFnOnce, Deref, DerefMut},
     panic::Location,
-    pin::Pin,
     ptr::NonNull,
     rc::Rc,
 };
@@ -63,84 +62,84 @@ impl<T: 'static> Root<T> {
 
 #[must_not_suspend = "mutable app access cannot be held across a suspend point"]
 /// exclusive mutable application access during a task poll
-pub struct AppMut<A: 'static> {
-    executor: NonNull<ExecutorCore>,
+pub struct AppMut<'a, A: 'static> {
+    executor: Rc<ExecutorCore>,
+    root: NonNull<()>,
     app: NonNull<A>,
-    #[allow(clippy::type_complexity)]
-    local: PhantomData<(Rc<()>, fn(&mut A))>,
+    borrow: PhantomData<&'a mut A>,
 }
 
 /// a local task queue driven by a platform event loop
 pub struct LocalExecutor<A: 'static> {
-    core: ExecutorCore,
+    core: Rc<ExecutorCore>,
     app: PhantomData<fn(&mut A)>,
-    _pinned: PhantomPinned,
 }
 
 impl<A: 'static> LocalExecutor<A> {
-    /// creates an executor that sends ready task IDs to the platform event loop
-    pub fn new(wake: impl Fn(TaskId) + Send + Sync + 'static) -> Self {
+    /// creates an executor that wakes the platform event loop when tasks are ready
+    pub fn new(wake: impl Fn() + Send + Sync + 'static) -> Self {
         Self {
-            core: ExecutorCore {
+            core: Rc::new(ExecutorCore {
                 tasks: task::TaskExecutor::new(wake),
-                root: Cell::new(None),
-                borrowed_at: Cell::new(None),
-            },
+                access: Cell::new(AppAccess::Inactive),
+            }),
             app: PhantomData,
-            _pinned: PhantomPinned,
         }
     }
 
-    /// creates the root task scope for this pinned executor
-    ///
-    /// # Safety
-    ///
-    /// the executor must remain pinned and alive while the returned scope exists
-    pub unsafe fn root(self: Pin<&Self>) -> Root<A> {
+    /// creates the root task scope for this executor
+    pub fn root(&self) -> Root<A> {
         Root {
-            scope: scope::identity(NonNull::from(&self.get_ref().core)),
+            scope: scope::identity(Rc::downgrade(&self.core)),
         }
     }
 
-    /// polls one ready task with temporary access to `app`
-    pub fn run(self: Pin<&Self>, app: &mut A, task: TaskId) -> bool {
+    /// polls ready tasks with temporary access to `app`
+    pub fn run_ready(&self, app: &mut A) -> bool {
         struct ResetAppAccess<'a>(&'a ExecutorCore);
 
         impl Drop for ResetAppAccess<'_> {
             fn drop(&mut self) {
-                self.0.root.set(None);
-                self.0.borrowed_at.set(None);
+                self.0.access.set(AppAccess::Inactive);
             }
         }
 
-        let executor = &self.get_ref().core;
-        assert!(executor.root.get().is_none(), "tasks already running");
+        let executor = &self.core;
         assert!(
-            executor.borrowed_at.get().is_none(),
-            "application borrow state lost"
+            matches!(executor.access.get(), AppAccess::Inactive),
+            "tasks already running"
         );
-        executor.root.set(Some(NonNull::from(app).cast()));
+        executor
+            .access
+            .set(AppAccess::Available(NonNull::from(app).cast()));
         let _reset_app_access = ResetAppAccess(executor);
-        let ran = executor.tasks.run(task);
-
-        if let Some(location) = executor.borrowed_at.get() {
-            panic!(
-                "app borrowed at {location} across await. add these attributes to your crate:\n\
-                 #![feature(must_not_suspend)]\n\
-                 #![deny(must_not_suspend)]"
-            )
-        }
-        ran
+        executor.tasks.run_ready(|task| {
+            if let AppAccess::Borrowed(location) = executor.access.get() {
+                // drop the task before panicking so app access cannot survive a caught panic
+                executor.tasks.cancel(task);
+                panic!(
+                    "app borrowed at {location} across await. add these attributes to your crate:\n\
+                     #![feature(must_not_suspend)]\n\
+                     #![deny(must_not_suspend)]"
+                )
+            }
+        })
     }
 }
 
 struct ExecutorCore {
     tasks: task::TaskExecutor,
-    root: Cell<Option<NonNull<()>>>,
-    borrowed_at: Cell<Option<&'static Location<'static>>>,
+    access: Cell<AppAccess>,
 }
 
-impl<A> Deref for AppMut<A> {
+#[derive(Clone, Copy)]
+enum AppAccess {
+    Inactive,
+    Available(NonNull<()>),
+    Borrowed(&'static Location<'static>),
+}
+
+impl<A> Deref for AppMut<'_, A> {
     type Target = A;
 
     fn deref(&self) -> &Self::Target {
@@ -149,16 +148,15 @@ impl<A> Deref for AppMut<A> {
     }
 }
 
-impl<A> DerefMut for AppMut<A> {
+impl<A> DerefMut for AppMut<'_, A> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         // safety: taking the app slot guarantees exclusive access during task polling
         unsafe { self.app.as_mut() }
     }
 }
 
-impl<A> Drop for AppMut<A> {
+impl<A> Drop for AppMut<'_, A> {
     fn drop(&mut self) {
-        // safety: the task scope cannot outlive its pinned executor
-        unsafe { self.executor.as_ref() }.borrowed_at.set(None);
+        self.executor.access.set(AppAccess::Available(self.root));
     }
 }

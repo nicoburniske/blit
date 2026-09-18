@@ -93,10 +93,6 @@ impl DataArena {
         }
         self.len = 0;
     }
-
-    pub fn heap_bytes(&self) -> usize {
-        self.words.capacity() * size_of::<Word>() + self.drops.capacity() * size_of::<DropEntry>()
-    }
 }
 
 impl Drop for DataArena {

@@ -93,10 +93,16 @@ name = "blit"
 version = "0.1.0"
 
 [[package]]
+name = "blit-arrayvec"
+version = "0.1.0"
+
+[[package]]
 name = "blit-cpu"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-arrayvec",
+ "blit-gui",
  "blit-text",
  "blit-text-cosmic",
  "blit-text-fontdue",
@@ -107,25 +113,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "blit-demo"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-desktop",
+ "blit-gui",
+ "blit-layout",
+ "blit-text-cosmic",
+ "blit-text-fontdue",
+ "blit-tui",
+]
+
+[[package]]
 name = "blit-desktop"
 version = "0.1.0"
 dependencies = [
  "blit",
  "blit-cpu",
- "blit-diff",
  "blit-executor",
- "blit-showcase",
- "blit-std",
- "blit-text",
- "blit-text-cosmic",
- "blit-text-fontdue",
+ "blit-gui",
  "softbuffer",
  "winit",
 ]
-
-[[package]]
-name = "blit-diff"
-version = "0.1.0"
 
 [[package]]
 name = "blit-executor"
@@ -135,19 +145,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "blit-showcase"
+name = "blit-gui"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-std",
+ "blit-layout",
+ "blit-text",
+ "blit-widgets",
+ "blit_cache",
+ "ttf-parser",
 ]
 
 [[package]]
-name = "blit-std"
+name = "blit-layout"
 version = "0.1.0"
 dependencies = [
  "blit",
- "unicode-segmentation",
 ]
 
 [[package]]
@@ -181,24 +194,26 @@ dependencies = [
 name = "blit-tui"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "blit",
- "blit-showcase",
- "blit-std",
- "blit-tui-render",
+ "blit-arrayvec",
+ "blit-layout",
+ "blit-widgets",
+ "blit_cache",
+ "divan",
  "rustix 1.1.4",
  "signal-hook",
+ "unicode-segmentation",
+ "unicode-width",
 ]
 
 [[package]]
-name = "blit-tui-render"
+name = "blit-widgets"
 version = "0.1.0"
 dependencies = [
- "base64",
  "blit",
- "blit_cache",
- "divan",
+ "blit-layout",
  "unicode-segmentation",
- "unicode-width",
 ]
 
 [[package]]

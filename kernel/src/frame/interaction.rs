@@ -1,5 +1,4 @@
 use crate::{
-    Platform,
     geometry::{Point, Rect, Sides},
     input::{Input, PointerButton},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
@@ -9,7 +8,7 @@ use super::Frame;
 
 const DRAG_THRESHOLD: f32 = 6.0;
 
-pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &R) {
+pub fn resolve<C>(frame: &mut Frame<C>) {
     frame
         .interaction
         .requests
@@ -32,10 +31,25 @@ pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &R) {
             stored.area.height + hit.top + hit.bottom,
         );
         let clip_bounds = frame.clip_bounds(stored.resolved_clip);
+        let area = match frame.layout_resolution {
+            crate::LayoutResolution::Continuous => area.intersection(clip_bounds),
+            crate::LayoutResolution::Discrete { step } => {
+                let left = (area.x / step.width).round() * step.width;
+                let top = (area.y / step.height).round() * step.height;
+                let right = ((area.x + area.width) / step.width).round() * step.width;
+                let bottom = ((area.y + area.height) / step.height).round() * step.height;
+                let area = Rect::new(left, top, right - left, bottom - top);
+                let left = (clip_bounds.x / step.width - 0.5).ceil() * step.width;
+                let top = (clip_bounds.y / step.height - 0.5).ceil() * step.height;
+                let right =
+                    ((clip_bounds.x + clip_bounds.width) / step.width - 0.5).ceil() * step.width;
+                let bottom =
+                    ((clip_bounds.y + clip_bounds.height) / step.height - 0.5).ceil() * step.height;
+                area.intersection(Rect::new(left, top, right - left, bottom - top))
+            }
+        };
         // todo: test interaction against the actual custom clip chain
-        frame
-            .interaction
-            .register(id, platform.interaction_area(area, clip_bounds));
+        frame.interaction.register(id, area);
     }
     if frame.interaction.end() {
         frame.frame_requested = true;

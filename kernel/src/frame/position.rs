@@ -1,14 +1,13 @@
 use super::{Frame, NodeId};
 use crate::{
-    Platform,
     arena::DataArena,
     geometry::{Constraints, Point, Size},
     layout::{Axis, Sizing},
 };
 
-pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mut R, size: Size) {
+pub fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size) {
     let root = frame.node_id(0);
-    frame.layout_node(data, root, platform, Constraints::tight(size));
+    frame.layout_node(data, root, context, Constraints::tight(size));
     for index in 1..frame.nodes.len() {
         let Some(positioned) = frame.nodes[index].positioned.index() else {
             continue;
@@ -75,7 +74,7 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
         let size = frame.layout_node(
             data,
             node,
-            platform,
+            context,
             Constraints {
                 min: Size::new(width.0, height.0),
                 max: Size::new(width.1, height.1),
@@ -93,7 +92,7 @@ pub fn layout<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
     }
 }
 
-pub fn offset<R: Platform>(frame: &Frame<R>, node: NodeId) -> Point {
+pub fn offset<C>(frame: &Frame<C>, node: NodeId) -> Point {
     if let Some(positioned) = frame.nodes[node.index()].positioned.index() {
         let positioned = frame.positioned[positioned];
         return if positioned.uses_target_content_origin {
@@ -110,7 +109,7 @@ pub fn offset<R: Platform>(frame: &Frame<R>, node: NodeId) -> Point {
     }
 }
 
-pub fn resolve<R: Platform>(frame: &mut Frame<R>) {
+pub fn resolve<C>(frame: &mut Frame<C>) {
     for index in 1..frame.nodes.len() {
         let reference = frame.nodes[index]
             .positioned

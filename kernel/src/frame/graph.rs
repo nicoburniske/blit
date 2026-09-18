@@ -1,12 +1,4 @@
-/// estimated retained memory used by a frame after its buffers have grown
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct FrameMemory {
-    pub node_size: usize,
-    pub node_capacity: usize,
-    pub heap_bytes: usize,
-}
-
-pub struct Frame<R: Platform> {
+pub struct Frame<C> {
     nodes: Vec<StoredNode>,
     current_parent: Option<NodeId>,
     atoms: Vec<StoredAtom>,
@@ -14,9 +6,9 @@ pub struct Frame<R: Platform> {
     clips: Vec<StoredClip>,
     positioned: Vec<Positioned>,
     geometry: Vec<GeometryRecord>,
-    atom_kinds: Vec<AtomKind<R>>,
-    layout_kinds: Vec<LayoutKind<R>>,
-    clip_kinds: Vec<ClipKind<R>>,
+    atom_kinds: Vec<AtomKind<C>>,
+    layout_kinds: Vec<LayoutKind<C>>,
+    clip_kinds: Vec<ClipKind<C>>,
     data: DataArena,
     named_nodes: HashMap<WidgetId, Option<NodeId>, BuildHasherDefault<WidgetIdHasher>>,
     paint_links: Vec<PaintLinks>,
@@ -35,10 +27,11 @@ pub struct Frame<R: Platform> {
     time: Duration,
     screen: Rect,
     layout_resolution: LayoutResolution,
+    resized: bool,
     frame_requested: bool,
 }
 
-impl<R: Platform> Default for Frame<R> {
+impl<C> Default for Frame<C> {
     fn default() -> Self {
         Self {
             nodes: Vec::new(),
@@ -69,45 +62,49 @@ impl<R: Platform> Default for Frame<R> {
             time: Duration::ZERO,
             screen: Rect::default(),
             layout_resolution: LayoutResolution::Continuous,
+            resized: false,
             frame_requested: true,
         }
     }
 }
 
-impl<R: Platform> Frame<R> {
-    pub fn render<W: Widget<R>>(
+impl<C> Frame<C> {
+    /// rebuilds the frame graph for one input
+    pub fn build<W: Widget<C>>(
         &mut self,
-        platform: &mut R,
+        context: &mut C,
         frame: FrameInfo,
+        time: Duration,
+        input: Input,
         widget: W,
     ) -> W::Response {
         self.frame_requested = false;
-        self.record(platform, frame, Duration::ZERO, Input::None, true, widget)
+        self.record(context, frame, time, input, widget)
     }
 
-    pub fn render_inputs<O>(
-        &mut self,
-        platform: &mut R,
-        frame: FrameInfo,
-        time: Duration,
-        inputs: impl IntoIterator<Item = Input>,
-        mut build: impl FnMut(Ui<'_, R>) -> O,
-    ) {
-        self.frame_requested = false;
-        let mut inputs = inputs.into_iter();
-        let Some(first) = inputs.next() else {
-            self.record(platform, frame, time, Input::None, true, &mut build);
-            return;
-        };
-        let mut input = first;
-        loop {
-            let next = inputs.next();
-            self.record(platform, frame, time, input, next.is_none(), &mut build);
-            let Some(next) = next else {
-                break;
-            };
-            input = next;
-        }
+    /// resolves layout, positioning, clipping and interaction for the built graph
+    pub fn layout(&mut self, context: &mut C) {
+        let mut data = std::mem::take(&mut self.data);
+        transition::resolve(self, &mut data, context, self.screen.size(), self.resized);
+        position::resolve(self);
+        paint::resolve_order(self);
+        paint::resolve_clips(self);
+        interaction::resolve(self);
+        std::mem::swap(&mut self.geometry_previous, &mut self.geometry_current);
+        self.geometry_current.clear();
+        self.animations.retain(|animation| animation.seen);
+        self.transitions.retain(|state| state.seen);
+        self.timers.retain(|timer| timer.seen);
+        self.named_nodes.retain(|_, node| node.is_some());
+        self.data = data;
+    }
+
+    /// paints the resolved graph and releases its retained values
+    pub fn paint(&mut self, context: &mut C) {
+        let mut data = std::mem::take(&mut self.data);
+        paint::render(self, &data, context);
+        data.clear();
+        self.data = data;
     }
 
     pub fn has_pending_redraw(&self) -> bool {
@@ -139,47 +136,16 @@ impl<R: Platform> Frame<R> {
             .find_map(|(candidate, area)| (*candidate == id).then_some(*area))
     }
 
-    pub fn memory(&self) -> FrameMemory {
-        FrameMemory {
-            node_size: size_of::<StoredNode>(),
-            node_capacity: self.nodes.capacity(),
-            heap_bytes: self.nodes.capacity() * size_of::<StoredNode>()
-                + self.atoms.capacity() * size_of::<StoredAtom>()
-                + self.layouts.capacity() * size_of::<StoredLayout>()
-                + self.clips.capacity() * size_of::<StoredClip>()
-                + self.positioned.capacity() * size_of::<Positioned>()
-                + self.geometry.capacity() * size_of::<GeometryRecord>()
-                + self.atom_kinds.capacity() * size_of::<AtomKind<R>>()
-                + self.layout_kinds.capacity() * size_of::<LayoutKind<R>>()
-                + self.clip_kinds.capacity() * size_of::<ClipKind<R>>()
-                + self.data.heap_bytes()
-                + self.named_nodes.capacity() * size_of::<(WidgetId, Option<NodeId>)>()
-                + self.paint_links.capacity() * size_of::<PaintLinks>()
-                + self.paint_order.capacity() * size_of::<NodeId>()
-                + self.order_stack.capacity() * size_of::<NodeId>()
-                + self.resolved_clips.capacity() * size_of::<ResolvedClip>()
-                + self.active_clips.capacity() * size_of::<ResolvedClipId>()
-                + self.geometry_previous.capacity() * size_of::<(WidgetId, Rect)>()
-                + self.geometry_current.capacity() * size_of::<(WidgetId, Rect)>()
-                + self.animations.capacity() * size_of::<animation::AnimationState>()
-                + self.transitions.capacity() * size_of::<transition::TransitionState>()
-                + self.target_sizes.capacity() * size_of::<Size>()
-                + self.timers.capacity() * size_of::<timer::TimerState>(),
-        }
-    }
-
-    fn record<W: Widget<R>>(
+    fn record<W: Widget<C>>(
         &mut self,
-        platform: &mut R,
+        context: &mut C,
         frame: FrameInfo,
         time: Duration,
         input: Input,
-        render: bool,
         widget: W,
     ) -> W::Response {
         #[cfg(debug_assertions)]
         generation::begin();
-        platform.frame_stage(crate::FrameStage::Build);
         self.nodes.clear();
         self.current_parent = None;
         self.atoms.clear();
@@ -197,7 +163,7 @@ impl<R: Platform> Frame<R> {
         self.active_clips.clear();
         self.input = input;
         self.time = time;
-        let resized = self.screen.size() != frame.size;
+        self.resized = self.screen.size() != frame.size;
         self.screen = Rect::new(0.0, 0.0, frame.size.width, frame.size.height);
         self.layout_resolution = frame.layout_resolution;
         for animation in &mut self.animations {
@@ -214,11 +180,7 @@ impl<R: Platform> Frame<R> {
         let output = {
             let root = self.push_node();
             self.current_parent = Some(root);
-            let mut context = Context {
-                frame: NonNull::from(&mut *self),
-                platform: NonNull::from(&mut *platform),
-            };
-            widget.build(Ui::new(&mut context, root))
+            widget.build(Ui::new(&mut *self, &mut *context, root))
         };
         assert_eq!(
             self.nodes[0].subtree_end as usize,
@@ -226,30 +188,6 @@ impl<R: Platform> Frame<R> {
             "a frame must have exactly one root"
         );
 
-        // layout mutates graph state while frame data remains immutable
-        // todo/hack: is there a better way to do this
-        platform.frame_stage(crate::FrameStage::Layout);
-        let mut data = std::mem::take(&mut self.data);
-        transition::resolve(self, &mut data, platform, frame.size, resized);
-        position::resolve(self);
-        paint::resolve_order(self);
-        paint::resolve_clips(self);
-        interaction::resolve(self, platform);
-        std::mem::swap(&mut self.geometry_previous, &mut self.geometry_current);
-        self.geometry_current.clear();
-        self.animations.retain(|animation| animation.seen);
-        self.transitions.retain(|state| state.seen);
-        self.timers.retain(|timer| timer.seen);
-        self.named_nodes.retain(|_, node| node.is_some());
-        if render {
-            platform.frame_stage(crate::FrameStage::Paint);
-            paint::render(self, &data, platform);
-        }
-        data.clear();
-        self.data = data;
-        if render {
-            platform.frame_stage(crate::FrameStage::Complete);
-        }
         output
     }
 
@@ -257,18 +195,18 @@ impl<R: Platform> Frame<R> {
         &mut self,
         data: &DataArena,
         node: NodeId,
-        platform: &mut R,
+        context: &mut C,
         constraints: Constraints,
     ) -> Size {
         let index = node.index();
         let size = if let Some(layout) = self.nodes[index].layout.index() {
             let stored = self.layouts[layout];
             let run = self.layout_kinds[stored.kind as usize].layout;
-            run(data, self, node, platform, stored.data, constraints)
+            run(data, self, node, context, stored.data, constraints)
         } else if constraints.min == constraints.max {
             constraints.min
         } else {
-            constraints.constrain(self.measure_base(data, node, platform, constraints))
+            constraints.constrain(self.measure_base(data, node, context, constraints))
         };
         self.nodes[index].area.width = size.width;
         self.nodes[index].area.height = size.height;
@@ -279,7 +217,7 @@ impl<R: Platform> Frame<R> {
         &mut self,
         data: &DataArena,
         node: NodeId,
-        platform: &mut R,
+        context: &mut C,
         constraints: Constraints,
     ) -> Size {
         let mut size = Size::ZERO;
@@ -287,14 +225,14 @@ impl<R: Platform> Frame<R> {
         while let Some(index) = atom.index() {
             let stored = self.atoms[index];
             let measure = self.atom_kinds[stored.kind as usize].measure;
-            let measured = measure(data, stored.data, platform, constraints);
+            let measured = measure(data, stored.data, context, constraints);
             size = size.max(measured);
             atom = stored.next;
         }
         size
     }
 
-    fn push_atom<A: Atom<R>>(&mut self, node: NodeId, atom: A) {
+    fn push_atom<A: Atom<C>>(&mut self, node: NodeId, atom: A) {
         let type_id = TypeId::of::<A>();
         let kind = self
             .atom_kinds
@@ -303,9 +241,9 @@ impl<R: Platform> Frame<R> {
             .unwrap_or_else(|| {
                 self.atom_kinds.push(AtomKind {
                     type_id,
-                    measure: measure_atom::<R, A>,
-                    paint_bounds: paint_bounds_atom::<R, A>,
-                    paint: paint_atom::<R, A>,
+                    measure: measure_atom::<C, A>,
+                    paint_bounds: paint_bounds_atom::<C, A>,
+                    paint: paint_atom::<C, A>,
                 });
                 self.atom_kinds.len() - 1
             });
@@ -324,7 +262,7 @@ impl<R: Platform> Frame<R> {
         self.nodes[node].last_atom = id;
     }
 
-    fn store_layout<L: Layout<R>>(&mut self, value: L) -> StoredLayoutId {
+    fn store_layout<L: Layout<C>>(&mut self, value: L) -> StoredLayoutId {
         let type_id = TypeId::of::<L>();
         let kind = self
             .layout_kinds
@@ -333,8 +271,8 @@ impl<R: Platform> Frame<R> {
             .unwrap_or_else(|| {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
-                    layout: layout::run::<R, L>,
-                    override_size: layout::override_item::<R, L>,
+                    layout: layout::run::<C, L>,
+                    override_size: layout::override_item::<C, L>,
                 });
                 self.layout_kinds.len() - 1
             });
@@ -347,8 +285,8 @@ impl<R: Platform> Frame<R> {
         id
     }
 
-    fn store_clip<C: Clip<R>>(&mut self, clip: C) -> StoredClipId {
-        let type_id = TypeId::of::<C>();
+    fn store_clip<X: Clip<C>>(&mut self, clip: X) -> StoredClipId {
+        let type_id = TypeId::of::<X>();
         let kind = self
             .clip_kinds
             .iter()
@@ -356,8 +294,8 @@ impl<R: Platform> Frame<R> {
             .unwrap_or_else(|| {
                 self.clip_kinds.push(ClipKind {
                     type_id,
-                    push: push_clip::<R, C>,
-                    pop: pop_clip::<R, C>,
+                    push: push_clip::<C, X>,
+                    pop: pop_clip::<C, X>,
                 });
                 self.clip_kinds.len() - 1
             });
@@ -606,50 +544,50 @@ type PositionedId = Index<Positioned>;
 type GeometryId = Index<GeometryRecord>;
 type ResolvedClipId = Index<ResolvedClip>;
 
-struct AtomKind<R: Platform> {
+struct AtomKind<C> {
     type_id: TypeId,
-    measure: fn(&DataArena, DataId, &mut R, Constraints) -> Size,
+    measure: fn(&DataArena, DataId, &mut C, Constraints) -> Size,
     paint_bounds: fn(&DataArena, DataId, Rect) -> Rect,
-    paint: fn(&DataArena, DataId, &mut R, Rect),
+    paint: fn(&DataArena, DataId, &mut C, Rect),
 }
 
 type OverrideSize = fn(&mut DataArena, DataId, DataId, Option<f32>, Option<f32>) -> bool;
 
-struct LayoutKind<R: Platform> {
+struct LayoutKind<C> {
     type_id: TypeId,
-    layout: fn(&DataArena, &mut Frame<R>, NodeId, &mut R, DataId, Constraints) -> Size,
+    layout: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, Constraints) -> Size,
     override_size: OverrideSize,
 }
 
-struct ClipKind<R: Platform> {
+struct ClipKind<C> {
     type_id: TypeId,
-    push: fn(&DataArena, DataId, &mut R, Rect),
-    pop: fn(&DataArena, DataId, &mut R),
+    push: fn(&DataArena, DataId, &mut C, Rect),
+    pop: fn(&DataArena, DataId, &mut C),
 }
 
-fn measure_atom<R: Platform, A: Atom<R>>(
+fn measure_atom<C, A: Atom<C>>(
     data: &DataArena,
     id: DataId,
-    platform: &mut R,
+    context: &mut C,
     constraints: Constraints,
 ) -> Size {
-    data.load::<A>(id).measure(platform, constraints)
+    data.load::<A>(id).measure(context, constraints)
 }
 
-fn paint_bounds_atom<R: Platform, A: Atom<R>>(data: &DataArena, id: DataId, area: Rect) -> Rect {
+fn paint_bounds_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, area: Rect) -> Rect {
     data.load::<A>(id).paint_bounds(area)
 }
 
-fn paint_atom<R: Platform, A: Atom<R>>(data: &DataArena, id: DataId, platform: &mut R, area: Rect) {
-    data.load::<A>(id).paint(platform, area)
+fn paint_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, context: &mut C, area: Rect) {
+    data.load::<A>(id).paint(context, area)
 }
 
-fn push_clip<R: Platform, C: Clip<R>>(data: &DataArena, id: DataId, platform: &mut R, area: Rect) {
-    data.load::<C>(id).push(platform, area)
+fn push_clip<C, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C, area: Rect) {
+    data.load::<X>(id).push(context, area)
 }
 
-fn pop_clip<R: Platform, C: Clip<R>>(data: &DataArena, id: DataId, platform: &mut R) {
-    data.load::<C>(id).pop(platform)
+fn pop_clip<C, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C) {
+    data.load::<X>(id).pop(context)
 }
 
 // WidgetId already contains a hash

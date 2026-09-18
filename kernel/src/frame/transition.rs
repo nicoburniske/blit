@@ -2,17 +2,16 @@ use std::time::Duration;
 
 use super::{Frame, NodeId, position};
 use crate::{
-    Platform,
     animation::{Transition, TransitionProperties},
     arena::DataArena,
     geometry::{Rect, Size},
     interact::WidgetId,
 };
 
-pub fn resolve<R: Platform>(
-    frame: &mut Frame<R>,
+pub fn resolve<C>(
+    frame: &mut Frame<C>,
     data: &mut DataArena,
-    platform: &mut R,
+    context: &mut C,
     size: Size,
     resized: bool,
 ) {
@@ -35,7 +34,7 @@ pub fn resolve<R: Platform>(
         }
     }
 
-    position::layout(frame, data, platform, size);
+    position::layout(frame, data, context, size);
     let mut active = TransitionProperties::NONE;
     for index in 0..frame.transitions.len() {
         if !frame.transitions[index].seen {
@@ -94,7 +93,7 @@ pub fn resolve<R: Platform>(
             frame
                 .target_sizes
                 .extend(frame.nodes.iter().map(|node| node.area.size()));
-            position::layout(frame, data, platform, size);
+            position::layout(frame, data, context, size);
             frame.target_sizes.clear();
         }
     }

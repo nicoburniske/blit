@@ -1,0 +1,206 @@
+use crate::{
+    GuiContext, Ui,
+    color::Color,
+    display_list::Rectangle,
+    text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
+};
+use blit::{
+    Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Widget, WidgetId,
+};
+pub use blit_widgets::text_input::{Response, State};
+
+blit::builder! {
+    pub struct TextInput<'a> {
+        new(state: &'a mut State, id: WidgetId, value: &'a mut String),
+        style: TextStyle = TextStyle::default(),
+        padding: Sides = Sides::all(0.0),
+        background: Color = Color::TRANSPARENT,
+        color: Color = Color::BLACK,
+        placeholder: &'a str = "",
+        placeholder_color: Color = Color::GRAY,
+        selection_background: Color = Color::from_rgba8(64, 128, 255, 128),
+        cursor_background: Color = Color::BLACK,
+    }
+}
+
+impl Widget<GuiContext> for TextInput<'_> {
+    type Response = Response;
+
+    fn build(self, mut ui: Ui<'_>) -> Self::Response {
+        let Self {
+            state,
+            id,
+            value,
+            style,
+            padding,
+            background,
+            color,
+            placeholder,
+            placeholder_color,
+            selection_background,
+            cursor_background,
+        } = self;
+        let interaction = ui.interact(
+            id,
+            Sense {
+                drag: true,
+                ..Sense::FOCUS
+            },
+        );
+        let input = *ui.input();
+        match input {
+            Input::Key(key) if ui.is_focused(id) && key.key == Key::Escape && key.pressed => {
+                ui.clear_focus();
+            }
+            _ => {}
+        }
+        let focused = ui.is_focused(id);
+        let response = state.update(value, if focused { &input } else { &Input::None });
+        let text = ui.context().text_run(value, style);
+        let options = TextOptions {
+            max_lines: Some(1),
+            ..TextOptions::default()
+        };
+        let pointer = if focused {
+            match input {
+                Input::PointerDown {
+                    position,
+                    button: PointerButton::Primary,
+                    modifiers,
+                } if interaction.active => Some((position, modifiers.shift())),
+                Input::PointerMove { position, .. } if interaction.active => Some((position, true)),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        if let Some(area) = ui.geometry(id) {
+            let area = content_area(area, padding);
+            let request = TextRequest {
+                text,
+                area,
+                offset_x: state.offset_x,
+                color,
+                options,
+            };
+            if let Some((position, extend)) = pointer {
+                let offset = ui.context().text_offset_at_position(&request, position);
+                state.move_to(value, offset, extend);
+            }
+            if area.width > 0.0 {
+                let cursor = ui.context().text_cursor_rect(&request, state.cursor);
+                if cursor.x < area.x {
+                    state.offset_x = (state.offset_x - area.x + cursor.x).max(0.0);
+                } else if cursor.x + cursor.width > area.x + area.width {
+                    state.offset_x += cursor.x + cursor.width - area.x - area.width;
+                }
+            }
+        } else {
+            ui.request_frame();
+        }
+        let display = if value.is_empty() && !placeholder.is_empty() {
+            ui.context().text_run(placeholder, style)
+        } else {
+            text
+        };
+        let mut ui = ui.widget_id(id);
+        ui.insert(InputAtom {
+            text,
+            display,
+            state: *state,
+            options,
+            padding,
+            focused,
+            background,
+            color,
+            placeholder_color,
+            selection_background,
+            cursor_background,
+        });
+        response
+    }
+}
+
+struct InputAtom {
+    text: TextRunId,
+    display: TextRunId,
+    state: State,
+    options: TextOptions,
+    padding: Sides,
+    focused: bool,
+    background: Color,
+    color: Color,
+    placeholder_color: Color,
+    selection_background: Color,
+    cursor_background: Color,
+}
+
+impl Atom<GuiContext> for InputAtom {
+    fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> Size {
+        let size = context.measure_text(&TextLayoutRequest {
+            text: self.display,
+            wrap: TextWrap::None,
+            max_width: None,
+            max_lines: Some(1),
+        });
+        constraints.constrain(size + self.padding.size())
+    }
+
+    fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
+        let area = content_area(area, self.padding);
+        if self.background != Color::TRANSPARENT {
+            context.paint_rectangle(Rectangle::new(area).background(self.background));
+        }
+        let request = TextRequest {
+            text: self.text,
+            area,
+            offset_x: self.state.offset_x,
+            color: self.color,
+            options: self.options,
+        };
+        let start_offset = self.state.cursor.min(self.state.anchor);
+        let end_offset = self.state.cursor.max(self.state.anchor);
+        if start_offset != end_offset {
+            let start = context.text_cursor_rect(&request, start_offset);
+            let end = context.text_cursor_rect(&request, end_offset);
+            if let Some(selection) =
+                LogicalRect::new(start.x, start.y, end.x - start.x, start.height).intersection(area)
+            {
+                context.paint_rectangle(
+                    Rectangle::new(selection).background(self.selection_background),
+                );
+            }
+        }
+        if self.focused {
+            if let Some(cursor) = context
+                .text_cursor_rect(&request, self.state.cursor)
+                .intersection(area)
+            {
+                context.paint_rectangle(Rectangle::new(cursor).background(self.cursor_background));
+            }
+        }
+        let request = TextRequest {
+            text: self.display,
+            color: if self.display != self.text {
+                self.placeholder_color
+            } else {
+                self.color
+            },
+            ..request
+        };
+        context.paint_text(request);
+    }
+
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+        area
+    }
+}
+
+fn content_area(area: LogicalRect, padding: Sides) -> LogicalRect {
+    LogicalRect::new(
+        area.x + padding.left,
+        area.y + padding.top,
+        (area.width - padding.left - padding.right).max(0.0),
+        (area.height - padding.top - padding.bottom).max(0.0),
+    )
+}
