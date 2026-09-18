@@ -100,6 +100,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             text,
             image_uploads,
             scale,
+            ..
         } = input;
         if self.scale != scale {
             self.scale = scale;
@@ -494,6 +495,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                     Command::BoxShadow(shadow) => {
                         self.prepare_box_shadow(&shadow, record.bounds, record.clip.0)
                     }
+                    _ => {}
                 }
             }
             self.strategy.render(&mut self.context, damage);

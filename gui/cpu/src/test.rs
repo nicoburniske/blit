@@ -275,40 +275,29 @@ fn render_input_tracks_damage_and_invalidation() {
         renderer_config(),
     )
     .strategy(Scanline::default());
-    let mut display_list = DisplayList::default();
     let rectangle = Rectangle::new(LogicalRect::new(0.0, 0.0, 2.0, 2.0)).background(Color::WHITE);
-    let render = |renderer: &mut TestRenderer<TrackingBuffer, Scanline>,
-                  display_list: &mut DisplayList| {
-        display_list.clear();
-        display_list.push_rectangle(
+    let render = |renderer: &mut TestRenderer<TrackingBuffer, Scanline>| {
+        let input = renderer.gui.render_input();
+        input.display_list.clear();
+        input.display_list.push_rectangle(
             rectangle,
             rectangle.area.to_physical(SCALE),
             ClipId::default(),
         );
-        let RenderInput {
-            text,
-            image_uploads,
-            ..
-        } = renderer.gui.render_input();
-        renderer.render.render(RenderInput {
-            display_list,
-            text,
-            image_uploads,
-            scale: SCALE,
-        });
+        renderer.render.render(input);
         renderer.gui.finish_frame(Duration::ZERO);
     };
 
     for _ in 0..2 {
-        render(&mut renderer, &mut display_list);
+        render(&mut renderer);
     }
 
     renderer.render.buffer_mut().lines.clear();
-    render(&mut renderer, &mut display_list);
+    render(&mut renderer);
     assert!(renderer.render.buffer().lines.is_empty());
 
     renderer.render.invalidate_all();
-    render(&mut renderer, &mut display_list);
+    render(&mut renderer);
     assert!(!renderer.render.buffer().lines.is_empty());
 }
 

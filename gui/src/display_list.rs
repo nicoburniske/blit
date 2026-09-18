@@ -24,6 +24,7 @@ pub struct Record<'a> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Command<'a> {
     /// restores target pixels to the renderer's default value
     Clear,

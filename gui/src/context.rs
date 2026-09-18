@@ -22,6 +22,7 @@ pub struct GuiContext {
 }
 
 /// data needed to render one frame
+#[non_exhaustive]
 pub struct RenderInput<'a> {
     pub display_list: &'a mut DisplayList,
     pub text: &'a mut TextSystem,

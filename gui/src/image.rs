@@ -22,7 +22,7 @@ impl ImageHandle {
         self.0.size
     }
 
-    #[doc(hidden)]
+    /// returns true when this is the only remaining handle to the image
     pub fn is_uniquely_owned(&self) -> bool {
         Rc::strong_count(&self.0) == 1
     }
