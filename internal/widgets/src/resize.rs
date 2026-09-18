@@ -1,4 +1,4 @@
-use blit::{Interaction, Platform, Sense, Size, Ui, Widget, WidgetId};
+use blit::{Context, Interaction, Sense, Size, Ui, Widget, WidgetId};
 use blit_layout::resize::Item;
 
 #[derive(Debug, Default)]
@@ -29,18 +29,18 @@ blit::builder! {
     }
 }
 
-pub fn build<P, C, F, G>(
-    mut ui: Ui<'_, P>,
+pub fn build<C, W, F, G>(
+    mut ui: Ui<'_, C>,
     state: &mut State,
     id: WidgetId,
     config: Config,
-    content: C,
+    content: W,
     mut grip: F,
 ) where
-    P: Platform,
-    C: Widget<P>,
+    C: Context,
+    W: Widget<C>,
     F: FnMut(Grip) -> G,
-    G: Widget<P>,
+    G: Widget<C>,
 {
     let right_id = id.child("right grip");
     let bottom_id = id.child("bottom grip");

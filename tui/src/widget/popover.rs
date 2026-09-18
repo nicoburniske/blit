@@ -1,6 +1,6 @@
 use blit::{Interaction, Widget};
 
-use crate::{TuiPlatform, Ui};
+use crate::{TuiContext, Ui};
 
 pub use blit_widgets::popover::{Close, Config, State};
 
@@ -9,10 +9,10 @@ pub fn show<'a, T, C>(
     config: Config,
     trigger: T,
     content: C,
-) -> impl Widget<TuiPlatform, Response = Option<C::Response>> + 'a
+) -> impl Widget<TuiContext, Response = Option<C::Response>> + 'a
 where
     T: FnOnce(Ui<'_>, Interaction, bool) + 'a,
-    C: Widget<TuiPlatform> + 'a,
+    C: Widget<TuiContext> + 'a,
 {
     move |ui: Ui<'_>| blit_widgets::popover::build(ui, state, config, trigger, content)
 }

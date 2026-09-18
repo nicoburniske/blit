@@ -4,7 +4,7 @@ use crate::{
 };
 use blit::{Atom, Constraints, LogicalRect, Size};
 
-use crate::TuiPlatform;
+use crate::TuiContext;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -23,12 +23,12 @@ impl Shadow {
     }
 }
 
-impl Atom<TuiPlatform> for Shadow {
-    fn measure(&self, _: &mut TuiPlatform, _: Constraints) -> Size {
+impl Atom<TuiContext> for Shadow {
+    fn measure(&self, _: &mut TuiContext, _: Constraints) -> Size {
         Size::ZERO
     }
 
-    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
+    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
         let shifted = LogicalRect {
             x: area.x + self.offset_x,
             y: area.y + self.offset_y,
@@ -40,7 +40,7 @@ impl Atom<TuiPlatform> for Shadow {
         let bottom = (area.y + area.height).round() as isize;
         let origin_x = shifted.x.round() as isize;
         let origin_y = shifted.y.round() as isize;
-        let mut cells = platform.cells(shifted);
+        let mut cells = context.cells(shifted);
         let style = CellStyle::new().background(self.color);
         for y in 0..cells.rows() {
             for x in 0..cells.columns() {

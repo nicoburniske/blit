@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, LayoutCx, Platform, Point, Sides, Size, Sizing};
+use blit::{Axis, Constraints, Context, LayoutCx, Point, Sides, Size, Sizing};
 
 use super::{
     Align, Justify, flow_constraints, flow_size, justify_offset, override_sizing, sizing_range,
@@ -65,10 +65,10 @@ pub fn item() -> Item {
     Item::new()
 }
 
-impl<P: Platform> blit::Layout<P> for Layout {
+impl<C: Context> blit::Layout<C> for Layout {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, bounds: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
         let res = cx.resolution();
         let padding = res.sides(self.padding);
         let cross_axis = self.axis.other();

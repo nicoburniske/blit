@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, LayoutCx, LayoutResolution, Platform, Point, Sides, Size};
+use blit::{Axis, Constraints, Context, LayoutCx, LayoutResolution, Point, Sides, Size};
 
 use super::flow_constraints;
 
@@ -137,10 +137,10 @@ pub fn item() -> Item {
     Item::new()
 }
 
-impl<P: Platform> blit::Layout<P> for Layout {
+impl<C: Context> blit::Layout<C> for Layout {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         let res = cx.resolution();
         let range = |axis, preferred: Option<f32>, available| {
             if let Some(preferred) = preferred {

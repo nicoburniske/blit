@@ -4,7 +4,7 @@ use crate::{
 };
 use blit::{Content, state};
 
-use crate::{TuiPlatform, Ui, atom};
+use crate::{TuiContext, Ui, atom};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -29,14 +29,14 @@ impl<'a> Text<'a> {
     }
 }
 
-impl Content<TuiPlatform> for Text<'_> {
+impl Content<TuiContext> for Text<'_> {
     type Response = ();
 
     fn append(self, mut ui: Ui<'_, state::Node>) {
         let run = if let Some(spans) = self.spans {
-            ui.platform().renderer_mut().rich_text(spans)
+            ui.context().renderer_mut().rich_text(spans)
         } else {
-            ui.platform().renderer_mut().text_run(self.text)
+            ui.context().renderer_mut().text_run(self.text)
         };
         ui.insert(
             atom::Text::new(run)

@@ -1,16 +1,16 @@
 use std::{cell::Cell, rc::Rc, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Atom, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, FrameStage,
-    Input, Interaction, Layout, LayoutCx, LayoutResolution, Modifiers, NodeId, NodeTarget,
-    Platform, Point, PointerButton, Rect, Sense, Size, Sizing, Transition, Widget, WidgetId,
+    Absolute, Anchor, Atom, Axis, Clip, Constraints, Content, Context, Easing, Frame, FrameInfo,
+    FrameStage, Input, Interaction, Layout, LayoutCx, LayoutResolution, Modifiers, NodeId,
+    NodeTarget, Point, PointerButton, Rect, Sense, Size, Sizing, Transition, Widget, WidgetId,
 };
 
-type Ui<'a, S = blit::state::Build> = blit::Ui<'a, AsciiPlatform, S>;
+type Ui<'a, S = blit::state::Build> = blit::Ui<'a, AsciiContext, S>;
 
 #[test]
 fn animations_and_timers_schedule_frames() {
-    let (mut frame, mut platform) = frame(Size::uniform(1.0));
+    let (mut frame, mut context) = frame(Size::uniform(1.0));
     let animation = WidgetId::new("animation");
     let timer = WidgetId::new("timer");
     let mut value = 0.0;
@@ -21,7 +21,7 @@ fn animations_and_timers_schedule_frames() {
         (Duration::ZERO, 1.0),
         (Duration::from_millis(500), 1.0),
     ] {
-        render_inputs(&mut frame, &mut platform, time, [], |mut ui: Ui<'_>| {
+        render_inputs(&mut frame, &mut context, time, [], |mut ui: Ui<'_>| {
             value = ui.animate(animation, target, Duration::from_secs(1), Easing::Linear);
             fired = ui.timer(timer, Duration::from_millis(500));
             ui.insert(Fill::new('X', Size::uniform(1.0)));
@@ -35,12 +35,12 @@ fn animations_and_timers_schedule_frames() {
 
 #[test]
 fn lays_out_and_paints_external_atoms() {
-    let (mut frame, mut platform) = frame(Size::new(8.0, 6.0));
+    let (mut frame, mut context) = frame(Size::new(8.0, 6.0));
 
-    render(&mut frame, &mut platform, scene);
+    render(&mut frame, &mut context, scene);
 
     assert_eq!(
-        platform.contents(),
+        context.contents(),
         concat!(
             "AAA     \n",
             "        \n",
@@ -57,9 +57,9 @@ fn culls_only_atoms_with_disjoint_known_paint_bounds() {
     let culled = Rc::new(Cell::new(0));
     let clipped = Rc::new(Cell::new(0));
     let overflow = Rc::new(Cell::new(0));
-    let (mut frame, mut platform) = frame(Size::new(3.0, 1.0));
+    let (mut frame, mut context) = frame(Size::new(3.0, 1.0));
 
-    render(&mut frame, &mut platform, |ui: Ui<'_>| {
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
         root.absolute(Absolute::at(4.0, 0.0)).insert(PaintCount {
             count: culled.clone(),
@@ -85,9 +85,9 @@ fn culls_only_atoms_with_disjoint_known_paint_bounds() {
 
 #[test]
 fn leaf_atoms_measure_and_paint_in_order() {
-    let (mut frame, mut platform) = frame(Size::new(5.0, 4.0));
+    let (mut frame, mut context) = frame(Size::new(5.0, 4.0));
 
-    render(&mut frame, &mut platform, |ui: Ui<'_>| {
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
         root.child(TestItem::default()).build(|mut ui: Ui<'_>| {
             ui.insert(());
@@ -96,29 +96,29 @@ fn leaf_atoms_measure_and_paint_in_order() {
         });
     });
 
-    assert_eq!(platform.contents(), "     \n BBB \n BBB \n     ");
+    assert_eq!(context.contents(), "     \n BBB \n BBB \n     ");
 }
 
 #[test]
 fn content_works_before_layout_on_current_and_fresh_nodes() {
-    let (mut frame, mut platform) = frame(Size::new(2.0, 1.0));
+    let (mut frame, mut context) = frame(Size::new(2.0, 1.0));
 
-    render(&mut frame, &mut platform, |mut ui: Ui<'_>| {
+    render(&mut frame, &mut context, |mut ui: Ui<'_>| {
         ui.insert(PreparedText("a"));
         let mut root = ui.layout(Overlay);
         root.insert(Pair('x', 'y'));
         root.child(TestItem::default()).insert(PreparedText("b"));
     });
 
-    assert_eq!(platform.prepared, 2);
-    assert_eq!(platform.contents(), "BB");
+    assert_eq!(context.prepared, 2);
+    assert_eq!(context.contents(), "BB");
 }
 
 #[test]
 fn empty_and_absolute_children_are_valid() {
-    let (mut frame, mut platform) = frame(Size::uniform(1.0));
+    let (mut frame, mut context) = frame(Size::uniform(1.0));
 
-    render(&mut frame, &mut platform, |ui: Ui<'_>| {
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Column);
         root.child(
             TestItem::new(0.0)
@@ -133,9 +133,9 @@ fn empty_and_absolute_children_are_valid() {
 fn owned_frame_values_use_resolved_area_and_drop() {
     let area = Rc::new(Cell::new(Rect::default()));
     let drops = Rc::new(Cell::new(0));
-    let (mut frame, mut platform) = frame(Size::new(3.0, 2.0));
+    let (mut frame, mut context) = frame(Size::new(3.0, 2.0));
 
-    render(&mut frame, &mut platform, |ui: Ui<'_>| {
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
         let value = || OwnedValue {
             area: area.clone(),
             drops: drops.clone(),
@@ -144,15 +144,15 @@ fn owned_frame_values_use_resolved_area_and_drop() {
     });
 
     assert_eq!(area.get(), Rect::new(0.0, 0.0, 3.0, 2.0));
-    assert_eq!(platform.contents(), "PPP\nPPP");
+    assert_eq!(context.contents(), "PPP\nPPP");
     assert_eq!(drops.get(), 2);
 }
 
 #[test]
 fn resolves_named_anchors_and_clipping() {
-    let (mut frame, mut platform) = frame(Size::new(8.0, 5.0));
+    let (mut frame, mut context) = frame(Size::new(8.0, 5.0));
 
-    render(&mut frame, &mut platform, |ui: Ui<'_>| {
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut overlay = ui.layout(Overlay);
         let target = WidgetId::new("anchor");
         overlay
@@ -165,7 +165,7 @@ fn resolves_named_anchors_and_clipping() {
     });
 
     assert_eq!(
-        platform.contents(),
+        context.contents(),
         concat!(
             "        \n",
             "   TT   \n",
@@ -176,8 +176,8 @@ fn resolves_named_anchors_and_clipping() {
     );
 
     let info = FrameInfo::new(Size::uniform(3.0));
-    platform = AsciiPlatform::new(info);
-    render(&mut frame, &mut platform, |ui: Ui<'_>| {
+    context = AsciiContext::new(info);
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
         root.child(TestItem::default()).build(|ui: Ui<'_>| {
             let mut panel = ui.layout(Fixed(Size::uniform(3.0))).clip(DiamondClip);
@@ -188,9 +188,9 @@ fn resolves_named_anchors_and_clipping() {
                 .insert(Fill::new('L', Size::uniform(3.0)));
         });
     });
-    assert_eq!(platform.contents(), "LLL\nLLL\nLLL");
+    assert_eq!(context.contents(), "LLL\nLLL\nLLL");
 
-    render(&mut frame, &mut platform, |ui: Ui<'_>| {
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
         root.child(TestItem::default()).build(|ui: Ui<'_>| {
             let panel_id = WidgetId::new("panel");
@@ -205,12 +205,12 @@ fn resolves_named_anchors_and_clipping() {
                 .insert(Fill::new('L', Size::uniform(3.0)));
         });
     });
-    assert_eq!(platform.contents(), " L \nLLL\n L ");
+    assert_eq!(context.contents(), " L \nLLL\n L ");
 }
 
 #[test]
 fn visual_parent_preserves_outer_clip_and_supplies_absolute_size() {
-    let (mut frame, mut platform) = frame(Size::new(7.0, 5.0));
+    let (mut frame, mut context) = frame(Size::new(7.0, 5.0));
     let popup_id = WidgetId::new("popup");
     let build = |mut ui: Ui<'_>| {
         let response = ui.interact(popup_id, Sense::CLICK);
@@ -246,20 +246,20 @@ fn visual_parent_preserves_outer_clip_and_supplies_absolute_size() {
         });
         response
     };
-    render(&mut frame, &mut platform, &build);
+    render(&mut frame, &mut context, &build);
     assert_eq!(
         frame.geometry(popup_id),
         Some(Rect::new(1.0, 0.0, 5.0, 5.0))
     );
     assert_eq!(
-        platform.contents(),
+        context.contents(),
         "   P   \n  PPP  \n PPPPP \n  PPP  \n   P   "
     );
 
     let mut active = Vec::new();
     render_inputs(
         &mut frame,
-        &mut platform,
+        &mut context,
         Duration::ZERO,
         [
             Input::PointerDown {
@@ -286,8 +286,8 @@ fn visual_parent_preserves_outer_clip_and_supplies_absolute_size() {
 
 #[test]
 fn paint_and_interaction_follow_visual_groups() {
-    let (mut frame, mut platform) = frame(Size::new(3.0, 1.0));
-    let size = platform.info.size;
+    let (mut frame, mut context) = frame(Size::new(3.0, 1.0));
+    let size = context.info.size;
     let ids = ["background", "badge", "popup"].map(WidgetId::new);
     let canvas_id = WidgetId::new("canvas");
 
@@ -324,18 +324,18 @@ fn paint_and_interaction_follow_visual_groups() {
                             badge.insert(Fill::new('A', size));
                         });
                 });
-            root.widget_id(ids[0]).insert(Fill::new('R', size));
+            root.widget_id(ids[0]).insert(Fill::new('C', size));
             responses
         };
-        render(&mut frame, &mut platform, build);
+        render(&mut frame, &mut context, build);
         assert_eq!(
-            platform.contents(),
+            context.contents(),
             if open { "MDD" } else { "AAA" },
             "the badge stays below the modal backdrop, and content paints above it",
         );
         render_inputs(
             &mut frame,
-            &mut platform,
+            &mut context,
             Duration::ZERO,
             [
                 Input::PointerDown {
@@ -368,27 +368,27 @@ fn paint_and_interaction_follow_visual_groups() {
 
 #[test]
 fn transitions_relayout_animated_sizes() {
-    let (mut frame, mut platform) = frame(Size::new(1.0, 4.0));
+    let (mut frame, mut context) = frame(Size::new(1.0, 4.0));
     let id = WidgetId::new("transition");
 
-    transition_scene(&mut frame, &mut platform, id, 1.0, Duration::ZERO);
-    assert_eq!(platform.contents(), "X\nY\n \n ");
+    transition_scene(&mut frame, &mut context, id, 1.0, Duration::ZERO);
+    assert_eq!(context.contents(), "X\nY\n \n ");
 
-    transition_scene(&mut frame, &mut platform, id, 3.0, Duration::ZERO);
-    assert_eq!(platform.contents(), "X\nY\n \n ");
+    transition_scene(&mut frame, &mut context, id, 3.0, Duration::ZERO);
+    assert_eq!(context.contents(), "X\nY\n \n ");
     assert!(frame.has_pending_redraw());
 
     transition_scene(
         &mut frame,
-        &mut platform,
+        &mut context,
         id,
         3.0,
         Duration::from_millis(500),
     );
-    assert_eq!(platform.contents(), "X\nX\nY\n ");
+    assert_eq!(context.contents(), "X\nX\nY\n ");
 
-    transition_scene(&mut frame, &mut platform, id, 3.0, Duration::from_secs(1));
-    assert_eq!(platform.contents(), "X\nX\nX\nY");
+    transition_scene(&mut frame, &mut context, id, 3.0, Duration::from_secs(1));
+    assert_eq!(context.contents(), "X\nX\nX\nY");
     assert!(!frame.has_pending_redraw());
 }
 
@@ -396,10 +396,10 @@ fn transitions_relayout_animated_sizes() {
 fn unsupported_size_transitions_finish_immediately() {
     struct Unsupported;
 
-    impl<R: Platform> Layout<R> for Unsupported {
+    impl<C: Context> Layout<C> for Unsupported {
         type Item = ();
 
-        fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+        fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
             let child = cx.children().next().unwrap();
             let size = cx.layout_child(child, Constraints::loose(constraints.max));
             cx.set_child_position(child, Point::ZERO);
@@ -411,12 +411,12 @@ fn unsupported_size_transitions_finish_immediately() {
         }
     }
 
-    let (mut frame, mut platform) = frame(Size::uniform(4.0));
+    let (mut frame, mut context) = frame(Size::uniform(4.0));
     let id = WidgetId::new("unsupported transition");
     let mut render = |extent, time| {
         render_inputs(
             &mut frame,
-            &mut platform,
+            &mut context,
             time,
             [Input::None],
             |ui: Ui<'_>| {
@@ -441,12 +441,12 @@ fn absolute_size_transitions_use_layout_resolution() {
     let info = FrameInfo::new(Size::new(5.0, 1.0)).layout_resolution(LayoutResolution::Discrete {
         step: Size::uniform(1.0),
     });
-    let (mut frame, mut platform) = frame_info(info);
+    let (mut frame, mut context) = frame_info(info);
     let id = WidgetId::new("absolute transition");
     let mut render = |width, time| {
         render_inputs(
             &mut frame,
-            &mut platform,
+            &mut context,
             time,
             [Input::None],
             |ui: Ui<'_>| {
@@ -471,24 +471,24 @@ fn absolute_size_transitions_use_layout_resolution() {
 
 #[test]
 fn transitions_resolved_positions() {
-    let (mut frame, mut platform) = frame(Size::new(1.0, 4.0));
+    let (mut frame, mut context) = frame(Size::new(1.0, 4.0));
     let id = WidgetId::new("position transition");
 
-    position_transition_scene(&mut frame, &mut platform, id, 0.0, Duration::ZERO);
-    position_transition_scene(&mut frame, &mut platform, id, 2.0, Duration::ZERO);
-    assert_eq!(platform.contents(), " \nX\n \n ");
+    position_transition_scene(&mut frame, &mut context, id, 0.0, Duration::ZERO);
+    position_transition_scene(&mut frame, &mut context, id, 2.0, Duration::ZERO);
+    assert_eq!(context.contents(), " \nX\n \n ");
 
     position_transition_scene(
         &mut frame,
-        &mut platform,
+        &mut context,
         id,
         2.0,
         Duration::from_millis(500),
     );
-    assert_eq!(platform.contents(), " \n \nX\n ");
+    assert_eq!(context.contents(), " \n \nX\n ");
 
-    position_transition_scene(&mut frame, &mut platform, id, 2.0, Duration::from_secs(1));
-    assert_eq!(platform.contents(), " \n \n \nX");
+    position_transition_scene(&mut frame, &mut context, id, 2.0, Duration::from_secs(1));
+    assert_eq!(context.contents(), " \n \n \nX");
 }
 
 #[test]
@@ -496,13 +496,13 @@ fn resolves_places_and_content_offsets() {
     let info = FrameInfo::new(Size::new(8.0, 4.0)).layout_resolution(LayoutResolution::Discrete {
         step: Size::new(2.0, 1.0),
     });
-    let (mut frame, mut platform) = frame_info(info);
+    let (mut frame, mut context) = frame_info(info);
     let fixed = WidgetId::new("fixed");
     let grow = WidgetId::new("grow");
     let percent = WidgetId::new("percent");
     let fit = WidgetId::new("fit");
 
-    render(&mut frame, &mut platform, |ui: Ui<'_>| {
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut overlay = ui.layout(Overlay).offset(Point::new(1.0, 0.0));
         overlay
             .child(TestItem::fixed(3.0, 1.0))
@@ -542,10 +542,10 @@ fn resolves_places_and_content_offsets() {
 
 #[test]
 fn absolute_places_position_against_the_target_and_size_against_the_parent() {
-    let (mut frame, mut platform) = frame(Size::new(10.0, 4.0));
+    let (mut frame, mut context) = frame(Size::new(10.0, 4.0));
     let id = WidgetId::new("absolute");
 
-    render(&mut frame, &mut platform, |ui: Ui<'_>| {
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut overlay = ui.layout(Overlay);
         let target = overlay.child(TestItem::default()).build(|mut ui: Ui<'_>| {
             ui.insert(Fill::new('T', Size::new(6.0, 2.0)));
@@ -569,12 +569,12 @@ fn absolute_places_position_against_the_target_and_size_against_the_parent() {
 
 #[test]
 fn transitions_without_ids_are_ignored() {
-    let (mut frame, mut platform) = frame(Size::new(4.0, 1.0));
+    let (mut frame, mut context) = frame(Size::new(4.0, 1.0));
 
-    unidentified_transition_scene(&mut frame, &mut platform, 1.0);
-    unidentified_transition_scene(&mut frame, &mut platform, 3.0);
+    unidentified_transition_scene(&mut frame, &mut context, 1.0);
+    unidentified_transition_scene(&mut frame, &mut context, 3.0);
 
-    assert_eq!(platform.contents(), "XXX ");
+    assert_eq!(context.contents(), "XXX ");
     assert!(!frame.has_pending_redraw());
 }
 
@@ -626,13 +626,13 @@ fn targets_reject_invalid_references() {
         },
     ];
     for (case, build) in cases.into_iter().enumerate() {
-        let (mut frame, mut platform) = frame(Size::uniform(1.0));
+        let (mut frame, mut context) = frame(Size::uniform(1.0));
         // a previous build must not satisfy a current reference
-        render(&mut frame, &mut platform, |ui: Ui<'_>| {
+        render(&mut frame, &mut context, |ui: Ui<'_>| {
             ui.widget_id(WidgetId::new("target")).insert(())
         });
         let result = catch_unwind(AssertUnwindSafe(|| {
-            render(&mut frame, &mut platform, |ui: Ui<'_>| {
+            render(&mut frame, &mut context, |ui: Ui<'_>| {
                 build(ui, WidgetId::new("target"))
             });
         }));
@@ -646,11 +646,11 @@ fn node_targets_reject_previous_renders() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     for anchor in [false, true] {
-        let (mut frame, mut platform) = frame(Size::uniform(1.0));
-        let previous = render(&mut frame, &mut platform, |ui: Ui<'_>| ui.id());
+        let (mut frame, mut context) = frame(Size::uniform(1.0));
+        let previous = render(&mut frame, &mut context, |ui: Ui<'_>| ui.id());
         assert!(
             catch_unwind(AssertUnwindSafe(|| {
-                render(&mut frame, &mut platform, |ui: Ui<'_>| {
+                render(&mut frame, &mut context, |ui: Ui<'_>| {
                     let mut root = ui.layout(Overlay);
                     if anchor {
                         root.absolute(Absolute::at(0.0, 0.0).relative_to(previous))
@@ -667,14 +667,14 @@ fn node_targets_reject_previous_renders() {
 
 #[test]
 fn named_bindings_follow_each_build() {
-    let (mut frame, mut platform) = frame(Size::uniform(10.0));
+    let (mut frame, mut context) = frame(Size::uniform(10.0));
     let a = WidgetId::new("a");
     let b = WidgetId::new("b");
     // change node indices and remove names before bringing them back
     for count in [0, 3, 1, 0, 2] {
         render_inputs(
             &mut frame,
-            &mut platform,
+            &mut context,
             Duration::ZERO,
             [Input::None; 2],
             |ui: Ui<'_>| {
@@ -706,17 +706,17 @@ fn named_bindings_follow_each_build() {
 
 #[test]
 fn interaction_is_bounded_by_clip_rectangles() {
-    let (mut frame, mut platform) = frame(Size::new(5.0, 1.0));
+    let (mut frame, mut context) = frame(Size::new(5.0, 1.0));
     let id = WidgetId::new("clipped");
 
-    render(&mut frame, &mut platform, |ui: Ui<'_>| {
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
         clipped_button(ui, id);
     });
 
     let mut active = Vec::new();
     render_inputs(
         &mut frame,
-        &mut platform,
+        &mut context,
         Duration::ZERO,
         [
             Input::PointerDown {
@@ -743,13 +743,13 @@ fn interaction_is_bounded_by_clip_rectangles() {
 }
 
 fn transition_scene(
-    frame: &mut Frame<AsciiPlatform>,
-    platform: &mut AsciiPlatform,
+    frame: &mut Frame<AsciiContext>,
+    context: &mut AsciiContext,
     id: WidgetId,
     height: f32,
     time: Duration,
 ) {
-    render_inputs(frame, platform, time, [Input::None], |ui: Ui<'_>| {
+    render_inputs(frame, context, time, [Input::None], |ui: Ui<'_>| {
         let mut column = ui.layout(Column);
         column.child(TestItem::new(0.0)).build(|ui: Ui<'_>| {
             let mut child = ui
@@ -767,13 +767,13 @@ fn transition_scene(
 }
 
 fn unidentified_transition_scene(
-    frame: &mut Frame<AsciiPlatform>,
-    platform: &mut AsciiPlatform,
+    frame: &mut Frame<AsciiContext>,
+    context: &mut AsciiContext,
     width: f32,
 ) {
     render_inputs(
         frame,
-        platform,
+        context,
         Duration::ZERO,
         [Input::None],
         |ui: Ui<'_>| {
@@ -791,13 +791,13 @@ fn unidentified_transition_scene(
 }
 
 fn position_transition_scene(
-    frame: &mut Frame<AsciiPlatform>,
-    platform: &mut AsciiPlatform,
+    frame: &mut Frame<AsciiContext>,
+    context: &mut AsciiContext,
     id: WidgetId,
     gap: f32,
     time: Duration,
 ) {
-    render_inputs(frame, platform, time, [Input::None], |ui: Ui<'_>| {
+    render_inputs(frame, context, time, [Input::None], |ui: Ui<'_>| {
         let mut column = ui.layout(Column).offset(Point::new(0.0, 1.0));
         column.child(TestItem::new(gap)).build(|ui: Ui<'_>| {
             let mut child = ui
@@ -846,12 +846,12 @@ struct PaintCount {
     bounds_offset: Point,
 }
 
-impl Atom<AsciiPlatform> for PaintCount {
-    fn measure(&self, _: &mut AsciiPlatform, constraints: Constraints) -> Size {
+impl Atom<AsciiContext> for PaintCount {
+    fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> Size {
         constraints.constrain(Size::uniform(1.0))
     }
 
-    fn paint(&self, _: &mut AsciiPlatform, _: Rect) {
+    fn paint(&self, _: &mut AsciiContext, _: Rect) {
         self.count.set(self.count.get() + 1);
     }
 
@@ -869,10 +869,10 @@ struct OwnedValue {
     drops: Rc<Cell<usize>>,
 }
 
-impl<R: Platform> Layout<R> for OwnedValue {
+impl<C: Context> Layout<C> for OwnedValue {
     type Item = ();
 
-    fn layout(&self, _: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, _: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         constraints.min
     }
 
@@ -881,14 +881,14 @@ impl<R: Platform> Layout<R> for OwnedValue {
     }
 }
 
-impl Atom<AsciiPlatform> for OwnedValue {
-    fn measure(&self, _: &mut AsciiPlatform, constraints: Constraints) -> Size {
+impl Atom<AsciiContext> for OwnedValue {
+    fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> Size {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, platform: &mut AsciiPlatform, area: Rect) {
+    fn paint(&self, context: &mut AsciiContext, area: Rect) {
         self.area.set(area);
-        platform.cells.fill('P');
+        context.cells.fill('P');
     }
 
     fn paint_bounds(&self, area: Rect) -> Rect {
@@ -914,27 +914,27 @@ impl Fill {
     }
 }
 
-impl Atom<AsciiPlatform> for Fill {
-    fn measure(&self, _: &mut AsciiPlatform, constraints: Constraints) -> Size {
+impl Atom<AsciiContext> for Fill {
+    fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> Size {
         constraints.constrain(self.size)
     }
 
-    fn paint(&self, platform: &mut AsciiPlatform, area: Rect) {
+    fn paint(&self, context: &mut AsciiContext, area: Rect) {
         let left = area.x.max(0.0) as usize;
         let top = area.y.max(0.0) as usize;
-        let right = (area.x + area.width).min(platform.width as f32) as usize;
-        let bottom = (area.y + area.height).min(platform.height as f32) as usize;
+        let right = (area.x + area.width).min(context.width as f32) as usize;
+        let bottom = (area.y + area.height).min(context.height as f32) as usize;
         for y in top..bottom {
             for x in left..right {
                 let point = Point::new(x as f32 + 0.5, y as f32 + 0.5);
-                if !platform
+                if !context
                     .diamond_clips
                     .iter()
                     .all(|area| DiamondClip::contains_point(*area, point))
                 {
                     continue;
                 }
-                platform.cells[y * platform.width + x] = self.glyph;
+                context.cells[y * context.width + x] = self.glyph;
             }
         }
     }
@@ -946,7 +946,7 @@ impl Atom<AsciiPlatform> for Fill {
 
 struct FillContent;
 
-impl Content<AsciiPlatform> for FillContent {
+impl Content<AsciiContext> for FillContent {
     type Response = ();
 
     fn append(self, mut ui: Ui<'_, blit::state::Node>) {
@@ -956,18 +956,18 @@ impl Content<AsciiPlatform> for FillContent {
 
 struct PreparedText<'a>(&'a str);
 
-impl Content<AsciiPlatform> for PreparedText<'_> {
+impl Content<AsciiContext> for PreparedText<'_> {
     type Response = ();
 
     fn append(self, mut ui: Ui<'_, blit::state::Node>) {
-        let glyph = ui.platform().prepare(self.0);
+        let glyph = ui.context().prepare(self.0);
         ui.insert(Fill::new(glyph, Size::new(2.0, 1.0)));
     }
 }
 
 struct Pair(char, char);
 
-impl Content<AsciiPlatform> for Pair {
+impl Content<AsciiContext> for Pair {
     type Response = ();
 
     fn append(self, mut ui: Ui<'_, blit::state::Node>) {
@@ -992,13 +992,13 @@ impl DiamondClip {
     }
 }
 
-impl Clip<AsciiPlatform> for DiamondClip {
-    fn push(&self, platform: &mut AsciiPlatform, area: Rect) {
-        platform.diamond_clips.push(area);
+impl Clip<AsciiContext> for DiamondClip {
+    fn push(&self, context: &mut AsciiContext, area: Rect) {
+        context.diamond_clips.push(area);
     }
 
-    fn pop(&self, platform: &mut AsciiPlatform) {
-        platform.diamond_clips.pop().expect("clip stack is empty");
+    fn pop(&self, context: &mut AsciiContext) {
+        context.diamond_clips.pop().expect("clip stack is empty");
     }
 }
 
@@ -1053,10 +1053,10 @@ fn override_test_item(item: &mut TestItem, width: Option<f32>, height: Option<f3
 #[derive(Clone, Copy)]
 struct Column;
 
-impl<R: Platform> Layout<R> for Column {
+impl<C: Context> Layout<C> for Column {
     type Item = TestItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         let mut children = Size::ZERO;
         for child in cx.children() {
             let item = cx.item(child);
@@ -1088,10 +1088,10 @@ impl<R: Platform> Layout<R> for Column {
 #[derive(Clone, Copy)]
 struct Overlay;
 
-impl<R: Platform> Layout<R> for Overlay {
+impl<C: Context> Layout<C> for Overlay {
     type Item = TestItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         let mut size = Size::ZERO;
         for child in cx.children() {
             size = size.max(resolve_child(cx, child, constraints.max, true, true));
@@ -1123,10 +1123,10 @@ impl<R: Platform> Layout<R> for Overlay {
 #[derive(Clone, Copy)]
 struct Fixed(Size);
 
-impl<R: Platform> Layout<R> for Fixed {
+impl<C: Context> Layout<C> for Fixed {
     type Item = TestItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         let size = constraints.constrain(self.0);
         for child in cx.children() {
             resolve_child(cx, child, constraints.max, true, true);
@@ -1145,8 +1145,8 @@ impl<R: Platform> Layout<R> for Fixed {
     }
 }
 
-fn resolve_child<R: Platform>(
-    cx: &mut LayoutCx<'_, R, TestItem>,
+fn resolve_child<C: Context>(
+    cx: &mut LayoutCx<'_, C, TestItem>,
     child: NodeId,
     available: Size,
     width_cross: bool,
@@ -1183,7 +1183,7 @@ fn resolve_child<R: Platform>(
     cx.layout_child(child, Constraints::tight(size))
 }
 
-struct AsciiPlatform {
+struct AsciiContext {
     info: FrameInfo,
     width: usize,
     height: usize,
@@ -1192,7 +1192,7 @@ struct AsciiPlatform {
     prepared: usize,
 }
 
-impl AsciiPlatform {
+impl AsciiContext {
     fn new(info: FrameInfo) -> Self {
         Self {
             info,
@@ -1221,7 +1221,7 @@ impl AsciiPlatform {
     }
 }
 
-impl Platform for AsciiPlatform {
+impl Context for AsciiContext {
     fn frame_stage(&mut self, stage: FrameStage) {
         match stage {
             FrameStage::Paint => {
@@ -1235,30 +1235,30 @@ impl Platform for AsciiPlatform {
     }
 }
 
-fn frame(size: Size) -> (Frame<AsciiPlatform>, AsciiPlatform) {
+fn frame(size: Size) -> (Frame<AsciiContext>, AsciiContext) {
     frame_info(FrameInfo::new(size))
 }
 
-fn frame_info(info: FrameInfo) -> (Frame<AsciiPlatform>, AsciiPlatform) {
-    (Frame::default(), AsciiPlatform::new(info))
+fn frame_info(info: FrameInfo) -> (Frame<AsciiContext>, AsciiContext) {
+    (Frame::default(), AsciiContext::new(info))
 }
 
-fn render<W: Widget<AsciiPlatform>>(
-    frame: &mut Frame<AsciiPlatform>,
-    platform: &mut AsciiPlatform,
+fn render<W: Widget<AsciiContext>>(
+    frame: &mut Frame<AsciiContext>,
+    context: &mut AsciiContext,
     widget: W,
 ) -> W::Response {
-    let info = platform.info;
-    frame.render(platform, info, widget)
+    let info = context.info;
+    frame.render(context, info, widget)
 }
 
 fn render_inputs<O>(
-    frame: &mut Frame<AsciiPlatform>,
-    platform: &mut AsciiPlatform,
+    frame: &mut Frame<AsciiContext>,
+    context: &mut AsciiContext,
     time: Duration,
     inputs: impl IntoIterator<Item = Input>,
     build: impl FnMut(Ui<'_>) -> O,
 ) {
-    let info = platform.info;
-    frame.render_inputs(platform, info, time, inputs, build);
+    let info = context.info;
+    frame.render_inputs(context, info, time, inputs, build);
 }

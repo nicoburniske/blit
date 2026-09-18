@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use crate::{
-    TuiPlatform, Ui,
+    TuiContext, Ui,
     atom::{Border, BorderStyle},
     color::Color,
     layout::{Align, Justify, flex, grid},
@@ -35,7 +35,7 @@ blit::builder! {
     }
 }
 
-impl Widget<TuiPlatform> for Performance<'_> {
+impl Widget<TuiContext> for Performance<'_> {
     type Response = ();
 
     fn build(self, mut ui: Ui<'_>) {
@@ -44,7 +44,7 @@ impl Widget<TuiPlatform> for Performance<'_> {
             popover,
             axis_labels,
         } = self.state;
-        if let Some(timings) = ui.platform().profiler().completed() {
+        if let Some(timings) = ui.context().profiler().completed() {
             inner.update(timings);
         }
         let measurements = inner.measurements();

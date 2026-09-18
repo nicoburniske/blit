@@ -238,7 +238,7 @@ pub struct FrameTimings {
     pub build: Duration,
     /// includes positioning and interaction resolution
     pub layout: Duration,
-    /// includes platform output generation but excludes presentation
+    /// includes context output generation but excludes presentation
     pub paint: Duration,
     /// elapsed time between frame starts including idle waits
     pub interval: Option<Duration>,

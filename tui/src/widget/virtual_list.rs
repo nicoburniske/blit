@@ -1,6 +1,6 @@
 use blit::{Content, Widget, WidgetId};
 
-use crate::{BoundsClip, TuiPlatform, Ui};
+use crate::{BoundsClip, TuiContext, Ui};
 
 pub use blit_widgets::scroll::virtual_list::{Behavior, Config, Response, State};
 
@@ -11,13 +11,13 @@ pub fn new<'a, R, K, F, B, T, H>(
     key: K,
     item: F,
     scrollbar: B,
-) -> impl Widget<TuiPlatform, Response = Response> + 'a
+) -> impl Widget<TuiContext, Response = Response> + 'a
 where
     K: FnMut(&R) -> WidgetId + 'a,
     F: FnMut(Ui<'_>, &R) + 'a,
     B: FnOnce(bool) -> (Option<T>, Option<H>) + 'a,
-    T: Content<TuiPlatform>,
-    H: Content<TuiPlatform>,
+    T: Content<TuiContext>,
+    H: Content<TuiContext>,
 {
     move |ui: Ui<'_>| {
         blit_widgets::scroll::virtual_list::build(

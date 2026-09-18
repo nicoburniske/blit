@@ -1,4 +1,4 @@
-use blit::{Constraints, LayoutCx, Platform, Point, Rect, Size};
+use blit::{Constraints, Context, LayoutCx, Point, Rect, Size};
 
 /// places children in exact supplied local rectangles
 ///
@@ -10,10 +10,10 @@ pub fn layout() -> Layout {
     Layout
 }
 
-impl<P: Platform> blit::Layout<P> for Layout {
+impl<C: Context> blit::Layout<C> for Layout {
     type Item = Rect;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, bounds: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
         let mut natural = Size::ZERO;
         for child in cx.children() {
             let rect = cx.item(child);

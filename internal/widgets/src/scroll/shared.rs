@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Content, Layout, LayoutCx, Platform, Point, ScrollPhase, Sense, Size,
+    Axis, Clip, Constraints, Content, Context, Layout, LayoutCx, Point, ScrollPhase, Sense, Size,
     Ui, Widget, WidgetId,
 };
 
@@ -68,10 +68,10 @@ pub enum ScrollItem {
     Thumb,
 }
 
-impl<R: Platform> Layout<R> for ScrollLayout {
+impl<C: Context> Layout<C> for ScrollLayout {
     type Item = ScrollItem;
 
-    fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         self.layout_with_offset(ui, constraints, |_| self.offset)
     }
 
@@ -81,9 +81,9 @@ impl<R: Platform> Layout<R> for ScrollLayout {
 }
 
 impl ScrollLayout {
-    pub fn layout_with_offset<R: Platform>(
+    pub fn layout_with_offset<C: Context>(
         &self,
-        ui: &mut LayoutCx<'_, R, ScrollItem>,
+        ui: &mut LayoutCx<'_, C, ScrollItem>,
         constraints: Constraints,
         offset: impl FnOnce(f32) -> f32,
     ) -> Size {
@@ -183,9 +183,9 @@ impl ScrollLayout {
 
 /// updates scroll input and motion returning thumb activity and viewport availability
 /// uses children named `content` and `scroll thumb` for geometry when present
-pub fn update<R: Platform>(
+pub fn update<C: Context>(
     state: &mut State,
-    ui: &mut Ui<'_, R>,
+    ui: &mut Ui<'_, C>,
     axis: Axis,
     config: Behavior,
 ) -> (bool, bool) {
@@ -309,20 +309,20 @@ pub fn update<R: Platform>(
     )
 }
 
-pub fn build_scroll<R, C, X, T, H>(
-    ui: Ui<'_, R>,
+pub fn build_scroll<C, W, X, T, H>(
+    ui: Ui<'_, C>,
     id: WidgetId,
-    layout: impl Layout<R, Item = ScrollItem>,
+    layout: impl Layout<C, Item = ScrollItem>,
     clip: X,
-    content: C,
+    content: W,
     track: Option<T>,
     thumb: Option<H>,
 ) where
-    R: Platform,
-    C: Widget<R>,
-    X: Clip<R>,
-    T: Content<R>,
-    H: Content<R>,
+    C: Context,
+    W: Widget<C>,
+    X: Clip<C>,
+    T: Content<C>,
+    H: Content<C>,
 {
     let content_id = id.child("content");
     let thumb_id = id.child("scroll thumb");

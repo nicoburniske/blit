@@ -1,5 +1,5 @@
 use crate::{
-    Platform,
+    Context,
     geometry::{Point, Rect, Sides},
     input::{Input, PointerButton},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
@@ -9,7 +9,7 @@ use super::Frame;
 
 const DRAG_THRESHOLD: f32 = 6.0;
 
-pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &R) {
+pub fn resolve<C: Context>(frame: &mut Frame<C>, context: &C) {
     frame
         .interaction
         .requests
@@ -35,7 +35,7 @@ pub fn resolve<R: Platform>(frame: &mut Frame<R>, platform: &R) {
         // todo: test interaction against the actual custom clip chain
         frame
             .interaction
-            .register(id, platform.interaction_area(area, clip_bounds));
+            .register(id, context.interaction_area(area, clip_bounds));
     }
     if frame.interaction.end() {
         frame.frame_requested = true;

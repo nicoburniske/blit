@@ -6,7 +6,7 @@ use blit::{
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
-    BoundsClip, TuiPlatform, Ui,
+    BoundsClip, TuiContext, Ui,
     atom::{
         Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, Tint,
         TitlePosition,
@@ -64,7 +64,7 @@ impl Demo {
         let input_focused = ui.is_focused(WidgetId::new("tui text input"));
         if !self.modal.open && !input_focused && (escape || matches!(ui.input(), Input::Text('q')))
         {
-            ui.platform().quit();
+            ui.context().quit();
             return;
         }
         let mut root = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
@@ -136,7 +136,7 @@ impl Demo {
                         " quit ",
                         false,
                     )) {
-                        popup.platform().quit();
+                        popup.context().quit();
                     }
                     reset
                 },
@@ -188,7 +188,7 @@ impl Default for Modal {
     }
 }
 
-impl Widget<TuiPlatform> for &mut Modal {
+impl Widget<TuiContext> for &mut Modal {
     type Response = bool;
 
     fn build(self, ui: Ui<'_>) -> bool {
@@ -322,7 +322,7 @@ struct LayoutPage {
     split: split::State,
 }
 
-impl Widget<TuiPlatform> for &mut LayoutPage {
+impl Widget<TuiContext> for &mut LayoutPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -532,7 +532,7 @@ impl Default for TextPage {
     }
 }
 
-impl Widget<TuiPlatform> for &mut TextPage {
+impl Widget<TuiContext> for &mut TextPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -772,7 +772,7 @@ impl Default for BlocksPage {
     }
 }
 
-impl Widget<TuiPlatform> for &mut BlocksPage {
+impl Widget<TuiContext> for &mut BlocksPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -898,7 +898,7 @@ impl Default for AtomsPage {
     }
 }
 
-impl Widget<TuiPlatform> for &mut AtomsPage {
+impl Widget<TuiContext> for &mut AtomsPage {
     type Response = ();
 
     fn build(self, mut ui: Ui<'_>) {
@@ -959,7 +959,7 @@ impl Default for ScrollPage {
     }
 }
 
-impl Widget<TuiPlatform> for &mut ScrollPage {
+impl Widget<TuiContext> for &mut ScrollPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -1045,7 +1045,7 @@ enum Page {
 
 struct TuiGrip(resize::Grip);
 
-impl Widget<TuiPlatform> for TuiGrip {
+impl Widget<TuiContext> for TuiGrip {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -1085,7 +1085,7 @@ impl<'a> Button<'a> {
     }
 }
 
-impl Widget<TuiPlatform> for Button<'_> {
+impl Widget<TuiContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
@@ -1144,7 +1144,7 @@ struct Canvas {
     config: CanvasConfig,
 }
 
-impl Widget<TuiPlatform> for Canvas {
+impl Widget<TuiContext> for Canvas {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -1279,7 +1279,7 @@ impl split::Divider for Split {
 
 struct Divider(Interaction);
 
-impl Widget<TuiPlatform> for Divider {
+impl Widget<TuiContext> for Divider {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {

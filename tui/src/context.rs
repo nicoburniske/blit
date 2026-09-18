@@ -1,11 +1,11 @@
 use std::time::Instant;
 
 use crate::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
-use blit::{Clip, FrameStage, LogicalRect, Platform, Scale2};
+use blit::{Clip, Context, FrameStage, LogicalRect, Scale2};
 use blit_widgets::performance::{FrameProfiler, Profiled};
 
 /// rendering resources independent of terminal io and event loop ownership
-pub struct TuiPlatform {
+pub struct TuiContext {
     profiler: FrameProfiler,
     clock: Instant,
     renderer: TuiRenderer,
@@ -14,7 +14,7 @@ pub struct TuiPlatform {
     should_quit: bool,
 }
 
-impl TuiPlatform {
+impl TuiContext {
     pub fn new(renderer: TuiRenderer) -> Self {
         let clip = renderer.screen().to_logical(Scale2::IDENTITY);
         Self {
@@ -58,13 +58,13 @@ impl TuiPlatform {
     }
 }
 
-impl Profiled for TuiPlatform {
+impl Profiled for TuiContext {
     fn profiler(&self) -> &FrameProfiler {
         &self.profiler
     }
 }
 
-impl Platform for TuiPlatform {
+impl Context for TuiContext {
     fn frame_stage(&mut self, stage: FrameStage) {
         match stage {
             FrameStage::Paint => {
@@ -86,14 +86,14 @@ impl Platform for TuiPlatform {
 #[derive(Clone, Copy)]
 pub struct BoundsClip;
 
-impl Clip<TuiPlatform> for BoundsClip {
-    fn push(&self, platform: &mut TuiPlatform, area: LogicalRect) {
-        let previous = platform.clip;
-        platform.clip = previous.intersection(area).unwrap_or_default();
-        platform.clips.push(previous);
+impl Clip<TuiContext> for BoundsClip {
+    fn push(&self, context: &mut TuiContext, area: LogicalRect) {
+        let previous = context.clip;
+        context.clip = previous.intersection(area).unwrap_or_default();
+        context.clips.push(previous);
     }
 
-    fn pop(&self, platform: &mut TuiPlatform) {
-        platform.clip = platform.clips.pop().unwrap();
+    fn pop(&self, context: &mut TuiContext) {
+        context.clip = context.clips.pop().unwrap();
     }
 }

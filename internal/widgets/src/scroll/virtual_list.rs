@@ -2,7 +2,7 @@ pub use super::shared::Behavior;
 
 use super::shared::{self, ScrollItem, ScrollLayout, build_scroll, update};
 use blit::{
-    Axis, Clip, Constraints, Content, Layout, LayoutCx, Platform, Point, Size, Ui, WidgetId,
+    Axis, Clip, Constraints, Content, Context, Layout, LayoutCx, Point, Size, Ui, WidgetId,
 };
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
@@ -16,8 +16,8 @@ blit::builder! {
 }
 
 /// measures all rows initially then corrects visible heights as layout changes
-pub fn build<P, R, X, K, F, T, H>(
-    mut ui: Ui<'_, P>,
+pub fn build<C, R, X, K, F, T, H>(
+    mut ui: Ui<'_, C>,
     state: &mut State,
     rows: &[R],
     clip: X,
@@ -27,12 +27,12 @@ pub fn build<P, R, X, K, F, T, H>(
     mut item: F,
 ) -> Response
 where
-    P: Platform,
-    X: Clip<P>,
-    T: Content<P>,
-    H: Content<P>,
+    C: Context,
+    X: Clip<C>,
+    T: Content<C>,
+    H: Content<C>,
     K: FnMut(&R) -> WidgetId,
-    F: FnMut(Ui<'_, P>, &R),
+    F: FnMut(Ui<'_, C>, &R),
 {
     let config = list.behavior;
     let edge_scroll = list.edge_scroll;
@@ -177,7 +177,7 @@ where
             table: Rc::clone(&table),
         },
         clip,
-        move |ui: Ui<'_, P>| {
+        move |ui: Ui<'_, C>| {
             let mut list = ui.layout(MeasuredLayout {
                 first,
                 target,
@@ -255,10 +255,10 @@ struct MeasuredScrollLayout {
     table: Rc<RefCell<RowTable>>,
 }
 
-impl<R: Platform> Layout<R> for MeasuredScrollLayout {
+impl<C: Context> Layout<C> for MeasuredScrollLayout {
     type Item = ScrollItem;
 
-    fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         self.scroll.layout_with_offset(ui, constraints, |maximum| {
             let mut table = self.table.borrow_mut();
             table.offset = table.offset.clamp(0.0, maximum);
@@ -277,10 +277,10 @@ struct MeasuredLayout {
     table: Rc<RefCell<RowTable>>,
 }
 
-impl<R: Platform> Layout<R> for MeasuredLayout {
+impl<C: Context> Layout<C> for MeasuredLayout {
     type Item = ();
 
-    fn layout(&self, ui: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         let mut table = self.table.borrow_mut();
         let mut changed = None;
         for (index, child) in ui.children().enumerate() {
@@ -329,24 +329,24 @@ mod tests {
     use super::*;
     use blit::{Frame, FrameInfo, Rect};
 
-    struct TestPlatform;
-    impl Platform for TestPlatform {}
+    struct TestContext;
+    impl Context for TestContext {}
 
     struct TestClip;
-    impl Clip<TestPlatform> for TestClip {
-        fn push(&self, _: &mut TestPlatform, _: Rect) {}
-        fn pop(&self, _: &mut TestPlatform) {}
+    impl Clip<TestContext> for TestClip {
+        fn push(&self, _: &mut TestContext, _: Rect) {}
+        fn pop(&self, _: &mut TestContext) {}
     }
 
     #[test]
     fn remeasured_rows_resolve_scroll_before_the_first_paint() {
         use blit::{Sides, WidgetId};
 
-        fn render(frame: &mut Frame<TestPlatform>, state: &mut State, rows: &[(u32, f32)]) {
+        fn render(frame: &mut Frame<TestContext>, state: &mut State, rows: &[(u32, f32)]) {
             frame.render(
-                &mut TestPlatform,
+                &mut TestContext,
                 FrameInfo::new(Size::new(80.0, 50.0)),
-                |ui: Ui<'_, TestPlatform>| {
+                |ui: Ui<'_, TestContext>| {
                     build(
                         ui,
                         state,

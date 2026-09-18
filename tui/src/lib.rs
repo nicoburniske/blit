@@ -1,4 +1,4 @@
-//! a cell based terminal platform for blit
+//! a cell based terminal context for blit
 //!
 //! frames are painted into a terminal cell grid. the renderer compares each
 //! frame with the previous one and emits escape sequences only for changed
@@ -11,7 +11,7 @@
 //! the built in runner targets Unix terminals with the kitty keyboard protocol,
 //! such as Kitty and Ghostty. Windows and legacy terminals are not supported.
 
-mod platform;
+mod context;
 mod protocol;
 mod renderer;
 mod terminal;
@@ -19,10 +19,10 @@ mod terminal;
 pub mod atom;
 pub mod widget;
 pub use blit_layout as layout;
-pub use platform::{BoundsClip, TuiPlatform};
+pub use context::{BoundsClip, TuiContext};
 pub use renderer::{RendererConfig, TuiRenderer, cell, color, image, text};
 
-pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiPlatform, S>;
+pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiContext, S>;
 
 use std::{
     io, io::Write as _, os::unix::net::UnixStream, sync::Arc, time::Duration, time::Instant,
@@ -49,9 +49,9 @@ pub fn run(render: impl FnMut(Ui<'_>)) -> io::Result<()> {
 /// call [`Session::pump`] to drive it from an application owned loop
 pub struct Session {
     terminal: Terminal,
-    platform: TuiPlatform,
+    context: TuiContext,
     wake: WakeHandle,
-    frame: Frame<TuiPlatform>,
+    frame: Frame<TuiContext>,
     started: Instant,
     next_frame: Duration,
     frame_interval: Duration,
@@ -66,10 +66,10 @@ impl Session {
         wake_writer.set_nonblocking(true)?;
         let terminal = Terminal::new(wake)?;
         let renderer = TuiRenderer::new(renderer_config(terminal.size()?)?);
-        let platform = TuiPlatform::new(renderer);
+        let context = TuiContext::new(renderer);
         Ok(Self {
             terminal,
-            platform,
+            context,
             wake: WakeHandle {
                 writer: Arc::new(wake_writer),
             },
@@ -126,17 +126,17 @@ impl Session {
         let now = self.started.elapsed();
         let info = self.frame_info();
         self.frame.render_inputs(
-            &mut self.platform,
+            &mut self.context,
             info,
             now,
             inputs[..input_count].iter().copied(),
             |mut ui| {
-                if !ui.platform().should_quit() {
+                if !ui.context().should_quit() {
                     render(ui);
                 }
             },
         );
-        if self.platform().should_quit() {
+        if self.context().should_quit() {
             self.finish()?;
             return Ok(false);
         }
@@ -158,16 +158,16 @@ impl Session {
         self.wake.clone()
     }
 
-    pub fn platform(&self) -> &TuiPlatform {
-        &self.platform
+    pub fn context(&self) -> &TuiContext {
+        &self.context
     }
 
-    pub fn platform_mut(&mut self) -> &mut TuiPlatform {
-        &mut self.platform
+    pub fn context_mut(&mut self) -> &mut TuiContext {
+        &mut self.context
     }
 
     pub fn frame_info(&self) -> FrameInfo {
-        let screen = self.platform.renderer().screen();
+        let screen = self.context.renderer().screen();
         FrameInfo::new(LogicalSize::new(screen.width as f32, screen.height as f32))
             .layout_resolution(LayoutResolution::Discrete {
                 step: LogicalSize::uniform(1.0),
@@ -192,7 +192,7 @@ impl Session {
                     break;
                 }
                 terminal::Event::Resize(size) => {
-                    self.platform.renderer_mut().resize(renderer_config(size)?);
+                    self.context.renderer_mut().resize(renderer_config(size)?);
                     result.resized = true;
                     break;
                 }
@@ -203,7 +203,7 @@ impl Session {
                     self.query_colors = true;
                 }
                 protocol::Event::Color { slot, rgb } => {
-                    result.redraw |= self.platform.renderer_mut().set_palette_color(*slot, *rgb);
+                    result.redraw |= self.context.renderer_mut().set_palette_color(*slot, *rgb);
                 }
                 _ => {}
             }
@@ -328,7 +328,7 @@ impl Session {
     }
 
     pub fn present(&mut self) -> io::Result<()> {
-        let output = self.platform.renderer().output();
+        let output = self.context.renderer().output();
         // avoid flushing when rendering produced no terminal changes
         if output.is_empty() {
             return Ok(());
@@ -343,7 +343,7 @@ impl Session {
         }
         self.active = false;
         let clear = self
-            .platform
+            .context
             .renderer_mut()
             .clear_kitty_graphics(&mut self.terminal);
         let finish = self.terminal.finish();

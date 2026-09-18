@@ -41,7 +41,7 @@ fn main() -> std::io::Result<()> {
                 })
         });
         if quit || matches!(root.input(), Input::Text('q')) {
-            root.platform().quit();
+            root.context().quit();
         }
     })
 }

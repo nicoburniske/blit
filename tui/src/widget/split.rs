@@ -1,11 +1,11 @@
 use blit::{Axis, Interaction, Widget, WidgetId};
 
-use crate::{TuiPlatform, Ui};
+use crate::{TuiContext, Ui};
 
 pub use blit_widgets::split::{Config, State};
 
 pub trait Divider {
-    type Widget: Widget<TuiPlatform>;
+    type Widget: Widget<TuiContext>;
 
     fn into_widget(self, axis: Axis, interaction: Interaction) -> Self::Widget;
 }
@@ -26,10 +26,10 @@ pub fn pane<'a, L, T, D>(
     divider: D,
     leading: L,
     trailing: T,
-) -> impl Widget<TuiPlatform> + 'a
+) -> impl Widget<TuiContext> + 'a
 where
-    L: Widget<TuiPlatform> + 'a,
-    T: Widget<TuiPlatform> + 'a,
+    L: Widget<TuiContext> + 'a,
+    T: Widget<TuiContext> + 'a,
     D: Divider + 'a,
 {
     move |ui: Ui<'_>| {

@@ -6,7 +6,7 @@ use crate::{
 };
 use blit::{Atom, Constraints, LogicalRect, Size};
 
-use crate::TuiPlatform;
+use crate::TuiContext;
 
 pub struct Sparkline {
     pub data: Rc<RefCell<Vec<u64>>>,
@@ -41,15 +41,15 @@ impl Sparkline {
     }
 }
 
-impl Atom<TuiPlatform> for Sparkline {
-    fn measure(&self, _: &mut TuiPlatform, constraints: Constraints) -> Size {
+impl Atom<TuiContext> for Sparkline {
+    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> Size {
         constraints.constrain(Size::new(self.data.borrow().len() as f32, 1.0))
     }
 
-    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
+    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
         const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let data = self.data.borrow();
-        let mut cells = platform.cells(area);
+        let mut cells = context.cells(area);
         let width = cells.columns();
         let rows = cells.rows();
         let style = if let Some(background) = self.background {

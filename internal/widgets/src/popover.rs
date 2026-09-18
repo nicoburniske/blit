@@ -1,5 +1,5 @@
 use blit::{
-    Absolute, Anchor, Input, Interaction, NodeTarget, Platform, Point, Sense, Sides, Sizing, Ui,
+    Absolute, Anchor, Context, Input, Interaction, NodeTarget, Point, Sense, Sides, Sizing, Ui,
     Widget, WidgetId,
 };
 use blit_layout::single;
@@ -38,17 +38,17 @@ blit::builder! {
     }
 }
 
-pub fn build<P, T, C>(
-    mut ui: Ui<'_, P>,
+pub fn build<C, T, W>(
+    mut ui: Ui<'_, C>,
     state: &mut State,
     config: Config,
     trigger: T,
-    content: C,
-) -> Option<C::Response>
+    content: W,
+) -> Option<W::Response>
 where
-    P: Platform,
-    T: FnOnce(Ui<'_, P>, Interaction, bool),
-    C: Widget<P>,
+    C: Context,
+    T: FnOnce(Ui<'_, C>, Interaction, bool),
+    W: Widget<C>,
 {
     let trigger_id = state.id.child("popover trigger");
     let interaction = ui.interact(trigger_id, Sense::CLICK);
@@ -66,7 +66,7 @@ where
         let anchor = trigger_node.id();
         trigger_node
             .child(single::item().grow())
-            .build(|ui: Ui<'_, P>| trigger(ui, interaction, state.open));
+            .build(|ui: Ui<'_, C>| trigger(ui, interaction, state.open));
         anchor
     };
     if !state.open {
@@ -154,22 +154,22 @@ mod tests {
 
     use super::*;
 
-    struct TestPlatform;
+    struct TestContext;
 
-    impl Platform for TestPlatform {}
+    impl Context for TestContext {}
 
-    fn render(ui: Ui<'_, TestPlatform>, state: &mut State, config: Config) {
+    fn render(ui: Ui<'_, TestContext>, state: &mut State, config: Config) {
         build(
             ui,
             state,
             config,
-            |ui: Ui<'_, TestPlatform>, _, _| {
+            |ui: Ui<'_, TestContext>, _, _| {
                 ui.widget_id(WidgetId::new("named trigger"))
                     .layout(single::layout())
                     .child(single::item().fixed(2.0, 1.0))
                     .build(())
             },
-            |ui: Ui<'_, TestPlatform>| {
+            |ui: Ui<'_, TestContext>| {
                 ui.widget_id(WidgetId::new("named content"))
                     .layout(single::layout())
                     .child(single::item().fixed(4.0, 3.0))
@@ -181,12 +181,12 @@ mod tests {
     #[test]
     fn popover_uses_root_constraints_and_close_behavior() {
         let mut frame = Frame::default();
-        let mut platform = TestPlatform;
+        let mut context = TestContext;
         let info = FrameInfo::new(Size::uniform(10.0));
         let mut state = State::new();
         let content_id = state.id.child("popover content");
 
-        frame.render(&mut platform, info, |ui: Ui<'_, TestPlatform>| {
+        frame.render(&mut context, info, |ui: Ui<'_, TestContext>| {
             render(ui, &mut state, Config::new());
         });
         let config = Config::new()
@@ -195,7 +195,7 @@ mod tests {
             .close(Close::Exit);
         let mut expected = [true, true, false].into_iter();
         frame.render_inputs(
-            &mut platform,
+            &mut context,
             info,
             Duration::ZERO,
             [
@@ -212,7 +212,7 @@ mod tests {
                     modifiers: Modifiers::NONE,
                 },
             ],
-            |ui: Ui<'_, TestPlatform>| {
+            |ui: Ui<'_, TestContext>| {
                 render(ui, &mut state, config);
                 assert_eq!(state.open, expected.next().unwrap());
             },
@@ -221,7 +221,7 @@ mod tests {
         let mut expected = [true, true, false].into_iter();
         let mut content_geometry = None;
         frame.render_inputs(
-            &mut platform,
+            &mut context,
             info,
             Duration::ZERO,
             [
@@ -242,7 +242,7 @@ mod tests {
                     modifiers: Modifiers::NONE,
                 },
             ],
-            |ui: Ui<'_, TestPlatform>| {
+            |ui: Ui<'_, TestContext>| {
                 if matches!(ui.input(), Input::PointerUp { .. }) {
                     content_geometry = ui.geometry(content_id);
                     assert_eq!(

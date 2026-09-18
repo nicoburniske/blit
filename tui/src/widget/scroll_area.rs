@@ -1,6 +1,6 @@
 use blit::{Content, Widget};
 
-use crate::{BoundsClip, TuiPlatform, Ui};
+use crate::{BoundsClip, TuiContext, Ui};
 
 pub use blit_widgets::scroll::area::{Behavior, Config, State};
 
@@ -9,12 +9,12 @@ pub fn new<'a, C, B, T, H>(
     config: Config,
     content: C,
     scrollbar: B,
-) -> impl Widget<TuiPlatform> + 'a
+) -> impl Widget<TuiContext> + 'a
 where
-    C: Widget<TuiPlatform> + 'a,
+    C: Widget<TuiContext> + 'a,
     B: FnOnce(bool) -> (Option<T>, Option<H>) + 'a,
-    T: Content<TuiPlatform>,
-    H: Content<TuiPlatform>,
+    T: Content<TuiContext>,
+    H: Content<TuiContext>,
 {
     move |ui: Ui<'_>| {
         blit_widgets::scroll::area::build(ui, state, config, BoundsClip, content, scrollbar)

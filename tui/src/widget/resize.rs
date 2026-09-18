@@ -1,6 +1,6 @@
 use blit::{Widget, WidgetId};
 
-use crate::{TuiPlatform, Ui};
+use crate::{TuiContext, Ui};
 
 pub use blit_widgets::resize::{Config, Edge, Grip, State};
 
@@ -10,11 +10,11 @@ pub fn area<'a, C, F, G>(
     config: Config,
     content: C,
     grip: F,
-) -> impl Widget<TuiPlatform> + 'a
+) -> impl Widget<TuiContext> + 'a
 where
-    C: Widget<TuiPlatform> + 'a,
+    C: Widget<TuiContext> + 'a,
     F: FnMut(Grip) -> G + 'a,
-    G: Widget<TuiPlatform>,
+    G: Widget<TuiContext>,
 {
     move |ui: Ui<'_>| blit_widgets::resize::build(ui, state, id, config, content, grip)
 }

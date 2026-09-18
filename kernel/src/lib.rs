@@ -1,4 +1,4 @@
-//! a small immediate-mode kernel for building platform-specific user interfaces
+//! a small immediate-mode kernel for building user interfaces
 //!
 //! each frame, you describe the interface as a tree of nodes. blit calculates the size and
 //! position of each node, then paints its contents
@@ -9,7 +9,7 @@
 //!   optional layout, and child nodes
 //! - [`Widget`] receives a fresh node and builds it. it may insert content or establish a layout
 //!   and build children
-//! - [`Content`] works within an existing node. it may configure the node, use frame and platform
+//! - [`Content`] works within an existing node. it may configure the node, use frame and context
 //!   services, and insert further content
 //! - [`Atom`] is visual content retained for painting. it measures under constraints, then paints
 //!   using the node's resolved position and size
@@ -28,7 +28,7 @@
 //! resolved node positions and sizes
 //!     │ Atom::paint
 //!     ▼
-//! platform output
+//! output
 //! ```
 //!
 //! widgets therefore describe a frame now, while layouts and atoms do their work later in that
@@ -57,7 +57,8 @@ pub use input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase};
 pub use interact::{Interaction, ScrollInteraction, Sense, WidgetId};
 pub use layout::{Axis, Layout, LayoutCx, LayoutResolution, Sizing};
 
-pub trait Platform {
+/// state and services available while a frame is built, laid out and painted
+pub trait Context {
     /// build and layout may repeat for queued inputs before paint and complete
     fn frame_stage(&mut self, _: FrameStage) {}
 
@@ -83,30 +84,30 @@ crate::builder! {
 }
 
 /// immediate builder that owns and populates a new frame node
-pub trait Widget<R: Platform> {
+pub trait Widget<C: Context> {
     type Response;
 
-    fn build(self, ui: Ui<'_, R>) -> Self::Response;
+    fn build(self, ui: Ui<'_, C>) -> Self::Response;
 }
 
 /// immediate content that augments an existing node without changing its structure
-pub trait Content<R: Platform> {
+pub trait Content<C: Context> {
     type Response;
 
-    fn append(self, ui: Ui<'_, R, state::Node>) -> Self::Response;
+    fn append(self, ui: Ui<'_, C, state::Node>) -> Self::Response;
 }
 
 /// retained visual content that measures and paints after building
 ///
 /// every atom implements [`Content`]
-pub trait Atom<R: Platform>: 'static {
+pub trait Atom<C: Context>: 'static {
     /// returns the size requested by this atom under `constraints`
     ///
     /// measurement may be skipped under tight constraints. painting must not
     /// depend on prior measurement.
-    fn measure(&self, platform: &mut R, constraints: Constraints) -> Size;
+    fn measure(&self, context: &mut C, constraints: Constraints) -> Size;
 
-    fn paint(&self, platform: &mut R, area: Rect);
+    fn paint(&self, context: &mut C, area: Rect);
 
     /// conservative bounds containing everything this atom may paint
     ///
@@ -114,42 +115,42 @@ pub trait Atom<R: Platform>: 'static {
     fn paint_bounds(&self, area: Rect) -> Rect;
 }
 
-impl<R, F, O> Widget<R> for F
+impl<C, F, O> Widget<C> for F
 where
-    R: Platform,
-    F: FnOnce(Ui<'_, R>) -> O,
+    C: Context,
+    F: FnOnce(Ui<'_, C>) -> O,
 {
     type Response = O;
 
-    fn build(self, ui: Ui<'_, R>) -> Self::Response {
+    fn build(self, ui: Ui<'_, C>) -> Self::Response {
         self(ui)
     }
 }
 
-impl<R: Platform> Widget<R> for () {
+impl<C: Context> Widget<C> for () {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_, R>) {
+    fn build(self, mut ui: Ui<'_, C>) {
         ui.insert(self);
     }
 }
 
-impl<R: Platform> Atom<R> for () {
-    fn measure(&self, _: &mut R, constraints: Constraints) -> Size {
+impl<C: Context> Atom<C> for () {
+    fn measure(&self, _: &mut C, constraints: Constraints) -> Size {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, _: &mut R, _: Rect) {}
+    fn paint(&self, _: &mut C, _: Rect) {}
 
     fn paint_bounds(&self, _: Rect) -> Rect {
         Rect::default()
     }
 }
 
-pub trait Clip<R: Platform>: 'static {
-    fn push(&self, platform: &mut R, area: Rect);
+pub trait Clip<C: Context>: 'static {
+    fn push(&self, context: &mut C, area: Rect);
 
-    fn pop(&self, platform: &mut R);
+    fn pop(&self, context: &mut C);
 }
 
 #[cfg(doctest)]

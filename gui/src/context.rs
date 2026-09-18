@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use blit::{Clip, FrameStage, LogicalPoint, LogicalRect, LogicalSize, Platform, Scale2};
+use blit::{Clip, Context, FrameStage, LogicalPoint, LogicalRect, LogicalSize, Scale2};
 use blit_widgets::performance::{FrameProfiler, Profiled};
 
 use crate::{
@@ -130,7 +130,7 @@ impl GuiContext {
     }
 }
 
-impl Platform for GuiContext {
+impl Context for GuiContext {
     fn frame_stage(&mut self, stage: FrameStage) {
         match stage {
             FrameStage::Build => self.display_list.clear(),

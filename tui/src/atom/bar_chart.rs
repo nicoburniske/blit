@@ -6,7 +6,7 @@ use crate::{
 };
 use blit::{Atom, Constraints, LogicalRect, Size};
 
-use crate::TuiPlatform;
+use crate::TuiContext;
 
 pub struct Bar {
     pub value: u64,
@@ -73,8 +73,8 @@ impl BarChart {
     }
 }
 
-impl Atom<TuiPlatform> for BarChart {
-    fn measure(&self, _: &mut TuiPlatform, constraints: Constraints) -> Size {
+impl Atom<TuiContext> for BarChart {
+    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> Size {
         let width = self
             .bars
             .borrow()
@@ -84,10 +84,10 @@ impl Atom<TuiPlatform> for BarChart {
         constraints.constrain(Size::new(width as f32, 5.0))
     }
 
-    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
+    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
         const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let bars = self.bars.borrow();
-        let mut cells = platform.cells(area);
+        let mut cells = context.cells(area);
         let width = cells.columns();
         let rows = cells.rows();
         if let Some(background) = self.background {

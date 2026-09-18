@@ -48,7 +48,7 @@ impl Widget<GuiContext> for Performance<'_> {
             popover,
             axis_labels,
         } = self.state;
-        if let Some(timings) = ui.platform().profiler().completed() {
+        if let Some(timings) = ui.context().profiler().completed() {
             inner.update(timings);
         }
         let measurements = inner.measurements();

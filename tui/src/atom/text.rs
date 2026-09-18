@@ -4,7 +4,7 @@ use crate::{
 };
 use blit::{Atom, Constraints, LogicalRect, Size};
 
-use crate::TuiPlatform;
+use crate::TuiContext;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -16,8 +16,8 @@ blit::builder! {
     }
 }
 
-impl Atom<TuiPlatform> for Text {
-    fn measure(&self, platform: &mut TuiPlatform, constraints: Constraints) -> Size {
+impl Atom<TuiContext> for Text {
+    fn measure(&self, context: &mut TuiContext, constraints: Constraints) -> Size {
         let mut request = TextLayoutRequest::new(self.text).wrap(self.options.wrap);
         if self.options.wrap != TextWrap::None && constraints.max.width.is_finite() {
             request = request.max_width(constraints.max.width);
@@ -25,11 +25,11 @@ impl Atom<TuiPlatform> for Text {
         if let Some(max_lines) = self.options.max_lines {
             request = request.max_lines(max_lines);
         }
-        constraints.constrain(platform.renderer_mut().measure_text(&request))
+        constraints.constrain(context.renderer_mut().measure_text(&request))
     }
 
-    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
-        platform.paint_text(
+    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
+        context.paint_text(
             TextRequest::new(self.text, area)
                 .color(self.color)
                 .attributes(self.attributes)

@@ -2,7 +2,7 @@ use crate::{color::Color, text::TextAttributes};
 use blit::{Content, state};
 
 use crate::{
-    TuiPlatform, Ui,
+    TuiContext, Ui,
     atom::{self, Border, Shadow, TitlePosition},
 };
 
@@ -26,7 +26,7 @@ impl<'a> Block<'a> {
     }
 }
 
-impl Content<TuiPlatform> for Block<'_> {
+impl Content<TuiContext> for Block<'_> {
     type Response = ();
 
     fn append(self, mut ui: Ui<'_, state::Node>) {
@@ -36,7 +36,7 @@ impl Content<TuiPlatform> for Block<'_> {
             .unwrap_or(Color::Reset);
         let titles = self.titles.map(|title| {
             title.map(|title| {
-                let text = ui.platform().renderer_mut().text_run(title.text);
+                let text = ui.context().renderer_mut().text_run(title.text);
                 atom::Title::new(text)
                     .color(title.color.unwrap_or(color))
                     .attributes(title.attributes)

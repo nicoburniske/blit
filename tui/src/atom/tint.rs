@@ -1,6 +1,6 @@
 use blit::{Atom, Constraints, LogicalRect, Size};
 
-use crate::TuiPlatform;
+use crate::TuiContext;
 
 blit::builder! {
     /// tints previously painted cells without replacing their text
@@ -12,13 +12,13 @@ blit::builder! {
     }
 }
 
-impl Atom<TuiPlatform> for Tint {
-    fn measure(&self, _: &mut TuiPlatform, _: Constraints) -> Size {
+impl Atom<TuiContext> for Tint {
+    fn measure(&self, _: &mut TuiContext, _: Constraints) -> Size {
         Size::ZERO
     }
 
-    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
-        platform.cells(area).tint(self.color, self.opacity);
+    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
+        context.cells(area).tint(self.color, self.opacity);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {

@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, Layout as LayoutTrait, LayoutCx, Platform, Point, Size};
+use blit::{Axis, Constraints, Context, Layout as LayoutTrait, LayoutCx, Point, Size};
 
 #[derive(Clone, Copy)]
 pub struct Layout {
@@ -16,10 +16,10 @@ pub enum Item {
     Corner,
 }
 
-impl<P: Platform> LayoutTrait<P> for Layout {
+impl<C: Context> LayoutTrait<C> for Layout {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, P, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         let res = cx.resolution();
         let maximum = self.maximum.max(self.minimum);
         let size = constraints.constrain(Size::new(

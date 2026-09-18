@@ -56,7 +56,7 @@ impl Widget<GuiContext> for TextInput<'_> {
         }
         let focused = ui.is_focused(id);
         let response = state.update(value, if focused { &input } else { &Input::None });
-        let text = ui.platform().text_run(value, style);
+        let text = ui.context().text_run(value, style);
         let options = TextOptions {
             max_lines: Some(1),
             ..TextOptions::default()
@@ -84,11 +84,11 @@ impl Widget<GuiContext> for TextInput<'_> {
                 options,
             };
             if let Some((position, extend)) = pointer {
-                let offset = ui.platform().text_offset_at_position(&request, position);
+                let offset = ui.context().text_offset_at_position(&request, position);
                 state.move_to(value, offset, extend);
             }
             if area.width > 0.0 {
-                let cursor = ui.platform().text_cursor_rect(&request, state.cursor);
+                let cursor = ui.context().text_cursor_rect(&request, state.cursor);
                 if cursor.x < area.x {
                     state.offset_x = (state.offset_x - area.x + cursor.x).max(0.0);
                 } else if cursor.x + cursor.width > area.x + area.width {
@@ -99,7 +99,7 @@ impl Widget<GuiContext> for TextInput<'_> {
             ui.request_frame();
         }
         let display = if value.is_empty() && !placeholder.is_empty() {
-            ui.platform().text_run(placeholder, style)
+            ui.context().text_run(placeholder, style)
         } else {
             text
         };
@@ -136,8 +136,8 @@ struct InputAtom {
 }
 
 impl Atom<GuiContext> for InputAtom {
-    fn measure(&self, platform: &mut GuiContext, constraints: Constraints) -> Size {
-        let size = platform.measure_text(&TextLayoutRequest {
+    fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> Size {
+        let size = context.measure_text(&TextLayoutRequest {
             text: self.display,
             wrap: TextWrap::None,
             max_width: None,
@@ -146,10 +146,10 @@ impl Atom<GuiContext> for InputAtom {
         constraints.constrain(size + self.padding.size())
     }
 
-    fn paint(&self, platform: &mut GuiContext, area: LogicalRect) {
+    fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
         let area = content_area(area, self.padding);
         if self.background != Color::TRANSPARENT {
-            platform.paint_rectangle(Rectangle::new(area).background(self.background));
+            context.paint_rectangle(Rectangle::new(area).background(self.background));
         }
         let request = TextRequest {
             text: self.text,
@@ -161,22 +161,22 @@ impl Atom<GuiContext> for InputAtom {
         let start_offset = self.state.cursor.min(self.state.anchor);
         let end_offset = self.state.cursor.max(self.state.anchor);
         if start_offset != end_offset {
-            let start = platform.text_cursor_rect(&request, start_offset);
-            let end = platform.text_cursor_rect(&request, end_offset);
+            let start = context.text_cursor_rect(&request, start_offset);
+            let end = context.text_cursor_rect(&request, end_offset);
             if let Some(selection) =
                 LogicalRect::new(start.x, start.y, end.x - start.x, start.height).intersection(area)
             {
-                platform.paint_rectangle(
+                context.paint_rectangle(
                     Rectangle::new(selection).background(self.selection_background),
                 );
             }
         }
         if self.focused {
-            if let Some(cursor) = platform
+            if let Some(cursor) = context
                 .text_cursor_rect(&request, self.state.cursor)
                 .intersection(area)
             {
-                platform.paint_rectangle(Rectangle::new(cursor).background(self.cursor_background));
+                context.paint_rectangle(Rectangle::new(cursor).background(self.cursor_background));
             }
         }
         let request = TextRequest {
@@ -188,7 +188,7 @@ impl Atom<GuiContext> for InputAtom {
             },
             ..request
         };
-        platform.paint_text(request);
+        context.paint_text(request);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {

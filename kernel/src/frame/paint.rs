@@ -1,7 +1,7 @@
 use super::{ClipKind, Frame, ResolvedClip, ResolvedClipId, StoredClip};
-use crate::{Platform, arena::DataArena};
+use crate::{Context, arena::DataArena};
 
-pub fn resolve_order<R: Platform>(frame: &mut Frame<R>) {
+pub fn resolve_order<C: Context>(frame: &mut Frame<C>) {
     frame.paint_order.clear();
     if !frame
         .nodes
@@ -45,7 +45,7 @@ pub fn resolve_order<R: Platform>(frame: &mut Frame<R>) {
     debug_assert_eq!(frame.paint_order.len(), frame.nodes.len());
 }
 
-pub fn resolve_clips<R: Platform>(frame: &mut Frame<R>) {
+pub fn resolve_clips<C: Context>(frame: &mut Frame<C>) {
     frame.resolved_clips.clear();
     for index in 0..frame.nodes.len() {
         let parent = if index == 0 {
@@ -76,16 +76,16 @@ pub fn resolve_clips<R: Platform>(frame: &mut Frame<R>) {
     }
 }
 
-pub fn render<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mut R) {
+pub fn render<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C) {
     frame.active_clips.clear();
     if frame.paint_order.is_empty() {
         for node in 0..frame.nodes.len() {
-            paint_node(frame, data, platform, node);
+            paint_node(frame, data, context, node);
         }
     } else {
         for index in 0..frame.paint_order.len() {
             let node = frame.paint_order[index].index();
-            paint_node(frame, data, platform, node);
+            paint_node(frame, data, context, node);
         }
     }
     set(
@@ -94,19 +94,19 @@ pub fn render<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
         &frame.clip_kinds,
         &frame.resolved_clips,
         &mut frame.active_clips,
-        platform,
+        context,
         ResolvedClipId::NONE,
     );
 }
 
 #[allow(clippy::too_many_arguments)]
-fn push<R: Platform>(
+fn push<C: Context>(
     data: &DataArena,
     clips: &[StoredClip],
-    kinds: &[ClipKind<R>],
+    kinds: &[ClipKind<C>],
     resolved: &[ResolvedClip],
     active: &mut Vec<ResolvedClipId>,
-    platform: &mut R,
+    context: &mut C,
     clip: ResolvedClipId,
     common: u32,
 ) {
@@ -120,22 +120,22 @@ fn push<R: Platform>(
         kinds,
         resolved,
         active,
-        platform,
+        context,
         stored.parent,
         common,
     );
     let clip_data = clips[stored.clip.index().unwrap()];
-    (kinds[clip_data.kind as usize].push)(data, clip_data.data, platform, stored.area);
+    (kinds[clip_data.kind as usize].push)(data, clip_data.data, context, stored.area);
     active.push(clip);
 }
 
-fn set<R: Platform>(
+fn set<C: Context>(
     data: &DataArena,
     clips: &[StoredClip],
-    kinds: &[ClipKind<R>],
+    kinds: &[ClipKind<C>],
     resolved: &[ResolvedClip],
     active: &mut Vec<ResolvedClipId>,
-    platform: &mut R,
+    context: &mut C,
     target: ResolvedClipId,
 ) {
     let mut common = target;
@@ -150,14 +150,14 @@ fn set<R: Platform>(
         let clip = active.pop().unwrap();
         let stored = resolved[clip.index().unwrap()];
         let clip_data = clips[stored.clip.index().unwrap()];
-        (kinds[clip_data.kind as usize].pop)(data, clip_data.data, platform);
+        (kinds[clip_data.kind as usize].pop)(data, clip_data.data, context);
     }
     push(
-        data, clips, kinds, resolved, active, platform, target, common.0,
+        data, clips, kinds, resolved, active, context, target, common.0,
     );
 }
 
-fn paint_node<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mut R, node: usize) {
+fn paint_node<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, node: usize) {
     if frame.nodes[node].first_atom.index().is_none() {
         return;
     }
@@ -183,12 +183,12 @@ fn paint_node<R: Platform>(frame: &mut Frame<R>, data: &DataArena, platform: &mu
                 &frame.clip_kinds,
                 &frame.resolved_clips,
                 &mut frame.active_clips,
-                platform,
+                context,
                 resolved_clip,
             );
             clip_set = true;
         }
-        (kind.paint)(data, stored.data, platform, area);
+        (kind.paint)(data, stored.data, context, area);
         atom = stored.next;
     }
 }

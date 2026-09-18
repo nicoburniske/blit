@@ -1,11 +1,11 @@
 pub use crate::frame::layout::{Children, LayoutCx};
 
 use crate::{
-    Platform,
+    Context,
     geometry::{Constraints, Sides, Size},
 };
 
-pub trait Layout<R: Platform>: 'static {
+pub trait Layout<C: Context>: 'static {
     /// per-child data interpreted by this layout
     type Item: 'static;
 
@@ -21,7 +21,7 @@ pub trait Layout<R: Platform>: 'static {
     ///
     /// use [`LayoutCx::target_child_size`] when animated sizes must not change
     /// structural decisions such as wrapping.
-    fn layout(&self, cx: &mut LayoutCx<'_, R, Self::Item>, constraints: Constraints) -> Size;
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size;
 
     /// applies an animated outer size to a flow child item
     ///

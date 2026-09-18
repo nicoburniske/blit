@@ -24,9 +24,9 @@ impl Atom<GuiContext> for Rectangle {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, platform: &mut GuiContext, area: LogicalRect) {
+    fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
         if self.background != Color::TRANSPARENT || !matches!(self.border, Border::None) {
-            platform.paint_rectangle(DrawRectangle {
+            context.paint_rectangle(DrawRectangle {
                 area,
                 background: self.background,
                 border: self.border,
@@ -53,8 +53,8 @@ blit::builder! {
 }
 
 impl Atom<GuiContext> for Text {
-    fn measure(&self, platform: &mut GuiContext, constraints: Constraints) -> Size {
-        let measured = platform.measure_text(&TextLayoutRequest {
+    fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> Size {
+        let measured = context.measure_text(&TextLayoutRequest {
             text: self.text,
             wrap: self.options.wrap,
             max_width: (self.options.wrap != TextWrap::None && constraints.max.width.is_finite())
@@ -64,7 +64,7 @@ impl Atom<GuiContext> for Text {
         constraints.constrain(measured)
     }
 
-    fn paint(&self, platform: &mut GuiContext, area: LogicalRect) {
+    fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
         let request = TextRequest {
             text: self.text,
             area,
@@ -72,7 +72,7 @@ impl Atom<GuiContext> for Text {
             color: self.color,
             options: self.options,
         };
-        platform.paint_text_palette(request, self.palette);
+        context.paint_text_palette(request, self.palette);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
@@ -98,7 +98,7 @@ impl Atom<GuiContext> for Image {
         constraints.constrain(self.intrinsic)
     }
 
-    fn paint(&self, platform: &mut GuiContext, area: LogicalRect) {
+    fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
         let request = ImageRequest {
             image: self.image,
             area,
@@ -110,7 +110,7 @@ impl Atom<GuiContext> for Image {
             horizontal_tiling: self.horizontal_tiling,
             vertical_tiling: self.vertical_tiling,
         };
-        platform.paint_image(request);
+        context.paint_image(request);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
@@ -153,8 +153,8 @@ impl Atom<GuiContext> for Shadow {
         Size::ZERO
     }
 
-    fn paint(&self, platform: &mut GuiContext, area: LogicalRect) {
-        platform.paint_shadow(self.command(area));
+    fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
+        context.paint_shadow(self.command(area));
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {

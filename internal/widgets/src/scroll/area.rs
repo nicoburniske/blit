@@ -1,4 +1,4 @@
-use blit::{Axis, Clip, Content, Platform, Ui, Widget};
+use blit::{Axis, Clip, Content, Context, Ui, Widget};
 
 pub use super::shared::{Behavior, State};
 
@@ -13,19 +13,19 @@ blit::builder! {
     }
 }
 
-pub fn build<P, C, X, T, H>(
-    mut ui: Ui<'_, P>,
+pub fn build<C, W, X, T, H>(
+    mut ui: Ui<'_, C>,
     state: &mut State,
     area: Config,
     clip: X,
-    content: C,
+    content: W,
     scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
 ) where
-    P: Platform,
-    C: Widget<P>,
-    X: Clip<P>,
-    T: Content<P>,
-    H: Content<P>,
+    C: Context,
+    W: Widget<C>,
+    X: Clip<C>,
+    T: Content<C>,
+    H: Content<C>,
 {
     let config = area.behavior;
     let axis = area.axis;

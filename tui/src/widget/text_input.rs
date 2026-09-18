@@ -9,7 +9,7 @@ use blit::{
 };
 pub use blit_widgets::text_input::{Response, State};
 
-use crate::TuiPlatform;
+use crate::TuiContext;
 
 blit::builder! {
     pub struct TextInput<'a> {
@@ -27,10 +27,10 @@ blit::builder! {
     }
 }
 
-impl Widget<TuiPlatform> for TextInput<'_> {
+impl Widget<TuiContext> for TextInput<'_> {
     type Response = Response;
 
-    fn build(self, mut ui: Ui<'_, TuiPlatform>) -> Self::Response {
+    fn build(self, mut ui: Ui<'_, TuiContext>) -> Self::Response {
         let Self {
             state,
             id,
@@ -60,7 +60,7 @@ impl Widget<TuiPlatform> for TextInput<'_> {
         }
         let focused = ui.is_focused(id);
         let response = state.update(value, if focused { &input } else { &Input::None });
-        let text = ui.platform().renderer_mut().text_run(value);
+        let text = ui.context().renderer_mut().text_run(value);
         let options = TextOptions::new().max_lines(1);
         let pointer = if focused {
             match input {
@@ -82,14 +82,14 @@ impl Widget<TuiPlatform> for TextInput<'_> {
                 .options(options);
             if let Some((position, extend)) = pointer {
                 let offset = ui
-                    .platform()
+                    .context()
                     .renderer_mut()
                     .text_offset_at_position(&request, position);
                 state.move_to(value, offset, extend);
             }
             if area.width > 0.0 {
                 let cursor = ui
-                    .platform()
+                    .context()
                     .renderer_mut()
                     .text_cursor_rect(&request, state.cursor);
                 if cursor.x < area.x {
@@ -102,7 +102,7 @@ impl Widget<TuiPlatform> for TextInput<'_> {
             ui.request_frame();
         }
         let display = if value.is_empty() && !placeholder.is_empty() {
-            ui.platform().renderer_mut().text_run(placeholder)
+            ui.context().renderer_mut().text_run(placeholder)
         } else {
             text
         };
@@ -140,18 +140,18 @@ struct InputAtom {
     focused: bool,
 }
 
-impl Atom<TuiPlatform> for InputAtom {
-    fn measure(&self, platform: &mut TuiPlatform, constraints: Constraints) -> Size {
-        let size = platform
+impl Atom<TuiContext> for InputAtom {
+    fn measure(&self, context: &mut TuiContext, constraints: Constraints) -> Size {
+        let size = context
             .renderer_mut()
             .measure_text(&TextLayoutRequest::new(self.display).max_lines(1));
         constraints.constrain(size + self.padding.size())
     }
 
-    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
+    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
         let area = content_area(area, self.padding);
         if let Some(background) = self.background {
-            platform
+            context
                 .cells(area)
                 .clear(Cell::default().style(CellStyle::new().background(background)));
         }
@@ -161,28 +161,28 @@ impl Atom<TuiPlatform> for InputAtom {
         let start = self.state.cursor.min(self.state.anchor);
         let end = self.state.cursor.max(self.state.anchor);
         if start != end {
-            let start = platform.renderer_mut().text_cursor_rect(&request, start);
-            let end = platform.renderer_mut().text_cursor_rect(&request, end);
+            let start = context.renderer_mut().text_cursor_rect(&request, start);
+            let end = context.renderer_mut().text_cursor_rect(&request, end);
             if let Some(selection) =
                 blit::LogicalRect::new(start.x, start.y, end.x - start.x, 1.0).intersection(area)
             {
-                platform.cells(selection).clear(
+                context.cells(selection).clear(
                     Cell::default().style(CellStyle::new().background(self.selection_background)),
                 );
             }
         }
         if self.focused {
-            if let Some(cursor) = platform
+            if let Some(cursor) = context
                 .renderer_mut()
                 .text_cursor_rect(&request, self.state.cursor)
                 .intersection(area)
             {
-                platform.cells(cursor).clear(
+                context.cells(cursor).clear(
                     Cell::default().style(CellStyle::new().background(self.cursor_background)),
                 );
             }
         }
-        platform.paint_text(
+        context.paint_text(
             TextRequest::new(self.display, area)
                 .offset_x(self.state.offset_x)
                 .color(if self.display != self.text {

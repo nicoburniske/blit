@@ -7,7 +7,7 @@ use crate::{
 };
 use blit::{Atom, Constraints, LogicalRect, Size};
 
-use crate::TuiPlatform;
+use crate::TuiContext;
 
 pub struct Gauge {
     pub ratio: f64,
@@ -49,8 +49,8 @@ impl Gauge {
     }
 }
 
-impl Atom<TuiPlatform> for Gauge {
-    fn measure(&self, _: &mut TuiPlatform, constraints: Constraints) -> Size {
+impl Atom<TuiContext> for Gauge {
+    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> Size {
         let width = self.label.as_ref().map_or_else(
             || percentage_label(self.ratio).1,
             |label| label.chars().count(),
@@ -58,8 +58,8 @@ impl Atom<TuiPlatform> for Gauge {
         constraints.constrain(Size::new(width.max(1) as f32, 1.0))
     }
 
-    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
-        let mut cells = platform.cells(area);
+    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
+        let mut cells = context.cells(area);
         let width = cells.columns();
         let rows = cells.rows();
         let filled = (width as f64 * self.ratio.clamp(0.0, 1.0)).round() as usize;

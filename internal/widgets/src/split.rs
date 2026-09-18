@@ -1,4 +1,4 @@
-use blit::{Axis, Platform, Sense, Ui, Widget, WidgetId};
+use blit::{Axis, Context, Sense, Ui, Widget, WidgetId};
 use blit_layout::split::{Item, Layout};
 
 blit::builder! {
@@ -36,8 +36,8 @@ impl State {
     }
 }
 
-pub fn build<P, L, T, D>(
-    mut ui: Ui<'_, P>,
+pub fn build<C, L, T, D>(
+    mut ui: Ui<'_, C>,
     state: &mut State,
     id: WidgetId,
     config: Config,
@@ -45,10 +45,10 @@ pub fn build<P, L, T, D>(
     trailing: T,
     divider: impl FnOnce(Axis, blit::Interaction) -> D,
 ) where
-    P: Platform,
-    L: Widget<P>,
-    T: Widget<P>,
-    D: Widget<P>,
+    C: Context,
+    L: Widget<C>,
+    T: Widget<C>,
+    D: Widget<C>,
 {
     let axis = config.axis;
     let leading_id = id.child("leading pane");
@@ -109,18 +109,18 @@ mod tests {
 
     use super::*;
 
-    struct TestPlatform;
+    struct TestContext;
 
-    impl Platform for TestPlatform {}
+    impl Context for TestContext {}
 
     struct BoxAtom;
 
-    impl Atom<TestPlatform> for BoxAtom {
-        fn measure(&self, _: &mut TestPlatform, constraints: Constraints) -> Size {
+    impl Atom<TestContext> for BoxAtom {
+        fn measure(&self, _: &mut TestContext, constraints: Constraints) -> Size {
             constraints.min
         }
 
-        fn paint(&self, _: &mut TestPlatform, _: Rect) {}
+        fn paint(&self, _: &mut TestContext, _: Rect) {}
 
         fn paint_bounds(&self, area: Rect) -> Rect {
             area
@@ -134,12 +134,12 @@ mod tests {
         let id = WidgetId::new("split pane");
         state.set_extent(90.0);
         frame.render(
-            &mut TestPlatform,
+            &mut TestContext,
             FrameInfo::new(Size::new(100.0, 20.0)),
-            |ui: Ui<'_, TestPlatform>| {
+            |ui: Ui<'_, TestContext>| {
                 ui.layout(single::layout())
                     .child(single::item().grow())
-                    .build(|ui: Ui<'_, TestPlatform>| {
+                    .build(|ui: Ui<'_, TestContext>| {
                         build(
                             ui,
                             &mut state,
@@ -148,8 +148,8 @@ mod tests {
                                 .minimum_leading(20.0)
                                 .minimum_trailing(20.0)
                                 .divider_extent(4.0),
-                            |mut ui: Ui<'_, TestPlatform>| ui.insert(BoxAtom),
-                            |mut ui: Ui<'_, TestPlatform>| ui.insert(BoxAtom),
+                            |mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom),
+                            |mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom),
                             |_, _| (),
                         )
                     });

@@ -1,7 +1,7 @@
 use crate::image::{ImageId, ImagePlacement};
 use blit::{Atom, Constraints, LogicalRect, Size};
 
-use crate::TuiPlatform;
+use crate::TuiContext;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -10,13 +10,13 @@ blit::builder! {
     }
 }
 
-impl Atom<TuiPlatform> for Image {
-    fn measure(&self, _: &mut TuiPlatform, constraints: Constraints) -> Size {
+impl Atom<TuiContext> for Image {
+    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> Size {
         constraints.constrain(self.intrinsic)
     }
 
-    fn paint(&self, platform: &mut TuiPlatform, area: LogicalRect) {
-        platform.place_image(ImagePlacement::new(self.image, area));
+    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
+        context.place_image(ImagePlacement::new(self.image, area));
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
