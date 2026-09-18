@@ -177,10 +177,6 @@ impl Measurements {
     }
 }
 
-pub trait Profiled {
-    fn profiler(&self) -> &FrameProfiler;
-}
-
 #[derive(Debug, Default)]
 pub struct FrameProfiler {
     completed: Option<FrameTimings>,

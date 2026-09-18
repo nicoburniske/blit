@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use blit::{Clip, Context, FrameStage, LogicalPoint, LogicalRect, LogicalSize, Scale2};
-use blit_widgets::performance::{FrameProfiler, Profiled};
+use blit_widgets::performance::FrameProfiler;
 
 use crate::{
     TextSystem,
@@ -111,10 +111,6 @@ impl GuiContext {
         self.scale = Scale2::uniform(scale);
     }
 
-    pub fn scale(&self) -> Scale2 {
-        self.scale
-    }
-
     pub fn render_input(&mut self) -> RenderInput<'_> {
         RenderInput {
             display_list: &mut self.display_list,
@@ -127,6 +123,10 @@ impl GuiContext {
     pub fn finish_frame(&mut self, render_time: Duration) {
         self.text.finish_frame();
         self.profiler.record_render(render_time);
+    }
+
+    pub fn profiler(&self) -> &FrameProfiler {
+        &self.profiler
     }
 }
 
@@ -141,12 +141,6 @@ impl Context for GuiContext {
             FrameStage::Layout | FrameStage::Complete => {}
         }
         self.profiler.begin_stage(stage, self.clock.elapsed());
-    }
-}
-
-impl Profiled for GuiContext {
-    fn profiler(&self) -> &FrameProfiler {
-        &self.profiler
     }
 }
 

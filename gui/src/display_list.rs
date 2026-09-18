@@ -95,10 +95,6 @@ impl DisplayList {
         self.commands.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.commands.is_empty()
-    }
-
     pub fn push_clip(&mut self, parent: ClipId, area: LogicalRect, radius: BorderRadius) -> ClipId {
         self.assert_clip(parent);
         let id = u32::try_from(self.clips.len() + 1).expect("too many display list clips");
@@ -108,11 +104,6 @@ impl DisplayList {
             radius,
         });
         ClipId(id)
-    }
-
-    pub fn clip(&self, id: ClipId) -> Option<&ClipNode> {
-        id.0.checked_sub(1)
-            .and_then(|index| self.clips.get(index as usize))
     }
 
     pub fn clips(&self) -> &[ClipNode] {
@@ -313,6 +304,11 @@ impl DisplayList {
 }
 
 impl DisplayList {
+    fn clip(&self, id: ClipId) -> Option<&ClipNode> {
+        id.0.checked_sub(1)
+            .and_then(|index| self.clips.get(index as usize))
+    }
+
     fn push(&mut self, bounds: PhysicalRect, clip: ClipId, kind: CommandKind) {
         self.assert_clip(clip);
         self.commands.push(StoredCommand { bounds, clip, kind });

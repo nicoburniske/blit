@@ -287,64 +287,6 @@ impl TextSystem {
         *self.texts.get_index(index)
     }
 
-    pub fn layout(&mut self, text: TextRunId, request: LayoutRequest) -> ResolvedTextLayout<'_> {
-        let text_index = (text.0 as u32).checked_sub(1).expect("invalid text") as usize;
-        self.texts.update_index(text_index, |cached| {
-            assert_eq!(*cached, text, "expired text")
-        });
-        let cached = self.texts.get_key_index(text_index);
-        let key = LayoutKey {
-            text,
-            max_width: request.max_width.map(f32::to_bits),
-            max_height: request.max_height.map(f32::to_bits),
-            max_lines: request.max_lines,
-            wrap: request.wrap,
-            overflow: request.overflow,
-            horizontal_align: request.horizontal_align,
-            vertical_align: request.vertical_align,
-        };
-        let next_layout = self.next_layout;
-        let engine = &mut self.engine;
-        let (_, index) = self.layouts.get_or_insert(key, |_| {
-            let one;
-            let spans = match &cached.spans {
-                CachedSpans::One(style) => {
-                    one = blit_text::TextSpan {
-                        range: 0..cached.text.len(),
-                        style: *style,
-                    };
-                    std::slice::from_ref(&one)
-                }
-                CachedSpans::Many(spans) => spans,
-            };
-            (
-                key,
-                CachedLayout {
-                    id: TextLayoutId(next_layout),
-                    layout: engine.layout(
-                        blit_text::Text {
-                            text: &cached.text,
-                            spans,
-                        },
-                        request,
-                    ),
-                },
-            )
-        });
-        if self.layouts.get_index(index).id.0 == next_layout {
-            self.next_layout = self
-                .next_layout
-                .checked_add(1)
-                .expect("too many text layouts");
-        }
-        let cached = self.layouts.get_index(index);
-        ResolvedTextLayout {
-            id: cached.id,
-            layout: &cached.layout,
-            engine: self.engine.as_ref(),
-        }
-    }
-
     pub fn paint_layout(&mut self, request: &TextRequest) -> ResolvedTextLayout<'_> {
         self.layout(request.text, paint_request(request))
     }
@@ -427,6 +369,66 @@ impl TextSystem {
     pub fn finish_frame(&mut self) {
         self.layouts.trim_to_weight();
         self.texts.trim_to_weight();
+    }
+}
+
+impl TextSystem {
+    fn layout(&mut self, text: TextRunId, request: LayoutRequest) -> ResolvedTextLayout<'_> {
+        let text_index = (text.0 as u32).checked_sub(1).expect("invalid text") as usize;
+        self.texts.update_index(text_index, |cached| {
+            assert_eq!(*cached, text, "expired text")
+        });
+        let cached = self.texts.get_key_index(text_index);
+        let key = LayoutKey {
+            text,
+            max_width: request.max_width.map(f32::to_bits),
+            max_height: request.max_height.map(f32::to_bits),
+            max_lines: request.max_lines,
+            wrap: request.wrap,
+            overflow: request.overflow,
+            horizontal_align: request.horizontal_align,
+            vertical_align: request.vertical_align,
+        };
+        let next_layout = self.next_layout;
+        let engine = &mut self.engine;
+        let (_, index) = self.layouts.get_or_insert(key, |_| {
+            let one;
+            let spans = match &cached.spans {
+                CachedSpans::One(style) => {
+                    one = blit_text::TextSpan {
+                        range: 0..cached.text.len(),
+                        style: *style,
+                    };
+                    std::slice::from_ref(&one)
+                }
+                CachedSpans::Many(spans) => spans,
+            };
+            (
+                key,
+                CachedLayout {
+                    id: TextLayoutId(next_layout),
+                    layout: engine.layout(
+                        blit_text::Text {
+                            text: &cached.text,
+                            spans,
+                        },
+                        request,
+                    ),
+                },
+            )
+        });
+        if self.layouts.get_index(index).id.0 == next_layout {
+            self.next_layout = self
+                .next_layout
+                .checked_add(1)
+                .expect("too many text layouts");
+        }
+        let cached = self.layouts.get_index(index);
+        ResolvedTextLayout {
+            id: cached.id,
+            layout: &cached.layout,
+            engine: self.engine.as_ref(),
+        }
     }
 }
 

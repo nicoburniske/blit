@@ -10,7 +10,7 @@ use crate::{
     widget::{Text, popover},
 };
 use blit::{Anchor, Interaction, Sides, Size, Sizing, Widget};
-use blit_widgets::performance::{self as shared, Profiled as _};
+use blit_widgets::performance as shared;
 
 blit::builder! {
     /// clickable performance badge with a timing table and history graph
@@ -58,7 +58,7 @@ impl Widget<GuiContext> for Performance<'_> {
         let graph_width = self.graph_size.width.max(1.0);
         let graph_height = self.graph_size.height.max(1.0);
         let columns = graph_width.ceil() as usize;
-        ui.build(popover::show(
+        ui.build(popover::new(
             popover,
             self.popover.close(popover::Close::Manual),
             |ui: Ui<'_>, interaction: Interaction, open| {

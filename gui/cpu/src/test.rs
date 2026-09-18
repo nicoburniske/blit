@@ -1,20 +1,20 @@
 use std::{
-    ops::{Deref, DerefMut, Range},
+    ops::Range,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering::Relaxed},
     },
+    time::Duration,
 };
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
 use blit_gui::{
-    FontData, FontFamily, RenderInput, TextConfig, TextSystem,
+    FontData, FontFamily, GuiContext, RenderInput, TextConfig, TextSystem,
     color::Color,
     display_list::{BoxShadow, ClipId, Command, DisplayList, Rectangle},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
-    image::{ImageHandle, ImageId},
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::FontId,
     text::{Span, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
@@ -95,82 +95,34 @@ fn renderer_config() -> RendererConfig {
 }
 
 struct TestRenderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
-    renderer: Renderer<B, S>,
-    text: TextSystem,
-    image_uploads: Vec<(ImageHandle, ImageData)>,
-    next_image: u64,
-    scale: f32,
+    render: Renderer<B, S>,
+    gui: GuiContext,
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>> TestRenderer<B, S> {
     fn render(&mut self, display_list: &DisplayList, damage: &[PhysicalRect]) {
-        self.renderer.render_damage(
-            &mut self.text,
-            &mut self.image_uploads,
-            display_list,
-            damage,
-        );
-        self.text.finish_frame();
-    }
-
-    fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        data.validate();
-        self.next_image = self.next_image.checked_add(1).unwrap();
-        let image = ImageHandle::new(ImageId(self.next_image), data.size);
-        self.image_uploads.push((image.clone(), data));
-        image
-    }
-
-    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.text.text_run(text, style)
-    }
-
-    fn rich_text(&mut self, spans: &[Span<'_>], style: TextStyle) -> TextRunId {
-        self.text.rich_text(spans, style)
-    }
-
-    fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
-        self.text.offset_at_position(request, position)
-    }
-
-    fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
-        self.text.measure(request)
-    }
-
-    fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        self.text
-            .cursor_rect(request, byte_offset, self.scale.recip())
+        let RenderInput {
+            text,
+            image_uploads,
+            ..
+        } = self.gui.render_input();
+        self.render
+            .render_damage(text, image_uploads, display_list, damage);
+        self.gui.finish_frame(Duration::ZERO);
     }
 
     fn set_scale(&mut self, scale: Scale2) {
-        self.scale = scale.x;
-        self.renderer.set_scale(scale);
+        self.gui.set_scale(scale.x);
+        self.render.set_scale(scale);
     }
 }
 
 impl<B: PixelBuffer> TestRenderer<B> {
     fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> TestRenderer<B, T> {
         TestRenderer {
-            renderer: self.renderer.strategy(strategy),
-            text: self.text,
-            image_uploads: self.image_uploads,
-            next_image: self.next_image,
-            scale: self.scale,
+            render: self.render.strategy(strategy),
+            gui: self.gui,
         }
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>> Deref for TestRenderer<B, S> {
-    type Target = Renderer<B, S>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.renderer
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>> DerefMut for TestRenderer<B, S> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.renderer
     }
 }
 
@@ -188,22 +140,21 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
     backend: T,
 ) -> TestRenderer<B> {
     TestRenderer {
-        renderer: Renderer::new(buffer, config),
-        text: TextSystem::new(
-            TextConfig {
-                fonts: vec![FontFamily {
-                    id: FontId::default(),
-                    fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
-                }],
-                text_cache_capacity: 1024 * 1024,
-                layout_cache_capacity: 1024 * 1024,
-            },
-            Box::new(backend),
-        )
-        .unwrap(),
-        image_uploads: Vec::new(),
-        next_image: 0,
-        scale: 1.0,
+        render: Renderer::new(buffer, config),
+        gui: GuiContext::new(
+            TextSystem::new(
+                TextConfig {
+                    fonts: vec![FontFamily {
+                        id: FontId::default(),
+                        fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+                    }],
+                    text_cache_capacity: 1024 * 1024,
+                    layout_cache_capacity: 1024 * 1024,
+                },
+                Box::new(backend),
+            )
+            .unwrap(),
+        ),
     }
 }
 
@@ -230,7 +181,7 @@ fn renderer_supports_custom_pixel_layouts() {
     );
     renderer.render(&paint, &[clip]);
     assert_eq!(
-        renderer.buffer().pixels()[0],
+        renderer.render.buffer().pixels()[0],
         BgrPixel {
             blue: 56,
             green: 34,
@@ -240,7 +191,7 @@ fn renderer_supports_custom_pixel_layouts() {
 
     paint.clear();
     let spans = [Span::new("M").size(20.0).color(Color::WHITE)];
-    let m = renderer.rich_text(&spans, TextStyle::default());
+    let m = renderer.gui.rich_text(&spans, TextStyle::default()).0;
     let palette = paint.text_palette(&spans);
     paint.push_text_palette(
         TextRequest {
@@ -262,6 +213,7 @@ fn renderer_supports_custom_pixel_layouts() {
     renderer.render(&paint, &[clip]);
     assert!(
         renderer
+            .render
             .buffer()
             .pixels()
             .iter()
@@ -270,7 +222,7 @@ fn renderer_supports_custom_pixel_layouts() {
 
     renderer.set_scale(Scale2::uniform(2.0));
     let request = TextRequest {
-        text: renderer.text_run("abc", TextStyle::default()),
+        text: renderer.gui.text_run("abc", TextStyle::default()),
         area: LogicalRect {
             x: 0.0,
             y: 0.0,
@@ -282,27 +234,31 @@ fn renderer_supports_custom_pixel_layouts() {
         options: TextOptions::default(),
     };
     assert_eq!(
-        renderer.text_offset_at_position(&request, LogicalPoint { x: 100.0, y: 12.0 },),
+        renderer
+            .gui
+            .text_offset_at_position(&request, LogicalPoint { x: 100.0, y: 12.0 },),
         "abc".len()
     );
-    let start = renderer.text_cursor_rect(&request, 0);
-    let end = renderer.text_cursor_rect(&request, "abc".len());
+    let start = renderer.gui.text_cursor_rect(&request, 0);
+    let end = renderer.gui.text_cursor_rect(&request, "abc".len());
     assert_eq!(start.width, 0.5);
     assert!(end.x > start.x);
     let shifted = TextRequest {
         offset_x: 4.0,
         ..request
     };
-    assert_eq!(renderer.text_cursor_rect(&shifted, 0).x, start.x - 4.0);
+    assert_eq!(renderer.gui.text_cursor_rect(&shifted, 0).x, start.x - 4.0);
     assert_eq!(
-        renderer.text_offset_at_position(
+        renderer.gui.text_offset_at_position(
             &shifted,
             LogicalPoint {
                 x: end.x - 4.0,
                 y: end.y,
             },
         ),
-        renderer.text_offset_at_position(&request, LogicalPoint { x: end.x, y: end.y }),
+        renderer
+            .gui
+            .text_offset_at_position(&request, LogicalPoint { x: end.x, y: end.y }),
     );
 }
 
@@ -329,26 +285,31 @@ fn render_input_tracks_damage_and_invalidation() {
             rectangle.area.to_physical(SCALE),
             ClipId::default(),
         );
-        renderer.renderer.render(RenderInput {
+        let RenderInput {
+            text,
+            image_uploads,
+            ..
+        } = renderer.gui.render_input();
+        renderer.render.render(RenderInput {
             display_list,
-            text: &mut renderer.text,
-            image_uploads: &mut renderer.image_uploads,
+            text,
+            image_uploads,
             scale: SCALE,
         });
-        renderer.text.finish_frame();
+        renderer.gui.finish_frame(Duration::ZERO);
     };
 
     for _ in 0..2 {
         render(&mut renderer, &mut display_list);
     }
 
-    renderer.buffer_mut().lines.clear();
+    renderer.render.buffer_mut().lines.clear();
     render(&mut renderer, &mut display_list);
-    assert!(renderer.buffer().lines.is_empty());
+    assert!(renderer.render.buffer().lines.is_empty());
 
-    renderer.invalidate_all();
+    renderer.render.invalidate_all();
     render(&mut renderer, &mut display_list);
-    assert!(!renderer.buffer().lines.is_empty());
+    assert!(!renderer.render.buffer().lines.is_empty());
 }
 
 #[test]
@@ -365,7 +326,10 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
         height: 24.0,
     };
     let mut display_list = DisplayList::default();
-    let text = renderer.rich_text(&[Span::new("M").size(20.0)], TextStyle::default());
+    let text = renderer
+        .gui
+        .rich_text(&[Span::new("M").size(20.0)], TextStyle::default())
+        .0;
     display_list.push_text(
         TextRequest {
             text,
@@ -381,6 +345,7 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
 
     assert!(
         renderer
+            .render
             .buffer()
             .pixels()
             .iter()
@@ -426,7 +391,7 @@ impl TextLayoutEngine for CountingBackend {
 fn layout_eviction_is_deferred_until_frame_end() {
     let layouts = Arc::new(AtomicUsize::new(0));
     let mut renderer = TestRenderer {
-        renderer: Renderer::new(
+        render: Renderer::new(
             VecBuffer::<Xrgb8888>::new(1, 1),
             RendererConfig {
                 paint_cache_capacity: 0,
@@ -434,31 +399,30 @@ fn layout_eviction_is_deferred_until_frame_end() {
                 shadow_cache_capacity: 0,
             },
         ),
-        text: TextSystem::new(
-            TextConfig {
-                fonts: vec![FontFamily {
-                    id: FontId::default(),
-                    fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
-                }],
-                text_cache_capacity: 1024,
-                layout_cache_capacity: 0,
-            },
-            Box::new(CountingBackend(layouts.clone())),
-        )
-        .unwrap(),
-        image_uploads: Vec::new(),
-        next_image: 0,
-        scale: 1.0,
+        gui: GuiContext::new(
+            TextSystem::new(
+                TextConfig {
+                    fonts: vec![FontFamily {
+                        id: FontId::default(),
+                        fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+                    }],
+                    text_cache_capacity: 1024,
+                    layout_cache_capacity: 0,
+                },
+                Box::new(CountingBackend(layouts.clone())),
+            )
+            .unwrap(),
+        ),
     };
     let request = TextLayoutRequest {
-        text: renderer.text_run("cached", TextStyle::default()),
+        text: renderer.gui.text_run("cached", TextStyle::default()),
         wrap: TextWrap::None,
         max_width: None,
         max_lines: None,
     };
 
-    renderer.measure_text(&request);
-    renderer.measure_text(&request);
+    renderer.gui.measure_text(&request);
+    renderer.gui.measure_text(&request);
     assert_eq!(layouts.load(Relaxed), 1);
 
     let mut paint = TextRequest {
@@ -472,14 +436,14 @@ fn layout_eviction_is_deferred_until_frame_end() {
         color: Color::WHITE,
         options: TextOptions::default(),
     };
-    renderer.text_cursor_rect(&paint, 0);
+    renderer.gui.text_cursor_rect(&paint, 0);
     assert_eq!(layouts.load(Relaxed), 2);
     paint.offset_x = 10.0;
-    renderer.text_cursor_rect(&paint, 0);
+    renderer.gui.text_cursor_rect(&paint, 0);
     assert_eq!(layouts.load(Relaxed), 2);
 
     renderer.render(&DisplayList::default(), &[]);
-    renderer.measure_text(&request);
+    renderer.gui.measure_text(&request);
     assert_eq!(layouts.load(Relaxed), 3);
 }
 
@@ -487,23 +451,27 @@ fn layout_eviction_is_deferred_until_frame_end() {
 fn text_measurement_reports_wrapped_layout_size() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
     let request = TextLayoutRequest {
-        text: renderer.text_run("hello world", TextStyle::default()),
+        text: renderer.gui.text_run("hello world", TextStyle::default()),
         wrap: TextWrap::None,
         max_width: None,
         max_lines: None,
     };
-    let unwrapped = renderer.measure_text(&request);
-    let mixed = renderer.rich_text(
-        &[Span::new("hello\n"), Span::new("world").size(32.0)],
-        TextStyle::default(),
-    );
-    let mixed_size = renderer.measure_text(&TextLayoutRequest {
+    let unwrapped = renderer.gui.measure_text(&request);
+    let mixed = renderer
+        .gui
+        .rich_text(
+            &[Span::new("hello\n"), Span::new("world").size(32.0)],
+            TextStyle::default(),
+        )
+        .0;
+    let mixed_size = renderer.gui.measure_text(&TextLayoutRequest {
         text: mixed,
         ..request
     });
     assert!(mixed_size.height > unwrapped.height);
     assert_eq!(
         renderer
+            .gui
             .measure_text(&TextLayoutRequest {
                 text: mixed,
                 max_lines: Some(1),
@@ -512,7 +480,7 @@ fn text_measurement_reports_wrapped_layout_size() {
             .height,
         unwrapped.height
     );
-    let wrapped = renderer.measure_text(&TextLayoutRequest {
+    let wrapped = renderer.gui.measure_text(&TextLayoutRequest {
         wrap: TextWrap::Word,
         max_width: Some(unwrapped.width / 2.0),
         ..request
@@ -531,8 +499,8 @@ fn clear_resets_stale_pixels_before_drawing() {
     ) -> Vec<Argb8888> {
         let mut renderer =
             new_renderer(VecBuffer::<Argb8888>::new(12, 10), renderer_config()).strategy(strategy);
-        renderer.buffer_mut().pixels_mut().fill(stale);
-        let screen = renderer.screen();
+        renderer.render.buffer_mut().pixels_mut().fill(stale);
+        let screen = renderer.render.screen();
         let rectangle = Rectangle::new(LogicalRect {
             width: 12.0,
             height: 10.0,
@@ -547,7 +515,7 @@ fn clear_resets_stale_pixels_before_drawing() {
         }
         paint.push_rectangle(rectangle, screen, ClipId::default());
         renderer.render(&paint, &[screen]);
-        renderer.buffer().pixels().to_vec()
+        renderer.render.buffer().pixels().to_vec()
     }
 
     let transparent = Argb8888::default();
@@ -562,13 +530,14 @@ fn clear_resets_stale_pixels_before_drawing() {
     assert_ne!(expected[12 / 2 + 10 / 2 * 12], transparent);
 
     let mut renderer = new_renderer(VecBuffer::<Argb8888>::new(12, 10), renderer_config());
-    renderer.buffer_mut().pixels_mut().fill(stale);
-    let screen = renderer.screen();
+    renderer.render.buffer_mut().pixels_mut().fill(stale);
+    let screen = renderer.render.screen();
     let mut paint = DisplayList::default();
     paint.push_clear(screen);
     renderer.render(&paint, &[screen]);
     assert!(
         renderer
+            .render
             .buffer()
             .pixels()
             .iter()
@@ -612,7 +581,7 @@ fn commands_outside_damage_are_not_prepared() {
     renderer.render(&paint, &[damaged.to_physical(SCALE)]);
 
     assert_eq!(
-        renderer.buffer().pixels(),
+        renderer.render.buffer().pixels(),
         [
             0xffffff, 0xffffff, 0, 0, 0, 0, 0, 0, 0xffffff, 0xffffff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
@@ -627,19 +596,19 @@ fn dropped_image_is_removed_after_last_handle() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config());
     let texture = ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1);
 
-    let first = renderer.create_image(texture);
+    let first = renderer.gui.create_image(texture);
     let retained = first.clone();
     let first_id = first.id();
     renderer.render(&DisplayList::default(), &[]);
-    let first_key = renderer.context.image_map[&first_id];
+    let first_key = renderer.render.context.image_map[&first_id];
 
     drop(first);
     renderer.render(&DisplayList::default(), &[]);
-    assert!(renderer.context.images.contains_key(first_key));
+    assert!(renderer.render.context.images.contains_key(first_key));
 
     drop(retained);
     renderer.render(&DisplayList::default(), &[]);
-    assert!(!renderer.context.images.contains_key(first_key));
+    assert!(!renderer.render.context.images.contains_key(first_key));
 }
 
 #[test]
@@ -688,25 +657,25 @@ fn image_alpha_rows_are_cached_and_used() {
     }
     let mut renderer = new_renderer(VecBuffer::<TrackingPixel>::new(6, 4), renderer_config())
         .strategy(Scanline::default());
-    let image = renderer.create_image(ImageData::new(
+    let image = renderer.gui.create_image(ImageData::new(
         ImagePixels::Owned(pixels.into()),
         ImageFormat::Rgba8Premultiplied,
         6,
         4,
     ));
     renderer.render(&DisplayList::default(), &[]);
-    let key = renderer.context.image_map[&image.id()];
-    let rows = &renderer.context.images[key].alpha_rows;
+    let key = renderer.render.context.image_map[&image.id()];
+    let rows = &renderer.render.context.images[key].alpha_rows;
     let rows: [_; 4] =
         std::array::from_fn(|index| rows.get(ImageFormat::Rgba8Premultiplied, index).unwrap());
     assert!(rows.iter().map(|row| row.visible_start).eq([1, 1, 0, 0]));
     assert!(rows.iter().map(|row| row.visible_end).eq([4, 4, 6, 6]));
     assert!(rows.iter().map(|row| row.opaque_start).eq([1, 1, 0, 0]));
     assert!(rows.iter().map(|row| row.opaque_end).eq([4, 4, 2, 2]));
-    assert!(renderer.context.images[key].has_opaque_spans);
-    assert!(!renderer.context.images[key].opaque);
+    assert!(renderer.render.context.images[key].has_opaque_spans);
+    assert!(!renderer.render.context.images[key].opaque);
 
-    let screen = renderer.screen();
+    let screen = renderer.render.screen();
     let request = ImageRequest {
         image: image.id(),
         area: screen.to_logical(SCALE),
@@ -741,7 +710,7 @@ fn image_alpha_rows_are_cached_and_used() {
     assert_eq!(COPIED.load(Ordering::Relaxed), 0);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 18);
 
-    let image = renderer.create_image(ImageData::new(
+    let image = renderer.gui.create_image(ImageData::new(
         ImagePixels::Owned(
             [
                 0, 64, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 0, 0, 255, 255, 255, 255, 255,
@@ -754,8 +723,8 @@ fn image_alpha_rows_are_cached_and_used() {
         4,
     ));
     renderer.render(&DisplayList::default(), &[]);
-    let key = renderer.context.image_map[&image.id()];
-    let rows = &renderer.context.images[key].alpha_rows;
+    let key = renderer.render.context.image_map[&image.id()];
+    let rows = &renderer.render.context.images[key].alpha_rows;
     let rows: [_; 4] =
         std::array::from_fn(|index| rows.get(ImageFormat::Alpha8(Color::WHITE), index).unwrap());
     assert!(rows.iter().map(|row| row.visible_start).eq([1, 0, 1, 0]));
@@ -778,15 +747,15 @@ fn image_alpha_rows_are_cached_and_used() {
     renderer.render(&paint, &[screen]);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 11);
 
-    let image = renderer.create_image(ImageData::new(
+    let image = renderer.gui.create_image(ImageData::new(
         ImagePixels::Static(&[255; 6 * 4]),
         ImageFormat::Alpha8(Color::WHITE),
         6,
         4,
     ));
     renderer.render(&DisplayList::default(), &[]);
-    let key = renderer.context.image_map[&image.id()];
-    let image = &renderer.context.images[key];
+    let key = renderer.render.context.image_map[&image.id()];
+    let image = &renderer.render.context.images[key];
     assert!(image.opaque);
     assert!(
         image
@@ -795,15 +764,15 @@ fn image_alpha_rows_are_cached_and_used() {
             .is_none()
     );
 
-    let image = renderer.create_image(ImageData::new(
+    let image = renderer.gui.create_image(ImageData::new(
         ImagePixels::Static(&[255; 6 * 4 * 4]),
         ImageFormat::Rgba8Premultiplied,
         6,
         4,
     ));
     renderer.render(&DisplayList::default(), &[]);
-    let key = renderer.context.image_map[&image.id()];
-    let image = &renderer.context.images[key];
+    let key = renderer.render.context.image_map[&image.id()];
+    let image = &renderer.render.context.images[key];
     assert!(image.opaque);
     assert!(
         image
@@ -816,7 +785,7 @@ fn image_alpha_rows_are_cached_and_used() {
 #[test]
 fn direct_preserves_exact_overlapping_damage() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(4, 4), renderer_config());
-    let screen = renderer.screen();
+    let screen = renderer.render.screen();
     let mut paint = DisplayList::default();
     paint.push_rectangle(
         Rectangle::new(screen.to_logical(SCALE)).background(Color::from_rgba8(255, 0, 0, 128)),
@@ -847,7 +816,7 @@ fn direct_preserves_exact_overlapping_damage() {
         ],
     );
 
-    let pixels = renderer.buffer().pixels();
+    let pixels = renderer.render.buffer().pixels();
     assert_ne!(pixels[0].raw(), 0);
     let painted = pixels[0];
     let unpainted = Xrgb8888::default();
@@ -863,7 +832,7 @@ fn direct_preserves_exact_overlapping_damage() {
 #[test]
 fn direct_does_not_merge_touching_damage() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(3, 3), renderer_config());
-    let screen = renderer.screen();
+    let screen = renderer.render.screen();
     let mut paint = DisplayList::default();
     paint.push_rectangle(
         Rectangle::new(screen.to_logical(SCALE)).background(Color::WHITE),
@@ -889,7 +858,7 @@ fn direct_does_not_merge_touching_damage() {
     );
 
     assert_eq!(
-        renderer.buffer().pixels(),
+        renderer.render.buffer().pixels(),
         [0xffffff, 0xffffff, 0, 0, 0, 0xffffff, 0, 0, 0xffffff].map(Xrgb8888::from_raw)
     );
 }
@@ -897,7 +866,7 @@ fn direct_does_not_merge_touching_damage() {
 #[test]
 fn direct_preserves_damage_beyond_stack_capacity() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(9, 1), renderer_config());
-    let screen = renderer.screen();
+    let screen = renderer.render.screen();
     let damage: [PhysicalRect; 9] = std::array::from_fn(|x| PhysicalRect {
         x: x as i32,
         y: 0,
@@ -914,6 +883,7 @@ fn direct_preserves_damage_beyond_stack_capacity() {
 
     assert!(
         renderer
+            .render
             .buffer()
             .pixels()
             .iter()
@@ -967,8 +937,8 @@ fn frame_is_rendered_once_per_affected_line_in_order() {
     );
     renderer.render(&paint, &damage);
 
-    assert_eq!(renderer.buffer().lines, [0, 2]);
-    assert_eq!(renderer.buffer().ranges, [0..4, 0..4]);
+    assert_eq!(renderer.render.buffer().lines, [0, 2]);
+    assert_eq!(renderer.render.buffer().ranges, [0..4, 0..4]);
 }
 
 #[test]
@@ -1019,8 +989,8 @@ fn scanline_merges_overlapping_damage_per_line() {
         ],
     );
 
-    assert_eq!(renderer.buffer().lines, [0, 1, 2, 3]);
-    assert_eq!(renderer.buffer().ranges, [0..3, 0..5, 0..5, 2..5]);
+    assert_eq!(renderer.render.buffer().lines, [0, 1, 2, 3]);
+    assert_eq!(renderer.render.buffer().ranges, [0..3, 0..5, 0..5, 2..5]);
 }
 
 #[test]
@@ -1061,10 +1031,10 @@ fn scanline_only_borrows_dirty_horizontal_ranges() {
     );
     renderer.render(&paint, &damage);
 
-    assert_eq!(renderer.buffer().ranges.len(), 1);
-    assert_eq!(renderer.buffer().ranges[0], 1..3);
+    assert_eq!(renderer.render.buffer().ranges.len(), 1);
+    assert_eq!(renderer.render.buffer().ranges[0], 1..3);
     assert_eq!(
-        renderer.buffer().pixels,
+        renderer.render.buffer().pixels,
         [0, 0xffffff, 0xffffff, 0, 0, 0, 0, 0].map(Xrgb8888::from_raw)
     );
 }
@@ -1121,7 +1091,7 @@ fn scanline_skips_commands_behind_opaque_content() {
 
     let mut renderer = new_renderer(VecBuffer::<CountingPixel>::new(4, 2), renderer_config())
         .strategy(Scanline::default());
-    let screen = renderer.screen();
+    let screen = renderer.render.screen();
     let area = LogicalRect {
         width: 4.0,
         height: 2.0,
@@ -1148,6 +1118,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     assert_eq!(SOLID_PAIRS.load(std::sync::atomic::Ordering::Relaxed), 2);
     assert!(
         renderer
+            .render
             .buffer()
             .pixels()
             .iter()
@@ -1156,7 +1127,7 @@ fn scanline_skips_commands_behind_opaque_content() {
 
     let mut renderer = new_renderer(VecBuffer::<CountingPixel>::new(8, 7), renderer_config())
         .strategy(Scanline::default());
-    let screen = renderer.screen();
+    let screen = renderer.render.screen();
     let damage = PhysicalRect {
         y: 3,
         height: 1,
@@ -1188,7 +1159,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     renderer.render(&paint, &[damage]);
 
     assert!(
-        renderer.buffer().pixels()[3 * 8..4 * 8]
+        renderer.render.buffer().pixels()[3 * 8..4 * 8]
             .iter()
             .all(|pixel| pixel.draws == 2)
     );
@@ -1196,13 +1167,13 @@ fn scanline_skips_commands_behind_opaque_content() {
     static IMAGE_PIXEL: [u8; 4] = [0, 255, 0, 255];
     let mut renderer = new_renderer(VecBuffer::<CountingPixel>::new(4, 2), renderer_config())
         .strategy(Scanline::default());
-    let image = renderer.create_image(ImageData::new(
+    let image = renderer.gui.create_image(ImageData::new(
         ImagePixels::Static(&IMAGE_PIXEL),
         ImageFormat::Rgba8,
         1,
         1,
     ));
-    let screen = renderer.screen();
+    let screen = renderer.render.screen();
     let area = LogicalRect {
         width: 4.0,
         height: 2.0,
@@ -1240,7 +1211,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     );
 
     static TRANSPARENT_IMAGE_PIXEL: [u8; 4] = [0, 255, 0, 254];
-    let transparent_image = renderer.create_image(ImageData::new(
+    let transparent_image = renderer.gui.create_image(ImageData::new(
         ImagePixels::Static(&TRANSPARENT_IMAGE_PIXEL),
         ImageFormat::Rgba8,
         1,
@@ -1276,14 +1247,14 @@ fn scanline_skips_commands_behind_opaque_content() {
     static UNDERLAY_ALPHA: [u8; 1] = [128];
     let mut renderer = new_renderer(VecBuffer::<CountingPixel>::new(6, 1), renderer_config())
         .strategy(Scanline::default());
-    let partial_image = renderer.create_image(ImageData::new(
+    let partial_image = renderer.gui.create_image(ImageData::new(
         ImagePixels::Static(&PARTIAL_IMAGE_PIXELS),
         ImageFormat::Rgba8Premultiplied,
         6,
         1,
     ));
-    let screen = renderer.screen();
-    let underlay = renderer.create_image(ImageData::new(
+    let screen = renderer.render.screen();
+    let underlay = renderer.gui.create_image(ImageData::new(
         ImagePixels::Static(&UNDERLAY_ALPHA),
         ImageFormat::Alpha8(Color::BLACK),
         1,
@@ -1327,6 +1298,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         14
     );
     for (rendered, source) in renderer
+        .render
         .buffer()
         .pixels()
         .iter()
@@ -1425,7 +1397,10 @@ fn cached_dirty_ranges_match_direct_rendering() {
     direct.render(&paint, &damage);
     scanline.render(&paint, &damage);
 
-    assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
+    assert_eq!(
+        scanline.render.buffer().pixels(),
+        direct.render.buffer().pixels()
+    );
 }
 
 #[test]
@@ -1436,7 +1411,7 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
         let mut renderer =
             new_renderer(VecBuffer::<Xrgb8888>::new(128, 96), renderer_config()).strategy(strategy);
         renderer.set_scale(Scale2::uniform(2.0));
-        let screen = renderer.screen();
+        let screen = renderer.render.screen();
         let first = BoxShadow::new(
             LogicalRect {
                 x: 12.0,
@@ -1469,7 +1444,7 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
         paint.push_box_shadow(first, screen, ClipId::default());
         paint.push_box_shadow(second, screen, ClipId::default());
         renderer.render(&paint, &[screen]);
-        assert_eq!(renderer.context.images.len(), 2);
+        assert_eq!(renderer.render.context.images.len(), 2);
         paint.clear();
         paint.push_box_shadow(
             BoxShadow {
@@ -1500,14 +1475,17 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
         };
         paint.push_box_shadow(inset, screen, ClipId::default());
         renderer.render(&paint, &[screen]);
-        assert_eq!(renderer.context.images.len(), 3);
+        assert_eq!(renderer.render.context.images.len(), 3);
         renderer
     }
 
     let direct = render(Direct::default());
     let scanline = render(Scanline::default());
-    assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
-    let pixels = direct.buffer().pixels();
+    assert_eq!(
+        scanline.render.buffer().pixels(),
+        direct.render.buffer().pixels()
+    );
+    let pixels = direct.render.buffer().pixels();
     assert_eq!(pixels[44 * 128 + 60].raw(), 0x00ff_ffff);
     assert_ne!(pixels[20 * 128 + 60].raw(), 0x00ff_ffff);
     assert_eq!(pixels[0].raw(), 0);
@@ -1520,7 +1498,7 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
     ) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer =
             new_renderer(VecBuffer::<Xrgb8888>::new(48, 36), renderer_config()).strategy(strategy);
-        let screen = renderer.screen();
+        let screen = renderer.render.screen();
         let mut paint = DisplayList::default();
         let clip = paint.push_clip(
             ClipId::default(),
@@ -1566,8 +1544,14 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
 
     let direct = render(Direct::default());
     let scanline = render(Scanline::default());
-    assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
-    assert_eq!(direct.buffer().pixels()[18 * 48 + 24].raw(), 0x0010_131a);
+    assert_eq!(
+        scanline.render.buffer().pixels(),
+        direct.render.buffer().pixels()
+    );
+    assert_eq!(
+        direct.render.buffer().pixels()[18 * 48 + 24].raw(),
+        0x0010_131a
+    );
 }
 
 #[test]
@@ -1578,14 +1562,14 @@ fn rounded_clips_match_between_strategies() {
     ) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer =
             new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(strategy);
-        let image = renderer.create_image(ImageData::new(
+        let image = renderer.gui.create_image(ImageData::new(
             ImagePixels::Static(&PIXEL),
             ImageFormat::Rgb8,
             1,
             1,
         ));
-        let string = renderer.text_run("M", TextStyle::default());
-        let screen = renderer.screen();
+        let string = renderer.gui.text_run("M", TextStyle::default());
+        let screen = renderer.render.screen();
         let area = LogicalRect {
             width: 16.0,
             height: 16.0,
@@ -1652,13 +1636,19 @@ fn rounded_clips_match_between_strategies() {
     let direct = render(Direct::default());
     let scanline = render(Scanline::default());
 
-    assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
-    assert_eq!(direct.buffer().pixels()[0].raw(), 0);
-    let edge = direct.buffer().pixels()[6].raw();
+    assert_eq!(
+        scanline.render.buffer().pixels(),
+        direct.render.buffer().pixels()
+    );
+    assert_eq!(direct.render.buffer().pixels()[0].raw(), 0);
+    let edge = direct.render.buffer().pixels()[6].raw();
     assert!((1..255).contains(&((edge >> 8) & 0xff)));
-    let edge = direct.buffer().pixels()[9].raw();
+    let edge = direct.render.buffer().pixels()[9].raw();
     assert!((1..255).contains(&((edge >> 16) & 0xff)));
-    assert_eq!(direct.buffer().pixels()[15 * 16 + 15].raw(), 0x0000_00ff);
+    assert_eq!(
+        direct.render.buffer().pixels()[15 * 16 + 15].raw(),
+        0x0000_00ff
+    );
 }
 
 #[test]
@@ -1666,7 +1656,7 @@ fn dropped_image_remains_valid_until_frame_end() {
     static PIXEL: [u8; 4] = [255, 0, 0, 255];
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
         .strategy(Scanline::default());
-    let image = renderer.create_image(ImageData::new(
+    let image = renderer.gui.create_image(ImageData::new(
         ImagePixels::Static(&PIXEL),
         ImageFormat::Rgba8,
         1,
@@ -1703,24 +1693,27 @@ fn dropped_image_remains_valid_until_frame_end() {
     drop(image);
     renderer.render(&paint, &damage);
 
-    assert_eq!(renderer.buffer().pixels()[0].raw(), 0x00ff_0000);
-    assert!(!renderer.context.image_map.contains_key(&image_id));
-    assert!(renderer.context.images.is_empty());
+    assert_eq!(renderer.render.buffer().pixels()[0].raw(), 0x00ff_0000);
+    assert!(!renderer.render.context.image_map.contains_key(&image_id));
+    assert!(renderer.render.context.images.is_empty());
 }
 
 #[test]
 fn text_runs_are_keyed_by_content_and_style() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
     let style = TextStyle::default();
-    let first = renderer.text_run("same", style);
-    assert_eq!(renderer.text_run("same", style), first);
+    let first = renderer.gui.text_run("same", style);
+    assert_eq!(renderer.gui.text_run("same", style), first);
     assert_eq!(
-        renderer.rich_text(&[Span::new("same").size(style.size)], style),
+        renderer
+            .gui
+            .rich_text(&[Span::new("same").size(style.size)], style)
+            .0,
         first
     );
-    assert_ne!(renderer.text_run("changed", style), first);
+    assert_ne!(renderer.gui.text_run("changed", style), first);
     assert_ne!(
-        renderer.text_run(
+        renderer.gui.text_run(
             "same",
             TextStyle {
                 weight: 500,
@@ -1730,7 +1723,7 @@ fn text_runs_are_keyed_by_content_and_style() {
         first
     );
     assert_ne!(
-        renderer.text_run(
+        renderer.gui.text_run(
             "same",
             TextStyle {
                 size: 17.0,
@@ -1741,8 +1734,8 @@ fn text_runs_are_keyed_by_content_and_style() {
     );
     let white = [Span::new("same").color(Color::WHITE)];
     let black = [Span::new("same").color(Color::BLACK)];
-    let text = renderer.rich_text(&white, style);
-    assert_eq!(renderer.rich_text(&black, style), text);
+    let text = renderer.gui.rich_text(&white, style).0;
+    assert_eq!(renderer.gui.rich_text(&black, style).0, text);
 
     let request = TextRequest {
         text,
@@ -1775,7 +1768,7 @@ fn text_runs_are_keyed_by_content_and_style() {
         Span::new("c"),
     ];
     let request = TextRequest {
-        text: renderer.rich_text(&mixed, style),
+        text: renderer.gui.rich_text(&mixed, style).0,
         ..request
     };
     white_display_list.clear();

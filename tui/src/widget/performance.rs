@@ -9,7 +9,7 @@ use crate::{
     widget::{Block, Text, popover},
 };
 use blit::{Anchor, Interaction, Sides, Size, Sizing, Widget};
-use blit_widgets::performance::{self as shared, Profiled as _};
+use blit_widgets::performance as shared;
 
 blit::builder! {
     /// clickable performance badge with a timing table and history graph
@@ -53,7 +53,7 @@ impl Widget<TuiContext> for Performance<'_> {
             .unwrap_or_else(|| Border::new(self.accent).style(BorderStyle::Rounded));
         let columns = usize::from(self.graph_columns.max(1));
         let rows = usize::from(self.graph_rows.max(1));
-        ui.build(popover::show(
+        ui.build(popover::new(
             popover,
             self.popover.close(popover::Close::Manual),
             |ui: Ui<'_>, interaction: Interaction, open| {

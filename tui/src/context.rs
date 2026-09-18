@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 use blit::{Clip, Context, FrameStage, LogicalRect, Scale2};
-use blit_widgets::performance::{FrameProfiler, Profiled};
+use blit_widgets::performance::FrameProfiler;
 
 /// rendering resources independent of terminal io and event loop ownership
 pub struct TuiContext {
@@ -56,10 +56,8 @@ impl TuiContext {
     pub fn place_image(&mut self, image: ImagePlacement) {
         self.renderer.place_image(image, self.clip);
     }
-}
 
-impl Profiled for TuiContext {
-    fn profiler(&self) -> &FrameProfiler {
+    pub fn profiler(&self) -> &FrameProfiler {
         &self.profiler
     }
 }

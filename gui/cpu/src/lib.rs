@@ -5,7 +5,7 @@ use std::collections::HashMap;
 mod glyph;
 mod pixel;
 mod raster;
-pub mod render;
+mod render;
 mod strategy;
 mod text;
 
@@ -296,7 +296,7 @@ use slotmap::{Key, KeyData, SlotMap, new_key_type};
 use text::TextRenderer;
 
 new_key_type! {
-    pub struct RendererImageId;
+    struct RendererImageId;
 }
 
 #[doc(hidden)]
@@ -311,7 +311,7 @@ pub struct RenderContext<B: PixelBuffer> {
     clips: ClipStack,
 }
 
-pub struct StoredImage {
+struct StoredImage {
     handle: ImageHandle,
     data: ImageData,
     alpha_rows: AlphaRows,

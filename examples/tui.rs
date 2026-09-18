@@ -102,7 +102,7 @@ impl Demo {
                 self.settings.open = false;
             }
             header.child(flex::item().grow()).insert(());
-            let reset = header.child(flex::item()).build(popover::show(
+            let reset = header.child(flex::item()).build(popover::new(
                 &mut self.settings,
                 popover::Config::new()
                     .target_anchor(Anchor::BottomRight)
@@ -264,7 +264,7 @@ impl Widget<TuiContext> for &mut Modal {
                     .attributes(TextAttributes::BOLD),
             );
         });
-        let selected = panel.child(flex::item()).build(popover::show(
+        let selected = panel.child(flex::item()).build(popover::new(
             &mut self.palette,
             popover::Config::new().parent(backdrop_id.into()),
             |ui, interaction, open| {
@@ -330,16 +330,15 @@ impl Widget<TuiContext> for &mut LayoutPage {
             canvas,
             resize,
             scroll: layout_scroll,
-            split,
+            split: split_state,
         } = self;
         let screen = ui.screen();
         let preview_config = *canvas;
         let mut body = ui.layout(flex::row());
-        body.child(flex::item().grow()).build(split::pane(
-            split,
+        body.child(flex::item().grow()).build(split(
+            split_state,
             WidgetId::new("tui layout page split"),
             split::Config::new(40.0),
-            Split,
             |ui: Ui<'_>| {
                 let mut sidebar = ui.layout(flex::column().padding(Sides::all(1.0)));
                 sidebar.insert(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
@@ -481,7 +480,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
                         .layout(single::layout().padding(Sides::all(1.0)))
                         .clip(BoundsClip);
                     viewport.insert(Block::new().background(colors::TRACK));
-                    viewport.child(single::item()).build(resize::area(
+                    viewport.child(single::item()).build(resize::new(
                         resize,
                         WidgetId::new("tui layout canvas"),
                         resize::Config::new(Size::new(
@@ -546,7 +545,7 @@ impl Widget<TuiContext> for &mut TextPage {
             horizontal: text_horizontal,
             vertical: text_vertical,
             max_lines: text_max_lines,
-            split,
+            split: split_state,
         } = self;
         let screen = ui.screen();
         let preview_attributes = *text_attributes;
@@ -556,11 +555,10 @@ impl Widget<TuiContext> for &mut TextPage {
         let preview_vertical = *text_vertical;
         let preview_max_lines = *text_max_lines;
         let mut body = ui.layout(flex::row());
-        body.child(flex::item().grow()).build(split::pane(
-            split,
+        body.child(flex::item().grow()).build(split(
+            split_state,
             WidgetId::new("tui text page split"),
             split::Config::new(40.0),
-            Split,
             |ui: Ui<'_>| {
                 let mut controls = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
                 controls.insert(panel(colors::SURFACE, " TEXT CONTROLS "));
@@ -705,7 +703,7 @@ impl Widget<TuiContext> for &mut TextPage {
                         options = options.max_lines(max_lines);
                     }
                     viewport.child(single::item()).build(
-                        resize::area(
+                        resize::new(
                             text_resize,
                             WidgetId::new("tui text preview"),
                             resize::Config::new(Size::new(64.0, 16.0))
@@ -781,18 +779,17 @@ impl Widget<TuiContext> for &mut BlocksPage {
             sides: block_sides,
             shadow: block_shadow,
             background: block_background,
-            split,
+            split: split_state,
         } = self;
         let preview_style = *block_style;
         let preview_sides = *block_sides;
         let preview_shadow = *block_shadow;
         let preview_background = *block_background;
         let mut body = ui.layout(flex::row());
-        body.child(flex::item().grow()).build(split::pane(
-            split,
+        body.child(flex::item().grow()).build(split(
+            split_state,
             WidgetId::new("tui blocks page split"),
             split::Config::new(40.0),
-            Split,
             |ui: Ui<'_>| {
                 let mut controls = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
                 controls.insert(panel(colors::SURFACE, " BLOCK OPTIONS "));
@@ -1266,33 +1263,34 @@ fn canvas_item(
     }
 }
 
-#[derive(Clone, Copy, Default)]
-struct Split;
-
-impl split::Divider for Split {
-    type Widget = Divider;
-
-    fn into_widget(self, _: Axis, interaction: Interaction) -> Self::Widget {
-        Divider(interaction)
-    }
-}
-
-struct Divider(Interaction);
-
-impl Widget<TuiContext> for Divider {
-    type Response = ();
-
-    fn build(self, ui: Ui<'_>) {
-        let active = self.0.hovered || self.0.dragging;
-        let mut divider = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
-        divider
-            .child(flex::item())
-            .insert(Text::new("⠿").color(if active {
-                colors::ACCENT
-            } else {
-                colors::TEXT_DIM
-            }));
-    }
+fn split<'a>(
+    state: &'a mut split::State,
+    id: WidgetId,
+    config: split::Config,
+    leading: impl Widget<TuiContext> + 'a,
+    trailing: impl Widget<TuiContext> + 'a,
+) -> impl Widget<TuiContext> + 'a {
+    split::new(
+        state,
+        id,
+        config,
+        |_, interaction| {
+            move |ui: Ui<'_>| {
+                let active = interaction.hovered || interaction.dragging;
+                let mut divider =
+                    ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
+                divider
+                    .child(flex::item())
+                    .insert(Text::new("⠿").color(if active {
+                        colors::ACCENT
+                    } else {
+                        colors::TEXT_DIM
+                    }));
+            }
+        },
+        leading,
+        trailing,
+    )
 }
 
 fn scroll_behavior() -> scroll_area::Behavior {

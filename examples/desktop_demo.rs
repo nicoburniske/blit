@@ -152,7 +152,7 @@ impl Application for App {
                 }
             }
             header.child(flex::item().grow()).insert(());
-            let reset = header.child(flex::item()).build(popover::show(
+            let reset = header.child(flex::item()).build(popover::new(
                 &mut self.settings,
                 popover::Config::new()
                     .target_anchor(Anchor::BottomRight)
@@ -250,7 +250,7 @@ impl Widget<GuiContext> for &mut TextPage {
             horizontal,
             vertical,
             max_lines,
-            split,
+            split: split_state,
         } = self;
         let options = TextOptions {
             wrap: *wrap,
@@ -261,11 +261,10 @@ impl Widget<GuiContext> for &mut TextPage {
         };
         let screen = ui.screen().size();
         let mut body = ui.layout(flex::row());
-        body.child(flex::item().grow()).build(split::pane(
-            split,
+        body.child(flex::item().grow()).build(split(
+            split_state,
             WidgetId::new("text page split"),
             split::Config::new(sz::SIDEBAR).divider_extent(sz::LG),
-            Split,
             |ui: Ui<'_>| {
                 let mut controls =
                     ui.layout(flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
@@ -365,7 +364,7 @@ impl Widget<GuiContext> for &mut TextPage {
                             .radius(BorderRadius::uniform(sz::XS)),
                     );
                     viewport.child(single::item()).build(
-                        resize::area(
+                        resize::new(
                             resize,
                             WidgetId::new("rich text preview"),
                             resize::Config::new(Size::new(560.0, 360.0))
@@ -510,18 +509,17 @@ impl Widget<GuiContext> for &mut LayoutPage {
             canvas,
             resize,
             scroll: controls_scroll,
-            split,
+            split: split_state,
         } = self;
         let screen = ui.screen().size();
         let unit = Size::uniform(sz::SM);
         let preview_config = *canvas;
         let mut body = ui.layout(flex::row());
         body.child(flex::item().grow()).build(
-            split::pane(
-                split,
+            split(
+                split_state,
                 WidgetId::new("layout page split"),
                 split::Config::new(sz::SIDEBAR).divider_extent(sz::LG),
-                Split,
                 |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(
                         flex::column()
@@ -685,7 +683,7 @@ impl Widget<GuiContext> for &mut LayoutPage {
                             .max(sz::CANVAS_INITIAL_MIN)
                             * sz::CANVAS_INITIAL_SCALE;
                         viewport.child(single::item()).build(
-                            resize::area(
+                            resize::new(
                                 resize,
                                 WidgetId::new("layout canvas"),
                                 resize::Config::new(initial)
@@ -748,7 +746,7 @@ impl Widget<GuiContext> for &mut StylesPage {
             spread,
             offset,
             scroll: controls_scroll,
-            split,
+            split: split_state,
         } = self;
         let shadow_kind = *shadow;
         let preview_radius = *radius;
@@ -757,11 +755,10 @@ impl Widget<GuiContext> for &mut StylesPage {
         let shadow_offset = *offset;
         let mut body = ui.layout(flex::row());
         body.child(flex::item().grow()).build(
-            split::pane(
-                split,
+            split(
+                split_state,
                 WidgetId::new("styles page split"),
                 split::Config::new(sz::SIDEBAR).divider_extent(sz::LG),
-                Split,
                 |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(
                         flex::column()
@@ -1018,48 +1015,45 @@ impl Widget<GuiContext> for &mut ScrollPage {
     }
 }
 
-#[derive(Clone, Copy, Default)]
-struct Split;
-
-impl split::Divider for Split {
-    type Widget = Divider;
-
-    fn into_widget(self, axis: Axis, interaction: Interaction) -> Self::Widget {
-        Divider { axis, interaction }
-    }
-}
-
-struct Divider {
-    axis: Axis,
-    interaction: Interaction,
-}
-
-impl Widget<GuiContext> for Divider {
-    type Response = ();
-
-    fn build(self, ui: Ui<'_>) {
-        let active = self.interaction.hovered || self.interaction.dragging;
-        let marker = match self.axis {
-            Axis::Horizontal => Size::new(sz::BORDER_STRONG, sz::XXXL),
-            Axis::Vertical => Size::new(sz::XXXL, sz::BORDER_STRONG),
-        };
-        let mut divider = ui.layout(
-            flex::row()
-                .align(Align::Center)
-                .justify(blit_gui::layout::Justify::Center),
-        );
-        divider
-            .child(flex::item().fixed(marker.width, marker.height))
-            .insert(
-                Rectangle::new()
-                    .background(if active {
-                        colors::ACCENT
-                    } else {
-                        colors::BORDER
-                    })
-                    .radius(BorderRadius::uniform(sz::BORDER)),
-            );
-    }
+fn split<'a>(
+    state: &'a mut split::State,
+    id: WidgetId,
+    config: split::Config,
+    leading: impl Widget<GuiContext> + 'a,
+    trailing: impl Widget<GuiContext> + 'a,
+) -> impl Widget<GuiContext> + 'a {
+    split::new(
+        state,
+        id,
+        config,
+        |axis, interaction| {
+            move |ui: Ui<'_>| {
+                let active = interaction.hovered || interaction.dragging;
+                let marker = match axis {
+                    Axis::Horizontal => Size::new(sz::BORDER_STRONG, sz::XXXL),
+                    Axis::Vertical => Size::new(sz::XXXL, sz::BORDER_STRONG),
+                };
+                let mut divider = ui.layout(
+                    flex::row()
+                        .align(Align::Center)
+                        .justify(blit_gui::layout::Justify::Center),
+                );
+                divider
+                    .child(flex::item().fixed(marker.width, marker.height))
+                    .insert(
+                        Rectangle::new()
+                            .background(if active {
+                                colors::ACCENT
+                            } else {
+                                colors::BORDER
+                            })
+                            .radius(BorderRadius::uniform(sz::BORDER)),
+                    );
+            }
+        },
+        leading,
+        trailing,
+    )
 }
 
 struct DesktopGrip(resize::Grip);

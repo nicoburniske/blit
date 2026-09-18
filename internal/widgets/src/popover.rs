@@ -38,112 +38,113 @@ blit::builder! {
     }
 }
 
-pub fn build<C, T, W>(
-    mut ui: Ui<'_, C>,
-    state: &mut State,
+pub fn new<'a, C, T, W>(
+    state: &'a mut State,
     config: Config,
     trigger: T,
     content: W,
-) -> Option<W::Response>
+) -> impl Widget<C, Response = Option<W::Response>> + 'a
 where
     C: Context,
-    T: FnOnce(Ui<'_, C>, Interaction, bool),
-    W: Widget<C>,
+    T: FnOnce(Ui<'_, C>, Interaction, bool) + 'a,
+    W: Widget<C> + 'a,
 {
-    let trigger_id = state.id.child("popover trigger");
-    let interaction = ui.interact(trigger_id, Sense::CLICK);
-    if config.open_on_hover && interaction.hovered {
-        state.open = true;
-    } else if !config.open_on_hover && interaction.activated {
-        state.open = !state.open;
-    }
-    let mut root = ui.layout(single::layout());
-    let anchor = {
-        let mut trigger_node = root
-            .child(single::item())
-            .widget_id(trigger_id)
+    move |mut ui: Ui<'_, C>| {
+        let trigger_id = state.id.child("popover trigger");
+        let interaction = ui.interact(trigger_id, Sense::CLICK);
+        if config.open_on_hover && interaction.hovered {
+            state.open = true;
+        } else if !config.open_on_hover && interaction.activated {
+            state.open = !state.open;
+        }
+        let mut root = ui.layout(single::layout());
+        let anchor = {
+            let mut trigger_node = root
+                .child(single::item())
+                .widget_id(trigger_id)
+                .layout(single::layout());
+            let anchor = trigger_node.id();
+            trigger_node
+                .child(single::item().grow())
+                .build(|ui: Ui<'_, C>| trigger(ui, interaction, state.open));
+            anchor
+        };
+        if !state.open {
+            return None;
+        }
+
+        let backdrop_id = state.id.child("popover backdrop");
+        let content_id = state.id.child("popover content");
+        let backdrop = root.interact(backdrop_id, Sense::ALL);
+        let content_interaction = root.interact(content_id, Sense::ALL);
+        let pointer_inside = content_interaction.hovered
+            || root.pointer_position().is_some_and(|position| {
+                [trigger_id, content_id]
+                    .into_iter()
+                    .filter_map(|id| root.geometry(id))
+                    .any(|area| area.contains(position))
+            });
+        let pointer_exited = !pointer_inside
+            && matches!(
+                root.input(),
+                Input::PointerMove { .. } | Input::PointerLeave
+            );
+        if match config.close {
+            Close::Click => backdrop.activated,
+            Close::Exit => pointer_exited,
+            Close::Manual => false,
+        } {
+            state.open = false;
+        }
+        if !state.open {
+            return None;
+        }
+
+        let mut popup = root
+            .absolute(
+                Absolute {
+                    target: config.parent,
+                    ..Absolute::at(0.0, 0.0)
+                }
+                .width(Sizing::grow())
+                .height(Sizing::grow()),
+            )
+            .parent(config.parent)
+            .z_index(1)
+            .widget_id(state.id)
             .layout(single::layout());
-        let anchor = trigger_node.id();
-        trigger_node
-            .child(single::item().grow())
-            .build(|ui: Ui<'_, C>| trigger(ui, interaction, state.open));
-        anchor
-    };
-    if !state.open {
-        return None;
-    }
-
-    let backdrop_id = state.id.child("popover backdrop");
-    let content_id = state.id.child("popover content");
-    let backdrop = root.interact(backdrop_id, Sense::ALL);
-    let content_interaction = root.interact(content_id, Sense::ALL);
-    let pointer_inside = content_interaction.hovered
-        || root.pointer_position().is_some_and(|position| {
-            [trigger_id, content_id]
-                .into_iter()
-                .filter_map(|id| root.geometry(id))
-                .any(|area| area.contains(position))
-        });
-    let pointer_exited = !pointer_inside
-        && matches!(
-            root.input(),
-            Input::PointerMove { .. } | Input::PointerLeave
-        );
-    if match config.close {
-        Close::Click => backdrop.activated,
-        Close::Exit => pointer_exited,
-        Close::Manual => false,
-    } {
-        state.open = false;
-    }
-    if !state.open {
-        return None;
-    }
-
-    let mut popup = root
-        .absolute(
-            Absolute {
-                target: config.parent,
-                ..Absolute::at(0.0, 0.0)
-            }
-            .width(Sizing::grow())
-            .height(Sizing::grow()),
+        if config.close != Close::Manual {
+            popup
+                .absolute(
+                    Absolute::at(0.0, 0.0)
+                        .width(Sizing::grow())
+                        .height(Sizing::grow()),
+                )
+                .widget_id(backdrop_id)
+                .insert(());
+        }
+        Some(
+            popup
+                .absolute(
+                    Absolute::attach(config.target_anchor, config.child_anchor)
+                        .relative_to(anchor)
+                        .offset(config.offset.x, config.offset.y)
+                        .width(config.width)
+                        .height(config.height),
+                )
+                .hit(
+                    Sides::new()
+                        .top(config.offset.y.max(0.0))
+                        .right((-config.offset.x).max(0.0))
+                        .bottom((-config.offset.y).max(0.0))
+                        .left(config.offset.x.max(0.0)),
+                )
+                .widget_id(content_id)
+                .layout(single::layout())
+                .child(single::item().grow())
+                .build(content),
         )
-        .parent(config.parent)
-        .z_index(1)
-        .widget_id(state.id)
-        .layout(single::layout());
-    if config.close != Close::Manual {
-        popup
-            .absolute(
-                Absolute::at(0.0, 0.0)
-                    .width(Sizing::grow())
-                    .height(Sizing::grow()),
-            )
-            .widget_id(backdrop_id)
-            .insert(());
     }
-    Some(
-        popup
-            .absolute(
-                Absolute::attach(config.target_anchor, config.child_anchor)
-                    .relative_to(anchor)
-                    .offset(config.offset.x, config.offset.y)
-                    .width(config.width)
-                    .height(config.height),
-            )
-            .hit(
-                Sides::new()
-                    .top(config.offset.y.max(0.0))
-                    .right((-config.offset.x).max(0.0))
-                    .bottom((-config.offset.y).max(0.0))
-                    .left(config.offset.x.max(0.0)),
-            )
-            .widget_id(content_id)
-            .layout(single::layout())
-            .child(single::item().grow())
-            .build(content),
-    )
 }
 
 #[cfg(test)]
@@ -159,8 +160,7 @@ mod tests {
     impl Context for TestContext {}
 
     fn render(ui: Ui<'_, TestContext>, state: &mut State, config: Config) {
-        build(
-            ui,
+        ui.build(new(
             state,
             config,
             |ui: Ui<'_, TestContext>, _, _| {
@@ -175,7 +175,7 @@ mod tests {
                     .child(single::item().fixed(4.0, 3.0))
                     .build(())
             },
-        );
+        ));
     }
 
     #[test]

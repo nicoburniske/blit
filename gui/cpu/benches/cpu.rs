@@ -1,4 +1,4 @@
-use std::hint::black_box;
+use std::{hint::black_box, time::Duration};
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
@@ -6,15 +6,14 @@ use blit_cpu::{
     VecBuffer, Xrgb8888,
 };
 use blit_gui::{
-    FontData, FontFamily, TextConfig, TextSystem,
+    FontData, FontFamily, GuiContext, RenderInput, TextConfig, TextSystem,
     color::Color,
     display_list::{BoxShadow, ClipId, DisplayList, Rectangle},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
-    image::{ImageHandle, ImageId},
     style::{Border, BorderRadius, GradientStop, LinearGradient},
-    text::{FontId, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
+    text::{FontId, TextOptions, TextRequest, TextStyle, TextWrap},
 };
 use divan::counter::ItemsCount;
 
@@ -376,7 +375,7 @@ where
         ImageFormat::Alpha8(_) => [192].repeat(IMAGE_SIZE * IMAGE_SIZE),
     };
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
-    let image = renderer.create_image(ImageData::new(
+    let image = renderer.gui.create_image(ImageData::new(
         ImagePixels::Owned(pixels.into_boxed_slice()),
         format,
         IMAGE_SIZE,
@@ -425,7 +424,9 @@ where
 {
     const COMMANDS: usize = 48;
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
-    let text = renderer.text_run("secure approval", TextStyle::default());
+    let text = renderer
+        .gui
+        .text_run("secure approval", TextStyle::default());
     let mut display_list = DisplayList::default();
     for index in 0..COMMANDS {
         let area = LogicalRect {
@@ -467,7 +468,7 @@ where
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
     let strings = (0..LINES)
         .map(|line| {
-            renderer.text_run(
+            renderer.gui.text_run(
                 &format!(
                     "transaction {line:02}: verify recipient 0x7c91…{line:04x}, amount 12.345 ETH, and network fee 0.0042 ETH"
                 ),
@@ -523,7 +524,7 @@ where
         ..TextStyle::default()
     };
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
-    let text = renderer.text_run(
+    let text = renderer.gui.text_run(
         "Passport keeps your keys offline while making secure approvals clear and deliberate. Every transaction is reviewed on the trusted display before it is signed. Recovery information stays under your control, and the device never needs to expose private keys.",
         style,
     );
@@ -594,33 +595,20 @@ where
 }
 
 struct BenchRenderer<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> {
-    renderer: Renderer<B, S>,
-    text: TextSystem,
-    image_uploads: Vec<(ImageHandle, ImageData)>,
-    next_image: u64,
+    render: Renderer<B, S>,
+    gui: GuiContext,
 }
 
 impl<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> BenchRenderer<B, S> {
     fn render(&mut self, display_list: &DisplayList, damage: &[PhysicalRect]) {
-        self.renderer.render_damage(
-            &mut self.text,
-            &mut self.image_uploads,
-            display_list,
-            damage,
-        );
-        self.text.finish_frame();
-    }
-
-    fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        data.validate();
-        self.next_image = self.next_image.checked_add(1).unwrap();
-        let image = ImageHandle::new(ImageId(self.next_image), data.size);
-        self.image_uploads.push((image.clone(), data));
-        image
-    }
-
-    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.text.text_run(text, style)
+        let RenderInput {
+            text,
+            image_uploads,
+            ..
+        } = self.gui.render_input();
+        self.render
+            .render_damage(text, image_uploads, display_list, damage);
+        self.gui.finish_frame(Duration::ZERO);
     }
 }
 
@@ -640,7 +628,7 @@ fn renderer_with_shadow_cache<S>(
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
-    let renderer = Renderer::new(
+    let render = Renderer::new(
         VecBuffer::new(width, height),
         RendererConfig {
             paint_cache_capacity: 512 * 1024,
@@ -649,22 +637,19 @@ where
         },
     )
     .strategy(strategy);
-    let text = TextSystem::new(
-        TextConfig {
-            fonts: vec![FontFamily {
-                id: FontId::default(),
-                fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
-            }],
-            text_cache_capacity: 512 * 1024,
-            layout_cache_capacity: 512 * 1024,
-        },
-        Box::new(blit_text_cosmic::Backend::without_system_fonts()),
-    )
-    .unwrap();
-    BenchRenderer {
-        renderer,
-        text,
-        image_uploads: Vec::new(),
-        next_image: 0,
-    }
+    let gui = GuiContext::new(
+        TextSystem::new(
+            TextConfig {
+                fonts: vec![FontFamily {
+                    id: FontId::default(),
+                    fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+                }],
+                text_cache_capacity: 512 * 1024,
+                layout_cache_capacity: 512 * 1024,
+            },
+            Box::new(blit_text_cosmic::Backend::without_system_fonts()),
+        )
+        .unwrap(),
+    );
+    BenchRenderer { render, gui }
 }
