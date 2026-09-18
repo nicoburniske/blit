@@ -323,7 +323,7 @@ fn border_character(style: BorderStyle, edges: u8) -> char {
 mod tests {
     use crate::{RendererConfig, TuiRenderer};
     use blit::{Frame, FrameInfo, Size};
-    use blit_std::layout::single;
+    use blit_layout::single;
 
     use super::*;
     use crate::{atom::Shadow, widget};

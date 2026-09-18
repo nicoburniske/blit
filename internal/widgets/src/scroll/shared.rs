@@ -1,11 +1,3 @@
-mod area;
-mod list;
-mod virtual_list;
-
-pub use area::Area;
-pub use list::List;
-pub use virtual_list::{MeasuredState, VirtualList, VirtualListResponse};
-
 use std::time::Duration;
 
 use blit::{
@@ -25,6 +17,19 @@ blit::builder! {
         velocity: f32 = 0.0,
         tracking: bool = false,
         last_frame: Option<Duration> = None,
+    }
+}
+
+blit::builder! {
+    /// scrollbar behavior and geometry
+    #[derive(Clone, Copy, Debug)]
+    pub struct Behavior {
+        new(),
+        scroll_speed: f32 = 1.0,
+        inertia_friction: f32 = 6.0,
+        sense: Sense = Sense::SCROLL,
+        scrollbar_thickness: f32 = 1.0,
+        minimum_thumb_extent: f32 = 1.0,
     }
 }
 
@@ -48,58 +53,16 @@ impl State {
     }
 }
 
-blit::builder! {
-    /// scrollbar behavior + geometry
-    #[derive(Clone, Copy, Debug)]
-    pub struct Config {
-        new(),
-        scroll_speed: f32 = 1.0,
-        inertia_friction: f32 = 6.0,
-        sense: Sense = Sense::SCROLL,
-        scrollbar_thickness: f32 = 1.0,
-        minimum_thumb_extent: f32 = 1.0,
-    }
-}
-
-pub trait Scrollbar {
-    const HAS_TRACK: bool;
-    const HAS_THUMB: bool;
-
-    type Track;
-    type Thumb;
-
-    fn config(&self) -> Config {
-        Config::default()
-    }
-
-    fn into_content(self, active: bool) -> (Self::Track, Self::Thumb);
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct NoScrollbar;
-
-impl Scrollbar for NoScrollbar {
-    const HAS_TRACK: bool = false;
-    const HAS_THUMB: bool = false;
-
-    type Track = ();
-    type Thumb = ();
-
-    fn into_content(self, _: bool) -> (Self::Track, Self::Thumb) {
-        ((), ())
-    }
+#[derive(Clone, Copy)]
+pub struct ScrollLayout {
+    pub axis: Axis,
+    pub offset: f32,
+    pub scrollbar_thickness: f32,
+    pub minimum_thumb_extent: f32,
 }
 
 #[derive(Clone, Copy)]
-struct ScrollLayout {
-    axis: Axis,
-    offset: f32,
-    scrollbar_thickness: f32,
-    minimum_thumb_extent: f32,
-}
-
-#[derive(Clone, Copy)]
-enum ScrollItem {
+pub enum ScrollItem {
     Content,
     Track,
     Thumb,
@@ -118,7 +81,7 @@ impl<R: Platform> Layout<R> for ScrollLayout {
 }
 
 impl ScrollLayout {
-    fn layout_with_offset<R: Platform>(
+    pub fn layout_with_offset<R: Platform>(
         &self,
         ui: &mut LayoutCx<'_, R, ScrollItem>,
         constraints: Constraints,
@@ -220,11 +183,11 @@ impl ScrollLayout {
 
 /// updates scroll input and motion returning thumb activity and viewport availability
 /// uses children named `content` and `scroll thumb` for geometry when present
-pub fn update<R: Platform, S: Scrollbar>(
+pub fn update<R: Platform>(
     state: &mut State,
     ui: &mut Ui<'_, R>,
     axis: Axis,
-    config: Config,
+    config: Behavior,
 ) -> (bool, bool) {
     let id = state.id;
     let content_id = id.child("content");
@@ -240,20 +203,17 @@ pub fn update<R: Platform, S: Scrollbar>(
     }
 
     let interaction = ui.interact(id, config.sense);
-    let thumb_interaction = S::HAS_THUMB.then(|| ui.interact(thumb_id, Sense::DRAG));
+    let thumb_interaction = ui.interact(thumb_id, Sense::DRAG);
     let track_id = id.child("scroll track");
-    let track_interaction = S::HAS_TRACK.then(|| ui.interact(track_id, Sense::DRAG));
+    let track_interaction = ui.interact(track_id, Sense::DRAG);
     let now = ui.time();
     let elapsed = state
         .last_frame
         .replace(now)
         .map_or(0.0, |previous| now.saturating_sub(previous).as_secs_f32());
     let maximum = state.maximum_offset();
-    let drag = thumb_interaction.filter(|interaction| interaction.dragging);
-    if drag.is_some()
-        || track_interaction
-            .is_some_and(|interaction| interaction.activated || interaction.dragging)
-    {
+    let drag = thumb_interaction.dragging.then_some(thumb_interaction);
+    if drag.is_some() || track_interaction.activated || track_interaction.dragging {
         let thumb = ui
             .geometry(thumb_id)
             .map_or(0.0, |area| axis.extent(area.size()));
@@ -344,27 +304,25 @@ pub fn update<R: Platform, S: Scrollbar>(
         }
     }
     (
-        thumb_interaction.is_some_and(|interaction| interaction.active)
-            || track_interaction.is_some_and(|interaction| interaction.active),
+        thumb_interaction.active || track_interaction.active,
         viewport_known,
     )
 }
 
-fn build_scroll<R, C, X, S>(
+pub fn build_scroll<R, C, X, T, H>(
     ui: Ui<'_, R>,
     id: WidgetId,
     layout: impl Layout<R, Item = ScrollItem>,
     clip: X,
     content: C,
-    scrollbar: S,
-    thumb_active: bool,
+    track: Option<T>,
+    thumb: Option<H>,
 ) where
     R: Platform,
     C: Widget<R>,
     X: Clip<R>,
-    S: Scrollbar,
-    S::Track: Content<R>,
-    S::Thumb: Content<R>,
+    T: Content<R>,
+    H: Content<R>,
 {
     let content_id = id.child("content");
     let thumb_id = id.child("scroll thumb");
@@ -373,14 +331,13 @@ fn build_scroll<R, C, X, S>(
         .child(ScrollItem::Content)
         .widget_id(content_id)
         .build(content);
-    let (track, thumb) = scrollbar.into_content(thumb_active);
-    if S::HAS_TRACK {
+    if let Some(track) = track {
         viewport
             .child(ScrollItem::Track)
             .widget_id(id.child("scroll track"))
             .insert(track);
     }
-    if S::HAS_THUMB {
+    if let Some(thumb) = thumb {
         viewport
             .child(ScrollItem::Thumb)
             .widget_id(thumb_id)

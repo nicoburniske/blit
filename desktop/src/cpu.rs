@@ -1,3 +1,4 @@
+use std::time::{Duration, Instant};
 use std::{num::NonZeroU32, ptr::NonNull, sync::Arc};
 
 use blit_cpu::{PixelBuffer, Renderer, Scanline, Xrgb8888};
@@ -69,7 +70,7 @@ impl GraphicsBackend for Backend {
         Ok(())
     }
 
-    fn render(&mut self, input: RenderInput<'_>) -> Result<(), GraphicsError> {
+    fn render(&mut self, input: RenderInput<'_>) -> Result<Duration, GraphicsError> {
         let surface = self.surface.as_mut().expect("CPU backend is not active");
         let renderer = self.renderer.as_mut().expect("CPU backend is not active");
         let window = self.window.as_ref().expect("CPU backend is not active");
@@ -78,10 +79,12 @@ impl GraphicsBackend for Backend {
             renderer.invalidate_all();
         }
         renderer.buffer_mut().set(&mut buffer);
+        let started = Instant::now();
         renderer.render(input);
+        let render_time = started.elapsed();
         window.pre_present_notify();
         buffer.present()?;
-        Ok(())
+        Ok(render_time)
     }
 }
 

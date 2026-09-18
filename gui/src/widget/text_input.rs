@@ -7,7 +7,7 @@ use crate::{
 use blit::{
     Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Widget, WidgetId,
 };
-pub use blit_std::widget::text_input::{Response, State};
+pub use blit_widgets::text_input::{Response, State};
 
 blit::builder! {
     pub struct TextInput<'a> {

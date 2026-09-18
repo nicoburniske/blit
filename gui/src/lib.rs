@@ -8,7 +8,7 @@ pub mod text;
 mod text_system;
 pub mod widget;
 
-pub use blit_std::layout;
+pub use blit_layout as layout;
 pub use blit_text::{FontData, FontError, TextLayoutEngine};
 pub use context::{BoundsClip, GuiContext, RenderInput};
 pub use text_system::{FontFamily, ResolvedTextLayout, TextConfig, TextLayoutId, TextSystem};

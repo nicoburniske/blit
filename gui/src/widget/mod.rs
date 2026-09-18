@@ -1,9 +1,14 @@
 pub mod performance;
 pub use performance::Performance;
 
+pub mod popover;
+pub mod resize;
+pub mod scroll_area;
+pub mod scroll_list;
+pub mod split;
 pub mod text_input;
+pub mod virtual_list;
 
-pub use blit_std::widget::{popover, resize, scroll, split};
 pub use text_input::TextInput;
 
 pub use crate::text::Span;

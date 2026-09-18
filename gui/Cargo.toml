@@ -7,7 +7,8 @@ publish = false
 
 [dependencies]
 blit.workspace = true
-blit-std.workspace = true
+blit-layout.workspace = true
+blit-widgets.workspace = true
 blit_cache = { path = "../internal/cache" }
 blit-text.workspace = true
 ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }

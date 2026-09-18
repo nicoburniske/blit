@@ -1,7 +1,9 @@
 pub mod flex;
 pub mod grid;
 pub mod rect;
+pub mod resize;
 pub mod single;
+pub mod split;
 pub mod wrap;
 
 mod sizing;

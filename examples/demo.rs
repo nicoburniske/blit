@@ -1,5 +1,5 @@
 use blit::{Anchor, Axis, Sides, Size, Sizing};
-pub use blit_std::layout::{Align, Justify};
+pub use blit_layout::{Align, Justify};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CanvasLayout {

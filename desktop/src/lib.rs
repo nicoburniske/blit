@@ -8,7 +8,7 @@ pub use winit::event_loop::EventLoopClosed;
 pub mod cpu;
 mod event_loop;
 
-use std::{error::Error, fmt, sync::Arc};
+use std::{error::Error, fmt, sync::Arc, time::Duration};
 
 use blit_gui::{GuiContext, RenderInput, TextConfig, TextLayoutEngine, Ui};
 use winit::event_loop::EventLoopProxy as WinitEventLoopProxy;
@@ -32,7 +32,8 @@ pub trait GraphicsBackend: 'static {
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), GraphicsError>;
 
-    fn render(&mut self, input: RenderInput<'_>) -> Result<(), GraphicsError>;
+    /// returns graphics work before presentation
+    fn render(&mut self, input: RenderInput<'_>) -> Result<Duration, GraphicsError>;
 }
 
 /// sends application input to the desktop event loop

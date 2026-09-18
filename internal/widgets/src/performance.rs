@@ -5,62 +5,10 @@ use std::{
     time::Duration,
 };
 
-use blit::{Anchor, FrameStage, Interaction, Platform, Ui, Widget};
-
-use super::popover;
-
-pub struct Monitor<'a, T, C> {
-    state: &'a mut State,
-    trigger: T,
-    content: C,
-    config: popover::Config,
-}
-
-impl<'a, T, C> Monitor<'a, T, C> {
-    pub fn new(state: &'a mut State, trigger: T, content: C) -> Self {
-        Self {
-            state,
-            trigger,
-            content,
-            config: popover::Config::new()
-                .target_anchor(Anchor::TopRight)
-                .child_anchor(Anchor::BottomRight),
-        }
-    }
-
-    pub fn config(mut self, config: popover::Config) -> Self {
-        self.config = config;
-        self
-    }
-}
-
-impl<P, T, C> Widget<P> for Monitor<'_, T, C>
-where
-    P: Platform + Profiled,
-    T: FnOnce(Ui<'_, P>, &str, Interaction, bool),
-    C: FnOnce(Ui<'_, P>, &Measurements),
-{
-    type Response = ();
-
-    fn build(self, mut ui: Ui<'_, P>) {
-        if let Some(timings) = ui.platform().profiler().completed() {
-            self.state.update(timings);
-        }
-        let measurements = &self.state.measurements;
-        ui.build(
-            popover::Popover::new(&mut self.state.popover)
-                .config(self.config.close(popover::Close::Manual))
-                .trigger(|ui, interaction, open| {
-                    (self.trigger)(ui, &measurements.label, interaction, open);
-                })
-                .build(|ui: Ui<'_, P>| (self.content)(ui, measurements)),
-        );
-    }
-}
+use blit::FrameStage;
 
 #[derive(Debug)]
 pub struct State {
-    popover: popover::State,
     measurements: Measurements,
     refresh_in: Duration,
     slowest: BinaryHeap<Reverse<Duration>>,
@@ -70,7 +18,6 @@ impl State {
     /// retains at most max_samples completed frames with a minimum of one
     pub fn new(max_samples: usize) -> Self {
         Self {
-            popover: popover::State::new(),
             measurements: Measurements {
                 history_limit: max_samples.max(1),
                 frame_times: VecDeque::new(),
@@ -165,6 +112,10 @@ impl State {
             " | {:.2} ms",
             timings.total().as_secs_f64() * 1000.0
         );
+    }
+
+    pub fn measurements(&self) -> &Measurements {
+        &self.measurements
     }
 }
 
@@ -271,6 +222,12 @@ impl FrameProfiler {
 
     pub fn completed(&self) -> Option<FrameTimings> {
         self.completed
+    }
+
+    pub fn record_render(&mut self, duration: Duration) {
+        if let Some(completed) = &mut self.completed {
+            completed.paint += duration;
+        }
     }
 }
 

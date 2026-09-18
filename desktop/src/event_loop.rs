@@ -174,7 +174,9 @@ impl<A: Application> Runner<A> {
             |ui| active.app.render(ui),
         );
         let result = active.graphics.render(active.gui.render_input());
-        active.gui.finish_frame();
+        active
+            .gui
+            .finish_frame(result.as_ref().copied().unwrap_or_default());
         if let Err(error) = result {
             self.fail(event_loop, error);
         }

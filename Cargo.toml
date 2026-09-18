@@ -12,7 +12,8 @@ members = [
     "internal/cache",
     "internal/diff",
     "kernel",
-    "std",
+    "layout",
+    "internal/widgets",
     "tui",
 ]
 
@@ -24,7 +25,8 @@ blit = { path = "kernel" }
 blit-diff = { path = "internal/diff" }
 blit-executor = { path = "executor" }
 blit-gui = { path = "gui" }
-blit-std = { path = "std" }
+blit-layout = { path = "layout" }
+blit-widgets = { path = "internal/widgets" }
 blit-text = { path = "gui/text" }
 blit-text-cosmic = { path = "gui/text/cosmic" }
 blit-text-fontdue = { path = "gui/text/fontdue" }

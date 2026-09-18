@@ -13,7 +13,7 @@ path = "demo.rs"
 blit.workspace = true
 blit-desktop = { path = "../desktop" }
 blit-gui.workspace = true
-blit-std.workspace = true
+blit-layout.workspace = true
 blit-text-cosmic.workspace = true
 blit-text-fontdue.workspace = true
 blit-tui = { path = "../tui" }

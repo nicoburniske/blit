@@ -8,7 +8,8 @@ publish = false
 [dependencies]
 base64 = "0.22"
 blit.workspace = true
-blit-std.workspace = true
+blit-layout.workspace = true
+blit-widgets.workspace = true
 blit_cache = { path = "../internal/cache" }
 rustix = { version = "1", features = ["termios", "event"] }
 signal-hook = "0.3"

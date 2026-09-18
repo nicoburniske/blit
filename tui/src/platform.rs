@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 use blit::{Clip, FrameStage, LogicalRect, Platform, Scale2};
-use blit_std::widget::performance::{FrameProfiler, Profiled};
+use blit_widgets::performance::{FrameProfiler, Profiled};
 
 /// rendering resources independent of terminal io and event loop ownership
 pub struct TuiPlatform {

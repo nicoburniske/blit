@@ -4,10 +4,7 @@ use blit::{
     Atom, Constraints, Frame, FrameInfo, Input, LayoutResolution, Platform, Rect, Sides, Size,
     Sizing, Transition, Ui, WidgetId,
 };
-use blit_std::{
-    layout::{Align, flex, grid, single, wrap},
-    widget::split,
-};
+use blit_layout::{Align, flex, grid, single, wrap};
 
 #[derive(Default)]
 struct TestPlatform;
@@ -431,45 +428,4 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
     assert_eq!(render(4.0, Duration::ZERO), 1.0);
     assert_eq!(render(4.0, Duration::from_millis(500)), 3.0);
     assert_eq!(render(4.0, Duration::from_secs(1)), 4.0);
-}
-
-#[test]
-fn split_pane_clamps_the_leading_extent() {
-    let mut frame = Frame::default();
-    let mut platform = TestPlatform;
-    let mut state = split::State::default();
-    let id = WidgetId::new("split pane");
-
-    state.set_extent(90.0);
-    frame.render(
-        &mut platform,
-        FrameInfo::new(Size::new(100.0, 20.0)),
-        |ui: Ui<'_, TestPlatform>| {
-            let mut root = ui.layout(single::layout());
-            root.child(single::item().grow()).build(
-                split::Pane::<_, _, split::NoDivider>::new(
-                    &mut state,
-                    id,
-                    30.0,
-                    |mut ui: Ui<'_, TestPlatform>| ui.insert(BoxAtom(Size::ZERO)),
-                    |mut ui: Ui<'_, TestPlatform>| ui.insert(BoxAtom(Size::ZERO)),
-                )
-                .minimum_leading(20.0)
-                .minimum_trailing(20.0)
-                .config(split::Config::new().divider_extent(4.0)),
-            );
-        },
-    );
-    assert_eq!(
-        frame.geometry(id.child("leading pane")),
-        Some(Rect::new(0.0, 0.0, 76.0, 20.0))
-    );
-    assert_eq!(
-        frame.geometry(id.child("divider")),
-        Some(Rect::new(76.0, 0.0, 4.0, 20.0))
-    );
-    assert_eq!(
-        frame.geometry(id.child("trailing pane")),
-        Some(Rect::new(80.0, 0.0, 20.0, 20.0))
-    );
 }

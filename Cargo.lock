@@ -115,7 +115,7 @@ dependencies = [
  "blit",
  "blit-desktop",
  "blit-gui",
- "blit-std",
+ "blit-layout",
  "blit-text-cosmic",
  "blit-text-fontdue",
  "blit-tui",
@@ -149,18 +149,18 @@ name = "blit-gui"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-std",
+ "blit-layout",
  "blit-text",
+ "blit-widgets",
  "blit_cache",
  "ttf-parser",
 ]
 
 [[package]]
-name = "blit-std"
+name = "blit-layout"
 version = "0.1.0"
 dependencies = [
  "blit",
- "unicode-segmentation",
 ]
 
 [[package]]
@@ -196,13 +196,23 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "blit",
- "blit-std",
+ "blit-layout",
+ "blit-widgets",
  "blit_cache",
  "divan",
  "rustix 1.1.4",
  "signal-hook",
  "unicode-segmentation",
  "unicode-width",
+]
+
+[[package]]
+name = "blit-widgets"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-layout",
+ "unicode-segmentation",
 ]
 
 [[package]]
