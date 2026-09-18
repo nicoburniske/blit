@@ -115,42 +115,6 @@ impl<C> Frame<C> {
         self.data = data;
     }
 
-    pub fn render<W: Widget<C>>(
-        &mut self,
-        context: &mut C,
-        frame: FrameInfo,
-        widget: W,
-    ) -> W::Response {
-        let output = self.build(context, frame, Duration::ZERO, Input::None, widget);
-        self.layout(context);
-        self.paint(context);
-        output
-    }
-
-    pub fn render_inputs<O>(
-        &mut self,
-        context: &mut C,
-        frame: FrameInfo,
-        time: Duration,
-        inputs: impl IntoIterator<Item = Input>,
-        mut build: impl FnMut(Ui<'_, C>) -> O,
-    ) {
-        let mut inputs = inputs.into_iter();
-        let Some(first) = inputs.next() else {
-            self.build(context, frame, time, Input::None, &mut build);
-            self.layout(context);
-            self.paint(context);
-            return;
-        };
-        self.build(context, frame, time, first, &mut build);
-        self.layout(context);
-        for input in inputs {
-            self.build(context, frame, time, input, &mut build);
-            self.layout(context);
-        }
-        self.paint(context);
-    }
-
     pub fn has_pending_redraw(&self) -> bool {
         self.frame_requested
             || self

@@ -153,8 +153,7 @@ mod tests {
     use blit::{Frame, FrameInfo, Modifiers, PointerButton, Rect, Size};
 
     use super::*;
-
-    struct TestContext;
+    use crate::test::TestContext;
 
     fn render(ui: Ui<'_, TestContext>, state: &mut State, config: Config) {
         ui.build(new(
@@ -183,84 +182,95 @@ mod tests {
         let mut state = State::new();
         let content_id = state.id.child("popover content");
 
-        frame.render(&mut context, info, |ui: Ui<'_, TestContext>| {
-            render(ui, &mut state, Config::new());
-        });
+        frame.build(
+            &mut context,
+            info,
+            Duration::ZERO,
+            Input::None,
+            |ui: Ui<'_, TestContext>| render(ui, &mut state, Config::new()),
+        );
+        frame.layout(&mut context);
         let config = Config::new()
             .offset(Point::new(0.0, 1.0))
             .open_on_hover(true)
             .close(Close::Exit);
         let mut expected = [true, true, false].into_iter();
-        frame.render_inputs(
-            &mut context,
-            info,
-            Duration::ZERO,
-            [
-                Input::PointerMove {
-                    position: Point::new(1.0, 0.5),
-                    modifiers: Modifiers::NONE,
-                },
-                Input::PointerMove {
-                    position: Point::new(1.0, 1.5),
-                    modifiers: Modifiers::NONE,
-                },
-                Input::PointerMove {
-                    position: Point::new(9.0, 9.0),
-                    modifiers: Modifiers::NONE,
-                },
-            ],
-            |ui: Ui<'_, TestContext>| {
-                render(ui, &mut state, config);
-                assert_eq!(state.open, expected.next().unwrap());
+        for input in [
+            Input::PointerMove {
+                position: Point::new(1.0, 0.5),
+                modifiers: Modifiers::NONE,
             },
-        );
+            Input::PointerMove {
+                position: Point::new(1.0, 1.5),
+                modifiers: Modifiers::NONE,
+            },
+            Input::PointerMove {
+                position: Point::new(9.0, 9.0),
+                modifiers: Modifiers::NONE,
+            },
+        ] {
+            frame.build(
+                &mut context,
+                info,
+                Duration::ZERO,
+                input,
+                |ui: Ui<'_, TestContext>| {
+                    render(ui, &mut state, config);
+                    assert_eq!(state.open, expected.next().unwrap());
+                },
+            );
+            frame.layout(&mut context);
+        }
 
         let mut expected = [true, true, false].into_iter();
         let mut content_geometry = None;
-        frame.render_inputs(
-            &mut context,
-            info,
-            Duration::ZERO,
-            [
-                Input::PointerDown {
-                    position: Point::new(1.0, 0.5),
-                    button: PointerButton::Primary,
-                    modifiers: Modifiers::NONE,
-                },
-                Input::PointerUp {
-                    position: Point::new(1.0, 0.5),
-                    button: PointerButton::Primary,
-                    modifiers: Modifiers::NONE,
-                    leave: false,
-                },
-                Input::PointerDown {
-                    position: Point::new(9.0, 9.0),
-                    button: PointerButton::Primary,
-                    modifiers: Modifiers::NONE,
-                },
-            ],
-            |ui: Ui<'_, TestContext>| {
-                if matches!(ui.input(), Input::PointerUp { .. }) {
-                    content_geometry = ui.geometry(content_id);
-                    assert_eq!(
-                        ui.geometry(WidgetId::new("named content")),
-                        content_geometry,
-                    );
-                    assert_eq!(
-                        ui.geometry(WidgetId::new("named trigger")),
-                        Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
-                    );
-                }
-                render(
-                    ui,
-                    &mut state,
-                    Config::new()
-                        .width(Sizing::fixed(5.0))
-                        .height(Sizing::fixed(4.0)),
-                );
-                assert_eq!(state.open, expected.next().unwrap());
+        for input in [
+            Input::PointerDown {
+                position: Point::new(1.0, 0.5),
+                button: PointerButton::Primary,
+                modifiers: Modifiers::NONE,
             },
-        );
+            Input::PointerUp {
+                position: Point::new(1.0, 0.5),
+                button: PointerButton::Primary,
+                modifiers: Modifiers::NONE,
+                leave: false,
+            },
+            Input::PointerDown {
+                position: Point::new(9.0, 9.0),
+                button: PointerButton::Primary,
+                modifiers: Modifiers::NONE,
+            },
+        ] {
+            frame.build(
+                &mut context,
+                info,
+                Duration::ZERO,
+                input,
+                |ui: Ui<'_, TestContext>| {
+                    if matches!(ui.input(), Input::PointerUp { .. }) {
+                        content_geometry = ui.geometry(content_id);
+                        assert_eq!(
+                            ui.geometry(WidgetId::new("named content")),
+                            content_geometry,
+                        );
+                        assert_eq!(
+                            ui.geometry(WidgetId::new("named trigger")),
+                            Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
+                        );
+                    }
+                    render(
+                        ui,
+                        &mut state,
+                        Config::new()
+                            .width(Sizing::fixed(5.0))
+                            .height(Sizing::fixed(4.0)),
+                    );
+                    assert_eq!(state.open, expected.next().unwrap());
+                },
+            );
+            frame.layout(&mut context);
+        }
         assert_eq!(content_geometry, Some(Rect::new(0.0, 1.0, 5.0, 4.0)));
     }
 }

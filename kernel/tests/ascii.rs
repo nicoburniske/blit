@@ -1238,7 +1238,9 @@ fn render<W: Widget<AsciiContext>>(
     context.cells.clear();
     context.cells.resize(context.width * context.height, ' ');
     assert!(context.diamond_clips.is_empty());
-    let output = frame.render(context, info, widget);
+    let output = frame.build(context, info, Duration::ZERO, Input::None, widget);
+    frame.layout(context);
+    frame.paint(context);
     assert!(context.diamond_clips.is_empty());
     output
 }
@@ -1248,12 +1250,18 @@ fn render_inputs<O>(
     context: &mut AsciiContext,
     time: Duration,
     inputs: impl IntoIterator<Item = Input>,
-    build: impl FnMut(Ui<'_>) -> O,
+    mut build: impl FnMut(Ui<'_>) -> O,
 ) {
     let info = context.info;
     context.cells.clear();
     context.cells.resize(context.width * context.height, ' ');
     assert!(context.diamond_clips.is_empty());
-    frame.render_inputs(context, info, time, inputs, build);
+    let mut inputs = inputs.into_iter();
+    let first = inputs.next().unwrap_or(Input::None);
+    for input in std::iter::once(first).chain(inputs) {
+        frame.build(context, info, time, input, &mut build);
+        frame.layout(context);
+    }
+    frame.paint(context);
     assert!(context.diamond_clips.is_empty());
 }

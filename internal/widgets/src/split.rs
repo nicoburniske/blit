@@ -193,12 +193,13 @@ impl<C> LayoutTrait<C> for Layout {
 
 #[cfg(test)]
 mod tests {
-    use blit::{Atom, Constraints, Frame, FrameInfo, Rect, Size};
+    use std::time::Duration;
+
+    use blit::{Atom, Constraints, Frame, FrameInfo, Input, Rect, Size};
     use blit_layout::single;
 
     use super::*;
-
-    struct TestContext;
+    use crate::test::TestContext;
 
     struct BoxAtom;
 
@@ -220,9 +221,12 @@ mod tests {
         let mut state = State::default();
         let id = WidgetId::new("split pane");
         state.set_extent(90.0);
-        frame.render(
-            &mut TestContext,
+        let context = &mut TestContext;
+        frame.build(
+            context,
             FrameInfo::new(Size::new(100.0, 20.0)),
+            Duration::ZERO,
+            Input::None,
             |ui: Ui<'_, TestContext>| {
                 ui.layout(single::layout())
                     .child(single::item().grow())
@@ -239,6 +243,7 @@ mod tests {
                     ));
             },
         );
+        frame.layout(context);
         assert_eq!(
             frame.geometry(id.child("leading pane")),
             Some(Rect::new(0.0, 0.0, 76.0, 20.0))

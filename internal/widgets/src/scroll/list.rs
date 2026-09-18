@@ -131,23 +131,45 @@ impl<C> Layout<C> for ListLayout {
 
 #[cfg(test)]
 mod tests {
-    use blit::{Frame, FrameInfo, LayoutResolution, Rect};
+    use std::time::Duration;
+
+    use blit::{Frame, FrameInfo, Input, LayoutResolution};
 
     use super::*;
-
-    struct TestContext;
-
-    #[derive(Clone, Copy)]
-    struct TestClip;
-
-    impl Clip<TestContext> for TestClip {
-        fn push(&self, _: &mut TestContext, _: Rect) {}
-
-        fn pop(&self, _: &mut TestContext) {}
-    }
+    use crate::test::{TestClip, TestContext};
 
     #[test]
     fn list_builds_only_the_resolved_visible_range() {
+        fn layout(
+            frame: &mut Frame<TestContext>,
+            context: &mut TestContext,
+            info: FrameInfo,
+            state: &mut State,
+            built: &mut Vec<usize>,
+        ) {
+            frame.build(
+                context,
+                info,
+                Duration::ZERO,
+                Input::None,
+                |ui: Ui<'_, TestContext>| {
+                    build(
+                        ui,
+                        state,
+                        Config::new(1.5),
+                        0..100,
+                        |ui, index| {
+                            built.push(index);
+                            ui.build(());
+                        },
+                        TestClip,
+                        |_| (None::<()>, None::<()>),
+                    )
+                },
+            );
+            frame.layout(context);
+        }
+
         let mut frame = Frame::default();
         let mut context = TestContext;
         let frame_info =
@@ -157,40 +179,14 @@ mod tests {
         let mut state = State::new();
         let mut built = Vec::new();
 
-        frame.render(&mut context, frame_info, |ui: Ui<'_, TestContext>| {
-            build(
-                ui,
-                &mut state,
-                Config::new(1.5),
-                0..100,
-                |ui, index| {
-                    built.push(index);
-                    ui.build(());
-                },
-                TestClip,
-                |_| (None::<()>, None::<()>),
-            )
-        });
+        layout(&mut frame, &mut context, frame_info, &mut state, &mut built);
         assert_eq!(built, [0, 1, 2, 3, 4, 5]);
 
         built.clear();
         state.viewport_extent = 10.0;
         state.content_extent = 200.0;
         state.scroll_to(20.0);
-        frame.render(&mut context, frame_info, |ui: Ui<'_, TestContext>| {
-            build(
-                ui,
-                &mut state,
-                Config::new(1.5),
-                0..100,
-                |ui, index| {
-                    built.push(index);
-                    ui.build(());
-                },
-                TestClip,
-                |_| (None::<()>, None::<()>),
-            )
-        });
+        layout(&mut frame, &mut context, frame_info, &mut state, &mut built);
         assert_eq!(built, [9, 10, 11, 12, 13, 14, 15]);
     }
 }

@@ -2,12 +2,23 @@ use std::time::Duration;
 
 use blit::{
     Atom, Constraints, Frame, FrameInfo, Input, LayoutResolution, Rect, Sides, Size, Sizing,
-    Transition, Ui, WidgetId,
+    Transition, Ui, Widget, WidgetId,
 };
 use blit_layout::{Align, flex, grid, single, wrap};
 
 #[derive(Default)]
 struct TestContext;
+
+fn layout_frame<W: Widget<TestContext>>(
+    frame: &mut Frame<TestContext>,
+    context: &mut TestContext,
+    info: FrameInfo,
+    widget: W,
+) -> W::Response {
+    let output = frame.build(context, info, Duration::ZERO, Input::None, widget);
+    frame.layout(context);
+    output
+}
 
 #[derive(Clone, Copy)]
 struct BoxAtom(Size);
@@ -51,7 +62,8 @@ fn flex_remeasures_constraint_dependent_atoms() {
     let mut frame = Frame::default();
     let mut context = TestContext;
     let child = WidgetId::new("responsive");
-    frame.render(
+    layout_frame(
+        &mut frame,
         &mut context,
         FrameInfo::new(Size::new(5.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
@@ -69,7 +81,8 @@ fn flex_cross_grow_uses_natural_size_under_loose_constraints() {
     let mut frame = Frame::default();
     let header = WidgetId::new("header");
     let body = WidgetId::new("body");
-    frame.render(
+    layout_frame(
+        &mut frame,
         &mut TestContext,
         FrameInfo::new(Size::new(100.0, 100.0)),
         |ui: Ui<'_, TestContext>| {
@@ -99,7 +112,8 @@ fn flex_distributes_growing_space() {
     let mut context = TestContext;
     let fixed = WidgetId::new("fixed");
     let grow = WidgetId::new("grow");
-    frame.render(
+    layout_frame(
+        &mut frame,
         &mut context,
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui: Ui<'_, TestContext>| {
@@ -124,7 +138,8 @@ fn flex_respects_growth_caps() {
         WidgetId::new("four"),
         WidgetId::new("unbounded"),
     ];
-    frame.render(
+    layout_frame(
+        &mut frame,
         &mut TestContext,
         FrameInfo::new(Size::new(15.0, 1.0)),
         |ui: Ui<'_, TestContext>| {
@@ -153,11 +168,11 @@ fn flex_size_transition_preserves_exact_overflow_and_reflows_siblings() {
     let animated = WidgetId::new("animated flex child");
     let sibling = WidgetId::new("flex sibling");
     let mut render = |extent, time| {
-        frame.render_inputs(
+        frame.build(
             &mut TestContext,
             FrameInfo::new(Size::new(4.0, 2.0)),
             time,
-            [Input::None],
+            Input::None,
             |ui: Ui<'_, TestContext>| {
                 let mut row = ui.layout(flex::row());
                 row.child(flex::item().fixed(extent, extent))
@@ -169,6 +184,7 @@ fn flex_size_transition_preserves_exact_overflow_and_reflows_siblings() {
                     .insert(BoxAtom(Size::ZERO));
             },
         );
+        frame.layout(&mut TestContext);
         (
             frame.geometry(animated).unwrap().size(),
             frame.geometry(sibling).unwrap().x,
@@ -195,7 +211,8 @@ fn empty_layouts_keep_padding() {
         WidgetId::new("empty wrap"),
         WidgetId::new("empty grid"),
     ];
-    frame.render(
+    layout_frame(
+        &mut frame,
         &mut TestContext,
         FrameInfo::new(Size::new(20.0, 10.0)).layout_resolution(LayoutResolution::Discrete {
             step: Size::uniform(1.0),
@@ -229,7 +246,8 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
         WidgetId::new("uncapped"),
         WidgetId::new("next run"),
     ];
-    frame.render(
+    layout_frame(
+        &mut frame,
         &mut TestContext,
         FrameInfo::new(Size::new(11.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
@@ -267,13 +285,13 @@ fn wrap_keeps_target_runs_during_size_transitions() {
     let mut frame = Frame::default();
     let ids: [WidgetId; 10] = std::array::from_fn(|index| WidgetId::new(("item", index)));
     let mut render = |width, time| {
-        frame.render_inputs(
+        frame.build(
             &mut TestContext,
             FrameInfo::new(Size::new(width, 2.0)).layout_resolution(LayoutResolution::Discrete {
                 step: Size::uniform(1.0),
             }),
             time,
-            [Input::None],
+            Input::None,
             |ui: Ui<'_, TestContext>| {
                 let mut wrap = ui.layout(wrap::horizontal().padding(Sides::all(1.0)).gap(1.0));
                 for id in ids {
@@ -284,6 +302,7 @@ fn wrap_keeps_target_runs_during_size_transitions() {
                 }
             },
         );
+        frame.layout(&mut TestContext);
         frame.geometry(ids[9]).unwrap()
     };
 
@@ -298,11 +317,11 @@ fn wrap_shrinkwraps_animated_target_runs() {
     let wrap_id = WidgetId::new("wrap");
     let child_ids = [WidgetId::new("first"), WidgetId::new("second")];
     let mut render = |extent, time| {
-        frame.render_inputs(
+        frame.build(
             &mut TestContext,
             FrameInfo::new(Size::new(20.0, 2.0)),
             time,
-            [Input::None],
+            Input::None,
             |ui: Ui<'_, TestContext>| {
                 let mut root = ui.layout(single::layout());
                 let mut wrap = root
@@ -317,6 +336,7 @@ fn wrap_shrinkwraps_animated_target_runs() {
                 }
             },
         );
+        frame.layout(&mut TestContext);
         let wrap = frame.geometry(wrap_id).unwrap();
         let child = frame.geometry(child_ids[1]).unwrap();
         [wrap.width, child.x, child.y]
@@ -332,7 +352,8 @@ fn wrap_shrinkwraps_animated_target_runs() {
 fn single_percentages_use_the_incoming_budget() {
     let mut frame = Frame::default();
     let percent = WidgetId::new("percentage child");
-    frame.render(
+    layout_frame(
+        &mut frame,
         &mut TestContext,
         FrameInfo::new(Size::new(20.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
@@ -358,7 +379,8 @@ fn spanning_grid_sizes_spanning_items() {
     let mut frame = Frame::default();
     let wide = WidgetId::new("wide");
     let layout = grid::columns(3).spanning().gap(2.0);
-    frame.render(
+    layout_frame(
+        &mut frame,
         &mut TestContext,
         FrameInfo::new(Size::new(100.0, 40.0)),
         |ui: Ui<'_, TestContext>| {
@@ -377,7 +399,8 @@ fn spanning_grid_sizes_spanning_items() {
 fn spanning_grid_fills_available_cell() {
     let mut frame = Frame::default();
     let hole = WidgetId::new("hole");
-    frame.render(
+    layout_frame(
+        &mut frame,
         &mut TestContext,
         FrameInfo::new(Size::new(90.0, 20.0)),
         |ui: Ui<'_, TestContext>| {
@@ -402,13 +425,13 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
     let mut frame = Frame::default();
     let id = WidgetId::new("animated grid child");
     let mut render = |extent, time| {
-        frame.render_inputs(
+        frame.build(
             &mut TestContext,
             FrameInfo::new(Size::new(20.0, 10.0)).layout_resolution(LayoutResolution::Discrete {
                 step: Size::uniform(1.0),
             }),
             time,
-            [Input::None],
+            Input::None,
             |ui: Ui<'_, TestContext>| {
                 let mut grid = ui.layout(grid::columns(2));
                 grid.child(grid::item())
@@ -419,6 +442,7 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
                     .insert(BoxAtom(Size::new(1.0, extent)));
             },
         );
+        frame.layout(&mut TestContext);
         frame.geometry(id).unwrap().height
     };
 

@@ -323,25 +323,24 @@ impl<C> Layout<C> for MeasuredLayout {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
-    use blit::{Frame, FrameInfo, Rect};
+    use blit::{Frame, FrameInfo, Input};
 
-    struct TestContext;
-
-    struct TestClip;
-    impl Clip<TestContext> for TestClip {
-        fn push(&self, _: &mut TestContext, _: Rect) {}
-        fn pop(&self, _: &mut TestContext) {}
-    }
+    use crate::test::{TestClip, TestContext};
 
     #[test]
     fn remeasured_rows_resolve_scroll_before_the_first_paint() {
         use blit::{Sides, WidgetId};
 
-        fn render(frame: &mut Frame<TestContext>, state: &mut State, rows: &[(u32, f32)]) {
-            frame.render(
-                &mut TestContext,
+        fn layout(frame: &mut Frame<TestContext>, state: &mut State, rows: &[(u32, f32)]) {
+            let context = &mut TestContext;
+            frame.build(
+                context,
                 FrameInfo::new(Size::new(80.0, 50.0)),
+                Duration::ZERO,
+                Input::None,
                 |ui: Ui<'_, TestContext>| {
                     build(
                         ui,
@@ -359,15 +358,16 @@ mod tests {
                     )
                 },
             );
+            frame.layout(context);
         }
 
         let mut frame = Frame::default();
         let mut state = State::default();
         let mut rows: Vec<_> = (0..40u32).map(|id| (id, 10.0 + (id % 3) as f32)).collect();
         state.scroll_to(WidgetId::new(20u32));
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         assert_eq!(frame.geometry(WidgetId::new(20u32)).unwrap().y, 0.0);
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
 
         rows.retain(|row| row.0 % 2 == 0);
         for row in &mut rows {
@@ -375,45 +375,45 @@ mod tests {
         }
         state.invalidate_all();
         state.scroll_to(WidgetId::new(30u32));
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         let first = frame.geometry(WidgetId::new(30u32)).unwrap();
         assert_eq!(first.y, 0.0);
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         assert_eq!(frame.geometry(WidgetId::new(30u32)).unwrap(), first);
 
         rows.reverse();
         state.invalidate_all();
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         assert_eq!(frame.geometry(WidgetId::new(30u32)).unwrap().y, 0.0);
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         assert_eq!(frame.geometry(WidgetId::new(30u32)).unwrap().y, 0.0);
 
         state.invalidate_all();
         state.scroll_to(WidgetId::new(0u32));
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         let last = frame.geometry(WidgetId::new(0u32)).unwrap();
         assert_eq!(last.y + last.height, 50.0);
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         assert_eq!(frame.geometry(WidgetId::new(0u32)).unwrap(), last);
 
         state.scroll_to(WidgetId::new(30u32));
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         state.table.borrow_mut().offset += 5.0;
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         for row in &mut rows {
             if row.0 == 32 || row.0 == 30 {
                 row.1 *= 2.0;
             }
         }
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         let anchor = frame.geometry(WidgetId::new(30u32)).unwrap();
         assert_eq!(anchor.y, -5.0);
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         assert_eq!(frame.geometry(WidgetId::new(30u32)).unwrap(), anchor);
 
         rows.clear();
         state.mark_dirty();
-        render(&mut frame, &mut state, &rows);
+        layout(&mut frame, &mut state, &rows);
         assert_eq!(state.table.borrow().offset, 0.0);
     }
 }

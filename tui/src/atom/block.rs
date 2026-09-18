@@ -321,8 +321,10 @@ fn border_character(style: BorderStyle, edges: u8) -> char {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use crate::{RendererConfig, TuiRenderer};
-    use blit::{Frame, FrameInfo, Size};
+    use blit::{Frame, FrameInfo, Input, Size};
     use blit_layout::single;
 
     use super::*;
@@ -334,9 +336,11 @@ mod tests {
         let mut context = TuiContext::new(renderer);
         let mut frame = Frame::default();
         context.begin_paint();
-        frame.render(
+        frame.build(
             &mut context,
             FrameInfo::new(Size::new(20.0, 5.0)),
+            Duration::ZERO,
+            Input::None,
             |ui: crate::Ui<'_>| {
                 let mut root = ui.layout(single::layout());
                 root.insert(widget::Text::new(
@@ -356,6 +360,8 @@ mod tests {
                 );
             },
         );
+        frame.layout(&mut context);
+        frame.paint(&mut context);
         context.finish_paint();
 
         assert_eq!(
