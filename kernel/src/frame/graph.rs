@@ -1,11 +1,3 @@
-/// estimated retained memory used by a frame after its buffers have grown
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct FrameMemory {
-    pub node_size: usize,
-    pub node_capacity: usize,
-    pub heap_bytes: usize,
-}
-
 pub struct Frame<C> {
     nodes: Vec<StoredNode>,
     current_parent: Option<NodeId>,
@@ -142,35 +134,6 @@ impl<C> Frame<C> {
         self.geometry_previous
             .iter()
             .find_map(|(candidate, area)| (*candidate == id).then_some(*area))
-    }
-
-    pub fn memory(&self) -> FrameMemory {
-        FrameMemory {
-            node_size: size_of::<StoredNode>(),
-            node_capacity: self.nodes.capacity(),
-            heap_bytes: self.nodes.capacity() * size_of::<StoredNode>()
-                + self.atoms.capacity() * size_of::<StoredAtom>()
-                + self.layouts.capacity() * size_of::<StoredLayout>()
-                + self.clips.capacity() * size_of::<StoredClip>()
-                + self.positioned.capacity() * size_of::<Positioned>()
-                + self.geometry.capacity() * size_of::<GeometryRecord>()
-                + self.atom_kinds.capacity() * size_of::<AtomKind<C>>()
-                + self.layout_kinds.capacity() * size_of::<LayoutKind<C>>()
-                + self.clip_kinds.capacity() * size_of::<ClipKind<C>>()
-                + self.data.heap_bytes()
-                + self.named_nodes.capacity() * size_of::<(WidgetId, Option<NodeId>)>()
-                + self.paint_links.capacity() * size_of::<PaintLinks>()
-                + self.paint_order.capacity() * size_of::<NodeId>()
-                + self.order_stack.capacity() * size_of::<NodeId>()
-                + self.resolved_clips.capacity() * size_of::<ResolvedClip>()
-                + self.active_clips.capacity() * size_of::<ResolvedClipId>()
-                + self.geometry_previous.capacity() * size_of::<(WidgetId, Rect)>()
-                + self.geometry_current.capacity() * size_of::<(WidgetId, Rect)>()
-                + self.animations.capacity() * size_of::<animation::AnimationState>()
-                + self.transitions.capacity() * size_of::<transition::TransitionState>()
-                + self.target_sizes.capacity() * size_of::<Size>()
-                + self.timers.capacity() * size_of::<timer::TimerState>(),
-        }
     }
 
     fn record<W: Widget<C>>(

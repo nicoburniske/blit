@@ -48,7 +48,7 @@ pub mod interact;
 pub mod layout;
 
 pub use animation::{Easing, Transition, TransitionProperties};
-pub use frame::{Absolute, Anchor, Frame, FrameMemory, NodeId, NodeTarget, Ui, state};
+pub use frame::{Absolute, Anchor, Frame, NodeId, NodeTarget, Ui, state};
 pub use geometry::{
     Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize,
     Point, Rect, Scale2, Sides, Size,
