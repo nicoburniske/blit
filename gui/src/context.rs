@@ -110,12 +110,6 @@ impl GuiContext {
         self.scale = Scale2::uniform(scale);
     }
 
-    pub fn begin_paint(&mut self) {
-        self.display_list.clear();
-        self.clip = ClipId::default();
-        self.clips.clear();
-    }
-
     pub fn render_input(&mut self) -> RenderInput<'_> {
         RenderInput {
             display_list: &mut self.display_list,
@@ -126,6 +120,9 @@ impl GuiContext {
     }
 
     pub fn finish_frame(&mut self, render_time: Duration) {
+        self.display_list.clear();
+        self.clip = ClipId::default();
+        self.clips.clear();
         self.text.finish_frame();
         self.profiler.record_render(render_time);
     }

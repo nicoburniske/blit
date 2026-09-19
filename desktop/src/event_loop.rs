@@ -179,7 +179,6 @@ impl<A: Application> Runner<A> {
             active.frame.layout(&mut active.gui);
         }
         active.gui.profiler_mut().begin_paint();
-        active.gui.begin_paint();
         active.frame.paint(&mut active.gui);
         active.gui.profiler_mut().finish();
         let result = active.graphics.render(active.gui.render_input());
