@@ -5,17 +5,14 @@ use std::{sync::mpsc, time::Duration};
 use blit::{LogicalRect, PhysicalRect, PhysicalSize};
 use blit_gpu::{Renderer, RendererConfig};
 use blit_gui::{
-    GuiContext, TextConfig, TextSystem,
+    FontData, FontFamily, GuiContext, TextConfig, TextSystem,
     color::Color,
     display_list::{BoxShadow, ClipId, Rectangle},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
     style::{Border, BorderRadius, GradientStop, LinearGradient},
-};
-use blit_text::{
-    FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, LayoutRequest, Text,
-    TextLayout, TextLayoutEngine,
+    text::{FontId, TextOptions, TextRequest, TextStyle},
 };
 
 #[test]
@@ -30,13 +27,14 @@ fn renders_primitives_and_rebuilds_frames() {
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let Ok(adapter) =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        blit_executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
     else {
         eprintln!("skipping native GPU test because no adapter is available");
         return;
     };
     let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        blit_executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .unwrap();
 
     const WIDTH: u32 = 128;
     const HEIGHT: u32 = 128;
@@ -65,23 +63,25 @@ fn renders_primitives_and_rebuilds_frames() {
     let mut gui = GuiContext::new(
         TextSystem::new(
             TextConfig {
-                fonts: Vec::new(),
-                text_cache_capacity: 0,
-                layout_cache_capacity: 0,
+                fonts: vec![FontFamily {
+                    id: FontId::default(),
+                    fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+                }],
+                text_cache_capacity: 1024,
+                layout_cache_capacity: 1024,
             },
-            Box::new(NoText),
+            blit_text_fontdue::Backend::new(),
         )
         .unwrap(),
     );
     gui.set_scale(2.0);
-    gui.begin_paint();
     gui.paint_rectangle(
         Rectangle::new(LogicalRect::new(0.5, 8.0, 0.5, 0.5))
             .background(Color::from_rgba8(255, 255, 255, 255)),
     );
     renderer.render(&target, gui.render_input());
 
-    gui.begin_paint();
+    gui.finish_frame(Duration::ZERO);
     gui.paint_rectangle(
         Rectangle::new(LogicalRect::new(0.0, 0.0, 7.0, 7.0))
             .background(Color::from_rgba8(255, 0, 0, 255))
@@ -128,6 +128,15 @@ fn renders_primitives_and_rebuilds_frames() {
         height: 1,
     };
     let sparse = gui.create_image(sparse);
+    let mut partial = ImageData::new(
+        ImagePixels::Static(&[255, 0, 0, 255]),
+        ImageFormat::Rgba8Premultiplied,
+        1,
+        1,
+    );
+    partial.size.width = 3;
+    partial.texture_rect.x = 1;
+    let partial = gui.create_image(partial);
     gui.paint_image(ImageRequest {
         area: LogicalRect::new(8.0, 0.0, 4.0, 4.0),
         sampling: ImageSampling::Bilinear,
@@ -150,6 +159,19 @@ fn renders_primitives_and_rebuilds_frames() {
         vertical_tiling: ImageTiling::None,
         ..nearest
     });
+    let partial_request = ImageRequest {
+        image: partial.id(),
+        area: LogicalRect::new(20.0, 0.0, 3.0, 1.0),
+        horizontal_tiling: ImageTiling::None,
+        vertical_tiling: ImageTiling::None,
+        ..nearest
+    };
+    gui.paint_image(partial_request);
+    gui.paint_image(ImageRequest {
+        area: LogicalRect::new(20.0, 1.0, 3.0, 1.0),
+        sampling: ImageSampling::Bilinear,
+        ..partial_request
+    });
     gui.paint_shadow(
         BoxShadow::new(
             LogicalRect::new(14.0, 9.0, 1.0, 1.0),
@@ -157,6 +179,14 @@ fn renders_primitives_and_rebuilds_frames() {
         )
         .blur(1.0),
     );
+    let text = gui.text_run("M", TextStyle::default());
+    gui.paint_text(TextRequest {
+        text,
+        area: LogicalRect::new(1.0, 20.0, 12.0, 20.0),
+        offset_x: 0.0,
+        color: Color::from_rgba8(255, 0, 0, 255),
+        options: TextOptions::default(),
+    });
     gui.paint_rectangle(
         Rectangle::new(LogicalRect::new(14.0, 14.0, 50.0, 50.0))
             .background(Color::from_rgba8(0, 255, 0, 255))
@@ -255,6 +285,14 @@ fn renders_primitives_and_rebuilds_frames() {
     assert_eq!(pixel(1, 16), [0, 0, 0, 0]);
     assert_eq!(pixel(0, 17), [0, 0, 255, 255]);
     assert_eq!(pixel(1, 17), [0, 0, 0, 0]);
+    assert_eq!(pixel(40, 0), [0, 0, 0, 0]);
+    assert_eq!(pixel(42, 0), [255, 0, 0, 255]);
+    assert_eq!(pixel(44, 0), [0, 0, 0, 0]);
+    assert_eq!(pixel(40, 2), [0, 0, 0, 0]);
+    assert_eq!(pixel(45, 2), [0, 0, 0, 0]);
+    let partial_blend = pixel(41, 2);
+    assert!(partial_blend[0] > 0 && partial_blend[0] < 255);
+    assert_eq!(partial_blend[0], partial_blend[3]);
     assert_eq!(pixel(24, 5), [0, 0, 0, 0]);
     assert_eq!(pixel(31, 5), [0, 0, 0, 0]);
     let left = pixel(25, 5);
@@ -263,29 +301,7 @@ fn renders_primitives_and_rebuilds_frames() {
     assert!(right[2] > right[0] && right[3] > 0);
     let fringe = pixel(27, 19);
     assert!(fringe[0] > 0 && fringe[3] > 0 && fringe[3] < 255);
+    assert!((40..80).any(|y| (2..26).any(|x| pixel(x, y)[0] > 0)));
     assert_eq!(pixel(88, 28), [0, 0, 0, 0]);
     assert_eq!(pixel(108, 29), [0, 255, 0, 255]);
-}
-
-struct NoText;
-
-impl TextLayoutEngine for NoText {
-    fn register_font(&mut self, _data: FontData) -> Result<Vec<FontFaceId>, FontError> {
-        Err(FontError::Unsupported)
-    }
-
-    fn register_font_selection(
-        &mut self,
-        _candidates: &[FontCandidate],
-    ) -> Result<FontSelectionId, FontError> {
-        Err(FontError::Unsupported)
-    }
-
-    fn font_face(&self, _face: FontFaceId) -> Option<&FontFace> {
-        None
-    }
-
-    fn layout(&mut self, _text: Text<'_>, _request: LayoutRequest) -> TextLayout {
-        unreachable!("native GPU test does not render text")
-    }
 }

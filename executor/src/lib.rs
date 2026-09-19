@@ -4,11 +4,15 @@
 
 use std::{
     cell::Cell,
+    future::Future,
     marker::PhantomData,
     ops::{AsyncFnOnce, Deref, DerefMut},
     panic::Location,
     ptr::NonNull,
     rc::Rc,
+    sync::Arc,
+    task::{Context, Poll, Wake, Waker},
+    thread::{self, Thread},
 };
 
 mod scope;
@@ -16,6 +20,31 @@ mod task;
 
 pub use scope::{Scope, ScopeRef};
 pub use task::TaskId;
+
+/// blocks the current thread until a future completes
+pub fn block_on<F: Future>(future: F) -> F::Output {
+    struct ThreadWaker(Thread);
+
+    impl Wake for ThreadWaker {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+
+    let waker = Waker::from(Arc::new(ThreadWaker(thread::current())));
+    let mut context = Context::from_waker(&waker);
+    let mut future = std::pin::pin!(future);
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => return output,
+            Poll::Pending => thread::park(),
+        }
+    }
+}
 
 /// maps application state to nested state when it is available
 pub trait Project<T: 'static> {

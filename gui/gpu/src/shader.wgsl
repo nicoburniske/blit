@@ -28,6 +28,13 @@ struct VertexOutput {
     @location(0) @interpolate(flat) instance: u32,
 }
 
+struct TextVertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) atlas: vec2<f32>,
+    @location(1) @interpolate(flat) color: vec4<f32>,
+    @location(2) @interpolate(flat) clip: u32,
+}
+
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(0) @binding(1) var<storage, read> instances: array<Instance>;
 @group(0) @binding(2) var<storage, read> clips: array<Clip>;
@@ -36,23 +43,42 @@ struct VertexOutput {
 
 const OUTSET_SHADOW: u32 = 1u;
 const INSET_SHADOW: u32 = 2u;
+const QUAD_CORNERS: array<vec2<f32>, 4> = array(
+    vec2(0.0, 0.0),
+    vec2(1.0, 0.0),
+    vec2(0.0, 1.0),
+    vec2(1.0, 1.0),
+);
 
 @vertex
 fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let corners = array<vec2<f32>, 4>(
-        vec2(0.0, 0.0),
-        vec2(1.0, 0.0),
-        vec2(0.0, 1.0),
-        vec2(1.0, 1.0),
-    );
     let draw = instances[instance_index].draw;
-    let pixel = draw.xy + draw.zw * corners[vertex_index];
+    let pixel = draw.xy + draw.zw * QUAD_CORNERS[vertex_index];
     var output: VertexOutput;
     output.position = vec4(pixel * frame.transform.xy + frame.transform.zw, 0.0, 1.0);
     output.instance = instance_index;
+    return output;
+}
+
+@vertex
+fn text_vertex(
+    @location(0) draw: vec4<f32>,
+    @location(1) atlas: vec2<u32>,
+    @location(2) packed_color: u32,
+    @location(3) clip: u32,
+    @builtin(vertex_index) vertex_index: u32,
+) -> TextVertexOutput {
+    let corner = QUAD_CORNERS[vertex_index];
+    let pixel = draw.xy + draw.zw * corner;
+    let color = unpack4x8unorm(packed_color);
+    var output: TextVertexOutput;
+    output.position = vec4(pixel * frame.transform.xy + frame.transform.zw, 0.0, 1.0);
+    output.atlas = vec2<f32>(atlas) + draw.zw * corner;
+    output.color = vec4(color.rgb * color.a, color.a);
+    output.clip = clip;
     return output;
 }
 
@@ -142,6 +168,10 @@ fn image_source(value: f32, size: f32, wrap: bool) -> f32 {
 
 fn image_texel(instance: Instance, source: vec2<i32>) -> vec4<f32> {
     let coordinate = bitcast<vec2<i32>>(instance.radii.xy) + source;
+    let dimensions = vec2<i32>(textureDimensions(image_texture));
+    if any(coordinate < vec2(0)) || any(coordinate >= dimensions) {
+        return vec4(0.0);
+    }
     let texel = textureLoad(image_texture, coordinate, 0);
     if (instance.data.y & 8u) != 0u {
         return instance.border_color * texel.r;
@@ -354,16 +384,12 @@ fn image(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 @fragment
-fn text(input: VertexOutput) -> @location(0) vec4<f32> {
-    let instance = instances[input.instance];
+fn text(input: TextVertexOutput) -> @location(0) vec4<f32> {
     let position = input.position.xy;
-    let coordinate =
-        vec2<i32>(instance.data.yz)
-        + vec2<i32>(floor(position) - instance.shape.xy);
-    let coverage = textureLoad(image_texture, coordinate, 0).r
-        * clip_coverage(position, instance.data.x);
+    let coverage = textureLoad(image_texture, vec2<i32>(floor(input.atlas)), 0).r
+        * clip_coverage(position, input.clip);
     if coverage <= 0.0 {
         discard;
     }
-    return instance.inner_color * coverage;
+    return input.color * coverage;
 }

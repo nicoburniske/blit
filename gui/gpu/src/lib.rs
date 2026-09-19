@@ -1,3 +1,4 @@
+mod atlas;
 mod text;
 
 use std::collections::HashMap;
@@ -13,6 +14,7 @@ use blit_gui::{
 use bytemuck::{Pod, Zeroable};
 
 const INITIAL_INSTANCES: u64 = 256;
+const INITIAL_GLYPHS: u64 = 256;
 const INITIAL_CLIPS: u64 = 64;
 const INITIAL_STOPS: u64 = 64;
 const FIXED_SHIFT: u32 = 16;
@@ -38,9 +40,11 @@ pub struct Renderer {
     frame_buffer: wgpu::Buffer,
     frame_size: [u32; 2],
     instance_buffer: wgpu::Buffer,
+    glyph_buffer: wgpu::Buffer,
     clip_buffer: wgpu::Buffer,
     stop_buffer: wgpu::Buffer,
     instances: Vec<Instance>,
+    glyph_instances: Vec<GlyphInstance>,
     clips: Vec<Clip>,
     stops: Vec<GradientStop>,
     batches: Vec<Batch>,
@@ -128,15 +132,31 @@ impl Renderer {
                 immediate_size: 0,
             });
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-        let pipeline = |label, layout, entry_point, blend| {
+        let glyph_attributes = wgpu::vertex_attr_array![
+            0 => Float32x4,
+            1 => Uint32x2,
+            2 => Uint32,
+            3 => Uint32
+        ];
+        let glyph_layout = [Some(wgpu::VertexBufferLayout {
+            array_stride: size_of::<GlyphInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &glyph_attributes,
+        })];
+        let pipeline = |label,
+                        layout,
+                        vertex_entry,
+                        buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+                        entry_point,
+                        blend| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: Some("vertex"),
+                    entry_point: Some(vertex_entry),
                     compilation_options: Default::default(),
-                    buffers: &[],
+                    buffers,
                 },
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -158,11 +178,39 @@ impl Renderer {
                 cache: None,
             })
         };
-        let clear_pipeline = pipeline("blit gpu clear", &pipeline_layout, "clear", None);
+        let clear_pipeline = pipeline(
+            "blit gpu clear",
+            &pipeline_layout,
+            "vertex",
+            &[],
+            "clear",
+            None,
+        );
         let blend = Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
-        let shape_pipeline = pipeline("blit gpu shapes", &pipeline_layout, "shape", blend);
-        let image_pipeline = pipeline("blit gpu images", &texture_pipeline_layout, "image", blend);
-        let text_pipeline = pipeline("blit gpu text", &texture_pipeline_layout, "text", blend);
+        let shape_pipeline = pipeline(
+            "blit gpu shapes",
+            &pipeline_layout,
+            "vertex",
+            &[],
+            "shape",
+            blend,
+        );
+        let image_pipeline = pipeline(
+            "blit gpu images",
+            &texture_pipeline_layout,
+            "vertex",
+            &[],
+            "image",
+            blend,
+        );
+        let text_pipeline = pipeline(
+            "blit gpu text",
+            &texture_pipeline_layout,
+            "text_vertex",
+            &glyph_layout,
+            "text",
+            blend,
+        );
         let frame_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("blit gpu frame"),
             size: size_of::<Frame>() as u64,
@@ -173,6 +221,12 @@ impl Renderer {
             label: Some("blit gpu instances"),
             size: INITIAL_INSTANCES * size_of::<Instance>() as u64,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let glyph_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("blit gpu glyph instances"),
+            size: INITIAL_GLYPHS * size_of::<GlyphInstance>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let clip_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -217,9 +271,11 @@ impl Renderer {
             frame_buffer,
             frame_size: [0, 0],
             instance_buffer,
+            glyph_buffer,
             clip_buffer,
             stop_buffer,
             instances: Vec::new(),
+            glyph_instances: Vec::new(),
             clips: Vec::new(),
             stops: Vec::new(),
             batches: Vec::new(),
@@ -312,6 +368,8 @@ impl Renderer {
             };
             let bytes_per_row = (copy_size.height > 1)
                 .then(|| u32::try_from(row_bytes).expect("image row is too large"));
+            // todo: handle oversized textures
+            // wgpu currently sends oversized textures to the device error handler (panics)
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("blit gpu image"),
                 size: copy_size,
@@ -363,10 +421,12 @@ impl Renderer {
             );
         }
         self.instances.clear();
+        self.glyph_instances.clear();
         self.clips.clear();
         self.stops.clear();
         self.batches.clear();
         self.clips.push(Clip::zeroed());
+        self.glyphs.begin_frame();
 
         let scale = scale.x;
         for node in display_list.clips() {
@@ -686,6 +746,7 @@ impl Renderer {
                     };
                     let resolved = text_system.paint_layout(&request);
                     for run in &resolved.layout.runs {
+                        let offset = resolved.line_offset(run.line as usize);
                         let color = colors
                             .get(run.span)
                             .copied()
@@ -694,7 +755,8 @@ impl Renderer {
                         if color.alpha == 0 {
                             continue;
                         }
-                        let color = premultiplied(color, 1.0);
+                        let color =
+                            u32::from_le_bytes([color.red, color.green, color.blue, color.alpha]);
                         let size = run.size * scale;
                         for glyph in &resolved.layout.glyphs
                             [run.glyphs.start as usize..run.glyphs.end as usize]
@@ -702,7 +764,7 @@ impl Renderer {
                             let cached = self.glyphs.glyph(
                                 &self.device,
                                 &self.queue,
-                                resolved.engine,
+                                &resolved,
                                 run.face,
                                 glyph.id,
                                 size,
@@ -714,10 +776,10 @@ impl Renderer {
                             if width == 0 || height == 0 {
                                 continue;
                             }
-                            let x = ((glyph.position.x - request.offset_x) * scale
+                            let x = ((glyph.position.x + offset.x - request.offset_x) * scale
                                 + cached.metrics.bounds.xmin.floor())
                             .round() as i32;
-                            let y = (glyph.position.y * scale
+                            let y = ((glyph.position.y + offset.y) * scale
                                 + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin)
                                     .floor())
                             .round() as i32;
@@ -730,16 +792,32 @@ impl Renderer {
                             let Some(draw) = shape.intersection(visible_area) else {
                                 continue;
                             };
-                            self.instances.push(Instance {
-                                shape: physical_rect(shape),
+                            let start = self.glyph_instances.len() as u32;
+                            self.glyph_instances.push(GlyphInstance {
                                 draw: physical_rect(draw),
-                                inner_color: color,
-                                data: [record.clip.0, cached.atlas[0], cached.atlas[1], 0],
-                                ..Instance::zeroed()
+                                atlas: [
+                                    cached.atlas[0] + u32::try_from(draw.x - shape.x).unwrap(),
+                                    cached.atlas[1] + u32::try_from(draw.y - shape.y).unwrap(),
+                                ],
+                                color,
+                                clip: record.clip.0,
                             });
+                            let end = self.glyph_instances.len() as u32;
+                            let pipeline = Pipeline::Text(cached.page);
+                            if let Some(batch) = self.batches.last_mut()
+                                && batch.pipeline == pipeline
+                            {
+                                batch.end = end;
+                            } else {
+                                self.batches.push(Batch {
+                                    pipeline,
+                                    start,
+                                    end,
+                                });
+                            }
                         }
                     }
-                    Pipeline::Text
+                    continue;
                 }
                 _ => continue,
             };
@@ -761,9 +839,11 @@ impl Renderer {
         }
 
         let instance_bytes = self.instances.len() as u64 * size_of::<Instance>() as u64;
+        let glyph_bytes = self.glyph_instances.len() as u64 * size_of::<GlyphInstance>() as u64;
         let clip_bytes = self.clips.len() as u64 * size_of::<Clip>() as u64;
         let stop_bytes = self.stops.len() as u64 * size_of::<GradientStop>() as u64;
         if instance_bytes > self.instance_buffer.size()
+            || glyph_bytes > self.glyph_buffer.size()
             || clip_bytes > self.clip_buffer.size()
             || stop_bytes > self.stop_buffer.size()
         {
@@ -773,6 +853,7 @@ impl Renderer {
                 .min(limits.max_storage_buffer_binding_size);
             assert!(
                 instance_bytes <= storage_limit
+                    && glyph_bytes <= limits.max_buffer_size
                     && clip_bytes <= storage_limit
                     && stop_bytes <= storage_limit,
                 "GPU frame data exceeds device limits"
@@ -785,6 +866,17 @@ impl Renderer {
                         .saturating_mul(size_of::<Instance>() as u64)
                         .min(storage_limit),
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+            }
+            if glyph_bytes > self.glyph_buffer.size() {
+                self.glyph_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("blit gpu glyph instances"),
+                    size: (self.glyph_instances.len() as u64)
+                        .next_power_of_two()
+                        .saturating_mul(size_of::<GlyphInstance>() as u64)
+                        .min(limits.max_buffer_size),
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
             }
@@ -838,6 +930,13 @@ impl Renderer {
                 bytemuck::cast_slice(&self.instances),
             );
         }
+        if !self.glyph_instances.is_empty() {
+            self.queue.write_buffer(
+                &self.glyph_buffer,
+                0,
+                bytemuck::cast_slice(&self.glyph_instances),
+            );
+        }
         if self.clips.len() > 1 {
             self.queue.write_buffer(
                 &self.clip_buffer,
@@ -871,13 +970,14 @@ impl Renderer {
                 ..Default::default()
             });
             pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_vertex_buffer(0, self.glyph_buffer.slice(..));
             for batch in &self.batches {
                 match batch.pipeline {
                     Pipeline::Clear => pass.set_pipeline(&self.clear_pipeline),
                     Pipeline::Shape => pass.set_pipeline(&self.shape_pipeline),
-                    Pipeline::Text => {
+                    Pipeline::Text(page) => {
                         pass.set_pipeline(&self.text_pipeline);
-                        pass.set_bind_group(1, self.glyphs.bind_group(), &[]);
+                        pass.set_bind_group(1, self.glyphs.bind_group(page), &[]);
                     }
                     Pipeline::Image(image) => {
                         pass.set_pipeline(&self.image_pipeline);
@@ -888,6 +988,7 @@ impl Renderer {
             }
         }
         self.queue.submit([encoder.finish()]);
+        self.glyphs.end_frame();
         self.images
             .retain(|_, image| !image.handle.is_uniquely_owned());
     }
@@ -913,6 +1014,15 @@ struct Instance {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
+struct GlyphInstance {
+    draw: [f32; 4],
+    atlas: [u32; 2],
+    color: u32,
+    clip: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 struct Clip {
     rect: [f32; 4],
     radii: [f32; 4],
@@ -930,7 +1040,7 @@ struct GradientStop {
 enum Pipeline {
     Clear,
     Shape,
-    Text,
+    Text(usize),
     Image(ImageId),
 }
 

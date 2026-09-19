@@ -14,10 +14,9 @@ bytemuck = { version = "1", features = ["derive"] }
 wgpu = { workspace = true, features = ["std", "wgsl"] }
 
 [dev-dependencies]
+blit-executor.workspace = true
+blit-text-fontdue.workspace = true
 wgpu = { workspace = true, features = ["noop", "wgsl"] }
-
-[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dev-dependencies]
-pollster = "1.0.0"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 wgpu = { workspace = true, features = ["vulkan"] }
