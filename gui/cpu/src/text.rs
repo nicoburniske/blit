@@ -3,7 +3,11 @@ use std::{mem::size_of, ptr::NonNull};
 use crate::{Pixel, PixelSpan, RendererConfig, glyph::GlyphCache, strategy::command::PreparedText};
 use blit::{PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
-use blit_gui::{TextLayoutId, TextSystem, color::Color, text::TextRequest};
+use blit_gui::{
+    TextLayoutId, TextSystem,
+    color::Color,
+    text::{HorizontalAlign, TextRequest, VerticalAlign},
+};
 use blit_text::FontFaceId;
 
 pub struct TextRenderer {
@@ -25,6 +29,10 @@ struct PaintKey {
     layout: TextLayoutId,
     scale: u32,
     offset_x: u32,
+    width: u32,
+    height: u32,
+    horizontal_align: HorizontalAlign,
+    vertical_align: VerticalAlign,
 }
 
 #[derive(Clone, Copy)]
@@ -108,6 +116,10 @@ impl TextRenderer {
             layout: resolved.id,
             scale: scale_factor.to_bits(),
             offset_x: request.offset_x.to_bits(),
+            width: request.area.width.to_bits(),
+            height: request.area.height.to_bits(),
+            horizontal_align: request.options.horizontal_align,
+            vertical_align: request.options.vertical_align,
         };
         let glyphs = &mut self.glyphs;
         let (_, paint_index) = self.paints.get_or_insert(key, |key| {
@@ -120,6 +132,7 @@ impl TextRenderer {
             let width = area.width.max(0);
             let height = area.height.max(0);
             for run in &resolved.layout.runs {
+                let offset = resolved.line_offset(run.line as usize);
                 let start = u32::try_from(paint.glyphs.len()).expect("too many paint glyphs");
                 let mut top = i32::MAX;
                 let mut bottom = i32::MIN;
@@ -127,12 +140,12 @@ impl TextRenderer {
                 for glyph in
                     &resolved.layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize]
                 {
-                    let cached = glyphs.glyph(resolved.engine, run.face, glyph.id, size);
+                    let cached = glyphs.glyph(&resolved, run.face, glyph.id, size);
                     let cached = glyphs.get(cached);
-                    let x = ((glyph.position.x - request.offset_x) * scale_factor
+                    let x = ((glyph.position.x + offset.x - request.offset_x) * scale_factor
                         + cached.metrics.bounds.xmin.floor())
                     .round() as i32;
-                    let y = (glyph.position.y * scale_factor
+                    let y = ((glyph.position.y + offset.y) * scale_factor
                         + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin).floor())
                     .round() as i32;
                     let glyph_width =
@@ -191,7 +204,7 @@ impl TextRenderer {
         for glyph in &paint.glyphs {
             let cached = self
                 .glyphs
-                .glyph(resolved.engine, glyph.face, glyph.glyph, glyph.size);
+                .glyph(&resolved, glyph.face, glyph.glyph, glyph.size);
             let cached = self.glyphs.get(cached);
             self.prepared.push(PreparedGlyph {
                 alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),

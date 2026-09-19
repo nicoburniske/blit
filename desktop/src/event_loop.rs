@@ -5,7 +5,7 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use blit_executor::LocalExecutor;
-use blit_gui::{GuiContext, TextSystem, Ui};
+use blit_gui::{GuiContext, TextLayoutEngine, TextSystem, Ui};
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize as WindowSize, PhysicalPosition, PhysicalSize},
@@ -22,7 +22,10 @@ pub enum Event<T> {
     TasksReady,
 }
 
-pub fn run<A: Application>(config: Config) -> Result<(), RunError> {
+pub fn run<A>(config: Config<impl TextLayoutEngine>) -> Result<(), RunError>
+where
+    A: Application,
+{
     let Config {
         title,
         width,

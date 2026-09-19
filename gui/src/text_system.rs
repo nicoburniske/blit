@@ -6,8 +6,8 @@ use std::{
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use blit_cache::{DeferredCache, Equivalent, Scale};
 use blit_text::{
-    FontCandidate, FontData, FontError, FontSelectionId, FontStyle, LayoutRequest, TextLayout,
-    TextLayoutEngine,
+    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle,
+    LayoutRequest, TextLayout, TextLayoutEngine,
 };
 
 use crate::text::{
@@ -27,9 +27,9 @@ pub struct FontFamily {
 }
 
 pub struct TextSystem {
-    engine: Box<dyn TextLayoutEngine>,
+    engine: Box<dyn ErasedTextEngine>,
     fonts: Box<[ConfiguredFont]>,
-    texts: DeferredCache<TextKey, TextRunId, TextScale>,
+    texts: DeferredCache<TextKey, CachedText, TextScale>,
     layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
     next_text: u32,
     next_layout: u64,
@@ -38,7 +38,18 @@ pub struct TextSystem {
 pub struct ResolvedTextLayout<'a> {
     pub id: TextLayoutId,
     pub layout: &'a TextLayout,
-    pub engine: &'a dyn TextLayoutEngine,
+    engine: &'a dyn ErasedTextEngine,
+    placement: Placement,
+}
+
+impl ResolvedTextLayout<'_> {
+    pub fn font_face(&self, face: FontFaceId) -> Option<&FontFace> {
+        self.engine.font_face(face)
+    }
+
+    pub fn line_offset(&self, line: usize) -> LogicalPoint {
+        placement_offset(self.placement, self.layout, line)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -52,6 +63,11 @@ struct ConfiguredFont {
 struct TextKey {
     text: Box<str>,
     spans: CachedSpans,
+}
+
+struct CachedText {
+    id: TextRunId,
+    shape: Option<usize>,
 }
 
 enum CachedSpans {
@@ -127,24 +143,101 @@ struct LayoutKey {
     max_lines: Option<u16>,
     wrap: blit_text::TextWrap,
     overflow: blit_text::TextOverflow,
-    horizontal_align: blit_text::HorizontalAlign,
-    vertical_align: blit_text::VerticalAlign,
 }
 
 struct CachedLayout {
     id: TextLayoutId,
     layout: TextLayout,
+    carets: Vec<LineCarets>,
+}
+
+struct LineCarets {
+    line: u32,
+    carets: Box<[Caret]>,
+}
+
+#[derive(Clone, Copy)]
+struct Placement {
+    width: f32,
+    height: f32,
+    horizontal_align: HorizontalAlign,
+    vertical_align: VerticalAlign,
+}
+
+trait ErasedTextEngine {
+    fn font_face(&self, face: FontFaceId) -> Option<&FontFace>;
+
+    fn shape(&mut self, index: usize, text: blit_text::Text<'_>) -> usize;
+
+    fn layout(&mut self, text: ShapedText<'_>, request: LayoutRequest) -> TextLayout;
+
+    fn carets(&mut self, text: ShapedText<'_>, request: LayoutRequest, line: usize)
+    -> Box<[Caret]>;
+
+    fn remove_shape(&mut self, index: usize);
+}
+
+struct ShapedText<'a> {
+    index: usize,
+    text: &'a str,
+}
+
+struct ErasedEngine<E: TextLayoutEngine> {
+    engine: E,
+    shapes: Vec<Option<E::Shape>>,
+}
+
+impl<E: TextLayoutEngine> ErasedTextEngine for ErasedEngine<E> {
+    fn font_face(&self, face: FontFaceId) -> Option<&FontFace> {
+        self.engine.font_face(face)
+    }
+
+    fn shape(&mut self, index: usize, text: blit_text::Text<'_>) -> usize {
+        if self.shapes.len() <= index {
+            self.shapes.resize_with(index + 1, || None);
+        }
+        let (shape, heap_weight) = self.engine.shape(text);
+        assert!(self.shapes[index].replace(shape).is_none());
+        size_of::<E::Shape>() + heap_weight
+    }
+
+    fn layout(
+        &mut self,
+        ShapedText { index, text }: ShapedText<'_>,
+        request: LayoutRequest,
+    ) -> TextLayout {
+        self.engine
+            .layout(self.shapes[index].as_mut().unwrap(), text, request)
+    }
+
+    fn carets(
+        &mut self,
+        ShapedText { index, text }: ShapedText<'_>,
+        request: LayoutRequest,
+        line: usize,
+    ) -> Box<[Caret]> {
+        self.engine
+            .carets(self.shapes[index].as_mut().unwrap(), text, request, line)
+    }
+
+    fn remove_shape(&mut self, index: usize) {
+        self.shapes[index] = None;
+    }
 }
 
 struct TextScale;
 
-impl Scale<TextKey, TextRunId> for TextScale {
-    fn weight(&self, key: &TextKey, _text: &TextRunId) -> usize {
+impl Scale<TextKey, CachedText> for TextScale {
+    fn weight(&self, key: &TextKey, text: &CachedText) -> usize {
         let spans = match &key.spans {
             CachedSpans::One(_) => 0,
             CachedSpans::Many(spans) => spans.len() * size_of::<blit_text::TextSpan>(),
         };
-        size_of::<TextKey>() + size_of::<TextRunId>() + key.text.len() + spans
+        size_of::<TextKey>()
+            + size_of::<CachedText>()
+            + key.text.len()
+            + spans
+            + text.shape.unwrap_or(0)
     }
 }
 
@@ -157,15 +250,17 @@ impl Scale<LayoutKey, CachedLayout> for LayoutScale {
             + cached.layout.glyphs.len() * size_of::<blit_text::Glyph>()
             + cached.layout.runs.len() * size_of::<blit_text::LayoutRun>()
             + cached.layout.lines.len() * size_of::<blit_text::LayoutLine>()
-            + cached.layout.carets.len() * size_of::<blit_text::Caret>()
+            + cached.carets.capacity() * size_of::<LineCarets>()
+            + cached
+                .carets
+                .iter()
+                .map(|line| line.carets.len() * size_of::<Caret>())
+                .sum::<usize>()
     }
 }
 
 impl TextSystem {
-    pub fn new(
-        config: TextConfig,
-        mut engine: Box<dyn TextLayoutEngine>,
-    ) -> Result<Self, FontError> {
+    pub fn new<E: TextLayoutEngine>(config: TextConfig, mut engine: E) -> Result<Self, FontError> {
         let mut fonts = Vec::new();
         let mut candidates = Vec::new();
         for configured in config.fonts {
@@ -215,7 +310,10 @@ impl TextSystem {
             });
         }
         Ok(Self {
-            engine,
+            engine: Box::new(ErasedEngine {
+                engine,
+                shapes: Vec::new(),
+            }),
             fonts: fonts.into_boxed_slice(),
             texts: DeferredCache::new(TextScale, config.text_cache_capacity),
             layouts: DeferredCache::new(LayoutScale, config.layout_cache_capacity),
@@ -275,74 +373,100 @@ impl TextSystem {
             };
             (
                 TextKey { text, spans },
-                TextRunId(u64::from(next_text) << 32),
+                CachedText {
+                    id: TextRunId(u64::from(next_text) << 32),
+                    shape: None,
+                },
             )
         });
-        if self.texts.get_index(index).0 as u32 == 0 {
+        if self.texts.get_index(index).id.0 as u32 == 0 {
             let slot = u32::try_from(index + 1).expect("too many cached texts");
             self.texts
-                .update_index(index, |text| text.0 |= u64::from(slot));
+                .update_index(index, |text| text.id.0 |= u64::from(slot));
             self.next_text = self.next_text.checked_add(1).expect("too many texts");
         }
-        *self.texts.get_index(index)
+        self.texts.get_index(index).id
     }
 
     pub fn paint_layout(&mut self, request: &TextRequest) -> ResolvedTextLayout<'_> {
-        self.layout(request.text, paint_request(request))
+        let (layout_request, placement) = paint_request(request);
+        let (index, _) = self.layout(request.text, layout_request);
+        let cached = self.layouts.get_index(index);
+        ResolvedTextLayout {
+            id: cached.id,
+            layout: &cached.layout,
+            engine: self.engine.as_ref(),
+            placement,
+        }
     }
 
     pub fn measure(&mut self, request: &TextLayoutRequest) -> LogicalSize {
-        self.layout(
+        let wrap = match request.wrap {
+            TextWrap::None => blit_text::TextWrap::None,
+            TextWrap::Word => blit_text::TextWrap::Word,
+            TextWrap::Character => blit_text::TextWrap::Character,
+        };
+        let (index, _) = self.layout(
             request.text,
             LayoutRequest {
-                max_width: request.max_width,
+                max_width: if wrap == blit_text::TextWrap::None {
+                    None
+                } else {
+                    request.max_width
+                },
                 max_height: None,
                 max_lines: request.max_lines,
-                wrap: match request.wrap {
-                    TextWrap::None => blit_text::TextWrap::None,
-                    TextWrap::Word => blit_text::TextWrap::Word,
-                    TextWrap::Character => blit_text::TextWrap::Character,
-                },
+                wrap,
                 overflow: blit_text::TextOverflow::Clip,
-                horizontal_align: blit_text::HorizontalAlign::Left,
-                vertical_align: blit_text::VerticalAlign::Top,
             },
-        )
-        .layout
-        .size
+        );
+        self.layouts.get_index(index).layout.size
     }
 
     pub fn offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
-        let layout = self.layout(request.text, paint_request(request)).layout;
+        let (layout_request, placement) = paint_request(request);
+        let (layout_index, text_index) = self.layout(request.text, layout_request);
         let position = LogicalPoint {
             x: position.x - request.area.x + request.offset_x,
             y: position.y - request.area.y,
         };
-        let Some(line) = layout.lines.iter().min_by(|left, right| {
-            let left_distance = if position.y < left.bounds.y {
-                left.bounds.y - position.y
-            } else if position.y > left.bounds.y + left.bounds.height {
-                position.y - left.bounds.y - left.bounds.height
-            } else {
-                0.0
-            };
-            let right_distance = if position.y < right.bounds.y {
-                right.bounds.y - position.y
-            } else if position.y > right.bounds.y + right.bounds.height {
-                position.y - right.bounds.y - right.bounds.height
-            } else {
-                0.0
-            };
-            left_distance.total_cmp(&right_distance)
+        let Some(line) = ({
+            let layout = &self.layouts.get_index(layout_index).layout;
+            layout
+                .lines
+                .iter()
+                .enumerate()
+                .min_by(|(left_index, left), (right_index, right)| {
+                    let distance = |index, line: &blit_text::LayoutLine| {
+                        let y = line.bounds.y + placement_offset(placement, layout, index).y;
+                        if position.y < y {
+                            y - position.y
+                        } else if position.y > y + line.bounds.height {
+                            position.y - y - line.bounds.height
+                        } else {
+                            0.0
+                        }
+                    };
+                    distance(*left_index, left).total_cmp(&distance(*right_index, right))
+                })
+                .map(|(index, _)| index)
         }) else {
             return 0;
         };
-        layout.carets[line.carets.start as usize..line.carets.end as usize]
+        self.ensure_carets(text_index, layout_index, layout_request, line);
+        let cached = self.layouts.get_index(layout_index);
+        let offset = placement_offset(placement, &cached.layout, line);
+        cached
+            .carets
+            .iter()
+            .find(|cached| cached.line as usize == line)
+            .unwrap()
+            .carets
             .iter()
             .min_by(|left, right| {
-                (left.position.x - position.x)
+                (left.position.x + offset.x - position.x)
                     .abs()
-                    .total_cmp(&(right.position.x - position.x).abs())
+                    .total_cmp(&(right.position.x + offset.x - position.x).abs())
             })
             .map_or(0, |caret| caret.byte_offset as usize)
     }
@@ -353,14 +477,47 @@ impl TextSystem {
         byte_offset: usize,
         width: f32,
     ) -> LogicalRect {
-        let layout = self.layout(request.text, paint_request(request)).layout;
-        let caret = layout
+        let (layout_request, placement) = paint_request(request);
+        let (layout_index, text_index) = self.layout(request.text, layout_request);
+        let Some(line) = ({
+            let layout = &self.layouts.get_index(layout_index).layout;
+            layout
+                .lines
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, line)| {
+                    let start = line.text.start as usize;
+                    let end = line.text.end as usize;
+                    if byte_offset < start {
+                        start - byte_offset
+                    } else {
+                        byte_offset.saturating_sub(end)
+                    }
+                })
+                .map(|(index, _)| index)
+        }) else {
+            return LogicalRect {
+                x: request.area.x - request.offset_x,
+                y: request.area.y,
+                width,
+                height: 0.0,
+            };
+        };
+        self.ensure_carets(text_index, layout_index, layout_request, line);
+        let cached = self.layouts.get_index(layout_index);
+        let caret = cached
+            .carets
+            .iter()
+            .find(|cached| cached.line as usize == line)
+            .unwrap()
             .carets
             .iter()
             .min_by_key(|caret| (caret.byte_offset as usize).abs_diff(byte_offset));
+        let offset = placement_offset(placement, &cached.layout, line);
         LogicalRect {
-            x: request.area.x + caret.map_or(0.0, |caret| caret.position.x) - request.offset_x,
-            y: request.area.y + caret.map_or(0.0, |caret| caret.position.y),
+            x: request.area.x + caret.map_or(0.0, |caret| caret.position.x) + offset.x
+                - request.offset_x,
+            y: request.area.y + caret.map_or(0.0, |caret| caret.position.y) + offset.y,
             width,
             height: caret.map_or(0.0, |caret| caret.height),
         }
@@ -368,30 +525,26 @@ impl TextSystem {
 
     pub fn finish_frame(&mut self) {
         self.layouts.trim_to_weight();
-        self.texts.trim_to_weight();
+        let engine = &mut self.engine;
+        self.texts.trim_to_weight_if(|_, text| {
+            if text.shape.is_some() {
+                let index = (text.id.0 as u32).checked_sub(1).unwrap() as usize;
+                engine.remove_shape(index);
+            }
+            true
+        });
     }
 }
 
 impl TextSystem {
-    fn layout(&mut self, text: TextRunId, request: LayoutRequest) -> ResolvedTextLayout<'_> {
-        let text_index = (text.0 as u32).checked_sub(1).expect("invalid text") as usize;
-        self.texts.update_index(text_index, |cached| {
-            assert_eq!(*cached, text, "expired text")
+    fn layout(&mut self, id: TextRunId, request: LayoutRequest) -> (usize, usize) {
+        let index = (id.0 as u32).checked_sub(1).expect("invalid text") as usize;
+        let unshaped = self.texts.update_index(index, |cached| {
+            assert_eq!(cached.id, id, "expired text");
+            cached.shape.is_none()
         });
-        let cached = self.texts.get_key_index(text_index);
-        let key = LayoutKey {
-            text,
-            max_width: request.max_width.map(f32::to_bits),
-            max_height: request.max_height.map(f32::to_bits),
-            max_lines: request.max_lines,
-            wrap: request.wrap,
-            overflow: request.overflow,
-            horizontal_align: request.horizontal_align,
-            vertical_align: request.vertical_align,
-        };
-        let next_layout = self.next_layout;
-        let engine = &mut self.engine;
-        let (_, index) = self.layouts.get_or_insert(key, |_| {
+        if unshaped {
+            let cached = self.texts.get_key_index(index);
             let one;
             let spans = match &cached.spans {
                 CachedSpans::One(style) => {
@@ -403,36 +556,71 @@ impl TextSystem {
                 }
                 CachedSpans::Many(spans) => spans,
             };
+            let shape = self.engine.shape(
+                index,
+                blit_text::Text {
+                    text: &cached.text,
+                    spans,
+                },
+            );
+            self.texts
+                .update_index(index, |cached| cached.shape = Some(shape));
+        }
+        let key = LayoutKey {
+            text: id,
+            max_width: request.max_width.map(f32::to_bits),
+            max_height: request.max_height.map(f32::to_bits),
+            max_lines: request.max_lines,
+            wrap: request.wrap,
+            overflow: request.overflow,
+        };
+        let next_layout = self.next_layout;
+        let engine = &mut self.engine;
+        let text = &self.texts.get_key_index(index).text;
+        let (_, layout) = self.layouts.get_or_insert(key, |_| {
+            let layout = engine.layout(ShapedText { index, text }, request);
             (
                 key,
                 CachedLayout {
                     id: TextLayoutId(next_layout),
-                    layout: engine.layout(
-                        blit_text::Text {
-                            text: &cached.text,
-                            spans,
-                        },
-                        request,
-                    ),
+                    layout,
+                    carets: Vec::new(),
                 },
             )
         });
-        if self.layouts.get_index(index).id.0 == next_layout {
+        if self.layouts.get_index(layout).id.0 == next_layout {
             self.next_layout = self
                 .next_layout
                 .checked_add(1)
                 .expect("too many text layouts");
         }
-        let cached = self.layouts.get_index(index);
-        ResolvedTextLayout {
-            id: cached.id,
-            layout: &cached.layout,
-            engine: self.engine.as_ref(),
+        (layout, index)
+    }
+
+    fn ensure_carets(&mut self, index: usize, layout: usize, request: LayoutRequest, line: usize) {
+        if self
+            .layouts
+            .get_index(layout)
+            .carets
+            .iter()
+            .any(|cached| cached.line as usize == line)
+        {
+            return;
         }
+        let text = &self.texts.get_key_index(index).text;
+        let carets = self
+            .engine
+            .carets(ShapedText { index, text }, request, line);
+        self.layouts.update_index(layout, |cached| {
+            cached.carets.push(LineCarets {
+                line: u32::try_from(line).expect("too many text lines"),
+                carets,
+            });
+        });
     }
 }
 
-fn paint_request(request: &TextRequest) -> LayoutRequest {
+fn paint_request(request: &TextRequest) -> (LayoutRequest, Placement) {
     let TextOptions {
         wrap,
         overflow,
@@ -440,28 +628,48 @@ fn paint_request(request: &TextRequest) -> LayoutRequest {
         vertical_align,
         max_lines,
     } = request.options;
-    LayoutRequest {
-        max_width: Some(request.area.width.max(0.0)),
-        max_height: Some(request.area.height.max(0.0)),
-        max_lines,
-        wrap: match wrap {
-            TextWrap::None => blit_text::TextWrap::None,
-            TextWrap::Word => blit_text::TextWrap::Word,
-            TextWrap::Character => blit_text::TextWrap::Character,
+    let wrap = match wrap {
+        TextWrap::None => blit_text::TextWrap::None,
+        TextWrap::Word => blit_text::TextWrap::Word,
+        TextWrap::Character => blit_text::TextWrap::Character,
+    };
+    let overflow = match overflow {
+        TextOverflow::Clip => blit_text::TextOverflow::Clip,
+        TextOverflow::Ellipsis => blit_text::TextOverflow::Ellipsis,
+    };
+    let width = request.area.width.max(0.0);
+    let height = request.area.height.max(0.0);
+    (
+        LayoutRequest {
+            max_width: (wrap != blit_text::TextWrap::None
+                || overflow == blit_text::TextOverflow::Ellipsis)
+                .then_some(width),
+            max_height: (overflow == blit_text::TextOverflow::Ellipsis).then_some(height),
+            max_lines,
+            wrap,
+            overflow,
         },
-        overflow: match overflow {
-            TextOverflow::Clip => blit_text::TextOverflow::Clip,
-            TextOverflow::Ellipsis => blit_text::TextOverflow::Ellipsis,
+        Placement {
+            width,
+            height,
+            horizontal_align,
+            vertical_align,
         },
-        horizontal_align: match horizontal_align {
-            HorizontalAlign::Left => blit_text::HorizontalAlign::Left,
-            HorizontalAlign::Center => blit_text::HorizontalAlign::Center,
-            HorizontalAlign::Right => blit_text::HorizontalAlign::Right,
+    )
+}
+
+fn placement_offset(placement: Placement, layout: &TextLayout, line: usize) -> LogicalPoint {
+    let line = &layout.lines[line];
+    LogicalPoint {
+        x: match placement.horizontal_align {
+            HorizontalAlign::Left => 0.0,
+            HorizontalAlign::Center => ((placement.width - line.bounds.width) / 2.0).floor(),
+            HorizontalAlign::Right => (placement.width - line.bounds.width).floor(),
         },
-        vertical_align: match vertical_align {
-            VerticalAlign::Top => blit_text::VerticalAlign::Top,
-            VerticalAlign::Center => blit_text::VerticalAlign::Center,
-            VerticalAlign::Bottom => blit_text::VerticalAlign::Bottom,
+        y: match placement.vertical_align {
+            VerticalAlign::Top => 0.0,
+            VerticalAlign::Center => ((placement.height - layout.size.height) / 2.0).floor(),
+            VerticalAlign::Bottom => (placement.height - layout.size.height).floor(),
         },
     }
 }

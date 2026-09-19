@@ -1,4 +1,4 @@
-use std::{iter, sync::Arc};
+use std::{iter, mem::size_of, sync::Arc};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use cosmic_text::{
@@ -10,16 +10,22 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use blit_text::{
     Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle,
-    Glyph, HorizontalAlign, LayoutLine, LayoutRequest, LayoutRun, SystemFontRequest, TextLayout,
-    TextOverflow, TextStyle, TextWrap, VerticalAlign,
+    Glyph, LayoutLine, LayoutRequest, LayoutRun, SystemFontRequest, TextLayout, TextOverflow,
+    TextStyle, TextWrap,
 };
 
 pub struct Backend {
-    buffer: Buffer,
     fonts: FontSystem,
     faces: Vec<CosmicFace>,
     aliases: Vec<CosmicAlias>,
     selections: Vec<Box<str>>,
+}
+
+pub struct Shape {
+    buffer: Buffer,
+    line_starts: Box<[u32]>,
+    empty: bool,
+    empty_height: f32,
 }
 
 struct CosmicFace {
@@ -46,7 +52,6 @@ impl Backend {
 
     fn with_font_system(fonts: FontSystem) -> Self {
         Self {
-            buffer: Buffer::new_empty(Metrics::new(1.0, 1.0)),
             fonts,
             faces: Vec::new(),
             aliases: Vec::new(),
@@ -62,6 +67,8 @@ impl Default for Backend {
 }
 
 impl blit_text::TextLayoutEngine for Backend {
+    type Shape = Shape;
+
     fn system_font(&mut self, request: SystemFontRequest<'_>) -> Result<FontFaceId, FontError> {
         let family = [Family::Name(request.family)];
         let cosmic = self
@@ -165,7 +172,7 @@ impl blit_text::TextLayoutEngine for Backend {
         self.faces.get(index).map(|face| &face.data)
     }
 
-    fn layout(&mut self, text: blit_text::Text<'_>, request: LayoutRequest) -> TextLayout {
+    fn shape(&mut self, text: blit_text::Text<'_>) -> (Shape, usize) {
         let attrs = |style: TextStyle| {
             let index = style.font.0.checked_sub(1).expect("invalid font selection") as usize;
             Attrs::new()
@@ -177,67 +184,63 @@ impl blit_text::TextLayoutEngine for Backend {
         };
         let default_style = text.spans.first().expect("text requires a span").style;
         let default_attrs = attrs(default_style);
-        let line_height = default_style.size * 1.2;
-        let buffer = &mut self.buffer;
+        let mut buffer = Buffer::new_empty(Metrics::relative(default_style.size, 1.2));
         buffer.set_metrics(Metrics::relative(default_style.size, 1.2));
-        buffer.set_size(request.max_width, request.max_height);
-        buffer.set_wrap(match request.wrap {
-            TextWrap::None => Wrap::None,
-            TextWrap::Word => Wrap::Word,
-            TextWrap::Character => Wrap::Glyph,
-        });
-        buffer.set_ellipsize(match request.overflow {
-            TextOverflow::Clip => Ellipsize::None,
-            TextOverflow::Ellipsis => Ellipsize::End(match request.max_lines {
-                Some(lines) => EllipsizeHeightLimit::Lines(usize::from(lines)),
-                None => EllipsizeHeightLimit::Height(request.max_height.unwrap_or(f32::MAX)),
-            }),
-        });
         buffer.set_rich_text(
             text.segments()
                 .map(|(index, range, style)| (&text.text[range], attrs(style).metadata(index))),
             &default_attrs,
             Shaping::Advanced,
-            Some(match request.horizontal_align {
-                HorizontalAlign::Left => Align::Left,
-                HorizontalAlign::Center => Align::Center,
-                HorizontalAlign::Right => Align::Right,
-            }),
+            Some(Align::Left),
         );
         buffer.shape_until_scroll(&mut self.fonts, false);
-        let text = text.text;
+        let mut line_starts = LineIter::new(text.text)
+            .map(|(range, _)| u32::try_from(range.start).expect("text is too long"))
+            .collect::<Vec<_>>();
+        if line_starts.is_empty() {
+            line_starts.push(0);
+        }
+        let weight = line_starts.len() * size_of::<u32>()
+            + text.text.len()
+                * (2 + size_of::<cosmic_text::ShapeGlyph>()
+                    + size_of::<cosmic_text::LayoutGlyph>());
+        (
+            Shape {
+                buffer,
+                line_starts: line_starts.into_boxed_slice(),
+                empty: text.text.is_empty(),
+                empty_height: default_style.size * 1.2,
+            },
+            weight,
+        )
+    }
+
+    fn layout(&mut self, shape: &mut Shape, _text: &str, request: LayoutRequest) -> TextLayout {
+        prepare(shape, &mut self.fonts, request);
         let max_lines = request.max_lines.map_or(usize::MAX, usize::from);
 
         let mut width = 0.0f32;
-        let mut content_height = if text.is_empty() { line_height } else { 0.0 };
-        for run in buffer.layout_runs().take(max_lines) {
+        let mut content_height = if shape.empty { shape.empty_height } else { 0.0 };
+        for run in shape.buffer.layout_runs().take(max_lines) {
             width = width.max(run.line_w);
             content_height = content_height.max(run.line_top + run.line_height);
         }
-        let offset_y = request
-            .max_height
-            .map_or(0.0, |height| match request.vertical_align {
-                VerticalAlign::Top => 0.0,
-                VerticalAlign::Center => ((height - content_height) / 2.0).floor(),
-                VerticalAlign::Bottom => (height - content_height).floor(),
-            });
-        let mut line_starts = LineIter::new(text).map(|(range, _)| range.start);
-        let mut line_start = line_starts.next().unwrap_or(0);
-        let mut line_index = 0;
 
         let mut glyphs = Vec::new();
         let mut runs = Vec::new();
         let mut lines = Vec::new();
-        let mut carets = Vec::new();
-        let mut line_carets = Vec::new();
-        for line in buffer.layout_runs().take(max_lines) {
-            while line_index < line.line_i {
-                line_start = line_starts.next().unwrap_or(text.len());
-                line_index += 1;
-            }
+        for line in shape.buffer.layout_runs().take(max_lines) {
+            let line_start = usize::try_from(
+                *shape
+                    .line_starts
+                    .get(line.line_i)
+                    .expect("cosmic-text returned invalid line"),
+            )
+            .unwrap();
+            let line_index = u32::try_from(lines.len()).expect("too many lines");
             let bounds = LogicalRect {
                 x: 0.0,
-                y: line.line_top + offset_y,
+                y: line.line_top,
                 width: line.line_w,
                 height: line.line_height,
             };
@@ -264,7 +267,7 @@ impl blit_text::TextLayoutEngine for Backend {
                     id: glyph.glyph_id,
                     position: LogicalPoint {
                         x: glyph.x + glyph.font_size * glyph.x_offset,
-                        y: line.line_y + glyph.y - glyph.font_size * glyph.y_offset + offset_y,
+                        y: line.line_y + glyph.y - glyph.font_size * glyph.y_offset,
                     },
                 }));
                 runs.push(LayoutRun {
@@ -272,67 +275,21 @@ impl blit_text::TextLayoutEngine for Backend {
                     size: source.font_size,
                     glyphs: glyph_start..u32::try_from(glyphs.len()).expect("too many glyphs"),
                     span: source.metadata,
+                    line: line_index,
                 });
                 start = end;
             }
-
-            line_carets.clear();
-            if line.glyphs.is_empty() {
-                line_carets.push((
-                    false,
-                    Caret {
-                        byte_offset: u32::try_from(line_start).expect("text is too long"),
-                        position: LogicalPoint {
-                            x: 0.0,
-                            y: line.line_top + offset_y,
-                        },
-                        height: line.line_height,
-                    },
-                ));
-            } else {
-                for glyph in line.glyphs {
-                    let cluster = &line.text[glyph.start..glyph.end];
-                    let count = cluster.graphemes(true).count();
-                    for (position, index) in cluster
-                        .grapheme_indices(true)
-                        .map(|(index, _)| glyph.start + index)
-                        .chain(iter::once(glyph.end))
-                        .enumerate()
-                    {
-                        let end = index == glyph.end;
-                        let offset = if end {
-                            glyph.w
-                        } else {
-                            glyph.w * (position as f32) / (count as f32)
-                        };
-                        let x = if glyph.level.is_rtl() {
-                            glyph.x + glyph.w - offset
-                        } else {
-                            glyph.x + offset
-                        };
-                        line_carets.push((
-                            end,
-                            Caret {
-                                byte_offset: u32::try_from(line_start.saturating_add(index))
-                                    .expect("text is too long"),
-                                position: LogicalPoint {
-                                    x,
-                                    y: line.line_top + offset_y,
-                                },
-                                height: line.line_height,
-                            },
-                        ));
-                    }
-                }
-                // prefer cluster interiors and starts then the first glyph in visual order
-                line_carets.sort_by_key(|(end, caret)| (caret.byte_offset, *end));
-                line_carets.dedup_by_key(|(_, caret)| caret.byte_offset);
-            }
-            let caret_start = u32::try_from(carets.len()).expect("too many carets");
-            carets.extend(line_carets.iter().map(|(_, caret)| *caret));
+            let text_start = line
+                .glyphs
+                .iter()
+                .map(|glyph| glyph.start)
+                .min()
+                .unwrap_or(0);
+            let text_end = line.glyphs.iter().map(|glyph| glyph.end).max().unwrap_or(0);
             lines.push(LayoutLine {
                 bounds,
-                carets: caret_start..u32::try_from(carets.len()).expect("too many carets"),
+                text: u32::try_from(line_start + text_start).expect("text is too long")
+                    ..u32::try_from(line_start + text_end).expect("text is too long"),
             });
         }
 
@@ -344,9 +301,98 @@ impl blit_text::TextLayoutEngine for Backend {
             glyphs: glyphs.into_boxed_slice(),
             runs: runs.into_boxed_slice(),
             lines: lines.into_boxed_slice(),
-            carets: carets.into_boxed_slice(),
         }
     }
+
+    fn carets(
+        &mut self,
+        shape: &mut Shape,
+        _text: &str,
+        request: LayoutRequest,
+        line_index: usize,
+    ) -> Box<[Caret]> {
+        prepare(shape, &mut self.fonts, request);
+        let max_lines = request.max_lines.map_or(usize::MAX, usize::from);
+        let Some(line) = shape.buffer.layout_runs().take(max_lines).nth(line_index) else {
+            return Box::new([]);
+        };
+        let line_start = usize::try_from(
+            *shape
+                .line_starts
+                .get(line.line_i)
+                .expect("cosmic-text returned invalid line"),
+        )
+        .unwrap();
+        if line.glyphs.is_empty() {
+            return Box::new([Caret {
+                byte_offset: u32::try_from(line_start).expect("text is too long"),
+                position: LogicalPoint {
+                    x: 0.0,
+                    y: line.line_top,
+                },
+                height: line.line_height,
+            }]);
+        }
+
+        let mut carets = Vec::new();
+        for glyph in line.glyphs {
+            let cluster = &line.text[glyph.start..glyph.end];
+            let count = cluster.graphemes(true).count();
+            for (position, index) in cluster
+                .grapheme_indices(true)
+                .map(|(index, _)| glyph.start + index)
+                .chain(iter::once(glyph.end))
+                .enumerate()
+            {
+                let end = index == glyph.end;
+                let offset = if end {
+                    glyph.w
+                } else {
+                    glyph.w * (position as f32) / (count as f32)
+                };
+                carets.push((
+                    end,
+                    Caret {
+                        byte_offset: u32::try_from(line_start.saturating_add(index))
+                            .expect("text is too long"),
+                        position: LogicalPoint {
+                            x: if glyph.level.is_rtl() {
+                                glyph.x + glyph.w - offset
+                            } else {
+                                glyph.x + offset
+                            },
+                            y: line.line_top,
+                        },
+                        height: line.line_height,
+                    },
+                ));
+            }
+        }
+        carets.sort_by_key(|(end, caret)| (caret.byte_offset, *end));
+        carets.dedup_by_key(|(_, caret)| caret.byte_offset);
+        carets
+            .into_iter()
+            .map(|(_, caret)| caret)
+            .collect::<Vec<_>>()
+            .into_boxed_slice()
+    }
+}
+
+fn prepare(shape: &mut Shape, fonts: &mut FontSystem, request: LayoutRequest) {
+    shape.buffer.set_size(request.max_width, request.max_height);
+    shape.buffer.set_wrap(match request.wrap {
+        TextWrap::None => Wrap::None,
+        TextWrap::Word => Wrap::Word,
+        TextWrap::Character => Wrap::Glyph,
+    });
+    shape.buffer.set_ellipsize(match request.overflow {
+        TextOverflow::Clip => Ellipsize::None,
+        TextOverflow::Ellipsis => Ellipsize::End(match request.max_lines {
+            Some(lines) => EllipsizeHeightLimit::Lines(usize::from(lines)),
+            None => EllipsizeHeightLimit::Height(request.max_height.unwrap_or(f32::MAX)),
+        }),
+    });
+    shape.buffer.shape_until_scroll(fonts, false);
 }
 
 fn face(
@@ -427,32 +473,32 @@ mod tests {
             stretch: 100,
             style: FontStyle::Normal,
         };
+        let (mut shape, _) = backend.shape(blit_text::Text {
+            text,
+            spans: &[
+                blit_text::TextSpan {
+                    range: 0..8,
+                    style: regular_style,
+                },
+                blit_text::TextSpan {
+                    range: 8..text.len(),
+                    style: TextStyle {
+                        size: 24.0,
+                        weight: 700,
+                        ..regular_style
+                    },
+                },
+            ],
+        });
         let layout = backend.layout(
-            blit_text::Text {
-                text,
-                spans: &[
-                    blit_text::TextSpan {
-                        range: 0..8,
-                        style: regular_style,
-                    },
-                    blit_text::TextSpan {
-                        range: 8..text.len(),
-                        style: TextStyle {
-                            size: 24.0,
-                            weight: 700,
-                            ..regular_style
-                        },
-                    },
-                ],
-            },
+            &mut shape,
+            text,
             LayoutRequest {
                 max_width: None,
                 max_height: None,
                 max_lines: None,
                 wrap: TextWrap::None,
                 overflow: TextOverflow::Clip,
-                horizontal_align: HorizontalAlign::Left,
-                vertical_align: VerticalAlign::Top,
             },
         );
 

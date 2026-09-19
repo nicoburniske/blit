@@ -1,7 +1,8 @@
 use std::mem::size_of;
 
 use blit_cache::{DeferredCache, Scale};
-use blit_text::{FontFaceId, TextLayoutEngine};
+use blit_gui::ResolvedTextLayout;
+use blit_text::FontFaceId;
 
 use crate::raster::{Metrics, Rasterizer};
 
@@ -33,7 +34,7 @@ impl GlyphCache {
 
     pub fn glyph(
         &mut self,
-        text: &dyn TextLayoutEngine,
+        text: &ResolvedTextLayout<'_>,
         face: FontFaceId,
         glyph: u16,
         size: u32,

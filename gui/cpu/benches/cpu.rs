@@ -647,7 +647,7 @@ where
                 text_cache_capacity: 512 * 1024,
                 layout_cache_capacity: 512 * 1024,
             },
-            Box::new(blit_text_cosmic::Backend::without_system_fonts()),
+            blit_text_cosmic::Backend::without_system_fonts(),
         )
         .unwrap(),
     );

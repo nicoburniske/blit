@@ -2,6 +2,7 @@
 compile_error!("blit-desktop currently supports Linux and macOS only");
 
 pub use blit_executor::{AppMut, Project, Root, Scope, ScopeRef, TaskId};
+pub use event_loop::run;
 pub use winit::event_loop::EventLoopClosed;
 
 #[cfg(feature = "cpu")]
@@ -10,16 +11,16 @@ mod event_loop;
 
 use std::{error::Error, fmt, sync::Arc, time::Duration};
 
-use blit_gui::{GuiContext, RenderInput, TextConfig, TextLayoutEngine, Ui};
+use blit_gui::{GuiContext, RenderInput, TextConfig, Ui};
 use winit::event_loop::EventLoopProxy as WinitEventLoopProxy;
 use winit::{dpi::PhysicalSize, window::Window};
 
-pub struct Config {
+pub struct Config<T> {
     pub title: String,
     pub width: u32,
     pub height: u32,
     pub text_config: TextConfig,
-    pub text: Box<dyn TextLayoutEngine>,
+    pub text: T,
     pub graphics: Box<dyn GraphicsBackend>,
 }
 
@@ -68,10 +69,6 @@ pub trait Application: Sized + 'static {
     fn input(&mut self, input: Self::Input);
 
     fn render(&mut self, ui: Ui<'_>);
-}
-
-pub fn run<A: Application>(config: Config) -> Result<(), RunError> {
-    event_loop::run::<A>(config)
 }
 
 #[derive(Debug)]

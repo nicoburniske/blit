@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect, Scale2};
+use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_gui::{
     FontData, FontFamily, GuiContext, RenderInput, TextConfig, TextSystem,
     color::Color,
@@ -17,11 +17,14 @@ use blit_gui::{
     },
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::FontId,
-    text::{Span, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
+    text::{
+        HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle,
+        TextWrap, VerticalAlign,
+    },
 };
 use blit_text::{
-    FontCandidate, FontError, FontFace as BackendFontFace, FontFaceId as BackendFontFaceId,
-    FontSelectionId, LayoutRequest, TextLayout, TextLayoutEngine,
+    Caret, FontCandidate, FontError, FontFace as BackendFontFace, FontFaceId as BackendFontFaceId,
+    FontSelectionId, LayoutLine, LayoutRequest, TextLayout, TextLayoutEngine,
 };
 
 use super::*;
@@ -151,7 +154,7 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
                     text_cache_capacity: 1024 * 1024,
                     layout_cache_capacity: 1024 * 1024,
                 },
-                Box::new(backend),
+                backend,
             )
             .unwrap(),
         ),
@@ -260,6 +263,14 @@ fn renderer_supports_custom_pixel_layouts() {
             .gui
             .text_offset_at_position(&request, LogicalPoint { x: end.x, y: end.y }),
     );
+    let mut placed = request;
+    placed.area.width = 64.0;
+    placed.area.height = 48.0;
+    placed.options.horizontal_align = HorizontalAlign::Center;
+    placed.options.vertical_align = VerticalAlign::Bottom;
+    let placed_start = renderer.gui.text_cursor_rect(&placed, 0);
+    assert!(placed_start.x > start.x);
+    assert!(placed_start.y > start.y);
 }
 
 #[test]
@@ -342,9 +353,18 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
     );
 }
 
-struct CountingBackend(Arc<AtomicUsize>);
+#[derive(Default)]
+struct TextCounts {
+    shapes: AtomicUsize,
+    layouts: AtomicUsize,
+    carets: AtomicUsize,
+}
+
+struct CountingBackend(Arc<TextCounts>);
 
 impl TextLayoutEngine for CountingBackend {
+    type Shape = ();
+
     fn register_font(&mut self, _data: FontData) -> Result<Vec<BackendFontFaceId>, FontError> {
         Ok(vec![BackendFontFaceId(1)])
     }
@@ -364,55 +384,64 @@ impl TextLayoutEngine for CountingBackend {
         Some(&FACE)
     }
 
-    fn layout(&mut self, _text: blit_text::Text<'_>, _request: LayoutRequest) -> TextLayout {
-        self.0.fetch_add(1, Relaxed);
+    fn shape(&mut self, _text: blit_text::Text<'_>) -> ((), usize) {
+        self.0.shapes.fetch_add(1, Relaxed);
+        ((), 0)
+    }
+
+    fn layout(&mut self, _shape: &mut (), _text: &str, _request: LayoutRequest) -> TextLayout {
+        self.0.layouts.fetch_add(1, Relaxed);
         TextLayout {
-            size: LogicalSize::default(),
-            glyphs: Box::new([]),
-            runs: Box::new([]),
-            lines: Box::new([]),
-            carets: Box::new([]),
+            lines: Box::new([LayoutLine {
+                bounds: LogicalRect::default(),
+                text: 0..0,
+            }]),
+            ..TextLayout::default()
         }
+    }
+
+    fn carets(
+        &mut self,
+        _shape: &mut (),
+        _text: &str,
+        _request: LayoutRequest,
+        _line: usize,
+    ) -> Box<[Caret]> {
+        self.0.carets.fetch_add(1, Relaxed);
+        Box::new([Caret {
+            byte_offset: 0,
+            position: LogicalPoint::default(),
+            height: 0.0,
+        }])
     }
 }
 
 #[test]
-fn layout_eviction_is_deferred_until_frame_end() {
-    let layouts = Arc::new(AtomicUsize::new(0));
-    let mut renderer = TestRenderer {
-        render: Renderer::new(
-            VecBuffer::<Xrgb8888>::new(1, 1),
-            RendererConfig {
-                paint_cache_capacity: 0,
-                glyph_cache_capacity: 0,
-                shadow_cache_capacity: 0,
-            },
-        ),
-        gui: GuiContext::new(
-            TextSystem::new(
-                TextConfig {
-                    fonts: vec![FontFamily {
-                        id: FontId::default(),
-                        fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
-                    }],
-                    text_cache_capacity: 1024,
-                    layout_cache_capacity: 0,
-                },
-                Box::new(CountingBackend(layouts.clone())),
-            )
-            .unwrap(),
-        ),
-    };
+fn text_cache_stages_are_independent() {
+    let counts = Arc::new(TextCounts::default());
+    let mut text = TextSystem::new(
+        TextConfig {
+            fonts: vec![FontFamily {
+                id: FontId::default(),
+                fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+            }],
+            text_cache_capacity: 1024,
+            layout_cache_capacity: 0,
+        },
+        CountingBackend(counts.clone()),
+    )
+    .unwrap();
     let request = TextLayoutRequest {
-        text: renderer.gui.text_run("cached", TextStyle::default()),
+        text: text.text_run("cached", TextStyle::default()),
         wrap: TextWrap::None,
         max_width: None,
         max_lines: None,
     };
 
-    renderer.gui.measure_text(&request);
-    renderer.gui.measure_text(&request);
-    assert_eq!(layouts.load(Relaxed), 1);
+    text.measure(&request);
+    text.measure(&request);
+    assert_eq!(counts.shapes.load(Relaxed), 1);
+    assert_eq!(counts.layouts.load(Relaxed), 1);
 
     let mut paint = TextRequest {
         text: request.text,
@@ -425,15 +454,31 @@ fn layout_eviction_is_deferred_until_frame_end() {
         color: Color::WHITE,
         options: TextOptions::default(),
     };
-    renderer.gui.text_cursor_rect(&paint, 0);
-    assert_eq!(layouts.load(Relaxed), 2);
+    text.cursor_rect(&paint, 0, 0.0);
     paint.offset_x = 10.0;
-    renderer.gui.text_cursor_rect(&paint, 0);
-    assert_eq!(layouts.load(Relaxed), 2);
+    paint.area.width = 10.0;
+    paint.area.height = 10.0;
+    paint.options.horizontal_align = HorizontalAlign::Center;
+    paint.options.vertical_align = VerticalAlign::Bottom;
+    text.cursor_rect(&paint, 0, 0.0);
+    assert_eq!(counts.layouts.load(Relaxed), 1);
+    assert_eq!(counts.carets.load(Relaxed), 1);
 
-    renderer.render(&DisplayList::default(), &[]);
-    renderer.gui.measure_text(&request);
-    assert_eq!(layouts.load(Relaxed), 3);
+    text.finish_frame();
+    text.measure(&request);
+    assert_eq!(counts.shapes.load(Relaxed), 1);
+    assert_eq!(counts.layouts.load(Relaxed), 2);
+
+    let mut wrapped = TextLayoutRequest {
+        wrap: TextWrap::Word,
+        max_width: Some(10.0),
+        ..request
+    };
+    text.measure(&wrapped);
+    wrapped.max_width = Some(20.0);
+    text.measure(&wrapped);
+    assert_eq!(counts.shapes.load(Relaxed), 1);
+    assert_eq!(counts.layouts.load(Relaxed), 4);
 }
 
 #[test]

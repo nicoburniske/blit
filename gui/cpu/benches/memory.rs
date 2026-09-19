@@ -58,7 +58,7 @@ fn main() {
             text_cache_capacity: 1,
             layout_cache_capacity: 1,
         },
-        Box::new(blit_text_cosmic::Backend::without_system_fonts()),
+        blit_text_cosmic::Backend::without_system_fonts(),
     )
     .unwrap();
     let mut image_uploads = Vec::new();

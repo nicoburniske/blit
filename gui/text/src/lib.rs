@@ -4,6 +4,8 @@ use blit::{LogicalPoint, LogicalRect, LogicalSize};
 
 /// todo: support variable font instances and expose their coordinates to renderers
 pub trait TextLayoutEngine: 'static {
+    type Shape: 'static;
+
     fn system_font(&mut self, _request: SystemFontRequest<'_>) -> Result<FontFaceId, FontError> {
         Err(FontError::Unsupported)
     }
@@ -17,7 +19,18 @@ pub trait TextLayoutEngine: 'static {
 
     fn font_face(&self, face: FontFaceId) -> Option<&FontFace>;
 
-    fn layout(&mut self, text: Text<'_>, request: LayoutRequest) -> TextLayout;
+    fn shape(&mut self, text: Text<'_>) -> (Self::Shape, usize);
+
+    fn layout(&mut self, shape: &mut Self::Shape, text: &str, request: LayoutRequest)
+    -> TextLayout;
+
+    fn carets(
+        &mut self,
+        shape: &mut Self::Shape,
+        text: &str,
+        request: LayoutRequest,
+        line: usize,
+    ) -> Box<[Caret]>;
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -118,17 +131,14 @@ pub struct LayoutRequest {
     pub max_lines: Option<u16>,
     pub wrap: TextWrap,
     pub overflow: TextOverflow,
-    pub horizontal_align: HorizontalAlign,
-    pub vertical_align: VerticalAlign,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct TextLayout {
     pub size: LogicalSize,
     pub glyphs: Box<[Glyph]>,
     pub runs: Box<[LayoutRun]>,
     pub lines: Box<[LayoutLine]>,
-    pub carets: Box<[Caret]>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -137,12 +147,13 @@ pub struct LayoutRun {
     pub size: f32,
     pub glyphs: Range<u32>,
     pub span: usize,
+    pub line: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayoutLine {
     pub bounds: LogicalRect,
-    pub carets: Range<u32>,
+    pub text: Range<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -165,22 +176,6 @@ pub enum TextWrap {
     None,
     Word,
     Character,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum HorizontalAlign {
-    #[default]
-    Left,
-    Center,
-    Right,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum VerticalAlign {
-    #[default]
-    Top,
-    Center,
-    Bottom,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

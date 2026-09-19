@@ -22,7 +22,7 @@ use blit_gui::{
     },
 };
 
-pub fn run(text: Box<dyn TextLayoutEngine>) {
+pub fn run(text: impl TextLayoutEngine) {
     let fonts = std::fs::read_dir(std::path::Path::new(env!("BLIT_TEST_FONT")).with_file_name(""))
         .unwrap()
         .filter_map(|entry| std::fs::read(entry.ok()?.path()).ok())

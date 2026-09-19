@@ -168,7 +168,7 @@ fn text_system(layout_cache_capacity: usize) -> TextSystem {
             text_cache_capacity: 1024 * 1024,
             layout_cache_capacity,
         },
-        Box::new(blit_text_cosmic::Backend::without_system_fonts()),
+        blit_text_cosmic::Backend::without_system_fonts(),
     )
     .unwrap()
 }
