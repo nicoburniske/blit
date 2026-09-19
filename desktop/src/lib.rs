@@ -8,6 +8,8 @@ pub use winit::event_loop::EventLoopClosed;
 #[cfg(feature = "cpu")]
 pub mod cpu;
 mod event_loop;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 
 use std::{error::Error, fmt, sync::Arc, time::Duration};
 
@@ -26,6 +28,11 @@ pub struct Config<T> {
 
 pub type GraphicsError = Box<dyn Error>;
 
+pub enum RenderOutcome {
+    Presented(Duration),
+    Deferred,
+}
+
 pub trait GraphicsBackend: 'static {
     fn resume(&mut self, window: Arc<Window>) -> Result<(), GraphicsError>;
 
@@ -33,8 +40,7 @@ pub trait GraphicsBackend: 'static {
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), GraphicsError>;
 
-    /// returns graphics work before presentation
-    fn render(&mut self, input: RenderInput<'_>) -> Result<Duration, GraphicsError>;
+    fn render(&mut self, input: RenderInput<'_>) -> Result<RenderOutcome, GraphicsError>;
 }
 
 /// sends application input to the desktop event loop

@@ -3,7 +3,9 @@ use std::ops::Range;
 use blit::PhysicalRect;
 use blit_gui::{
     color::Color,
-    image::{ImageData, ImageFormat, ImageId, ImageRequest, ImageSampling, ImageTiling},
+    image::{
+        ImageData, ImageFormat, ImageId, ImagePatch, ImageRequest, ImageSampling, ImageTiling,
+    },
 };
 
 use crate::{Pixel, PremultipliedRgbaColor, Rgb8Pixel};
@@ -56,18 +58,9 @@ pub struct Prepared {
     scale_y: f32,
 }
 
-#[derive(Clone, Copy)]
-pub struct Patch {
-    pub source: PhysicalRect,
-    pub display: PhysicalRect,
-    pub bounds: PhysicalRect,
-    pub horizontal_tiling: ImageTiling,
-    pub vertical_tiling: ImageTiling,
-}
-
 impl Prepared {
-    pub fn new(request: &ImageRequest, patch: Patch, scale_factor: f32) -> Option<Self> {
-        let Patch {
+    pub fn new(request: &ImageRequest, patch: ImagePatch, scale_factor: f32) -> Option<Self> {
+        let ImagePatch {
             source,
             display,
             bounds,

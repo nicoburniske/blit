@@ -1,3 +1,5 @@
+#![feature(portable_simd)]
+
 use std::simd::f32x4;
 
 use blit_text::FontFace;

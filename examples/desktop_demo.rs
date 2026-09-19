@@ -5,7 +5,11 @@ use blit::{
     Widget, WidgetId,
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
-use blit_desktop::{Application, Config, EventLoopProxy, Root, cpu};
+#[cfg(not(feature = "gpu"))]
+use blit_desktop::cpu;
+#[cfg(feature = "gpu")]
+use blit_desktop::gpu;
+use blit_desktop::{Application, Config, EventLoopProxy, Root};
 use blit_gui::{
     BoundsClip, FontData, FontFamily, GuiContext, TextConfig, TextLayoutEngine, Ui,
     atom::{Rectangle, Shadow},
@@ -28,11 +32,14 @@ pub fn run(text: impl TextLayoutEngine) {
         .filter_map(|entry| std::fs::read(entry.ok()?.path()).ok())
         .map(|data| FontData::Shared(data.into()))
         .collect();
-    let graphics = cpu::Backend::new(cpu::Config {
+    #[cfg(feature = "gpu")]
+    let graphics = Box::new(gpu::Backend::new(gpu::Config::default()));
+    #[cfg(not(feature = "gpu"))]
+    let graphics = Box::new(cpu::Backend::new(cpu::Config {
         paint_cache_capacity: 2 * 1024 * 1024,
         glyph_cache_capacity: 1024 * 1024,
         shadow_cache_capacity: 512 * 1024,
-    });
+    }));
     blit_desktop::run::<App>(Config {
         title: "Blit layout playground".into(),
         width: 1120,
@@ -46,7 +53,7 @@ pub fn run(text: impl TextLayoutEngine) {
             layout_cache_capacity: 2 * 1024 * 1024,
         },
         text,
-        graphics: Box::new(graphics),
+        graphics,
     })
     .unwrap();
 }

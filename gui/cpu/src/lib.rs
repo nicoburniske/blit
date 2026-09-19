@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 mod glyph;
 mod pixel;
-mod raster;
 mod render;
 mod strategy;
 mod text;

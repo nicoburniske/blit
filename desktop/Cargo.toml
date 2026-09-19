@@ -8,17 +8,22 @@ publish = false
 [features]
 default = ["cpu"]
 cpu = ["dep:blit-cpu", "dep:softbuffer"]
+gpu = ["dep:blit-gpu", "dep:pollster", "dep:wgpu"]
 
 [dependencies]
 blit.workspace = true
 blit-cpu = { path = "../gui/cpu", optional = true }
+blit-gpu = { path = "../gui/gpu", optional = true }
 blit-gui.workspace = true
 blit-executor.workspace = true
+pollster = { version = "1.0.0", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 softbuffer = { version = "0.4.8", default-features = false, features = ["wayland", "wayland-dlopen"], optional = true }
+wgpu = { workspace = true, features = ["std", "vulkan"], optional = true }
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "wayland", "wayland-dlopen", "wayland-csd-adwaita-notitle"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 softbuffer = { version = "0.4.8", default-features = false, optional = true }
+wgpu = { workspace = true, features = ["std", "metal"], optional = true }
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }

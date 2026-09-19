@@ -36,6 +36,7 @@
               libxcursor
               libxi
               libxrandr
+              vulkan-loader
             ]);
           };
         });

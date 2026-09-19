@@ -2,9 +2,8 @@ use std::mem::size_of;
 
 use blit_cache::{DeferredCache, Scale};
 use blit_gui::ResolvedTextLayout;
+use blit_raster::{Metrics, Rasterizer};
 use blit_text::FontFaceId;
-
-use crate::raster::{Metrics, Rasterizer};
 
 pub struct CachedGlyph {
     pub metrics: Metrics,
