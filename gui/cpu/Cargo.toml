@@ -26,3 +26,7 @@ harness = false
 [[bench]]
 name = "memory"
 harness = false
+
+[[bench]]
+name = "text"
+harness = false
