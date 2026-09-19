@@ -66,9 +66,11 @@ impl GraphicsBackend for Backend {
                     .find(|format| !format.is_srgb())
                     .ok_or_else(|| IoError::other("GPU surface has no non-sRGB format"))?;
             }
-            let (device, queue) = blit_executor::block_on(
-                adapter.request_device(&wgpu::DeviceDescriptor::default()),
-            )?;
+            let (device, queue) =
+                blit_executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                    required_limits: wgpu::Limits::default().using_resolution(adapter.limits()),
+                    ..Default::default()
+                }))?;
             let renderer = Renderer::new(
                 device.clone(),
                 queue.clone(),
@@ -144,7 +146,8 @@ impl GraphicsBackend for Backend {
                     }
                 }
                 CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
-                    return Err(IoError::other("GPU surface could not be acquired").into());
+                    active.window.request_redraw();
+                    return Ok(RenderOutcome::Deferred);
                 }
                 CurrentSurfaceTexture::Validation => {
                     return Err(IoError::other("GPU surface validation failed").into());

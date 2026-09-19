@@ -202,6 +202,7 @@ impl<A: Application> Runner<A> {
             Ok(RenderOutcome::Deferred) => {
                 active.render_deferred = true;
                 active.frame.request_frame();
+                active.gui.finish_frame(std::time::Duration::ZERO);
             }
             Err(error) => self.fail(event_loop, error),
         }
