@@ -147,6 +147,38 @@ mod tests {
         );
 
         assert_eq!(buffer.pixels()[0].raw(), 0x808080);
+
+        static ALPHA: [u8; 2] = [255, 255];
+        let texture = ImageData::new(
+            ImagePixels::Static(&ALPHA),
+            ImageFormat::Alpha8(Color::from_rgba8(255, 255, 255, 128)),
+            2,
+            1,
+        );
+        let request = ImageRequest {
+            area: LogicalRect::new(0.0, 0.0, 3.0, 1.0),
+            colorize: Some(Color::from_rgba8(255, 0, 0, 255)),
+            ..request
+        };
+        let mut buffer = VecBuffer::<Xrgb8888>::new(3, 1);
+        let clip = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 3,
+            height: 1,
+        };
+
+        draw(&mut buffer, &request, &texture, clip, 1.0);
+
+        assert_eq!(
+            buffer.pixels(),
+            [0x800000, 0x800000, 0x800000].map(Xrgb8888::from_raw)
+        );
+        let mut opaque = None;
+        prepare(&request, &texture, clip, 1.0, |image, _| {
+            opaque = Some(image.is_opaque(&texture, true));
+        });
+        assert_eq!(opaque, Some(false));
     }
 
     #[test]
