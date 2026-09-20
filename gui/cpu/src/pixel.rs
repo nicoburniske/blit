@@ -1,12 +1,17 @@
 use std::{
     ops::Range,
-    simd::{Simd, num::SimdUint},
+    simd::{
+        Simd,
+        cmp::SimdOrd,
+        num::{SimdInt, SimdUint},
+    },
 };
 
 use blit_gui::color::Color;
 
 type U16x8 = Simd<u16, 8>;
 type U32x8 = Simd<u32, 8>;
+type I32x8 = Simd<i32, 8>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
@@ -68,6 +73,10 @@ pub trait Pixel: Copy {
 
     fn background() -> Self {
         Self::from_rgb(0, 0, 0)
+    }
+
+    fn write_opaque_gradient(pixels: &mut [Self], color: [f32; 3], step: [f32; 3]) {
+        write_opaque_gradient_scalar(pixels, color, step);
     }
 
     fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
@@ -173,6 +182,53 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
         Self(0)
     }
 
+    fn write_opaque_gradient(pixels: &mut [Self], color: [f32; 3], step: [f32; 3]) {
+        if pixels.len() < 8 {
+            write_opaque_gradient_scalar(pixels, color, step);
+            return;
+        }
+        const FRACTION_BITS: u32 = 20;
+        const SCALE: f32 = (1 << FRACTION_BITS) as f32;
+        const HALF: i32 = 1 << (FRACTION_BITS - 1);
+
+        let fixed = |value: f32| {
+            let value = value * SCALE;
+            (value + if value < 0.0 { -0.5 } else { 0.5 }) as i32
+        };
+        let mut color = color.map(fixed);
+        let step = step.map(fixed);
+        let lanes = I32x8::from_array([0, 1, 2, 3, 4, 5, 6, 7]);
+        let zero = I32x8::splat(0);
+        let maximum = I32x8::splat(255 << FRACTION_BITS);
+        let (chunks, tail) = pixels.as_chunks_mut::<8>();
+        for pixels in chunks {
+            let channel = |index| {
+                ((I32x8::splat(color[index])
+                    + I32x8::splat(step[index]) * lanes
+                    + I32x8::splat(HALF))
+                .simd_clamp(zero, maximum)
+                    >> I32x8::splat(FRACTION_BITS as i32))
+                .cast::<u32>()
+            };
+            let packed = channel(0) << U32x8::splat(RED as u32)
+                | channel(1) << U32x8::splat(GREEN as u32)
+                | channel(2) << U32x8::splat(BLUE as u32)
+                | U32x8::splat(ALPHA);
+            *pixels = packed.to_array().map(Self);
+            for index in 0..3 {
+                color[index] = color[index].wrapping_add(step[index].wrapping_mul(8));
+            }
+        }
+        for pixel in tail {
+            let channel =
+                |index: usize| ((color[index] + HALF) >> FRACTION_BITS).clamp(0, 255) as u8;
+            *pixel = Self::from_rgb(channel(0), channel(1), channel(2));
+            for index in 0..3 {
+                color[index] = color[index].wrapping_add(step[index]);
+            }
+        }
+    }
+
     fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
         match color.alpha {
             0 => return,
@@ -270,6 +326,20 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
 
 fn divide_by_255(value: U16x8) -> U16x8 {
     (value + U16x8::splat(1) + (value >> U16x8::splat(8))) >> U16x8::splat(8)
+}
+
+#[inline(always)]
+fn write_opaque_gradient_scalar<P: Pixel>(pixels: &mut [P], mut color: [f32; 3], step: [f32; 3]) {
+    for pixel in pixels {
+        *pixel = P::from_rgb(
+            (color[0] + 0.5) as u8,
+            (color[1] + 0.5) as u8,
+            (color[2] + 0.5) as u8,
+        );
+        for channel in 0..3 {
+            color[channel] += step[channel];
+        }
+    }
 }
 
 fn blend<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32>(
@@ -468,6 +538,21 @@ mod test {
             P::blend_texture_slice_rgba(&mut actual, &source, 173);
             for (pixel, source) in expected.iter_mut().zip(source) {
                 pixel.blend(source.coverage(173));
+            }
+            assert_eq!(actual, expected);
+
+            let mut color = [12.25, 240.75, -0.2];
+            let step = [4.125, -3.75, 1.0];
+            P::write_opaque_gradient(&mut actual, color, step);
+            for pixel in &mut expected {
+                *pixel = P::from_rgb(
+                    (color[0] + 0.5) as u8,
+                    (color[1] + 0.5) as u8,
+                    (color[2] + 0.5) as u8,
+                );
+                for channel in 0..3 {
+                    color[channel] += step[channel];
+                }
             }
             assert_eq!(actual, expected);
         }

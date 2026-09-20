@@ -21,7 +21,7 @@ use blit_gui::{
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
-use render::{image as render_image, image_patch::AlphaRows, rectangle, shadow};
+use render::{image as render_image, image_patch::AlphaRows, rectangle, shadow, triangle};
 pub use strategy::{Direct, RenderStrategy, Scanline};
 use strategy::{
     clip::ClipStack,
@@ -493,6 +493,23 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                     }
                     Command::BoxShadow(shadow) => {
                         self.prepare_box_shadow(&shadow, record.bounds, record.clip.0)
+                    }
+                    Command::Mesh(mesh) => {
+                        for indices in mesh.indices.as_chunks::<3>().0 {
+                            let vertices = indices.map(|index| mesh.vertices[index as usize]);
+                            if let Some(triangle) = triangle::Prepared::new(vertices, self.scale)
+                                && let Some(bounds) = triangle.bounds.intersection(record.bounds)
+                                && damage
+                                    .iter()
+                                    .any(|damage| bounds.intersection(*damage).is_some())
+                            {
+                                self.context.commands.push_triangle(
+                                    triangle,
+                                    bounds,
+                                    record.clip.0,
+                                );
+                            }
+                        }
                     }
                     _ => {}
                 }

@@ -11,6 +11,7 @@ use crate::{
             Gradient as PreparedGradient, Prepared as PreparedRectangle,
             SolidPair as PreparedSolidPair,
         },
+        triangle::Prepared as PreparedTriangle,
     },
     text::PreparedRuns,
 };
@@ -33,6 +34,7 @@ pub enum Payload<'a> {
     GradientRectangle(&'a PreparedGradient, &'a [GradientStop]),
     Image(&'a PreparedImage),
     Text(&'a PreparedText),
+    Triangle(&'a PreparedTriangle),
 }
 
 #[derive(Clone, Copy)]
@@ -134,6 +136,21 @@ impl CommandList {
         self.push(StoredPayload::Text(text), bounds, clip, false, false);
     }
 
+    pub fn push_triangle(
+        &mut self,
+        triangle: PreparedTriangle,
+        bounds: PhysicalRect,
+        clip: ClipId,
+    ) {
+        self.push(
+            StoredPayload::Triangle(triangle),
+            bounds,
+            clip,
+            false,
+            false,
+        );
+    }
+
     #[inline]
     pub fn get(&self, id: CommandId) -> Payload<'_> {
         match &self.commands[id as usize].payload {
@@ -146,6 +163,7 @@ impl CommandList {
             ),
             StoredPayload::Image(image) => Payload::Image(image),
             StoredPayload::Text(text) => Payload::Text(text),
+            StoredPayload::Triangle(triangle) => Payload::Triangle(triangle),
         }
     }
 
@@ -186,7 +204,9 @@ impl CommandList {
             Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
             Payload::SolidPair(_) => bounds.clone(),
             Payload::Image(_) => bounds.clone(),
-            Payload::GradientRectangle(_, _) | Payload::Text(_) => return None,
+            Payload::GradientRectangle(_, _) | Payload::Text(_) | Payload::Triangle(_) => {
+                return None;
+            }
         };
         let start = span.start.max(bounds.start);
         let end = span.end.min(bounds.end);
@@ -242,4 +262,5 @@ enum StoredPayload {
     },
     Image(PreparedImage),
     Text(PreparedText),
+    Triangle(PreparedTriangle),
 }

@@ -2,12 +2,12 @@
 
 use std::{sync::mpsc, time::Duration};
 
-use blit::{LogicalRect, PhysicalRect, PhysicalSize};
+use blit::{Clip, LogicalRect, PhysicalRect, PhysicalSize};
 use blit_gpu::{Renderer, RendererConfig};
 use blit_gui::{
-    FontData, FontFamily, GuiContext, TextConfig, TextSystem,
+    BoundsClip, FontData, FontFamily, GuiContext, TextConfig, TextSystem,
     color::Color,
-    display_list::{BoxShadow, ClipId, Rectangle},
+    display_list::{BoxShadow, ClipId, Mesh, MeshVertex, Rectangle},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
@@ -196,6 +196,18 @@ fn renders_primitives_and_rebuilds_frames() {
                 ..BorderRadius::default()
             }),
     );
+    let mesh_vertices = [
+        MeshVertex::new(40.0, 40.0, Color::from_rgba8(255, 0, 0, 255)),
+        MeshVertex::new(60.0, 40.0, Color::from_rgba8(255, 0, 0, 255)),
+        MeshVertex::new(40.0, 60.0, Color::from_rgba8(255, 0, 0, 255)),
+    ];
+    BoundsClip.push(&mut gui, LogicalRect::new(40.0, 40.0, 10.0, 20.0));
+    gui.paint_mesh(Mesh {
+        bounds: LogicalRect::new(40.0, 40.0, 20.0, 20.0),
+        vertices: &mesh_vertices,
+        indices: &[0, 1, 2],
+    });
+    BoundsClip.pop(&mut gui);
 
     let stops = [
         GradientStop::new(0.0, Color::from_rgba8(255, 0, 0, 255)),
@@ -304,4 +316,7 @@ fn renders_primitives_and_rebuilds_frames() {
     assert!((40..80).any(|y| (2..26).any(|x| pixel(x, y)[0] > 0)));
     assert_eq!(pixel(88, 28), [0, 0, 0, 0]);
     assert_eq!(pixel(108, 29), [0, 255, 0, 255]);
+    assert_eq!(pixel(90, 90), [255, 0, 0, 255]);
+    assert_eq!(pixel(108, 90), [0, 255, 0, 255]);
+    assert_eq!(pixel(118, 118), [0, 255, 0, 255]);
 }

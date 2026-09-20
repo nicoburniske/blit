@@ -6,13 +6,15 @@ use crate::{
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{Span, TextRequest},
 };
-use blit::geometry::{LogicalRect, PhysicalRect};
+use blit::geometry::{LogicalPoint, LogicalRect, PhysicalRect};
 
 #[derive(Default)]
 pub struct DisplayList {
     commands: Vec<StoredCommand>,
     clips: Vec<ClipNode>,
     gradient_stops: Vec<GradientStop>,
+    mesh_vertices: Vec<MeshVertex>,
+    mesh_indices: Vec<u32>,
     text_colors: Vec<Option<Color>>,
 }
 
@@ -32,6 +34,29 @@ pub enum Command<'a> {
     Image(ImageRequest),
     Text(TextRequest, &'a [Option<Color>]),
     BoxShadow(BoxShadow),
+    Mesh(Mesh<'a>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mesh<'a> {
+    pub bounds: LogicalRect,
+    pub vertices: &'a [MeshVertex],
+    pub indices: &'a [u32],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeshVertex {
+    pub position: LogicalPoint,
+    pub color: Color,
+}
+
+impl MeshVertex {
+    pub const fn new(x: f32, y: f32, color: Color) -> Self {
+        Self {
+            position: LogicalPoint { x, y },
+            color,
+        }
+    }
 }
 
 blit::builder! {
@@ -187,6 +212,46 @@ impl DisplayList {
         self.push(bounds, clip, CommandKind::BoxShadow(shadow))
     }
 
+    pub fn push_mesh(&mut self, mesh: Mesh<'_>, bounds: PhysicalRect, clip: ClipId) {
+        self.assert_clip(clip);
+        assert_eq!(
+            mesh.indices.len() % 3,
+            0,
+            "mesh index count must be divisible by three"
+        );
+        assert!(
+            mesh.indices
+                .iter()
+                .all(|&index| (index as usize) < mesh.vertices.len()),
+            "mesh index is out of bounds"
+        );
+        let vertex_start =
+            u32::try_from(self.mesh_vertices.len()).expect("too many display list mesh vertices");
+        let vertex_len = u32::try_from(mesh.vertices.len()).expect("mesh has too many vertices");
+        let index_start =
+            u32::try_from(self.mesh_indices.len()).expect("too many display list mesh indices");
+        let index_len = u32::try_from(mesh.indices.len()).expect("mesh has too many indices");
+        vertex_start
+            .checked_add(vertex_len)
+            .expect("too many display list mesh vertices");
+        index_start
+            .checked_add(index_len)
+            .expect("too many display list mesh indices");
+        self.mesh_vertices.extend_from_slice(mesh.vertices);
+        self.mesh_indices.extend_from_slice(mesh.indices);
+        self.commands.push(StoredCommand {
+            bounds,
+            clip,
+            kind: CommandKind::Mesh(StoredMesh {
+                bounds: mesh.bounds,
+                vertex_start,
+                vertex_len,
+                index_start,
+                index_len,
+            }),
+        });
+    }
+
     pub fn get(&self, index: usize) -> Record<'_> {
         let stored = &self.commands[index];
         let command = match &stored.kind {
@@ -220,6 +285,16 @@ impl DisplayList {
             CommandKind::Image(image) => Command::Image(*image),
             CommandKind::Text(text) => Command::Text(text.request, self.text_colors(text.palette)),
             CommandKind::BoxShadow(shadow) => Command::BoxShadow(*shadow),
+            CommandKind::Mesh(mesh) => {
+                let vertex_start = mesh.vertex_start as usize;
+                let index_start = mesh.index_start as usize;
+                Command::Mesh(Mesh {
+                    bounds: mesh.bounds,
+                    vertices: &self.mesh_vertices
+                        [vertex_start..vertex_start + mesh.vertex_len as usize],
+                    indices: &self.mesh_indices[index_start..index_start + mesh.index_len as usize],
+                })
+            }
         };
         Record {
             bounds: stored.bounds,
@@ -240,6 +315,8 @@ impl DisplayList {
         self.commands.clear();
         self.clips.clear();
         self.gradient_stops.clear();
+        self.mesh_vertices.clear();
+        self.mesh_indices.clear();
         self.text_colors.clear();
     }
 
@@ -299,6 +376,18 @@ impl DisplayList {
                     && self.text_colors(left.palette) == other.text_colors(right.palette)
             }
             (CommandKind::BoxShadow(left), CommandKind::BoxShadow(right)) => left == right,
+            (CommandKind::Mesh(left), CommandKind::Mesh(right)) => {
+                let left_vertex = left.vertex_start as usize;
+                let right_vertex = right.vertex_start as usize;
+                let left_index = left.index_start as usize;
+                let right_index = right.index_start as usize;
+                left.bounds == right.bounds
+                    && self.mesh_vertices[left_vertex..left_vertex + left.vertex_len as usize]
+                        == other.mesh_vertices
+                            [right_vertex..right_vertex + right.vertex_len as usize]
+                    && self.mesh_indices[left_index..left_index + left.index_len as usize]
+                        == other.mesh_indices[right_index..right_index + right.index_len as usize]
+            }
             _ => false,
         }
     }
@@ -367,11 +456,20 @@ enum CommandKind {
     Image(ImageRequest),
     Text(StoredText),
     BoxShadow(BoxShadow),
+    Mesh(StoredMesh),
 }
 
 struct StoredText {
     request: TextRequest,
     palette: TextPalette,
+}
+
+struct StoredMesh {
+    bounds: LogicalRect,
+    vertex_start: u32,
+    vertex_len: u32,
+    index_start: u32,
+    index_len: u32,
 }
 
 struct StoredRectangle {

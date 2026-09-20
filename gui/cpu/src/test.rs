@@ -11,7 +11,7 @@ use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_gui::{
     FontData, FontFamily, GuiContext, RenderInput, TextConfig, TextSystem,
     color::Color,
-    display_list::{BoxShadow, ClipId, Command, DisplayList, Rectangle},
+    display_list::{BoxShadow, ClipId, Command, DisplayList, Mesh, MeshVertex, Rectangle},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
@@ -271,6 +271,55 @@ fn renderer_supports_custom_pixel_layouts() {
     let placed_start = renderer.gui.text_cursor_rect(&placed, 0);
     assert!(placed_start.x > start.x);
     assert!(placed_start.y > start.y);
+}
+
+#[test]
+fn mesh_interpolates_colors_without_shared_edge_overdraw() {
+    let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(16, 8), renderer_config())
+        .strategy(Scanline::default());
+    let bounds = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 16,
+        height: 8,
+    };
+    let color = Color::from_rgba8(255, 0, 0, 128);
+    let vertices = [
+        MeshVertex::new(0.0, 0.0, color),
+        MeshVertex::new(8.0, 0.0, color),
+        MeshVertex::new(0.0, 8.0, color),
+        MeshVertex::new(8.0, 8.0, color),
+        MeshVertex::new(8.0, 0.0, Color::from_rgba8(255, 0, 0, 255)),
+        MeshVertex::new(16.0, 0.0, Color::from_rgba8(0, 255, 0, 255)),
+        MeshVertex::new(8.0, 8.0, Color::from_rgba8(0, 0, 255, 255)),
+    ];
+    let mut paint = DisplayList::default();
+    paint.push_mesh(
+        Mesh {
+            bounds: LogicalRect::new(0.0, 0.0, 16.0, 8.0),
+            vertices: &vertices,
+            indices: &[0, 1, 2, 2, 1, 3, 4, 5, 6],
+        },
+        bounds,
+        ClipId::default(),
+    );
+
+    renderer.render(&paint, &[bounds]);
+
+    let pixels = renderer.render.buffer().pixels();
+    assert!(
+        pixels
+            .chunks_exact(16)
+            .all(|row| row[..8].iter().all(|pixel| *pixel
+                == BgrPixel {
+                    red: 128,
+                    green: 0,
+                    blue: 0
+                }))
+    );
+    assert!(pixels[16 + 9].red > pixels[16 + 9].green);
+    assert!(pixels[16 + 13].green > pixels[16 + 13].red);
+    assert!(pixels[5 * 16 + 9].blue > pixels[5 * 16 + 9].red);
 }
 
 #[test]

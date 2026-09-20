@@ -15,11 +15,15 @@ use bytemuck::{Pod, Zeroable};
 
 const INITIAL_INSTANCES: u64 = 256;
 const INITIAL_GLYPHS: u64 = 256;
+const INITIAL_DRAWS: u64 = 256;
+const INITIAL_MESH_DATA: u64 = 256;
 const INITIAL_CLIPS: u64 = 64;
 const INITIAL_STOPS: u64 = 64;
 const FIXED_SHIFT: u32 = 16;
 const OUTSET_SHADOW: u32 = 1;
 const INSET_SHADOW: u32 = 2;
+const DRAW_TEXT: u32 = 1 << 31;
+const DRAW_MESH: u32 = 1 << 30;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RendererConfig {
@@ -31,9 +35,8 @@ pub struct Renderer {
     queue: wgpu::Queue,
     clear_color: wgpu::Color,
     clear_pipeline: wgpu::RenderPipeline,
-    shape_pipeline: wgpu::RenderPipeline,
+    content_pipeline: wgpu::RenderPipeline,
     image_pipeline: wgpu::RenderPipeline,
-    text_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
@@ -41,15 +44,20 @@ pub struct Renderer {
     frame_size: [u32; 2],
     instance_buffer: wgpu::Buffer,
     glyph_buffer: wgpu::Buffer,
+    draw_buffer: wgpu::Buffer,
+    mesh_buffer: wgpu::Buffer,
     clip_buffer: wgpu::Buffer,
     stop_buffer: wgpu::Buffer,
     instances: Vec<Instance>,
     glyph_instances: Vec<GlyphInstance>,
+    draws: Vec<u32>,
+    mesh_data: Vec<MeshData>,
     clips: Vec<Clip>,
     stops: Vec<GradientStop>,
     batches: Vec<Batch>,
     images: HashMap<ImageId, StoredImage>,
     glyphs: text::GlyphAtlas,
+    empty_texture: wgpu::BindGroup,
     upload: Vec<u8>,
 }
 
@@ -104,6 +112,26 @@ impl Renderer {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let texture_bind_group_layout =
@@ -132,16 +160,11 @@ impl Renderer {
                 immediate_size: 0,
             });
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-        let glyph_attributes = wgpu::vertex_attr_array![
-            0 => Float32x4,
-            1 => Uint32x2,
-            2 => Uint32,
-            3 => Uint32
-        ];
-        let glyph_layout = [Some(wgpu::VertexBufferLayout {
-            array_stride: size_of::<GlyphInstance>() as u64,
+        let draw_attributes = wgpu::vertex_attr_array![0 => Uint32];
+        let draw_layout = [Some(wgpu::VertexBufferLayout {
+            array_stride: size_of::<u32>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &glyph_attributes,
+            attributes: &draw_attributes,
         })];
         let pipeline = |label,
                         layout,
@@ -187,12 +210,12 @@ impl Renderer {
             None,
         );
         let blend = Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
-        let shape_pipeline = pipeline(
-            "blit gpu shapes",
-            &pipeline_layout,
-            "vertex",
-            &[],
-            "shape",
+        let content_pipeline = pipeline(
+            "blit gpu content",
+            &texture_pipeline_layout,
+            "content_vertex",
+            &draw_layout,
+            "content",
             blend,
         );
         let image_pipeline = pipeline(
@@ -201,14 +224,6 @@ impl Renderer {
             "vertex",
             &[],
             "image",
-            blend,
-        );
-        let text_pipeline = pipeline(
-            "blit gpu text",
-            &texture_pipeline_layout,
-            "text_vertex",
-            &glyph_layout,
-            "text",
             blend,
         );
         let frame_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -226,7 +241,19 @@ impl Renderer {
         let glyph_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("blit gpu glyph instances"),
             size: INITIAL_GLYPHS * size_of::<GlyphInstance>() as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let draw_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("blit gpu draws"),
+            size: INITIAL_DRAWS * size_of::<u32>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mesh_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("blit gpu mesh data"),
+            size: INITIAL_MESH_DATA * size_of::<MeshData>() as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let clip_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -248,9 +275,34 @@ impl Renderer {
             &instance_buffer,
             &clip_buffer,
             &stop_buffer,
+            &glyph_buffer,
+            &mesh_buffer,
         );
         let clear_color = premultiplied(config.clear_color, 1.0);
         let glyphs = text::GlyphAtlas::new(&device, texture_bind_group_layout.clone());
+        let empty_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("blit gpu empty texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let empty_view = empty_texture.create_view(&Default::default());
+        let empty_texture = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("blit gpu empty texture"),
+            layout: &texture_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&empty_view),
+            }],
+        });
 
         Self {
             device,
@@ -262,9 +314,8 @@ impl Renderer {
                 a: clear_color[3] as f64,
             },
             clear_pipeline,
-            shape_pipeline,
+            content_pipeline,
             image_pipeline,
-            text_pipeline,
             bind_group_layout,
             texture_bind_group_layout,
             bind_group,
@@ -272,15 +323,20 @@ impl Renderer {
             frame_size: [0, 0],
             instance_buffer,
             glyph_buffer,
+            draw_buffer,
+            mesh_buffer,
             clip_buffer,
             stop_buffer,
             instances: Vec::new(),
             glyph_instances: Vec::new(),
+            draws: Vec::new(),
+            mesh_data: Vec::new(),
             clips: Vec::new(),
             stops: Vec::new(),
             batches: Vec::new(),
             images: HashMap::new(),
             glyphs,
+            empty_texture,
             upload: Vec::new(),
         }
     }
@@ -422,6 +478,8 @@ impl Renderer {
         }
         self.instances.clear();
         self.glyph_instances.clear();
+        self.draws.clear();
+        self.mesh_data.clear();
         self.clips.clear();
         self.stops.clear();
         self.batches.clear();
@@ -467,6 +525,36 @@ impl Renderer {
                     let opacity =
                         ((rectangle.opacity.clamp(0.0, 1.0) * 255.0).round() as u8) as f32 / 255.0;
                     if opacity == 0.0 {
+                        continue;
+                    }
+                    if opacity == 1.0
+                        && rectangle.background.alpha > 0
+                        && rectangle.radius == BorderRadius::default()
+                        && matches!(rectangle.border, Border::None)
+                    {
+                        let Some(draw) = record.bounds.intersection(screen) else {
+                            continue;
+                        };
+                        let vertex =
+                            u32::try_from(self.mesh_data.len()).expect("too much GPU mesh data");
+                        vertex.checked_add(3).expect("too many GPU mesh vertices");
+                        let color = u32::from_le_bytes([
+                            rectangle.background.red,
+                            rectangle.background.green,
+                            rectangle.background.blue,
+                            rectangle.background.alpha,
+                        ]);
+                        let left = draw.x as f32;
+                        let top = draw.y as f32;
+                        let right = draw.x.saturating_add(draw.width) as f32;
+                        let bottom = draw.y.saturating_add(draw.height) as f32;
+                        self.mesh_data.extend([
+                            MeshData([left.to_bits(), top.to_bits(), color, record.clip.0]),
+                            MeshData([right.to_bits(), top.to_bits(), color, record.clip.0]),
+                            MeshData([left.to_bits(), bottom.to_bits(), color, record.clip.0]),
+                            MeshData([right.to_bits(), bottom.to_bits(), color, record.clip.0]),
+                        ]);
+                        self.push_mesh_primitive([vertex, vertex + 1, vertex + 2, vertex + 3]);
                         continue;
                     }
                     let area = rectangle.area.to_physical(Scale2::uniform(scale));
@@ -545,7 +633,7 @@ impl Renderer {
                         params,
                         data,
                     });
-                    Pipeline::Shape
+                    Pipeline::Content(None)
                 }
                 Command::BoxShadow(shadow) => {
                     if shadow.color.alpha == 0 {
@@ -636,7 +724,7 @@ impl Renderer {
                             ..Instance::zeroed()
                         });
                     }
-                    Pipeline::Shape
+                    Pipeline::Content(None)
                 }
                 Command::Image(request) => {
                     let opacity =
@@ -792,7 +880,7 @@ impl Renderer {
                             let Some(draw) = shape.intersection(visible_area) else {
                                 continue;
                             };
-                            let start = self.glyph_instances.len() as u32;
+                            let index = self.glyph_instances.len() as u32;
                             self.glyph_instances.push(GlyphInstance {
                                 draw: physical_rect(draw),
                                 atlas: [
@@ -802,20 +890,37 @@ impl Renderer {
                                 color,
                                 clip: record.clip.0,
                             });
-                            let end = self.glyph_instances.len() as u32;
-                            let pipeline = Pipeline::Text(cached.page);
-                            if let Some(batch) = self.batches.last_mut()
-                                && batch.pipeline == pipeline
-                            {
-                                batch.end = end;
-                            } else {
-                                self.batches.push(Batch {
-                                    pipeline,
-                                    start,
-                                    end,
-                                });
-                            }
+                            self.push_draw(Pipeline::Content(Some(cached.page)), DRAW_TEXT | index);
                         }
+                    }
+                    continue;
+                }
+                Command::Mesh(mesh) => {
+                    if record.bounds.intersection(screen).is_none() {
+                        continue;
+                    }
+                    let vertex_start =
+                        u32::try_from(self.mesh_data.len()).expect("too much GPU mesh data");
+                    self.mesh_data.extend(mesh.vertices.iter().map(|vertex| {
+                        MeshData([
+                            (vertex.position.x * scale).to_bits(),
+                            (vertex.position.y * scale).to_bits(),
+                            u32::from_le_bytes([
+                                vertex.color.red,
+                                vertex.color.green,
+                                vertex.color.blue,
+                                vertex.color.alpha,
+                            ]),
+                            record.clip.0,
+                        ])
+                    }));
+                    for triangle in mesh.indices.as_chunks::<3>().0 {
+                        let [first, second, third] = triangle.map(|index| {
+                            vertex_start
+                                .checked_add(index)
+                                .expect("too many GPU mesh vertices")
+                        });
+                        self.push_mesh_primitive([first, second, third, third]);
                     }
                     continue;
                 }
@@ -825,7 +930,11 @@ impl Renderer {
             if start == end {
                 continue;
             }
-            if let Some(batch) = self.batches.last_mut()
+            if matches!(pipeline, Pipeline::Content(_)) {
+                for index in start..end {
+                    self.push_draw(pipeline, index);
+                }
+            } else if let Some(batch) = self.batches.last_mut()
                 && batch.pipeline == pipeline
             {
                 batch.end = end;
@@ -840,68 +949,44 @@ impl Renderer {
 
         let instance_bytes = self.instances.len() as u64 * size_of::<Instance>() as u64;
         let glyph_bytes = self.glyph_instances.len() as u64 * size_of::<GlyphInstance>() as u64;
+        let draw_bytes = self.draws.len() as u64 * size_of::<u32>() as u64;
+        let mesh_bytes = self.mesh_data.len() as u64 * size_of::<MeshData>() as u64;
         let clip_bytes = self.clips.len() as u64 * size_of::<Clip>() as u64;
         let stop_bytes = self.stops.len() as u64 * size_of::<GradientStop>() as u64;
         if instance_bytes > self.instance_buffer.size()
             || glyph_bytes > self.glyph_buffer.size()
+            || draw_bytes > self.draw_buffer.size()
+            || mesh_bytes > self.mesh_buffer.size()
             || clip_bytes > self.clip_buffer.size()
             || stop_bytes > self.stop_buffer.size()
         {
-            let limits = self.device.limits();
-            let storage_limit = limits
-                .max_buffer_size
-                .min(limits.max_storage_buffer_binding_size);
-            assert!(
-                instance_bytes <= storage_limit
-                    && glyph_bytes <= limits.max_buffer_size
-                    && clip_bytes <= storage_limit
-                    && stop_bytes <= storage_limit,
-                "GPU frame data exceeds device limits"
+            let device = &self.device;
+            grow_buffer(
+                device,
+                &mut self.instance_buffer,
+                &self.instances,
+                "blit gpu instances",
             );
-            if instance_bytes > self.instance_buffer.size() {
-                self.instance_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("blit gpu instances"),
-                    size: (self.instances.len() as u64)
-                        .next_power_of_two()
-                        .saturating_mul(size_of::<Instance>() as u64)
-                        .min(storage_limit),
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-            }
-            if glyph_bytes > self.glyph_buffer.size() {
-                self.glyph_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("blit gpu glyph instances"),
-                    size: (self.glyph_instances.len() as u64)
-                        .next_power_of_two()
-                        .saturating_mul(size_of::<GlyphInstance>() as u64)
-                        .min(limits.max_buffer_size),
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-            }
-            if clip_bytes > self.clip_buffer.size() {
-                self.clip_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("blit gpu clips"),
-                    size: (self.clips.len() as u64)
-                        .next_power_of_two()
-                        .saturating_mul(size_of::<Clip>() as u64)
-                        .min(storage_limit),
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-            }
-            if stop_bytes > self.stop_buffer.size() {
-                self.stop_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("blit gpu gradient stops"),
-                    size: (self.stops.len() as u64)
-                        .next_power_of_two()
-                        .saturating_mul(size_of::<GradientStop>() as u64)
-                        .min(storage_limit),
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-            }
+            grow_buffer(
+                device,
+                &mut self.glyph_buffer,
+                &self.glyph_instances,
+                "blit gpu glyph instances",
+            );
+            grow_buffer(device, &mut self.draw_buffer, &self.draws, "blit gpu draws");
+            grow_buffer(
+                device,
+                &mut self.mesh_buffer,
+                &self.mesh_data,
+                "blit gpu mesh data",
+            );
+            grow_buffer(device, &mut self.clip_buffer, &self.clips, "blit gpu clips");
+            grow_buffer(
+                device,
+                &mut self.stop_buffer,
+                &self.stops,
+                "blit gpu gradient stops",
+            );
             self.bind_group = data_bind_group(
                 &self.device,
                 &self.bind_group_layout,
@@ -909,6 +994,8 @@ impl Renderer {
                 &self.instance_buffer,
                 &self.clip_buffer,
                 &self.stop_buffer,
+                &self.glyph_buffer,
+                &self.mesh_buffer,
             );
         }
 
@@ -936,6 +1023,14 @@ impl Renderer {
                 0,
                 bytemuck::cast_slice(&self.glyph_instances),
             );
+        }
+        if !self.draws.is_empty() {
+            self.queue
+                .write_buffer(&self.draw_buffer, 0, bytemuck::cast_slice(&self.draws));
+        }
+        if !self.mesh_data.is_empty() {
+            self.queue
+                .write_buffer(&self.mesh_buffer, 0, bytemuck::cast_slice(&self.mesh_data));
         }
         if self.clips.len() > 1 {
             self.queue.write_buffer(
@@ -970,14 +1065,17 @@ impl Renderer {
                 ..Default::default()
             });
             pass.set_bind_group(0, &self.bind_group, &[]);
-            pass.set_vertex_buffer(0, self.glyph_buffer.slice(..));
+            pass.set_vertex_buffer(0, self.draw_buffer.slice(..));
             for batch in &self.batches {
                 match batch.pipeline {
                     Pipeline::Clear => pass.set_pipeline(&self.clear_pipeline),
-                    Pipeline::Shape => pass.set_pipeline(&self.shape_pipeline),
-                    Pipeline::Text(page) => {
-                        pass.set_pipeline(&self.text_pipeline);
-                        pass.set_bind_group(1, self.glyphs.bind_group(page), &[]);
+                    Pipeline::Content(page) => {
+                        pass.set_pipeline(&self.content_pipeline);
+                        let texture = match page {
+                            Some(page) => self.glyphs.bind_group(page),
+                            None => &self.empty_texture,
+                        };
+                        pass.set_bind_group(1, texture, &[]);
                     }
                     Pipeline::Image(image) => {
                         pass.set_pipeline(&self.image_pipeline);
@@ -991,6 +1089,40 @@ impl Renderer {
         self.glyphs.end_frame();
         self.images
             .retain(|_, image| !image.handle.is_uniquely_owned());
+    }
+
+    #[doc(hidden)]
+    pub fn batch_count(&self) -> usize {
+        self.batches.len()
+    }
+
+    fn push_mesh_primitive(&mut self, vertices: [u32; 4]) {
+        let index = u32::try_from(self.mesh_data.len()).expect("too much GPU mesh data");
+        assert!(index < DRAW_MESH, "too much GPU mesh data");
+        self.mesh_data.push(MeshData(vertices));
+        self.push_draw(Pipeline::Content(None), DRAW_MESH | index);
+    }
+
+    fn push_draw(&mut self, pipeline: Pipeline, draw: u32) {
+        let start = self.draws.len() as u32;
+        self.draws.push(draw);
+        let end = self.draws.len() as u32;
+        if let Some(batch) = self.batches.last_mut()
+            && let (Pipeline::Content(current), Pipeline::Content(texture)) =
+                (&mut batch.pipeline, pipeline)
+            && (current.is_none() || texture.is_none() || *current == texture)
+        {
+            if current.is_none() {
+                *current = texture;
+            }
+            batch.end = end;
+            return;
+        }
+        self.batches.push(Batch {
+            pipeline,
+            start,
+            end,
+        });
     }
 }
 
@@ -1023,6 +1155,10 @@ struct GlyphInstance {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
+struct MeshData([u32; 4]);
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 struct Clip {
     rect: [f32; 4],
     radii: [f32; 4],
@@ -1039,8 +1175,7 @@ struct GradientStop {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Pipeline {
     Clear,
-    Shape,
-    Text(usize),
+    Content(Option<usize>),
     Image(ImageId),
 }
 
@@ -1057,6 +1192,36 @@ struct StoredImage {
     texture_origin: [i32; 2],
 }
 
+fn grow_buffer<T>(device: &wgpu::Device, buffer: &mut wgpu::Buffer, items: &[T], label: &str) {
+    let item_size = size_of::<T>() as u64;
+    let required_size = items.len() as u64 * item_size;
+    if required_size <= buffer.size() {
+        return;
+    }
+    let limits = device.limits();
+    let usage = buffer.usage();
+    let limit = if usage.contains(wgpu::BufferUsages::STORAGE) {
+        limits
+            .max_buffer_size
+            .min(limits.max_storage_buffer_binding_size)
+    } else {
+        limits.max_buffer_size
+    };
+    assert!(
+        required_size <= limit,
+        "GPU frame data exceeds device limits"
+    );
+    *buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: (items.len() as u64)
+            .next_power_of_two()
+            .saturating_mul(item_size)
+            .min(limit),
+        usage,
+        mapped_at_creation: false,
+    });
+}
+
 fn data_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
@@ -1064,6 +1229,8 @@ fn data_bind_group(
     instances: &wgpu::Buffer,
     clips: &wgpu::Buffer,
     stops: &wgpu::Buffer,
+    glyphs: &wgpu::Buffer,
+    mesh: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("blit gpu data"),
@@ -1084,6 +1251,14 @@ fn data_bind_group(
             wgpu::BindGroupEntry {
                 binding: 3,
                 resource: stops.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: glyphs.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: mesh.as_entire_binding(),
             },
         ],
     })

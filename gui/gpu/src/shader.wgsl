@@ -23,26 +23,39 @@ struct GradientStop {
     data: vec4<f32>,
 }
 
+struct GlyphInstance {
+    draw: vec4<f32>,
+    atlas: vec2<u32>,
+    color: u32,
+    clip: u32,
+}
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) @interpolate(flat) instance: u32,
 }
 
-struct TextVertexOutput {
+struct ContentOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) atlas: vec2<f32>,
-    @location(1) @interpolate(flat) color: vec4<f32>,
-    @location(2) @interpolate(flat) clip: u32,
+    @location(0) @interpolate(flat) reference: u32,
+    @location(1) atlas: vec2<f32>,
+    @location(2) color: vec4<f32>,
+    @location(3) @interpolate(flat) clip: u32,
 }
 
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(0) @binding(1) var<storage, read> instances: array<Instance>;
 @group(0) @binding(2) var<storage, read> clips: array<Clip>;
 @group(0) @binding(3) var<storage, read> stops: array<GradientStop>;
+@group(0) @binding(4) var<storage, read> glyphs: array<GlyphInstance>;
+@group(0) @binding(5) var<storage, read> mesh_data: array<vec4<u32>>;
 @group(1) @binding(0) var image_texture: texture_2d<f32>;
 
 const OUTSET_SHADOW: u32 = 1u;
 const INSET_SHADOW: u32 = 2u;
+const DRAW_TEXT: u32 = 1u << 31u;
+const DRAW_MESH: u32 = 1u << 30u;
+const DRAW_INDEX: u32 = ~(DRAW_TEXT | DRAW_MESH);
 const QUAD_CORNERS: array<vec2<f32>, 4> = array(
     vec2(0.0, 0.0),
     vec2(1.0, 0.0),
@@ -56,7 +69,8 @@ fn vertex(
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
     let draw = instances[instance_index].draw;
-    let pixel = draw.xy + draw.zw * QUAD_CORNERS[vertex_index];
+    let corner = QUAD_CORNERS[vertex_index];
+    let pixel = draw.xy + draw.zw * corner;
     var output: VertexOutput;
     output.position = vec4(pixel * frame.transform.xy + frame.transform.zw, 0.0, 1.0);
     output.instance = instance_index;
@@ -64,21 +78,37 @@ fn vertex(
 }
 
 @vertex
-fn text_vertex(
-    @location(0) draw: vec4<f32>,
-    @location(1) atlas: vec2<u32>,
-    @location(2) packed_color: u32,
-    @location(3) clip: u32,
+fn content_vertex(
+    @location(0) reference: u32,
     @builtin(vertex_index) vertex_index: u32,
-) -> TextVertexOutput {
+) -> ContentOutput {
+    let index = reference & DRAW_INDEX;
     let corner = QUAD_CORNERS[vertex_index];
-    let pixel = draw.xy + draw.zw * corner;
-    let color = unpack4x8unorm(packed_color);
-    var output: TextVertexOutput;
+    var pixel = vec2(0.0);
+    var output: ContentOutput;
+    output.reference = reference;
+    output.atlas = vec2(0.0);
+    output.color = vec4(0.0);
+    output.clip = 0u;
+    if (reference & DRAW_MESH) != 0u {
+        let primitive = mesh_data[index];
+        let vertex = mesh_data[primitive[vertex_index]];
+        let color = unpack4x8unorm(vertex.z);
+        pixel = bitcast<vec2<f32>>(vertex.xy);
+        output.color = vec4(color.rgb * color.a, color.a);
+        output.clip = vertex.w;
+    } else if (reference & DRAW_TEXT) != 0u {
+        let glyph = glyphs[index];
+        let color = unpack4x8unorm(glyph.color);
+        pixel = glyph.draw.xy + glyph.draw.zw * corner;
+        output.atlas = vec2<f32>(glyph.atlas) + glyph.draw.zw * corner;
+        output.color = vec4(color.rgb * color.a, color.a);
+        output.clip = glyph.clip;
+    } else {
+        let draw = instances[index].draw;
+        pixel = draw.xy + draw.zw * corner;
+    }
     output.position = vec4(pixel * frame.transform.xy + frame.transform.zw, 0.0, 1.0);
-    output.atlas = vec2<f32>(atlas) + draw.zw * corner;
-    output.color = vec4(color.rgb * color.a, color.a);
-    output.clip = clip;
     return output;
 }
 
@@ -279,9 +309,26 @@ fn clear(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 @fragment
-fn shape(input: VertexOutput) -> @location(0) vec4<f32> {
-    let instance = instances[input.instance];
+fn content(input: ContentOutput) -> @location(0) vec4<f32> {
     let position = input.position.xy;
+    if (input.reference & DRAW_MESH) != 0u {
+        let coverage = clip_coverage(position, input.clip);
+        if coverage <= 0.0 {
+            discard;
+        }
+        return input.color * coverage;
+    }
+
+    if (input.reference & DRAW_TEXT) != 0u {
+        let coverage = textureLoad(image_texture, vec2<i32>(floor(input.atlas)), 0).r
+            * clip_coverage(position, input.clip);
+        if coverage <= 0.0 {
+            discard;
+        }
+        return input.color * coverage;
+    }
+
+    let instance = instances[input.reference & DRAW_INDEX];
     if instance.data.w == OUTSET_SHADOW || instance.data.w == INSET_SHADOW {
         var coverage = 0.0;
         if instance.data.w == OUTSET_SHADOW {
@@ -381,15 +428,4 @@ fn image(input: VertexOutput) -> @location(0) vec4<f32> {
         color = instance.inner_color * color.a;
     }
     return color * instance.params.z * coverage;
-}
-
-@fragment
-fn text(input: TextVertexOutput) -> @location(0) vec4<f32> {
-    let position = input.position.xy;
-    let coverage = textureLoad(image_texture, vec2<i32>(floor(input.atlas)), 0).r
-        * clip_coverage(position, input.clip);
-    if coverage <= 0.0 {
-        discard;
-    }
-    return input.color * coverage;
 }

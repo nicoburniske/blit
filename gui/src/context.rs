@@ -5,7 +5,7 @@ use blit_widgets::performance::FrameProfiler;
 
 use crate::{
     TextSystem,
-    display_list::{BoxShadow, ClipId, DisplayList, Rectangle, TextPalette},
+    display_list::{BoxShadow, ClipId, DisplayList, Mesh, Rectangle, TextPalette},
     image::{ImageData, ImageHandle, ImageId, ImageRequest},
     text::{Span, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
@@ -103,6 +103,11 @@ impl GuiContext {
     pub fn paint_shadow(&mut self, shadow: BoxShadow) {
         let bounds = shadow.bounds().to_physical(self.scale);
         self.display_list.push_box_shadow(shadow, bounds, self.clip);
+    }
+
+    pub fn paint_mesh(&mut self, mesh: Mesh<'_>) {
+        let bounds = mesh.bounds.to_physical(self.scale);
+        self.display_list.push_mesh(mesh, bounds, self.clip);
     }
 
     pub fn set_scale(&mut self, scale: f32) {
