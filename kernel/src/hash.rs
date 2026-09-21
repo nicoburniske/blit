@@ -1,7 +1,4 @@
-// adapted from rustc-hash 2.1.3 by The Rust Project Developers
-// algorithm by Orson Peters
-// https://docs.rs/crate/rustc-hash/2.1.3/source/src/lib.rs
-// distributed under the MIT license in the repository root
+// adapted from rustc-hash 2.1.3, algorithm by Orson Peters
 
 use std::hash::Hasher;
 

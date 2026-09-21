@@ -5,7 +5,7 @@ use std::simd::f32x4;
 use blit_text::FontFace;
 use ttf_parser::{OutlineBuilder, Rect};
 
-// adapted from the femtofont and fontdue rasterizer
+// adapted from femtofont 0.5.0 and fontdue 0.9.3
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Metrics {
