@@ -13,6 +13,7 @@ pub struct CachedGlyph {
 pub struct GlyphCache {
     glyphs: DeferredCache<GlyphKey, CachedGlyph, GlyphScale>,
     rasterizer: Rasterizer,
+    phase_scale: f32,
 }
 
 struct GlyphScale;
@@ -24,10 +25,11 @@ impl Scale<GlyphKey, CachedGlyph> for GlyphScale {
 }
 
 impl GlyphCache {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(capacity: usize, phase_scale: f32) -> Self {
         Self {
             glyphs: DeferredCache::new(GlyphScale, capacity),
             rasterizer: Rasterizer::default(),
+            phase_scale,
         }
     }
 
@@ -45,13 +47,21 @@ impl GlyphCache {
             size,
             phase,
         };
-        let Self { glyphs, rasterizer } = self;
+        let Self {
+            glyphs,
+            rasterizer,
+            phase_scale,
+        } = self;
         let (_, index) = glyphs.get_or_insert(key, |key| {
             let face = text
                 .font_face(key.face)
                 .expect("text backend returned an unknown font");
-            let (metrics, alpha) =
-                rasterizer.rasterize(face, key.glyph, f32::from_bits(key.size), key.phase);
+            let (metrics, alpha) = rasterizer.rasterize(
+                face,
+                key.glyph,
+                f32::from_bits(key.size),
+                key.phase as f32 * *phase_scale,
+            );
             (
                 key,
                 CachedGlyph {

@@ -16,7 +16,7 @@ use blit_gui::{
     display_list::{BoxShadow, Command, DisplayList, Rectangle},
     image::{ImageData, ImageFormat, ImageHandle, ImageId, ImageRequest},
     style::Border,
-    text::TextRequest,
+    text::{TextPhases, TextRequest},
 };
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
@@ -35,6 +35,7 @@ pub struct RendererConfig {
     pub paint_cache_capacity: usize,
     pub glyph_cache_capacity: usize,
     pub shadow_cache_capacity: usize,
+    pub text_phases: TextPhases,
 }
 
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {

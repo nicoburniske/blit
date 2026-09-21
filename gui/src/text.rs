@@ -2,6 +2,15 @@ use crate::color::Color;
 use blit::geometry::LogicalRect;
 pub use blit_text::FontStyle;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TextPhases {
+    One = 1,
+    Two = 2,
+    #[default]
+    Four = 4,
+}
+
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Span<'a> {

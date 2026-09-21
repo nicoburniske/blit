@@ -13,6 +13,7 @@ use blit_text::FontFaceId;
 pub struct TextRenderer {
     paints: DeferredCache<PaintKey, CachedPaint, PaintScale>,
     glyphs: GlyphCache,
+    phase_count: i32,
     prepared: Vec<PreparedGlyph>,
     runs: Vec<PreparedRun>,
     coverage: Vec<u8>,
@@ -95,9 +96,11 @@ impl PreparedRuns {
 
 impl TextRenderer {
     pub fn new(config: &RendererConfig) -> Self {
+        let phase_count = config.text_phases as i32;
         Self {
             paints: DeferredCache::new(PaintScale, config.paint_cache_capacity),
-            glyphs: GlyphCache::new(config.glyph_cache_capacity),
+            glyphs: GlyphCache::new(config.glyph_cache_capacity, 1.0 / phase_count as f32),
+            phase_count,
             prepared: Vec::new(),
             runs: Vec::new(),
             coverage: Vec::new(),
@@ -122,6 +125,8 @@ impl TextRenderer {
             horizontal_align: request.options.horizontal_align,
             vertical_align: request.options.vertical_align,
         };
+        let phase_count = self.phase_count;
+        let phase_scale = 1.0 / phase_count as f32;
         let glyphs = &mut self.glyphs;
         let (_, paint_index) = self.paints.get_or_insert(key, |key| {
             let mut paint = CachedPaint {
@@ -142,11 +147,12 @@ impl TextRenderer {
                     &resolved.layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize]
                 {
                     let x = (glyph.position.x + offset.x - request.offset_x) * scale_factor;
-                    let x_quarters = (x * 4.0).round() as i32;
-                    let phase = x_quarters.rem_euclid(4) as u8;
+                    let x_phases = (x * phase_count as f32).round() as i32;
+                    let phase = x_phases.rem_euclid(phase_count) as u8;
                     let cached = glyphs.glyph(&resolved, run.face, glyph.id, size, phase);
                     let cached = glyphs.get(cached);
-                    let x = (x_quarters as f32 * 0.25 + cached.metrics.bounds.xmin).floor() as i32;
+                    let x =
+                        (x_phases as f32 * phase_scale + cached.metrics.bounds.xmin).floor() as i32;
                     let y = ((glyph.position.y + offset.y) * scale_factor
                         + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin).floor())
                     .round() as i32;

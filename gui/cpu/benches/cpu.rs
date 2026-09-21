@@ -13,7 +13,7 @@ use blit_gui::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
     style::{Border, BorderRadius, GradientStop, LinearGradient},
-    text::{FontId, TextOptions, TextRequest, TextStyle, TextWrap},
+    text::{FontId, TextOptions, TextPhases, TextRequest, TextStyle, TextWrap},
 };
 use divan::counter::ItemsCount;
 
@@ -634,6 +634,7 @@ where
             paint_cache_capacity: 512 * 1024,
             glyph_cache_capacity: 512 * 1024,
             shadow_cache_capacity,
+            text_phases: TextPhases::Four,
         },
     )
     .strategy(strategy);

@@ -50,9 +50,9 @@ impl Rasterizer {
         font: &FontFace,
         glyph: u16,
         size: f32,
-        phase: u8,
+        offset_x: f32,
     ) -> (Metrics, Vec<u8>) {
-        debug_assert!(phase < 4, "invalid horizontal raster phase");
+        debug_assert!((0.0..1.0).contains(&offset_x));
         let face = match ttf_parser::Face::parse(font.data.as_ref(), font.face_index) {
             Ok(face) => face,
             Err(_) => panic!("text backend returned invalid font"),
@@ -71,7 +71,7 @@ impl Rasterizer {
             width: (bounds.x_max - bounds.x_min) as f32 * scale,
             height: (bounds.y_max - bounds.y_min) as f32 * scale,
         };
-        let mut offset_x = (outline_bounds.xmin + phase as f32 * 0.25).fract();
+        let mut offset_x = (outline_bounds.xmin + offset_x).fract();
         let mut offset_y =
             (1.0 - outline_bounds.height.fract() - outline_bounds.ymin.fract()).fract();
         if offset_x < 0.0 {

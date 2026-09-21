@@ -10,6 +10,7 @@ use blit_gui::{
     display_list::Command,
     image::{ImageFormat, ImageHandle, ImageId, ImageSampling, ImageTiling, prepare_image_patches},
     style::{Border, BorderRadius},
+    text::TextPhases,
 };
 use bytemuck::{Pod, Zeroable};
 
@@ -28,6 +29,7 @@ const DRAW_MESH: u32 = 1 << 30;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RendererConfig {
     pub clear_color: Color,
+    pub text_phases: TextPhases,
 }
 
 pub struct Renderer {
@@ -57,6 +59,7 @@ pub struct Renderer {
     batches: Vec<Batch>,
     images: HashMap<ImageId, StoredImage>,
     glyphs: text::GlyphAtlas,
+    text_phase_count: i32,
     empty_texture: wgpu::BindGroup,
     upload: Vec<u8>,
 }
@@ -279,7 +282,12 @@ impl Renderer {
             &mesh_buffer,
         );
         let clear_color = premultiplied(config.clear_color, 1.0);
-        let glyphs = text::GlyphAtlas::new(&device, texture_bind_group_layout.clone());
+        let text_phase_count = config.text_phases as i32;
+        let glyphs = text::GlyphAtlas::new(
+            &device,
+            texture_bind_group_layout.clone(),
+            1.0 / text_phase_count as f32,
+        );
         let empty_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("blit gpu empty texture"),
             size: wgpu::Extent3d {
@@ -336,6 +344,7 @@ impl Renderer {
             batches: Vec::new(),
             images: HashMap::new(),
             glyphs,
+            text_phase_count,
             empty_texture,
             upload: Vec::new(),
         }
@@ -825,6 +834,8 @@ impl Renderer {
                     Pipeline::Image(request.image)
                 }
                 Command::Text(request, colors) => {
+                    let phase_count = self.text_phase_count;
+                    let phase_scale = 1.0 / phase_count as f32;
                     let area = request.area.to_physical(Scale2::uniform(scale));
                     let Some(visible_area) = area
                         .intersection(record.bounds)
@@ -850,8 +861,8 @@ impl Renderer {
                             [run.glyphs.start as usize..run.glyphs.end as usize]
                         {
                             let x = (glyph.position.x + offset.x - request.offset_x) * scale;
-                            let x_quarters = (x * 4.0).round() as i32;
-                            let phase = x_quarters.rem_euclid(4) as u8;
+                            let x_phases = (x * phase_count as f32).round() as i32;
+                            let phase = x_phases.rem_euclid(phase_count) as u8;
                             let cached = self.glyphs.glyph(
                                 &self.device,
                                 &self.queue,
@@ -868,8 +879,8 @@ impl Renderer {
                             if width == 0 || height == 0 {
                                 continue;
                             }
-                            let x = (x_quarters as f32 * 0.25 + cached.metrics.bounds.xmin).floor()
-                                as i32;
+                            let x = (x_phases as f32 * phase_scale + cached.metrics.bounds.xmin)
+                                .floor() as i32;
                             let y = ((glyph.position.y + offset.y) * scale
                                 + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin)
                                     .floor())

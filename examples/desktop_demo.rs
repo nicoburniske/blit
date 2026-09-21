@@ -18,8 +18,8 @@ use blit_gui::{
     layout::{Align, flex, grid, single, wrap},
     style::{Border, BorderRadius},
     text::{
-        FontId, FontStyle, HorizontalAlign, Span, TextOptions, TextOverflow, TextStyle, TextWrap,
-        VerticalAlign,
+        FontId, FontStyle, HorizontalAlign, Span, TextOptions, TextOverflow, TextPhases, TextStyle,
+        TextWrap, VerticalAlign,
     },
     widget::{
         Performance, RichText, Text, TextInput, performance, popover, resize, scroll_area,
@@ -34,12 +34,16 @@ pub fn run(text: impl TextLayoutEngine) {
         .map(|data| FontData::Shared(data.into()))
         .collect();
     #[cfg(feature = "gpu")]
-    let graphics = Box::new(gpu::Backend::new(gpu::Config::default()));
+    let graphics = Box::new(gpu::Backend::new(gpu::Config {
+        text_phases: TextPhases::Four,
+        ..Default::default()
+    }));
     #[cfg(not(feature = "gpu"))]
     let graphics = Box::new(cpu::Backend::new(cpu::Config {
         paint_cache_capacity: 2 * 1024 * 1024,
         glyph_cache_capacity: 1024 * 1024,
         shadow_cache_capacity: 512 * 1024,
+        text_phases: TextPhases::Four,
     }));
     blit_desktop::run::<App>(Config {
         title: "Blit layout playground".into(),

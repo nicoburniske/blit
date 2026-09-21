@@ -9,7 +9,7 @@ use blit_gui::{
     FontData, FontFamily, TextConfig, TextSystem,
     color::Color,
     display_list::{ClipId, DisplayList, Rectangle},
-    text::FontId,
+    text::{FontId, TextPhases},
 };
 
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
@@ -46,6 +46,7 @@ fn main() {
             paint_cache_capacity: 1,
             glyph_cache_capacity: 1,
             shadow_cache_capacity: 0,
+            text_phases: TextPhases::Four,
         },
     )
     .strategy(Scanline::default());

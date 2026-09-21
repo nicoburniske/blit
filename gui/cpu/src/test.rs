@@ -18,8 +18,8 @@ use blit_gui::{
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::FontId,
     text::{
-        HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle,
-        TextWrap, VerticalAlign,
+        HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextPhases, TextRequest, TextRunId,
+        TextStyle, TextWrap, VerticalAlign,
     },
 };
 use blit_text::{
@@ -94,6 +94,7 @@ fn renderer_config() -> RendererConfig {
         paint_cache_capacity: 1024 * 1024,
         glyph_cache_capacity: 1024 * 1024,
         shadow_cache_capacity: 1024 * 1024,
+        text_phases: TextPhases::Four,
     }
 }
 

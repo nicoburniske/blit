@@ -19,6 +19,7 @@ pub struct GlyphAtlas {
     frame: u64,
     bytes: u64,
     max_size: u32,
+    phase_scale: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -51,7 +52,7 @@ struct GlyphKey {
 }
 
 impl GlyphAtlas {
-    pub fn new(device: &wgpu::Device, layout: wgpu::BindGroupLayout) -> Self {
+    pub fn new(device: &wgpu::Device, layout: wgpu::BindGroupLayout, phase_scale: f32) -> Self {
         Self {
             layout,
             pages: Vec::new(),
@@ -61,6 +62,7 @@ impl GlyphAtlas {
             frame: 0,
             bytes: 0,
             max_size: device.limits().max_texture_dimension_2d,
+            phase_scale,
         }
     }
 
@@ -122,7 +124,9 @@ impl GlyphAtlas {
             .font_face(face)
             .expect("text backend returned an unknown font");
         let size = size_eighths as f32 / SIZE_QUANTIZATION;
-        let (metrics, alpha) = self.rasterizer.rasterize(face, glyph, size, phase);
+        let (metrics, alpha) =
+            self.rasterizer
+                .rasterize(face, glyph, size, phase as f32 * self.phase_scale);
         if metrics.width == 0 || metrics.height == 0 {
             let glyph = Glyph {
                 metrics,
@@ -329,7 +333,7 @@ mod tests {
                 count: None,
             }],
         });
-        let mut atlas = GlyphAtlas::new(&device, layout.clone());
+        let mut atlas = GlyphAtlas::new(&device, layout.clone(), 0.25);
         atlas.begin_frame();
 
         let size = [PAGE_SIZE * 4; 2];
