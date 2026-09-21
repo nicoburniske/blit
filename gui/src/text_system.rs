@@ -352,7 +352,9 @@ impl TextSystem {
         };
         let len = spans.iter().map(|span| span.text.len()).sum();
         let next_text = self.next_text;
+        let mut inserted = false;
         let (_, index) = self.texts.get_or_insert(query, |query| {
+            inserted = true;
             let (text, spans) = if query.spans.len() == 1 {
                 (
                     query.spans[0].text.into(),
@@ -379,7 +381,7 @@ impl TextSystem {
                 },
             )
         });
-        if self.texts.get_index(index).id.0 as u32 == 0 {
+        if inserted {
             let slot = u32::try_from(index + 1).expect("too many cached texts");
             self.texts
                 .update_index(index, |text| text.id.0 |= u64::from(slot));
