@@ -40,6 +40,7 @@ struct PaintGlyph {
     face: FontFaceId,
     glyph: u16,
     size: u32,
+    phase: u8,
     x: i32,
     y: i32,
 }
@@ -140,11 +141,12 @@ impl TextRenderer {
                 for glyph in
                     &resolved.layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize]
                 {
-                    let cached = glyphs.glyph(&resolved, run.face, glyph.id, size);
+                    let x = (glyph.position.x + offset.x - request.offset_x) * scale_factor;
+                    let x_quarters = (x * 4.0).round() as i32;
+                    let phase = x_quarters.rem_euclid(4) as u8;
+                    let cached = glyphs.glyph(&resolved, run.face, glyph.id, size, phase);
                     let cached = glyphs.get(cached);
-                    let x = ((glyph.position.x + offset.x - request.offset_x) * scale_factor
-                        + cached.metrics.bounds.xmin.floor())
-                    .round() as i32;
+                    let x = (x_quarters as f32 * 0.25 + cached.metrics.bounds.xmin).floor() as i32;
                     let y = ((glyph.position.y + offset.y) * scale_factor
                         + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin).floor())
                     .round() as i32;
@@ -167,6 +169,7 @@ impl TextRenderer {
                         face: run.face,
                         glyph: glyph.id,
                         size,
+                        phase,
                         x,
                         y,
                     });
@@ -202,9 +205,9 @@ impl TextRenderer {
         let paint = self.paints.get_index(paint_index);
         let glyph_start = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
         for glyph in &paint.glyphs {
-            let cached = self
-                .glyphs
-                .glyph(&resolved, glyph.face, glyph.glyph, glyph.size);
+            let cached =
+                self.glyphs
+                    .glyph(&resolved, glyph.face, glyph.glyph, glyph.size, glyph.phase);
             let cached = self.glyphs.get(cached);
             self.prepared.push(PreparedGlyph {
                 alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),

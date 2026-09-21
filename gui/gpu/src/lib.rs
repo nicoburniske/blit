@@ -849,6 +849,9 @@ impl Renderer {
                         for glyph in &resolved.layout.glyphs
                             [run.glyphs.start as usize..run.glyphs.end as usize]
                         {
+                            let x = (glyph.position.x + offset.x - request.offset_x) * scale;
+                            let x_quarters = (x * 4.0).round() as i32;
+                            let phase = x_quarters.rem_euclid(4) as u8;
                             let cached = self.glyphs.glyph(
                                 &self.device,
                                 &self.queue,
@@ -856,6 +859,7 @@ impl Renderer {
                                 run.face,
                                 glyph.id,
                                 size,
+                                phase,
                             );
                             let width =
                                 i32::try_from(cached.metrics.width).expect("glyph is too wide");
@@ -864,9 +868,8 @@ impl Renderer {
                             if width == 0 || height == 0 {
                                 continue;
                             }
-                            let x = ((glyph.position.x + offset.x - request.offset_x) * scale
-                                + cached.metrics.bounds.xmin.floor())
-                            .round() as i32;
+                            let x = (x_quarters as f32 * 0.25 + cached.metrics.bounds.xmin).floor()
+                                as i32;
                             let y = ((glyph.position.y + offset.y) * scale
                                 + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin)
                                     .floor())

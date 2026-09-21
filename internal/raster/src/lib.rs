@@ -45,7 +45,14 @@ impl Default for Rasterizer {
 }
 
 impl Rasterizer {
-    pub fn rasterize(&mut self, font: &FontFace, glyph: u16, size: f32) -> (Metrics, Vec<u8>) {
+    pub fn rasterize(
+        &mut self,
+        font: &FontFace,
+        glyph: u16,
+        size: f32,
+        phase: u8,
+    ) -> (Metrics, Vec<u8>) {
+        debug_assert!(phase < 4, "invalid horizontal raster phase");
         let face = match ttf_parser::Face::parse(font.data.as_ref(), font.face_index) {
             Ok(face) => face,
             Err(_) => panic!("text backend returned invalid font"),
@@ -64,7 +71,7 @@ impl Rasterizer {
             width: (bounds.x_max - bounds.x_min) as f32 * scale,
             height: (bounds.y_max - bounds.y_min) as f32 * scale,
         };
-        let mut offset_x = outline_bounds.xmin.fract();
+        let mut offset_x = (outline_bounds.xmin + phase as f32 * 0.25).fract();
         let mut offset_y =
             (1.0 - outline_bounds.height.fract() - outline_bounds.ymin.fract()).fract();
         if offset_x < 0.0 {
@@ -104,7 +111,8 @@ impl Rasterizer {
         let mut height = 0.0;
         for coverage in &self.coverage[..pixels] {
             height += coverage;
-            alpha.push((height.abs() * 255.9).clamp(0.0, 255.0) as u8);
+            let coverage = (height.abs() * 255.9).clamp(0.0, 255.0) as usize;
+            alpha.push(COVERAGE[coverage]);
         }
         (metrics, alpha)
     }
@@ -501,3 +509,14 @@ struct Aabb {
     left: f32,
     top: f32,
 }
+
+const COVERAGE: [u8; 256] = {
+    let mut table = [0; 256];
+    let mut index = 0;
+    while index < table.len() {
+        let coverage = index as u32;
+        table[index] = (coverage + coverage * (255 - coverage) / (2 * 255)) as u8;
+        index += 1;
+    }
+    table
+};

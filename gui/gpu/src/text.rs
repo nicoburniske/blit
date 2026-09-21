@@ -47,6 +47,7 @@ struct GlyphKey {
     face: FontFaceId,
     glyph: u16,
     size_eighths: u32,
+    phase: u8,
 }
 
 impl GlyphAtlas {
@@ -99,12 +100,14 @@ impl GlyphAtlas {
         face: FontFaceId,
         glyph: u16,
         size: f32,
+        phase: u8,
     ) -> Glyph {
         let size_eighths = (size * SIZE_QUANTIZATION).round().max(0.0) as u32;
         let key = GlyphKey {
             face,
             glyph,
             size_eighths,
+            phase,
         };
         if let Some(cached) = self.glyphs.get_mut(&key) {
             cached.last_used = self.frame;
@@ -119,7 +122,7 @@ impl GlyphAtlas {
             .font_face(face)
             .expect("text backend returned an unknown font");
         let size = size_eighths as f32 / SIZE_QUANTIZATION;
-        let (metrics, alpha) = self.rasterizer.rasterize(face, glyph, size);
+        let (metrics, alpha) = self.rasterizer.rasterize(face, glyph, size, phase);
         if metrics.width == 0 || metrics.height == 0 {
             let glyph = Glyph {
                 metrics,
@@ -368,6 +371,7 @@ mod tests {
                 face: FontFaceId::default(),
                 glyph: 1,
                 size_eighths: 128,
+                phase: 0,
             },
             CachedGlyph {
                 glyph: Glyph {
@@ -388,6 +392,7 @@ mod tests {
                 face: FontFaceId::default(),
                 glyph: 2,
                 size_eighths: 128,
+                phase: 0,
             },
             CachedGlyph {
                 glyph: Glyph {
