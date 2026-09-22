@@ -1,0 +1,10 @@
+[package]
+name = "blit-raster"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+blit-text.workspace = true
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }

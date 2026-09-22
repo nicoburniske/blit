@@ -8,6 +8,7 @@
   outputs = { fenix, nixpkgs, ... }:
     let
       systems = [
+        "aarch64-darwin"
         "aarch64-linux"
         "x86_64-linux"
       ];
@@ -16,7 +17,7 @@
       devShells = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system};
         in {
-          default = pkgs.mkShell {
+          default = pkgs.mkShell ({
             packages = [
               (fenix.packages.${system}.complete.withComponents [
                 "cargo"
@@ -29,6 +30,7 @@
               fenix.packages.${system}.rust-analyzer
             ];
             BLIT_TEST_FONT = "${pkgs.mononoki}/share/fonts/opentype/mononoki-Regular.otf";
+          } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (with pkgs; [
               libxkbcommon
               wayland
@@ -36,8 +38,9 @@
               libxcursor
               libxi
               libxrandr
+              vulkan-loader
             ]);
-          };
+          });
         });
     };
 }

@@ -67,7 +67,9 @@ pub fn build<C, I, F, X, T, H>(
     let content = move |ui: Ui<'_, C>| {
         let mut list = ui.layout(layout);
         for (offset, value) in items.enumerate() {
-            item(list.child(first + offset), value);
+            list.child()
+                .item(first + offset)
+                .build(|ui: Ui<'_, C>| item(ui, value));
         }
     };
     let (track, thumb) = scrollbar(thumb_active);
@@ -122,10 +124,6 @@ impl<C> Layout<C> for ListLayout {
             Axis::Horizontal => Size::new(self.total_extent, cross_extent),
             Axis::Vertical => Size::new(cross_extent, self.total_extent),
         })
-    }
-
-    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-        false
     }
 }
 

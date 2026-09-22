@@ -36,16 +36,16 @@ where
 }
 ```
 
-children require their parent layout's item
+children reject another layout's item
 
 ```compile_fail
 use blit::*;
 
-fn omit_layout_item<C, L>(mut ui: Ui<'_, C, state::Open<L>>)
+fn wrong_layout_item<C, L>(mut ui: Ui<'_, C, state::Open<L>>)
 where
     L: Layout<C>,
 {
-    ui.child(());
+    ui.child().item(());
 }
 ```
 

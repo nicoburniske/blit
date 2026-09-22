@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 mod glyph;
 mod pixel;
-mod raster;
 mod render;
 mod strategy;
 mod text;
@@ -17,12 +16,12 @@ use blit_gui::{
     display_list::{BoxShadow, Command, DisplayList, Rectangle},
     image::{ImageData, ImageFormat, ImageHandle, ImageId, ImageRequest},
     style::Border,
-    text::TextRequest,
+    text::{TextPhases, TextRequest},
 };
 pub use pixel::{
     Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
 };
-use render::{image as render_image, image_patch::AlphaRows, rectangle, shadow};
+use render::{image as render_image, image_patch::AlphaRows, rectangle, shadow, triangle};
 pub use strategy::{Direct, RenderStrategy, Scanline};
 use strategy::{
     clip::ClipStack,
@@ -33,9 +32,25 @@ const MAX_DAMAGE: usize = 32;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RendererConfig {
+    /// maximum retained text paint data in bytes
     pub paint_cache_capacity: usize,
+    /// maximum retained rasterized glyph data in bytes
     pub glyph_cache_capacity: usize,
+    /// maximum retained shadow masks in bytes
     pub shadow_cache_capacity: usize,
+    /// cached horizontal positions for grayscale glyph rasterization
+    pub text_phases: TextPhases,
+}
+
+impl Default for RendererConfig {
+    fn default() -> Self {
+        Self {
+            paint_cache_capacity: 2 * 1024 * 1024,
+            glyph_cache_capacity: 1024 * 1024,
+            shadow_cache_capacity: 512 * 1024,
+            text_phases: TextPhases::default(),
+        }
+    }
 }
 
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
@@ -494,6 +509,23 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                     }
                     Command::BoxShadow(shadow) => {
                         self.prepare_box_shadow(&shadow, record.bounds, record.clip.0)
+                    }
+                    Command::Mesh(mesh) => {
+                        for indices in mesh.indices.as_chunks::<3>().0 {
+                            let vertices = indices.map(|index| mesh.vertices[index as usize]);
+                            if let Some(triangle) = triangle::Prepared::new(vertices, self.scale)
+                                && let Some(bounds) = triangle.bounds.intersection(record.bounds)
+                                && damage
+                                    .iter()
+                                    .any(|damage| bounds.intersection(*damage).is_some())
+                            {
+                                self.context.commands.push_triangle(
+                                    triangle,
+                                    bounds,
+                                    record.clip.0,
+                                );
+                            }
+                        }
                     }
                     _ => {}
                 }

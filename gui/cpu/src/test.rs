@@ -4,22 +4,21 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering::Relaxed},
     },
-    time::Duration,
 };
 
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_gui::{
     FontData, FontFamily, GuiContext, RenderInput, TextConfig, TextSystem,
     color::Color,
-    display_list::{BoxShadow, ClipId, Command, DisplayList, Rectangle},
+    display_list::{BoxShadow, ClipId, Command, DisplayList, Mesh, MeshVertex, Rectangle},
     image::{
         ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
     },
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::FontId,
     text::{
-        HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle,
-        TextWrap, VerticalAlign,
+        HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextPhases, TextRequest, TextRunId,
+        TextStyle, TextWrap, VerticalAlign,
     },
 };
 use blit_text::{
@@ -94,6 +93,7 @@ fn renderer_config() -> RendererConfig {
         paint_cache_capacity: 1024 * 1024,
         glyph_cache_capacity: 1024 * 1024,
         shadow_cache_capacity: 1024 * 1024,
+        text_phases: TextPhases::Four,
     }
 }
 
@@ -111,7 +111,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> TestRenderer<B, S> {
         } = self.gui.render_input();
         self.render
             .render_damage(text, image_uploads, display_list, damage);
-        self.gui.finish_frame(Duration::ZERO);
+        self.gui.finish_frame();
     }
 
     fn set_scale(&mut self, scale: Scale2) {
@@ -274,6 +274,54 @@ fn renderer_supports_custom_pixel_layouts() {
 }
 
 #[test]
+fn mesh_interpolates_colors_without_shared_edge_overdraw() {
+    let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(16, 8), renderer_config())
+        .strategy(Scanline::default());
+    let bounds = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 16,
+        height: 8,
+    };
+    let color = Color::from_rgba8(255, 0, 0, 128);
+    let vertices = [
+        MeshVertex::new(0.0, 0.0, color),
+        MeshVertex::new(8.0, 0.0, color),
+        MeshVertex::new(0.0, 8.0, color),
+        MeshVertex::new(8.0, 8.0, color),
+        MeshVertex::new(8.0, 0.0, Color::from_rgba8(255, 0, 0, 255)),
+        MeshVertex::new(16.0, 0.0, Color::from_rgba8(0, 255, 0, 255)),
+        MeshVertex::new(8.0, 8.0, Color::from_rgba8(0, 0, 255, 255)),
+    ];
+    let mut paint = DisplayList::default();
+    paint.push_mesh(
+        Mesh {
+            vertices: &vertices,
+            indices: &[0, 1, 2, 2, 1, 3, 4, 5, 6],
+        },
+        Scale2::IDENTITY,
+        ClipId::default(),
+    );
+
+    renderer.render(&paint, &[bounds]);
+
+    let pixels = renderer.render.buffer().pixels();
+    assert!(
+        pixels
+            .chunks_exact(16)
+            .all(|row| row[..8].iter().all(|pixel| *pixel
+                == BgrPixel {
+                    red: 128,
+                    green: 0,
+                    blue: 0
+                }))
+    );
+    assert!(pixels[16 + 9].red > pixels[16 + 9].green);
+    assert!(pixels[16 + 13].green > pixels[16 + 13].red);
+    assert!(pixels[5 * 16 + 9].blue > pixels[5 * 16 + 9].red);
+}
+
+#[test]
 fn render_input_tracks_damage_and_invalidation() {
     let mut renderer = new_renderer(
         TrackingBuffer {
@@ -296,7 +344,7 @@ fn render_input_tracks_damage_and_invalidation() {
             ClipId::default(),
         );
         renderer.render.render(input);
-        renderer.gui.finish_frame(Duration::ZERO);
+        renderer.gui.finish_frame();
     };
 
     for _ in 0..2 {

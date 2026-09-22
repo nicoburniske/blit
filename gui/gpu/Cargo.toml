@@ -1,0 +1,25 @@
+[package]
+name = "blit-gpu"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+blit.workspace = true
+blit-gui.workspace = true
+blit-raster.workspace = true
+blit-text.workspace = true
+bytemuck = { version = "1", features = ["derive"] }
+wgpu = { workspace = true, features = ["std", "wgsl"] }
+
+[dev-dependencies]
+blit-executor.workspace = true
+blit-text-fontdue.workspace = true
+wgpu = { workspace = true, features = ["noop", "wgsl"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+wgpu = { workspace = true, features = ["vulkan"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+wgpu = { workspace = true, features = ["metal"] }

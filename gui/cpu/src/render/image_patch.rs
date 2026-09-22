@@ -3,7 +3,9 @@ use std::ops::Range;
 use blit::PhysicalRect;
 use blit_gui::{
     color::Color,
-    image::{ImageData, ImageFormat, ImageId, ImageRequest, ImageSampling, ImageTiling},
+    image::{
+        ImageData, ImageFormat, ImageId, ImagePatch, ImageRequest, ImageSampling, ImageTiling,
+    },
 };
 
 use crate::{Pixel, PremultipliedRgbaColor, Rgb8Pixel};
@@ -56,18 +58,9 @@ pub struct Prepared {
     scale_y: f32,
 }
 
-#[derive(Clone, Copy)]
-pub struct Patch {
-    pub source: PhysicalRect,
-    pub display: PhysicalRect,
-    pub bounds: PhysicalRect,
-    pub horizontal_tiling: ImageTiling,
-    pub vertical_tiling: ImageTiling,
-}
-
 impl Prepared {
-    pub fn new(request: &ImageRequest, patch: Patch, scale_factor: f32) -> Option<Self> {
-        let Patch {
+    pub fn new(request: &ImageRequest, patch: ImagePatch, scale_factor: f32) -> Option<Self> {
+        let ImagePatch {
             source,
             display,
             bounds,
@@ -107,10 +100,8 @@ impl Prepared {
         pixels_opaque
             && self.opacity == 255
             && self.source.intersection(texture.texture_rect) == Some(self.source)
-            && match self.colorize {
-                Some(color) => color.alpha == 255,
-                None => !matches!(texture.format, ImageFormat::Alpha8(color) if color.alpha != 255),
-            }
+            && self.colorize.is_none_or(|color| color.alpha == 255)
+            && !matches!(texture.format, ImageFormat::Alpha8(color) if color.alpha != 255)
     }
 
     pub fn has_opaque_spans(&self, texture: &ImageData, texture_has_opaque_spans: bool) -> bool {
@@ -193,11 +184,12 @@ impl Prepared {
                 return;
             }
             let source = source_row + source_x - texture_x;
-            let alpha = (pixels[source] as u16 * self.opacity as u16 / 255) as u8;
+            let (color, opacity) = self.alpha_color(color);
+            let alpha = (pixels[source] as u16 * opacity as u16 / 255) as u8;
             let start = (clipped.x - screen_x) as usize;
             P::blend_slice(
                 &mut row[start..start + clipped.width as usize],
-                PremultipliedRgbaColor::new(self.colorize.unwrap_or(color), alpha),
+                PremultipliedRgbaColor::new(color, alpha),
             );
             return;
         }
@@ -302,13 +294,13 @@ impl Prepared {
                 });
             }
             ImageFormat::Alpha8(color) => {
-                let color = self.colorize.unwrap_or(color);
+                let (color, opacity) = self.alpha_color(color);
                 self.for_each_nearest_x(row, clipped, screen_x, |destination, source_x| {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + source_x - texture_x;
                         destination.blend(PremultipliedRgbaColor::new(
                             color,
-                            (pixels[source] as u16 * self.opacity as u16 / 255) as u8,
+                            (pixels[source] as u16 * opacity as u16 / 255) as u8,
                         ));
                     }
                 });
@@ -426,12 +418,12 @@ impl Prepared {
                 }
                 ImageFormat::Alpha8(color) => {
                     let alpha = &pixels[source_offset..source_offset + len];
-                    let color = self.colorize.unwrap_or(color);
+                    let (color, opacity) = self.alpha_color(color);
                     let color = Color::from_rgba8(
                         color.red,
                         color.green,
                         color.blue,
-                        (color.alpha as u16 * self.opacity as u16 / 255) as u8,
+                        (color.alpha as u16 * opacity as u16 / 255) as u8,
                     );
                     let (visible_start, visible_end) = alpha_row.map_or((0, len), |row| {
                         (
@@ -609,6 +601,15 @@ impl Prepared {
         } else {
             source.clamp(0.0, self.source.height as f32 - 1.0)
         }
+    }
+
+    fn alpha_color(&self, color: Color) -> (Color, u8) {
+        self.colorize.map_or((color, self.opacity), |replacement| {
+            (
+                replacement,
+                (self.opacity as u16 * color.alpha as u16 / 255) as u8,
+            )
+        })
     }
 
     fn source_pixel(

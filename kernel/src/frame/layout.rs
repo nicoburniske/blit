@@ -4,9 +4,10 @@ use std::marker::PhantomData;
 use super::LayoutState;
 use super::{Frame, NodeId, StoredNode};
 use crate::{
+    TransitionProperties,
     arena::{DataArena, DataId},
     geometry::{Constraints, Point, Size},
-    layout::{Layout, LayoutResolution},
+    layout::{Axis, Layout, LayoutResolution, Sizing},
 };
 
 /// context for measuring and positioning a layout's children
@@ -16,6 +17,7 @@ pub struct LayoutCx<'a, C, I> {
     context: &'a mut C,
     node: NodeId,
     nodes: *const StoredNode,
+    default_item: DataId,
     item: PhantomData<fn() -> I>,
     first_child: NodeId,
     children_end: u32,
@@ -35,18 +37,49 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     }
 
     /// returns this layout's item for `child`
+    ///
+    /// children without explicit items share their layout type's default item
     #[inline]
     pub fn item(&self, child: NodeId) -> &'a I {
         self.assert_child(child);
-        self.data.load(self.frame.nodes[child.index()].item)
+        let id = self.frame.nodes[child.index()].item;
+        self.data.load(if id.offset().is_some() {
+            id
+        } else {
+            self.default_item
+        })
+    }
+
+    /// applies layout resolution and any animated override to `sizing`
+    #[inline]
+    pub fn resolve_sizing(&self, child: NodeId, axis: Axis, sizing: Sizing) -> Sizing {
+        let (width, height) = self.size_overrides(child);
+        let extent = match axis {
+            Axis::Horizontal => width,
+            Axis::Vertical => height,
+        };
+        if let Some(extent) = extent {
+            Sizing::fixed(extent)
+        } else {
+            self.frame.layout_resolution.sizing(axis, sizing)
+        }
     }
 
     /// lays out `child` and returns its size
     ///
+    /// animated size overrides replace the corresponding constraint axes
+    ///
     /// repeating this recomputes its subtree and requires positioning it again
-    pub fn layout_child(&mut self, child: NodeId, constraints: Constraints) -> Size {
-        #[cfg(debug_assertions)]
-        self.assert_child(child);
+    pub fn layout_child(&mut self, child: NodeId, mut constraints: Constraints) -> Size {
+        let (width, height) = self.size_overrides(child);
+        if let Some(width) = width {
+            constraints.min.width = width;
+            constraints.max.width = width;
+        }
+        if let Some(height) = height {
+            constraints.min.height = height;
+            constraints.max.height = height;
+        }
         let size = self
             .frame
             .layout_node(self.data, child, self.context, constraints);
@@ -80,7 +113,7 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     pub fn target_child_size(&self, child: NodeId) -> Size {
         let current = self.child_size(child);
         if !self.frame.target_sizes.is_empty() {
-            self.frame.target_sizes[child.index()]
+            self.frame.target_sizes[child.index()].size
         } else {
             current
         }
@@ -127,6 +160,29 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
         #[cfg(debug_assertions)]
         self.assert_child(child);
         self.frame.nodes[child.index()].z_index = z_index;
+    }
+}
+
+impl<C, I: 'static> LayoutCx<'_, C, I> {
+    #[inline]
+    fn size_overrides(&self, child: NodeId) -> (Option<f32>, Option<f32>) {
+        self.assert_child(child);
+        if self.frame.target_sizes.is_empty() {
+            return (None, None);
+        }
+        let current = self.frame.nodes[child.index()].area.size();
+        let target = self.frame.target_sizes[child.index()];
+        let res = self.frame.layout_resolution;
+        (
+            target
+                .properties
+                .intersects(TransitionProperties::WIDTH)
+                .then(|| res.extent(Axis::Horizontal, current.width)),
+            target
+                .properties
+                .intersects(TransitionProperties::HEIGHT)
+                .then(|| res.extent(Axis::Vertical, current.height)),
+        )
     }
 
     #[track_caller]
@@ -176,6 +232,9 @@ pub fn run<C, L: Layout<C>>(
 ) -> Size {
     let layout = data.load::<L>(id);
     let nodes = frame.nodes.as_ptr();
+    let stored = frame.nodes[node.index()].layout.index().unwrap();
+    let kind = frame.layouts[stored].kind as usize;
+    let default_item = frame.layout_kinds[kind].default_item;
     let first_child = frame.node_id(node.index() + 1);
     let children_end = frame.nodes[node.index()].subtree_end;
     let offset = frame.layout_offset(node);
@@ -185,6 +244,7 @@ pub fn run<C, L: Layout<C>>(
         context,
         node,
         nodes,
+        default_item,
         item: PhantomData,
         first_child,
         children_end,
@@ -209,17 +269,4 @@ pub fn run<C, L: Layout<C>>(
         "layout returned a size outside its constraints"
     );
     size
-}
-
-pub fn override_item<C, L: Layout<C>>(
-    data: &mut DataArena,
-    layout: DataId,
-    item: DataId,
-    width: Option<f32>,
-    height: Option<f32>,
-) -> bool {
-    let layout = data.load::<L>(layout) as *const L;
-    let item = data.load_mut::<L::Item>(item);
-    // safety: the layout and item occupy disjoint arena storage
-    unsafe { (&*layout).override_size(item, width, height) }
 }

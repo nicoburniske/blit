@@ -69,13 +69,15 @@ fn culls_only_atoms_with_disjoint_known_paint_bounds() {
             count: overflow.clone(),
             bounds_offset: Point::new(-4.0, 0.0),
         });
-        root.child(TestItem::fixed(1.0, 1.0)).build(|ui: Ui<'_>| {
-            let mut panel = ui.layout(Overlay).clip(DiamondClip);
-            panel.absolute(Absolute::at(1.0, 0.0)).insert(PaintCount {
-                count: clipped.clone(),
-                bounds_offset: Point::ZERO,
+        root.child()
+            .item(TestItem::fixed(1.0, 1.0))
+            .build(|ui: Ui<'_>| {
+                let mut panel = ui.layout(Overlay).clip(DiamondClip);
+                panel.absolute(Absolute::at(1.0, 0.0)).insert(PaintCount {
+                    count: clipped.clone(),
+                    bounds_offset: Point::ZERO,
+                });
             });
-        });
     });
 
     assert_eq!(culled.get(), 0);
@@ -89,7 +91,7 @@ fn leaf_atoms_measure_and_paint_in_order() {
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        root.child(TestItem::default()).build(|mut ui: Ui<'_>| {
+        root.child().build(|mut ui: Ui<'_>| {
             ui.insert(());
             ui.insert(FillContent);
             ui.insert(Fill::new('B', Size::new(1.0, 2.0)));
@@ -107,7 +109,7 @@ fn content_works_before_layout_on_current_and_fresh_nodes() {
         ui.insert(PreparedText("a"));
         let mut root = ui.layout(Overlay);
         root.insert(Pair('x', 'y'));
-        root.child(TestItem::default()).insert(PreparedText("b"));
+        root.child().insert(PreparedText("b"));
     });
 
     assert_eq!(context.prepared, 2);
@@ -120,7 +122,7 @@ fn empty_and_absolute_children_are_valid() {
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Column);
-        root.child(
+        root.child().item(
             TestItem::new(0.0)
                 .width(Sizing::grow())
                 .height(Sizing::grow()),
@@ -149,6 +151,66 @@ fn owned_frame_values_use_resolved_area_and_drop() {
 }
 
 #[test]
+fn default_children_share_one_item() {
+    struct SharedDefault {
+        children: Rc<Cell<usize>>,
+        default: Rc<Cell<Option<*const ()>>>,
+    }
+
+    impl Layout<AsciiContext> for SharedDefault {
+        type Item = Rc<()>;
+
+        fn layout(
+            &self,
+            cx: &mut LayoutCx<'_, AsciiContext, Rc<()>>,
+            constraints: Constraints,
+        ) -> Size {
+            let mut count = 0;
+            for child in cx.children() {
+                let item = Rc::as_ptr(cx.item(child));
+                if let Some(default) = self.default.get() {
+                    assert_eq!(item, default);
+                } else {
+                    self.default.set(Some(item));
+                }
+                cx.layout_child(child, Constraints::loose(constraints.max));
+                cx.set_child_position(child, Point::ZERO);
+                count += 1;
+            }
+            self.children.set(count);
+            constraints.min
+        }
+    }
+
+    let children = Rc::new(Cell::new(0));
+    let (mut frame, mut context) = frame(Size::uniform(4.0));
+    let id = WidgetId::new("shared default transition");
+
+    for (extent, time) in [
+        (1.0, Duration::ZERO),
+        (2.0, Duration::ZERO),
+        (2.0, Duration::from_millis(500)),
+    ] {
+        render_inputs(&mut frame, &mut context, time, [], |ui: Ui<'_>| {
+            let default = Rc::new(Cell::new(None));
+            let layout = || SharedDefault {
+                children: children.clone(),
+                default: default.clone(),
+            };
+            let mut root = ui.layout(layout());
+            root.child()
+                .widget_id(id)
+                .transition(Transition::new(Duration::from_secs(1)).size())
+                .insert(Fill::new('X', Size::uniform(extent)));
+            root.child().layout(layout()).child();
+            root.child();
+        });
+    }
+
+    assert_eq!(children.get(), 3);
+}
+
+#[test]
 fn resolves_named_anchors_and_clipping() {
     let (mut frame, mut context) = frame(Size::new(8.0, 5.0));
 
@@ -156,7 +218,7 @@ fn resolves_named_anchors_and_clipping() {
         let mut overlay = ui.layout(Overlay);
         let target = WidgetId::new("anchor");
         overlay
-            .child(TestItem::default())
+            .child()
             .widget_id(target)
             .insert(Fill::new('T', Size::uniform(2.0)));
         let mut absolute = overlay
@@ -179,11 +241,11 @@ fn resolves_named_anchors_and_clipping() {
     context = AsciiContext::new(info);
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        root.child(TestItem::default()).build(|ui: Ui<'_>| {
+        root.child().build(|ui: Ui<'_>| {
             let mut panel = ui.layout(Fixed(Size::uniform(3.0))).clip(DiamondClip);
             panel.insert(Fill::new('p', Size::ZERO));
             panel
-                .child(TestItem::default())
+                .child()
                 .parent(NodeTarget::Root)
                 .insert(Fill::new('L', Size::uniform(3.0)));
         });
@@ -192,7 +254,7 @@ fn resolves_named_anchors_and_clipping() {
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        root.child(TestItem::default()).build(|ui: Ui<'_>| {
+        root.child().build(|ui: Ui<'_>| {
             let panel_id = WidgetId::new("panel");
             let mut panel = ui
                 .layout(Fixed(Size::uniform(3.0)))
@@ -200,7 +262,7 @@ fn resolves_named_anchors_and_clipping() {
                 .clip(DiamondClip);
             panel.insert(Fill::new('p', Size::ZERO));
             panel
-                .child(TestItem::default())
+                .child()
                 .parent(panel_id)
                 .insert(Fill::new('L', Size::uniform(3.0)));
         });
@@ -310,11 +372,13 @@ fn paint_and_interaction_follow_visual_groups() {
                     .widget_id(ids[2])
                     .insert(Fill::new('M', Size::uniform(1.0)));
             }
-            root.child(TestItem::fixed(3.0, 1.0))
+            root.child()
+                .item(TestItem::fixed(3.0, 1.0))
                 .widget_id(canvas_id)
                 .build(|ui: Ui<'_>| {
                     ui.layout(Overlay)
-                        .child(TestItem::fixed(3.0, 1.0))
+                        .child()
+                        .item(TestItem::fixed(3.0, 1.0))
                         .build(|ui: Ui<'_>| {
                             let mut rect = ui.layout(Overlay);
                             let mut badge = rect.absolute(Absolute::at(0.0, 0.0)).widget_id(ids[1]);
@@ -393,10 +457,10 @@ fn transitions_relayout_animated_sizes() {
 }
 
 #[test]
-fn unsupported_size_transitions_finish_immediately() {
-    struct Unsupported;
+fn size_transitions_override_child_constraints() {
+    struct Loose;
 
-    impl<C> Layout<C> for Unsupported {
+    impl<C> Layout<C> for Loose {
         type Item = ();
 
         fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -405,14 +469,10 @@ fn unsupported_size_transitions_finish_immediately() {
             cx.set_child_position(child, Point::ZERO);
             constraints.constrain(size)
         }
-
-        fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-            false
-        }
     }
 
     let (mut frame, mut context) = frame(Size::uniform(4.0));
-    let id = WidgetId::new("unsupported transition");
+    let id = WidgetId::new("constraint transition");
     let mut render = |extent, time| {
         render_inputs(
             &mut frame,
@@ -420,20 +480,29 @@ fn unsupported_size_transitions_finish_immediately() {
             time,
             [Input::None],
             |ui: Ui<'_>| {
-                ui.layout(Unsupported)
-                    .child(())
+                ui.layout(Loose)
+                    .child()
                     .widget_id(id)
                     .transition(Transition::new(Duration::from_secs(1)).size())
                     .insert(Fill::new('X', Size::uniform(extent)));
             },
         );
+        (
+            frame.geometry(id).unwrap().size(),
+            frame.has_pending_redraw(),
+        )
     };
 
     render(1.0, Duration::ZERO);
-    render(2.0, Duration::ZERO);
-
-    assert_eq!(frame.geometry(id).unwrap().size(), Size::uniform(2.0));
-    assert!(!frame.has_pending_redraw());
+    assert_eq!(render(2.0, Duration::ZERO), (Size::uniform(1.0), true));
+    assert_eq!(
+        render(2.0, Duration::from_millis(500)),
+        (Size::uniform(1.5), true)
+    );
+    assert_eq!(
+        render(2.0, Duration::from_secs(1)),
+        (Size::uniform(2.0), false)
+    );
 }
 
 #[test]
@@ -505,11 +574,13 @@ fn resolves_places_and_content_offsets() {
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut overlay = ui.layout(Overlay).offset(Point::new(1.0, 0.0));
         overlay
-            .child(TestItem::fixed(3.0, 1.0))
+            .child()
+            .item(TestItem::fixed(3.0, 1.0))
             .widget_id(fixed)
             .insert(Fill::new('F', Size::uniform(1.0)));
         overlay
-            .child(
+            .child()
+            .item(
                 TestItem::default()
                     .width(Sizing::grow())
                     .height(Sizing::fixed(1.0)),
@@ -517,7 +588,8 @@ fn resolves_places_and_content_offsets() {
             .widget_id(grow)
             .insert(Fill::new('G', Size::uniform(1.0)));
         overlay
-            .child(
+            .child()
+            .item(
                 TestItem::default()
                     .width(Sizing::percent(0.25))
                     .height(Sizing::fixed(1.0)),
@@ -525,7 +597,8 @@ fn resolves_places_and_content_offsets() {
             .widget_id(percent)
             .insert(Fill::new('P', Size::uniform(1.0)));
         overlay
-            .child(
+            .child()
+            .item(
                 TestItem::default()
                     .width(Sizing::fit_range(0.0, 3.0))
                     .height(Sizing::fixed(1.0)),
@@ -547,7 +620,7 @@ fn absolute_places_position_against_the_target_and_size_against_the_parent() {
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut overlay = ui.layout(Overlay);
-        let target = overlay.child(TestItem::default()).build(|mut ui: Ui<'_>| {
+        let target = overlay.child().build(|mut ui: Ui<'_>| {
             ui.insert(Fill::new('T', Size::new(6.0, 2.0)));
             ui.id()
         });
@@ -589,12 +662,12 @@ fn targets_reject_invalid_references() {
         },
         |ui, _| {
             let mut root = ui.layout(Overlay);
-            let child = root.child(TestItem::default()).build(|ui: Ui<'_>| ui.id());
+            let child = root.child().build(|ui: Ui<'_>| ui.id());
             root.parent(child).insert(());
         },
         |ui, id| {
             let mut root = ui.layout(Overlay);
-            root.child(TestItem::default()).parent(id).insert(());
+            root.child().parent(id).insert(());
             root.widget_id(id).insert(());
         },
         |ui, id| {
@@ -606,13 +679,13 @@ fn targets_reject_invalid_references() {
         |ui, id| ui.widget_id(id).parent(id).insert(()),
         |ui, id| {
             let mut root = ui.layout(Overlay);
-            root.child(TestItem::default()).widget_id(id).insert(());
+            root.child().widget_id(id).insert(());
             root.parent(id).insert(());
         },
         |ui, id| {
             ui.widget_id(id)
                 .layout(Overlay)
-                .child(TestItem::default())
+                .child()
                 .widget_id(id)
                 .insert(());
         },
@@ -620,7 +693,7 @@ fn targets_reject_invalid_references() {
             ui.widget_id(id)
                 .widget_id(id.child("renamed"))
                 .layout(Overlay)
-                .child(TestItem::default())
+                .child()
                 .parent(id)
                 .insert(());
         },
@@ -656,7 +729,7 @@ fn node_targets_reject_previous_renders() {
                         root.absolute(Absolute::at(0.0, 0.0).relative_to(previous))
                             .insert(());
                     } else {
-                        root.child(TestItem::default()).parent(previous).insert(());
+                        root.child().parent(previous).insert(());
                     }
                 });
             }))
@@ -680,21 +753,18 @@ fn named_bindings_follow_each_build() {
             |ui: Ui<'_>| {
                 let mut root = ui.layout(Overlay);
                 for _ in 0..count {
-                    root.child(TestItem::default()).insert(());
+                    root.child().insert(());
                 }
                 if count == 0 {
                     return;
                 }
-                root.child(TestItem::default())
+                root.child()
                     .widget_id(a)
                     .widget_id(a)
                     .widget_id(b)
                     .insert(());
                 // renaming releases the old name for another node
-                root.child(TestItem::default())
-                    .widget_id(a)
-                    .parent(b)
-                    .insert(());
+                root.child().widget_id(a).parent(b).insert(());
                 root.absolute(Absolute::at(0.0, 0.0).relative_to(a))
                     .insert(());
             },
@@ -751,17 +821,16 @@ fn transition_scene(
 ) {
     render_inputs(frame, context, time, [Input::None], |ui: Ui<'_>| {
         let mut column = ui.layout(Column);
-        column.child(TestItem::new(0.0)).build(|ui: Ui<'_>| {
+        column.child().item(TestItem::new(0.0)).build(|ui: Ui<'_>| {
             let mut child = ui
                 .layout(Overlay)
                 .widget_id(id)
                 .transition(Transition::new(Duration::from_secs(1)).height());
-            child
-                .child(TestItem::default())
-                .insert(Fill::new('X', Size::new(1.0, height)));
+            child.child().insert(Fill::new('X', Size::new(1.0, height)));
         });
         column
-            .child(TestItem::new(0.0))
+            .child()
+            .item(TestItem::new(0.0))
             .insert(Fill::new('Y', Size::new(1.0, 1.0)));
     });
 }
@@ -778,13 +847,11 @@ fn unidentified_transition_scene(
         [Input::None],
         |ui: Ui<'_>| {
             let mut overlay = ui.layout(Overlay);
-            overlay.child(TestItem::default()).build(|ui: Ui<'_>| {
+            overlay.child().build(|ui: Ui<'_>| {
                 let mut child = ui
                     .layout(Overlay)
                     .transition(Transition::new(Duration::from_secs(1)).width());
-                child
-                    .child(TestItem::default())
-                    .insert(Fill::new('X', Size::new(width, 1.0)));
+                child.child().insert(Fill::new('X', Size::new(width, 1.0)));
             });
         },
     );
@@ -799,14 +866,12 @@ fn position_transition_scene(
 ) {
     render_inputs(frame, context, time, [Input::None], |ui: Ui<'_>| {
         let mut column = ui.layout(Column).offset(Point::new(0.0, 1.0));
-        column.child(TestItem::new(gap)).build(|ui: Ui<'_>| {
+        column.child().item(TestItem::new(gap)).build(|ui: Ui<'_>| {
             let mut child = ui
                 .layout(Overlay)
                 .widget_id(id)
                 .transition(Transition::new(Duration::from_secs(1)).y());
-            child
-                .child(TestItem::default())
-                .insert(Fill::new('X', Size::uniform(1.0)));
+            child.child().insert(Fill::new('X', Size::uniform(1.0)));
         });
     });
 }
@@ -814,11 +879,11 @@ fn position_transition_scene(
 fn clipped_button(mut ui: Ui<'_>, id: WidgetId) -> Interaction {
     let interaction = ui.interact(id, Sense::CLICK);
     let mut root = ui.layout(Overlay);
-    root.child(TestItem::default()).build(|ui: Ui<'_>| {
+    root.child().build(|ui: Ui<'_>| {
         let mut panel = ui.layout(Fixed(Size::new(3.0, 1.0))).clip(DiamondClip);
         panel.insert(Fill::new('P', Size::ZERO));
         panel
-            .child(TestItem::default())
+            .child()
             .widget_id(id)
             .insert(Fill::new('C', Size::new(5.0, 1.0)));
     });
@@ -828,16 +893,13 @@ fn clipped_button(mut ui: Ui<'_>, id: WidgetId) -> Interaction {
 fn scene(ui: Ui<'_>) {
     let mut column = ui.layout(Column);
     column
-        .child(TestItem::new(0.0))
+        .child()
+        .item(TestItem::new(0.0))
         .insert(Fill::new('A', Size::new(3.0, 1.0)));
-    column.child(TestItem::new(1.0)).build(|ui: Ui<'_>| {
+    column.child().item(TestItem::new(1.0)).build(|ui: Ui<'_>| {
         let mut panel = ui.layout(Overlay).clip(DiamondClip);
-        panel
-            .child(TestItem::default())
-            .insert(Fill::new('b', Size::new(5.0, 3.0)));
-        panel
-            .child(TestItem::default())
-            .insert(Fill::new('C', Size::uniform(1.0)));
+        panel.child().insert(Fill::new('b', Size::new(5.0, 3.0)));
+        panel.child().insert(Fill::new('C', Size::uniform(1.0)));
     });
 }
 
@@ -874,10 +936,6 @@ impl<C> Layout<C> for OwnedValue {
 
     fn layout(&self, _: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         constraints.min
-    }
-
-    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-        false
     }
 }
 
@@ -1040,16 +1098,6 @@ impl Default for TestItem {
     }
 }
 
-fn override_test_item(item: &mut TestItem, width: Option<f32>, height: Option<f32>) -> bool {
-    if let Some(extent) = width {
-        item.width = Sizing::fixed(extent);
-    }
-    if let Some(extent) = height {
-        item.height = Sizing::fixed(extent);
-    }
-    true
-}
-
 #[derive(Clone, Copy)]
 struct Column;
 
@@ -1073,15 +1121,6 @@ impl<C> Layout<C> for Column {
             y += cx.child_size(child).height;
         }
         size
-    }
-
-    fn override_size(
-        &self,
-        item: &mut Self::Item,
-        width: Option<f32>,
-        height: Option<f32>,
-    ) -> bool {
-        override_test_item(item, width, height)
     }
 }
 
@@ -1109,15 +1148,6 @@ impl<C> Layout<C> for Overlay {
         }
         size
     }
-
-    fn override_size(
-        &self,
-        item: &mut Self::Item,
-        width: Option<f32>,
-        height: Option<f32>,
-    ) -> bool {
-        override_test_item(item, width, height)
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -1133,15 +1163,6 @@ impl<C> Layout<C> for Fixed {
             cx.set_child_position(child, Point::ZERO);
         }
         size
-    }
-
-    fn override_size(
-        &self,
-        item: &mut Self::Item,
-        width: Option<f32>,
-        height: Option<f32>,
-    ) -> bool {
-        override_test_item(item, width, height)
     }
 }
 
@@ -1163,18 +1184,17 @@ fn resolve_child<C>(
         }
         Sizing::Percent(_) => 0.0,
     };
-    let res = cx.resolution();
     let intrinsic = cx.layout_child(child, Constraints::loose(available));
     let item = cx.item(child);
     let size = Size::new(
         resolve(
-            res.sizing(Axis::Horizontal, item.width),
+            cx.resolve_sizing(child, Axis::Horizontal, item.width),
             intrinsic.width,
             available.width,
             width_cross,
         ),
         resolve(
-            res.sizing(Axis::Vertical, item.height),
+            cx.resolve_sizing(child, Axis::Vertical, item.height),
             intrinsic.height,
             available.height,
             height_cross,

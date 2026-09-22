@@ -6,12 +6,17 @@ license.workspace = true
 publish = false
 autoexamples = false
 
+[features]
+default = ["cpu"]
+cpu = ["blit-desktop/cpu"]
+gpu = ["blit-desktop/gpu"]
+
 [lib]
 path = "demo.rs"
 
 [dependencies]
 blit.workspace = true
-blit-desktop = { path = "../desktop" }
+blit-desktop = { path = "../desktop", default-features = false }
 blit-gui.workspace = true
 blit-layout.workspace = true
 blit-text-cosmic.workspace = true

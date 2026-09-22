@@ -8,9 +8,15 @@ use crate::{
     interact::WidgetId,
 };
 
+/// resolves transitions against the frame's target layout
+///
+/// - layout first establishes target geometry
+/// - active size transitions write animated sizes into node geometry and replay layout
+/// - target sizes remain available for structural decisions such as wrapping
+/// - position transitions apply after layout without replay
 pub fn resolve<C>(
     frame: &mut Frame<C>,
-    data: &mut DataArena,
+    data: &DataArena,
     context: &mut C,
     size: Size,
     resized: bool,
@@ -50,6 +56,12 @@ pub fn resolve<C>(
     }
 
     if active.intersects(TransitionProperties::SIZE) {
+        frame
+            .target_sizes
+            .extend(frame.nodes.iter().map(|node| super::TargetSize {
+                size: node.area.size(),
+                properties: TransitionProperties::NONE,
+            }));
         let mut relayout = false;
         for index in 0..frame.transitions.len() {
             let state = &frame.transitions[index];
@@ -62,40 +74,25 @@ pub fn resolve<C>(
             if properties.is_empty() {
                 continue;
             }
-            if frame.nodes[node.index()].positioned.index().is_some() {
-                let geometry = frame.nodes[node.index()].geometry.index().unwrap();
-                frame.geometry[geometry].transition_size = current.size();
-                frame.geometry[geometry].transition_properties = properties;
-                relayout = true;
-                continue;
-            }
             let parent = frame.nodes[node.index()].parent;
             if parent == node {
                 frame.transitions[index].snap_size();
                 continue;
             }
-            let layout = frame.layouts[frame.nodes[parent.index()].layout.index().unwrap()];
-            let kind = layout.kind as usize;
-            let item = frame.nodes[node.index()].item;
-            let width = properties
-                .intersects(TransitionProperties::WIDTH)
-                .then_some(current.width);
-            let height = properties
-                .intersects(TransitionProperties::HEIGHT)
-                .then_some(current.height);
-            if (frame.layout_kinds[kind].override_size)(data, layout.data, item, width, height) {
-                relayout = true;
-            } else {
-                frame.transitions[index].snap_size();
+            let area = &mut frame.nodes[node.index()].area;
+            if properties.intersects(TransitionProperties::WIDTH) {
+                area.width = current.width;
             }
+            if properties.intersects(TransitionProperties::HEIGHT) {
+                area.height = current.height;
+            }
+            frame.target_sizes[node.index()].properties = properties;
+            relayout = true;
         }
         if relayout {
-            frame
-                .target_sizes
-                .extend(frame.nodes.iter().map(|node| node.area.size()));
             position::layout(frame, data, context, size);
-            frame.target_sizes.clear();
         }
+        frame.target_sizes.clear();
     }
 
     if active.intersects(TransitionProperties::POSITION) {

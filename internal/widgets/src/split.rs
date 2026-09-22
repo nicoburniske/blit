@@ -91,22 +91,26 @@ where
             })
             .widget_id(id);
         panes
-            .child(Item::Leading)
+            .child()
+            .item(Item::Leading)
             .widget_id(leading_id)
             .build(leading);
         panes
-            .child(Item::Divider)
+            .child()
+            .item(Item::Divider)
             .widget_id(divider_id)
             .build(divider(axis, interaction));
         panes
-            .child(Item::Trailing)
+            .child()
+            .item(Item::Trailing)
             .widget_id(trailing_id)
             .build(trailing);
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 enum Item {
+    #[default]
     Leading,
     Divider,
     Trailing,
@@ -185,10 +189,6 @@ impl<C> LayoutTrait<C> for Layout {
         self.axis.set_extent(&mut size, main);
         bounds.constrain(size)
     }
-
-    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-        false
-    }
 }
 
 #[cfg(test)]
@@ -229,7 +229,8 @@ mod tests {
             Input::None,
             |ui: Ui<'_, TestContext>| {
                 ui.layout(single::layout())
-                    .child(single::item().grow())
+                    .child()
+                    .item(single::item().grow())
                     .build(new(
                         &mut state,
                         id,

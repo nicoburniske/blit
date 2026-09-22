@@ -82,22 +82,24 @@ where
                 grip_size: config.grip_size,
             })
             .widget_id(id);
-        shell.child(Item::Content).build(content);
+        shell.child().item(Item::Content).build(content);
         for (item, edge, grip_id, interaction) in [
             (Item::Right, Edge::Right, right_id, right),
             (Item::Bottom, Edge::Bottom, bottom_id, bottom),
             (Item::Corner, Edge::Corner, corner_id, corner),
         ] {
             shell
-                .child(item)
+                .child()
+                .item(item)
                 .widget_id(grip_id)
                 .build(grip(Grip { edge, interaction }));
         }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 enum Item {
+    #[default]
     Content,
     Right,
     Bottom,
@@ -158,9 +160,5 @@ impl<C> LayoutTrait<C> for Layout {
             cx.set_child_z_index(child, z_index);
         }
         size
-    }
-
-    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-        false
     }
 }

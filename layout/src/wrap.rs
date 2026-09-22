@@ -1,9 +1,7 @@
 use blit::{Axis, Constraints, LayoutCx, Point, Sides, Size, Sizing};
 
 pub use super::sizing::{Item, item};
-use super::{
-    Align, Justify, flow_constraints, flow_size, justify_offset, override_sizing, sizing_range,
-};
+use super::{Align, Justify, flow_constraints, flow_size, justify_offset, sizing_range};
 
 blit::builder! {
     /// wraps children into rows or columns
@@ -65,8 +63,14 @@ impl<C> blit::Layout<C> for Layout {
                 child,
                 flow_constraints(
                     self.axis,
-                    sizing_range(res.sizing(self.axis, item.sizing(self.axis)), main_max),
-                    sizing_range(res.sizing(cross_axis, item.sizing(cross_axis)), cross_max),
+                    sizing_range(
+                        cx.resolve_sizing(child, self.axis, item.sizing(self.axis)),
+                        main_max,
+                    ),
+                    sizing_range(
+                        cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis)),
+                        cross_max,
+                    ),
                 ),
             );
         }
@@ -142,7 +146,7 @@ impl<C> blit::Layout<C> for Layout {
             for child in start.clone().take(count) {
                 main += self.axis.extent(cx.child_size(child));
                 grows += usize::from(matches!(
-                    res.sizing(self.axis, cx.item(child).sizing(self.axis)),
+                    cx.resolve_sizing(child, self.axis, cx.item(child).sizing(self.axis)),
                     Sizing::Grow { .. }
                 ));
             }
@@ -157,7 +161,7 @@ impl<C> blit::Layout<C> for Layout {
             let mut cross: f32 = 0.0;
             for child in start.clone().take(count) {
                 let item = cx.item(child);
-                let main_sizing = res.sizing(self.axis, item.sizing(self.axis));
+                let main_sizing = cx.resolve_sizing(child, self.axis, item.sizing(self.axis));
                 let current = cx.child_size(child);
                 let current_main = self.axis.extent(current);
                 if matches!(main_sizing, Sizing::Grow { .. }) {
@@ -169,7 +173,7 @@ impl<C> blit::Layout<C> for Layout {
                                 self.axis,
                                 (assigned, assigned),
                                 sizing_range(
-                                    res.sizing(cross_axis, item.sizing(cross_axis)),
+                                    cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis)),
                                     cross_max,
                                 ),
                             ),
@@ -190,7 +194,7 @@ impl<C> blit::Layout<C> for Layout {
                 let child_size = cx.child_size(child);
                 let child_main = self.axis.extent(child_size);
                 let child_cross = cross_axis.extent(child_size);
-                let cross_sizing = res.sizing(cross_axis, item.sizing(cross_axis));
+                let cross_sizing = cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis));
                 if matches!(cross_sizing, Sizing::Grow { .. })
                     || self.align == Align::Stretch && matches!(cross_sizing, Sizing::Fit { .. })
                 {
@@ -224,14 +228,5 @@ impl<C> blit::Layout<C> for Layout {
 
         let main = self.axis.extent(size);
         bounds.constrain(flow_size(main, occupied_cross + cross_padding, self.axis))
-    }
-
-    fn override_size(
-        &self,
-        item: &mut Self::Item,
-        width: Option<f32>,
-        height: Option<f32>,
-    ) -> bool {
-        override_sizing(&mut item.width, &mut item.height, width, height)
     }
 }

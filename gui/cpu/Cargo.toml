@@ -9,10 +9,10 @@ publish = false
 blit = { workspace = true }
 blit-gui.workspace = true
 blit_cache = { path = "../../internal/cache" }
+blit-raster.workspace = true
 blit-text = { workspace = true }
 blit-arrayvec.workspace = true
 slotmap = "1"
-ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 blit-text-cosmic.workspace = true

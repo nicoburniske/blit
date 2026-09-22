@@ -8,8 +8,10 @@ pub use winit::event_loop::EventLoopClosed;
 #[cfg(feature = "cpu")]
 pub mod cpu;
 mod event_loop;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 
-use std::{error::Error, fmt, sync::Arc, time::Duration};
+use std::{error::Error, fmt, sync::Arc};
 
 use blit_gui::{GuiContext, RenderInput, TextConfig, Ui};
 use winit::event_loop::EventLoopProxy as WinitEventLoopProxy;
@@ -33,8 +35,10 @@ pub trait GraphicsBackend: 'static {
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), GraphicsError>;
 
-    /// returns graphics work before presentation
-    fn render(&mut self, input: RenderInput<'_>) -> Result<Duration, GraphicsError>;
+    /// returns whether a frame was presented
+    ///
+    /// request a redraw before returning false to retry without new input
+    fn render(&mut self, input: RenderInput<'_>) -> Result<bool, GraphicsError>;
 }
 
 /// sends application input to the desktop event loop

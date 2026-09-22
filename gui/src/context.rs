@@ -1,11 +1,9 @@
-use std::time::Duration;
-
 use blit::{Clip, LogicalPoint, LogicalRect, LogicalSize, Scale2};
 use blit_widgets::performance::FrameProfiler;
 
 use crate::{
     TextSystem,
-    display_list::{BoxShadow, ClipId, DisplayList, Rectangle, TextPalette},
+    display_list::{BoxShadow, ClipId, DisplayList, Mesh, Rectangle, TextPalette},
     image::{ImageData, ImageHandle, ImageId, ImageRequest},
     text::{Span, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
@@ -105,6 +103,10 @@ impl GuiContext {
         self.display_list.push_box_shadow(shadow, bounds, self.clip);
     }
 
+    pub fn paint_mesh(&mut self, mesh: Mesh<'_>) {
+        self.display_list.push_mesh(mesh, self.scale, self.clip);
+    }
+
     pub fn set_scale(&mut self, scale: f32) {
         assert!(scale.is_finite() && scale > 0.0);
         self.scale = Scale2::uniform(scale);
@@ -119,12 +121,11 @@ impl GuiContext {
         }
     }
 
-    pub fn finish_frame(&mut self, render_time: Duration) {
+    pub fn finish_frame(&mut self) {
         self.display_list.clear();
         self.clip = ClipId::default();
         self.clips.clear();
         self.text.finish_frame();
-        self.profiler.record_render(render_time);
     }
 
     pub fn profiler(&self) -> &FrameProfiler {

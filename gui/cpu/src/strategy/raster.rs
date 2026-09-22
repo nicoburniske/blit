@@ -106,5 +106,17 @@ pub fn draw_line<B: PixelBuffer>(
                 clip,
             );
         }
+        Payload::Triangle(triangle) => {
+            let x = buffer.x_offset() as i32;
+            triangle.draw_line(
+                line,
+                clip,
+                coverage,
+                PixelSpan {
+                    x,
+                    pixels: buffer.line_mut(line as usize),
+                },
+            );
+        }
     }
 }

@@ -38,18 +38,15 @@ pub fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: 
             Sizing::Percent(_) => (0.0, 0.0),
         };
         let transition = if !frame.target_sizes.is_empty() {
-            frame.nodes[index]
-                .geometry
-                .index()
-                .map(|index| frame.geometry[index])
+            Some((frame.nodes[index].area.size(), frame.target_sizes[index]))
         } else {
             None
         };
         let absolute_sizing = *data.load::<super::AbsoluteSizing>(frame.nodes[index].item);
         let res = frame.layout_resolution;
-        let sizing = |axis, sizing: Sizing, property, size| {
+        let sizing = |axis: Axis, sizing: Sizing, property, size| {
             transition
-                .filter(|geometry| geometry.transition_properties.intersects(property))
+                .filter(|(_, target)| target.properties.intersects(property))
                 .map(|_| res.sizing(axis, Sizing::fixed(size)))
                 .unwrap_or(sizing)
         };
@@ -58,7 +55,7 @@ pub fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: 
                 Axis::Horizontal,
                 absolute_sizing.width,
                 crate::TransitionProperties::WIDTH,
-                transition.map_or(0.0, |geometry| geometry.transition_size.width),
+                transition.map_or(0.0, |(current, _)| current.width),
             ),
             available.width,
         );
@@ -67,7 +64,7 @@ pub fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: 
                 Axis::Vertical,
                 absolute_sizing.height,
                 crate::TransitionProperties::HEIGHT,
-                transition.map_or(0.0, |geometry| geometry.transition_size.height),
+                transition.map_or(0.0, |(current, _)| current.height),
             ),
             available.height,
         );

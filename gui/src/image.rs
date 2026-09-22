@@ -3,7 +3,10 @@
 use std::rc::Rc;
 
 use crate::color::Color;
-use blit::geometry::{LogicalRect, PhysicalRect, PhysicalSize};
+use blit::{
+    Scale2,
+    geometry::{LogicalRect, PhysicalRect, PhysicalSize},
+};
 
 #[derive(Clone, Debug)]
 pub struct ImageHandle(Rc<ImageInner>);
@@ -133,6 +136,171 @@ pub struct ImageRequest {
     pub nine_slice: Option<NineSlice>,
     pub horizontal_tiling: ImageTiling,
     pub vertical_tiling: ImageTiling,
+}
+
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImagePatch {
+    pub source: PhysicalRect,
+    pub display: PhysicalRect,
+    pub bounds: PhysicalRect,
+    pub horizontal_tiling: ImageTiling,
+    pub vertical_tiling: ImageTiling,
+}
+
+#[doc(hidden)]
+pub fn prepare_image_patches(
+    request: &ImageRequest,
+    source_size: PhysicalSize,
+    scale_factor: f32,
+    mut emit: impl FnMut(ImagePatch),
+) {
+    let geometry = request.area.to_physical(Scale2::uniform(scale_factor));
+    let source = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: source_size.width,
+        height: source_size.height,
+    };
+    if geometry.width <= 0
+        || geometry.height <= 0
+        || source.width <= 0
+        || source.height <= 0
+        || request.opacity <= 0.0
+    {
+        return;
+    }
+
+    let mut emit = |patch: ImagePatch| {
+        if patch.source.width > 0
+            && patch.source.height > 0
+            && patch.display.width > 0
+            && patch.display.height > 0
+            && patch.bounds.width > 0
+            && patch.bounds.height > 0
+        {
+            emit(patch);
+        }
+    };
+
+    if let Some(slice) = request.nine_slice {
+        assert!(slice.left as i32 + slice.right as i32 <= source.width);
+        assert!(slice.top as i32 + slice.bottom as i32 <= source.height);
+        let fit_borders = |first: i32, second: i32, available: i32| {
+            if first + second <= available {
+                (first, second)
+            } else {
+                let first =
+                    (first as f32 * available as f32 / (first + second) as f32).round() as i32;
+                (first, available - first)
+            }
+        };
+        let (left, right) = fit_borders(
+            (slice.left as f32 * scale_factor).round() as i32,
+            (slice.right as f32 * scale_factor).round() as i32,
+            geometry.width,
+        );
+        let (top, bottom) = fit_borders(
+            (slice.top as f32 * scale_factor).round() as i32,
+            (slice.bottom as f32 * scale_factor).round() as i32,
+            geometry.height,
+        );
+        let source_x = [
+            0,
+            slice.left as i32,
+            source.width - slice.right as i32,
+            source.width,
+        ];
+        let source_y = [
+            0,
+            slice.top as i32,
+            source.height - slice.bottom as i32,
+            source.height,
+        ];
+        let destination_x = [
+            geometry.x,
+            geometry.x + left,
+            geometry.x + geometry.width - right,
+            geometry.x + geometry.width,
+        ];
+        let destination_y = [
+            geometry.y,
+            geometry.y + top,
+            geometry.y + geometry.height - bottom,
+            geometry.y + geometry.height,
+        ];
+        for row in 0..3 {
+            for column in 0..3 {
+                let source = PhysicalRect {
+                    x: source_x[column],
+                    y: source_y[row],
+                    width: source_x[column + 1] - source_x[column],
+                    height: source_y[row + 1] - source_y[row],
+                };
+                let display = PhysicalRect {
+                    x: destination_x[column],
+                    y: destination_y[row],
+                    width: destination_x[column + 1] - destination_x[column],
+                    height: destination_y[row + 1] - destination_y[row],
+                };
+                emit(ImagePatch {
+                    source,
+                    display,
+                    bounds: display,
+                    horizontal_tiling: if column == 1 {
+                        request.horizontal_tiling
+                    } else {
+                        ImageTiling::None
+                    },
+                    vertical_tiling: if row == 1 {
+                        request.vertical_tiling
+                    } else {
+                        ImageTiling::None
+                    },
+                });
+            }
+        }
+        return;
+    }
+
+    let tiled = request.horizontal_tiling != ImageTiling::None
+        || request.vertical_tiling != ImageTiling::None;
+    let display = if tiled {
+        geometry
+    } else {
+        match request.fit {
+            ImageFit::Fill => geometry,
+            ImageFit::Contain | ImageFit::Cover => {
+                let horizontal = geometry.width as f32 / source.width as f32;
+                let vertical = geometry.height as f32 / source.height as f32;
+                let scale = if request.fit == ImageFit::Contain {
+                    horizontal.min(vertical)
+                } else {
+                    horizontal.max(vertical)
+                };
+                let width = (source.width as f32 * scale).round().max(1.0) as i32;
+                let height = (source.height as f32 * scale).round().max(1.0) as i32;
+                PhysicalRect {
+                    x: geometry.x + (geometry.width - width) / 2,
+                    y: geometry.y + (geometry.height - height) / 2,
+                    width,
+                    height,
+                }
+            }
+        }
+    };
+    let bounds = if request.fit == ImageFit::Cover || tiled {
+        display.intersection(geometry).unwrap_or_default()
+    } else {
+        display
+    };
+    emit(ImagePatch {
+        source,
+        display,
+        bounds,
+        horizontal_tiling: request.horizontal_tiling,
+        vertical_tiling: request.vertical_tiling,
+    });
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

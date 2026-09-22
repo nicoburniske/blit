@@ -88,6 +88,8 @@ struct Active<A: Application> {
     frame: Frame<GuiContext>,
     window: Arc<Window>,
     ui_scale: f32,
+    render_deferred: bool,
+    occluded: bool,
 }
 
 impl<A: Application> Active<A> {
@@ -97,7 +99,11 @@ impl<A: Application> Active<A> {
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), RunError> {
         self.graphics.resize(size)?;
-        self.frame.request_frame();
+        self.render_deferred = self.occluded || size.width == 0 || size.height == 0;
+        if !self.render_deferred {
+            self.frame.request_frame();
+            self.window.request_redraw();
+        }
         Ok(())
     }
 }
@@ -156,6 +162,11 @@ impl<A: Application> Runner<A> {
         let Some(State::Active(active)) = &mut self.state else {
             return;
         };
+        let size = active.window.inner_size();
+        if active.occluded || size.width == 0 || size.height == 0 {
+            active.render_deferred = true;
+            return;
+        }
         let time = self.started_at.elapsed();
         let timer_due = active
             .frame
@@ -165,7 +176,6 @@ impl<A: Application> Runner<A> {
             return;
         }
         let scale = active.scale();
-        let size = active.window.inner_size();
         let info = FrameInfo::new(Size::new(
             size.width as f32 / scale,
             size.height as f32 / scale,
@@ -183,14 +193,16 @@ impl<A: Application> Runner<A> {
         }
         active.gui.profiler_mut().begin_paint();
         active.frame.paint(&mut active.gui);
+        let presented = match active.graphics.render(active.gui.render_input()) {
+            Ok(presented) => presented,
+            Err(error) => return self.fail(event_loop, error),
+        };
         active.gui.profiler_mut().finish();
-        let result = active.graphics.render(active.gui.render_input());
-        active
-            .gui
-            .finish_frame(result.as_ref().copied().unwrap_or_default());
-        if let Err(error) = result {
-            self.fail(event_loop, error);
+        active.render_deferred = !presented;
+        if !presented {
+            active.frame.request_frame();
         }
+        active.gui.finish_frame();
     }
 }
 
@@ -213,7 +225,6 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 if let Err(error) = active.resize(size) {
                     return self.fail(event_loop, error);
                 }
-                active.window.request_redraw();
                 self.state = Some(State::Active(active));
                 return;
             }
@@ -227,7 +238,6 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Err(error) => return self.fail(event_loop, error),
         };
         let size = window.inner_size();
-        let size = PhysicalSize::new(size.width.max(1), size.height.max(1));
         if let Err(error) = graphics.resume(window.clone()) {
             return self.fail(event_loop, error);
         }
@@ -247,17 +257,19 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             frame,
             window,
             ui_scale: 1.0,
+            render_deferred: false,
+            occluded: false,
         });
         if let Err(error) = active.resize(size) {
             return self.fail(event_loop, error);
         }
-        active.window.request_redraw();
         self.state = Some(State::Active(active));
     }
 
     fn suspended(&mut self, _: &ActiveEventLoop) {
         if let Some(State::Active(active)) = &mut self.state {
             active.graphics.suspend();
+            active.render_deferred = true;
         }
     }
 
@@ -295,17 +307,23 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             WindowEvent::Resized(size) => {
                 if let Err(error) = active.resize(size) {
                     self.fail(event_loop, error);
-                } else {
-                    active.window.request_redraw();
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 active.gui.set_scale(scale_factor as f32 * active.ui_scale);
                 if let Err(error) = active.resize(active.window.inner_size()) {
                     self.fail(event_loop, error);
-                } else {
-                    active.window.request_redraw();
                 }
+            }
+            WindowEvent::Occluded(false) => {
+                active.occluded = false;
+                if let Err(error) = active.resize(active.window.inner_size()) {
+                    self.fail(event_loop, error);
+                }
+            }
+            WindowEvent::Occluded(true) => {
+                active.occluded = true;
+                active.render_deferred = true;
             }
             WindowEvent::RedrawRequested => self.redraw(event_loop),
             WindowEvent::ModifiersChanged(state) => {
@@ -494,6 +512,10 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
         let Some(State::Active(active)) = &self.state else {
             return;
         };
+        if active.render_deferred {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        }
         let now = self.started_at.elapsed();
         if active.frame.has_pending_redraw()
             || active

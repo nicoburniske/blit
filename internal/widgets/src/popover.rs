@@ -58,13 +58,11 @@ where
         }
         let mut root = ui.layout(single::layout());
         let anchor = {
-            let mut trigger_node = root
-                .child(single::item())
-                .widget_id(trigger_id)
-                .layout(single::layout());
+            let mut trigger_node = root.child().widget_id(trigger_id).layout(single::layout());
             let anchor = trigger_node.id();
             trigger_node
-                .child(single::item().grow())
+                .child()
+                .item(single::item().grow())
                 .build(|ui: Ui<'_, C>| trigger(ui, interaction, state.open));
             anchor
         };
@@ -140,7 +138,8 @@ where
                 )
                 .widget_id(content_id)
                 .layout(single::layout())
-                .child(single::item().grow())
+                .child()
+                .item(single::item().grow())
                 .build(content),
         )
     }
@@ -162,13 +161,15 @@ mod tests {
             |ui: Ui<'_, TestContext>, _, _| {
                 ui.widget_id(WidgetId::new("named trigger"))
                     .layout(single::layout())
-                    .child(single::item().fixed(2.0, 1.0))
+                    .child()
+                    .item(single::item().fixed(2.0, 1.0))
                     .build(())
             },
             |ui: Ui<'_, TestContext>| {
                 ui.widget_id(WidgetId::new("named content"))
                     .layout(single::layout())
-                    .child(single::item().fixed(4.0, 3.0))
+                    .child()
+                    .item(single::item().fixed(4.0, 3.0))
                     .build(())
             },
         ));

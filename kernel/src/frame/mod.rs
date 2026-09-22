@@ -33,6 +33,9 @@ pub mod state {
     /// an unlaid node that may establish a layout
     pub struct Build;
 
+    /// an unlaid child with layout item `I`
+    pub struct Child<I>(PhantomData<I>);
+
     /// a laid-out node that may create children
     pub struct Open<L>(PhantomData<L>);
 
@@ -125,7 +128,7 @@ impl<'ui, C, S> Ui<'ui, C, S> {
 }
 
 impl<'ui, C> Ui<'ui, C, state::Build> {
-    /// transfers this fresh node to a widget
+    /// builds a widget in this node
     pub fn build<W: Widget<C>>(self, widget: W) -> W::Response {
         widget.build(self)
     }
@@ -144,22 +147,53 @@ impl<'ui, C> Ui<'ui, C, state::Build> {
     }
 }
 
+impl<'ui, C, I: 'static> Ui<'ui, C, state::Child<I>> {
+    /// sets this child's layout item
+    #[inline]
+    pub fn item(mut self, item: I) -> Self {
+        let node = self.inner.node;
+        let frame = self.inner.frame_mut();
+        let id = frame.nodes[node.index()].item;
+        if id.offset().is_some() {
+            *frame.data.load_mut(id) = item;
+        } else {
+            frame.nodes[node.index()].item = frame.data.store(item);
+        }
+        self
+    }
+
+    /// builds a widget in this node
+    pub fn build<W: Widget<C>>(self, widget: W) -> W::Response {
+        widget.build(Ui {
+            inner: self.inner,
+            marker: PhantomData,
+        })
+    }
+
+    /// establishes the current node's layout
+    pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
+        let ui: Ui<'_, C> = Ui {
+            inner: self.inner,
+            marker: PhantomData,
+        };
+        ui.layout(layout)
+    }
+}
+
 impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
+    /// creates a child with this layout's shared default item
+    #[inline]
+    pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
+        let node = self.inner.frame.push_child();
+        Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
+    }
+
     pub fn offset(mut self, offset: Point) -> Self {
         let node = self.inner.node;
         let frame = self.inner.frame_mut();
         let layout = frame.nodes[node.index()].layout.index().unwrap();
         frame.layouts[layout].offset = offset;
         self
-    }
-
-    /// creates a flow child with an item interpreted by this layout
-    pub fn child(&mut self, item: L::Item) -> Ui<'_, C> {
-        let node = self.inner.frame.push_node();
-        let frame = self.inner.frame_mut();
-        frame.nodes[node.index()].item = frame.data.store(item);
-        frame.current_parent = Some(node);
-        Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
     }
 
     /// creates an absolutely positioned child that bypasses this layout
@@ -416,7 +450,7 @@ impl<C> UiInner<'_, C> {
     }
 }
 
-impl<'ui, C> Ui<'ui, C, state::Build> {
+impl<'ui, C, S> Ui<'ui, C, S> {
     fn new(frame: &'ui mut Frame<C>, context: &'ui mut C, node: NodeId) -> Self {
         Self {
             inner: UiInner {
