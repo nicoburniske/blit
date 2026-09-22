@@ -1,13 +1,12 @@
 use std::io::Error as IoError;
 use std::sync::Arc;
-use std::time::Instant;
 
 use blit_gpu::Renderer;
 use blit_gui::RenderInput;
 use wgpu::{CurrentSurfaceTexture, SurfaceConfiguration};
 use winit::{dpi::PhysicalSize, window::Window};
 
-use crate::{GraphicsBackend, GraphicsError, RenderOutcome};
+use crate::{GraphicsBackend, GraphicsError};
 
 #[cfg(target_os = "linux")]
 const BACKENDS: wgpu::Backends = wgpu::Backends::VULKAN;
@@ -111,9 +110,9 @@ impl GraphicsBackend for Backend {
         Ok(())
     }
 
-    fn render(&mut self, input: RenderInput<'_>) -> Result<RenderOutcome, GraphicsError> {
+    fn render(&mut self, input: RenderInput<'_>) -> Result<bool, GraphicsError> {
         let (Some(active), Some(gpu)) = (&mut self.active, &mut self.gpu) else {
-            return Ok(RenderOutcome::Deferred);
+            return Ok(false);
         };
         let mut retried = false;
         let (frame, suboptimal) = loop {
@@ -122,10 +121,10 @@ impl GraphicsBackend for Backend {
                 CurrentSurfaceTexture::Suboptimal(frame) => break (frame, true),
                 CurrentSurfaceTexture::Timeout => {
                     active.window.request_redraw();
-                    return Ok(RenderOutcome::Deferred);
+                    return Ok(false);
                 }
                 CurrentSurfaceTexture::Occluded => {
-                    return Ok(RenderOutcome::Deferred);
+                    return Ok(false);
                 }
                 status @ (CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost)
                     if !retried =>
@@ -147,7 +146,7 @@ impl GraphicsBackend for Backend {
                 }
                 CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
                     active.window.request_redraw();
-                    return Ok(RenderOutcome::Deferred);
+                    return Ok(false);
                 }
                 CurrentSurfaceTexture::Validation => {
                     return Err(IoError::other("GPU surface validation failed").into());
@@ -155,15 +154,13 @@ impl GraphicsBackend for Backend {
             }
         };
 
-        let started = Instant::now();
         gpu.renderer.render(&frame.texture, input);
-        let render_time = started.elapsed();
         active.window.pre_present_notify();
         gpu.queue.present(frame);
         if suboptimal {
             active.surface.configure(&gpu.device, &active.config);
         }
-        Ok(RenderOutcome::Presented(render_time))
+        Ok(true)
     }
 }
 

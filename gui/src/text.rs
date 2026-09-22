@@ -2,11 +2,17 @@ use crate::color::Color;
 use blit::geometry::LogicalRect;
 pub use blit_text::FontStyle;
 
+/// cached horizontal positions for grayscale glyph rasterization
+///
+/// more phases improve fractional text placement at the cost of glyph cache space
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TextPhases {
+    /// snaps glyphs to physical pixels
     One = 1,
+    /// caches glyphs at half-pixel positions
     Two = 2,
+    /// caches glyphs at quarter-pixel positions
     #[default]
     Four = 4,
 }

@@ -11,7 +11,7 @@ mod event_loop;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 
-use std::{error::Error, fmt, sync::Arc, time::Duration};
+use std::{error::Error, fmt, sync::Arc};
 
 use blit_gui::{GuiContext, RenderInput, TextConfig, Ui};
 use winit::event_loop::EventLoopProxy as WinitEventLoopProxy;
@@ -28,11 +28,6 @@ pub struct Config<T> {
 
 pub type GraphicsError = Box<dyn Error>;
 
-pub enum RenderOutcome {
-    Presented(Duration),
-    Deferred,
-}
-
 pub trait GraphicsBackend: 'static {
     fn resume(&mut self, window: Arc<Window>) -> Result<(), GraphicsError>;
 
@@ -40,7 +35,10 @@ pub trait GraphicsBackend: 'static {
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), GraphicsError>;
 
-    fn render(&mut self, input: RenderInput<'_>) -> Result<RenderOutcome, GraphicsError>;
+    /// returns whether a frame was presented
+    ///
+    /// request a redraw before returning false to retry without new input
+    fn render(&mut self, input: RenderInput<'_>) -> Result<bool, GraphicsError>;
 }
 
 /// sends application input to the desktop event loop

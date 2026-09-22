@@ -254,12 +254,6 @@ impl FrameProfiler {
     pub fn completed(&self) -> Option<FrameTimings> {
         self.completed
     }
-
-    pub fn record_render(&mut self, duration: Duration) {
-        if let Some(completed) = &mut self.completed {
-            completed.paint += duration;
-        }
-    }
 }
 
 /// completed processing measurements including all input passes
@@ -269,7 +263,7 @@ pub struct FrameTimings {
     pub build: Duration,
     /// includes positioning and interaction resolution
     pub layout: Duration,
-    /// includes context output generation but excludes presentation
+    /// includes context output generation and graphics work
     pub paint: Duration,
     /// elapsed time between frame starts including idle waits
     pub interval: Option<Duration>,

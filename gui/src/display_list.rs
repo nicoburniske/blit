@@ -6,7 +6,7 @@ use crate::{
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{Span, TextRequest},
 };
-use blit::geometry::{LogicalPoint, LogicalRect, PhysicalRect};
+use blit::geometry::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 
 #[derive(Default)]
 pub struct DisplayList {
@@ -39,7 +39,6 @@ pub enum Command<'a> {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mesh<'a> {
-    pub bounds: LogicalRect,
     pub vertices: &'a [MeshVertex],
     pub indices: &'a [u32],
 }
@@ -146,11 +145,7 @@ impl DisplayList {
             Border::None => StoredBorder::None,
             Border::Solid { width, color } => StoredBorder::Solid { width, color },
             Border::Gradient { width, gradient } => {
-                let start = u32::try_from(self.gradient_stops.len())
-                    .expect("too many display list gradient stops");
-                let len = u32::try_from(gradient.stops.len())
-                    .expect("too many display list gradient stops");
-                self.gradient_stops.extend_from_slice(gradient.stops);
+                let (start, len) = store(&mut self.gradient_stops, gradient.stops.iter().copied());
                 StoredBorder::Gradient {
                     width,
                     angle_degrees: gradient.angle_degrees,
@@ -184,9 +179,7 @@ impl DisplayList {
         if spans.iter().all(|span| span.color.is_none()) {
             return TextPalette::NONE;
         }
-        let start = u32::try_from(self.text_colors.len()).expect("too many text colors");
-        self.text_colors.extend(spans.iter().map(|span| span.color));
-        let len = u32::try_from(self.text_colors.len()).expect("too many text colors") - start;
+        let (start, len) = store(&mut self.text_colors, spans.iter().map(|span| span.color));
         TextPalette { start, len }
     }
 
@@ -212,7 +205,7 @@ impl DisplayList {
         self.push(bounds, clip, CommandKind::BoxShadow(shadow))
     }
 
-    pub fn push_mesh(&mut self, mesh: Mesh<'_>, bounds: PhysicalRect, clip: ClipId) {
+    pub fn push_mesh(&mut self, mesh: Mesh<'_>, scale: Scale2, clip: ClipId) {
         self.assert_clip(clip);
         assert_eq!(
             mesh.indices.len() % 3,
@@ -225,25 +218,37 @@ impl DisplayList {
                 .all(|&index| (index as usize) < mesh.vertices.len()),
             "mesh index is out of bounds"
         );
-        let vertex_start =
-            u32::try_from(self.mesh_vertices.len()).expect("too many display list mesh vertices");
-        let vertex_len = u32::try_from(mesh.vertices.len()).expect("mesh has too many vertices");
-        let index_start =
-            u32::try_from(self.mesh_indices.len()).expect("too many display list mesh indices");
-        let index_len = u32::try_from(mesh.indices.len()).expect("mesh has too many indices");
-        vertex_start
-            .checked_add(vertex_len)
-            .expect("too many display list mesh vertices");
-        index_start
-            .checked_add(index_len)
-            .expect("too many display list mesh indices");
-        self.mesh_vertices.extend_from_slice(mesh.vertices);
-        self.mesh_indices.extend_from_slice(mesh.indices);
+        let Some((&first, indices)) = mesh.indices.split_first() else {
+            return;
+        };
+        let first = mesh.vertices[first as usize].position;
+        assert!(
+            first.x.is_finite() && first.y.is_finite(),
+            "mesh positions must be finite"
+        );
+        let mut left = first.x;
+        let mut top = first.y;
+        let mut right = first.x;
+        let mut bottom = first.y;
+        for &index in indices {
+            let point = mesh.vertices[index as usize].position;
+            assert!(
+                point.x.is_finite() && point.y.is_finite(),
+                "mesh positions must be finite"
+            );
+            left = left.min(point.x);
+            top = top.min(point.y);
+            right = right.max(point.x);
+            bottom = bottom.max(point.y);
+        }
+        let bounds = LogicalRect::new(left, top, right - left, bottom - top).to_physical(scale);
+        let (vertex_start, vertex_len) =
+            store(&mut self.mesh_vertices, mesh.vertices.iter().copied());
+        let (index_start, index_len) = store(&mut self.mesh_indices, mesh.indices.iter().copied());
         self.commands.push(StoredCommand {
             bounds,
             clip,
             kind: CommandKind::Mesh(StoredMesh {
-                bounds: mesh.bounds,
                 vertex_start,
                 vertex_len,
                 index_start,
@@ -289,7 +294,6 @@ impl DisplayList {
                 let vertex_start = mesh.vertex_start as usize;
                 let index_start = mesh.index_start as usize;
                 Command::Mesh(Mesh {
-                    bounds: mesh.bounds,
                     vertices: &self.mesh_vertices
                         [vertex_start..vertex_start + mesh.vertex_len as usize],
                     indices: &self.mesh_indices[index_start..index_start + mesh.index_len as usize],
@@ -381,10 +385,8 @@ impl DisplayList {
                 let right_vertex = right.vertex_start as usize;
                 let left_index = left.index_start as usize;
                 let right_index = right.index_start as usize;
-                left.bounds == right.bounds
-                    && self.mesh_vertices[left_vertex..left_vertex + left.vertex_len as usize]
-                        == other.mesh_vertices
-                            [right_vertex..right_vertex + right.vertex_len as usize]
+                self.mesh_vertices[left_vertex..left_vertex + left.vertex_len as usize]
+                    == other.mesh_vertices[right_vertex..right_vertex + right.vertex_len as usize]
                     && self.mesh_indices[left_index..left_index + left.index_len as usize]
                         == other.mesh_indices[right_index..right_index + right.index_len as usize]
             }
@@ -465,7 +467,6 @@ struct StoredText {
 }
 
 struct StoredMesh {
-    bounds: LogicalRect,
     vertex_start: u32,
     vertex_len: u32,
     index_start: u32,
@@ -533,4 +534,11 @@ impl ExactSizeIterator for Iter<'_> {
     fn len(&self) -> usize {
         self.back - self.front
     }
+}
+
+fn store<T>(storage: &mut Vec<T>, values: impl IntoIterator<Item = T>) -> (u32, u32) {
+    let start = u32::try_from(storage.len()).expect("too much display list data");
+    storage.extend(values);
+    let end = u32::try_from(storage.len()).expect("too much display list data");
+    (start, end - start)
 }

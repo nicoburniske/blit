@@ -18,8 +18,8 @@ use blit_gui::{
     layout::{Align, flex, grid, single, wrap},
     style::{Border, BorderRadius},
     text::{
-        FontId, FontStyle, HorizontalAlign, Span, TextOptions, TextOverflow, TextPhases, TextStyle,
-        TextWrap, VerticalAlign,
+        FontId, FontStyle, HorizontalAlign, Span, TextOptions, TextOverflow, TextStyle, TextWrap,
+        VerticalAlign,
     },
     widget::{
         Performance, RichText, Text, TextInput, performance, popover, resize, scroll_area,
@@ -34,17 +34,9 @@ pub fn run(text: impl TextLayoutEngine) {
         .map(|data| FontData::Shared(data.into()))
         .collect();
     #[cfg(feature = "gpu")]
-    let graphics = Box::new(gpu::Backend::new(gpu::Config {
-        text_phases: TextPhases::Four,
-        ..Default::default()
-    }));
+    let graphics = Box::new(gpu::Backend::new(gpu::Config::default()));
     #[cfg(not(feature = "gpu"))]
-    let graphics = Box::new(cpu::Backend::new(cpu::Config {
-        paint_cache_capacity: 2 * 1024 * 1024,
-        glyph_cache_capacity: 1024 * 1024,
-        shadow_cache_capacity: 512 * 1024,
-        text_phases: TextPhases::Four,
-    }));
+    let graphics = Box::new(cpu::Backend::new(cpu::Config::default()));
     blit_desktop::run::<App>(Config {
         title: "Blit layout playground".into(),
         width: 1120,
@@ -1112,7 +1104,6 @@ impl Atom<GuiContext> for MeshField {
             }
         }
         context.paint_mesh(Mesh {
-            bounds: area,
             vertices: &vertices,
             indices: &indices,
         });

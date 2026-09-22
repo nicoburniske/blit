@@ -81,7 +81,7 @@ fn renders_primitives_and_rebuilds_frames() {
     );
     renderer.render(&target, gui.render_input());
 
-    gui.finish_frame(Duration::ZERO);
+    gui.finish_frame();
     gui.paint_rectangle(
         Rectangle::new(LogicalRect::new(0.0, 0.0, 7.0, 7.0))
             .background(Color::from_rgba8(255, 0, 0, 255))
@@ -203,7 +203,6 @@ fn renders_primitives_and_rebuilds_frames() {
     ];
     BoundsClip.push(&mut gui, LogicalRect::new(40.0, 40.0, 10.0, 20.0));
     gui.paint_mesh(Mesh {
-        bounds: LogicalRect::new(40.0, 40.0, 20.0, 20.0),
         vertices: &mesh_vertices,
         indices: &[0, 1, 2],
     });

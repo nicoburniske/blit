@@ -1,4 +1,4 @@
-use std::{hint::black_box, time::Duration};
+use std::hint::black_box;
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
@@ -608,7 +608,7 @@ impl<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> BenchRenderer<B, S> {
         } = self.gui.render_input();
         self.render
             .render_damage(text, image_uploads, display_list, damage);
-        self.gui.finish_frame(Duration::ZERO);
+        self.gui.finish_frame();
     }
 }
 
@@ -645,8 +645,8 @@ where
                     id: FontId::default(),
                     fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
                 }],
-                text_cache_capacity: 512 * 1024,
-                layout_cache_capacity: 512 * 1024,
+                text_cache_capacity: 1024 * 1024,
+                layout_cache_capacity: 1024 * 1024,
             },
             blit_text_cosmic::Backend::without_system_fonts(),
         )

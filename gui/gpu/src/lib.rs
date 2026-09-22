@@ -65,6 +65,9 @@ pub struct Renderer {
 }
 
 impl Renderer {
+    /// creates a renderer for targets using `format`
+    ///
+    /// pass the linear format configured on every target passed to [`Self::render`]
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
@@ -350,6 +353,7 @@ impl Renderer {
         }
     }
 
+    /// renders one frame into `target`
     pub fn render(&mut self, target: &wgpu::Texture, input: RenderInput<'_>) {
         let width = target.width();
         let height = target.height();

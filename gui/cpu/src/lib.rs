@@ -32,10 +32,25 @@ const MAX_DAMAGE: usize = 32;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RendererConfig {
+    /// maximum retained text paint data in bytes
     pub paint_cache_capacity: usize,
+    /// maximum retained rasterized glyph data in bytes
     pub glyph_cache_capacity: usize,
+    /// maximum retained shadow masks in bytes
     pub shadow_cache_capacity: usize,
+    /// cached horizontal positions for grayscale glyph rasterization
     pub text_phases: TextPhases,
+}
+
+impl Default for RendererConfig {
+    fn default() -> Self {
+        Self {
+            paint_cache_capacity: 2 * 1024 * 1024,
+            glyph_cache_capacity: 1024 * 1024,
+            shadow_cache_capacity: 512 * 1024,
+            text_phases: TextPhases::default(),
+        }
+    }
 }
 
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {

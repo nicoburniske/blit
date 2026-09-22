@@ -1,4 +1,3 @@
-use std::time::Instant;
 use std::{num::NonZeroU32, ptr::NonNull, sync::Arc};
 
 use blit_cpu::{PixelBuffer, Renderer, Scanline, Xrgb8888};
@@ -6,7 +5,7 @@ use blit_gui::RenderInput;
 use softbuffer::{Context, Surface};
 use winit::{dpi::PhysicalSize, window::Window};
 
-use crate::{GraphicsBackend, GraphicsError, RenderOutcome};
+use crate::{GraphicsBackend, GraphicsError};
 
 pub use blit_cpu::RendererConfig as Config;
 
@@ -53,21 +52,19 @@ impl GraphicsBackend for Backend {
         Ok(())
     }
 
-    fn render(&mut self, input: RenderInput<'_>) -> Result<RenderOutcome, GraphicsError> {
+    fn render(&mut self, input: RenderInput<'_>) -> Result<bool, GraphicsError> {
         let Some(active) = &mut self.active else {
-            return Ok(RenderOutcome::Deferred);
+            return Ok(false);
         };
         let mut buffer = active.surface.buffer_mut()?;
         if buffer.age() == 0 {
             self.renderer.invalidate_all();
         }
         self.renderer.buffer_mut().set(&mut buffer);
-        let started = Instant::now();
         self.renderer.render(input);
-        let render_time = started.elapsed();
         active.window.pre_present_notify();
         buffer.present()?;
-        Ok(RenderOutcome::Presented(render_time))
+        Ok(true)
     }
 }
 

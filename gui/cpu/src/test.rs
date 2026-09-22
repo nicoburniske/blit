@@ -4,7 +4,6 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering::Relaxed},
     },
-    time::Duration,
 };
 
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
@@ -112,7 +111,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> TestRenderer<B, S> {
         } = self.gui.render_input();
         self.render
             .render_damage(text, image_uploads, display_list, damage);
-        self.gui.finish_frame(Duration::ZERO);
+        self.gui.finish_frame();
     }
 
     fn set_scale(&mut self, scale: Scale2) {
@@ -297,11 +296,10 @@ fn mesh_interpolates_colors_without_shared_edge_overdraw() {
     let mut paint = DisplayList::default();
     paint.push_mesh(
         Mesh {
-            bounds: LogicalRect::new(0.0, 0.0, 16.0, 8.0),
             vertices: &vertices,
             indices: &[0, 1, 2, 2, 1, 3, 4, 5, 6],
         },
-        bounds,
+        Scale2::IDENTITY,
         ClipId::default(),
     );
 
@@ -346,7 +344,7 @@ fn render_input_tracks_damage_and_invalidation() {
             ClipId::default(),
         );
         renderer.render.render(input);
-        renderer.gui.finish_frame(Duration::ZERO);
+        renderer.gui.finish_frame();
     };
 
     for _ in 0..2 {

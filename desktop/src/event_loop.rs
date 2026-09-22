@@ -15,7 +15,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{Application, Config, EventLoopProxy, GraphicsBackend, RenderOutcome, RunError};
+use crate::{Application, Config, EventLoopProxy, GraphicsBackend, RunError};
 
 pub enum Event<T> {
     Input(T),
@@ -193,19 +193,16 @@ impl<A: Application> Runner<A> {
         }
         active.gui.profiler_mut().begin_paint();
         active.frame.paint(&mut active.gui);
+        let presented = match active.graphics.render(active.gui.render_input()) {
+            Ok(presented) => presented,
+            Err(error) => return self.fail(event_loop, error),
+        };
         active.gui.profiler_mut().finish();
-        match active.graphics.render(active.gui.render_input()) {
-            Ok(RenderOutcome::Presented(render_time)) => {
-                active.render_deferred = false;
-                active.gui.finish_frame(render_time);
-            }
-            Ok(RenderOutcome::Deferred) => {
-                active.render_deferred = true;
-                active.frame.request_frame();
-                active.gui.finish_frame(std::time::Duration::ZERO);
-            }
-            Err(error) => self.fail(event_loop, error),
+        active.render_deferred = !presented;
+        if !presented {
+            active.frame.request_frame();
         }
+        active.gui.finish_frame();
     }
 }
 
