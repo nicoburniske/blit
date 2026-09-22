@@ -20,13 +20,13 @@ nix develop --command cargo run --example tui-demo
 desktop + CPU:
 
 ```sh
-nix develop --command env RUSTFLAGS="-C target-cpu=native" cargo run --release --example desktop-demo
+nix develop --command cargo run --release --example desktop-demo
 ```
 
 desktop + GPU:
 
 ```sh
-nix develop --command env RUSTFLAGS="-C target-cpu=native" cargo run -p blit-demo --no-default-features --features gpu --release --example desktop-demo
+nix develop --command cargo run -p blit-demo --no-default-features --features gpu --release --example desktop-demo
 ```
 
 ## example
