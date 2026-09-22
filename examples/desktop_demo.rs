@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use blit::{
     Absolute, Anchor, Atom, Axis, Constraints, Easing, Interaction, LogicalRect, Point, Sense,
@@ -1046,61 +1046,87 @@ impl Widget<GuiContext> for &mut ScrollPage {
     }
 }
 
-#[derive(Clone, Copy)]
-struct MeshField {
-    cells: usize,
+struct Terrain {
+    columns: usize,
+    rows: usize,
     phase: f32,
-    alpha: u8,
+    buffers: Rc<RefCell<TerrainBuffers>>,
 }
 
-impl Atom<GuiContext> for MeshField {
+#[derive(Default)]
+struct TerrainBuffers {
+    points: Vec<(f32, f32, f32, f32)>,
+    vertices: Vec<MeshVertex>,
+    indices: Vec<u32>,
+}
+
+impl Atom<GuiContext> for Terrain {
     fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> Size {
         constraints.constrain(Size::ZERO)
     }
 
     fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
-        let phase = self.phase * std::f32::consts::TAU;
-        let aspect = (area.width / area.height.max(1.0)).max(0.1);
-        let columns = ((self.cells as f32 * aspect).sqrt().ceil() as usize).max(1);
-        let rows = self.cells.div_ceil(columns);
-        let width = area.width / columns as f32;
-        let height = area.height / rows as f32;
-        let mut vertices = Vec::with_capacity((columns + 1) * (rows + 1));
-        let mut indices = Vec::with_capacity(columns * rows * 6);
-        for row in 0..=rows {
-            let y = row as f32 / rows as f32;
-            for column in 0..=columns {
-                let x = column as f32 / columns as f32;
-                let wave = (x * std::f32::consts::TAU * 2.0 + phase).sin()
-                    * (y * std::f32::consts::TAU * 1.5 - phase * 0.7).cos();
-                let edge = (x.min(1.0 - x) * y.min(1.0 - y) * 16.0).min(1.0);
-                let color_phase = (x * 2.0 - y * 1.5) * std::f32::consts::TAU + phase;
-                let glow = wave * 0.5 + 0.5;
-                let blend = color_phase.sin() * 0.5 + 0.5;
-                let light = 0.72 + glow * 0.28;
-                vertices.push(MeshVertex::new(
-                    area.x
-                        + x * area.width
-                        + (y * std::f32::consts::TAU + phase * 0.6).sin() * width * 0.45 * edge,
-                    area.y + y * area.height + wave * height * edge,
-                    Color::from_rgba8(
-                        ((38.0 + blend * 60.0) * light) as u8,
-                        ((46.0 + blend * 68.0) * light) as u8,
-                        ((58.0 + blend * 74.0) * light) as u8,
-                        self.alpha,
-                    ),
+        let travel = self.phase * std::f32::consts::TAU;
+        let mut buffers = self.buffers.borrow_mut();
+        let TerrainBuffers {
+            points,
+            vertices,
+            indices,
+        } = &mut *buffers;
+        points.clear();
+        vertices.clear();
+        indices.clear();
+        for row in 0..=self.rows {
+            let depth = row as f32 / self.rows as f32;
+            let perspective = depth * depth;
+            let z = depth * 9.0 + travel;
+            let span = area.width * (0.3 + perspective);
+            for column in 0..=self.columns {
+                let x = column as f32 / self.columns as f32;
+                let world_x = (x - 0.5) * 8.0;
+                let elevation = (world_x * 0.8 + z).sin() * 0.55
+                    + (world_x * 1.9 - z * 0.7).cos() * 0.28
+                    + (world_x * 4.7 + z * 1.3).sin() * 0.12
+                    + (world_x * 11.3 - z * 2.7).cos() * 0.04;
+                points.push((
+                    area.x + area.width * 0.5 + (x - 0.5) * span,
+                    area.y + area.height * (0.28 + perspective * 0.78)
+                        - elevation * (6.0 + perspective * 72.0),
+                    elevation,
+                    depth,
                 ));
             }
         }
-        let stride = u32::try_from(columns + 1).expect("mesh is too wide");
-        for row in 0..rows {
-            for column in 0..columns {
-                let first = u32::try_from(row * (columns + 1) + column)
-                    .expect("mesh has too many vertices");
-                let second = first + 1;
-                let third = first + stride;
-                let fourth = third + 1;
-                indices.extend([first, second, third, second, fourth, third]);
+        let shade = |elevation: f32, depth: f32, slope: f32| {
+            let strata = (elevation * 17.0 + depth * 8.0).sin().abs().powi(10);
+            let light = (0.48 + slope * 1.8 + strata * 0.12).clamp(0.08, 1.0);
+            let fog = (1.0 - depth).powi(2);
+            Color::from_rgba8(
+                ((42.0 + light * 196.0) * (1.0 - fog) + 104.0 * fog) as u8,
+                ((16.0 + light * 102.0) * (1.0 - fog) + 67.0 * fog) as u8,
+                ((31.0 + light * 54.0) * (1.0 - fog) + 105.0 * fog) as u8,
+                255,
+            )
+        };
+        let stride = self.columns + 1;
+        for row in 0..self.rows {
+            for column in 0..self.columns {
+                let top = row * stride + column;
+                let a = points[top];
+                let b = points[top + 1];
+                let c = points[top + stride];
+                let d = points[top + stride + 1];
+                for (triangle, slope) in [
+                    ([a, b, c], (a.2 - b.2) * 0.7 + (a.2 - c.2) * 0.3),
+                    ([b, d, c], (c.2 - d.2) * 0.7 + (b.2 - d.2) * 0.3),
+                ] {
+                    let elevation = (triangle[0].2 + triangle[1].2 + triangle[2].2) / 3.0;
+                    let depth = (triangle[0].3 + triangle[1].3 + triangle[2].3) / 3.0;
+                    let color = shade(elevation, depth, slope);
+                    let first = u32::try_from(vertices.len()).expect("terrain mesh is too large");
+                    vertices.extend(triangle.map(|point| MeshVertex::new(point.0, point.1, color)));
+                    indices.extend(first..first + 3);
+                }
             }
         }
         context.paint_mesh(Mesh {
@@ -1507,280 +1533,70 @@ mod sz {
 
 mod graphics {
     use super::*;
-    use blit_gui::{
-        atom::Image,
-        image::{
-            ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageSampling, ImageTiling,
-        },
-        style::LinearGradient,
-    };
 
     #[derive(Clone, Copy, Default, PartialEq, Eq)]
-    enum GraphicsLoad {
+    enum Detail {
+        Low,
         #[default]
-        Light,
-        Heavy,
-        Extreme,
+        Medium,
+        High,
     }
 
-    #[derive(Default)]
     pub struct View {
-        texture: Option<ImageHandle>,
-        load: GraphicsLoad,
+        detail: Detail,
         phase: f32,
         running: bool,
-        mesh: bool,
-        effects: bool,
+        terrain: Rc<RefCell<TerrainBuffers>>,
+    }
+
+    impl Default for View {
+        fn default() -> Self {
+            Self {
+                detail: Detail::default(),
+                phase: 0.0,
+                running: true,
+                terrain: Rc::default(),
+            }
+        }
     }
 
     impl Widget<GuiContext> for &mut View {
         type Response = ();
 
         fn build(self, mut ui: Ui<'_>) {
-            if self.texture.is_none() {
-                self.texture = Some(ui.context().create_image(ImageData::new(
-                    ImagePixels::Static(&gfx::NOISE),
-                    ImageFormat::Alpha8(gfx::GRID),
-                    8,
-                    8,
-                )));
-                self.running = true;
-                self.mesh = true;
-            }
             if self.running {
                 self.phase = ui.animate_loop(
-                    WidgetId::new("graphics orbit"),
-                    Duration::from_secs(18),
+                    WidgetId::new("terrain flyover"),
+                    Duration::from_secs(12),
                     Easing::Linear,
                 );
             }
-
-            let phase = self.phase * std::f32::consts::TAU;
-            let screen = ui.screen().size();
-            let width = (screen.width - sz::XL * 2.0).max(640.0);
-            let height = (screen.height - 138.0).max(420.0);
-            let center = Point::new(width * 0.55, height * 0.47);
-            let (particles, mesh_cells, load_label) = match self.load {
-                GraphicsLoad::Light => (48, 64, "48 / 128"),
-                GraphicsLoad::Heavy => (192, 256, "192 / 512"),
-                GraphicsLoad::Extreme => (640, 1024, "640 / 2K"),
+            let (columns, rows) = match self.detail {
+                Detail::Low => (64, 36),
+                Detail::Medium => (128, 72),
+                Detail::High => (256, 144),
             };
 
             let mut stage = ui
                 .layout(single::layout())
-                .widget_id(WidgetId::new("graphics stage"))
+                .widget_id(WidgetId::new("terrain stage"))
                 .clip(BoundsClip);
-            stage.insert(Rectangle::new().background(gfx::VOID));
-            if self.effects {
-                stage.insert(Image {
-                    image: self.texture.as_ref().unwrap().id(),
-                    intrinsic: Size::new(8.0, 8.0),
-                    fit: ImageFit::Fill,
-                    sampling: ImageSampling::Nearest,
-                    opacity: 0.28,
-                    colorize: None,
-                    nine_slice: None,
-                    horizontal_tiling: ImageTiling::Repeat,
-                    vertical_tiling: ImageTiling::Repeat,
-                });
-            }
-            if self.mesh {
-                stage.insert(MeshField {
-                    cells: mesh_cells,
-                    phase: self.phase,
-                    alpha: if self.effects { 210 } else { 255 },
-                });
-            }
-            if self.effects {
-                stage.insert(
-                    Shadow::new(gfx::SHADOW)
-                        .radius(BorderRadius::uniform(sz::SM))
-                        .blur(sz::LG)
-                        .spread(sz::XS)
-                        .inset(true),
-                );
-            }
-
-            for column in 0..24 {
-                let x = width * column as f32 / 23.0;
-                stage
-                    .absolute(
-                        Absolute::at(x, 0.0)
-                            .width(Sizing::fixed(1.0))
-                            .height(Sizing::percent(1.0)),
-                    )
-                    .insert(Rectangle::new().background(gfx::GRID_LINE));
-            }
-            for row in 0..16 {
-                let y = height * row as f32 / 15.0;
-                stage
-                    .absolute(
-                        Absolute::at(0.0, y)
-                            .width(Sizing::percent(1.0))
-                            .height(Sizing::fixed(1.0)),
-                    )
-                    .insert(Rectangle::new().background(gfx::GRID_LINE));
-            }
-
-            for index in 0..particles {
-                let seed = (index as u32)
-                    .wrapping_mul(747_796_405)
-                    .wrapping_add(2_891_336_453);
-                let scrambled = (seed ^ (seed >> 16)).wrapping_mul(2_246_822_519);
-                let lane = index % 9;
-                let angle = phase * (0.22 + lane as f32 * 0.025)
-                    + scrambled as f32 / u32::MAX as f32 * std::f32::consts::TAU;
-                let radius = 86.0 + lane as f32 * 26.0 + ((scrambled >> 24) & 15) as f32;
-                let x = center.x + angle.cos() * radius * 1.46;
-                let y = center.y + angle.sin() * radius * 0.68;
-                let extent = if index % 31 == 0 {
-                    5.0
-                } else if index % 7 == 0 {
-                    3.0
-                } else {
-                    1.5
-                };
-                let color = match lane % 3 {
-                    0 => gfx::CYAN,
-                    1 => gfx::VIOLET,
-                    _ => gfx::CORAL,
-                };
-                let rectangle = Rectangle::new().background(color);
-                stage
-                    .absolute(
-                        Absolute::at(x, y)
-                            .width(Sizing::fixed(extent))
-                            .height(Sizing::fixed(extent)),
-                    )
-                    .insert(if self.effects {
-                        rectangle
-                            .radius(BorderRadius::uniform(extent))
-                            .opacity(0.28 + (index % 5) as f32 * 0.14)
-                    } else {
-                        rectangle
-                    });
-            }
-
-            if self.effects {
-                for (index, (diameter, color, opacity)) in [
-                    (570.0, gfx::CYAN, 0.22),
-                    (438.0, gfx::VIOLET, 0.32),
-                    (304.0, gfx::CORAL, 0.42),
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    let wobble = (phase * (index as f32 + 1.0)).sin() * 8.0;
-                    stage
-                        .absolute(
-                            Absolute::at(center.x + wobble, center.y)
-                                .anchors(Anchor::TopLeft, Anchor::Center)
-                                .width(Sizing::fixed(diameter))
-                                .height(Sizing::fixed(diameter * 0.46)),
-                        )
-                        .insert(
-                            Rectangle::new()
-                                .border(Border::solid(1.0 + index as f32, color))
-                                .radius(BorderRadius::uniform(diameter))
-                                .opacity(opacity),
-                        );
-                }
-            }
-
-            for index in 0..72 {
-                let angle = phase * 1.7 + index as f32 / 72.0 * std::f32::consts::TAU;
-                let magnitude = 112.0 + (index % 6) as f32 * 6.0;
-                let bar = 8.0 + ((index * 17) % 38) as f32;
-                let rectangle = Rectangle::new().background(if index % 3 == 0 {
-                    gfx::CORAL
-                } else {
-                    gfx::CYAN
-                });
-                stage
-                    .absolute(
-                        Absolute::at(
-                            center.x + angle.cos() * magnitude,
-                            center.y + angle.sin() * magnitude * 0.45,
-                        )
-                        .anchors(Anchor::TopLeft, Anchor::Center)
-                        .width(Sizing::fixed(2.0))
-                        .height(Sizing::fixed(bar)),
-                    )
-                    .insert(if self.effects {
-                        rectangle.radius(BorderRadius::uniform(2.0)).opacity(0.38)
-                    } else {
-                        rectangle
-                    });
-            }
+            stage.insert(Rectangle::new().background(SKY));
+            stage.insert(Terrain {
+                columns,
+                rows,
+                phase: self.phase,
+                buffers: Rc::clone(&self.terrain),
+            });
 
             stage
                 .absolute(
-                    Absolute::at(center.x, center.y)
-                        .anchors(Anchor::TopLeft, Anchor::Center)
-                        .width(Sizing::fixed(188.0))
-                        .height(Sizing::fixed(188.0)),
+                    Absolute::attach(Anchor::BottomLeft, Anchor::BottomLeft)
+                        .offset(sz::LG, -sz::LG)
+                        .width(Sizing::fixed(390.0))
+                        .height(Sizing::fixed(52.0)),
                 )
                 .z_index(2)
-                .build(|ui: Ui<'_>| {
-                    let mut core = ui.layout(
-                        flex::column()
-                            .align(Align::Center)
-                            .justify(blit_gui::layout::Justify::Center)
-                            .gap(sz::XXS),
-                    );
-                    if self.effects {
-                        core.insert(
-                            Shadow::new(gfx::CYAN_GLOW)
-                                .radius(BorderRadius::uniform(94.0))
-                                .blur(42.0)
-                                .spread(12.0),
-                        );
-                    }
-                    core.insert(
-                        Rectangle::new()
-                            .background(gfx::CORE)
-                            .border(Border::gradient(
-                                3.0,
-                                LinearGradient::new(&gfx::SPECTRUM).angle(phase.to_degrees()),
-                            ))
-                            .radius(BorderRadius::uniform(94.0)),
-                    );
-                    if self.effects {
-                        core.insert(
-                            Shadow::new(gfx::CYAN_GLOW)
-                                .radius(BorderRadius::uniform(94.0))
-                                .blur(18.0)
-                                .spread(5.0)
-                                .inset(true),
-                        );
-                    }
-                    core.child().insert(
-                        Text::new(load_label)
-                            .style(TextStyle {
-                                size: 34.0,
-                                weight: 700,
-                                ..TextStyle::default()
-                            })
-                            .color(colors::TEXT),
-                    );
-                    core.child().insert(
-                        Text::new("PARTICLES / TRIANGLES")
-                            .style(TextStyle {
-                                size: sz::SM,
-                                weight: 700,
-                                ..TextStyle::default()
-                            })
-                            .color(gfx::CYAN),
-                    );
-                });
-
-            stage
-                .absolute(
-                    Absolute::at(sz::LG, height - 82.0)
-                        .width(Sizing::fixed(470.0))
-                        .height(Sizing::fixed(58.0)),
-                )
-                .z_index(3)
                 .build(|ui: Ui<'_>| {
                     let mut controls = ui.layout(
                         flex::row()
@@ -1790,122 +1606,36 @@ mod graphics {
                     );
                     controls.insert(
                         Rectangle::new()
-                            .background(gfx::GLASS)
-                            .border(Border::solid(1.0, colors::BORDER))
+                            .background(PANEL)
+                            .border(Border::solid(sz::BORDER, colors::BORDER))
                             .radius(BorderRadius::uniform(sz::SM)),
                     );
                     for (label, value) in [
-                        ("light", GraphicsLoad::Light),
-                        ("heavy", GraphicsLoad::Heavy),
-                        ("extreme", GraphicsLoad::Extreme),
+                        ("4K", Detail::Low),
+                        ("18K", Detail::Medium),
+                        ("74K", Detail::High),
                     ] {
                         if controls.child().build(Button::new(
-                            WidgetId::new(("graphics load", label)),
+                            WidgetId::new(("terrain detail", label)),
                             label,
-                            self.load == value,
+                            self.detail == value,
                         )) {
-                            self.load = value;
+                            self.detail = value;
                         }
                     }
                     if controls.child().build(Button::new(
-                        WidgetId::new("graphics mesh"),
-                        "mesh",
-                        self.mesh,
-                    )) {
-                        self.mesh = !self.mesh;
-                    }
-                    if controls.child().build(Button::new(
-                        WidgetId::new("graphics effects"),
-                        "fx",
-                        self.effects,
-                    )) {
-                        self.effects = !self.effects;
-                    }
-                    if controls.child().build(Button::new(
-                        WidgetId::new("graphics motion"),
+                        WidgetId::new("terrain motion"),
                         if self.running { "pause" } else { "play" },
                         self.running,
                     )) {
                         self.running = !self.running;
                     }
                 });
-
-            stage
-                .absolute(
-                    Absolute::at(width - 190.0, height - 118.0)
-                        .width(Sizing::fixed(164.0))
-                        .height(Sizing::fixed(92.0)),
-                )
-                .z_index(3)
-                .build(|ui: Ui<'_>| {
-                    let mut meter =
-                        ui.layout(flex::column().padding(Sides::all(sz::SM)).gap(sz::XXS));
-                    meter.insert(
-                        Rectangle::new()
-                            .background(gfx::GLASS)
-                            .border(Border::solid(1.0, colors::BORDER))
-                            .radius(BorderRadius::uniform(sz::XS)),
-                    );
-                    meter.child().insert(
-                        Text::new("FRAME ENERGY")
-                            .style(TextStyle {
-                                size: 10.0,
-                                weight: 700,
-                                ..TextStyle::default()
-                            })
-                            .color(colors::TEXT_DIM),
-                    );
-                    meter.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
-                        let mut bars = ui.layout(flex::row().gap(3.0).align(Align::End));
-                        for index in 0..28 {
-                            let wave = ((index as f32 * 0.58 + phase * 4.0).sin() * 0.5 + 0.5)
-                                * 28.0
-                                + 4.0;
-                            let rectangle = Rectangle::new().background(if index > 22 {
-                                gfx::CORAL
-                            } else {
-                                gfx::CYAN
-                            });
-                            bars.child()
-                                .item(flex::item().grow().height(Sizing::fixed(wave)))
-                                .insert(if self.effects {
-                                    rectangle
-                                        .radius(BorderRadius::uniform(2.0))
-                                        .opacity(0.5 + index as f32 / 56.0)
-                                } else {
-                                    rectangle
-                                });
-                        }
-                    });
-                });
         }
     }
 
-    mod gfx {
-        use blit_gui::{color::Color, style::GradientStop};
-
-        pub const VOID: Color = Color::from_rgba8(3, 7, 18, 255);
-        pub const CORE: Color = Color::from_rgba8(7, 20, 39, 248);
-        pub const GLASS: Color = Color::from_rgba8(10, 20, 38, 232);
-        pub const GRID: Color = Color::from_rgba8(91, 220, 185, 90);
-        pub const GRID_LINE: Color = Color::from_rgba8(77, 126, 151, 24);
-        pub const CYAN: Color = Color::from_rgba8(76, 238, 218, 255);
-        pub const CYAN_GLOW: Color = Color::from_rgba8(35, 224, 211, 110);
-        pub const VIOLET: Color = Color::from_rgba8(162, 111, 255, 255);
-        pub const CORAL: Color = Color::from_rgba8(255, 103, 130, 255);
-        pub const SHADOW: Color = Color::from_rgba8(0, 0, 0, 190);
-        pub const SPECTRUM: [GradientStop; 4] = [
-            GradientStop::new(0.0, CYAN),
-            GradientStop::new(0.36, VIOLET),
-            GradientStop::new(0.72, CORAL),
-            GradientStop::new(1.0, CYAN),
-        ];
-        pub static NOISE: [u8; 64] = [
-            0, 0, 0, 0, 0, 24, 0, 0, 0, 0, 72, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 40, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 56, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 20, 0, 0, 0, 0,
-        ];
-    }
+    const SKY: Color = Color::from_rgba8(31, 20, 53, 255);
+    const PANEL: Color = Color::from_rgba8(24, 18, 39, 232);
 }
 
 mod colors {
