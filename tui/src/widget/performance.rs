@@ -73,9 +73,10 @@ impl Widget<TuiContext> for Performance<'_> {
                         .border(border),
                 );
                 badge
-                    .child(flex::item().fixed(1.0, 1.0))
+                    .child()
+                    .item(flex::item().fixed(1.0, 1.0))
                     .insert(Block::new().background(self.accent));
-                badge.child(flex::item()).insert(
+                badge.child().insert(
                     Text::new(&measurements.label)
                         .color(self.color)
                         .attributes(self.badge_attributes),
@@ -86,28 +87,29 @@ impl Widget<TuiContext> for Performance<'_> {
                 let mut panel = ui.layout(flex::column().padding(self.padding));
                 panel.insert(Block::new().background(self.background).border(border));
                 {
-                    let mut table = panel.child(flex::item()).layout(
+                    let mut table = panel.child().layout(
                         grid::columns(3)
                             .column_gap(self.table_gap.width)
                             .row_gap(self.table_gap.height),
                     );
                     for (label, values) in measurements.rows() {
                         table
-                            .child(grid::item())
+                            .child()
                             .insert(Text::new(label).color(self.muted_color));
                         for value in values {
                             table
-                                .child(grid::item())
+                                .child()
                                 .layout(flex::row().justify(Justify::End))
-                                .child(flex::item())
+                                .child()
                                 .insert(Text::new(value).color(self.color));
                         }
                     }
                 }
-                let mut chart = panel.child(flex::item()).layout(flex::row().gap(self.gap));
+                let mut chart = panel.child().layout(flex::row().gap(self.gap));
                 {
                     let mut axis = chart
-                        .child(flex::item().height(Sizing::fixed(rows as f32)))
+                        .child()
+                        .item(flex::item().height(Sizing::fixed(rows as f32)))
                         .layout(
                             flex::column()
                                 .align(Align::End)
@@ -116,12 +118,13 @@ impl Widget<TuiContext> for Performance<'_> {
                     for (label, value) in axis_labels.iter_mut().zip([scale, scale / 2.0, 0.0]) {
                         label.clear();
                         let _ = write!(label, "{value:.3} ms");
-                        axis.child(flex::item())
+                        axis.child()
                             .insert(Text::new(label).color(self.muted_color));
                     }
                 }
                 let mut graph = chart
-                    .child(flex::item().fixed(columns as f32, rows as f32))
+                    .child()
+                    .item(flex::item().fixed(columns as f32, rows as f32))
                     .layout(flex::row().align(Align::End));
                 graph.insert(Block::new().background(self.graph_background));
                 for millis in measurements.graph(columns) {
@@ -131,16 +134,18 @@ impl Widget<TuiContext> for Performance<'_> {
                     let full = eighths / 8;
                     let partial = eighths % 8;
                     let mut bar = graph
-                        .child(flex::item().fixed(1.0, full as f32 + f32::from(partial != 0)))
+                        .child()
+                        .item(flex::item().fixed(1.0, full as f32 + f32::from(partial != 0)))
                         .layout(flex::column());
                     if partial != 0 {
-                        bar.child(flex::item().fixed(1.0, 1.0)).insert(
+                        bar.child().item(flex::item().fixed(1.0, 1.0)).insert(
                             Text::new(["", "▁", "▂", "▃", "▄", "▅", "▆", "▇"][partial])
                                 .color(self.accent),
                         );
                     }
                     if full != 0 {
-                        bar.child(flex::item().fixed(1.0, full as f32))
+                        bar.child()
+                            .item(flex::item().fixed(1.0, full as f32))
                             .insert(Block::new().background(self.accent));
                     }
                 }

@@ -67,7 +67,9 @@ pub fn build<C, I, F, X, T, H>(
     let content = move |ui: Ui<'_, C>| {
         let mut list = ui.layout(layout);
         for (offset, value) in items.enumerate() {
-            item(list.child(first + offset), value);
+            list.child()
+                .item(first + offset)
+                .build(|ui: Ui<'_, C>| item(ui, value));
         }
     };
     let (track, thumb) = scrollbar(thumb_active);

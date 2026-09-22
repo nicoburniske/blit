@@ -181,7 +181,7 @@ where
                 table,
             });
             for index in visible {
-                item(list.child(()), &rows[index]);
+                list.child().build(|ui: Ui<'_, C>| item(ui, &rows[index]));
             }
         },
         track,

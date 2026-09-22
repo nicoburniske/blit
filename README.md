@@ -46,7 +46,7 @@ fn main() -> std::io::Result<()> {
 
         let quit = root
             // default flex behavior sizes the header to its contents
-            .child(flex::item())
+            .child()
             // the header returns whether its button was clicked
             .build(|ui: Ui<'_>| {
                 let mut header = ui.layout(
@@ -60,12 +60,13 @@ fn main() -> std::io::Result<()> {
 
                 // LHS title
                 header
-                    .child(flex::item())
+                    .child()
                     .insert(Text::new("hello from blit!").attributes(TextAttributes::BOLD));
 
                 // RHS button
                 header
-                    .child(flex::item().fixed(8.0, 1.0))
+                    .child()
+                    .item(flex::item().fixed(8.0, 1.0))
                     .build(|mut ui: Ui<'_>| {
                         let id = WidgetId::new("quit");
                         let interaction = ui.interact(id, Sense::CLICK);

@@ -82,14 +82,14 @@ where
                 grip_size: config.grip_size,
             })
             .widget_id(id);
-        shell.child(Item::Content).build(content);
+        shell.child_item(Item::Content).build(content);
         for (item, edge, grip_id, interaction) in [
             (Item::Right, Edge::Right, right_id, right),
             (Item::Bottom, Edge::Bottom, bottom_id, bottom),
             (Item::Corner, Edge::Corner, corner_id, corner),
         ] {
             shell
-                .child(item)
+                .child_item(item)
                 .widget_id(grip_id)
                 .build(grip(Grip { edge, interaction }));
         }

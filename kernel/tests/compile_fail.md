@@ -36,16 +36,30 @@ where
 }
 ```
 
-children require their parent layout's item
+default children require a default item
 
 ```compile_fail
 use blit::*;
 
-fn omit_layout_item<C, L>(mut ui: Ui<'_, C, state::Open<L>>)
+fn default_child<C, L>(mut ui: Ui<'_, C, state::Open<L>>)
 where
     L: Layout<C>,
 {
-    ui.child(());
+    ui.child();
+}
+```
+
+children reject another layout's item
+
+```compile_fail
+use blit::*;
+
+fn wrong_layout_item<C, L>(mut ui: Ui<'_, C, state::Open<L>>)
+where
+    L: Layout<C>,
+    L::Item: Default,
+{
+    ui.child().item(());
 }
 ```
 

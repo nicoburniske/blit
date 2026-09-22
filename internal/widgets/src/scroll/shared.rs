@@ -327,18 +327,18 @@ pub fn build_scroll<C, W, X, T, H>(
     let thumb_id = id.child("scroll thumb");
     let mut viewport = ui.layout(layout).widget_id(id).clip(clip);
     viewport
-        .child(ScrollItem::Content)
+        .child_item(ScrollItem::Content)
         .widget_id(content_id)
         .build(content);
     if let Some(track) = track {
         viewport
-            .child(ScrollItem::Track)
+            .child_item(ScrollItem::Track)
             .widget_id(id.child("scroll track"))
             .insert(track);
     }
     if let Some(thumb) = thumb {
         viewport
-            .child(ScrollItem::Thumb)
+            .child_item(ScrollItem::Thumb)
             .widget_id(thumb_id)
             .insert(thumb);
     }

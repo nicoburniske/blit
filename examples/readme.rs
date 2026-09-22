@@ -12,7 +12,7 @@ fn main() -> std::io::Result<()> {
     blit_tui::run(|ui| {
         let mut root = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
 
-        let quit = root.child(flex::item()).build(|ui: Ui<'_>| {
+        let quit = root.child().build(|ui: Ui<'_>| {
             let mut header = ui.layout(
                 flex::row()
                     .padding(Sides::all(1.0))
@@ -20,12 +20,13 @@ fn main() -> std::io::Result<()> {
             );
 
             header.insert(Block::new().border(Border::new(Color::BLUE)));
-            header.child(flex::item()).build(|mut ui: Ui<'_>| {
+            header.child().build(|mut ui: Ui<'_>| {
                 ui.insert(Text::new("hello from blit!").attributes(TextAttributes::BOLD));
             });
 
             header
-                .child(flex::item().fixed(8.0, 1.0))
+                .child()
+                .item(flex::item().fixed(8.0, 1.0))
                 .build(|mut ui: Ui<'_>| {
                     let id = WidgetId::new("quit");
                     let interaction = ui.interact(id, Sense::CLICK);

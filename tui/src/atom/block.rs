@@ -346,7 +346,7 @@ mod tests {
                 root.insert(widget::Text::new(
                     "xxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx",
                 ));
-                root.child(single::item().fixed(20.0, 4.0)).insert(
+                root.child().item(single::item().fixed(20.0, 4.0)).insert(
                     widget::Block::new()
                         .background(Color::WHITE)
                         .border(Border::new(Color::GREEN).style(BorderStyle::Double))

@@ -79,13 +79,14 @@ impl Widget<GuiContext> for Performance<'_> {
                         .radius(self.radius),
                 );
                 badge
-                    .child(flex::item().fixed(self.marker_size, self.marker_size))
+                    .child()
+                    .item(flex::item().fixed(self.marker_size, self.marker_size))
                     .insert(
                         Rectangle::new()
                             .background(self.accent)
                             .radius(self.marker_radius),
                     );
-                badge.child(flex::item()).insert(
+                badge.child().insert(
                     Text::new(&measurements.label)
                         .style(self.text_style)
                         .color(self.color),
@@ -101,30 +102,31 @@ impl Widget<GuiContext> for Performance<'_> {
                         .radius(self.radius),
                 );
                 {
-                    let mut table = panel.child(flex::item()).layout(
+                    let mut table = panel.child().layout(
                         grid::columns(3)
                             .column_gap(self.table_gap.width)
                             .row_gap(self.table_gap.height),
                     );
                     for (label, values) in measurements.rows() {
-                        table.child(grid::item()).insert(
+                        table.child().insert(
                             Text::new(label)
                                 .style(self.text_style)
                                 .color(self.muted_color),
                         );
                         for value in values {
                             table
-                                .child(grid::item())
+                                .child()
                                 .layout(flex::row().justify(crate::layout::Justify::End))
-                                .child(flex::item())
+                                .child()
                                 .insert(Text::new(value).style(self.text_style).color(self.color));
                         }
                     }
                 }
-                let mut chart = panel.child(flex::item()).layout(flex::row().gap(self.gap));
+                let mut chart = panel.child().layout(flex::row().gap(self.gap));
                 {
                     let mut axis = chart
-                        .child(flex::item().height(Sizing::fixed(graph_height)))
+                        .child()
+                        .item(flex::item().height(Sizing::fixed(graph_height)))
                         .layout(
                             flex::column()
                                 .align(Align::End)
@@ -133,7 +135,7 @@ impl Widget<GuiContext> for Performance<'_> {
                     for (label, value) in axis_labels.iter_mut().zip([scale, scale / 2.0, 0.0]) {
                         label.clear();
                         let _ = write!(label, "{value:.1} ms");
-                        axis.child(flex::item()).insert(
+                        axis.child().insert(
                             Text::new(label)
                                 .style(self.text_style)
                                 .color(self.muted_color),
@@ -141,12 +143,14 @@ impl Widget<GuiContext> for Performance<'_> {
                     }
                 }
                 let mut graph = chart
-                    .child(flex::item().fixed(graph_width, graph_height))
+                    .child()
+                    .item(flex::item().fixed(graph_width, graph_height))
                     .layout(flex::row().align(Align::End));
                 graph.insert(Rectangle::new().background(self.graph_background));
                 for millis in measurements.graph(columns) {
                     graph
-                        .child(
+                        .child()
+                        .item(
                             flex::item()
                                 .width(Sizing::grow())
                                 .height(Sizing::fixed(graph_height * millis / scale)),
