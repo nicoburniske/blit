@@ -16,6 +16,7 @@ pub struct LayoutCx<'a, C, I> {
     context: &'a mut C,
     node: NodeId,
     nodes: *const StoredNode,
+    default_item: DataId,
     item: PhantomData<fn() -> I>,
     first_child: NodeId,
     children_end: u32,
@@ -35,10 +36,17 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     }
 
     /// returns this layout's item for `child`
+    ///
+    /// children without explicit items share their parent's default item
     #[inline]
     pub fn item(&self, child: NodeId) -> &'a I {
         self.assert_child(child);
-        self.data.load(self.frame.nodes[child.index()].item)
+        let id = self.frame.nodes[child.index()].item;
+        self.data.load(if id.offset().is_some() {
+            id
+        } else {
+            self.default_item
+        })
     }
 
     /// lays out `child` and returns its size
@@ -176,6 +184,8 @@ pub fn run<C, L: Layout<C>>(
 ) -> Size {
     let layout = data.load::<L>(id);
     let nodes = frame.nodes.as_ptr();
+    let stored = frame.nodes[node.index()].layout.index().unwrap();
+    let default_item = frame.layouts[stored].default_item;
     let first_child = frame.node_id(node.index() + 1);
     let children_end = frame.nodes[node.index()].subtree_end;
     let offset = frame.layout_offset(node);
@@ -185,6 +195,7 @@ pub fn run<C, L: Layout<C>>(
         context,
         node,
         nodes,
+        default_item,
         item: PhantomData,
         first_child,
         children_end,
@@ -222,4 +233,8 @@ pub fn override_item<C, L: Layout<C>>(
     let item = data.load_mut::<L::Item>(item);
     // safety: the layout and item occupy disjoint arena storage
     unsafe { (&*layout).override_size(item, width, height) }
+}
+
+pub fn store_default<I: Default + 'static>(data: &mut DataArena) -> DataId {
+    data.store(I::default())
 }

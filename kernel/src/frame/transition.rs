@@ -76,13 +76,20 @@ pub fn resolve<C>(
             }
             let layout = frame.layouts[frame.nodes[parent.index()].layout.index().unwrap()];
             let kind = layout.kind as usize;
-            let item = frame.nodes[node.index()].item;
             let width = properties
                 .intersects(TransitionProperties::WIDTH)
                 .then_some(current.width);
             let height = properties
                 .intersects(TransitionProperties::HEIGHT)
                 .then_some(current.height);
+            let mut item = frame.nodes[node.index()].item;
+            if item.offset().is_none() {
+                let store_default = frame.layout_kinds[kind]
+                    .store_default
+                    .expect("default layout item constructor is missing");
+                item = store_default(data);
+                frame.nodes[node.index()].item = item;
+            }
             if (frame.layout_kinds[kind].override_size)(data, layout.data, item, width, height) {
                 relayout = true;
             } else {

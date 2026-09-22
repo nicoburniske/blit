@@ -273,13 +273,15 @@ impl<C> Frame<C> {
                     type_id,
                     layout: layout::run::<C, L>,
                     override_size: layout::override_item::<C, L>,
+                    store_default: None,
                 });
                 self.layout_kinds.len() - 1
             });
         let id = StoredLayoutId::new(self.layouts.len());
         self.layouts.push(StoredLayout {
-            kind: u16::try_from(kind).expect("too many layout types"),
+            kind: u16::try_from(kind).expect("too many layout kinds"),
             data: self.data.store(value),
+            default_item: DataId::NONE,
             offset: Point::ZERO,
         });
         id
@@ -328,6 +330,28 @@ impl<C> Frame<C> {
             layout_state: LayoutState::Unlaid,
         });
         id
+    }
+
+    fn push_child<I: 'static>(&mut self, child: NewChild<I>) -> NodeId {
+        let node = self.push_node();
+        match child {
+            NewChild::Default(store_default) => {
+                let parent = self.nodes[node.index()].parent;
+                let layout = self.nodes[parent.index()].layout.index().unwrap();
+                let kind = self.layouts[layout].kind as usize;
+                if self.layouts[layout].default_item.offset().is_none() {
+                    self.layouts[layout].default_item = store_default(&mut self.data);
+                }
+                if self.layout_kinds[kind].store_default.is_none() {
+                    self.layout_kinds[kind].store_default = Some(store_default);
+                }
+            }
+            NewChild::Item(item) => {
+                self.nodes[node.index()].item = self.data.store(item);
+            }
+        }
+        self.current_parent = Some(node);
+        node
     }
 
     fn set_absolute(&mut self, node: NodeId, absolute: Absolute) {
@@ -510,6 +534,7 @@ struct StoredAtom {
 struct StoredLayout {
     kind: u16,
     data: DataId,
+    default_item: DataId,
     offset: Point,
 }
 
@@ -552,11 +577,18 @@ struct AtomKind<C> {
 }
 
 type OverrideSize = fn(&mut DataArena, DataId, DataId, Option<f32>, Option<f32>) -> bool;
+type StoreDefault = fn(&mut DataArena) -> DataId;
 
 struct LayoutKind<C> {
     type_id: TypeId,
     layout: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, Constraints) -> Size,
     override_size: OverrideSize,
+    store_default: Option<StoreDefault>,
+}
+
+enum NewChild<I> {
+    Default(StoreDefault),
+    Item(I),
 }
 
 struct ClipKind<C> {

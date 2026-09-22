@@ -148,12 +148,17 @@ impl<'ui, C> Ui<'ui, C, state::Build> {
 }
 
 impl<'ui, C, I: 'static> Ui<'ui, C, state::Child<I>> {
-    /// replaces this child's layout item
+    /// sets this child's layout item
     #[inline]
-    pub fn item(self, item: I) -> Self {
+    pub fn item(mut self, item: I) -> Self {
         let node = self.inner.node;
-        let id = self.inner.frame.nodes[node.index()].item;
-        *self.inner.frame.data.load_mut(id) = item;
+        let frame = self.inner.frame_mut();
+        let id = frame.nodes[node.index()].item;
+        if id.offset().is_some() {
+            *frame.data.load_mut(id) = item;
+        } else {
+            frame.nodes[node.index()].item = frame.data.store(item);
+        }
         self
     }
 
@@ -180,10 +185,14 @@ where
     L: Layout<C>,
     L::Item: Default,
 {
-    /// creates a child with this layout's default item
+    /// creates a child with this layout's shared default item
     #[inline]
     pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
-        self.child_item(L::Item::default())
+        let node = self
+            .inner
+            .frame
+            .push_child::<L::Item>(NewChild::Default(layout::store_default::<L::Item>));
+        Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
     }
 }
 
@@ -200,10 +209,7 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     /// required when layout item doesn't implement Default
     #[inline]
     pub fn child_item(&mut self, item: L::Item) -> Ui<'_, C, state::Child<L::Item>> {
-        let node = self.inner.frame.push_node();
-        let frame = self.inner.frame_mut();
-        frame.nodes[node.index()].item = frame.data.store(item);
-        frame.current_parent = Some(node);
+        let node = self.inner.frame.push_child(NewChild::Item(item));
         Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
     }
 
