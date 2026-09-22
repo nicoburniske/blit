@@ -184,7 +184,7 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     /// creates a child with this layout's shared default item
     #[inline]
     pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
-        let node = self.inner.frame.push_child::<L::Item>();
+        let node = self.inner.frame.push_child();
         Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
     }
 

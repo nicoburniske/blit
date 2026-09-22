@@ -75,10 +75,6 @@ impl<C> Layout<C> for ScrollLayout {
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         self.layout_with_offset(ui, constraints, |_| self.offset)
     }
-
-    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-        false
-    }
 }
 
 impl ScrollLayout {

@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, LayoutCx, LayoutResolution, Point, Sides, Size};
+use blit::{Axis, Constraints, LayoutCx, Point, Sides, Size};
 
 use super::flow_constraints;
 
@@ -71,21 +71,13 @@ enum GridExtent {
     #[default]
     Auto,
     Preferred(f32),
-    Exact(f32),
 }
 
 impl GridExtent {
     fn preferred(self) -> Option<f32> {
         match self {
             Self::Auto => None,
-            Self::Preferred(extent) | Self::Exact(extent) => Some(extent),
-        }
-    }
-
-    fn resolve(self, res: LayoutResolution, axis: Axis, assigned: f32) -> f32 {
-        match self {
-            Self::Exact(extent) => res.extent(axis, extent).max(0.0),
-            Self::Auto | Self::Preferred(_) => assigned,
+            Self::Preferred(extent) => Some(extent),
         }
     }
 }
@@ -191,11 +183,10 @@ impl<C> blit::Layout<C> for Layout {
                 let item = cx.item(child);
                 let assigned_width = cell_width * item.column_span as f32
                     + column_gap * item.column_span.saturating_sub(1) as f32;
-                let child_width = item.width.resolve(res, Axis::Horizontal, assigned_width);
                 let height = range(Axis::Vertical, item.height.preferred(), max_height);
                 let child_size = cx.layout_child(
                     child,
-                    flow_constraints(Axis::Horizontal, (child_width, child_width), height),
+                    flow_constraints(Axis::Horizontal, (assigned_width, assigned_width), height),
                 );
                 let internal_gaps = row_gap * item.row_span.saturating_sub(1) as f32;
                 row_height = row_height
@@ -254,8 +245,8 @@ impl<C> blit::Layout<C> for Layout {
                 let assigned_height = row_height * item.row_span as f32
                     + row_gap * item.row_span.saturating_sub(1) as f32;
                 let child_size = Size {
-                    width: item.width.resolve(res, Axis::Horizontal, assigned_width),
-                    height: item.height.resolve(res, Axis::Vertical, assigned_height),
+                    width: assigned_width,
+                    height: assigned_height,
                 };
                 if cx.child_size(child) != child_size {
                     cx.layout_child(child, Constraints::tight(child_size));
@@ -285,11 +276,10 @@ impl<C> blit::Layout<C> for Layout {
                 item.row_span == 1 && item.column_span == 1,
                 "grid spans must be enabled with grid::Layout::spanning"
             );
-            let child_width = item.width.resolve(res, Axis::Horizontal, cell_width);
             let height = range(Axis::Vertical, item.height.preferred(), max_height);
             cx.layout_child(
                 child,
-                flow_constraints(Axis::Horizontal, (child_width, child_width), height),
+                flow_constraints(Axis::Horizontal, (cell_width, cell_width), height),
             );
         }
         let rows = count.div_ceil(columns);
@@ -310,11 +300,7 @@ impl<C> blit::Layout<C> for Layout {
             natural_height += row_height;
 
             for (column, child) in row.take(row_count).enumerate() {
-                let item = cx.item(child);
-                let child_size = Size::new(
-                    item.width.resolve(res, Axis::Horizontal, cell_width),
-                    item.height.resolve(res, Axis::Vertical, row_height),
-                );
+                let child_size = Size::new(cell_width, row_height);
                 if cx.child_size(child) != child_size {
                     cx.layout_child(child, Constraints::tight(child_size));
                 }
@@ -330,20 +316,5 @@ impl<C> blit::Layout<C> for Layout {
             width,
             height: natural_height,
         })
-    }
-
-    fn override_size(
-        &self,
-        item: &mut Self::Item,
-        width: Option<f32>,
-        height: Option<f32>,
-    ) -> bool {
-        if let Some(extent) = width {
-            item.width = GridExtent::Exact(extent);
-        }
-        if let Some(extent) = height {
-            item.height = GridExtent::Exact(extent);
-        }
-        true
     }
 }

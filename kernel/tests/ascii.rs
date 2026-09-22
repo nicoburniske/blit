@@ -152,7 +152,10 @@ fn owned_frame_values_use_resolved_area_and_drop() {
 
 #[test]
 fn default_children_share_one_item() {
-    struct SharedDefault(Rc<Cell<usize>>);
+    struct SharedDefault {
+        children: Rc<Cell<usize>>,
+        default: Rc<Cell<Option<*const ()>>>,
+    }
 
     impl Layout<AsciiContext> for SharedDefault {
         type Item = Rc<()>;
@@ -162,37 +165,47 @@ fn default_children_share_one_item() {
             cx: &mut LayoutCx<'_, AsciiContext, Rc<()>>,
             constraints: Constraints,
         ) -> Size {
-            let mut default = None;
             let mut count = 0;
             for child in cx.children() {
                 let item = Rc::as_ptr(cx.item(child));
-                if let Some(default) = default {
+                if let Some(default) = self.default.get() {
                     assert_eq!(item, default);
                 } else {
-                    default = Some(item);
+                    self.default.set(Some(item));
                 }
-                cx.layout_child(child, Constraints::tight(Size::ZERO));
+                cx.layout_child(child, Constraints::loose(constraints.max));
                 cx.set_child_position(child, Point::ZERO);
                 count += 1;
             }
-            self.0.set(count);
+            self.children.set(count);
             constraints.min
-        }
-
-        fn override_size(&self, _: &mut Rc<()>, _: Option<f32>, _: Option<f32>) -> bool {
-            false
         }
     }
 
     let children = Rc::new(Cell::new(0));
-    let (mut frame, mut context) = frame(Size::uniform(1.0));
+    let (mut frame, mut context) = frame(Size::uniform(4.0));
+    let id = WidgetId::new("shared default transition");
 
-    render(&mut frame, &mut context, |ui: Ui<'_>| {
-        let mut root = ui.layout(SharedDefault(children.clone()));
-        for _ in 0..3 {
+    for (extent, time) in [
+        (1.0, Duration::ZERO),
+        (2.0, Duration::ZERO),
+        (2.0, Duration::from_millis(500)),
+    ] {
+        render_inputs(&mut frame, &mut context, time, [], |ui: Ui<'_>| {
+            let default = Rc::new(Cell::new(None));
+            let layout = || SharedDefault {
+                children: children.clone(),
+                default: default.clone(),
+            };
+            let mut root = ui.layout(layout());
+            root.child()
+                .widget_id(id)
+                .transition(Transition::new(Duration::from_secs(1)).size())
+                .insert(Fill::new('X', Size::uniform(extent)));
+            root.child().layout(layout()).child();
             root.child();
-        }
-    });
+        });
+    }
 
     assert_eq!(children.get(), 3);
 }
@@ -444,10 +457,10 @@ fn transitions_relayout_animated_sizes() {
 }
 
 #[test]
-fn unsupported_size_transitions_finish_immediately() {
-    struct Unsupported;
+fn size_transitions_override_child_constraints() {
+    struct Loose;
 
-    impl<C> Layout<C> for Unsupported {
+    impl<C> Layout<C> for Loose {
         type Item = ();
 
         fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -456,14 +469,10 @@ fn unsupported_size_transitions_finish_immediately() {
             cx.set_child_position(child, Point::ZERO);
             constraints.constrain(size)
         }
-
-        fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-            false
-        }
     }
 
     let (mut frame, mut context) = frame(Size::uniform(4.0));
-    let id = WidgetId::new("unsupported transition");
+    let id = WidgetId::new("constraint transition");
     let mut render = |extent, time| {
         render_inputs(
             &mut frame,
@@ -471,20 +480,29 @@ fn unsupported_size_transitions_finish_immediately() {
             time,
             [Input::None],
             |ui: Ui<'_>| {
-                ui.layout(Unsupported)
+                ui.layout(Loose)
                     .child()
                     .widget_id(id)
                     .transition(Transition::new(Duration::from_secs(1)).size())
                     .insert(Fill::new('X', Size::uniform(extent)));
             },
         );
+        (
+            frame.geometry(id).unwrap().size(),
+            frame.has_pending_redraw(),
+        )
     };
 
     render(1.0, Duration::ZERO);
-    render(2.0, Duration::ZERO);
-
-    assert_eq!(frame.geometry(id).unwrap().size(), Size::uniform(2.0));
-    assert!(!frame.has_pending_redraw());
+    assert_eq!(render(2.0, Duration::ZERO), (Size::uniform(1.0), true));
+    assert_eq!(
+        render(2.0, Duration::from_millis(500)),
+        (Size::uniform(1.5), true)
+    );
+    assert_eq!(
+        render(2.0, Duration::from_secs(1)),
+        (Size::uniform(2.0), false)
+    );
 }
 
 #[test]
@@ -919,10 +937,6 @@ impl<C> Layout<C> for OwnedValue {
     fn layout(&self, _: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         constraints.min
     }
-
-    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-        false
-    }
 }
 
 impl Atom<AsciiContext> for OwnedValue {
@@ -1084,16 +1098,6 @@ impl Default for TestItem {
     }
 }
 
-fn override_test_item(item: &mut TestItem, width: Option<f32>, height: Option<f32>) -> bool {
-    if let Some(extent) = width {
-        item.width = Sizing::fixed(extent);
-    }
-    if let Some(extent) = height {
-        item.height = Sizing::fixed(extent);
-    }
-    true
-}
-
 #[derive(Clone, Copy)]
 struct Column;
 
@@ -1117,15 +1121,6 @@ impl<C> Layout<C> for Column {
             y += cx.child_size(child).height;
         }
         size
-    }
-
-    fn override_size(
-        &self,
-        item: &mut Self::Item,
-        width: Option<f32>,
-        height: Option<f32>,
-    ) -> bool {
-        override_test_item(item, width, height)
     }
 }
 
@@ -1153,15 +1148,6 @@ impl<C> Layout<C> for Overlay {
         }
         size
     }
-
-    fn override_size(
-        &self,
-        item: &mut Self::Item,
-        width: Option<f32>,
-        height: Option<f32>,
-    ) -> bool {
-        override_test_item(item, width, height)
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -1177,15 +1163,6 @@ impl<C> Layout<C> for Fixed {
             cx.set_child_position(child, Point::ZERO);
         }
         size
-    }
-
-    fn override_size(
-        &self,
-        item: &mut Self::Item,
-        width: Option<f32>,
-        height: Option<f32>,
-    ) -> bool {
-        override_test_item(item, width, height)
     }
 }
 
@@ -1207,18 +1184,17 @@ fn resolve_child<C>(
         }
         Sizing::Percent(_) => 0.0,
     };
-    let res = cx.resolution();
     let intrinsic = cx.layout_child(child, Constraints::loose(available));
     let item = cx.item(child);
     let size = Size::new(
         resolve(
-            res.sizing(Axis::Horizontal, item.width),
+            cx.resolve_sizing(child, Axis::Horizontal, item.width),
             intrinsic.width,
             available.width,
             width_cross,
         ),
         resolve(
-            res.sizing(Axis::Vertical, item.height),
+            cx.resolve_sizing(child, Axis::Vertical, item.height),
             intrinsic.height,
             available.height,
             height_cross,

@@ -262,10 +262,6 @@ impl<C> Layout<C> for MeasuredScrollLayout {
             table.offset
         })
     }
-
-    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-        false
-    }
 }
 
 struct MeasuredLayout {
@@ -314,10 +310,6 @@ impl<C> Layout<C> for MeasuredLayout {
             ui.set_child_position(child, Point::new(0.0, table.rows[self.first + index].top));
         }
         constraints.constrain(Size::new(constraints.max.width, table.total))
-    }
-
-    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-        false
     }
 }
 

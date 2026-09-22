@@ -1,7 +1,7 @@
 use blit::{Axis, Constraints, LayoutCx, Point, Sides, Size, Sizing};
 
 pub use super::sizing::{Item, item};
-use super::{flow_constraints, override_sizing, sizing_range};
+use super::{flow_constraints, sizing_range};
 
 blit::builder! {
     /// lays out at most one child
@@ -56,9 +56,5 @@ impl<C> blit::Layout<C> for Layout {
         let size = cx.layout_child(child, child_bounds);
         cx.set_child_position(child, Point::new(padding.left, padding.top));
         bounds.constrain(size + padding.size())
-    }
-
-    fn override_size(&self, item: &mut Item, width: Option<f32>, height: Option<f32>) -> bool {
-        override_sizing(&mut item.width, &mut item.height, width, height)
     }
 }

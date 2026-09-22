@@ -17,21 +17,11 @@ impl<C> blit::Layout<C> for Layout {
         let mut natural = Size::ZERO;
         for child in cx.children() {
             let rect = cx.item(child);
-            natural.width = natural.width.max((rect.x + rect.width.max(0.0)).max(0.0));
-            natural.height = natural.height.max((rect.y + rect.height.max(0.0)).max(0.0));
-            cx.layout_child(child, Constraints::tight(rect.size().max(Size::ZERO)));
+            let size = cx.layout_child(child, Constraints::tight(rect.size().max(Size::ZERO)));
+            natural.width = natural.width.max((rect.x + size.width).max(0.0));
+            natural.height = natural.height.max((rect.y + size.height).max(0.0));
             cx.set_child_position(child, Point::new(rect.x, rect.y));
         }
         bounds.constrain(natural)
-    }
-
-    fn override_size(&self, item: &mut Rect, width: Option<f32>, height: Option<f32>) -> bool {
-        if let Some(width) = width {
-            item.width = width;
-        }
-        if let Some(height) = height {
-            item.height = height;
-        }
-        true
     }
 }

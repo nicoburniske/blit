@@ -21,7 +21,7 @@ pub struct Frame<C> {
     geometry_current: Vec<(WidgetId, Rect)>,
     animations: Vec<animation::AnimationState>,
     transitions: Vec<transition::TransitionState>,
-    target_sizes: Vec<Size>,
+    target_sizes: Vec<TargetSize>,
     timers: Vec<timer::TimerState>,
     input: Input,
     time: Duration,
@@ -84,8 +84,8 @@ impl<C> Frame<C> {
 
     /// resolves layout, positioning, clipping and interaction for the built graph
     pub fn layout(&mut self, context: &mut C) {
-        let mut data = std::mem::take(&mut self.data);
-        transition::resolve(self, &mut data, context, self.screen.size(), self.resized);
+        let data = std::mem::take(&mut self.data);
+        transition::resolve(self, &data, context, self.screen.size(), self.resized);
         position::resolve(self);
         paint::resolve_order(self);
         paint::resolve_clips(self);
@@ -154,6 +154,10 @@ impl<C> Frame<C> {
         self.positioned.clear();
         self.geometry.clear();
         self.data.clear();
+        // have to clear these bc data arena will be cleared
+        for kind in &mut self.layout_kinds {
+            kind.default_item = DataId::NONE;
+        }
         // retain names but require fresh bindings for each build
         for node in self.named_nodes.values_mut() {
             *node = None;
@@ -272,16 +276,17 @@ impl<C> Frame<C> {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
                     layout: layout::run::<C, L>,
-                    override_size: layout::override_item::<C, L>,
-                    store_default: layout::store_default::<L::Item>,
+                    default_item: DataId::NONE,
                 });
                 self.layout_kinds.len() - 1
             });
+        if self.layout_kinds[kind].default_item.offset().is_none() {
+            self.layout_kinds[kind].default_item = self.data.store(L::Item::default());
+        }
         let id = StoredLayoutId::new(self.layouts.len());
         self.layouts.push(StoredLayout {
             kind: u16::try_from(kind).expect("too many layout kinds"),
             data: self.data.store(value),
-            default_item: DataId::NONE,
             offset: Point::ZERO,
         });
         id
@@ -332,13 +337,8 @@ impl<C> Frame<C> {
         id
     }
 
-    fn push_child<I: Default + 'static>(&mut self) -> NodeId {
+    fn push_child(&mut self) -> NodeId {
         let node = self.push_node();
-        let parent = self.nodes[node.index()].parent;
-        let layout = self.nodes[parent.index()].layout.index().unwrap();
-        if self.layouts[layout].default_item.offset().is_none() {
-            self.layouts[layout].default_item = self.data.store(I::default());
-        }
         self.current_parent = Some(node);
         node
     }
@@ -393,8 +393,6 @@ impl<C> Frame<C> {
                 node,
                 hit: Sides::all(0.0),
                 transition: None,
-                transition_size: Size::ZERO,
-                transition_properties: crate::TransitionProperties::NONE,
             });
             id.index().unwrap()
         };
@@ -489,12 +487,16 @@ struct AbsoluteSizing {
 }
 
 #[derive(Clone, Copy)]
+struct TargetSize {
+    size: Size,
+    properties: crate::TransitionProperties,
+}
+
+#[derive(Clone, Copy)]
 struct GeometryRecord {
     node: NodeId,
     hit: Sides,
     transition: Option<Transition>,
-    transition_size: Size,
-    transition_properties: crate::TransitionProperties,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -523,7 +525,6 @@ struct StoredAtom {
 struct StoredLayout {
     kind: u16,
     data: DataId,
-    default_item: DataId,
     offset: Point,
 }
 
@@ -565,14 +566,10 @@ struct AtomKind<C> {
     paint: fn(&DataArena, DataId, &mut C, Rect),
 }
 
-type OverrideSize = fn(&mut DataArena, DataId, DataId, Option<f32>, Option<f32>) -> bool;
-type StoreDefault = fn(&mut DataArena) -> DataId;
-
 struct LayoutKind<C> {
     type_id: TypeId,
     layout: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, Constraints) -> Size,
-    override_size: OverrideSize,
-    store_default: StoreDefault,
+    default_item: DataId,
 }
 
 struct ClipKind<C> {

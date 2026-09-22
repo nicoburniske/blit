@@ -125,10 +125,6 @@ impl<C> Layout<C> for ListLayout {
             Axis::Vertical => Size::new(cross_extent, self.total_extent),
         })
     }
-
-    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-        false
-    }
 }
 
 #[cfg(test)]

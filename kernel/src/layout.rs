@@ -5,7 +5,10 @@ use crate::geometry::{Constraints, Sides, Size};
 pub trait Layout<C>: 'static {
     /// per-child data interpreted by this layout
     ///
-    /// children without an explicit item share the default value
+    /// children without explicit items store no `Item` of their own
+    /// all instances of this layout type share one default value
+    /// this avoids storing one item per child or layout instance
+    /// so it is more efficient to rely on the default value where possible
     type Item: Default + 'static;
 
     /// measures this node and arranges its flow children
@@ -18,17 +21,11 @@ pub trait Layout<C>: 'static {
     /// - adapt layout-owned physical lengths through [`LayoutCx::resolution`]
     /// - return a size within `constraints`
     ///
-    /// use [`LayoutCx::target_child_size`] when animated sizes must not change
-    /// structural decisions such as wrapping.
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size;
-
-    /// applies an animated outer size to a flow child item
+    /// [`LayoutCx::layout_child`] applies animated size overrides
     ///
-    /// return
-    /// - `true` if layout honors every supplied extent
-    /// - `false` disables the transition and must leave `item` unchanged
-    fn override_size(&self, item: &mut Self::Item, width: Option<f32>, height: Option<f32>)
-    -> bool;
+    /// - use [`LayoutCx::resolve_sizing`] when sizing affects allocation before laying out the child
+    /// - use [`LayoutCx::target_child_size`] when animated size must not change structure such as wrapping
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size;
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

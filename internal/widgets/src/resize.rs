@@ -161,8 +161,4 @@ impl<C> LayoutTrait<C> for Layout {
         }
         size
     }
-
-    fn override_size(&self, _: &mut Self::Item, _: Option<f32>, _: Option<f32>) -> bool {
-        false
-    }
 }
