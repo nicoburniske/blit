@@ -91,22 +91,26 @@ where
             })
             .widget_id(id);
         panes
-            .child_item(Item::Leading)
+            .child()
+            .item(Item::Leading)
             .widget_id(leading_id)
             .build(leading);
         panes
-            .child_item(Item::Divider)
+            .child()
+            .item(Item::Divider)
             .widget_id(divider_id)
             .build(divider(axis, interaction));
         panes
-            .child_item(Item::Trailing)
+            .child()
+            .item(Item::Trailing)
             .widget_id(trailing_id)
             .build(trailing);
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 enum Item {
+    #[default]
     Leading,
     Divider,
     Trailing,

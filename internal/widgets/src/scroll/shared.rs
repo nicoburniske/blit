@@ -61,8 +61,9 @@ pub struct ScrollLayout {
     pub minimum_thumb_extent: f32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub enum ScrollItem {
+    #[default]
     Content,
     Track,
     Thumb,
@@ -327,18 +328,21 @@ pub fn build_scroll<C, W, X, T, H>(
     let thumb_id = id.child("scroll thumb");
     let mut viewport = ui.layout(layout).widget_id(id).clip(clip);
     viewport
-        .child_item(ScrollItem::Content)
+        .child()
+        .item(ScrollItem::Content)
         .widget_id(content_id)
         .build(content);
     if let Some(track) = track {
         viewport
-            .child_item(ScrollItem::Track)
+            .child()
+            .item(ScrollItem::Track)
             .widget_id(id.child("scroll track"))
             .insert(track);
     }
     if let Some(thumb) = thumb {
         viewport
-            .child_item(ScrollItem::Thumb)
+            .child()
+            .item(ScrollItem::Thumb)
             .widget_id(thumb_id)
             .insert(thumb);
     }

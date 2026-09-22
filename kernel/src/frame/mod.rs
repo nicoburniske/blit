@@ -180,37 +180,20 @@ impl<'ui, C, I: 'static> Ui<'ui, C, state::Child<I>> {
     }
 }
 
-impl<'ui, C, L> Ui<'ui, C, state::Open<L>>
-where
-    L: Layout<C>,
-    L::Item: Default,
-{
+impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     /// creates a child with this layout's shared default item
     #[inline]
     pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
-        let node = self
-            .inner
-            .frame
-            .push_child::<L::Item>(NewChild::Default(layout::store_default::<L::Item>));
+        let node = self.inner.frame.push_child::<L::Item>();
         Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
     }
-}
 
-impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     pub fn offset(mut self, offset: Point) -> Self {
         let node = self.inner.node;
         let frame = self.inner.frame_mut();
         let layout = frame.nodes[node.index()].layout.index().unwrap();
         frame.layouts[layout].offset = offset;
         self
-    }
-
-    /// creates a child with an explicit layout item
-    /// required when layout item doesn't implement Default
-    #[inline]
-    pub fn child_item(&mut self, item: L::Item) -> Ui<'_, C, state::Child<L::Item>> {
-        let node = self.inner.frame.push_child(NewChild::Item(item));
-        Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
     }
 
     /// creates an absolutely positioned child that bypasses this layout

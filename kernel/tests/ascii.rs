@@ -151,6 +151,53 @@ fn owned_frame_values_use_resolved_area_and_drop() {
 }
 
 #[test]
+fn default_children_share_one_item() {
+    struct SharedDefault(Rc<Cell<usize>>);
+
+    impl Layout<AsciiContext> for SharedDefault {
+        type Item = Rc<()>;
+
+        fn layout(
+            &self,
+            cx: &mut LayoutCx<'_, AsciiContext, Rc<()>>,
+            constraints: Constraints,
+        ) -> Size {
+            let mut default = None;
+            let mut count = 0;
+            for child in cx.children() {
+                let item = Rc::as_ptr(cx.item(child));
+                if let Some(default) = default {
+                    assert_eq!(item, default);
+                } else {
+                    default = Some(item);
+                }
+                cx.layout_child(child, Constraints::tight(Size::ZERO));
+                cx.set_child_position(child, Point::ZERO);
+                count += 1;
+            }
+            self.0.set(count);
+            constraints.min
+        }
+
+        fn override_size(&self, _: &mut Rc<()>, _: Option<f32>, _: Option<f32>) -> bool {
+            false
+        }
+    }
+
+    let children = Rc::new(Cell::new(0));
+    let (mut frame, mut context) = frame(Size::uniform(1.0));
+
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
+        let mut root = ui.layout(SharedDefault(children.clone()));
+        for _ in 0..3 {
+            root.child();
+        }
+    });
+
+    assert_eq!(children.get(), 3);
+}
+
+#[test]
 fn resolves_named_anchors_and_clipping() {
     let (mut frame, mut context) = frame(Size::new(8.0, 5.0));
 

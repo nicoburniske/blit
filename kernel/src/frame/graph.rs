@@ -273,7 +273,7 @@ impl<C> Frame<C> {
                     type_id,
                     layout: layout::run::<C, L>,
                     override_size: layout::override_item::<C, L>,
-                    store_default: None,
+                    store_default: layout::store_default::<L::Item>,
                 });
                 self.layout_kinds.len() - 1
             });
@@ -332,23 +332,12 @@ impl<C> Frame<C> {
         id
     }
 
-    fn push_child<I: 'static>(&mut self, child: NewChild<I>) -> NodeId {
+    fn push_child<I: Default + 'static>(&mut self) -> NodeId {
         let node = self.push_node();
-        match child {
-            NewChild::Default(store_default) => {
-                let parent = self.nodes[node.index()].parent;
-                let layout = self.nodes[parent.index()].layout.index().unwrap();
-                let kind = self.layouts[layout].kind as usize;
-                if self.layouts[layout].default_item.offset().is_none() {
-                    self.layouts[layout].default_item = store_default(&mut self.data);
-                }
-                if self.layout_kinds[kind].store_default.is_none() {
-                    self.layout_kinds[kind].store_default = Some(store_default);
-                }
-            }
-            NewChild::Item(item) => {
-                self.nodes[node.index()].item = self.data.store(item);
-            }
+        let parent = self.nodes[node.index()].parent;
+        let layout = self.nodes[parent.index()].layout.index().unwrap();
+        if self.layouts[layout].default_item.offset().is_none() {
+            self.layouts[layout].default_item = self.data.store(I::default());
         }
         self.current_parent = Some(node);
         node
@@ -583,12 +572,7 @@ struct LayoutKind<C> {
     type_id: TypeId,
     layout: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, Constraints) -> Size,
     override_size: OverrideSize,
-    store_default: Option<StoreDefault>,
-}
-
-enum NewChild<I> {
-    Default(StoreDefault),
-    Item(I),
+    store_default: StoreDefault,
 }
 
 struct ClipKind<C> {

@@ -84,10 +84,8 @@ pub fn resolve<C>(
                 .then_some(current.height);
             let mut item = frame.nodes[node.index()].item;
             if item.offset().is_none() {
-                let store_default = frame.layout_kinds[kind]
-                    .store_default
-                    .expect("default layout item constructor is missing");
-                item = store_default(data);
+                // materialize an item before applying a mutable override
+                item = (frame.layout_kinds[kind].store_default)(data);
                 frame.nodes[node.index()].item = item;
             }
             if (frame.layout_kinds[kind].override_size)(data, layout.data, item, width, height) {

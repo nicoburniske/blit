@@ -4,7 +4,9 @@ use crate::geometry::{Constraints, Sides, Size};
 
 pub trait Layout<C>: 'static {
     /// per-child data interpreted by this layout
-    type Item: 'static;
+    ///
+    /// children without an explicit item share the default value
+    type Item: Default + 'static;
 
     /// measures this node and arranges its flow children
     ///
