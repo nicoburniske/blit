@@ -6,7 +6,6 @@ license.workspace = true
 publish = false
 
 [features]
-default = ["cpu"]
 cpu = ["dep:blit-cpu", "dep:softbuffer"]
 gpu = ["dep:blit-gpu", "dep:wgpu"]
 
