@@ -18,8 +18,8 @@ use blit_gui::{
     layout::{Align, flex, grid, single, wrap},
     style::{Border, BorderRadius},
     text::{
-        FontId, FontStyle, HorizontalAlign, Span, TextOptions, TextOverflow, TextStyle, TextWrap,
-        VerticalAlign,
+        FontId, FontStyle, HorizontalAlign, Span, SpanStyle, TextOptions, TextOverflow, TextStyle,
+        TextWrap, VerticalAlign,
     },
     widget::{
         Performance, RichText, Text, TextInput, performance, popover, resize, scroll_area,
@@ -241,6 +241,8 @@ impl Application for App {
 }
 
 struct TextPage {
+    text: String,
+    spans: Vec<Span>,
     resize: resize::State,
     wrap: TextWrap,
     overflow: TextOverflow,
@@ -252,7 +254,59 @@ struct TextPage {
 
 impl Default for TextPage {
     fn default() -> Self {
+        let mut text = String::new();
+        let mut spans = Vec::new();
+        for (value, style) in [
+            (
+                "Rich text\n",
+                SpanStyle::new()
+                    .size(sz::XXL)
+                    .weight(700)
+                    .style(FontStyle::Italic)
+                    .color(colors::ACCENT),
+            ),
+            (
+                "One paragraph can mix inherited body text with ",
+                SpanStyle::new(),
+            ),
+            (
+                "large type",
+                SpanStyle::new().size(sz::XL).color(colors::TEXT),
+            ),
+            (", ", SpanStyle::new()),
+            ("bold", SpanStyle::new().weight(700).color(colors::TEXT)),
+            (", ", SpanStyle::new()),
+            (
+                "italic",
+                SpanStyle::new()
+                    .style(FontStyle::Italic)
+                    .color(colors::TEXT),
+            ),
+            (", ", SpanStyle::new()),
+            (
+                "oblique",
+                SpanStyle::new()
+                    .style(FontStyle::Oblique)
+                    .color(colors::TEXT),
+            ),
+            (", and ", SpanStyle::new()),
+            (
+                "small details",
+                SpanStyle::new().size(sz::SM).color(colors::TEXT_MUTED),
+            ),
+            (
+                ". Every styled span participates in the same wrapping, alignment, measurement, clipping, and ellipsis behavior. Resize the panel to watch the whole paragraph reflow.",
+                SpanStyle::new(),
+            ),
+        ] {
+            let start = text.len();
+            text.push_str(value);
+            spans.push(Span::new(start..text.len()).style(style));
+        }
+
         Self {
+            text,
+            spans,
             resize: resize::State::default(),
             wrap: TextWrap::Word,
             overflow: TextOverflow::Clip,
@@ -269,6 +323,8 @@ impl Widget<GuiContext> for &mut TextPage {
 
     fn build(self, ui: Ui<'_>) {
         let TextPage {
+            text,
+            spans,
             resize,
             wrap,
             overflow,
@@ -409,36 +465,8 @@ impl Widget<GuiContext> for &mut TextPage {
                                         ))
                                         .radius(BorderRadius::uniform(sz::XS)),
                                 );
-                                let sample = [
-                                    Span::new("Rich text\n")
-                                        .size(sz::XXL)
-                                        .weight(700)
-                                        .style(FontStyle::Italic)
-                                        .color(colors::ACCENT),
-                                    Span::new("One paragraph can mix inherited body text with "),
-                                    Span::new("large type")
-                                        .size(sz::XL)
-                                        .color(colors::TEXT),
-                                    Span::new(", "),
-                                    Span::new("bold").weight(700).color(colors::TEXT),
-                                    Span::new(", "),
-                                    Span::new("italic")
-                                        .style(FontStyle::Italic)
-                                        .color(colors::TEXT),
-                                    Span::new(", "),
-                                    Span::new("oblique")
-                                        .style(FontStyle::Oblique)
-                                        .color(colors::TEXT),
-                                    Span::new(", and "),
-                                    Span::new("small details")
-                                        .size(sz::SM)
-                                        .color(colors::TEXT_MUTED),
-                                    Span::new(
-                                        ". Every styled span participates in the same wrapping, alignment, measurement, clipping, and ellipsis behavior. Resize the panel to watch the whole paragraph reflow.",
-                                    ),
-                                ];
                                 paragraph.child().item(single::item().grow()).insert(
-                                    RichText::new(&sample)
+                                    RichText::new(text, spans)
                                         .style(TextStyle {
                                             size: sz::LG,
                                             ..TextStyle::default()

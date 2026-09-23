@@ -76,21 +76,22 @@ enum CachedSpans {
 }
 
 struct TextQuery<'a> {
-    spans: &'a [Span<'a>],
+    text: &'a str,
+    spans: &'a [Span],
     style: blit_text::TextStyle,
     fonts: &'a [ConfiguredFont],
 }
 
 impl TextQuery<'_> {
-    fn resolve(&self, span: &Span<'_>) -> blit_text::TextStyle {
+    fn resolve(&self, span: &Span) -> blit_text::TextStyle {
         blit_text::TextStyle {
-            font: span.font.map_or(self.style.font, |id| {
+            font: span.style.font.map_or(self.style.font, |id| {
                 self.fonts.iter().find(|font| font.id == id).unwrap().font
             }),
-            size: span.size.unwrap_or(self.style.size),
-            weight: span.weight.unwrap_or(self.style.weight),
-            stretch: span.stretch.unwrap_or(self.style.stretch),
-            style: span.style.unwrap_or(self.style.style),
+            size: span.style.size.unwrap_or(self.style.size),
+            weight: span.style.weight.unwrap_or(self.style.weight),
+            stretch: span.style.stretch.unwrap_or(self.style.stretch),
+            style: span.style.style.unwrap_or(self.style.style),
         }
     }
 }
@@ -98,24 +99,24 @@ impl TextQuery<'_> {
 impl Hash for TextQuery<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for span in self.spans {
-            hash_span(span.text, self.resolve(span), state);
+            hash_span(&self.text[span.range.clone()], self.resolve(span), state);
         }
     }
 }
 
 impl Equivalent<TextKey> for TextQuery<'_> {
     fn equivalent(&self, key: &TextKey) -> bool {
+        if key.text.as_ref() != self.text {
+            return false;
+        }
         match &key.spans {
             CachedSpans::One(style) => {
-                self.spans.len() == 1
-                    && key.text.as_ref() == self.spans[0].text
-                    && *style == self.resolve(&self.spans[0])
+                self.spans.len() == 1 && *style == self.resolve(&self.spans[0])
             }
             CachedSpans::Many(spans) => {
                 spans.len() == self.spans.len()
                     && spans.iter().zip(self.spans).all(|(cached_span, span)| {
-                        &key.text[cached_span.range.clone()] == span.text
-                            && cached_span.style == self.resolve(span)
+                        cached_span.range == span.range && cached_span.style == self.resolve(span)
                     })
             }
         }
@@ -323,21 +324,33 @@ impl TextSystem {
     }
 
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.rich_text(&[Span::new(text)], style)
+        self.rich_text(text, &[Span::new(0..text.len())], style)
     }
 
-    pub fn rich_text(&mut self, spans: &[Span<'_>], style: TextStyle) -> TextRunId {
-        let empty = [Span::new("")];
-        let spans = if spans.is_empty() { &empty } else { spans };
+    pub fn rich_text(&mut self, text: &str, spans: &[Span], style: TextStyle) -> TextRunId {
         let Some(font) = self.fonts.iter().find(|font| font.id == style.font) else {
             return TextRunId::default();
         };
-        if spans.iter().any(|span| {
-            span.font
+        let default = [Span::new(0..text.len())];
+        let spans = if spans.is_empty() { &default } else { spans };
+        let mut end = 0;
+        for span in spans {
+            assert_eq!(span.range.start, end, "rich text spans must be contiguous");
+            assert!(span.range.end >= end, "rich text spans must be ordered");
+            assert!(
+                text.is_char_boundary(span.range.end),
+                "rich text spans must lie on character boundaries"
+            );
+            end = span.range.end;
+            if span
+                .style
+                .font
                 .is_some_and(|id| !self.fonts.iter().any(|font| font.id == id))
-        }) {
-            return TextRunId::default();
+            {
+                return TextRunId::default();
+            }
         }
+        assert_eq!(end, text.len(), "rich text spans must cover the text");
         let style = blit_text::TextStyle {
             font: font.font,
             size: style.size,
@@ -346,35 +359,32 @@ impl TextSystem {
             style: style.style,
         };
         let query = TextQuery {
+            text,
             spans,
             style,
             fonts: &self.fonts,
         };
-        let len = spans.iter().map(|span| span.text.len()).sum();
         let next_text = self.next_text;
         let mut inserted = false;
         let (_, index) = self.texts.get_or_insert(query, |query| {
             inserted = true;
-            let (text, spans) = if query.spans.len() == 1 {
-                (
-                    query.spans[0].text.into(),
-                    CachedSpans::One(query.resolve(&query.spans[0])),
-                )
+            let spans = if query.spans.len() == 1 {
+                CachedSpans::One(query.resolve(&query.spans[0]))
             } else {
-                let mut text = String::with_capacity(len);
                 let mut resolved = Vec::with_capacity(query.spans.len());
                 for span in query.spans {
-                    let start = text.len();
-                    text.push_str(span.text);
                     resolved.push(blit_text::TextSpan {
-                        range: start..text.len(),
+                        range: span.range.clone(),
                         style: query.resolve(span),
                     });
                 }
-                (text.into(), CachedSpans::Many(resolved.into_boxed_slice()))
+                CachedSpans::Many(resolved.into_boxed_slice())
             };
             (
-                TextKey { text, spans },
+                TextKey {
+                    text: query.text.into(),
+                    spans,
+                },
                 CachedText {
                     id: TextRunId(u64::from(next_text) << 32),
                     shape: None,

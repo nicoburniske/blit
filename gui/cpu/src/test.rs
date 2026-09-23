@@ -17,8 +17,8 @@ use blit_gui::{
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::FontId,
     text::{
-        HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextPhases, TextRequest, TextRunId,
-        TextStyle, TextWrap, VerticalAlign,
+        HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextPhases, TextRequest,
+        TextRunId, TextStyle, TextWrap, VerticalAlign,
     },
 };
 use blit_text::{
@@ -193,8 +193,8 @@ fn renderer_supports_custom_pixel_layouts() {
     );
 
     paint.clear();
-    let spans = [Span::new("M").size(20.0).color(Color::WHITE)];
-    let m = renderer.gui.rich_text(&spans, TextStyle::default()).0;
+    let spans = [Span::new(0..1).style(SpanStyle::new().size(20.0).color(Color::WHITE))];
+    let m = renderer.gui.rich_text("M", &spans, TextStyle::default()).0;
     let palette = paint.text_palette(&spans);
     paint.push_text_palette(
         TextRequest {
@@ -376,7 +376,11 @@ fn fontdue_layout_renders_with_cpu_rasterization() {
     let mut display_list = DisplayList::default();
     let text = renderer
         .gui
-        .rich_text(&[Span::new("M").size(20.0)], TextStyle::default())
+        .rich_text(
+            "M",
+            &[Span::new(0..1).style(SpanStyle::new().size(20.0))],
+            TextStyle::default(),
+        )
         .0;
     display_list.push_text(
         TextRequest {
@@ -542,7 +546,11 @@ fn text_measurement_reports_wrapped_layout_size() {
     let mixed = renderer
         .gui
         .rich_text(
-            &[Span::new("hello\n"), Span::new("world").size(32.0)],
+            "hello\nworld",
+            &[
+                Span::new(0..6),
+                Span::new(6..11).style(SpanStyle::new().size(32.0)),
+            ],
             TextStyle::default(),
         )
         .0;
@@ -1789,7 +1797,11 @@ fn text_runs_are_keyed_by_content_and_style() {
     assert_eq!(
         renderer
             .gui
-            .rich_text(&[Span::new("same").size(style.size)], style)
+            .rich_text(
+                "same",
+                &[Span::new(0..4).style(SpanStyle::new().size(style.size))],
+                style,
+            )
             .0,
         first
     );
@@ -1814,10 +1826,10 @@ fn text_runs_are_keyed_by_content_and_style() {
         ),
         first
     );
-    let white = [Span::new("same").color(Color::WHITE)];
-    let black = [Span::new("same").color(Color::BLACK)];
-    let text = renderer.gui.rich_text(&white, style).0;
-    assert_eq!(renderer.gui.rich_text(&black, style).0, text);
+    let white = [Span::new(0..4).style(SpanStyle::new().color(Color::WHITE))];
+    let black = [Span::new(0..4).style(SpanStyle::new().color(Color::BLACK))];
+    let text = renderer.gui.rich_text("same", &white, style).0;
+    assert_eq!(renderer.gui.rich_text("same", &black, style).0, text);
 
     let request = TextRequest {
         text,
@@ -1844,17 +1856,17 @@ fn text_runs_are_keyed_by_content_and_style() {
     );
     assert!(!white_display_list.equivalent(0, &black_display_list, 0));
 
-    let mixed = [
-        Span::new("a"),
-        Span::new("b").color(Color::WHITE),
-        Span::new("c"),
+    let spans = [
+        Span::new(0..1),
+        Span::new(1..2).style(SpanStyle::new().weight(500).color(Color::WHITE)),
+        Span::new(2..3),
     ];
     let request = TextRequest {
-        text: renderer.gui.rich_text(&mixed, style).0,
+        text: renderer.gui.rich_text("abc", &spans, style).0,
         ..request
     };
     white_display_list.clear();
-    let palette = white_display_list.text_palette(&mixed);
+    let palette = white_display_list.text_palette(&spans);
     white_display_list.push_text_palette(
         request,
         palette,

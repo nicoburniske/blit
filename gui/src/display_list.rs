@@ -175,11 +175,14 @@ impl DisplayList {
         self.push_text_palette(text, TextPalette::NONE, bounds, clip)
     }
 
-    pub fn text_palette(&mut self, spans: &[Span<'_>]) -> TextPalette {
-        if spans.iter().all(|span| span.color.is_none()) {
+    pub fn text_palette(&mut self, spans: &[Span]) -> TextPalette {
+        if spans.iter().all(|span| span.style.color.is_none()) {
             return TextPalette::NONE;
         }
-        let (start, len) = store(&mut self.text_colors, spans.iter().map(|span| span.color));
+        let (start, len) = store(
+            &mut self.text_colors,
+            spans.iter().map(|span| span.style.color),
+        );
         TextPalette { start, len }
     }
 

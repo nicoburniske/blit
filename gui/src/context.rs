@@ -54,9 +54,14 @@ impl GuiContext {
         self.text.text_run(text, style)
     }
 
-    pub fn rich_text(&mut self, spans: &[Span<'_>], style: TextStyle) -> (TextRunId, TextPalette) {
+    pub fn rich_text(
+        &mut self,
+        text: &str,
+        spans: &[Span],
+        style: TextStyle,
+    ) -> (TextRunId, TextPalette) {
         (
-            self.text.rich_text(spans, style),
+            self.text.rich_text(text, spans, style),
             self.display_list.text_palette(spans),
         )
     }

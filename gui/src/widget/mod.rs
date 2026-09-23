@@ -42,9 +42,10 @@ impl Content<GuiContext> for Text<'_> {
 }
 
 blit::builder! {
+    /// text partitioned by ordered, contiguous spans
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct RichText<'a> {
-        new(spans: &'a [Span<'a>]),
+        new(text: &'a str, spans: &'a [Span]),
         style: TextStyle = TextStyle::default(),
         color: Color = Color::BLACK,
         offset_x: f32 = 0.0,
@@ -56,7 +57,7 @@ impl Content<GuiContext> for RichText<'_> {
     type Response = ();
 
     fn append(self, mut ui: Ui<'_, state::Node>) {
-        let (run, palette) = ui.context().rich_text(self.spans, self.style);
+        let (run, palette) = ui.context().rich_text(self.text, self.spans, self.style);
         ui.insert(
             atom::Text::new(run)
                 .palette(palette)

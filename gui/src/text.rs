@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::color::Color;
 use blit::geometry::LogicalRect;
 pub use blit_text::FontStyle;
@@ -18,9 +20,10 @@ pub enum TextPhases {
 }
 
 blit::builder! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Span<'a> {
-        new(text: &'a str),
+    /// style overrides for a rich text span
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct SpanStyle {
+        new(),
         @optional {
             font: FontId,
             size: f32,
@@ -29,6 +32,15 @@ blit::builder! {
             style: FontStyle,
             color: Color,
         },
+    }
+}
+
+blit::builder! {
+    /// a styled byte range within a rich text string
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct Span {
+        new(range: Range<usize>),
+        style: SpanStyle = SpanStyle::new(),
     }
 }
 
