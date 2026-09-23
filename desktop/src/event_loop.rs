@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use blit::{
     Frame, FrameInfo, LogicalPoint, Size,
@@ -12,6 +15,7 @@ use winit::{
     event::{ElementState, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key as WindowKey, NamedKey},
+    platform::pump_events::{EventLoopExtPumpEvents, PumpStatus},
     window::{Window, WindowId},
 };
 
@@ -26,35 +30,72 @@ pub fn run<A>(config: Config<impl TextLayoutEngine>) -> Result<(), RunError>
 where
     A: Application,
 {
-    let Config {
-        title,
-        width,
-        height,
-        text_config,
-        text,
-        graphics,
-    } = config;
-    let gui = GuiContext::new(TextSystem::new(text_config, text)?);
-    let event_loop = EventLoop::<Event<A::Input>>::with_user_event().build()?;
-    let mut runner: Runner<A> = Runner {
-        state: Some(State::Pending(Pending {
+    let Session {
+        event_loop,
+        mut runner,
+        ..
+    } = Session::<A>::new(config)?;
+    event_loop.run_app(&mut runner)?;
+    runner.error.map_or(Ok(()), Err)
+}
+
+/// owns the desktop event loop and application
+pub struct Session<A: Application> {
+    event_loop: EventLoop<Event<A::Input>>,
+    runner: Runner<A>,
+    active: bool,
+}
+
+impl<A: Application> Session<A> {
+    pub fn new(config: Config<impl TextLayoutEngine>) -> Result<Self, RunError> {
+        let Config {
             title,
             width,
             height,
-            gui,
+            text_config,
+            text,
             graphics,
-            input: EventLoopProxy {
-                inner: event_loop.create_proxy(),
-            },
-        })),
-        inputs: Vec::new(),
-        cursor: None,
-        modifiers: Modifiers::NONE,
-        started_at: Instant::now(),
-        error: None,
-    };
-    event_loop.run_app(&mut runner)?;
-    runner.error.map_or(Ok(()), Err)
+        } = config;
+        let gui = GuiContext::new(TextSystem::new(text_config, text)?);
+        let event_loop = EventLoop::<Event<A::Input>>::with_user_event().build()?;
+        let runner = Runner {
+            state: Some(State::Pending(Pending {
+                title,
+                width,
+                height,
+                gui,
+                graphics,
+                input: EventLoopProxy {
+                    inner: event_loop.create_proxy(),
+                },
+            })),
+            inputs: Vec::new(),
+            cursor: None,
+            modifiers: Modifiers::NONE,
+            started_at: Instant::now(),
+            error: None,
+        };
+        Ok(Self {
+            event_loop,
+            runner,
+            active: true,
+        })
+    }
+
+    /// waits for and handles one event loop iteration
+    /// returns false when the application exits
+    pub fn pump(&mut self, timeout: Option<Duration>) -> Result<bool, RunError> {
+        if !self.active {
+            return Ok(false);
+        }
+        let status = self.event_loop.pump_app_events(timeout, &mut self.runner);
+        if let Some(error) = self.runner.error.take() {
+            self.active = false;
+            return Err(error);
+        }
+        self.active = matches!(status, PumpStatus::Continue);
+        Ok(self.active)
+    }
 }
 
 struct Runner<A: Application> {

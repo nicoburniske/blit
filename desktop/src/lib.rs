@@ -2,7 +2,7 @@
 compile_error!("blit-desktop currently supports Linux and macOS only");
 
 pub use blit_executor::{AppMut, Project, Root, Scope, ScopeRef, TaskId};
-pub use event_loop::run;
+pub use event_loop::{Session, run};
 pub use winit::event_loop::EventLoopClosed;
 
 #[cfg(feature = "cpu")]
