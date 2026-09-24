@@ -11,3 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 blit.workspace = true
 blit-web.workspace = true
+
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }

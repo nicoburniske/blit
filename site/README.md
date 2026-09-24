@@ -55,8 +55,10 @@ Timings measure native build and layout, before paint, on a Ryzen 9 7900; they
 are not claims about browser performance. Comparison pages include source
 revisions, count scope, and differences in feature coverage.
 
-The evolution page embeds `COUNTER_API_TIMELAPSE.txt` directly at build time.
-Its slider selects the original GUI snippets, with line changes highlighted
-against the preceding snapshot. Adding a delimited entry to that file adds a
-slider stop on the next build. The original text file is also included in the
-deployment bundle. Historical snippets are displayed as source, not executed.
+Edit `site/timelapse.toml` to update the evolution page. Each `[[revision]]` has
+commit metadata and a `code = ''' ... '''` multiline literal string: paste Rust
+directly, with no escaping. Add a revision to add a slider stop on the next build.
+The standard TOML parser runs at build time, so malformed entries fail the build
+and no parser ships in the WASM. The TOML file is also included in the deployment
+bundle. Historical GUI snippets are displayed as source, not executed, with line
+changes highlighted against the preceding snapshot.

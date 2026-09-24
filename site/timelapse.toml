@@ -1,0 +1,445 @@
+[[revision]]
+commit = "9f8654c"
+date = "2026-07-11"
+title = "wip | initial immediate drawing"
+source = "src/lib.rs, src/layout.rs, src/text.rs"
+code = '''
+use bullseye::{Color, Constraint, Input, Layout, Point, Rect, Text, Ui};
+
+struct Counter {
+    count: u32,
+}
+
+impl Counter {
+    fn render(&mut self, ui: &mut Ui, area: Rect) {
+        let [button, count] = Layout::default()
+            .spacing(12.0)
+            .constraints([Constraint::Length(110.0), Constraint::Min(0.0)])
+            .areas(area);
+
+        let clicked = matches!(ui.input(), Input::PointerUp { x, y }
+            if button.contains(*x, *y));
+        if clicked {
+            ui.invalidate(button);
+        }
+        ui.fill_rect(button, if clicked {
+            Color::from_rgba8(70, 110, 190, 255)
+        } else {
+            Color::from_rgba8(45, 55, 70, 255)
+        });
+        Text::new("Increment")
+            .at(Point { x: button.x + 8.0, y: button.y + 8.0 })
+            .color(Color::WHITE)
+            .render(ui);
+
+        if clicked {
+            self.count += 1;
+        }
+
+        let label = format!("Count: {}", self.count);
+        Text::new(&label)
+            .in_area(count)
+            .color(Color::WHITE)
+            .render(ui);
+    }
+}
+'''
+
+[[revision]]
+commit = "5111e37"
+date = "2026-07-11"
+title = "component macro | logical geometry and styled button"
+source = "src/lib.rs, src/widgets/rectangle.rs, src/layout.rs"
+code = '''
+use bullseye::{Color, Constraint, Input, Layout, LogicalInsets, LogicalRect,
+    Text, Ui, widgets::Rectangle};
+
+struct Counter {
+    count: u32,
+}
+
+impl Counter {
+    fn render(&mut self, ui: &mut Ui, area: LogicalRect) {
+        let [button, count] = Layout::default()
+            .spacing(12.0)
+            .constraints([Constraint::Length(110.0), Constraint::Min(0.0)])
+            .areas(area);
+
+        let clicked = matches!(ui.input(), Input::PointerUp { position }
+            if button.contains(position.x, position.y));
+        if clicked {
+            ui.invalidate(button);
+        }
+        Rectangle::new(button)
+            .background(if clicked {
+                Color::from_rgba8(70, 110, 190, 255)
+            } else {
+                Color::from_rgba8(45, 55, 70, 255)
+            })
+            .render(ui);
+        Text::new("Increment")
+            .in_area(button.inset(LogicalInsets::uniform(8.0)))
+            .color(Color::WHITE)
+            .render(ui);
+
+        if clicked {
+            self.count += 1;
+        }
+
+        let label = format!("Count: {}", self.count);
+        Text::new(&label).in_area(count).color(Color::WHITE).render(ui);
+    }
+}
+'''
+
+[[revision]]
+commit = "9dc022e"
+date = "2026-07-11"
+title = "interaction system | stable widget identity"
+source = "src/lib.rs, src/interaction.rs, src/widgets/rectangle.rs"
+code = '''
+use bullseye::{Color, Constraint, Layout, LogicalInsets, LogicalRect,
+    Sense, Text, Ui, WidgetId, widgets::Rectangle};
+
+struct Counter {
+    count: u32,
+}
+
+impl Counter {
+    fn render(&mut self, ui: &mut Ui, area: LogicalRect) {
+        let [button, count] = Layout::default()
+            .spacing(12.0)
+            .constraints([Constraint::Length(110.0), Constraint::Min(0.0)])
+            .areas(area);
+
+        let id = ui.id(WidgetId::new("counter increment"));
+        let interaction = ui.interact(id, button, Sense::CLICK);
+        if interaction.pressed || interaction.clicked {
+            ui.invalidate(button);
+        }
+        Rectangle::new(button)
+            .background(if interaction.pressed || interaction.clicked {
+                Color::from_rgba8(70, 110, 190, 255)
+            } else {
+                Color::from_rgba8(45, 55, 70, 255)
+            })
+            .render(ui);
+        Text::new("Increment")
+            .in_area(button.inset(LogicalInsets::uniform(8.0)))
+            .color(Color::WHITE)
+            .render(ui);
+
+        if interaction.clicked {
+            self.count += 1;
+        }
+
+        let label = format!("Count: {}", self.count);
+        Text::new(&label).in_area(count).color(Color::WHITE).render(ui);
+    }
+}
+'''
+
+[[revision]]
+commit = "3b4115f"
+date = "2026-08-22"
+title = "blit: improve container builder pattern"
+source = "core/src/widget/mod.rs, core/src/container.rs, core/src/lib.rs"
+code = '''
+use blit::{Appearance, Ui, color::Color, geometry::LogicalInsets,
+    interact::{Sense, WidgetId}, widget::{Text, Widget}};
+
+struct Counter {
+    count: u32,
+}
+
+impl Widget for &mut Counter {
+    type Output = ();
+
+    fn build(self, ui: &mut Ui) {
+        let id = WidgetId::new("counter increment");
+        let interaction = ui.interact(id, Sense::CLICK);
+        let mut row = ui.container().row().gap(12.0).open();
+
+        {
+            let mut button = row.container()
+                .row()
+                .id(id)
+                .padding(LogicalInsets::uniform(8.0))
+                .appearance(Appearance::new().background(if interaction.pressed {
+                    Color::from_rgba8(70, 110, 190, 255)
+                } else {
+                    Color::from_rgba8(45, 55, 70, 255)
+                }))
+                .open();
+            button.add(Text::new("Increment").color(Color::WHITE));
+        }
+
+        if interaction.clicked {
+            self.count += 1;
+        }
+
+        let label = format!("Count: {}", self.count);
+        row.add(Text::new(&label).color(Color::WHITE));
+    }
+}
+'''
+
+[[revision]]
+commit = "666aaf4"
+date = "2026-09-03"
+title = "merge UI, child, node | frame-local UI"
+source = "platform/desktop/examples/showcase_app.rs, kernel/src/frame/mod.rs"
+code = '''
+use blit::{Sense, Sides, Widget, WidgetId};
+use blit_desktop::{DesktopPlatform, Ui, atom::Rectangle,
+    color::Color, layout::Flex, widget::Text};
+
+struct Counter {
+    count: u32,
+}
+
+impl Widget<DesktopPlatform> for &mut Counter {
+    type Response = ();
+
+    fn build(self, ui: Ui<'_>) {
+        let mut row = ui.layout(Flex::row().gap(12.0));
+        let clicked = row.add(|mut ui: Ui<'_>| {
+            let id = WidgetId::new("counter increment");
+            let interaction = ui.interact(id, Sense::CLICK);
+            let mut button = ui.layout(Flex::row().padding(Sides::xy(12.0, 8.0)))
+                .widget_id(id);
+            button.insert(Rectangle::new().background(if interaction.active {
+                Color::from_rgba8(70, 110, 190, 255)
+            } else {
+                Color::from_rgba8(45, 55, 70, 255)
+            }));
+            button.add(Text::new("Increment").color(Color::WHITE));
+            interaction.clicked
+        });
+
+        if clicked {
+            self.count += 1;
+        }
+        let label = format!("Count: {}", self.count);
+        row.add(Text::new(&label).color(Color::WHITE));
+    }
+}
+'''
+
+[[revision]]
+commit = "68d94cf"
+date = "2026-09-03"
+title = "kernel: layout/widget/content/atom"
+source = "platform/desktop/examples/showcase_app.rs, kernel/src/frame/mod.rs"
+code = '''
+use blit::{Place, Sense, Sides, Widget, WidgetId};
+use blit_desktop::{DesktopPlatform, Ui, atom::Rectangle,
+    color::Color, layout::Flex, widget::Text};
+
+struct Counter {
+    count: u32,
+}
+
+impl Widget<DesktopPlatform> for &mut Counter {
+    type Response = ();
+
+    fn build(self, ui: Ui<'_>) {
+        let mut row = ui.layout(Flex::row().gap(12.0));
+        let clicked = row.child(Place::new()).build(|mut ui: Ui<'_>| {
+            let id = WidgetId::new("counter increment");
+            let interaction = ui.interact(id, Sense::CLICK);
+            let mut button = ui.layout(Flex::row().padding(Sides::xy(12.0, 8.0)))
+                .widget_id(id);
+            button.insert(Rectangle::new().background(if interaction.active {
+                Color::from_rgba8(70, 110, 190, 255)
+            } else {
+                Color::from_rgba8(45, 55, 70, 255)
+            }));
+            button.child(Place::new())
+                .insert(Text::new("Increment").color(Color::WHITE));
+            interaction.clicked
+        });
+
+        if clicked {
+            self.count += 1;
+        }
+        let label = format!("Count: {}", self.count);
+        row.child(Place::new()).insert(Text::new(&label).color(Color::WHITE));
+    }
+}
+'''
+
+[[revision]]
+commit = "754074e"
+date = "2026-09-04"
+title = "Merge pull request #2 from nicoburniske/kernel"
+source = "platform/desktop/examples/showcase_app.rs, kernel/src/frame/mod.rs"
+code = '''
+use blit::{Sense, Sides, Widget, WidgetId};
+use blit_desktop::{DesktopPlatform, Ui, atom::Rectangle,
+    color::Color, layout::flex, widget::Text};
+
+struct Counter {
+    count: u32,
+}
+
+impl Widget<DesktopPlatform> for &mut Counter {
+    type Response = ();
+
+    fn build(self, ui: Ui<'_>) {
+        let mut row = ui.layout(flex::row().gap(12.0));
+        let clicked = row.child(flex::item()).build(|mut ui: Ui<'_>| {
+            let id = WidgetId::new("counter increment");
+            let interaction = ui.interact(id, Sense::CLICK);
+            ui.widget_id(id).build(|ui: Ui<'_>| {
+                let mut button = ui.layout(flex::row().padding(Sides::xy(12.0, 8.0)));
+                button.insert(Rectangle::new().background(if interaction.active {
+                    Color::from_rgba8(70, 110, 190, 255)
+                } else {
+                    Color::from_rgba8(45, 55, 70, 255)
+                }));
+                button.child(flex::item())
+                    .insert(Text::new("Increment").color(Color::WHITE));
+            });
+            interaction.clicked
+        });
+
+        if clicked {
+            self.count += 1;
+        }
+        let label = format!("Count: {}", self.count);
+        row.child(flex::item()).insert(Text::new(&label).color(Color::WHITE));
+    }
+}
+'''
+
+[[revision]]
+commit = "7c2c1d2"
+date = "2026-09-18"
+title = "workspace: reorganize GUI, desktop, and examples"
+source = "examples/desktop_demo.rs, gui/src/lib.rs"
+code = '''
+use blit::{Sense, Sides, Widget, WidgetId};
+use blit_gui::{GuiContext, Ui, atom::Rectangle,
+    color::Color, layout::flex, widget::Text};
+
+struct Counter {
+    count: u32,
+}
+
+impl Widget<GuiContext> for &mut Counter {
+    type Response = ();
+
+    fn build(self, ui: Ui<'_>) {
+        let mut row = ui.layout(flex::row().gap(12.0));
+        let clicked = row.child(flex::item()).build(|mut ui: Ui<'_>| {
+            let id = WidgetId::new("counter increment");
+            let interaction = ui.interact(id, Sense::CLICK);
+            ui.widget_id(id).build(|ui: Ui<'_>| {
+                let mut button = ui.layout(flex::row().padding(Sides::xy(12.0, 8.0)));
+                button.insert(Rectangle::new().background(if interaction.active {
+                    Color::from_rgba8(70, 110, 190, 255)
+                } else {
+                    Color::from_rgba8(45, 55, 70, 255)
+                }));
+                button.child(flex::item())
+                    .insert(Text::new("Increment").color(Color::WHITE));
+            });
+            interaction.clicked
+        });
+
+        if clicked {
+            self.count += 1;
+        }
+        let label = format!("Count: {}", self.count);
+        row.child(flex::item()).insert(Text::new(&label).color(Color::WHITE));
+    }
+}
+'''
+
+[[revision]]
+commit = "005318e"
+date = "2026-09-23"
+title = "gui: rich text style"
+source = "examples/desktop_demo.rs, gui/src/lib.rs"
+code = '''
+use blit::{Sense, Sides, Widget, WidgetId};
+use blit_gui::{GuiContext, Ui, atom::Rectangle,
+    color::Color, layout::flex, widget::Text};
+
+struct Counter {
+    count: u32,
+}
+
+impl Widget<GuiContext> for &mut Counter {
+    type Response = ();
+
+    fn build(self, ui: Ui<'_>) {
+        let mut row = ui.layout(flex::row().gap(12.0));
+        let clicked = row.child().build(|mut ui: Ui<'_>| {
+            let id = WidgetId::new("counter increment");
+            let interaction = ui.interact(id, Sense::CLICK);
+            ui.widget_id(id).build(|ui: Ui<'_>| {
+                let mut button = ui.layout(flex::row().padding(Sides::xy(12.0, 8.0)));
+                button.insert(Rectangle::new().background(if interaction.active {
+                    Color::from_rgba8(70, 110, 190, 255)
+                } else {
+                    Color::from_rgba8(45, 55, 70, 255)
+                }));
+                button.child().insert(Text::new("Increment").color(Color::WHITE));
+            });
+            interaction.clicked
+        });
+
+        if clicked {
+            self.count += 1;
+        }
+        let label = format!("Count: {}", self.count);
+        row.child().insert(Text::new(&label).color(Color::WHITE));
+    }
+}
+'''
+
+[[revision]]
+commit = "8f49424"
+date = "2026-09-23"
+title = "gui: concise color constructors"
+source = "gui/src/color.rs, examples/desktop_demo.rs"
+note = "Opaque colors now use Color::rgb; translucent colors use Color::rgba."
+code = '''
+use blit::{Sense, Sides, Widget, WidgetId};
+use blit_gui::{GuiContext, Ui, atom::Rectangle,
+    color::Color, layout::flex, widget::Text};
+
+struct Counter {
+    count: u32,
+}
+
+impl Widget<GuiContext> for &mut Counter {
+    type Response = ();
+
+    fn build(self, ui: Ui<'_>) {
+        let mut row = ui.layout(flex::row().gap(12.0));
+        let clicked = row.child().build(|mut ui: Ui<'_>| {
+            let id = WidgetId::new("counter increment");
+            let interaction = ui.interact(id, Sense::CLICK);
+            ui.widget_id(id).build(|ui: Ui<'_>| {
+                let mut button = ui.layout(flex::row().padding(Sides::xy(12.0, 8.0)));
+                button.insert(Rectangle::new().background(if interaction.active {
+                    Color::rgb(70, 110, 190)
+                } else {
+                    Color::rgb(45, 55, 70)
+                }));
+                button.child().insert(Text::new("Increment").color(Color::WHITE));
+            });
+            interaction.clicked
+        });
+
+        if clicked {
+            self.count += 1;
+        }
+        let label = format!("Count: {}", self.count);
+        row.child().insert(Text::new(&label).color(Color::WHITE));
+    }
+}
+'''

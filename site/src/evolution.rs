@@ -306,7 +306,7 @@ impl Widget<Canvas> for &mut Evolution {
                 "timelapse source",
                 "Read the full timelapse ↗",
                 Control::Quiet,
-                Some("./counter-api-timelapse.txt"),
+                Some("./timelapse.toml"),
             )
         });
     }
@@ -315,35 +315,8 @@ impl Widget<Canvas> for &mut Evolution {
 impl Default for Evolution {
     fn default() -> Self {
         let mut revisions: Vec<Revision> = Vec::new();
-        let mut sections = include_str!("../../COUNTER_API_TIMELAPSE.txt")
-            .split(
-                "===============================================================================",
-            )
-            .skip(1);
-        while let Some(header) = sections.next() {
-            let mut header = header.trim().lines();
-            let mut fields = header
-                .next()
-                .expect("timelapse commit header")
-                .strip_prefix("COMMIT ")
-                .expect("timelapse commit prefix")
-                .splitn(3, '|');
-            let commit = fields.next().expect("timelapse commit").trim();
-            let date = fields.next().expect("timelapse date").trim();
-            let title = fields.next().expect("timelapse title").trim();
-            let source = header
-                .next()
-                .expect("timelapse source")
-                .strip_prefix("SOURCE ")
-                .expect("timelapse source prefix");
-            let body = sections.next().expect("timelapse code section").trim();
-            let (note, code) = if body.starts_with("use ") {
-                ("", body)
-            } else {
-                let (note, _) = body.split_once("\nuse ").expect("timelapse Rust imports");
-                (note.trim(), &body[note.len() + 1..])
-            };
-            let lines: Vec<_> = code.lines().collect();
+        for mut revision in include!(concat!(env!("OUT_DIR"), "/timelapse.rs")) {
+            let lines: Vec<_> = revision.code.lines().collect();
             let mut changed = vec![false; lines.len()];
             let mut added = 0;
             let mut removed = 0;
@@ -381,20 +354,12 @@ impl Default for Evolution {
                     }
                 }
             }
-            revisions.push(Revision {
-                commit,
-                date,
-                title,
-                source,
-                note,
-                code,
-                lines,
-                changed,
-                added,
-                removed,
-            });
+            revision.lines = lines;
+            revision.changed = changed;
+            revision.added = added;
+            revision.removed = removed;
+            revisions.push(revision);
         }
-        assert!(!revisions.is_empty(), "timelapse must contain a revision");
         Self {
             revisions,
             selected: 0,
@@ -402,6 +367,7 @@ impl Default for Evolution {
     }
 }
 
+#[derive(Default)]
 struct Revision {
     commit: &'static str,
     date: &'static str,

@@ -17,11 +17,10 @@ def main [] {
     }
     let output = $site | path join dist
     mkdir $output
-    for asset in [index.html main.js icon.svg] {
+    for asset in [index.html main.js icon.svg timelapse.toml] {
         cp ($site | path join $asset) ($output | path join $asset)
     }
     cp web/host.js ($output | path join host.js)
-    cp COUNTER_API_TIMELAPSE.txt ($output | path join counter-api-timelapse.txt)
     cp ($target | path join wasm32-unknown-unknown release blit_site.wasm) ($output | path join blit_site.wasm)
     print $"built ($output)"
 }
