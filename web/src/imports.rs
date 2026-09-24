@@ -48,6 +48,19 @@ pub mod canvas {
             height: f32,
             selected: u32,
         );
+        pub fn range(
+            label: *const u8,
+            label_length: usize,
+            value_text: *const u8,
+            value_text_length: usize,
+            minimum: usize,
+            maximum: usize,
+            value: usize,
+            left: f32,
+            top: f32,
+            width: f32,
+            height: f32,
+        );
         pub fn push_clip(left: f32, top: f32, width: f32, height: f32);
         pub fn pop_clip();
     }

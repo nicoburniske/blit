@@ -23,7 +23,8 @@ Open <http://localhost:8766/>. Rebuild and refresh after edits.
 Upload the contents of `site/dist/` to any static HTTPS host. The directory is
 self-contained and also works under a subdirectory. No server-side rendering,
 Node runtime, external fonts, or JavaScript packages are needed in production.
-The comparison page uses `#comparisons`, so no route rewrites are necessary.
+The comparison and API history pages use `#comparisons` and `#evolution`, so no
+route rewrites are necessary.
 Serve `.wasm` as `application/wasm` for streaming instantiation. Keep the HTML,
 JavaScript, and WASM from the same build together; avoid immutable caching on
 these unversioned asset names.
@@ -51,3 +52,9 @@ Copy and recorded benchmark figures come from the author's `blit.md` notes.
 Timings measure native build and layout, before paint, on a Ryzen 9 7900; they
 are not claims about browser performance. Comparison pages include source
 revisions, count scope, and differences in feature coverage.
+
+The evolution page embeds `COUNTER_API_TIMELAPSE.txt` directly at build time.
+Its slider selects the original GUI snippets, with line changes highlighted
+against the preceding snapshot. Adding a delimited entry to that file adds a
+slider stop on the next build. The original text file is also included in the
+deployment bundle. Historical snippets are displayed as source, not executed.

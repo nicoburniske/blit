@@ -1,4 +1,5 @@
 pub mod atom;
+pub mod widget;
 
 mod imports;
 mod platform;

@@ -45,7 +45,7 @@ polite `role="status"` notice, and failure does not stop rendering.
 | `Text` | `new(text: impl Into<Cow<'static, str>>) -> Self`, `.size(f32)`, `.color(Color)`, `.font(Font)`, `.weight(u32)`, `.line_height(f32)`, `.heading(level: u8)`, `.live()` |
 | `Font` | `Mono`, `Serif`, `Sans` |
 | `Space` | `Space(f32)` requests that extent on both axes |
-| `Action` | `new(label: impl Into<Cow<'static, str>>) -> Self`, `.href(&'static str)`, `.selected(bool)` |
+| `Action` | `new(label: impl Into<Cow<'static, str>>) -> Self`, `.href(impl Into<Cow<'static, str>>)`, `.selected(bool)` |
 
 All builders consume and return `Self`. `Cow` is `std::borrow::Cow`. Text defaults
 to 16 CSS pixels, opaque black, `Sans`, weight 400, and a line height multiplier
@@ -61,6 +61,44 @@ oversized words break at grapheme boundaries. Trailing spaces can hang at the
 line end. Text painting is clipped to its allocated rectangle, including when
 layout imposes a height smaller than its measured height. Font loading triggers
 remeasurement and repainting.
+
+## Slider
+
+`widget::Slider<'a>` implements `blit::Widget<Canvas>` with `Response = bool`:
+
+```rust
+Slider::new(id: WidgetId, value: &'a mut usize, range: RangeInclusive<usize>)
+    .label(impl Into<Cow<'static, str>>)
+    .value_text(impl Into<Cow<'static, str>>)
+    .accent(Color)
+    .track(Color)
+```
+
+Build it into a child, for example `row.child().item(layout::flex::item()
+.width(blit::Sizing::grow())).build(Slider::new(id, &mut selected, 0..=4))`.
+The response is true when the Rust value changes, including initial clamping.
+An inclusive range with equal endpoints clamps to that value and disables the
+control. Empty ranges are rejected. A changed value requests another frame.
+
+The visual atom uses Rectangle atoms to paint a two-pixel track, discrete ticks,
+and a square 16-pixel thumb. It measures to the available width and 44 CSS pixels
+high, with a 160-pixel width when unconstrained. Thumb centers travel between
+eight-pixel end insets. Ranges with more than 32 intervals show sampled ticks
+at integer values. Defaults are accent `rgb(32, 96, 192)`, track
+`rgb(160, 160, 160)`, and accessible label `"Value"`.
+
+A transparent native `input[type=range]` matches the thumb travel and supplies
+keyboard arrows, Home/End, pointer and touch dragging, and assistive technology
+semantics. `.value_text(...)` supplies `aria-valuetext`; empty text uses the
+native integer value instead. Native input changes synthesize a down/up/leave
+sequence at the normalized track position. Rust applies `Sense::CLICK_AND_DRAG`,
+clamps the pointer fraction, and rounds to an integer. It remains the owner of
+the value. The application WASM exports and event mapping are unchanged.
+
+Ranges have a separate retained semantic pool, so preceding text or action
+changes do not replace the focused input. Native range pointer events bypass
+canvas pointer forwarding. Horizontal gestures adjust the range while vertical
+panning and pinch zoom remain browser behavior.
 
 ## Browser API
 
@@ -101,7 +139,7 @@ uses `leave: false`. Cancellation sends an up outside the document, then leave,
 so the kernel releases the press without activating the control.
 
 The host supplies the `canvas` imports `clear`, `fill_rect`, `measure_text`,
-`fill_text`, `action`, `push_clip`, and `pop_clip`; and the `browser` imports
+`fill_text`, `action`, `range`, `push_clip`, and `pop_clip`; and the `browser` imports
 `set_document_height`, `navigate`, `copy_text`, `set_cursor`, and `report_error`. Their exact
 ABI signatures are in `src/imports.rs`. Strings are UTF-8 pointer/length pairs,
 colors are packed `0xRRGGBBAA`, and `measure_text` writes two little-endian `f32`
@@ -111,6 +149,10 @@ values, width then height, into WASM memory. These imports are used during
 `fill_text` ends with heading level (`0` for ordinary text, otherwise `1` through
 `6`) and live status (`0` or `1`). `action` ends with selection state (`0` unset,
 `1` false, `2` true). These semantic arguments do not affect measurement or paint.
+`range` receives label and value-text pointer/length pairs, unsigned minimum,
+maximum and value, then the node's left, top, width and height. The integer
+arguments use the WASM32 `usize` ABI. The host updates the native range from
+these Rust values every frame.
 
 ## Scrolling and accessibility
 
@@ -138,7 +180,7 @@ redraw automatically. Touch scrolling and zooming use browser defaults.
 
 The host supports one mount for the lifetime of a document and has no teardown
 API. It forwards pointer input and provides keyboard activation for semantic
-actions. General keyboard input, text input, and wheel events are not forwarded
+actions and native range adjustment. General keyboard input, text input, and wheel events are not forwarded
 to the kernel. Wheel and touch scrolling use native document scrolling, not
 `blit::Input::Scroll`. Nonzero render returns schedule animation frames, but
 kernel timer deadlines do not yet schedule browser wakeups.
@@ -148,7 +190,8 @@ href it creates a transparent native button. Enter, Space on release, and
 assistive activation synthesize one down/up pair at the control's center.
 Pointer activation already passes through the kernel and is not synthesized
 again. With an href it creates a native anchor: navigation, modifier clicks,
-context menus, and opening tabs remain browser behavior. Links do not synthesize
+context menus, and opening tabs remain browser behavior. Hrefs may be borrowed
+static strings or owned strings such as formatted commit URLs. Links do not synthesize
 down/up input. Pointer movement still supplies hover input for links.
 
 `Action::selected(false)` and `Action::selected(true)` set `aria-pressed` on
@@ -166,7 +209,7 @@ and adds `aria-live="polite"` and `aria-atomic="true"` to it. Live content only
 mutates when its text changes. Ordinary text matching an Action label within
 its bounds has `aria-hidden="true"`, avoiding a second reading of the label.
 Headings and live regions keep their explicitly requested semantics.
-Semantic elements are retained by paint order within the action and text
+Semantic elements are retained by paint order within the action, range, and text
 sequences, including across label updates, so ordinary redraws retain focus.
 Moving an existing node preserves focus using `moveBefore` when available or
 restores the still-connected focused element with `preventScroll` after drawing.

@@ -1,4 +1,8 @@
+mod evolution;
+
 use std::{cell::RefCell, time::Duration};
+
+use evolution::Evolution;
 
 use blit::{Axis, Input, Modifiers, Point, PointerButton, Sense, Sides, Size, Sizing, WidgetId};
 use blit_web::{
@@ -49,15 +53,30 @@ pub extern "C" fn render(width: f32, height: f32, time: f64, event: u32, x: f32,
 
 #[unsafe(no_mangle)]
 pub extern "C" fn set_page(page: u32) {
-    APP.with_borrow_mut(|(_, site)| site.comparisons = page == 1);
+    APP.with_borrow_mut(|(_, site)| {
+        site.page = match page {
+            1 => Page::Comparisons,
+            2 => Page::Evolution,
+            _ => Page::Overview,
+        };
+    });
 }
 
 #[derive(Default)]
 struct Site {
-    comparisons: bool,
+    page: Page,
     comparison: usize,
     population: usize,
     count: u32,
+    evolution: Evolution,
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum Page {
+    #[default]
+    Overview,
+    Comparisons,
+    Evolution,
 }
 
 impl Site {
@@ -97,11 +116,9 @@ impl Site {
         );
         top.child()
             .build(|ui: Ui<'_>| control(ui, "brand", "▥  blit", Control::Brand, Some("#overview")));
-        top.child().insert(
-            Text::new("RUST / OPEN SOURCE")
-                .size(if mobile { 9.0 } else { 11.0 })
-                .color(MUTED),
-        );
+        top.child().build(|ui: Ui<'_>| {
+            control(ui, "source", "Source ↗", Control::Quiet, Some(REPOSITORY))
+        });
         drop(top);
         let mut nav = header
             .child()
@@ -111,7 +128,7 @@ impl Site {
                 ui,
                 "overview",
                 "Overview",
-                Control::Choice(!self.comparisons),
+                Control::Choice(self.page == Page::Overview),
                 Some("#overview"),
             )
         });
@@ -120,12 +137,18 @@ impl Site {
                 ui,
                 "comparisons",
                 "Comparisons",
-                Control::Choice(self.comparisons),
+                Control::Choice(self.page == Page::Comparisons),
                 Some("#comparisons"),
             )
         });
         nav.child().build(|ui: Ui<'_>| {
-            control(ui, "source", "Source ↗", Control::Quiet, Some(REPOSITORY))
+            control(
+                ui,
+                "evolution",
+                "Evolution",
+                Control::Choice(self.page == Page::Evolution),
+                Some("#evolution"),
+            )
         });
         drop(nav);
         drop(header);
@@ -133,7 +156,9 @@ impl Site {
             .item(flex::item().height(Sizing::fixed(1.0)))
             .insert(Rectangle::new(RULE));
 
-        if !self.comparisons {
+        if self.page == Page::Evolution {
+            page.child().build(&mut self.evolution);
+        } else if self.page == Page::Overview {
             page.child().insert(Space(if narrow { 48.0 } else { 72.0 }));
             let mut hero =
                 page.child()
@@ -384,6 +409,16 @@ impl Site {
             }
             drop(code);
             drop(demonstration);
+            page.child().insert(Space(18.0));
+            page.child().build(|ui: Ui<'_>| {
+                control(
+                    ui,
+                    "evolution example",
+                    "See the same counter evolve →",
+                    Control::Quiet,
+                    Some("#evolution"),
+                )
+            });
             page.child().insert(Space(40.0));
             let mut principles = page.child().layout(flex::layout(direction).gap(32.0));
             for (index, title, body) in [
@@ -803,7 +838,8 @@ fn control(
     };
     let padding = match style {
         Control::Brand => Sides::all(0.0),
-        Control::Quiet | Control::Choice(_) => Sides::xy(12.0, 12.0),
+        Control::Quiet => Sides::xy(12.0, 12.0),
+        Control::Choice(_) => Sides::xy(10.0, 12.0),
         _ => Sides::xy(18.0, 15.0),
     };
     let mut button = ui.widget_id(id).layout(flex::row().padding(padding));

@@ -7,9 +7,11 @@ export async function mount(canvas, wasmUrl) {
   const layouts = new Map();
   const clips = [];
   const actions = [];
+  const ranges = [];
   const texts = [];
   const semanticBounds = new WeakMap();
   let actionCount = 0;
+  let rangeCount = 0;
   let textCount = 0;
   let semanticPrevious = null;
   let documentHeight = 0;
@@ -49,6 +51,26 @@ export async function mount(canvas, wasmUrl) {
     [data-blit-overlay] > button, [data-blit-overlay] > a {
       pointer-events: auto; cursor: pointer; touch-action: auto;
       text-decoration: none; appearance: none;
+    }
+    [data-blit-overlay] > input[type="range"] {
+      pointer-events: auto; cursor: pointer; appearance: none;
+      min-width: 0; direction: ltr; touch-action: pan-y pinch-zoom;
+    }
+    [data-blit-overlay] > input[type="range"]:disabled { cursor: default; }
+    [data-blit-overlay] > input[type="range"]::-webkit-slider-runnable-track {
+      height: 16px; border: 0; background: transparent; opacity: 0;
+    }
+    [data-blit-overlay] > input[type="range"]::-webkit-slider-thumb {
+      appearance: none; width: 16px; height: 16px; margin: 0;
+      border: 0; border-radius: 0; background: transparent;
+    }
+    [data-blit-overlay] > input[type="range"]::-moz-range-track,
+    [data-blit-overlay] > input[type="range"]::-moz-range-progress {
+      height: 16px; border: 0; background: transparent; opacity: 0;
+    }
+    [data-blit-overlay] > input[type="range"]::-moz-range-thumb {
+      width: 16px; height: 16px; border: 0; border-radius: 0;
+      background: transparent; opacity: 0;
     }
     [data-blit-overlay] > :focus-visible {
       outline: 2px solid Highlight; outline-offset: -2px;
@@ -107,6 +129,7 @@ export async function mount(canvas, wasmUrl) {
       layouts.clear();
       clips.length = 0;
       actionCount = 0;
+      rangeCount = 0;
       textCount = 0;
       semanticPrevious = null;
       const redraw = exports.render(
@@ -118,6 +141,7 @@ export async function mount(canvas, wasmUrl) {
         y,
       );
       while (actions.length > actionCount) actions.pop().remove();
+      while (ranges.length > rangeCount) ranges.pop().remove();
       while (texts.length > textCount) texts.pop().remove();
       for (const element of texts) {
         const bounds = semanticBounds.get(element);
@@ -231,13 +255,15 @@ export async function mount(canvas, wasmUrl) {
 
   function semantic(tag, text, href, left, top, width, height, live = false, selected = 0) {
     const action = tag === "button" || tag === "a";
-    const pool = action ? actions : texts;
-    const index = action ? actionCount++ : textCount++;
+    const range = tag === "input";
+    const pool = range ? ranges : action ? actions : texts;
+    const index = range ? rangeCount++ : action ? actionCount++ : textCount++;
     let element = pool[index];
     if (!element || element.localName !== tag) {
       element?.remove();
       element = document.createElement(tag);
       if (tag === "button") element.type = "button";
+      if (range) element.type = "range";
       pool[index] = element;
     }
     if (action) {
@@ -264,13 +290,20 @@ export async function mount(canvas, wasmUrl) {
       element.setAttribute("href", href);
     }
     const clip = clips.at(-1);
-    if (clip) {
+    let visible = width > 0 && height > 0;
+    if (clip && range) {
+      element.style.clipPath = `inset(${Math.max(0, clip.top - top)}px ${Math.max(0, left + width - clip.right)}px ${Math.max(0, top + height - clip.bottom)}px ${Math.max(0, clip.left - left)}px)`;
+      visible &&= left < clip.right && top < clip.bottom
+        && left + width > clip.left && top + height > clip.top;
+    } else if (clip) {
       const right = Math.min(left + width, clip.right);
       const bottom = Math.min(top + height, clip.bottom);
       left = Math.max(left, clip.left);
       top = Math.max(top, clip.top);
       width = Math.max(0, right - left);
       height = Math.max(0, bottom - top);
+    } else if (range) {
+      element.style.clipPath = "";
     }
     Object.assign(element.style, {
       left: `${left}px`,
@@ -279,7 +312,7 @@ export async function mount(canvas, wasmUrl) {
       height: `${height}px`,
     });
     semanticBounds.set(element, { left, top, right: left + width, bottom: top + height });
-    element.hidden = width <= 0 || height <= 0;
+    element.hidden = !visible || width <= 0 || height <= 0;
     if (element.hidden) element.style.display = "none";
     else element.style.removeProperty("display");
     const next = semanticPrevious ? semanticPrevious.nextSibling : overlay.firstChild;
@@ -288,6 +321,7 @@ export async function mount(canvas, wasmUrl) {
       else overlay.insertBefore(element, next);
     }
     semanticPrevious = element;
+    return element;
   }
 
   const imports = {
@@ -345,6 +379,20 @@ export async function mount(canvas, wasmUrl) {
           href ? "a" : "button", decode(pointer, length), href ? decode(href, hrefLength) : null,
           left, top, width, height, false, selected,
         );
+      },
+      range(label, labelLength, valueText, valueTextLength, minimum, maximum, value, left, top, width, height) {
+        minimum >>>= 0;
+        maximum >>>= 0;
+        value >>>= 0;
+        const element = semantic("input", "", null, left, top, width, height);
+        if (element.min !== String(minimum)) element.min = String(minimum);
+        if (element.max !== String(maximum)) element.max = String(maximum);
+        element.step = "1";
+        element.disabled = minimum === maximum;
+        if (element.valueAsNumber !== value) element.value = String(value);
+        element.setAttribute("aria-label", decode(label, labelLength));
+        if (valueTextLength) element.setAttribute("aria-valuetext", decode(valueText, valueTextLength));
+        else element.removeAttribute("aria-valuetext");
       },
       push_clip(left, top, width, height) {
         context.save();
@@ -434,11 +482,12 @@ export async function mount(canvas, wasmUrl) {
   document.addEventListener("pointerdown", (event) => {
     if (!event.isPrimary || event.button !== 0 || activePointer !== null) return;
     if (event.target !== canvas && !overlay.contains(event.target)) return;
-    if (event.target.closest("a")) return;
+    if (event.target.closest('a, input[type="range"]')) return;
     activePointer = event.pointerId;
     pointer(event, 1);
   }, { passive: true });
   document.addEventListener("pointermove", (event) => {
+    if (event.target.matches('input[type="range"]')) return;
     if (!event.isPrimary || (activePointer !== null && activePointer !== event.pointerId)) return;
     if (activePointer === null && event.target !== canvas && !overlay.contains(event.target)) return;
     pointer(event, 3);
@@ -462,6 +511,21 @@ export async function mount(canvas, wasmUrl) {
     }
   }, { passive: true });
   window.addEventListener("blur", cancelPointer);
+  overlay.addEventListener("input", (event) => {
+    const range = event.target;
+    if (!range.matches('input[type="range"]') || range.disabled) return;
+    const minimum = Number(range.min);
+    const maximum = Number(range.max);
+    if (maximum <= minimum) return;
+    const fraction = (range.valueAsNumber - minimum) / (maximum - minimum);
+    const bounds = range.getBoundingClientRect();
+    const left = bounds.left + 8 + fraction * Math.max(0, bounds.width - 16);
+    const top = bounds.top + bounds.height / 2 + window.scrollY;
+    mousePosition = null;
+    draw(1, left, top);
+    draw(2, left, top);
+    draw(4);
+  });
   overlay.addEventListener("keydown", (event) => {
     const button = event.target.closest("button");
     if (!button || (event.key !== "Enter" && event.key !== " ")) return;

@@ -4,9 +4,9 @@ try {
   const { mount } = await import("./host.js");
   const app = await mount(document.querySelector("canvas"), new URL("./blit_site.wasm", import.meta.url));
   const route = () => {
-    const comparison = location.hash === "#comparisons";
-    app.exports.set_page(comparison ? 1 : 0);
-    document.title = comparison ? "Comparisons — Blit" : "Blit — less machinery. More machine.";
+    const page = { "#comparisons": 1, "#evolution": 2 }[location.hash] ?? 0;
+    app.exports.set_page(page);
+    document.title = ["Blit — less machinery. More machine.", "Comparisons — Blit", "API evolution — Blit"][page];
     window.scrollTo(0, 0);
     app.draw();
   };

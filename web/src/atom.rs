@@ -116,7 +116,7 @@ impl Atom<Canvas> for Text {
 #[derive(Clone, Debug)]
 pub struct Action {
     label: Cow<'static, str>,
-    href: Option<&'static str>,
+    href: Option<Cow<'static, str>>,
     selected: Option<bool>,
 }
 
@@ -129,8 +129,8 @@ impl Action {
         }
     }
 
-    pub const fn href(mut self, href: &'static str) -> Self {
-        self.href = Some(href);
+    pub fn href(mut self, href: impl Into<Cow<'static, str>>) -> Self {
+        self.href = Some(href.into());
         self
     }
 
@@ -148,6 +148,7 @@ impl Atom<Canvas> for Action {
     fn paint(&self, _: &mut Canvas, area: Rect) {
         let (href, length) = self
             .href
+            .as_deref()
             .map_or((std::ptr::null(), 0), |href| (href.as_ptr(), href.len()));
         unsafe {
             canvas::action(
