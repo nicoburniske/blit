@@ -64,11 +64,10 @@ fn render_rectangles(bencher: divan::Bencher) {
             height: 80.0,
         };
         display_list.push_rectangle(
-            Rectangle::new(area).background(Color::from_rgba8(
+            Rectangle::new(area).background(Color::rgb(
                 (index * 31) as u8,
                 (index * 47) as u8,
                 (index * 61) as u8,
-                255,
             )),
             area.to_physical(SCALE),
             ClipId::default(),
@@ -143,7 +142,7 @@ fn small_images_alpha_direct(bencher: divan::Bencher) {
     benchmark_small_images(
         bencher,
         Direct::default(),
-        ImageFormat::Alpha8(Color::from_rgba8(38, 96, 176, 255)),
+        ImageFormat::Alpha8(Color::rgb(38, 96, 176)),
     )
 }
 
@@ -202,13 +201,13 @@ fn gradient_border(bencher: divan::Bencher) {
         height: 480.0,
     };
     let stops = [
-        GradientStop::new(0.0, Color::from_rgba8(32, 96, 192, 255)),
-        GradientStop::new(0.5, Color::from_rgba8(224, 64, 96, 255)),
-        GradientStop::new(1.0, Color::from_rgba8(240, 192, 48, 255)),
+        GradientStop::new(0.0, Color::rgb(32, 96, 192)),
+        GradientStop::new(0.5, Color::rgb(224, 64, 96)),
+        GradientStop::new(1.0, Color::rgb(240, 192, 48)),
     ];
     display_list.push_rectangle(
         Rectangle::new(area)
-            .background(Color::from_rgba8(16, 24, 40, 255))
+            .background(Color::rgb(16, 24, 40))
             .border(Border::gradient(
                 2.0,
                 LinearGradient::new(&stops).angle(35.0),
@@ -234,7 +233,7 @@ fn shadow(bencher: divan::Bencher, cached: bool) {
         width: 352.0,
         height: 448.0,
     };
-    let shadow = BoxShadow::new(area, Color::from_rgba8(0, 0, 0, 128))
+    let shadow = BoxShadow::new(area, Color::rgba(0, 0, 0, 128))
         .radius(BorderRadius::uniform(24.0))
         .blur(16.0);
     let mut display_list = DisplayList::default();
@@ -271,11 +270,10 @@ where
             height: 1.0,
         };
         display_list.push_rectangle(
-            Rectangle::new(area).background(Color::from_rgba8(
+            Rectangle::new(area).background(Color::rgb(
                 index as u8,
                 (index * 31) as u8,
                 (index * 67) as u8,
-                255,
             )),
             area.to_physical(SCALE),
             ClipId::default(),
@@ -311,7 +309,7 @@ where
         };
         display_list.push_rectangle(
             Rectangle::new(area)
-                .background(Color::from_rgba8(40, 72, 112, 255))
+                .background(Color::rgb(40, 72, 112))
                 .radius(BorderRadius::uniform(8.0)),
             area.to_physical(SCALE),
             ClipId::default(),
@@ -342,7 +340,7 @@ where
     let mut display_list = DisplayList::default();
     for index in 0..COMMANDS {
         display_list.push_rectangle(
-            Rectangle::new(area).background(Color::from_rgba8(
+            Rectangle::new(area).background(Color::rgba(
                 (index * 13) as u8,
                 (index * 29) as u8,
                 (index * 47) as u8,
@@ -440,7 +438,7 @@ where
                 text,
                 area,
                 offset_x: 0.0,
-                color: Color::from_rgba8(224, 232, 240, 255),
+                color: Color::rgb(224, 232, 240),
                 options: TextOptions::default(),
             },
             area.to_physical(SCALE),
@@ -489,7 +487,7 @@ where
                 text,
                 area,
                 offset_x: 0.0,
-                color: Color::from_rgba8(224, 232, 240, 255),
+                color: Color::rgb(224, 232, 240),
                 options: TextOptions::default(),
             },
             area.to_physical(SCALE),
@@ -534,7 +532,7 @@ where
             text,
             area,
             offset_x: 0.0,
-            color: Color::from_rgba8(224, 232, 240, 255),
+            color: Color::rgb(224, 232, 240),
             options: TextOptions {
                 wrap: TextWrap::Word,
                 ..TextOptions::default()
@@ -575,7 +573,7 @@ where
     );
     for index in 0..COMMANDS {
         display_list.push_rectangle(
-            Rectangle::new(area).background(Color::from_rgba8(
+            Rectangle::new(area).background(Color::rgba(
                 (index * 17) as u8,
                 (index * 31) as u8,
                 (index * 53) as u8,

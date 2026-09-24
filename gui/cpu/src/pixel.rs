@@ -497,7 +497,7 @@ mod test {
             let mut actual: [P; 11] = std::array::from_fn(|index| {
                 let mut pixel = P::background();
                 pixel.blend(PremultipliedRgbaColor::new(
-                    Color::from_rgba8(
+                    Color::rgba(
                         index as u8 * 17,
                         220 - index as u8 * 11,
                         index as u8 * 7,
@@ -509,7 +509,7 @@ mod test {
             });
             let mut expected = actual;
             let alpha = [0, 1, 32, 64, 96, 127, 128, 160, 224, 254, 255];
-            let color = Color::from_rgba8(190, 80, 230, 177);
+            let color = Color::rgba(190, 80, 230, 177);
 
             P::blend_alpha_slice(&mut actual, color, &alpha);
             for (pixel, alpha) in expected.iter_mut().zip(alpha) {
@@ -517,7 +517,7 @@ mod test {
             }
             assert_eq!(actual, expected);
 
-            let color = PremultipliedRgbaColor::new(Color::from_rgba8(20, 210, 70, 143), 255);
+            let color = PremultipliedRgbaColor::new(Color::rgba(20, 210, 70, 143), 255);
             P::blend_slice(&mut actual, color);
             for pixel in &mut expected {
                 pixel.blend(color);
@@ -526,7 +526,7 @@ mod test {
 
             let source: [PremultipliedRgbaColor; 11] = std::array::from_fn(|index| {
                 PremultipliedRgbaColor::new(
-                    Color::from_rgba8(
+                    Color::rgba(
                         230 - index as u8 * 13,
                         index as u8 * 19,
                         40 + index as u8 * 7,

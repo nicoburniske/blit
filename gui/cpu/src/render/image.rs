@@ -151,13 +151,13 @@ mod tests {
         static ALPHA: [u8; 2] = [255, 255];
         let texture = ImageData::new(
             ImagePixels::Static(&ALPHA),
-            ImageFormat::Alpha8(Color::from_rgba8(255, 255, 255, 128)),
+            ImageFormat::Alpha8(Color::rgba(255, 255, 255, 128)),
             2,
             1,
         );
         let request = ImageRequest {
             area: LogicalRect::new(0.0, 0.0, 3.0, 1.0),
-            colorize: Some(Color::from_rgba8(255, 0, 0, 255)),
+            colorize: Some(Color::rgb(255, 0, 0)),
             ..request
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(3, 1);

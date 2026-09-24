@@ -16,11 +16,11 @@ blit::builder! {
     /// clickable performance badge with a timing table and history graph
     pub struct Performance<'a> {
         new(state: &'a mut State),
-        background: Color = Color::from_rgba8(38, 53, 77, 255),
-        graph_background: Color = Color::from_rgba8(25, 36, 54, 255),
+        background: Color = Color::rgb(38, 53, 77),
+        graph_background: Color = Color::rgb(25, 36, 54),
         color: Color = Color::WHITE,
-        muted_color: Color = Color::from_rgba8(157, 173, 194, 255),
-        accent: Color = Color::from_rgba8(91, 220, 185, 255),
+        muted_color: Color = Color::rgb(157, 173, 194),
+        accent: Color = Color::rgb(91, 220, 185),
         hover_background: Option<Color> = None,
         border: Option<Border<'static>> = None,
         radius: BorderRadius = BorderRadius::uniform(8.0),

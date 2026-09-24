@@ -223,7 +223,7 @@ impl Prepared {
                         let source = source_row + (source_x - texture_x) * 3;
                         let source = unsafe { pixels.get_unchecked(source..source + 3) };
                         destination.blend(PremultipliedRgbaColor::new(
-                            Color::from_rgba8(source[0], source[1], source[2], 255),
+                            Color::rgb(source[0], source[1], source[2]),
                             self.opacity,
                         ));
                     }
@@ -244,7 +244,7 @@ impl Prepared {
                         let source = source_row + source_x - texture_x;
                         let luma = unsafe { *pixels.get_unchecked(source) };
                         destination.blend(PremultipliedRgbaColor::new(
-                            Color::from_rgba8(luma, luma, luma, 255),
+                            Color::rgb(luma, luma, luma),
                             self.opacity,
                         ));
                     }
@@ -419,7 +419,7 @@ impl Prepared {
                 ImageFormat::Alpha8(color) => {
                     let alpha = &pixels[source_offset..source_offset + len];
                     let (color, opacity) = self.alpha_color(color);
-                    let color = Color::from_rgba8(
+                    let color = Color::rgba(
                         color.red,
                         color.green,
                         color.blue,
@@ -644,7 +644,7 @@ impl Prepared {
                 alpha: (pixels[offset + 3] as u16 * self.opacity as u16 / 255) as u8,
             },
             ImageFormat::Rgb8 => PremultipliedRgbaColor::new(
-                Color::from_rgba8(pixels[offset], pixels[offset + 1], pixels[offset + 2], 255),
+                Color::rgb(pixels[offset], pixels[offset + 1], pixels[offset + 2]),
                 self.opacity,
             ),
             ImageFormat::Luma8 if self.opacity == 255 => PremultipliedRgbaColor {
@@ -654,11 +654,11 @@ impl Prepared {
                 alpha: 255,
             },
             ImageFormat::Luma8 => PremultipliedRgbaColor::new(
-                Color::from_rgba8(pixels[offset], pixels[offset], pixels[offset], 255),
+                Color::rgb(pixels[offset], pixels[offset], pixels[offset]),
                 self.opacity,
             ),
             ImageFormat::Rgba8 => PremultipliedRgbaColor::new(
-                Color::from_rgba8(
+                Color::rgba(
                     pixels[offset],
                     pixels[offset + 1],
                     pixels[offset + 2],

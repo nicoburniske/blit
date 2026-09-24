@@ -76,20 +76,19 @@ fn renders_primitives_and_rebuilds_frames() {
     );
     gui.set_scale(2.0);
     gui.paint_rectangle(
-        Rectangle::new(LogicalRect::new(0.5, 8.0, 0.5, 0.5))
-            .background(Color::from_rgba8(255, 255, 255, 255)),
+        Rectangle::new(LogicalRect::new(0.5, 8.0, 0.5, 0.5)).background(Color::rgb(255, 255, 255)),
     );
     renderer.render(&target, gui.render_input());
 
     gui.finish_frame();
     gui.paint_rectangle(
         Rectangle::new(LogicalRect::new(0.0, 0.0, 7.0, 7.0))
-            .background(Color::from_rgba8(255, 0, 0, 255))
+            .background(Color::rgb(255, 0, 0))
             .radius(BorderRadius::uniform(3.0)),
     );
     gui.paint_rectangle(
         Rectangle::new(LogicalRect::new(2.0, 2.0, 2.0, 2.0))
-            .background(Color::from_rgba8(0, 0, 255, 128)),
+            .background(Color::rgba(0, 0, 255, 128)),
     );
     let image = gui.create_image(ImageData::new(
         ImagePixels::Static(&[
@@ -173,23 +172,19 @@ fn renders_primitives_and_rebuilds_frames() {
         ..partial_request
     });
     gui.paint_shadow(
-        BoxShadow::new(
-            LogicalRect::new(14.0, 9.0, 1.0, 1.0),
-            Color::from_rgba8(255, 0, 0, 255),
-        )
-        .blur(1.0),
+        BoxShadow::new(LogicalRect::new(14.0, 9.0, 1.0, 1.0), Color::rgb(255, 0, 0)).blur(1.0),
     );
     let text = gui.text_run("M", TextStyle::default());
     gui.paint_text(TextRequest {
         text,
         area: LogicalRect::new(1.0, 20.0, 12.0, 20.0),
         offset_x: 0.0,
-        color: Color::from_rgba8(255, 0, 0, 255),
+        color: Color::rgb(255, 0, 0),
         options: TextOptions::default(),
     });
     gui.paint_rectangle(
         Rectangle::new(LogicalRect::new(14.0, 14.0, 50.0, 50.0))
-            .background(Color::from_rgba8(0, 255, 0, 255))
+            .background(Color::rgb(0, 255, 0))
             .radius(BorderRadius {
                 top_left: 40.0,
                 top_right: 10.0,
@@ -197,9 +192,9 @@ fn renders_primitives_and_rebuilds_frames() {
             }),
     );
     let mesh_vertices = [
-        MeshVertex::new(40.0, 40.0, Color::from_rgba8(255, 0, 0, 255)),
-        MeshVertex::new(60.0, 40.0, Color::from_rgba8(255, 0, 0, 255)),
-        MeshVertex::new(40.0, 60.0, Color::from_rgba8(255, 0, 0, 255)),
+        MeshVertex::new(40.0, 40.0, Color::rgb(255, 0, 0)),
+        MeshVertex::new(60.0, 40.0, Color::rgb(255, 0, 0)),
+        MeshVertex::new(40.0, 60.0, Color::rgb(255, 0, 0)),
     ];
     BoundsClip.push(&mut gui, LogicalRect::new(40.0, 40.0, 10.0, 20.0));
     gui.paint_mesh(Mesh {
@@ -209,8 +204,8 @@ fn renders_primitives_and_rebuilds_frames() {
     BoundsClip.pop(&mut gui);
 
     let stops = [
-        GradientStop::new(0.0, Color::from_rgba8(255, 0, 0, 255)),
-        GradientStop::new(1.0, Color::from_rgba8(0, 0, 255, 255)),
+        GradientStop::new(0.0, Color::rgb(255, 0, 0)),
+        GradientStop::new(1.0, Color::rgb(0, 0, 255)),
     ];
     let input = gui.render_input();
     let outer = input.display_list.push_clip(

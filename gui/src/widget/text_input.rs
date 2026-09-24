@@ -18,7 +18,7 @@ blit::builder! {
         color: Color = Color::BLACK,
         placeholder: &'a str = "",
         placeholder_color: Color = Color::GRAY,
-        selection_background: Color = Color::from_rgba8(64, 128, 255, 128),
+        selection_background: Color = Color::rgba(64, 128, 255, 128),
         cursor_background: Color = Color::BLACK,
     }
 }

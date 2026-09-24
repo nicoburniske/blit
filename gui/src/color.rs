@@ -8,12 +8,16 @@ pub struct Color {
 }
 
 impl Color {
-    pub const BLACK: Self = Self::from_rgba8(0, 0, 0, 255);
-    pub const GRAY: Self = Self::from_rgba8(128, 128, 128, 255);
-    pub const TRANSPARENT: Self = Self::from_rgba8(0, 0, 0, 0);
-    pub const WHITE: Self = Self::from_rgba8(255, 255, 255, 255);
+    pub const BLACK: Self = Self::rgb(0, 0, 0);
+    pub const GRAY: Self = Self::rgb(128, 128, 128);
+    pub const TRANSPARENT: Self = Self::rgba(0, 0, 0, 0);
+    pub const WHITE: Self = Self::rgb(255, 255, 255);
 
-    pub const fn from_rgba8(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
+    pub const fn rgb(red: u8, green: u8, blue: u8) -> Self {
+        Self::rgba(red, green, blue, 255)
+    }
+
+    pub const fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
         Self {
             red,
             green,

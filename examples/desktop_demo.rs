@@ -1129,11 +1129,10 @@ impl Atom<GuiContext> for Terrain {
             let strata = (elevation * 17.0 + depth * 8.0).sin().abs().powi(10);
             let light = (0.48 + slope * 1.8 + strata * 0.12).clamp(0.08, 1.0);
             let fog = (1.0 - depth).powi(2);
-            Color::from_rgba8(
+            Color::rgb(
                 ((42.0 + light * 196.0) * (1.0 - fog) + 104.0 * fog) as u8,
                 ((16.0 + light * 102.0) * (1.0 - fog) + 67.0 * fog) as u8,
                 ((31.0 + light * 54.0) * (1.0 - fog) + 105.0 * fog) as u8,
-                255,
             )
         };
         let stride = self.columns + 1;
@@ -1662,40 +1661,40 @@ mod graphics {
         }
     }
 
-    const SKY: Color = Color::from_rgba8(31, 20, 53, 255);
-    const PANEL: Color = Color::from_rgba8(24, 18, 39, 232);
+    const SKY: Color = Color::rgb(31, 20, 53);
+    const PANEL: Color = Color::rgba(24, 18, 39, 232);
 }
 
 mod colors {
     use blit_gui::color::Color;
 
-    pub const BACKGROUND: Color = Color::from_rgba8(12, 18, 29, 255);
-    pub const SURFACE: Color = Color::from_rgba8(20, 29, 45, 255);
-    pub const SURFACE_HIGH: Color = Color::from_rgba8(38, 53, 77, 255);
-    pub const TRACK: Color = Color::from_rgba8(9, 15, 25, 255);
-    pub const SCROLL_TRACK: Color = Color::from_rgba8(9, 15, 25, 96);
-    pub const SELECTED: Color = Color::from_rgba8(27, 87, 82, 255);
-    pub const CANVAS: Color = Color::from_rgba8(25, 36, 54, 255);
-    pub const CANVAS_BORDER: Color = Color::from_rgba8(68, 91, 123, 255);
-    pub const GRIP: Color = Color::from_rgba8(46, 77, 101, 255);
-    pub const GRIP_CORNER: Color = Color::from_rgba8(65, 119, 133, 255);
-    pub const BORDER: Color = Color::from_rgba8(55, 72, 99, 255);
-    pub const TEXT: Color = Color::from_rgba8(235, 242, 250, 255);
-    pub const TEXT_MUTED: Color = Color::from_rgba8(157, 173, 194, 255);
-    pub const TEXT_DIM: Color = Color::from_rgba8(106, 126, 151, 255);
-    pub const ACCENT: Color = Color::from_rgba8(91, 220, 185, 255);
-    pub const ACCENT_DARK: Color = Color::from_rgba8(31, 111, 104, 255);
-    pub const SHADOW: Color = Color::from_rgba8(0, 0, 0, 180);
+    pub const BACKGROUND: Color = Color::rgb(12, 18, 29);
+    pub const SURFACE: Color = Color::rgb(20, 29, 45);
+    pub const SURFACE_HIGH: Color = Color::rgb(38, 53, 77);
+    pub const TRACK: Color = Color::rgb(9, 15, 25);
+    pub const SCROLL_TRACK: Color = Color::rgba(9, 15, 25, 96);
+    pub const SELECTED: Color = Color::rgb(27, 87, 82);
+    pub const CANVAS: Color = Color::rgb(25, 36, 54);
+    pub const CANVAS_BORDER: Color = Color::rgb(68, 91, 123);
+    pub const GRIP: Color = Color::rgb(46, 77, 101);
+    pub const GRIP_CORNER: Color = Color::rgb(65, 119, 133);
+    pub const BORDER: Color = Color::rgb(55, 72, 99);
+    pub const TEXT: Color = Color::rgb(235, 242, 250);
+    pub const TEXT_MUTED: Color = Color::rgb(157, 173, 194);
+    pub const TEXT_DIM: Color = Color::rgb(106, 126, 151);
+    pub const ACCENT: Color = Color::rgb(91, 220, 185);
+    pub const ACCENT_DARK: Color = Color::rgb(31, 111, 104);
+    pub const SHADOW: Color = Color::rgba(0, 0, 0, 180);
     pub const ITEMS: [Color; 10] = [
-        Color::from_rgba8(73, 135, 218, 255),
-        Color::from_rgba8(53, 174, 126, 255),
-        Color::from_rgba8(224, 142, 62, 255),
-        Color::from_rgba8(146, 92, 220, 255),
-        Color::from_rgba8(218, 89, 143, 255),
-        Color::from_rgba8(47, 162, 184, 255),
-        Color::from_rgba8(111, 148, 68, 255),
-        Color::from_rgba8(205, 103, 73, 255),
-        Color::from_rgba8(112, 103, 209, 255),
-        Color::from_rgba8(191, 79, 119, 255),
+        Color::rgb(73, 135, 218),
+        Color::rgb(53, 174, 126),
+        Color::rgb(224, 142, 62),
+        Color::rgb(146, 92, 220),
+        Color::rgb(218, 89, 143),
+        Color::rgb(47, 162, 184),
+        Color::rgb(111, 148, 68),
+        Color::rgb(205, 103, 73),
+        Color::rgb(112, 103, 209),
+        Color::rgb(191, 79, 119),
     ];
 }

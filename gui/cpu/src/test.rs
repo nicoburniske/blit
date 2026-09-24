@@ -178,7 +178,7 @@ fn renderer_supports_custom_pixel_layouts() {
             width: 32.0,
             height: 24.0,
         })
-        .background(Color::from_rgba8(12, 34, 56, 255)),
+        .background(Color::rgb(12, 34, 56)),
         clip,
         ClipId::default(),
     );
@@ -283,15 +283,15 @@ fn mesh_interpolates_colors_without_shared_edge_overdraw() {
         width: 16,
         height: 8,
     };
-    let color = Color::from_rgba8(255, 0, 0, 128);
+    let color = Color::rgba(255, 0, 0, 128);
     let vertices = [
         MeshVertex::new(0.0, 0.0, color),
         MeshVertex::new(8.0, 0.0, color),
         MeshVertex::new(0.0, 8.0, color),
         MeshVertex::new(8.0, 8.0, color),
-        MeshVertex::new(8.0, 0.0, Color::from_rgba8(255, 0, 0, 255)),
-        MeshVertex::new(16.0, 0.0, Color::from_rgba8(0, 255, 0, 255)),
-        MeshVertex::new(8.0, 8.0, Color::from_rgba8(0, 0, 255, 255)),
+        MeshVertex::new(8.0, 0.0, Color::rgb(255, 0, 0)),
+        MeshVertex::new(16.0, 0.0, Color::rgb(0, 255, 0)),
+        MeshVertex::new(8.0, 8.0, Color::rgb(0, 0, 255)),
     ];
     let mut paint = DisplayList::default();
     paint.push_mesh(
@@ -596,8 +596,8 @@ fn clear_resets_stale_pixels_before_drawing() {
             height: 10.0,
             ..LogicalRect::default()
         })
-        .background(Color::from_rgba8(40, 120, 220, 144))
-        .border(Border::solid(2.0, Color::from_rgba8(240, 80, 30, 192)))
+        .background(Color::rgba(40, 120, 220, 144))
+        .border(Border::solid(2.0, Color::rgba(240, 80, 30, 192)))
         .radius(BorderRadius::uniform(5.0));
         let mut paint = DisplayList::default();
         if clear {
@@ -878,7 +878,7 @@ fn direct_preserves_exact_overlapping_damage() {
     let screen = renderer.render.screen();
     let mut paint = DisplayList::default();
     paint.push_rectangle(
-        Rectangle::new(screen.to_logical(SCALE)).background(Color::from_rgba8(255, 0, 0, 128)),
+        Rectangle::new(screen.to_logical(SCALE)).background(Color::rgba(255, 0, 0, 128)),
         screen,
         ClipId::default(),
     );
@@ -1189,17 +1189,17 @@ fn scanline_skips_commands_behind_opaque_content() {
     };
     let mut paint = DisplayList::default();
     paint.push_rectangle(
-        Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
+        Rectangle::new(area).background(Color::rgba(255, 0, 0, 128)),
         screen,
         ClipId::default(),
     );
     paint.push_rectangle(
-        Rectangle::new(area).background(Color::from_rgba8(0, 255, 0, 255)),
+        Rectangle::new(area).background(Color::rgb(0, 255, 0)),
         screen,
         ClipId::default(),
     );
     paint.push_rectangle(
-        Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
+        Rectangle::new(area).background(Color::rgba(0, 0, 255, 128)),
         screen,
         ClipId::default(),
     );
@@ -1230,19 +1230,19 @@ fn scanline_skips_commands_behind_opaque_content() {
     };
     paint.clear();
     paint.push_rectangle(
-        Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
+        Rectangle::new(area).background(Color::rgba(255, 0, 0, 128)),
         screen,
         ClipId::default(),
     );
     paint.push_rectangle(
         Rectangle::new(area)
-            .background(Color::from_rgba8(0, 255, 0, 255))
+            .background(Color::rgb(0, 255, 0))
             .radius(BorderRadius::uniform(3.0)),
         screen,
         ClipId::default(),
     );
     paint.push_rectangle(
-        Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
+        Rectangle::new(area).background(Color::rgba(0, 0, 255, 128)),
         screen,
         ClipId::default(),
     );
@@ -1283,13 +1283,13 @@ fn scanline_skips_commands_behind_opaque_content() {
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
     paint.clear();
     paint.push_rectangle(
-        Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
+        Rectangle::new(area).background(Color::rgba(255, 0, 0, 128)),
         screen,
         ClipId::default(),
     );
     paint.push_image(image, screen, ClipId::default());
     paint.push_rectangle(
-        Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
+        Rectangle::new(area).background(Color::rgba(0, 0, 255, 128)),
         screen,
         ClipId::default(),
     );
@@ -1314,13 +1314,13 @@ fn scanline_skips_commands_behind_opaque_content() {
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
     paint.clear();
     paint.push_rectangle(
-        Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 128)),
+        Rectangle::new(area).background(Color::rgba(255, 0, 0, 128)),
         screen,
         ClipId::default(),
     );
     paint.push_image(transparent_image, screen, ClipId::default());
     paint.push_rectangle(
-        Rectangle::new(area).background(Color::from_rgba8(0, 0, 255, 128)),
+        Rectangle::new(area).background(Color::rgba(0, 0, 255, 128)),
         screen,
         ClipId::default(),
     );
@@ -1373,9 +1373,8 @@ fn scanline_skips_commands_behind_opaque_content() {
         vertical_tiling: ImageTiling::None,
     };
     let background =
-        Rectangle::new(screen.to_logical(SCALE)).background(Color::from_rgba8(255, 0, 0, 128));
-    let overlay =
-        Rectangle::new(screen.to_logical(SCALE)).background(Color::from_rgba8(0, 0, 255, 128));
+        Rectangle::new(screen.to_logical(SCALE)).background(Color::rgba(255, 0, 0, 128));
+    let overlay = Rectangle::new(screen.to_logical(SCALE)).background(Color::rgba(0, 0, 255, 128));
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
     paint.clear();
     paint.push_rectangle(background, screen, ClipId::default());
@@ -1396,7 +1395,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     {
         let mut expected = Xrgb8888::default();
         expected.blend(PremultipliedRgbaColor::new(
-            Color::from_rgba8(255, 0, 0, 128),
+            Color::rgba(255, 0, 0, 128),
             255,
         ));
         expected.blend(PremultipliedRgbaColor::new(Color::BLACK, 128));
@@ -1407,7 +1406,7 @@ fn scanline_skips_commands_behind_opaque_content() {
             alpha: source[3],
         });
         expected.blend(PremultipliedRgbaColor::new(
-            Color::from_rgba8(0, 0, 255, 128),
+            Color::rgba(0, 0, 255, 128),
             255,
         ));
         assert_eq!(rendered.color, expected);
@@ -1444,8 +1443,8 @@ fn cached_dirty_ranges_match_direct_rendering() {
         width: 8.0,
         height: 8.0,
     })
-    .background(Color::from_rgba8(255, 0, 0, 128));
-    let green = Rectangle::new(red.area).background(Color::from_rgba8(0, 255, 0, 128));
+    .background(Color::rgba(255, 0, 0, 128));
+    let green = Rectangle::new(red.area).background(Color::rgba(0, 255, 0, 128));
     let red_clips = [
         PhysicalRect {
             x: 0,
@@ -1509,7 +1508,7 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
                 width: 36.0,
                 height: 24.0,
             },
-            Color::from_rgba8(220, 40, 20, 180),
+            Color::rgba(220, 40, 20, 180),
         )
         .radius(BorderRadius {
             top_left: 6.0,
@@ -1527,7 +1526,7 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
                 width: 52.0,
                 height: 20.0,
             },
-            color: Color::from_rgba8(20, 80, 220, 140),
+            color: Color::rgba(20, 80, 220, 140),
             ..first
         };
         let mut paint = DisplayList::default();
@@ -1607,9 +1606,9 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
         );
         {
             let stops = [
-                GradientStop::new(0.0, Color::from_rgba8(255, 32, 16, 220)),
-                GradientStop::new(0.4, Color::from_rgba8(40, 240, 80, 180)),
-                GradientStop::new(1.0, Color::from_rgba8(32, 64, 255, 240)),
+                GradientStop::new(0.0, Color::rgba(255, 32, 16, 220)),
+                GradientStop::new(0.4, Color::rgba(40, 240, 80, 180)),
+                GradientStop::new(1.0, Color::rgba(32, 64, 255, 240)),
             ];
             paint.push_rectangle(
                 Rectangle::new(LogicalRect {
@@ -1618,7 +1617,7 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
                     width: 40.0,
                     height: 30.0,
                 })
-                .background(Color::from_rgba8(20, 24, 32, 210))
+                .background(Color::rgba(20, 24, 32, 210))
                 .border(Border::gradient(
                     3.0,
                     LinearGradient::new(&stops).angle(135.0),
@@ -1665,7 +1664,7 @@ fn rounded_clips_match_between_strategies() {
             height: 16.0,
             ..LogicalRect::default()
         };
-        let red = Rectangle::new(area).background(Color::from_rgba8(255, 0, 0, 255));
+        let red = Rectangle::new(area).background(Color::rgb(255, 0, 0));
         let image = ImageRequest {
             image: image.id(),
             area,
@@ -1715,7 +1714,7 @@ fn rounded_clips_match_between_strategies() {
                 width: 1.0,
                 height: 1.0,
             })
-            .background(Color::from_rgba8(0, 0, 255, 255)),
+            .background(Color::rgb(0, 0, 255)),
             screen,
             ClipId::default(),
         );
