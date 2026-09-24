@@ -27,6 +27,7 @@
                 "rustfmt"
               ])
               pkgs.mononoki
+              pkgs.nushell
               fenix.packages.${system}.rust-analyzer
             ];
             BLIT_TEST_FONT = "${pkgs.mononoki}/share/fonts/opentype/mononoki-Regular.otf";

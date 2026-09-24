@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#131814">
+    <meta name="description" content="Blit is a small UI kernel for Rust. Immediate build, deferred layout, and a direct line to the hardware. Explore the design, benchmarks, and comparisons.">
+    <meta property="og:title" content="Blit — less machinery. More machine.">
+    <meta property="og:description" content="An immediate mode UI kernel for Rust. Ordinary state. Powerful layouts. Desktop, terminal, and web.">
+    <meta property="og:type" content="website">
+    <title>Blit — less machinery. More machine.</title>
+    <link rel="icon" href="./icon.svg" type="image/svg+xml">
+    <style>
+      :root { color-scheme: dark; background: #131814; color: #e6e9da; font-family: ui-monospace, monospace; }
+      body { margin: 0; }
+      canvas { display: block; }
+      #status { position: fixed; inset: 0; display: grid; place-content: center; padding: 32px; background: #131814; line-height: 1.7; z-index: 10; }
+      #status[hidden] { display: none; }
+      #status strong { color: #cde4a7; font-size: 28px; }
+      a { color: #cde4a7; }
+      noscript { display: block; padding: 48px; max-width: 640px; line-height: 1.7; }
+    </style>
+    <noscript><style>#status { display: none; }</style></noscript>
+  </head>
+  <body>
+    <main aria-label="Blit website">
+      <canvas aria-label="Blit: an immediate mode UI kernel for Rust"></canvas>
+    </main>
+    <div id="status" role="status"><strong>▥ blit</strong><span>Starting the interface…</span><a href="https://github.com/nicoburniske/blit">Source and documentation ↗</a></div>
+    <noscript>
+      <h1>Blit — less machinery. More machine.</h1>
+      <p>A small UI kernel for Rust. Immediate build, deferred layout, and independent rendering on desktop, terminal, and web.</p>
+      <p>This site runs in WebAssembly and needs JavaScript. You can read the documentation and source on <a href="https://github.com/nicoburniske/blit">GitHub</a>.</p>
+    </noscript>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

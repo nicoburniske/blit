@@ -15,6 +15,7 @@ members = [
     "internal/raster",
     "kernel",
     "layout",
+    "site",
     "internal/widgets",
     "tui",
     "web",
@@ -29,6 +30,7 @@ blit-executor = { path = "executor" }
 blit-gui = { path = "gui" }
 blit-gpu = { path = "gui/gpu" }
 blit-layout = { path = "layout" }
+blit-web = { path = "web" }
 blit-widgets = { path = "internal/widgets" }
 blit-text = { path = "gui/text" }
 blit-text-cosmic = { path = "gui/text/cosmic" }

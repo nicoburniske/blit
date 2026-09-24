@@ -29,6 +29,17 @@ desktop + GPU:
 nix develop --command cargo run -p blit-demo --no-default-features --features gpu --release --example desktop-demo
 ```
 
+web:
+
+```sh
+nix develop --command nu site/build.nu
+nix shell nixpkgs#miniserve -c miniserve site/dist --index index.html --port 8766
+```
+
+Open <http://localhost:8766/>. The website in `site/` is a Blit application using
+the Canvas 2D platform in `blit-web`. The generated `site/dist/` is ready for a
+static host. See [site/README.md](site/README.md) for deployment details.
+
 ## example
 
 each frame builds a tree of nodes. widgets can be types or closures, and every
@@ -101,4 +112,5 @@ blit is a set of focused building blocks:
 - `blit` provides the core ui model
 - `blit-layout` provides layouts like flex, grid and wrap
 - `blit-gui` and `blit-tui` are graphical and terminal ui toolkits
+- `blit-web` provides browser text, canvas atoms, and a web session
 - `blit-desktop` runs graphical applications in native windows (macos + wayland)

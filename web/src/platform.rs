@@ -1,8 +1,10 @@
 use std::time::Duration;
 
-use blit::{Atom, Constraints, Frame, FrameInfo, Input, Rect, Size};
+use blit::{Clip, Frame, FrameInfo, Input, Rect, Size, WidgetId};
 
-pub type Ui<'a> = blit::Ui<'a, Canvas>;
+use crate::imports::{browser, canvas};
+
+pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, Canvas, S>;
 
 pub struct Session {
     frame: Frame<Canvas>,
@@ -11,6 +13,11 @@ pub struct Session {
 
 impl Session {
     pub fn new() -> Self {
+        #[cfg(target_arch = "wasm32")]
+        std::panic::set_hook(Box::new(|panic| {
+            let message = panic.to_string();
+            unsafe { browser::report_error(message.as_ptr(), message.len()) };
+        }));
         Self {
             frame: Frame::default(),
             canvas: Canvas,
@@ -32,100 +39,54 @@ impl Session {
             |ui: Ui<'_>| render(ui),
         );
         self.frame.layout(&mut self.canvas);
-        unsafe { clear() };
+        unsafe { canvas::clear() };
         self.frame.paint(&mut self.canvas);
+    }
+
+    pub fn geometry(&self, id: WidgetId) -> Option<Rect> {
+        self.frame.geometry(id)
+    }
+
+    pub fn has_pending_redraw(&self) -> bool {
+        self.frame.has_pending_redraw()
+    }
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 pub struct Canvas;
 
-pub struct Color(pub u8, pub u8, pub u8);
-
-pub struct Block(pub Color);
-
-impl Atom<Canvas> for Block {
-    fn measure(&self, _: &mut Canvas, constraints: Constraints) -> Size {
-        constraints.constrain(Size::ZERO)
+impl Canvas {
+    pub fn set_document_height(height: f32) {
+        unsafe { browser::set_document_height(height) };
     }
 
-    fn paint(&self, _: &mut Canvas, area: Rect) {
-        unsafe {
-            fill_rect(
-                area.x,
-                area.y,
-                area.width,
-                area.height,
-                0.0,
-                self.0.0.into(),
-                self.0.1.into(),
-                self.0.2.into(),
-                255,
-            )
-        };
+    pub fn navigate(href: &str) {
+        unsafe { browser::navigate(href.as_ptr(), href.len()) };
     }
 
-    fn paint_bounds(&self, area: Rect) -> Rect {
-        area
+    pub fn copy_text(text: &str) {
+        unsafe { browser::copy_text(text.as_ptr(), text.len()) };
+    }
+
+    pub fn set_cursor(pointer: bool) {
+        unsafe { browser::set_cursor(u32::from(pointer)) };
     }
 }
 
-pub struct Label {
-    pub text: String,
-    pub size: f32,
-    pub color: Color,
-}
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BoundsClip;
 
-impl Atom<Canvas> for Label {
-    fn measure(&self, _: &mut Canvas, constraints: Constraints) -> Size {
-        let width = unsafe { measure_text(self.text.as_ptr(), self.text.len(), self.size) };
-        constraints.constrain(Size::new(width, self.size * 1.25))
+impl Clip<Canvas> for BoundsClip {
+    fn push(&self, _: &mut Canvas, area: Rect) {
+        unsafe { canvas::push_clip(area.x, area.y, area.width, area.height) };
     }
 
-    fn paint(&self, _: &mut Canvas, area: Rect) {
-        unsafe {
-            fill_text(
-                self.text.as_ptr(),
-                self.text.len(),
-                area.x,
-                area.y,
-                self.size,
-                self.color.0.into(),
-                self.color.1.into(),
-                self.color.2.into(),
-                255,
-            )
-        };
+    fn pop(&self, _: &mut Canvas) {
+        unsafe { canvas::pop_clip() };
     }
-
-    fn paint_bounds(&self, area: Rect) -> Rect {
-        area
-    }
-}
-
-#[link(wasm_import_module = "canvas")]
-unsafe extern "C" {
-    fn clear();
-    fn fill_rect(
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        radius: f32,
-        red: u32,
-        green: u32,
-        blue: u32,
-        alpha: u32,
-    );
-    fn fill_text(
-        text: *const u8,
-        len: usize,
-        x: f32,
-        y: f32,
-        size: f32,
-        red: u32,
-        green: u32,
-        blue: u32,
-        alpha: u32,
-    );
-    fn measure_text(text: *const u8, len: usize, size: f32) -> f32;
 }

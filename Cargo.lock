@@ -227,6 +227,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "blit-site"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-web",
+]
+
+[[package]]
 name = "blit-text"
 version = "0.1.0"
 dependencies = [
