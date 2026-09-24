@@ -12,11 +12,13 @@ From the repository root, use the project's Rust toolchain (nightly with
 
 ```sh
 nix develop
-nu site/build.nu
-nix shell nixpkgs#miniserve -c miniserve site/dist --index index.html --port 8766
+nix shell nixpkgs#just -c just site
 ```
 
-Open <http://localhost:8766/>. Rebuild and refresh after edits.
+If `just` is already available, run `just site`. Use `just site 9000` to choose
+another port. This builds the site and serves it on localhost until Ctrl+C.
+Open <http://localhost:8766/#evolution> for the API timelapse. Rebuild and refresh
+after edits. To build without serving, run `nu site/build.nu`.
 
 ## Deploy
 

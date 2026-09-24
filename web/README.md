@@ -180,7 +180,8 @@ redraw automatically. Touch scrolling and zooming use browser defaults.
 
 The host supports one mount for the lifetime of a document and has no teardown
 API. It forwards pointer input and provides keyboard activation for semantic
-actions and native range adjustment. General keyboard input, text input, and wheel events are not forwarded
+actions and native range adjustment. General keyboard input, text input, and
+wheel events are not forwarded
 to the kernel. Wheel and touch scrolling use native document scrolling, not
 `blit::Input::Scroll`. Nonzero render returns schedule animation frames, but
 kernel timer deadlines do not yet schedule browser wakeups.
@@ -191,7 +192,8 @@ assistive activation synthesize one down/up pair at the control's center.
 Pointer activation already passes through the kernel and is not synthesized
 again. With an href it creates a native anchor: navigation, modifier clicks,
 context menus, and opening tabs remain browser behavior. Hrefs may be borrowed
-static strings or owned strings such as formatted commit URLs. Links do not synthesize
+static strings or owned strings such as formatted commit URLs. Links do not
+synthesize
 down/up input. Pointer movement still supplies hover input for links.
 
 `Action::selected(false)` and `Action::selected(true)` set `aria-pressed` on
