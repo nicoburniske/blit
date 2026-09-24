@@ -17,6 +17,7 @@ members = [
     "layout",
     "internal/widgets",
     "tui",
+    "web",
 ]
 
 [workspace.package]

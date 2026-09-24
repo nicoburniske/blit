@@ -1,0 +1,13 @@
+[package]
+name = "blit-web"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+blit.workspace = true
+blit-layout.workspace = true
