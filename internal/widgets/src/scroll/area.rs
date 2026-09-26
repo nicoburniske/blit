@@ -32,7 +32,6 @@ pub fn build<C, W, X, T, H>(
     let (track, thumb) = scrollbar(thumb_active);
     build_scroll(
         ui,
-        state.id,
         ScrollLayout {
             axis,
             offset: state.offset,

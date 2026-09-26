@@ -1,6 +1,4 @@
-use blit::{
-    Axis, Constraints, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget, WidgetId,
-};
+use blit::{Axis, Constraints, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
 
 blit::builder! {
     /// split behavior and geometry
@@ -39,7 +37,6 @@ impl State {
 
 pub fn new<'a, C, L, T, D, W>(
     state: &'a mut State,
-    id: WidgetId,
     config: Config,
     divider: D,
     leading: L,
@@ -52,11 +49,12 @@ where
     W: Widget<C>,
 {
     move |mut ui: Ui<'_, C>| {
+        let id = ui.current_widget_id();
         let axis = config.axis;
         let leading_id = id.child("leading pane");
         let divider_id = id.child("divider");
         let trailing_id = id.child("trailing pane");
-        let interaction = ui.interact(divider_id, config.sense);
+        let interaction = ui.interact_widget(divider_id, config.sense);
         let measured = ui.geometry(leading_id).map(|area| match axis {
             Axis::Horizontal => area.width,
             Axis::Vertical => area.height,
@@ -81,15 +79,13 @@ where
         }
         let extent = state.extent.unwrap_or(config.initial_extent);
         state.changed = false;
-        let mut panes = ui
-            .layout(Layout {
-                axis,
-                divider_extent: config.divider_extent,
-                extent,
-                minimum_leading: config.minimum_leading,
-                minimum_trailing: config.minimum_trailing,
-            })
-            .widget_id(id);
+        let mut panes = ui.layout(Layout {
+            axis,
+            divider_extent: config.divider_extent,
+            extent,
+            minimum_leading: config.minimum_leading,
+            minimum_trailing: config.minimum_trailing,
+        });
         panes
             .child()
             .item(Item::Leading)
@@ -195,7 +191,7 @@ impl<C> LayoutTrait<C> for Layout {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Atom, Constraints, Frame, FrameInfo, Input, Rect, Size};
+    use blit::{Atom, Constraints, Frame, FrameInfo, Input, Rect, Size, WidgetId};
     use blit_layout::single;
 
     use super::*;
@@ -219,8 +215,8 @@ mod tests {
     fn clamps_the_leading_extent() {
         let mut frame = Frame::default();
         let mut state = State::default();
-        let id = WidgetId::new("split pane");
         state.set_extent(90.0);
+        let id = WidgetId::new("split pane");
         let context = &mut TestContext;
         frame.build(
             context,
@@ -231,9 +227,9 @@ mod tests {
                 ui.layout(single::layout())
                     .child()
                     .item(single::item().grow())
+                    .widget_id(id)
                     .build(new(
                         &mut state,
-                        id,
                         Config::new(30.0)
                             .minimum_leading(20.0)
                             .minimum_trailing(20.0)

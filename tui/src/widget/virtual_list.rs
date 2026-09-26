@@ -8,7 +8,7 @@ pub fn new<'a, R, K, F, B, T, H>(
     state: &'a mut State,
     rows: &'a [R],
     config: Config,
-    key: K,
+    widget_id: K,
     item: F,
     scrollbar: B,
 ) -> impl Widget<TuiContext, Response = Response> + 'a
@@ -21,7 +21,7 @@ where
 {
     move |ui: Ui<'_>| {
         blit_widgets::scroll::virtual_list::build(
-            ui, state, rows, BoundsClip, config, scrollbar, key, item,
+            ui, state, rows, BoundsClip, config, scrollbar, widget_id, item,
         )
     }
 }

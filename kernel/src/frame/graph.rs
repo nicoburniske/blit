@@ -1,6 +1,5 @@
 pub struct Frame<C> {
     nodes: Vec<StoredNode>,
-    current_parent: Option<NodeId>,
     atoms: Vec<StoredAtom>,
     layouts: Vec<StoredLayout>,
     clips: Vec<StoredClip>,
@@ -35,7 +34,6 @@ impl<C> Default for Frame<C> {
     fn default() -> Self {
         Self {
             nodes: Vec::new(),
-            current_parent: None,
             atoms: Vec::new(),
             layouts: Vec::new(),
             clips: Vec::new(),
@@ -147,7 +145,6 @@ impl<C> Frame<C> {
         #[cfg(debug_assertions)]
         generation::begin();
         self.nodes.clear();
-        self.current_parent = None;
         self.atoms.clear();
         self.layouts.clear();
         self.clips.clear();
@@ -182,9 +179,9 @@ impl<C> Frame<C> {
         self.interaction.begin(&input);
 
         let output = {
-            let root = self.push_node();
-            self.current_parent = Some(root);
-            widget.build(Ui::new(&mut *self, &mut *context, root))
+            let root = self.push_node(None);
+            let id = WidgetId::new("blit frame root");
+            widget.build(Ui::new(&mut *self, &mut *context, root, id))
         };
         assert_eq!(
             self.nodes[0].subtree_end as usize,
@@ -314,12 +311,12 @@ impl<C> Frame<C> {
         id
     }
 
-    fn push_node(&mut self) -> NodeId {
+    fn push_node(&mut self, parent: Option<NodeId>) -> NodeId {
         let id = self.node_id(self.nodes.len());
         self.nodes.push(StoredNode {
             widget_id: None,
-            parent: self.current_parent.unwrap_or(id),
-            visual_parent: self.current_parent.unwrap_or(id),
+            parent: parent.unwrap_or(id),
+            visual_parent: parent.unwrap_or(id),
             subtree_end: id.value,
             first_atom: StoredAtomId::NONE,
             last_atom: StoredAtomId::NONE,
@@ -337,10 +334,14 @@ impl<C> Frame<C> {
         id
     }
 
-    fn push_child(&mut self) -> NodeId {
-        let node = self.push_node();
-        self.current_parent = Some(node);
-        node
+    fn register_widget_id(&mut self, node: NodeId, id: WidgetId) -> WidgetId {
+        if self.nodes[node.index()].widget_id.is_none() {
+            let binding = self.named_nodes.entry(id).or_default();
+            assert!(binding.is_none(), "widget ids must identify unique nodes");
+            *binding = Some(node);
+            self.nodes[node.index()].widget_id = Some(id);
+        }
+        id
     }
 
     fn set_absolute(&mut self, node: NodeId, absolute: Absolute) {

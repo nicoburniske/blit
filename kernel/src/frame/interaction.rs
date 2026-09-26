@@ -13,6 +13,16 @@ pub fn resolve<C>(frame: &mut Frame<C>) {
         .interaction
         .requests
         .sort_unstable_by_key(|request| request.0);
+    frame.interaction.requests.dedup_by(|next, previous| {
+        if next.0 != previous.0 {
+            return false;
+        }
+        previous.1.click |= next.1.click;
+        previous.1.drag |= next.1.drag;
+        previous.1.focus |= next.1.focus;
+        previous.1.scroll |= next.1.scroll;
+        true
+    });
     for index in 0..frame.nodes.len() {
         let node = frame.paint_order.get(index).map_or(index, |id| id.index());
         let stored = &frame.nodes[node];
@@ -69,8 +79,6 @@ pub struct InteractionState {
     previous_hits: Vec<HitItem>,
     current_hits: Vec<HitItem>,
     requests: Vec<(WidgetId, Sense)>,
-    #[cfg(debug_assertions)]
-    seen: std::collections::HashSet<WidgetId>,
 }
 
 #[derive(Default)]
@@ -103,8 +111,6 @@ struct HitItem {
 
 impl InteractionState {
     pub fn begin(&mut self, input: &Input) {
-        #[cfg(debug_assertions)]
-        self.seen.clear();
         self.requests.clear();
         self.pointer.event = PointerEvent::None;
         self.activated = None;
@@ -208,8 +214,6 @@ impl InteractionState {
     }
 
     pub fn response(&mut self, id: WidgetId, sense: Sense) -> Interaction {
-        #[cfg(debug_assertions)]
-        assert!(self.seen.insert(id), "duplicate WidgetId {id:?}");
         self.requests.push((id, sense));
 
         let active = self.active == Some(id);

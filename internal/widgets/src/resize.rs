@@ -1,6 +1,5 @@
 use blit::{
-    Axis, Constraints, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui,
-    Widget, WidgetId,
+    Axis, Constraints, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget,
 };
 
 #[derive(Debug, Default)]
@@ -33,7 +32,6 @@ blit::builder! {
 
 pub fn new<'a, C, W, F, G>(
     state: &'a mut State,
-    id: WidgetId,
     config: Config,
     content: W,
     mut grip: F,
@@ -44,12 +42,13 @@ where
     G: Widget<C>,
 {
     move |mut ui: Ui<'_, C>| {
+        let id = ui.current_widget_id();
         let right_id = id.child("right grip");
         let bottom_id = id.child("bottom grip");
         let corner_id = id.child("corner grip");
-        let right = ui.interact(right_id, Sense::DRAG);
-        let bottom = ui.interact(bottom_id, Sense::DRAG);
-        let corner = ui.interact(corner_id, Sense::DRAG);
+        let right = ui.interact_widget(right_id, Sense::DRAG);
+        let bottom = ui.interact_widget(bottom_id, Sense::DRAG);
+        let corner = ui.interact_widget(corner_id, Sense::DRAG);
         let delta = Size::new(
             right.drag_delta.x + corner.drag_delta.x,
             bottom.drag_delta.y + corner.drag_delta.y,
@@ -74,14 +73,12 @@ where
             );
         }
         let size = state.size.unwrap_or(config.initial);
-        let mut shell = ui
-            .layout(Layout {
-                size,
-                minimum: config.minimum,
-                maximum: config.maximum,
-                grip_size: config.grip_size,
-            })
-            .widget_id(id);
+        let mut shell = ui.layout(Layout {
+            size,
+            minimum: config.minimum,
+            maximum: config.maximum,
+            grip_size: config.grip_size,
+        });
         shell.child().item(Item::Content).build(content);
         for (item, edge, grip_id, interaction) in [
             (Item::Right, Edge::Right, right_id, right),

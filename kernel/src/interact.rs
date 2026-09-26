@@ -12,6 +12,7 @@ static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 pub struct WidgetId(NonZeroU64);
 
 impl WidgetId {
+    /// creates an absolute widget id from a stable value
     pub fn new(source: impl Hash) -> Self {
         let mut hasher = FxHasher::default();
         source.hash(&mut hasher);
@@ -22,6 +23,7 @@ impl WidgetId {
         Self::new(("blit widget", NEXT_ID.fetch_add(1, Ordering::Relaxed)))
     }
 
+    /// composes a stable child id without using the current ui node
     pub fn child(self, source: impl Hash) -> Self {
         Self::new((self, source))
     }

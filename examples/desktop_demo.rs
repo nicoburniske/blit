@@ -152,11 +152,7 @@ impl Application for App {
                 (Page::Scroll, "scroll"),
                 (Page::Graphics, "graphics"),
             ] {
-                if header.child().build(Button::new(
-                    WidgetId::new(("desktop page", label)),
-                    label,
-                    self.page == page,
-                )) {
+                if header.child().build(Button::new(label, self.page == page)) {
                     self.page = page;
                 }
             }
@@ -181,18 +177,13 @@ impl Application for App {
                             .border(Border::solid(sz::BORDER, colors::ACCENT))
                             .radius(BorderRadius::uniform(sz::XS)),
                     );
-                    if popup.child().build(Button::new(
-                        WidgetId::new("desktop settings show performance"),
-                        "Show performance",
-                        self.show_performance,
-                    )) {
+                    if popup
+                        .child()
+                        .build(Button::new("Show performance", self.show_performance))
+                    {
                         self.show_performance = !self.show_performance;
                     }
-                    popup.child().build(Button::new(
-                        WidgetId::new("reset desktop demo"),
-                        "Reset",
-                        false,
-                    ))
+                    popup.child().build(Button::new("Reset", false))
                 },
             ));
             if reset.unwrap_or(false) {
@@ -342,9 +333,8 @@ impl Widget<GuiContext> for &mut TextPage {
         };
         let screen = ui.screen().size();
         let mut body = ui.layout(flex::row());
-        body.child().item(flex::item().grow()).build(split(
+        body.child().item(flex::item().grow()).widget_id(WidgetId::new("text page split")).build(split(
             split_state,
-            WidgetId::new("text page split"),
             split::Config::new(sz::SIDEBAR).divider_extent(sz::LG),
             |ui: Ui<'_>| {
                 let mut controls =
@@ -444,10 +434,9 @@ impl Widget<GuiContext> for &mut TextPage {
                             .background(colors::TRACK)
                             .radius(BorderRadius::uniform(sz::XS)),
                     );
-                    viewport.child().build(
+                    viewport.child().widget_id(WidgetId::new("rich text preview")).build(
                         resize::new(
                             resize,
-                            WidgetId::new("rich text preview"),
                             resize::Config::new(Size::new(560.0, 360.0))
                                 .minimum(Size::new(260.0, 160.0))
                                 .maximum(screen)
@@ -518,23 +507,23 @@ impl Widget<GuiContext> for &mut InputPage {
                         .border(Border::solid(sz::BORDER, colors::BORDER))
                         .radius(BorderRadius::uniform(sz::XS)),
                 );
-                field.child().item(single::item().grow()).build(
-                    TextInput::new(
-                        &mut self.state,
-                        WidgetId::new("desktop text input"),
-                        &mut self.value,
+                field
+                    .child()
+                    .item(single::item().grow())
+                    .widget_id(WidgetId::new("desktop text input"))
+                    .build(
+                        TextInput::new(&mut self.state, &mut self.value)
+                            .style(TextStyle {
+                                size: sz::LG,
+                                ..TextStyle::default()
+                            })
+                            .padding(Sides::all(sz::SM))
+                            .color(colors::TEXT)
+                            .placeholder("Type here")
+                            .placeholder_color(colors::TEXT_DIM)
+                            .selection_background(colors::ACCENT_DARK)
+                            .cursor_background(colors::ACCENT),
                     )
-                    .style(TextStyle {
-                        size: sz::LG,
-                        ..TextStyle::default()
-                    })
-                    .padding(Sides::all(sz::SM))
-                    .color(colors::TEXT)
-                    .placeholder("Type here")
-                    .placeholder_color(colors::TEXT_DIM)
-                    .selection_background(colors::ACCENT_DARK)
-                    .cursor_background(colors::ACCENT),
-                )
             });
         body.child().insert(
             Text::new("Click to focus. Escape releases focus.")
@@ -569,10 +558,9 @@ impl Widget<GuiContext> for &mut LayoutPage {
         let unit = Size::uniform(sz::SM);
         let preview_config = *canvas;
         let mut body = ui.layout(flex::row());
-        body.child().item(flex::item().grow()).build(
+        body.child().item(flex::item().grow()).widget_id(WidgetId::new("layout page split")).build(
             split(
                 split_state,
-                WidgetId::new("layout page split"),
                 split::Config::new(sz::SIDEBAR).divider_extent(sz::LG),
                 |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(
@@ -736,10 +724,9 @@ impl Widget<GuiContext> for &mut LayoutPage {
                         let initial = (screen - sz::CANVAS_INITIAL_OFFSET)
                             .max(sz::CANVAS_INITIAL_MIN)
                             * sz::CANVAS_INITIAL_SCALE;
-                        viewport.child().build(
+                        viewport.child().widget_id(WidgetId::new("layout canvas")).build(
                             resize::new(
                                 resize,
-                                WidgetId::new("layout canvas"),
                                 resize::Config::new(initial)
                                     .minimum(sz::CANVAS_MIN)
                                     .grip_size(Size::uniform(sz::MD)),
@@ -808,10 +795,9 @@ impl Widget<GuiContext> for &mut StylesPage {
         let shadow_spread = *spread;
         let shadow_offset = *offset;
         let mut body = ui.layout(flex::row());
-        body.child().item(flex::item().grow()).build(
+        body.child().item(flex::item().grow()).widget_id(WidgetId::new("styles page split")).build(
             split(
                 split_state,
-                WidgetId::new("styles page split"),
                 split::Config::new(sz::SIDEBAR).divider_extent(sz::LG),
                 |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(
@@ -1014,11 +1000,10 @@ impl Widget<GuiContext> for &mut ScrollPage {
                 (Axis::Vertical, "VERTICAL"),
                 (Axis::Horizontal, "HORIZONTAL"),
             ] {
-                if header.child().build(Button::new(
-                    WidgetId::new(("desktop scroll axis", label)),
-                    label,
-                    *scroll_axis == axis,
-                )) {
+                if header
+                    .child()
+                    .build(Button::new(label, *scroll_axis == axis))
+                {
                     *scroll_axis = axis;
                     *scroll = scroll_area::State::default();
                 }
@@ -1039,6 +1024,7 @@ impl Widget<GuiContext> for &mut ScrollPage {
                     .gap(sz::XS)
                     .behavior(scroll_behavior()),
                 0_usize..100,
+                |index| WidgetId::new(("desktop scroll row", *index)),
                 move |ui, index| {
                     let item = ITEMS[index % ITEMS.len()];
                     let layout = match axis {
@@ -1169,14 +1155,12 @@ impl Atom<GuiContext> for Terrain {
 
 fn split<'a>(
     state: &'a mut split::State,
-    id: WidgetId,
     config: split::Config,
     leading: impl Widget<GuiContext> + 'a,
     trailing: impl Widget<GuiContext> + 'a,
 ) -> impl Widget<GuiContext> + 'a {
     split::new(
         state,
-        id,
         config,
         |axis, interaction| {
             move |ui: Ui<'_>| {
@@ -1245,18 +1229,13 @@ impl Widget<GuiContext> for DesktopGrip {
 }
 
 struct Button<'a> {
-    id: WidgetId,
     label: &'a str,
     selected: bool,
 }
 
 impl<'a> Button<'a> {
-    fn new(id: WidgetId, label: &'a str, selected: bool) -> Self {
-        Self {
-            id,
-            label,
-            selected,
-        }
+    fn new(label: &'a str, selected: bool) -> Self {
+        Self { label, selected }
     }
 }
 
@@ -1264,10 +1243,8 @@ impl Widget<GuiContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        let interaction = ui.interact(self.id, Sense::CLICK);
-        ui.widget_id(self.id).build(|ui: Ui<'_>| {
-            draw_button(ui, self.label, self.selected, interaction);
-        });
+        let interaction = ui.interact(Sense::CLICK);
+        draw_button(ui, self.label, self.selected, interaction);
         interaction.clicked
     }
 }
@@ -1317,11 +1294,10 @@ fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, optio
     group.child().build(|ui: Ui<'_>| {
         let mut values = ui.layout(wrap::horizontal().item_gap(sz::XXS).run_gap(sz::XXS));
         for (index, &(option, value)) in options.iter().enumerate() {
-            let clicked = values.child().build(Button::new(
-                WidgetId::new((label, index)),
-                option,
-                *selected == value,
-            ));
+            let clicked = values
+                .child()
+                .widget_id(WidgetId::new((label, index)))
+                .build(Button::new(option, *selected == value));
             if clicked {
                 *selected = value;
             }
@@ -1642,16 +1618,14 @@ mod graphics {
                         ("18K", Detail::Medium),
                         ("74K", Detail::High),
                     ] {
-                        if controls.child().build(Button::new(
-                            WidgetId::new(("terrain detail", label)),
-                            label,
-                            self.detail == value,
-                        )) {
+                        if controls
+                            .child()
+                            .build(Button::new(label, self.detail == value))
+                        {
                             self.detail = value;
                         }
                     }
                     if controls.child().build(Button::new(
-                        WidgetId::new("terrain motion"),
                         if self.running { "pause" } else { "play" },
                         self.running,
                     )) {

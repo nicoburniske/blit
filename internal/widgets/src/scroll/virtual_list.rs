@@ -21,7 +21,7 @@ pub fn build<C, R, X, K, F, T, H>(
     clip: X,
     list: Config,
     scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
-    mut key: K,
+    mut widget_id: K,
     mut item: F,
 ) -> Response
 where
@@ -33,7 +33,8 @@ where
 {
     let config = list.behavior;
     let edge_scroll = list.edge_scroll;
-    let viewport = ui.geometry(state.scroll.id);
+    let id = ui.current_widget_id();
+    let viewport = ui.geometry(id);
     let screen = ui.screen().size();
     if state.screen.replace(screen) != Some(screen) {
         ui.request_frame();
@@ -60,7 +61,7 @@ where
         target = None;
         let mut top = 0.0;
         for value in rows {
-            let id = key(value);
+            let id = widget_id(value);
             let height = table.heights.get(&id).copied();
             full |= height.is_none();
             let height = height.unwrap_or(0.0);
@@ -163,7 +164,6 @@ where
     let (track, thumb) = scrollbar(thumb_active);
     build_scroll(
         ui,
-        state.scroll.id,
         MeasuredScrollLayout {
             scroll: ScrollLayout {
                 axis: Axis::Vertical,
@@ -178,10 +178,13 @@ where
             let mut list = ui.layout(MeasuredLayout {
                 first,
                 target,
-                table,
+                table: Rc::clone(&table),
             });
             for index in visible {
-                list.child().build(|ui: Ui<'_, C>| item(ui, &rows[index]));
+                let id = table.borrow().rows[index].id;
+                list.child()
+                    .widget_id(id)
+                    .build(|ui: Ui<'_, C>| item(ui, &rows[index]));
             }
         },
         track,
@@ -207,9 +210,6 @@ pub struct State {
 }
 
 impl State {
-    pub fn id(&self) -> WidgetId {
-        self.scroll.id
-    }
     pub fn scroll_to(&mut self, id: WidgetId) {
         self.reveal = Some(id);
     }
@@ -343,9 +343,7 @@ mod tests {
                         |_| (None::<()>, None::<()>),
                         |row| WidgetId::new(row.0),
                         |ui, row| {
-                            ui.widget_id(WidgetId::new(row.0)).layout(
-                                blit_layout::single::layout().padding(Sides::y(row.1 / 2.0)),
-                            );
+                            ui.layout(blit_layout::single::layout().padding(Sides::y(row.1 / 2.0)));
                         },
                     )
                 },

@@ -2,7 +2,7 @@ pub use super::shared::{Behavior, State};
 
 use super::shared::{ScrollLayout, build_scroll, update};
 use blit::{Axis, Constraints, Layout, LayoutCx, Point, Size};
-use blit::{Clip, Content, Ui};
+use blit::{Clip, Content, Ui, WidgetId};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug)]
@@ -15,18 +15,18 @@ blit::builder! {
 }
 
 /// scrolls uniform items while building only the visible range
-///
-/// the item callback receives each visible item and a fresh node
-pub fn build<C, I, F, X, T, H>(
+pub fn build<C, I, K, F, X, T, H>(
     mut ui: Ui<'_, C>,
     state: &mut State,
     list: Config,
     items: I,
+    mut widget_id: K,
     mut item: F,
     clip: X,
     scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
 ) where
     I: ExactSizeIterator,
+    K: FnMut(&I::Item) -> WidgetId,
     F: FnMut(Ui<'_, C>, I::Item),
     X: Clip<C>,
     T: Content<C>,
@@ -67,15 +67,16 @@ pub fn build<C, I, F, X, T, H>(
     let content = move |ui: Ui<'_, C>| {
         let mut list = ui.layout(layout);
         for (offset, value) in items.enumerate() {
+            let id = widget_id(&value);
             list.child()
                 .item(first + offset)
+                .widget_id(id)
                 .build(|ui: Ui<'_, C>| item(ui, value));
         }
     };
     let (track, thumb) = scrollbar(thumb_active);
     build_scroll(
         ui,
-        state.id,
         ScrollLayout {
             axis,
             offset: state.offset,
@@ -131,7 +132,7 @@ impl<C> Layout<C> for ListLayout {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Input, LayoutResolution};
+    use blit::{Frame, FrameInfo, Input, LayoutResolution, WidgetId};
 
     use super::*;
     use crate::test::{TestClip, TestContext};
@@ -143,8 +144,13 @@ mod tests {
             context: &mut TestContext,
             info: FrameInfo,
             state: &mut State,
-            built: &mut Vec<usize>,
+            built: &mut Vec<(usize, WidgetId)>,
         ) {
+            let swap = state.offset > 0.0;
+            let mut rows: [usize; 100] = std::array::from_fn(|index| index);
+            if swap {
+                rows.swap(5, 6);
+            }
             frame.build(
                 context,
                 info,
@@ -155,9 +161,10 @@ mod tests {
                         ui,
                         state,
                         Config::new(1.5),
-                        0..100,
-                        |ui, index| {
-                            built.push(index);
+                        rows.iter().enumerate(),
+                        |row| WidgetId::new(("row", row.1)),
+                        |mut ui, (index, _)| {
+                            built.push((index, ui.current_widget_id()));
                             ui.build(());
                         },
                         TestClip,
@@ -178,13 +185,15 @@ mod tests {
         let mut built = Vec::new();
 
         layout(&mut frame, &mut context, frame_info, &mut state, &mut built);
-        assert_eq!(built, [0, 1, 2, 3, 4, 5]);
-
+        assert!(built.iter().map(|row| row.0).eq(0..6));
+        let (first_id, default_id) = (built[5].1, built[4].1);
         built.clear();
         state.viewport_extent = 10.0;
         state.content_extent = 200.0;
-        state.scroll_to(20.0);
+        state.scroll_to(8.0);
         layout(&mut frame, &mut context, frame_info, &mut state, &mut built);
-        assert_eq!(built, [9, 10, 11, 12, 13, 14, 15]);
+        assert!(built.iter().map(|row| row.0).eq(3..10));
+        assert_eq!(built[3].1, first_id);
+        assert_eq!(built[1].1, default_id);
     }
 }

@@ -275,7 +275,7 @@ fn visual_parent_preserves_outer_clip_and_supplies_absolute_size() {
     let (mut frame, mut context) = frame(Size::new(7.0, 5.0));
     let popup_id = WidgetId::new("popup");
     let build = |mut ui: Ui<'_>| {
-        let response = ui.interact(popup_id, Sense::CLICK);
+        let response = ui.interact_widget(popup_id, Sense::CLICK);
         let mut root = ui.layout(Overlay);
         root.absolute(
             Absolute::at(1.0, 0.0)
@@ -355,8 +355,8 @@ fn paint_and_interaction_follow_visual_groups() {
 
     for open in [false, true, false] {
         let build = |mut ui: Ui<'_>| {
-            let responses = ids.map(|id| ui.interact(id, Sense::CLICK));
-            let mut root = ui.layout(Overlay);
+            let responses = ids.map(|id| ui.interact_widget(id, Sense::CLICK));
+            let mut root = ui.widget_id(ids[0]).layout(Overlay);
             if open {
                 let mut modal = root
                     .absolute(
@@ -388,7 +388,7 @@ fn paint_and_interaction_follow_visual_groups() {
                             badge.insert(Fill::new('A', size));
                         });
                 });
-            root.widget_id(ids[0]).insert(Fill::new('C', size));
+            root.insert(Fill::new('C', size));
             responses
         };
         render(&mut frame, &mut context, build);
@@ -641,14 +641,14 @@ fn absolute_places_position_against_the_target_and_size_against_the_parent() {
 }
 
 #[test]
-fn transitions_without_ids_are_ignored() {
+fn transitions_use_automatic_widget_ids() {
     let (mut frame, mut context) = frame(Size::new(4.0, 1.0));
 
     unidentified_transition_scene(&mut frame, &mut context, 1.0);
     unidentified_transition_scene(&mut frame, &mut context, 3.0);
 
-    assert_eq!(context.contents(), "XXX ");
-    assert!(!frame.has_pending_redraw());
+    assert_eq!(context.contents(), " X  ");
+    assert!(frame.has_pending_redraw());
 }
 
 #[test]
@@ -758,12 +758,7 @@ fn named_bindings_follow_each_build() {
                 if count == 0 {
                     return;
                 }
-                root.child()
-                    .widget_id(a)
-                    .widget_id(a)
-                    .widget_id(b)
-                    .insert(());
-                // renaming releases the old name for another node
+                root.child().widget_id(b).insert(());
                 root.child().widget_id(a).parent(b).insert(());
                 root.absolute(Absolute::at(0.0, 0.0).relative_to(a))
                     .insert(());
@@ -777,11 +772,8 @@ fn named_bindings_follow_each_build() {
 #[test]
 fn interaction_is_bounded_by_clip_rectangles() {
     let (mut frame, mut context) = frame(Size::new(5.0, 1.0));
-    let id = WidgetId::new("clipped");
 
-    render(&mut frame, &mut context, |ui: Ui<'_>| {
-        clipped_button(ui, id);
-    });
+    render(&mut frame, &mut context, clipped_button);
 
     let mut active = Vec::new();
     render_inputs(
@@ -805,11 +797,20 @@ fn interaction_is_bounded_by_clip_rectangles() {
                 button: PointerButton::Primary,
                 modifiers: Modifiers::NONE,
             },
+            Input::Scroll {
+                position: Point::new(2.5, 0.5),
+                delta_x: 0.0,
+                delta_y: 1.0,
+                modifiers: Modifiers::NONE,
+                continuous: false,
+                phase: blit::ScrollPhase::Moved,
+            },
         ],
-        |ui: Ui<'_>| active.push(clipped_button(ui, id).active),
+        |ui: Ui<'_>| active.push(clipped_button(ui)),
     );
 
-    assert_eq!(active, [false, false, true]);
+    assert!(!active[0].active && !active[1].active && active[2].active && active[3].active);
+    assert!(active[3].scroll.is_some());
 }
 
 fn transition_scene(
@@ -876,18 +877,18 @@ fn position_transition_scene(
     });
 }
 
-fn clipped_button(mut ui: Ui<'_>, id: WidgetId) -> Interaction {
-    let interaction = ui.interact(id, Sense::CLICK);
+fn clipped_button(ui: Ui<'_>) -> Interaction {
     let mut root = ui.layout(Overlay);
     root.child().build(|ui: Ui<'_>| {
         let mut panel = ui.layout(Fixed(Size::new(3.0, 1.0))).clip(DiamondClip);
         panel.insert(Fill::new('P', Size::ZERO));
-        panel
-            .child()
-            .widget_id(id)
-            .insert(Fill::new('C', Size::new(5.0, 1.0)));
-    });
-    interaction
+        panel.child().build(|mut ui: Ui<'_>| {
+            let interaction = ui.interact(Sense::CLICK);
+            ui.interact(Sense::SCROLL);
+            ui.insert(Fill::new('C', Size::new(5.0, 1.0)));
+            interaction
+        })
+    })
 }
 
 fn scene(ui: Ui<'_>) {

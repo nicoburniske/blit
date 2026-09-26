@@ -5,7 +5,6 @@ use crate::{
 };
 use blit::{
     Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Ui, Widget,
-    WidgetId,
 };
 pub use blit_widgets::text_input::{Response, State};
 
@@ -13,7 +12,7 @@ use crate::TuiContext;
 
 blit::builder! {
     pub struct TextInput<'a> {
-        new(state: &'a mut State, id: WidgetId, value: &'a mut String),
+        new(state: &'a mut State, value: &'a mut String),
         @optional {
             background: Color,
         },
@@ -33,7 +32,6 @@ impl Widget<TuiContext> for TextInput<'_> {
     fn build(self, mut ui: Ui<'_, TuiContext>) -> Self::Response {
         let Self {
             state,
-            id,
             value,
             background,
             placeholder,
@@ -44,13 +42,11 @@ impl Widget<TuiContext> for TextInput<'_> {
             cursor_background,
             attributes,
         } = self;
-        let interaction = ui.interact(
-            id,
-            Sense {
-                drag: true,
-                ..Sense::FOCUS
-            },
-        );
+        let id = ui.current_widget_id();
+        let interaction = ui.interact(Sense {
+            drag: true,
+            ..Sense::FOCUS
+        });
         let input = *ui.input();
         match input {
             Input::Key(key) if ui.is_focused(id) && key.key == Key::Escape && key.pressed => {
@@ -106,7 +102,6 @@ impl Widget<TuiContext> for TextInput<'_> {
         } else {
             text
         };
-        let mut ui = ui.widget_id(id);
         ui.insert(InputAtom {
             text,
             display,

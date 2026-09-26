@@ -1,8 +1,7 @@
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, ScrollPhase, Sense, Size, Ui,
-    Widget, WidgetId,
+    Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, ScrollPhase, Sense, Size, Ui, Widget,
 };
 
 blit::builder! {
@@ -13,7 +12,6 @@ blit::builder! {
         offset: f32 = 0.0,
         content_extent: f32 = 0.0,
         viewport_extent: f32 = 0.0,
-        id: WidgetId = WidgetId::unique(),
         velocity: f32 = 0.0,
         tracking: bool = false,
         last_frame: Option<Duration> = None,
@@ -186,7 +184,7 @@ pub fn update<C>(
     axis: Axis,
     config: Behavior,
 ) -> (bool, bool) {
-    let id = state.id;
+    let id = ui.current_widget_id();
     let content_id = id.child("content");
     let thumb_id = id.child("scroll thumb");
     let viewport_known = if let Some(area) = ui.geometry(id) {
@@ -199,10 +197,10 @@ pub fn update<C>(
         state.content_extent = axis.extent(area.size());
     }
 
-    let interaction = ui.interact(id, config.sense);
-    let thumb_interaction = ui.interact(thumb_id, Sense::DRAG);
+    let interaction = ui.interact(config.sense);
+    let thumb_interaction = ui.interact_widget(thumb_id, Sense::DRAG);
     let track_id = id.child("scroll track");
-    let track_interaction = ui.interact(track_id, Sense::DRAG);
+    let track_interaction = ui.interact_widget(track_id, Sense::DRAG);
     let now = ui.time();
     let elapsed = state
         .last_frame
@@ -307,8 +305,7 @@ pub fn update<C>(
 }
 
 pub fn build_scroll<C, W, X, T, H>(
-    ui: Ui<'_, C>,
-    id: WidgetId,
+    mut ui: Ui<'_, C>,
     layout: impl Layout<C, Item = ScrollItem>,
     clip: X,
     content: W,
@@ -320,9 +317,10 @@ pub fn build_scroll<C, W, X, T, H>(
     T: Content<C>,
     H: Content<C>,
 {
+    let id = ui.current_widget_id();
     let content_id = id.child("content");
     let thumb_id = id.child("scroll thumb");
-    let mut viewport = ui.layout(layout).widget_id(id).clip(clip);
+    let mut viewport = ui.layout(layout).clip(clip);
     viewport
         .child()
         .item(ScrollItem::Content)

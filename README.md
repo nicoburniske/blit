@@ -35,7 +35,7 @@ each frame builds a tree of nodes. widgets can be types or closures, and every
 node can draw content and choose how to lay out its children:
 
 ```rust
-use blit::{Input, Sense, Sides, WidgetId};
+use blit::{Input, Sense, Sides};
 use blit_tui::{
     Ui,
     atom::Border,
@@ -74,12 +74,10 @@ fn main() -> std::io::Result<()> {
                     .child()
                     .item(flex::item().fixed(8.0, 1.0))
                     .build(|mut ui: Ui<'_>| {
-                        let id = WidgetId::new("quit");
-                        let interaction = ui.interact(id, Sense::CLICK);
+                        let interaction = ui.interact(Sense::CLICK);
 
-                        let mut button = ui.widget_id(id);
-                        button.insert(Block::new().background(Color::BLUE));
-                        button.insert(
+                        ui.insert(Block::new().background(Color::BLUE));
+                        ui.insert(
                             Text::new("quit")
                                 .options(TextOptions::new().horizontal_align(HorizontalAlign::Center)),
                         );

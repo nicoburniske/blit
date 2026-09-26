@@ -1,6 +1,5 @@
 use blit::{
     Absolute, Anchor, Input, Interaction, NodeTarget, Point, Sense, Sides, Sizing, Ui, Widget,
-    WidgetId,
 };
 use blit_layout::single;
 
@@ -34,7 +33,6 @@ blit::builder! {
     pub struct State {
         new(),
         open: bool = false,
-        id: WidgetId = WidgetId::unique(),
     }
 }
 
@@ -49,8 +47,9 @@ where
     W: Widget<C> + 'a,
 {
     move |mut ui: Ui<'_, C>| {
-        let trigger_id = state.id.child("popover trigger");
-        let interaction = ui.interact(trigger_id, Sense::CLICK);
+        let id = ui.current_widget_id();
+        let trigger_id = id.child("popover trigger");
+        let interaction = ui.interact_widget(trigger_id, Sense::CLICK);
         if config.open_on_hover && interaction.hovered {
             state.open = true;
         } else if !config.open_on_hover && interaction.activated {
@@ -70,10 +69,10 @@ where
             return None;
         }
 
-        let backdrop_id = state.id.child("popover backdrop");
-        let content_id = state.id.child("popover content");
-        let backdrop = root.interact(backdrop_id, Sense::ALL);
-        let content_interaction = root.interact(content_id, Sense::ALL);
+        let backdrop_id = id.child("popover backdrop");
+        let content_id = id.child("popover content");
+        let backdrop = root.interact_widget(backdrop_id, Sense::ALL);
+        let content_interaction = root.interact_widget(content_id, Sense::ALL);
         let pointer_inside = content_interaction.hovered
             || root.pointer_position().is_some_and(|position| {
                 [trigger_id, content_id]
@@ -108,7 +107,6 @@ where
             )
             .parent(config.parent)
             .z_index(1)
-            .widget_id(state.id)
             .layout(single::layout());
         if config.close != Close::Manual {
             popup
@@ -149,13 +147,13 @@ where
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Modifiers, PointerButton, Rect, Size};
+    use blit::{Frame, FrameInfo, Modifiers, PointerButton, Rect, Size, WidgetId};
 
     use super::*;
     use crate::test::TestContext;
 
     fn render(ui: Ui<'_, TestContext>, state: &mut State, config: Config) {
-        ui.build(new(
+        ui.widget_id(WidgetId::new("test popover")).build(new(
             state,
             config,
             |ui: Ui<'_, TestContext>, _, _| {
@@ -181,7 +179,7 @@ mod tests {
         let mut context = TestContext;
         let info = FrameInfo::new(Size::uniform(10.0));
         let mut state = State::new();
-        let content_id = state.id.child("popover content");
+        let content_id = WidgetId::new("test popover").child("popover content");
 
         frame.build(
             &mut context,
