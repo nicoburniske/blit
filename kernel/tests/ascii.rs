@@ -655,7 +655,7 @@ fn transitions_use_automatic_widget_ids() {
 fn targets_reject_invalid_references() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
-    let cases: [fn(Ui<'_>, WidgetId); 8] = [
+    let cases: &[fn(Ui<'_>, WidgetId)] = &[
         |ui, _| {
             let id = ui.id();
             ui.parent(id).insert(());
@@ -682,11 +682,20 @@ fn targets_reject_invalid_references() {
             root.child().widget_id(id).insert(());
             root.parent(id).insert(());
         },
+        #[cfg(debug_assertions)]
         |ui, id| {
             ui.widget_id(id)
                 .layout(Overlay)
                 .child()
                 .widget_id(id)
+                .insert(());
+        },
+        #[cfg(debug_assertions)]
+        |ui, id| {
+            let mut root = ui.widget_id(id).layout(Overlay);
+            root.child().widget_id(id.child(1_u32)).insert(());
+            root.child()
+                .transition(Transition::new(Duration::from_secs(1)))
                 .insert(());
         },
         |ui, id| {
@@ -696,6 +705,12 @@ fn targets_reject_invalid_references() {
                 .child()
                 .parent(id)
                 .insert(());
+        },
+        #[cfg(debug_assertions)]
+        |ui, id| {
+            let mut root = ui.widget_id(id).layout(Overlay);
+            root.child().insert(());
+            root.child().widget_id(id.child(0_u32)).insert(());
         },
     ];
     for (case, build) in cases.into_iter().enumerate() {
@@ -825,8 +840,8 @@ fn transition_scene(
         column.child().item(TestItem::new(0.0)).build(|ui: Ui<'_>| {
             let mut child = ui
                 .layout(Overlay)
-                .widget_id(id)
-                .transition(Transition::new(Duration::from_secs(1)).height());
+                .transition(Transition::new(Duration::from_secs(1)).height())
+                .widget_id(id);
             child.child().insert(Fill::new('X', Size::new(1.0, height)));
         });
         column
@@ -870,8 +885,8 @@ fn position_transition_scene(
         column.child().item(TestItem::new(gap)).build(|ui: Ui<'_>| {
             let mut child = ui
                 .layout(Overlay)
-                .widget_id(id)
-                .transition(Transition::new(Duration::from_secs(1)).y());
+                .transition(Transition::new(Duration::from_secs(1)).y())
+                .widget_id(id);
             child.child().insert(Fill::new('X', Size::uniform(1.0)));
         });
     });

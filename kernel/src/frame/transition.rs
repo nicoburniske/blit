@@ -23,12 +23,10 @@ pub fn resolve<C>(
 ) {
     for index in 0..frame.geometry.len() {
         let record = frame.geometry[index];
-        let (Some(id), Some(config)) = (
-            frame.nodes[record.node.index()].widget_id,
-            record.transition,
-        ) else {
+        let Some(config) = record.transition else {
             continue;
         };
+        let id = frame.nodes[record.node.index()].widget_id;
         match frame
             .transitions
             .binary_search_by_key(&id, |state| state.id)
@@ -139,7 +137,6 @@ impl TransitionState {
     }
 
     pub fn begin(&mut self, node: NodeId, config: Transition) {
-        assert!(!self.seen, "duplicate transition WidgetId {:?}", self.id);
         self.node = node;
         self.config = config;
         self.seen = true;

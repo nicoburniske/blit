@@ -305,7 +305,7 @@ pub fn update<C>(
 }
 
 pub fn build_scroll<C, W, X, T, H>(
-    mut ui: Ui<'_, C>,
+    ui: Ui<'_, C>,
     layout: impl Layout<C, Item = ScrollItem>,
     clip: X,
     content: W,

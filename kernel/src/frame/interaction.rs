@@ -26,14 +26,19 @@ pub fn resolve<C>(frame: &mut Frame<C>) {
     for index in 0..frame.nodes.len() {
         let node = frame.paint_order.get(index).map_or(index, |id| id.index());
         let stored = &frame.nodes[node];
-        let Some(id) = stored.widget_id else {
+        let id = stored.widget_id;
+        frame.geometry_current.push((id, stored.area));
+        let Ok(request) = frame
+            .interaction
+            .requests
+            .binary_search_by_key(&id, |request| request.0)
+        else {
             continue;
         };
         let hit = stored
             .geometry
             .index()
             .map_or(Sides::all(0.0), |index| frame.geometry[index].hit);
-        frame.geometry_current.push((id, stored.area));
         let area = Rect::new(
             stored.area.x - hit.left,
             stored.area.y - hit.top,
@@ -59,7 +64,13 @@ pub fn resolve<C>(frame: &mut Frame<C>) {
             }
         };
         // todo: test interaction against the actual custom clip chain
-        frame.interaction.register(id, area);
+        if let Some(area) = area {
+            frame.interaction.current_hits.push(HitItem {
+                id,
+                area,
+                sense: frame.interaction.requests[request].1,
+            });
+        }
     }
     if frame.interaction.end() {
         frame.frame_requested = true;
@@ -236,17 +247,6 @@ impl InteractionState {
                 PointerEvent::Scroll(scroll) if self.scroll_owner == Some(id) => Some(scroll),
                 _ => None,
             },
-        }
-    }
-
-    pub fn register(&mut self, id: WidgetId, area: Option<Rect>) {
-        let Some(area) = area else { return };
-        if let Ok(index) = self.requests.binary_search_by_key(&id, |request| request.0) {
-            self.current_hits.push(HitItem {
-                id,
-                area,
-                sense: self.requests[index].1,
-            });
         }
     }
 

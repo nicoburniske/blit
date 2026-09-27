@@ -9,7 +9,6 @@ pub struct Frame<C> {
     layout_kinds: Vec<LayoutKind<C>>,
     clip_kinds: Vec<ClipKind<C>>,
     data: DataArena,
-    named_nodes: HashMap<WidgetId, Option<NodeId>, BuildHasherDefault<WidgetIdHasher>>,
     paint_links: Vec<PaintLinks>,
     paint_order: Vec<NodeId>,
     order_stack: Vec<NodeId>,
@@ -28,6 +27,8 @@ pub struct Frame<C> {
     layout_resolution: LayoutResolution,
     resized: bool,
     frame_requested: bool,
+    #[cfg(debug_assertions)]
+    widget_ids: std::collections::HashSet<WidgetId>,
 }
 
 impl<C> Default for Frame<C> {
@@ -43,7 +44,6 @@ impl<C> Default for Frame<C> {
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
             data: DataArena::default(),
-            named_nodes: HashMap::default(),
             paint_links: Vec::new(),
             paint_order: Vec::new(),
             order_stack: Vec::new(),
@@ -62,6 +62,8 @@ impl<C> Default for Frame<C> {
             layout_resolution: LayoutResolution::Continuous,
             resized: false,
             frame_requested: true,
+            #[cfg(debug_assertions)]
+            widget_ids: Default::default(),
         }
     }
 }
@@ -93,7 +95,6 @@ impl<C> Frame<C> {
         self.animations.retain(|animation| animation.seen);
         self.transitions.retain(|state| state.seen);
         self.timers.retain(|timer| timer.seen);
-        self.named_nodes.retain(|_, node| node.is_some());
         self.data = data;
     }
 
@@ -155,10 +156,8 @@ impl<C> Frame<C> {
         for kind in &mut self.layout_kinds {
             kind.default_item = DataId::NONE;
         }
-        // retain names but require fresh bindings for each build
-        for node in self.named_nodes.values_mut() {
-            *node = None;
-        }
+        #[cfg(debug_assertions)]
+        self.widget_ids.clear();
         self.paint_order.clear();
         self.resolved_clips.clear();
         self.active_clips.clear();
@@ -179,10 +178,17 @@ impl<C> Frame<C> {
         self.interaction.begin(&input);
 
         let output = {
-            let root = self.push_node(None);
             let id = WidgetId::new("blit frame root");
-            widget.build(Ui::new(&mut *self, &mut *context, root, id))
+            let root = self.push_node(None, id);
+            widget.build(Ui::new(&mut *self, &mut *context, root))
         };
+        #[cfg(debug_assertions)]
+        assert!(
+            self.nodes
+                .iter()
+                .all(|node| self.widget_ids.insert(node.widget_id)),
+            "widget ids must identify unique nodes"
+        );
         assert_eq!(
             self.nodes[0].subtree_end as usize,
             self.nodes.len() - 1,
@@ -311,10 +317,10 @@ impl<C> Frame<C> {
         id
     }
 
-    fn push_node(&mut self, parent: Option<NodeId>) -> NodeId {
+    fn push_node(&mut self, parent: Option<NodeId>, widget_id: WidgetId) -> NodeId {
         let id = self.node_id(self.nodes.len());
         self.nodes.push(StoredNode {
-            widget_id: None,
+            widget_id,
             parent: parent.unwrap_or(id),
             visual_parent: parent.unwrap_or(id),
             subtree_end: id.value,
@@ -331,16 +337,6 @@ impl<C> Frame<C> {
             #[cfg(debug_assertions)]
             layout_state: LayoutState::Unlaid,
         });
-        id
-    }
-
-    fn register_widget_id(&mut self, node: NodeId, id: WidgetId) -> WidgetId {
-        if self.nodes[node.index()].widget_id.is_none() {
-            let binding = self.named_nodes.entry(id).or_default();
-            assert!(binding.is_none(), "widget ids must identify unique nodes");
-            *binding = Some(node);
-            self.nodes[node.index()].widget_id = Some(id);
-        }
         id
     }
 
@@ -370,12 +366,33 @@ impl<C> Frame<C> {
             NodeTarget::Parent => self.nodes[node.index()].parent,
             NodeTarget::Root => self.node_id(0),
             NodeTarget::Node(id) => id,
-            NodeTarget::Widget(id) => self
-                .named_nodes
-                .get(&id)
-                .copied()
-                .flatten()
-                .expect("target widget id must already be assigned"),
+            NodeTarget::Widget(id) => {
+                let open = {
+                    // open ancestors are cheap to find on the parent chain
+                    let mut ancestor = self.nodes[node.index()].parent;
+                    loop {
+                        let stored = &self.nodes[ancestor.index()];
+                        if stored.widget_id == id {
+                            break Some(ancestor);
+                        }
+                        if stored.parent == ancestor {
+                            break None;
+                        }
+                        ancestor = stored.parent;
+                    }
+                };
+                if let Some(open) = open {
+                    open
+                } else {
+                    // search recent closed nodes first
+                    // todo: repeated lookups are n^2
+                    let index = self.nodes[..node.index()]
+                        .iter()
+                        .rposition(|stored| stored.widget_id == id)
+                        .expect("target widget id must already be assigned");
+                    self.node_id(index)
+                }
+            }
         };
         assert!(
             target.index() < node.index(),
@@ -446,7 +463,7 @@ mod generation {
 
 #[derive(Clone, Copy)]
 struct StoredNode {
-    widget_id: Option<WidgetId>,
+    widget_id: WidgetId,
     parent: NodeId,
     visual_parent: NodeId,
     subtree_end: u32,
@@ -602,22 +619,4 @@ fn push_clip<C, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C, area:
 
 fn pop_clip<C, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C) {
     data.load::<X>(id).pop(context)
-}
-
-// WidgetId already contains a hash
-#[derive(Default)]
-struct WidgetIdHasher(u64);
-
-impl Hasher for WidgetIdHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write_u64(&mut self, value: u64) {
-        self.0 = value;
-    }
-
-    fn write(&mut self, _: &[u8]) {
-        unreachable!("WidgetId hashes one u64")
-    }
 }

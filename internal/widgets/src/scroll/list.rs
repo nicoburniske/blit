@@ -163,7 +163,7 @@ mod tests {
                         Config::new(1.5),
                         rows.iter().enumerate(),
                         |row| WidgetId::new(("row", row.1)),
-                        |mut ui, (index, _)| {
+                        |ui, (index, _)| {
                             built.push((index, ui.current_widget_id()));
                             ui.build(());
                         },
