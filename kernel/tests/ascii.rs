@@ -792,6 +792,7 @@ fn geometry_retains_only_requested_nodes() {
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
+        root.geometry(interactive);
         root.interact_widget(interactive, Sense::CLICK);
         root.child().widget_id(queried).insert(());
         root.child().widget_id(interactive).insert(());

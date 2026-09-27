@@ -4,76 +4,59 @@ use crate::{
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
 };
 
-use super::Frame;
+use super::{Frame, Request};
 
 const DRAG_THRESHOLD: f32 = 6.0;
 
 pub fn resolve<C>(frame: &mut Frame<C>) {
     frame.geometry_previous.clear();
-    frame.geometry_requested.sort_unstable();
-    frame
-        .interaction
-        .requests
-        .sort_unstable_by_key(|request| request.0);
-    frame.interaction.requests.dedup_by(|next, previous| {
-        if next.0 != previous.0 {
-            return false;
-        }
-        previous.1.click |= next.1.click;
-        previous.1.drag |= next.1.drag;
-        previous.1.focus |= next.1.focus;
-        previous.1.scroll |= next.1.scroll;
-        true
-    });
-    for index in 0..frame.nodes.len() {
-        let node = frame.paint_order.get(index).map_or(index, |id| id.index());
-        let stored = &frame.nodes[node];
-        let id = stored.widget_id;
-        let request = frame
-            .interaction
-            .requests
-            .binary_search_by_key(&id, |request| request.0);
-        if request.is_ok() || frame.geometry_requested.binary_search(&id).is_ok() {
+    if !frame.requests.is_empty() {
+        for index in 0..frame.nodes.len() {
+            let node = frame.paint_order.get(index).map_or(index, |id| id.index());
+            let stored = &frame.nodes[node];
+            let id = stored.widget_id;
+            let Some(request) = frame.requests.get(&id).copied() else {
+                continue;
+            };
             frame.geometry_previous.push((id, stored.area));
-        }
-        let Ok(request) = request else {
-            continue;
-        };
-        let hit = stored
-            .geometry
-            .index()
-            .map_or(Sides::all(0.0), |index| frame.geometry[index].hit);
-        let area = Rect::new(
-            stored.area.x - hit.left,
-            stored.area.y - hit.top,
-            stored.area.width + hit.left + hit.right,
-            stored.area.height + hit.top + hit.bottom,
-        );
-        let clip_bounds = frame.clip_bounds(stored.resolved_clip);
-        let area = match frame.layout_resolution {
-            crate::LayoutResolution::Continuous => area.intersection(clip_bounds),
-            crate::LayoutResolution::Discrete { step } => {
-                let left = (area.x / step.width).round() * step.width;
-                let top = (area.y / step.height).round() * step.height;
-                let right = ((area.x + area.width) / step.width).round() * step.width;
-                let bottom = ((area.y + area.height) / step.height).round() * step.height;
-                let area = Rect::new(left, top, right - left, bottom - top);
-                let left = (clip_bounds.x / step.width - 0.5).ceil() * step.width;
-                let top = (clip_bounds.y / step.height - 0.5).ceil() * step.height;
-                let right =
-                    ((clip_bounds.x + clip_bounds.width) / step.width - 0.5).ceil() * step.width;
-                let bottom =
-                    ((clip_bounds.y + clip_bounds.height) / step.height - 0.5).ceil() * step.height;
-                area.intersection(Rect::new(left, top, right - left, bottom - top))
+            let Request::Interaction(sense) = request else {
+                continue;
+            };
+            let hit = stored
+                .geometry
+                .index()
+                .map_or(Sides::all(0.0), |index| frame.geometry[index].hit);
+            let area = Rect::new(
+                stored.area.x - hit.left,
+                stored.area.y - hit.top,
+                stored.area.width + hit.left + hit.right,
+                stored.area.height + hit.top + hit.bottom,
+            );
+            let clip_bounds = frame.clip_bounds(stored.resolved_clip);
+            let area = match frame.layout_resolution {
+                crate::LayoutResolution::Continuous => area.intersection(clip_bounds),
+                crate::LayoutResolution::Discrete { step } => {
+                    let left = (area.x / step.width).round() * step.width;
+                    let top = (area.y / step.height).round() * step.height;
+                    let right = ((area.x + area.width) / step.width).round() * step.width;
+                    let bottom = ((area.y + area.height) / step.height).round() * step.height;
+                    let area = Rect::new(left, top, right - left, bottom - top);
+                    let left = (clip_bounds.x / step.width - 0.5).ceil() * step.width;
+                    let top = (clip_bounds.y / step.height - 0.5).ceil() * step.height;
+                    let right = ((clip_bounds.x + clip_bounds.width) / step.width - 0.5).ceil()
+                        * step.width;
+                    let bottom = ((clip_bounds.y + clip_bounds.height) / step.height - 0.5).ceil()
+                        * step.height;
+                    area.intersection(Rect::new(left, top, right - left, bottom - top))
+                }
+            };
+            // todo: test interaction against the actual custom clip chain
+            if let Some(area) = area {
+                frame
+                    .interaction
+                    .current_hits
+                    .push(HitItem { id, area, sense });
             }
-        };
-        // todo: test interaction against the actual custom clip chain
-        if let Some(area) = area {
-            frame.interaction.current_hits.push(HitItem {
-                id,
-                area,
-                sense: frame.interaction.requests[request].1,
-            });
         }
     }
     if frame.interaction.end() {
@@ -93,7 +76,6 @@ pub struct InteractionState {
     pointer: PointerState,
     previous_hits: Vec<HitItem>,
     current_hits: Vec<HitItem>,
-    requests: Vec<(WidgetId, Sense)>,
 }
 
 #[derive(Default)]
@@ -126,7 +108,6 @@ struct HitItem {
 
 impl InteractionState {
     pub fn begin(&mut self, input: &Input) {
-        self.requests.clear();
         self.pointer.event = PointerEvent::None;
         self.activated = None;
         self.deactivated = None;
@@ -228,9 +209,7 @@ impl InteractionState {
         }
     }
 
-    pub fn response(&mut self, id: WidgetId, sense: Sense) -> Interaction {
-        self.requests.push((id, sense));
-
+    pub fn response(&self, id: WidgetId) -> Interaction {
         let active = self.active == Some(id);
         let hovered = self.hovered == Some(id);
         Interaction {

@@ -16,7 +16,7 @@ pub struct Frame<C> {
     active_clips: Vec<ResolvedClipId>,
     interaction: interaction::InteractionState,
     geometry_previous: Vec<(WidgetId, Rect)>,
-    geometry_requested: Vec<WidgetId>,
+    requests: HashMap<WidgetId, Request, BuildHasherDefault<WidgetIdHasher>>,
     animations: Vec<animation::AnimationState>,
     transitions: Vec<transition::TransitionState>,
     target_sizes: Vec<TargetSize>,
@@ -29,6 +29,29 @@ pub struct Frame<C> {
     frame_requested: bool,
     #[cfg(debug_assertions)]
     widget_ids: std::collections::HashSet<WidgetId>,
+}
+
+#[derive(Clone, Copy)]
+enum Request {
+    Geometry,
+    Interaction(Sense),
+}
+
+#[derive(Default)]
+struct WidgetIdHasher(u64);
+
+impl Hasher for WidgetIdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.0 = value;
+    }
+
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("WidgetId hashes one u64")
+    }
 }
 
 impl<C> Default for Frame<C> {
@@ -51,7 +74,7 @@ impl<C> Default for Frame<C> {
             active_clips: Vec::new(),
             interaction: interaction::InteractionState::default(),
             geometry_previous: Vec::new(),
-            geometry_requested: Vec::new(),
+            requests: HashMap::default(),
             animations: Vec::new(),
             transitions: Vec::new(),
             target_sizes: Vec::new(),
@@ -150,7 +173,7 @@ impl<C> Frame<C> {
         self.clips.clear();
         self.positioned.clear();
         self.geometry.clear();
-        self.geometry_requested.clear();
+        self.requests.clear();
         self.data.clear();
         // have to clear these bc data arena will be cleared
         for kind in &mut self.layout_kinds {

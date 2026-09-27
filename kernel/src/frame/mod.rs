@@ -6,7 +6,13 @@ pub mod position;
 pub mod timer;
 pub mod transition;
 
-use std::{any::TypeId, marker::PhantomData, time::Duration};
+use std::{
+    any::TypeId,
+    collections::HashMap,
+    hash::{BuildHasherDefault, Hasher},
+    marker::PhantomData,
+    time::Duration,
+};
 
 use crate::{
     Atom, Clip, Content, FrameInfo, Widget,
@@ -213,7 +219,11 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 impl<C, S> Ui<'_, C, S> {
     /// returns previous frame geometry and tracks this id for the next layout
     pub fn geometry(&mut self, id: WidgetId) -> Option<Rect> {
-        self.inner.frame.geometry_requested.push(id);
+        self.inner
+            .frame
+            .requests
+            .entry(id)
+            .or_insert(Request::Geometry);
         self.inner
             .frame
             .geometry_previous
@@ -232,7 +242,20 @@ impl<C, S> Ui<'_, C, S> {
     /// the node may be built later
     pub fn interact_widget(&mut self, id: WidgetId, sense: Sense) -> Interaction {
         let frame = self.inner.frame_mut();
-        let interaction = frame.interaction.response(id, sense);
+        frame
+            .requests
+            .entry(id)
+            .and_modify(|request| match request {
+                Request::Geometry => *request = Request::Interaction(sense),
+                Request::Interaction(previous) => {
+                    previous.click |= sense.click;
+                    previous.drag |= sense.drag;
+                    previous.focus |= sense.focus;
+                    previous.scroll |= sense.scroll;
+                }
+            })
+            .or_insert(Request::Interaction(sense));
+        let interaction = frame.interaction.response(id);
         if interaction.activated || interaction.deactivated || interaction.clicked {
             frame.request_frame();
         }
