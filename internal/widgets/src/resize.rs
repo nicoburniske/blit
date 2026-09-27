@@ -46,6 +46,7 @@ where
         let right_id = id.child("right grip");
         let bottom_id = id.child("bottom grip");
         let corner_id = id.child("corner grip");
+        let geometry = ui.geometry(id);
         let right = ui.interact_widget(right_id, Sense::DRAG);
         let bottom = ui.interact_widget(bottom_id, Sense::DRAG);
         let corner = ui.interact_widget(corner_id, Sense::DRAG);
@@ -56,7 +57,7 @@ where
         if delta != Size::ZERO {
             let mut size = state
                 .size
-                .or_else(|| ui.geometry(id).map(|area| area.size()))
+                .or_else(|| geometry.map(|area| area.size()))
                 .unwrap_or(config.initial);
             size.width += delta.width;
             size.height += delta.height;

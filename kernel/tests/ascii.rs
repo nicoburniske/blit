@@ -785,6 +785,33 @@ fn named_bindings_follow_each_build() {
 }
 
 #[test]
+fn geometry_retains_only_requested_nodes() {
+    let (mut frame, mut context) = frame(Size::uniform(10.0));
+    let queried = WidgetId::new("queried");
+    let interactive = WidgetId::new("interactive");
+
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
+        let mut root = ui.layout(Overlay);
+        root.interact_widget(interactive, Sense::CLICK);
+        root.child().widget_id(queried).insert(());
+        root.child().widget_id(interactive).insert(());
+    });
+    assert!(frame.geometry(queried).is_some());
+
+    render(&mut frame, &mut context, |mut ui: Ui<'_>| {
+        assert_eq!(ui.geometry(queried), None);
+        assert!(ui.geometry(interactive).is_some());
+        let mut root = ui.layout(Overlay);
+        root.child().widget_id(queried).insert(());
+    });
+
+    render(&mut frame, &mut context, |mut ui: Ui<'_>| {
+        assert!(ui.geometry(queried).is_some());
+        ui.insert(());
+    });
+}
+
+#[test]
 fn interaction_is_bounded_by_clip_rectangles() {
     let (mut frame, mut context) = frame(Size::new(5.0, 1.0));
 

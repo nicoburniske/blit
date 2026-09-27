@@ -16,7 +16,7 @@ pub struct Frame<C> {
     active_clips: Vec<ResolvedClipId>,
     interaction: interaction::InteractionState,
     geometry_previous: Vec<(WidgetId, Rect)>,
-    geometry_current: Vec<(WidgetId, Rect)>,
+    geometry_requested: Vec<WidgetId>,
     animations: Vec<animation::AnimationState>,
     transitions: Vec<transition::TransitionState>,
     target_sizes: Vec<TargetSize>,
@@ -51,7 +51,7 @@ impl<C> Default for Frame<C> {
             active_clips: Vec::new(),
             interaction: interaction::InteractionState::default(),
             geometry_previous: Vec::new(),
-            geometry_current: Vec::new(),
+            geometry_requested: Vec::new(),
             animations: Vec::new(),
             transitions: Vec::new(),
             target_sizes: Vec::new(),
@@ -90,8 +90,6 @@ impl<C> Frame<C> {
         paint::resolve_order(self);
         paint::resolve_clips(self);
         interaction::resolve(self);
-        std::mem::swap(&mut self.geometry_previous, &mut self.geometry_current);
-        self.geometry_current.clear();
         self.animations.retain(|animation| animation.seen);
         self.transitions.retain(|state| state.seen);
         self.timers.retain(|timer| timer.seen);
@@ -129,10 +127,11 @@ impl<C> Frame<C> {
         self.frame_requested = true;
     }
 
+    /// returns geometry from the current frame after layout
     pub fn geometry(&self, id: WidgetId) -> Option<Rect> {
-        self.geometry_previous
+        self.nodes
             .iter()
-            .find_map(|(candidate, area)| (*candidate == id).then_some(*area))
+            .find_map(|node| (node.widget_id == id).then_some(node.area))
     }
 
     fn record<W: Widget<C>>(
@@ -151,6 +150,7 @@ impl<C> Frame<C> {
         self.clips.clear();
         self.positioned.clear();
         self.geometry.clear();
+        self.geometry_requested.clear();
         self.data.clear();
         // have to clear these bc data arena will be cleared
         for kind in &mut self.layout_kinds {

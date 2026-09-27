@@ -241,22 +241,15 @@ mod tests {
                 modifiers: Modifiers::NONE,
             },
         ] {
+            let inspect = matches!(input, Input::PointerUp { .. });
             frame.build(
                 &mut context,
                 info,
                 Duration::ZERO,
                 input,
-                |ui: Ui<'_, TestContext>| {
-                    if matches!(ui.input(), Input::PointerUp { .. }) {
+                |mut ui: Ui<'_, TestContext>| {
+                    if inspect {
                         content_geometry = ui.geometry(content_id);
-                        assert_eq!(
-                            ui.geometry(WidgetId::new("named content")),
-                            content_geometry,
-                        );
-                        assert_eq!(
-                            ui.geometry(WidgetId::new("named trigger")),
-                            Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
-                        );
                     }
                     render(
                         ui,
@@ -269,6 +262,16 @@ mod tests {
                 },
             );
             frame.layout(&mut context);
+            if inspect {
+                assert_eq!(
+                    frame.geometry(WidgetId::new("named content")),
+                    content_geometry
+                );
+                assert_eq!(
+                    frame.geometry(WidgetId::new("named trigger")),
+                    Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
+                );
+            }
         }
         assert_eq!(content_geometry, Some(Rect::new(0.0, 1.0, 5.0, 4.0)));
     }

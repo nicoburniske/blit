@@ -211,8 +211,14 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 }
 
 impl<C, S> Ui<'_, C, S> {
-    pub fn geometry(&self, id: WidgetId) -> Option<Rect> {
-        self.inner.frame.geometry(id)
+    /// returns previous frame geometry and tracks this id for the next layout
+    pub fn geometry(&mut self, id: WidgetId) -> Option<Rect> {
+        self.inner.frame.geometry_requested.push(id);
+        self.inner
+            .frame
+            .geometry_previous
+            .iter()
+            .find_map(|(candidate, area)| (*candidate == id).then_some(*area))
     }
 
     /// requests interaction for this node using its widget id

@@ -9,6 +9,8 @@ use super::Frame;
 const DRAG_THRESHOLD: f32 = 6.0;
 
 pub fn resolve<C>(frame: &mut Frame<C>) {
+    frame.geometry_previous.clear();
+    frame.geometry_requested.sort_unstable();
     frame
         .interaction
         .requests
@@ -27,12 +29,14 @@ pub fn resolve<C>(frame: &mut Frame<C>) {
         let node = frame.paint_order.get(index).map_or(index, |id| id.index());
         let stored = &frame.nodes[node];
         let id = stored.widget_id;
-        frame.geometry_current.push((id, stored.area));
-        let Ok(request) = frame
+        let request = frame
             .interaction
             .requests
-            .binary_search_by_key(&id, |request| request.0)
-        else {
+            .binary_search_by_key(&id, |request| request.0);
+        if request.is_ok() || frame.geometry_requested.binary_search(&id).is_ok() {
+            frame.geometry_previous.push((id, stored.area));
+        }
+        let Ok(request) = request else {
             continue;
         };
         let hit = stored
