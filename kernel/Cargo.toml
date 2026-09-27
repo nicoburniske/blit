@@ -4,3 +4,10 @@ version = "0.1.0"
 edition = "2024"
 license.workspace = true
 publish = false
+
+[dev-dependencies]
+divan = "0.1"
+
+[[bench]]
+name = "frame"
+harness = false
