@@ -237,7 +237,7 @@ pub fn run<C, L: Layout<C>>(
     let stored = frame.nodes[node.index()].layout.index().unwrap();
     let kind = frame.layouts[stored].kind as usize;
     let default_item = frame.layout_kinds[kind].default_item;
-    let first_child = frame.node_id(node.index() + 1);
+    let first_child = NodeId::new(node.index() + 1);
     let children_end = frame.nodes[node.index()].subtree_end;
     let offset = frame.layout_offset(node);
     let mut cx = LayoutCx {

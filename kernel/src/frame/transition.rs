@@ -105,7 +105,7 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
 }
 
 fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size) {
-    let root = frame.node_id(0);
+    let root = NodeId::new(0);
     frame.layout_node(data, root, context, Constraints::tight(size));
     for index in 1..frame.nodes.len() {
         if !frame.nodes[index].out_of_flow {
@@ -113,7 +113,7 @@ fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size
         }
         frame.nodes[index].area.x = 0.0;
         frame.nodes[index].area.y = 0.0;
-        let node = frame.node_id(index);
+        let node = NodeId::new(index);
         let mut constraints = if frame.nodes[index].layout.index().is_some() {
             Constraints::loose(Size::uniform(f32::INFINITY))
         } else {

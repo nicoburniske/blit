@@ -334,7 +334,7 @@ impl<C> Frame<C> {
     }
 
     fn push_node(&mut self, parent: Option<NodeId>, widget_id: WidgetId) -> NodeId {
-        let id = self.node_id(self.nodes.len());
+        let id = NodeId::new(self.nodes.len());
         self.nodes.push(StoredNode {
             widget_id,
             parent: parent.unwrap_or(id),
@@ -359,7 +359,7 @@ impl<C> Frame<C> {
     fn resolve_target(&self, node: NodeId, target: NodeTarget) -> NodeId {
         let target = match target {
             NodeTarget::Parent => self.nodes[node.index()].parent,
-            NodeTarget::Root => self.node_id(0),
+            NodeTarget::Root => NodeId::new(0),
             NodeTarget::Node(id) => id,
             NodeTarget::Widget(id) => {
                 let open = {
@@ -385,7 +385,7 @@ impl<C> Frame<C> {
                         .iter()
                         .rposition(|stored| stored.widget_id == id)
                         .expect("target widget id must already be assigned");
-                    self.node_id(index)
+                    NodeId::new(index)
                 }
             }
         };
@@ -424,9 +424,6 @@ impl<C> Frame<C> {
             .map_or(self.screen, |clip| self.resolved_clips[clip].bounds)
     }
 
-    fn node_id(&self, index: usize) -> NodeId {
-        NodeId::new(index)
-    }
 }
 
 #[cfg(debug_assertions)]

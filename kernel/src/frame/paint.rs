@@ -1,4 +1,4 @@
-use super::{ClipKind, Frame, ResolvedClip, ResolvedClipId, StoredClip};
+use super::{ClipKind, Frame, NodeId, ResolvedClip, ResolvedClipId, StoredClip};
 use crate::arena::DataArena;
 
 pub fn resolve_order<C>(frame: &mut Frame<C>) {
@@ -23,13 +23,13 @@ pub fn resolve_order<C>(frame: &mut Frame<C>) {
     }
 
     frame.order_stack.clear();
-    frame.order_stack.push(frame.node_id(0));
+    frame.order_stack.push(NodeId::new(0));
     while let Some(parent) = frame.order_stack.pop() {
         frame.paint_order.push(parent);
         let start = frame.order_stack.len();
         let mut child = frame.paint_links[parent.index()].first_child;
         while child != 0 {
-            frame.order_stack.push(frame.node_id(child as usize));
+            frame.order_stack.push(NodeId::new(child as usize));
             child = frame.paint_links[child as usize].next_sibling;
         }
         let children = &mut frame.order_stack[start..];
