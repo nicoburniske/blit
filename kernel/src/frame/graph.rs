@@ -3,7 +3,6 @@ pub struct Frame<C> {
     atoms: Vec<StoredAtom>,
     layouts: Vec<StoredLayout>,
     clips: Vec<StoredClip>,
-    positioned: Vec<Positioned>,
     geometry: Vec<GeometryRecord>,
     atom_kinds: Vec<AtomKind<C>>,
     layout_kinds: Vec<LayoutKind<C>>,
@@ -24,7 +23,6 @@ pub struct Frame<C> {
     input: Input,
     time: Duration,
     screen: Rect,
-    layout_resolution: LayoutResolution,
     resized: bool,
     frame_requested: bool,
     #[cfg(debug_assertions)]
@@ -61,7 +59,6 @@ impl<C> Default for Frame<C> {
             atoms: Vec::new(),
             layouts: Vec::new(),
             clips: Vec::new(),
-            positioned: Vec::new(),
             geometry: Vec::new(),
             atom_kinds: Vec::new(),
             layout_kinds: Vec::new(),
@@ -82,7 +79,6 @@ impl<C> Default for Frame<C> {
             input: Input::None,
             time: Duration::ZERO,
             screen: Rect::default(),
-            layout_resolution: LayoutResolution::Continuous,
             resized: false,
             frame_requested: true,
             #[cfg(debug_assertions)]
@@ -109,7 +105,6 @@ impl<C> Frame<C> {
     pub fn layout(&mut self, context: &mut C) {
         let data = std::mem::take(&mut self.data);
         transition::resolve(self, &data, context, self.screen.size(), self.resized);
-        position::resolve(self);
         paint::resolve_order(self);
         paint::resolve_clips(self);
         interaction::resolve(self);
@@ -171,7 +166,6 @@ impl<C> Frame<C> {
         self.atoms.clear();
         self.layouts.clear();
         self.clips.clear();
-        self.positioned.clear();
         self.geometry.clear();
         self.requests.clear();
         self.data.clear();
@@ -188,7 +182,6 @@ impl<C> Frame<C> {
         self.time = time;
         self.resized = self.screen.size() != frame.size;
         self.screen = Rect::new(0.0, 0.0, frame.size.width, frame.size.height);
-        self.layout_resolution = frame.layout_resolution;
         for animation in &mut self.animations {
             animation.seen = false;
         }
@@ -353,7 +346,7 @@ impl<C> Frame<C> {
             clip: StoredClipId::NONE,
             item: DataId::NONE,
             area: Rect::default(),
-            positioned: PositionedId::NONE,
+            out_of_flow: false,
             z_index: 0,
             geometry: GeometryId::NONE,
             resolved_clip: ResolvedClipId::NONE,
@@ -361,27 +354,6 @@ impl<C> Frame<C> {
             layout_state: LayoutState::Unlaid,
         });
         id
-    }
-
-    fn set_absolute(&mut self, node: NodeId, absolute: Absolute) {
-        let target = self.resolve_target(node, absolute.target);
-        let positioned = PositionedId::new(self.positioned.len());
-        self.nodes[node.index()].item = self.data.store(AbsoluteSizing {
-            width: self
-                .layout_resolution
-                .sizing(Axis::Horizontal, absolute.width),
-            height: self
-                .layout_resolution
-                .sizing(Axis::Vertical, absolute.height),
-        });
-        self.positioned.push(Positioned {
-            target,
-            uses_target_content_origin: matches!(absolute.target, NodeTarget::Parent),
-            target_anchor: absolute.target_anchor,
-            child_anchor: absolute.child_anchor,
-            offset: absolute.offset,
-        });
-        self.nodes[node.index()].positioned = positioned;
     }
 
     fn resolve_target(&self, node: NodeId, target: NodeTarget) -> NodeId {
@@ -496,7 +468,7 @@ struct StoredNode {
     clip: StoredClipId,
     item: DataId,
     area: Rect,
-    positioned: PositionedId,
+    out_of_flow: bool,
     z_index: i16,
     geometry: GeometryId,
     resolved_clip: ResolvedClipId,
@@ -510,21 +482,6 @@ enum LayoutState {
     Unlaid,
     Laid,
     Positioned,
-}
-
-#[derive(Clone, Copy)]
-struct Positioned {
-    target: NodeId,
-    uses_target_content_origin: bool,
-    target_anchor: Anchor,
-    child_anchor: Anchor,
-    offset: Point,
-}
-
-#[derive(Clone, Copy)]
-struct AbsoluteSizing {
-    width: Sizing,
-    height: Sizing,
 }
 
 #[derive(Clone, Copy)]
@@ -596,7 +553,6 @@ impl<T> Index<T> {
 type StoredAtomId = Index<StoredAtom>;
 type StoredLayoutId = Index<StoredLayout>;
 type StoredClipId = Index<StoredClip>;
-type PositionedId = Index<Positioned>;
 type GeometryId = Index<GeometryRecord>;
 type ResolvedClipId = Index<ResolvedClip>;
 

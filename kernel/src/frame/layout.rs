@@ -7,10 +7,10 @@ use crate::{
     TransitionProperties,
     arena::{DataArena, DataId},
     geometry::{Constraints, Point, Size},
-    layout::{Axis, Layout, LayoutResolution, Sizing},
+    layout::{Axis, Layout, Sizing},
 };
 
-/// context for measuring and positioning a layout's children
+/// context for measuring and positioning a layout node and its flow children
 pub struct LayoutCx<'a, C, I> {
     frame: &'a mut Frame<C>,
     data: &'a DataArena,
@@ -25,6 +25,24 @@ pub struct LayoutCx<'a, C, I> {
 }
 
 impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
+    /// returns the node whose layout is running
+    #[inline]
+    pub fn node(&self) -> NodeId {
+        self.node
+    }
+
+    /// returns this node's layout parent
+    #[inline]
+    pub fn parent(&self) -> NodeId {
+        self.frame.nodes[self.node.index()].parent
+    }
+
+    /// returns this node's paint and clipping parent
+    #[inline]
+    pub fn visual_parent(&self) -> NodeId {
+        self.frame.nodes[self.node.index()].visual_parent
+    }
+
     /// iterates direct flow children in declaration order
     #[inline]
     pub fn children(&self) -> Children<'a> {
@@ -47,19 +65,15 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
             .load(if id.offset().is_some() { id } else { self.default_item })
     }
 
-    /// applies layout resolution and any animated override to `sizing`
+    /// applies an animated size override to `sizing`
     #[inline]
-    pub fn resolve_sizing(&self, child: NodeId, axis: Axis, sizing: Sizing) -> Sizing {
-        let (width, height) = self.size_overrides(child);
+    pub fn resolve_sizing(&self, node: NodeId, axis: Axis, sizing: Sizing) -> Sizing {
+        let (width, height) = self.size_overrides(node);
         let extent = match axis {
             Axis::Horizontal => width,
             Axis::Vertical => height,
         };
-        if let Some(extent) = extent {
-            Sizing::fixed(extent)
-        } else {
-            self.frame.layout_resolution.sizing(axis, sizing)
-        }
+        extent.map_or(sizing, Sizing::fixed)
     }
 
     /// lays out `child` and returns its size
@@ -68,6 +82,7 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     ///
     /// repeating this recomputes its subtree and requires positioning it again
     pub fn layout_child(&mut self, child: NodeId, mut constraints: Constraints) -> Size {
+        self.assert_child(child);
         let (width, height) = self.size_overrides(child);
         if let Some(width) = width {
             constraints.min.width = width;
@@ -85,57 +100,60 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
         size
     }
 
-    /// returns the size from the latest [`Self::layout_child`] call
+    /// returns a resolved node's size
+    ///
+    /// this node's size is unresolved until its layout returns
     #[inline]
-    pub fn child_size(&self, child: NodeId) -> Size {
+    pub fn size(&self, node: NodeId) -> Size {
         #[cfg(debug_assertions)]
         {
-            self.assert_child(child);
-            assert_ne!(
-                self.frame.nodes[child.index()].layout_state,
-                LayoutState::Unlaid,
-                "child size is unavailable before layout"
-            );
+            let stored = &self.frame.nodes[node.index()];
+            if stored.parent == self.node && !stored.out_of_flow && node != self.node {
+                assert_ne!(
+                    stored.layout_state,
+                    LayoutState::Unlaid,
+                    "child size is unavailable before layout"
+                );
+            }
         }
-        self.frame.nodes[child.index()].area.size()
+        self.frame.nodes[node.index()].area.size()
     }
 
-    /// returns the child's frame target size for structural layout decisions
+    /// returns a node's frame target size for structural layout decisions
     ///
     /// during animated replay this preserves the first layout result while
-    /// [`Self::child_size`] follows the animation. otherwise they match.
+    /// [`Self::size`] follows the animation. otherwise they match.
     #[inline]
-    pub fn target_child_size(&self, child: NodeId) -> Size {
-        let current = self.child_size(child);
+    pub fn target_size(&self, node: NodeId) -> Size {
+        let current = self.size(node);
         if !self.frame.target_sizes.is_empty() {
-            self.frame.target_sizes[child.index()].size
+            self.frame.target_sizes[node.index()].size
         } else {
             current
         }
     }
 
-    /// positions `child` in local coordinates after its final layout
+    /// positions this node relative to its parent or a flow child relative to this layout
     #[inline]
-    pub fn set_child_position(&mut self, child: NodeId, position: Point) {
-        #[cfg(debug_assertions)]
-        {
-            self.assert_child(child);
-            assert_ne!(
-                self.frame.nodes[child.index()].layout_state,
-                LayoutState::Unlaid,
-                "child must be laid out before positioning"
-            );
-            self.frame.nodes[child.index()].layout_state = LayoutState::Positioned;
-        }
-        let area = &mut self.frame.nodes[child.index()].area;
-        area.x = position.x + self.offset.x;
-        area.y = position.y + self.offset.y;
-    }
-
-    /// returns the resolution for adapting layout-owned physical lengths
-    #[inline]
-    pub fn resolution(&self) -> LayoutResolution {
-        self.frame.layout_resolution
+    pub fn set_position(&mut self, node: NodeId, position: Point) {
+        let offset = if node == self.node {
+            Point::ZERO
+        } else {
+            #[cfg(debug_assertions)]
+            {
+                self.assert_child(node);
+                assert_ne!(
+                    self.frame.nodes[node.index()].layout_state,
+                    LayoutState::Unlaid,
+                    "child must be laid out before positioning"
+                );
+                self.frame.nodes[node.index()].layout_state = LayoutState::Positioned;
+            }
+            self.offset
+        };
+        let area = &mut self.frame.nodes[node.index()].area;
+        area.x = position.x + offset.x;
+        area.y = position.y + offset.y;
     }
 
     /// requests another frame when layout changes cached geometry
@@ -160,23 +178,21 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
 
 impl<C, I: 'static> LayoutCx<'_, C, I> {
     #[inline]
-    fn size_overrides(&self, child: NodeId) -> (Option<f32>, Option<f32>) {
-        self.assert_child(child);
+    fn size_overrides(&self, node: NodeId) -> (Option<f32>, Option<f32>) {
         if self.frame.target_sizes.is_empty() {
             return (None, None);
         }
-        let current = self.frame.nodes[child.index()].area.size();
-        let target = self.frame.target_sizes[child.index()];
-        let res = self.frame.layout_resolution;
+        let current = self.frame.nodes[node.index()].area.size();
+        let target = self.frame.target_sizes[node.index()];
         (
             target
                 .properties
                 .intersects(TransitionProperties::WIDTH)
-                .then(|| res.extent(Axis::Horizontal, current.width)),
+                .then_some(current.width),
             target
                 .properties
                 .intersects(TransitionProperties::HEIGHT)
-                .then(|| res.extent(Axis::Vertical, current.height)),
+                .then_some(current.height),
         )
     }
 
@@ -184,7 +200,7 @@ impl<C, I: 'static> LayoutCx<'_, C, I> {
     fn assert_child(&self, child: NodeId) {
         let stored = &self.frame.nodes[child.index()];
         assert!(
-            child != self.node && stored.parent == self.node && stored.positioned.index().is_none(),
+            child != self.node && stored.parent == self.node && !stored.out_of_flow,
             "layout can only access direct flow children"
         );
     }
@@ -209,7 +225,7 @@ impl Iterator for Children<'_> {
             // safety: node storage is frozen while layout runs
             let stored = unsafe { &*self.nodes.add(node.index()) };
             self.next.value = stored.subtree_end + 1;
-            if stored.positioned.index().is_none() {
+            if !stored.out_of_flow {
                 return Some(node);
             }
         }

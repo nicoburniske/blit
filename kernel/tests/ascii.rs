@@ -1,9 +1,8 @@
 use std::{cell::Cell, rc::Rc, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Atom, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, Layout,
-    LayoutCx, LayoutResolution, Modifiers, NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Sizing,
-    Transition, Widget, WidgetId,
+    Atom, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, Layout, LayoutCx, Modifiers,
+    NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Sizing, Transition, Widget, WidgetId,
 };
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, AsciiContext, S>;
@@ -61,20 +60,30 @@ fn culls_only_atoms_with_disjoint_known_paint_bounds() {
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        root.absolute(Absolute::at(4.0, 0.0)).insert(PaintCount {
-            count: culled.clone(),
-            bounds_offset: Point::ZERO,
-        });
-        root.absolute(Absolute::at(4.0, 0.0)).insert(PaintCount {
-            count: overflow.clone(),
-            bounds_offset: Point::new(-4.0, 0.0),
-        });
-        root.child().item(TestItem::fixed(1.0, 1.0)).build(|ui: Ui<'_>| {
-            let mut panel = ui.layout(Overlay).clip(DiamondClip);
-            panel.absolute(Absolute::at(1.0, 0.0)).insert(PaintCount {
-                count: clipped.clone(),
+        root.target(NodeTarget::Parent)
+            .layout(At::new(4.0, 0.0))
+            .child()
+            .insert(PaintCount {
+                count: culled.clone(),
                 bounds_offset: Point::ZERO,
             });
+        root.target(NodeTarget::Parent)
+            .layout(At::new(4.0, 0.0))
+            .child()
+            .insert(PaintCount {
+                count: overflow.clone(),
+                bounds_offset: Point::new(-4.0, 0.0),
+            });
+        root.child().item(TestItem::fixed(1.0, 1.0)).build(|ui: Ui<'_>| {
+            let mut panel = ui.layout(Overlay).clip(DiamondClip);
+            panel
+                .target(NodeTarget::Parent)
+                .layout(At::new(1.0, 0.0))
+                .child()
+                .insert(PaintCount {
+                    count: clipped.clone(),
+                    bounds_offset: Point::ZERO,
+                });
         });
     });
 
@@ -115,14 +124,17 @@ fn content_works_before_layout_on_current_and_fresh_nodes() {
 }
 
 #[test]
-fn empty_and_absolute_children_are_valid() {
+fn empty_and_out_of_flow_children_are_valid() {
     let (mut frame, mut context) = frame(Size::uniform(1.0));
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Column);
         root.child()
             .item(TestItem::new(0.0).width(Sizing::grow()).height(Sizing::grow()));
-        root.absolute(Absolute::at(0.0, 0.0));
+        root.target(NodeTarget::Parent)
+            .layout(At::new(0.0, 0.0))
+            .child()
+            .insert(());
     });
 }
 
@@ -165,7 +177,7 @@ fn default_children_share_one_item() {
                     self.default.set(Some(item));
                 }
                 cx.layout_child(child, Constraints::loose(constraints.max));
-                cx.set_child_position(child, Point::ZERO);
+                cx.set_position(child, Point::ZERO);
                 count += 1;
             }
             self.children.set(count);
@@ -212,8 +224,11 @@ fn resolves_named_anchors_and_clipping() {
             .child()
             .widget_id(target)
             .insert(Fill::new('T', Size::uniform(2.0)));
-        let mut absolute = overlay.absolute(Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target));
-        absolute.insert(Fill::new('A', Size::uniform(1.0)));
+        overlay
+            .target(target)
+            .layout(At::new(0.0, 0.0).anchors(Point::new(1.0, 1.0), Point::ZERO))
+            .child()
+            .insert(Fill::new('A', Size::uniform(1.0)));
     });
 
     assert_eq!(
@@ -230,7 +245,7 @@ fn resolves_named_anchors_and_clipping() {
             panel.insert(Fill::new('p', Size::ZERO));
             panel
                 .child()
-                .parent(NodeTarget::Root)
+                .visual_parent(NodeTarget::Root)
                 .insert(Fill::new('L', Size::uniform(3.0)));
         });
     });
@@ -247,7 +262,7 @@ fn resolves_named_anchors_and_clipping() {
             panel.insert(Fill::new('p', Size::ZERO));
             panel
                 .child()
-                .parent(panel_id)
+                .visual_parent(panel_id)
                 .insert(Fill::new('L', Size::uniform(3.0)));
         });
     });
@@ -255,37 +270,35 @@ fn resolves_named_anchors_and_clipping() {
 }
 
 #[test]
-fn visual_parent_preserves_outer_clip_and_supplies_absolute_size() {
+fn visual_parent_preserves_outer_clip_and_supplies_out_of_flow_size() {
     let (mut frame, mut context) = frame(Size::new(7.0, 5.0));
     let popup_id = WidgetId::new("popup");
     let build = |mut ui: Ui<'_>| {
         let response = ui.interact_widget(popup_id, Sense::CLICK);
         let mut root = ui.layout(Overlay);
-        root.absolute(
-            Absolute::at(1.0, 0.0)
-                .width(Sizing::fixed(5.0))
-                .height(Sizing::fixed(5.0)),
-        )
-        .clip(DiamondClip)
-        .build(|ui: Ui<'_>| {
-            let outer_id = ui.id();
-            let mut outer = ui.layout(Overlay);
-            outer
-                .absolute(
-                    Absolute::at(2.0, 2.0)
-                        .width(Sizing::fixed(1.0))
-                        .height(Sizing::fixed(1.0)),
-                )
-                .clip(DiamondClip)
-                .build(|ui: Ui<'_>| {
-                    ui.layout(Overlay)
-                        .absolute(Absolute::at(-2.0, -2.0).width(Sizing::grow()).height(Sizing::grow()))
-                        .parent(outer_id)
-                        .z_index(1)
-                        .widget_id(popup_id)
-                        .insert(Fill::new('P', Size::ZERO));
-                });
-        });
+        root.target(NodeTarget::Parent)
+            .layout(At::new(1.0, 0.0).width(Sizing::fixed(5.0)).height(Sizing::fixed(5.0)))
+            .child()
+            .clip(DiamondClip)
+            .build(|ui: Ui<'_>| {
+                let outer_id = ui.id();
+                let mut outer = ui.layout(Overlay);
+                outer
+                    .target(NodeTarget::Parent)
+                    .layout(At::new(2.0, 2.0).width(Sizing::fixed(1.0)).height(Sizing::fixed(1.0)))
+                    .child()
+                    .clip(DiamondClip)
+                    .build(|ui: Ui<'_>| {
+                        ui.layout(Overlay)
+                            .target(NodeTarget::Parent)
+                            .visual_parent(outer_id)
+                            .z_index(1)
+                            .layout(At::new(-2.0, -2.0).width(Sizing::grow()).height(Sizing::grow()))
+                            .child()
+                            .widget_id(popup_id)
+                            .insert(Fill::new('P', Size::ZERO));
+                    });
+            });
         response
     };
     render(&mut frame, &mut context, &build);
@@ -332,13 +345,16 @@ fn paint_and_interaction_follow_visual_groups() {
             let responses = ids.map(|id| ui.interact_widget(id, Sense::CLICK));
             let mut root = ui.widget_id(ids[0]).layout(Overlay);
             if open {
-                let mut modal = root
-                    .absolute(Absolute::at(0.0, 0.0).width(Sizing::grow()).height(Sizing::grow()))
+                let mut modal_target = root
+                    .target(NodeTarget::Parent)
                     .z_index(1)
-                    .layout(Overlay);
+                    .layout(At::new(0.0, 0.0).width(Sizing::grow()).height(Sizing::grow()));
+                let mut modal = modal_target.child().layout(Overlay);
                 modal.insert(Fill::new('D', Size::ZERO));
                 modal
-                    .absolute(Absolute::at(0.0, 0.0))
+                    .target(NodeTarget::Parent)
+                    .layout(At::new(0.0, 0.0))
+                    .child()
                     .widget_id(ids[2])
                     .insert(Fill::new('M', Size::uniform(1.0)));
             }
@@ -351,11 +367,15 @@ fn paint_and_interaction_follow_visual_groups() {
                         .item(TestItem::fixed(3.0, 1.0))
                         .build(|ui: Ui<'_>| {
                             let mut rect = ui.layout(Overlay);
-                            let mut badge = rect.absolute(Absolute::at(0.0, 0.0)).widget_id(ids[1]);
+                            let mut badge = rect.target(NodeTarget::Parent);
                             if open {
-                                badge = badge.parent(canvas_id).z_index(i16::MAX);
+                                badge = badge.visual_parent(canvas_id).z_index(i16::MAX);
                             }
-                            badge.insert(Fill::new('A', size));
+                            badge
+                                .layout(At::new(0.0, 0.0))
+                                .child()
+                                .widget_id(ids[1])
+                                .insert(Fill::new('A', size));
                         });
                 });
             root.insert(Fill::new('C', size));
@@ -426,7 +446,7 @@ fn size_transitions_override_child_constraints() {
         fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
             let child = cx.children().next().unwrap();
             let size = cx.layout_child(child, Constraints::loose(constraints.max));
-            cx.set_child_position(child, Point::ZERO);
+            cx.set_position(child, Point::ZERO);
             constraints.constrain(size)
         }
     }
@@ -451,30 +471,53 @@ fn size_transitions_override_child_constraints() {
 }
 
 #[test]
-fn absolute_size_transitions_use_layout_resolution() {
-    let info = FrameInfo::new(Size::new(5.0, 1.0)).layout_resolution(LayoutResolution::Discrete {
-        step: Size::uniform(1.0),
-    });
-    let (mut frame, mut context) = frame_info(info);
-    let id = WidgetId::new("absolute transition");
+fn out_of_flow_size_transitions_remain_fractional() {
+    let (mut frame, mut context) = frame(Size::new(5.0, 1.0));
+    let id = WidgetId::new("out of flow transition");
+    let child_id = WidgetId::new("out of flow transition child");
+    let fixed_id = WidgetId::new("out of flow fixed transition");
     let mut render = |width, time| {
         render_inputs(&mut frame, &mut context, time, [Input::None], |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
-            root.absolute(
-                Absolute::at(0.0, 0.0)
-                    .width(Sizing::fixed(width))
-                    .height(Sizing::fixed(1.0)),
-            )
-            .widget_id(id)
-            .transition(Transition::new(Duration::from_secs(1)).width())
-            .insert(Fill::new('X', Size::uniform(1.0)));
+            root.target(NodeTarget::Parent)
+                .widget_id(id)
+                .transition(Transition::new(Duration::from_secs(1)).width())
+                .layout(At::new(0.0, 0.0).width(Sizing::fixed(width)).height(Sizing::fixed(1.0)))
+                .child()
+                .widget_id(child_id)
+                .insert(Fill::new('X', Size::uniform(1.0)));
+            root.target(NodeTarget::Parent)
+                .widget_id(fixed_id)
+                .transition(Transition::new(Duration::from_secs(1)).width())
+                .layout(Fixed(Size::new(width, 1.0)));
         });
-        frame.geometry(id).unwrap().width
+        [id, child_id, fixed_id].map(|id| frame.geometry(id).unwrap().width)
     };
 
     render(1.0, Duration::ZERO);
     render(4.0, Duration::ZERO);
-    assert_eq!(render(4.0, Duration::from_millis(500)), 3.0);
+    assert_eq!(render(4.0, Duration::from_millis(500)), [2.5; 3]);
+}
+
+#[test]
+fn out_of_flow_leaf_size_transitions() {
+    let (mut frame, mut context) = frame(Size::new(5.0, 1.0));
+    let id = WidgetId::new("out of flow leaf");
+    let mut render = |width, time| {
+        render_inputs(&mut frame, &mut context, time, [Input::None], |ui: Ui<'_>| {
+            ui.layout(Overlay)
+                .target(NodeTarget::Root)
+                .widget_id(id)
+                .transition(Transition::new(Duration::from_secs(1)).width())
+                .insert(Fill::new('X', Size::new(width, 1.0)));
+        });
+        frame.geometry(id).unwrap().width
+    };
+
+    assert_eq!(render(1.0, Duration::ZERO), 1.0);
+    assert_eq!(render(3.0, Duration::ZERO), 1.0);
+    assert_eq!(render(3.0, Duration::from_millis(500)), 2.0);
+    assert_eq!(render(3.0, Duration::from_secs(1)), 3.0);
 }
 
 #[test]
@@ -495,10 +538,7 @@ fn transitions_resolved_positions() {
 
 #[test]
 fn resolves_places_and_content_offsets() {
-    let info = FrameInfo::new(Size::new(8.0, 4.0)).layout_resolution(LayoutResolution::Discrete {
-        step: Size::new(2.0, 1.0),
-    });
-    let (mut frame, mut context) = frame_info(info);
+    let (mut frame, mut context) = frame(Size::new(8.0, 4.0));
     let fixed = WidgetId::new("fixed");
     let grow = WidgetId::new("grow");
     let percent = WidgetId::new("percent");
@@ -536,16 +576,16 @@ fn resolves_places_and_content_offsets() {
             .insert(Fill::new('M', Size::new(6.0, 1.0)));
     });
 
-    assert_eq!(frame.geometry(fixed), Some(Rect::new(3.0, 1.5, 4.0, 1.0)));
+    assert_eq!(frame.geometry(fixed), Some(Rect::new(3.5, 1.5, 3.0, 1.0)));
     assert_eq!(frame.geometry(grow), Some(Rect::new(1.0, 1.5, 8.0, 1.0)));
     assert_eq!(frame.geometry(percent), Some(Rect::new(4.0, 1.5, 2.0, 1.0)));
-    assert_eq!(frame.geometry(fit), Some(Rect::new(3.0, 1.5, 4.0, 1.0)));
+    assert_eq!(frame.geometry(fit), Some(Rect::new(3.5, 1.5, 3.0, 1.0)));
 }
 
 #[test]
-fn absolute_places_position_against_the_target_and_size_against_the_parent() {
+fn out_of_flow_positions_against_target_and_sizes_against_visual_parent() {
     let (mut frame, mut context) = frame(Size::new(10.0, 4.0));
-    let id = WidgetId::new("absolute");
+    let id = WidgetId::new("out of flow");
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut overlay = ui.layout(Overlay);
@@ -554,19 +594,44 @@ fn absolute_places_position_against_the_target_and_size_against_the_parent() {
             ui.id()
         });
         overlay
-            .absolute(
-                Absolute::attach(Anchor::BottomRight, Anchor::TopLeft)
-                    .relative_to(target)
+            .target(target)
+            .widget_id(id)
+            .layout(
+                At::new(0.0, 0.0)
+                    .anchors(Point::new(1.0, 1.0), Point::ZERO)
                     .width(Sizing::percent(0.5))
                     .height(Sizing::grow()),
             )
+            .child()
             .build(|ui: Ui<'_>| {
-                let mut absolute = ui.layout(Overlay).widget_id(id);
-                absolute.insert(Fill::new('A', Size::ZERO));
+                let mut content = ui.layout(Overlay);
+                content.insert(Fill::new('A', Size::ZERO));
             });
     });
 
     assert_eq!(frame.geometry(id), Some(Rect::new(8.0, 3.0, 5.0, 4.0)));
+}
+
+#[test]
+fn out_of_flow_target_paints_after_its_declaring_subtree() {
+    let (mut frame, mut context) = frame(Size::uniform(1.0));
+    let id = WidgetId::new("popup");
+
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
+        let mut root = ui.layout(Overlay);
+        let mut panel = root.child().layout(Overlay);
+        panel
+            .target(NodeTarget::Root)
+            .visual_parent(NodeTarget::Root)
+            .layout(At::new(0.0, 0.0))
+            .child()
+            .widget_id(id)
+            .insert(Fill::new('P', Size::uniform(1.0)));
+        panel.child().insert(Fill::new('Q', Size::uniform(1.0)));
+    });
+
+    assert_eq!(context.contents(), "P");
+    assert_eq!(frame.geometry(id), Some(Rect::new(0.0, 0.0, 1.0, 1.0)));
 }
 
 #[test]
@@ -587,28 +652,28 @@ fn targets_reject_invalid_references() {
     let cases: &[fn(Ui<'_>, WidgetId)] = &[
         |ui, _| {
             let id = ui.id();
-            ui.parent(id).insert(());
+            ui.visual_parent(id).insert(());
         },
         |ui, _| {
             let mut root = ui.layout(Overlay);
             let child = root.child().build(|ui: Ui<'_>| ui.id());
-            root.parent(child).insert(());
+            root.visual_parent(child).insert(());
         },
         |ui, id| {
             let mut root = ui.layout(Overlay);
-            root.child().parent(id).insert(());
+            root.child().visual_parent(id).insert(());
             root.widget_id(id).insert(());
         },
         |ui, id| {
             let mut root = ui.layout(Overlay);
-            root.absolute(Absolute::at(0.0, 0.0).relative_to(id)).insert(());
+            root.target(id).insert(());
             root.widget_id(id).insert(());
         },
-        |ui, id| ui.widget_id(id).parent(id).insert(()),
+        |ui, id| ui.widget_id(id).visual_parent(id).insert(()),
         |ui, id| {
             let mut root = ui.layout(Overlay);
             root.child().widget_id(id).insert(());
-            root.parent(id).insert(());
+            root.visual_parent(id).insert(());
         },
         #[cfg(debug_assertions)]
         |ui, id| {
@@ -627,7 +692,7 @@ fn targets_reject_invalid_references() {
                 .widget_id(id.child("renamed"))
                 .layout(Overlay)
                 .child()
-                .parent(id)
+                .visual_parent(id)
                 .insert(());
         },
         #[cfg(debug_assertions)]
@@ -637,7 +702,7 @@ fn targets_reject_invalid_references() {
             root.child().widget_id(id.child(0_u32)).insert(());
         },
     ];
-    for (case, build) in cases.into_iter().enumerate() {
+    for (case, build) in cases.iter().enumerate() {
         let (mut frame, mut context) = frame(Size::uniform(1.0));
         // a previous build must not satisfy a current reference
         render(&mut frame, &mut context, |ui: Ui<'_>| {
@@ -665,9 +730,9 @@ fn node_targets_reject_previous_renders() {
                 render(&mut frame, &mut context, |ui: Ui<'_>| {
                     let mut root = ui.layout(Overlay);
                     if anchor {
-                        root.absolute(Absolute::at(0.0, 0.0).relative_to(previous)).insert(());
+                        root.target(previous).insert(());
                     } else {
-                        root.child().parent(previous).insert(());
+                        root.child().visual_parent(previous).insert(());
                     }
                 });
             }))
@@ -697,8 +762,8 @@ fn named_bindings_follow_each_build() {
                     return;
                 }
                 root.child().widget_id(b).insert(());
-                root.child().widget_id(a).parent(b).insert(());
-                root.absolute(Absolute::at(0.0, 0.0).relative_to(a)).insert(());
+                root.child().widget_id(a).visual_parent(b).insert(());
+                root.target(a).insert(());
             },
         );
         assert_eq!(frame.geometry(a).is_some(), count != 0);
@@ -1071,8 +1136,8 @@ impl<C> Layout<C> for Column {
         let mut y = 0.0;
         for child in cx.children() {
             y += cx.item(child).gap_before;
-            cx.set_child_position(child, Point::new(0.0, y));
-            y += cx.child_size(child).height;
+            cx.set_position(child, Point::new(0.0, y));
+            y += cx.size(child).height;
         }
         size
     }
@@ -1091,8 +1156,8 @@ impl<C> Layout<C> for Overlay {
         }
         let size = constraints.constrain(size);
         for child in cx.children() {
-            let child_size = cx.child_size(child);
-            cx.set_child_position(
+            let child_size = cx.size(child);
+            cx.set_position(
                 child,
                 Point::new(
                     (size.width - child_size.width) / 2.0,
@@ -1101,6 +1166,88 @@ impl<C> Layout<C> for Overlay {
             );
         }
         size
+    }
+}
+
+#[derive(Clone, Copy)]
+struct At {
+    offset: Point,
+    target_anchor: Point,
+    child_anchor: Point,
+    width: Sizing,
+    height: Sizing,
+}
+
+impl At {
+    fn new(x: f32, y: f32) -> Self {
+        Self {
+            offset: Point::new(x, y),
+            target_anchor: Point::ZERO,
+            child_anchor: Point::ZERO,
+            width: Sizing::fit(),
+            height: Sizing::fit(),
+        }
+    }
+
+    fn anchors(mut self, target: Point, child: Point) -> Self {
+        self.target_anchor = target;
+        self.child_anchor = child;
+        self
+    }
+
+    fn width(mut self, width: Sizing) -> Self {
+        self.width = width;
+        self
+    }
+
+    fn height(mut self, height: Sizing) -> Self {
+        self.height = height;
+        self
+    }
+}
+
+impl<C> Layout<C> for At {
+    type Item = ();
+
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
+        let child = cx.children().next().expect("positioned content is missing");
+        let node = cx.node();
+        let containing = cx.size(cx.visual_parent());
+        let range = |sizing: Sizing, available: f32| match sizing {
+            Sizing::Fit { min, max } => {
+                let min = min.max(0.0);
+                (min, max.max(min).min(available).max(min))
+            }
+            Sizing::Grow { .. } => {
+                let size = sizing.clamp(available);
+                (size, size)
+            }
+            Sizing::Fixed(size) => (size.max(0.0), size.max(0.0)),
+            Sizing::Percent(fraction) if available.is_finite() => {
+                let size = available * fraction;
+                (size, size)
+            }
+            Sizing::Percent(_) => (0.0, 0.0),
+        };
+        let width = range(self.width, containing.width);
+        let height = range(self.height, containing.height);
+        let size = cx.layout_child(
+            child,
+            Constraints {
+                min: bounds.constrain(Size::new(width.0, height.0)),
+                max: bounds.constrain(Size::new(width.1, height.1)),
+            },
+        );
+        let target = cx.size(cx.parent());
+        cx.set_position(child, Point::ZERO);
+        cx.set_position(
+            node,
+            Point::new(
+                target.width * self.target_anchor.x - size.width * self.child_anchor.x + self.offset.x,
+                target.height * self.target_anchor.y - size.height * self.child_anchor.y + self.offset.y,
+            ),
+        );
+        bounds.constrain(size)
     }
 }
 
@@ -1114,7 +1261,7 @@ impl<C> Layout<C> for Fixed {
         let size = constraints.constrain(self.0);
         for child in cx.children() {
             resolve_child(cx, child, constraints.max, true, true);
-            cx.set_child_position(child, Point::ZERO);
+            cx.set_position(child, Point::ZERO);
         }
         size
     }

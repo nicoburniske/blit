@@ -49,21 +49,20 @@ pub mod layout;
 
 pub use self::{
     animation::{Easing, Transition, TransitionProperties},
-    frame::{Absolute, Anchor, Frame, NodeId, NodeTarget, Ui, state},
+    frame::{Frame, NodeId, NodeTarget, Ui, state},
     geometry::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
         Scale2, Sides, Size,
     },
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
-    layout::{Axis, Layout, LayoutCx, LayoutResolution, Sizing},
+    layout::{Axis, Layout, LayoutCx, Sizing},
 };
 
 crate::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct FrameInfo {
         new(size: Size),
-        layout_resolution: LayoutResolution = LayoutResolution::Continuous,
     }
 }
 

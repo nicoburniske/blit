@@ -57,7 +57,7 @@ fn build_named_parent(bencher: divan::Bencher, count: usize) {
     let id = WidgetId::new("bench root");
     bencher.bench_local(|| {
         build(&mut frame, count, |ui, _| {
-            ui.parent(id).insert(());
+            ui.visual_parent(id).insert(());
         })
     });
 }
@@ -134,7 +134,7 @@ impl Layout<()> for Stack {
     fn layout(&self, cx: &mut LayoutCx<'_, (), ()>, constraints: Constraints) -> Size {
         for child in cx.children() {
             cx.layout_child(child, Constraints::tight(Size::ZERO));
-            cx.set_child_position(child, Point::ZERO);
+            cx.set_position(child, Point::ZERO);
         }
         constraints.min
     }

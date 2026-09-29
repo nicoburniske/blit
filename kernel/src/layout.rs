@@ -1,5 +1,5 @@
 pub use crate::frame::layout::{Children, LayoutCx};
-use crate::geometry::{Constraints, Sides, Size};
+use crate::geometry::{Constraints, Size};
 
 pub trait Layout<C>: 'static {
     /// per-child data interpreted by this layout
@@ -16,14 +16,13 @@ pub trait Layout<C>: 'static {
     /// transitions. every call must:
     ///
     /// - call [`LayoutCx::layout_child`] with every flow child's final constraints
-    /// - call [`LayoutCx::set_child_position`] for every flow child
-    /// - adapt layout-owned physical lengths through [`LayoutCx::resolution`]
+    /// - call [`LayoutCx::set_position`] for every flow child
     /// - return a size within `constraints`
     ///
     /// [`LayoutCx::layout_child`] applies animated size overrides
     ///
     /// - use [`LayoutCx::resolve_sizing`] when sizing affects allocation before laying out the child
-    /// - use [`LayoutCx::target_child_size`] when animated size must not change structure such as wrapping
+    /// - use [`LayoutCx::target_size`] when animated size must not change structure such as wrapping
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size;
 }
 
@@ -60,7 +59,7 @@ impl Axis {
     }
 }
 
-/// one-dimensional sizing policy interpreted by a layout or absolute placement
+/// one-dimensional sizing policy interpreted by a layout
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Sizing {
     Fit { min: f32, max: f32 },
@@ -100,69 +99,6 @@ impl Sizing {
             Self::Fit { min, max } | Self::Grow { min, max } => size.clamp(min.max(0.0), max.max(min).max(0.0)),
             Self::Fixed(fixed) => fixed.max(0.0),
             Self::Percent(_) => size.max(0.0),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum LayoutResolution {
-    #[default]
-    Continuous,
-    Discrete {
-        step: Size,
-    },
-}
-
-impl LayoutResolution {
-    /// adapts an extent to this resolution
-    ///
-    /// continuous values are unchanged. discrete values round up by `step`.
-    #[inline]
-    pub fn extent(self, axis: Axis, value: f32) -> f32 {
-        let Self::Discrete { step } = self else {
-            return value;
-        };
-        if value <= 0.0 || !value.is_finite() {
-            return value;
-        }
-        let step = match axis {
-            Axis::Horizontal => step.width,
-            Axis::Vertical => step.height,
-        };
-        assert!(step.is_finite() && step > 0.0);
-        (value / step).ceil() * step
-    }
-
-    /// adapts absolute extents in a sizing policy to this resolution
-    ///
-    /// percentage policies are unchanged.
-    #[inline(always)]
-    pub fn sizing(self, axis: Axis, sizing: Sizing) -> Sizing {
-        if self == Self::Continuous {
-            return sizing;
-        }
-        match sizing {
-            Sizing::Fit { min, max } => Sizing::Fit {
-                min: self.extent(axis, min),
-                max: self.extent(axis, max),
-            },
-            Sizing::Grow { min, max } => Sizing::Grow {
-                min: self.extent(axis, min),
-                max: self.extent(axis, max),
-            },
-            Sizing::Fixed(size) => Sizing::Fixed(self.extent(axis, size)),
-            Sizing::Percent(fraction) => Sizing::Percent(fraction),
-        }
-    }
-
-    /// adapts horizontal and vertical sides on their respective axes
-    #[inline]
-    pub fn sides(self, sides: Sides) -> Sides {
-        Sides {
-            top: self.extent(Axis::Vertical, sides.top),
-            right: self.extent(Axis::Horizontal, sides.right),
-            bottom: self.extent(Axis::Vertical, sides.bottom),
-            left: self.extent(Axis::Horizontal, sides.left),
         }
     }
 }

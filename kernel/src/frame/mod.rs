@@ -2,7 +2,6 @@ pub mod animation;
 pub mod interaction;
 pub mod layout;
 pub mod paint;
-pub mod position;
 pub mod timer;
 pub mod transition;
 
@@ -21,7 +20,7 @@ use crate::{
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::Input,
     interact::{Interaction, Sense, WidgetId},
-    layout::{Axis, Layout, LayoutResolution, Sizing},
+    layout::Layout,
 };
 
 /// typestate modes for [`crate::Ui`]
@@ -84,10 +83,8 @@ impl<'ui, C, S> Ui<'ui, C, S> {
         self
     }
 
-    /// selects the parent for stacking, clipping and absolute sizing
-    ///
-    /// named targets must already exist. positioning stays with its anchor.
-    pub fn parent(mut self, target: impl Into<NodeTarget>) -> Self {
+    /// selects the parent for stacking, clipping and containing size
+    pub fn visual_parent(mut self, target: impl Into<NodeTarget>) -> Self {
         let node = self.inner.node;
         let frame = self.inner.frame_mut();
         let parent = frame.resolve_target(node, target.into());
@@ -207,11 +204,12 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         self
     }
 
-    /// creates an absolutely positioned child that bypasses this layout
-    pub fn absolute(&mut self, absolute: Absolute) -> Ui<'_, C> {
+    /// creates a child outside this layout, positioned relative to `target`
+    pub fn target(&mut self, target: impl Into<NodeTarget>) -> Ui<'_, C> {
         let node = self.inner.push_child();
         let frame = self.inner.frame_mut();
-        frame.set_absolute(node, absolute);
+        frame.nodes[node.index()].parent = frame.resolve_target(node, target.into());
+        frame.nodes[node.index()].out_of_flow = true;
         Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
     }
 }
@@ -295,11 +293,6 @@ impl<C, S> Ui<'_, C, S> {
         self.inner.frame.screen
     }
 
-    /// returns the frame's layout resolution
-    pub fn layout_resolution(&self) -> LayoutResolution {
-        self.inner.frame.layout_resolution
-    }
-
     pub fn time(&self) -> Duration {
         self.inner.frame.time
     }
@@ -357,21 +350,10 @@ pub struct NodeId {
     generation: u16,
 }
 
-/// placement and sizing of a child outside its parent layout
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Absolute {
-    pub target: NodeTarget,
-    pub target_anchor: Anchor,
-    pub child_anchor: Anchor,
-    pub offset: Point,
-    pub width: Sizing,
-    pub height: Sizing,
-}
-
-/// selects a node for visual parenting or absolute positioning
+/// selects a node for visual parenting or out-of-flow layout
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NodeTarget {
-    /// the node's structural parent
+    /// the node's current parent
     #[default]
     Parent,
     /// an earlier node in the current render
@@ -391,71 +373,6 @@ impl From<WidgetId> for NodeTarget {
 impl From<NodeId> for NodeTarget {
     fn from(id: NodeId) -> Self {
         Self::Node(id)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Anchor {
-    #[default]
-    TopLeft,
-    Top,
-    TopRight,
-    Left,
-    Center,
-    Right,
-    BottomLeft,
-    Bottom,
-    BottomRight,
-}
-
-impl Absolute {
-    pub const fn at(x: f32, y: f32) -> Self {
-        Self {
-            target: NodeTarget::Parent,
-            target_anchor: Anchor::TopLeft,
-            child_anchor: Anchor::TopLeft,
-            offset: Point::new(x, y),
-            width: Sizing::fit(),
-            height: Sizing::fit(),
-        }
-    }
-
-    pub const fn screen(x: f32, y: f32) -> Self {
-        Self {
-            target: NodeTarget::Root,
-            ..Self::at(x, y)
-        }
-    }
-
-    pub const fn attach(target: Anchor, child: Anchor) -> Self {
-        Self::at(0.0, 0.0).anchors(target, child)
-    }
-
-    /// positions relative to the specified node
-    pub fn relative_to(mut self, target: impl Into<NodeTarget>) -> Self {
-        self.target = target.into();
-        self
-    }
-
-    pub const fn anchors(mut self, target: Anchor, child: Anchor) -> Self {
-        self.target_anchor = target;
-        self.child_anchor = child;
-        self
-    }
-
-    pub const fn offset(mut self, x: f32, y: f32) -> Self {
-        self.offset = Point::new(x, y);
-        self
-    }
-
-    pub const fn width(mut self, width: Sizing) -> Self {
-        self.width = width;
-        self
-    }
-
-    pub const fn height(mut self, height: Sizing) -> Self {
-        self.height = height;
-        self
     }
 }
 

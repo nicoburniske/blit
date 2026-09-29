@@ -1,14 +1,14 @@
 use std::time::Duration;
 
-use super::{Frame, NodeId, position};
+use super::{Frame, NodeId};
 use crate::{
     animation::{Transition, TransitionProperties},
     arena::DataArena,
-    geometry::{Rect, Size},
+    geometry::{Constraints, Point, Rect, Size},
     interact::WidgetId,
 };
 
-/// resolves transitions against the frame's target layout
+/// resolves layout and transitions before globalizing positions
 ///
 /// - layout first establishes target geometry
 /// - active size transitions write animated sizes into node geometry and replay layout
@@ -29,7 +29,7 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
         }
     }
 
-    position::layout(frame, data, context, size);
+    layout(frame, data, context, size);
     let mut active = TransitionProperties::NONE;
     for index in 0..frame.transitions.len() {
         if !frame.transitions[index].seen {
@@ -37,7 +37,7 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
         }
         let node = frame.transitions[index].node;
         let mut target = frame.nodes[node.index()].area;
-        let offset = position::offset(frame, node);
+        let offset = offset(frame, node);
         target.x -= offset.x;
         target.y -= offset.y;
         frame.transitions[index].advance(target, frame.time, resized);
@@ -79,14 +79,14 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
             relayout = true;
         }
         if relayout {
-            position::layout(frame, data, context, size);
+            layout(frame, data, context, size);
         }
         frame.target_sizes.clear();
     }
 
     if active.intersects(TransitionProperties::POSITION) {
         for state in frame.transitions.iter().filter(|state| state.seen) {
-            let offset = position::offset(frame, state.node);
+            let offset = offset(frame, state.node);
             let area = &mut frame.nodes[state.node.index()].area;
             if state.active.intersects(TransitionProperties::X) {
                 area.x = state.current.x + offset.x;
@@ -95,6 +95,59 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
                 area.y = state.current.y + offset.y;
             }
         }
+    }
+
+    for index in 1..frame.nodes.len() {
+        let parent = frame.nodes[index].parent;
+        frame.nodes[index].area.x += frame.nodes[parent.index()].area.x;
+        frame.nodes[index].area.y += frame.nodes[parent.index()].area.y;
+    }
+}
+
+fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size) {
+    let root = frame.node_id(0);
+    frame.layout_node(data, root, context, Constraints::tight(size));
+    for index in 1..frame.nodes.len() {
+        if !frame.nodes[index].out_of_flow {
+            continue;
+        }
+        frame.nodes[index].area.x = 0.0;
+        frame.nodes[index].area.y = 0.0;
+        let node = frame.node_id(index);
+        let mut constraints = if frame.nodes[index].layout.index().is_some() {
+            Constraints::loose(Size::uniform(f32::INFINITY))
+        } else {
+            let containing = frame.nodes[index].visual_parent;
+            Constraints::loose(frame.nodes[containing.index()].area.size())
+        };
+        // replay animated sizes through the node's constraints
+        if !frame.target_sizes.is_empty() {
+            let current = frame.nodes[index].area.size();
+            let active = frame.target_sizes[index].properties;
+            if active.intersects(TransitionProperties::WIDTH) {
+                let width = current.width;
+                constraints.min.width = width;
+                constraints.max.width = width;
+            }
+            if active.intersects(TransitionProperties::HEIGHT) {
+                let height = current.height;
+                constraints.min.height = height;
+                constraints.max.height = height;
+            }
+        }
+        frame.layout_node(data, node, context, constraints);
+    }
+}
+
+fn offset<C>(frame: &Frame<C>, node: NodeId) -> Point {
+    if frame.nodes[node.index()].out_of_flow {
+        return Point::ZERO;
+    }
+    let parent = frame.nodes[node.index()].parent;
+    if parent == node {
+        Point::ZERO
+    } else {
+        frame.layout_offset(parent)
     }
 }
 

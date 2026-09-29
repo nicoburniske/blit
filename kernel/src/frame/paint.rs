@@ -6,7 +6,7 @@ pub fn resolve_order<C>(frame: &mut Frame<C>) {
     if !frame
         .nodes
         .iter()
-        .any(|node| node.z_index != 0 || node.visual_parent != node.parent)
+        .any(|node| node.z_index != 0 || node.visual_parent != node.parent || node.out_of_flow)
     {
         return;
     }
