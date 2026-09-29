@@ -36,7 +36,7 @@ use std::{
 };
 
 use blit::{
-    Frame, FrameInfo, LayoutResolution, LogicalPoint, LogicalSize,
+    Frame, FrameInfo, LogicalPoint, LogicalSize,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use terminal::{Size, Terminal};
@@ -177,11 +177,7 @@ impl Session {
 
     pub fn frame_info(&self) -> FrameInfo {
         let screen = self.context.renderer().screen();
-        FrameInfo::new(LogicalSize::new(screen.width as f32, screen.height as f32)).layout_resolution(
-            LayoutResolution::Discrete {
-                step: LogicalSize::uniform(1.0),
-            },
-        )
+        FrameInfo::new(LogicalSize::new(screen.width as f32, screen.height as f32))
     }
 
     pub fn poll(&mut self, timeout: Option<Duration>, inputs: &mut [Input]) -> io::Result<Poll> {

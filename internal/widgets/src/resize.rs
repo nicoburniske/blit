@@ -1,4 +1,5 @@
-use blit::{Axis, Constraints, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
+use blit::{Constraints, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
+use blit_layout::round;
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -107,21 +108,14 @@ impl<C> LayoutTrait<C> for Layout {
     type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
-        let res = cx.resolution();
         let maximum = self.maximum.max(self.minimum);
         let size = constraints.constrain(Size::new(
-            res.extent(
-                Axis::Horizontal,
-                self.size.width.clamp(self.minimum.width, maximum.width),
-            ),
-            res.extent(
-                Axis::Vertical,
-                self.size.height.clamp(self.minimum.height, maximum.height),
-            ),
+            round(self.size.width.clamp(self.minimum.width, maximum.width)),
+            round(self.size.height.clamp(self.minimum.height, maximum.height)),
         ));
         let grip = Size::new(
-            res.extent(Axis::Horizontal, self.grip_size.width).min(size.width),
-            res.extent(Axis::Vertical, self.grip_size.height).min(size.height),
+            round(self.grip_size.width).min(size.width),
+            round(self.grip_size.height).min(size.height),
         );
         for child in cx.children() {
             let (position, child_size, z_index) = match *cx.item(child) {
@@ -139,7 +133,7 @@ impl<C> LayoutTrait<C> for Layout {
                 Item::Corner => (Point::new(size.width - grip.width, size.height - grip.height), grip, 2),
             };
             cx.layout_child(child, Constraints::tight(child_size));
-            cx.set_child_position(child, position);
+            cx.set_position(child, position);
             cx.set_child_z_index(child, z_index);
         }
         size

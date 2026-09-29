@@ -297,7 +297,7 @@ impl<C> Layout<C> for MeasuredLayout {
             table.offset = row.top + within.min(row.height);
         }
         for (index, child) in ui.children().enumerate() {
-            ui.set_child_position(child, Point::new(0.0, table.rows[self.first + index].top));
+            ui.set_position(child, Point::new(0.0, table.rows[self.first + index].top));
         }
         constraints.constrain(Size::new(constraints.max.width, table.total))
     }
@@ -314,7 +314,8 @@ mod tests {
 
     #[test]
     fn remeasured_rows_resolve_scroll_before_the_first_paint() {
-        use blit::{Sides, WidgetId};
+        use blit::WidgetId;
+        use blit_layout::{Length, Padding};
 
         fn layout(frame: &mut Frame<TestContext>, state: &mut State, rows: &[(u32, f32)]) {
             let context = &mut TestContext;
@@ -333,7 +334,13 @@ mod tests {
                         |_| (None::<()>, None::<()>),
                         |row| WidgetId::new(row.0),
                         |ui, row| {
-                            ui.layout(blit_layout::single::layout().padding(Sides::y(row.1 / 2.0)));
+                            ui.layout(
+                                blit_layout::single::layout().padding(
+                                    Padding::new()
+                                        .top((row.1 / 2.0).floor() as Length)
+                                        .bottom((row.1 / 2.0).ceil() as Length),
+                                ),
+                            );
                         },
                     )
                 },

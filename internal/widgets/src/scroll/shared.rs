@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, ScrollPhase, Sense, Size, Ui, Widget};
+use blit_layout::round;
 
 blit::builder! {
     /// persistent scroll position and motion
@@ -80,7 +81,6 @@ impl ScrollLayout {
         constraints: Constraints,
         offset: impl FnOnce(f32) -> f32,
     ) -> Size {
-        let res = ui.resolution();
         let mut content = None;
         let mut track = None;
         let mut thumb = None;
@@ -94,9 +94,7 @@ impl ScrollLayout {
         let content = content.expect("scroll area content is missing");
         let thickness = if thumb.is_some() || track.is_some() {
             let maximum = self.axis.other().extent(constraints.max);
-            res.extent(self.axis.other(), self.scrollbar_thickness)
-                .max(0.0)
-                .min(maximum.max(0.0))
+            round(self.scrollbar_thickness).max(0.0).min(maximum.max(0.0))
         } else {
             0.0
         };
@@ -117,7 +115,7 @@ impl ScrollLayout {
         let viewport_extent = self.axis.extent(content_viewport_size);
         let maximum = (content_extent - viewport_extent).max(0.0);
         let offset = offset(maximum).clamp(0.0, maximum);
-        ui.set_child_position(
+        ui.set_position(
             content,
             match self.axis {
                 Axis::Horizontal => Point::new(-offset, 0.0),
@@ -132,7 +130,7 @@ impl ScrollLayout {
                 Axis::Vertical => Size::new(thickness, track_extent),
             };
             ui.layout_child(track, Constraints::tight(track_size));
-            ui.set_child_position(
+            ui.set_position(
                 track,
                 match self.axis {
                     Axis::Horizontal => Point::new(0.0, content_viewport_size.height),
@@ -142,7 +140,7 @@ impl ScrollLayout {
         }
 
         if let Some(thumb) = thumb {
-            let minimum_extent = res.extent(self.axis, self.minimum_thumb_extent).max(0.0);
+            let minimum_extent = round(self.minimum_thumb_extent).max(0.0);
             let thumb_extent = if content_extent > viewport_extent && content_extent > 0.0 {
                 (viewport_extent * viewport_extent / content_extent)
                     .max(minimum_extent)
@@ -160,7 +158,7 @@ impl ScrollLayout {
                 Axis::Vertical => Size::new(thickness, thumb_extent),
             };
             ui.layout_child(thumb, Constraints::tight(thumb_size));
-            ui.set_child_position(
+            ui.set_position(
                 thumb,
                 match self.axis {
                     Axis::Horizontal => Point::new(thumb_offset, viewport_size.height - thickness),

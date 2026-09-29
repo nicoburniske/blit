@@ -20,7 +20,7 @@ impl Atom<TuiContext> for Text {
     fn measure(&self, context: &mut TuiContext, constraints: Constraints) -> Size {
         let mut request = TextLayoutRequest::new(self.text).wrap(self.options.wrap);
         if self.options.wrap != TextWrap::None && constraints.max.width.is_finite() {
-            request = request.max_width(constraints.max.width);
+            request = request.max_columns(constraints.max.width.floor().max(0.0) as usize);
         }
         if let Some(max_lines) = self.options.max_lines {
             request = request.max_lines(max_lines);

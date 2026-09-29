@@ -6,6 +6,7 @@ use crate::{
     TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
+    renderer::CellRect,
     text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
 };
 
@@ -98,8 +99,9 @@ impl Atom<TuiContext> for Block {
             self.border
                 .is_some_and(|border| border.sides.contains(BorderSides::RIGHT)),
         ));
-        let origin_x = area.x.round();
-        let origin_y = area.y.round();
+        let cells = CellRect::from_logical(area);
+        let origin_x = cells.left as f32;
+        let origin_y = cells.top as f32;
         paint_title_row(
             context,
             [self.titles[0], self.titles[1], self.titles[2]],
@@ -327,7 +329,7 @@ mod tests {
                 root.insert(widget::Text::new(
                     "xxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx",
                 ));
-                root.child().item(single::item().fixed(20.0, 4.0)).insert(
+                root.child().item(single::item().fixed(20, 4)).insert(
                     widget::Block::new()
                         .background(Color::WHITE)
                         .border(Border::new(Color::GREEN).style(BorderStyle::Double))

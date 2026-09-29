@@ -4,6 +4,7 @@ use crate::{
     TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
+    renderer::CellRect,
 };
 
 blit::builder! {
@@ -34,19 +35,15 @@ impl Atom<TuiContext> for Shadow {
             y: area.y + self.offset_y,
             ..area
         };
-        let left = area.x.round() as isize;
-        let top = area.y.round() as isize;
-        let right = (area.x + area.width).round() as isize;
-        let bottom = (area.y + area.height).round() as isize;
-        let origin_x = shifted.x.round() as isize;
-        let origin_y = shifted.y.round() as isize;
+        let area = CellRect::from_logical(area);
+        let shifted_cells = CellRect::from_logical(shifted);
         let mut cells = context.cells(shifted);
         let style = CellStyle::new().background(self.color);
         for y in 0..cells.rows() {
             for x in 0..cells.columns() {
-                let screen_x = origin_x + x as isize;
-                let screen_y = origin_y + y as isize;
-                if (left..right).contains(&screen_x) && (top..bottom).contains(&screen_y) {
+                let screen_x = shifted_cells.left + x as isize;
+                let screen_y = shifted_cells.top + y as isize;
+                if (area.left..area.right).contains(&screen_x) && (area.top..area.bottom).contains(&screen_y) {
                     continue;
                 }
                 cells.set_cell(x, y, Cell::default().style(style));

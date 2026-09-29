@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use base64::Engine as _;
 use blit::LogicalRect;
 
-use super::{BASE64, KittyPlacement, TuiRenderer, image::ImagePlacement, text::TextAttributes, write_color};
+use super::{BASE64, CellRect, KittyPlacement, TuiRenderer, image::ImagePlacement, text::TextAttributes, write_color};
 
 impl TuiRenderer {
     pub fn begin_frame(&mut self) {
@@ -13,10 +13,11 @@ impl TuiRenderer {
     }
     pub fn place_image(&mut self, request: ImagePlacement, clip: LogicalRect) {
         if let Some(area) = request.area.intersection(clip) {
-            let x = area.x.floor().max(0.0) as usize;
-            let y = area.y.floor().max(0.0) as usize;
-            let right = (area.x + area.width).ceil().min(self.columns as f32) as usize;
-            let bottom = (area.y + area.height).ceil().min(self.rows as f32) as usize;
+            let area = CellRect::from_logical(area);
+            let x = area.left.clamp(0, self.columns as isize) as usize;
+            let y = area.top.clamp(0, self.rows as isize) as usize;
+            let right = area.right.clamp(0, self.columns as isize) as usize;
+            let bottom = area.bottom.clamp(0, self.rows as isize) as usize;
             if right > x && bottom > y {
                 self.kitty_placements.push(KittyPlacement {
                     image: request.image.0 as u32,

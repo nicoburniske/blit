@@ -4,7 +4,7 @@ use blit::LogicalRect;
 use unicode_width::UnicodeWidthChar;
 
 use super::{
-    Cells, Glyph, TuiRenderer,
+    CellRect, Cells, Glyph, TuiRenderer,
     color::Color,
     text::{HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest, VerticalAlign},
 };
@@ -223,6 +223,7 @@ impl TuiRenderer {
     fn paint_text_at(&mut self, request: TextRequest, clip: LogicalRect, background: Option<Color>) {
         let (area_left, area_top, area_right, area_bottom) = self.cell_bounds(request.area);
         let (clip_left, clip_top, clip_right, clip_bottom) = self.cell_bounds(clip);
+        let area_width = area_right - area_left;
         let left = area_left.max(clip_left);
         let top = area_top.max(clip_top);
         let right = area_right.min(clip_right);
@@ -230,7 +231,7 @@ impl TuiRenderer {
         let layout_request = TextLayoutRequest {
             text: request.text,
             wrap: request.options.wrap,
-            max_width: Some(request.area.width),
+            max_columns: Some(area_width),
             max_lines: request.options.max_lines,
         };
         let run = self.text_run_index(request.text);
@@ -255,8 +256,8 @@ impl TuiRenderer {
         };
         let mut span_style = spans.first().map_or(base_style, resolve_style);
         let ellipsis = request.options.overflow == TextOverflow::Ellipsis;
-        let maximum = request.area.width.floor().max(1.0) as usize;
-        let area_width = area_right as isize - area_left as isize;
+        let maximum = area_width.max(1);
+        let area_width = area_width as isize;
         let area_height = area_bottom as isize - area_top as isize;
         let line_count = layout.lines.len() as isize;
         let start_y = match request.options.vertical_align {
@@ -274,9 +275,8 @@ impl TuiRenderer {
                 .get(line_index + 1)
                 .map_or(layout.graphemes.len(), |line| line.start);
             let mut line_width = line.width;
-            let line_ellipsis = ellipsis
-                && line_index + 1 == layout.lines.len()
-                && (layout.truncated || line.width as f32 > request.area.width);
+            let line_ellipsis =
+                ellipsis && line_index + 1 == layout.lines.len() && (layout.truncated || line.width > maximum);
             if line_ellipsis {
                 while line_width >= maximum && line_end != line.start {
                     line_end -= 1;
@@ -403,26 +403,20 @@ impl TuiRenderer {
 impl CellBuffer<'_> {
     #[inline]
     fn new(renderer: &mut TuiRenderer, area: LogicalRect, clip: LogicalRect) -> CellBuffer<'_> {
-        let origin_x = area.x.round() as isize;
-        let origin_y = area.y.round() as isize;
-        let area_right = (area.x + area.width).round() as isize;
-        let area_bottom = (area.y + area.height).round() as isize;
-        let clip_left = clip.x.round() as isize;
-        let clip_top = clip.y.round() as isize;
-        let clip_right = (clip.x + clip.width).round() as isize;
-        let clip_bottom = (clip.y + clip.height).round() as isize;
+        let area = CellRect::from_logical(area);
+        let clip = CellRect::from_logical(clip);
         let screen_right = renderer.columns as isize;
         let screen_bottom = renderer.rows as isize;
-        let left = origin_x.max(clip_left).clamp(0, screen_right);
-        let top = origin_y.max(clip_top).clamp(0, screen_bottom);
-        let right = area_right.min(clip_right).clamp(left, screen_right);
-        let bottom = area_bottom.min(clip_bottom).clamp(top, screen_bottom);
+        let left = area.left.max(clip.left).clamp(0, screen_right);
+        let top = area.top.max(clip.top).clamp(0, screen_bottom);
+        let right = area.right.min(clip.right).clamp(left, screen_right);
+        let bottom = area.bottom.min(clip.bottom).clamp(top, screen_bottom);
         CellBuffer {
             renderer,
-            origin_x,
-            origin_y,
-            columns: (area_right - origin_x).max(0) as usize,
-            rows: (area_bottom - origin_y).max(0) as usize,
+            origin_x: area.left,
+            origin_y: area.top,
+            columns: (area.right - area.left).max(0) as usize,
+            rows: (area.bottom - area.top).max(0) as usize,
             bounds: [left, top, right, bottom],
         }
     }

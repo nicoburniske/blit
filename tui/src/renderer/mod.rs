@@ -32,6 +32,26 @@ use self::{
 const TEXT_RUN_CACHE_CAPACITY: usize = 2 * 1024 * 1024;
 const TEXT_LAYOUT_CACHE_CAPACITY: usize = 4 * 1024 * 1024;
 
+#[derive(Clone, Copy)]
+pub struct CellRect {
+    pub left: isize,
+    pub top: isize,
+    pub right: isize,
+    pub bottom: isize,
+}
+
+impl CellRect {
+    #[inline]
+    pub fn from_logical(area: LogicalRect) -> Self {
+        Self {
+            left: (area.x - 0.5).ceil() as isize,
+            top: (area.y - 0.5).ceil() as isize,
+            right: (area.x + area.width - 0.5).ceil() as isize,
+            bottom: (area.y + area.height - 0.5).ceil() as isize,
+        }
+    }
+}
+
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct RendererConfig {
@@ -227,7 +247,9 @@ impl TuiRenderer {
 
     pub fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
         let text = &self.text_runs.get_key_index(self.text_run_index(request.text)).text;
-        let target = (position.x - request.area.x + request.offset_x).round().max(0.0) as usize;
+        let target = (position.x.floor() as isize - CellRect::from_logical(request.area).left
+            + request.offset_x.round() as isize)
+            .max(0) as usize;
         let mut width = 0;
         for (offset, grapheme) in text.grapheme_indices(true) {
             let next = width + UnicodeWidthStr::width(grapheme).max(1);
@@ -252,9 +274,10 @@ impl TuiRenderer {
         let text = &self.text_runs.get_key_index(self.text_run_index(request.text)).text;
         let before = &text[..text.floor_char_boundary(byte_offset.min(text.len()))];
         let line = before.rsplit_once('\n').map_or(before, |(_, line)| line);
+        let area = CellRect::from_logical(request.area);
         LogicalRect {
-            x: request.area.x + UnicodeWidthStr::width(line) as f32 - request.offset_x,
-            y: request.area.y + before.matches('\n').count() as f32,
+            x: area.left as f32 + UnicodeWidthStr::width(line) as f32 - request.offset_x.round(),
+            y: area.top as f32 + before.matches('\n').count() as f32,
             width: 1.0,
             height: 1.0,
         }
@@ -534,11 +557,12 @@ struct TextLayout {
 
 impl TuiRenderer {
     fn cell_bounds(&self, area: LogicalRect) -> (usize, usize, usize, usize) {
+        let area = CellRect::from_logical(area);
         (
-            area.x.round().clamp(0.0, self.columns as f32) as usize,
-            area.y.round().clamp(0.0, self.rows as f32) as usize,
-            (area.x + area.width).round().clamp(0.0, self.columns as f32) as usize,
-            (area.y + area.height).round().clamp(0.0, self.rows as f32) as usize,
+            area.left.clamp(0, self.columns as isize) as usize,
+            area.top.clamp(0, self.rows as isize) as usize,
+            area.right.clamp(0, self.columns as isize) as usize,
+            area.bottom.clamp(0, self.rows as isize) as usize,
         )
     }
 
@@ -610,7 +634,7 @@ impl TuiRenderer {
             true
         }
 
-        let max_columns = request.max_width.map(|width| width.floor().max(0.0) as usize);
+        let max_columns = request.max_columns;
         let max_lines = usize::from(request.max_lines.unwrap_or(u16::MAX)).max(1);
         let key = LayoutKey {
             text: request.text,
@@ -927,17 +951,39 @@ mod tests {
     }
 
     #[test]
-    fn direct_cells_quantize_half_cell_areas() {
+    fn direct_cells_follow_cell_centers_at_half_boundaries() {
         let mut renderer = renderer(4, 3);
         let screen = renderer.screen().to_logical(SCALE);
         renderer.begin_frame();
         renderer
-            .cells(LogicalRect::new(1.0, 0.5, 2.0, 1.0), screen)
+            .cells(LogicalRect::new(1.0, 0.5, 1.5, 1.0), screen)
             .clear(SurfaceCell::default().style(CellStyle::new().background(Color::CYAN)));
         renderer.end_frame();
 
-        assert_eq!(renderer.cells.background[5], Color::CYAN.packed());
-        assert_eq!(renderer.cells.background[6], Color::CYAN.packed());
+        assert_eq!(renderer.cells.background[1], Color::CYAN.packed());
+        assert_eq!(renderer.cells.background[2], Color::Reset.packed());
+        assert_eq!(renderer.cells.background[5], Color::Reset.packed());
+    }
+
+    #[test]
+    fn text_pointer_uses_the_painted_cell_origin() {
+        let mut renderer = renderer(5, 1);
+        let text = renderer.text_run("ab");
+        let request = TextRequest::new(text, LogicalRect::new(2.51, 0.0, 2.0, 1.0));
+        let screen = renderer.screen().to_logical(SCALE);
+        renderer.begin_frame();
+        renderer.paint_text(request, screen);
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), "   ab\n");
+        assert_eq!(
+            renderer.text_offset_at_position(&request, LogicalPoint::new(3.5, 0.5)),
+            0
+        );
+        assert_eq!(
+            renderer.text_offset_at_position(&request, LogicalPoint::new(4.5, 0.5)),
+            1
+        );
+        assert_eq!(renderer.text_cursor_rect(&request, 0).x, 3.0);
     }
 
     #[test]
@@ -1108,7 +1154,7 @@ mod tests {
         let mut renderer = renderer(20, 4);
         let text = renderer.text_run("hello world");
         assert_eq!(renderer.text_run("hello world"), text);
-        let request = TextLayoutRequest::new(text).wrap(TextWrap::Word).max_width(7.0);
+        let request = TextLayoutRequest::new(text).wrap(TextWrap::Word).max_columns(7);
         let layout = renderer.layout_text(&request);
         assert_eq!(renderer.layout_text(&request), layout);
         let layout = renderer.text_layouts.get_index(layout);

@@ -1,4 +1,5 @@
 use blit::{Axis, Constraints, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
+use blit_layout::round;
 
 blit::builder! {
     /// split behavior and geometry
@@ -122,7 +123,6 @@ impl<C> LayoutTrait<C> for Layout {
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
         let cross_axis = self.axis.other();
-        let res = cx.resolution();
         let main = self.axis.extent(bounds.max);
         assert!(main.is_finite(), "split needs a finite main axis budget");
         let mut leading = None;
@@ -138,11 +138,11 @@ impl<C> LayoutTrait<C> for Layout {
         let leading = leading.expect("missing split leading content");
         let trailing = trailing.expect("missing split trailing content");
         let divider = divider.expect("missing split divider");
-        let divider_extent = res.extent(self.axis, self.divider_extent).max(0.0).min(main);
+        let divider_extent = round(self.divider_extent).max(0.0).min(main);
         let available = (main - divider_extent).max(0.0);
-        let minimum_leading = res.extent(self.axis, self.minimum_leading).max(0.0);
-        let minimum_trailing = res.extent(self.axis, self.minimum_trailing).max(0.0);
-        let desired = res.extent(self.axis, self.extent).max(0.0);
+        let minimum_leading = round(self.minimum_leading).max(0.0);
+        let minimum_trailing = round(self.minimum_trailing).max(0.0);
+        let desired = round(self.extent).max(0.0);
         let leading_extent = if minimum_leading + minimum_trailing <= available {
             desired.clamp(minimum_leading, available - minimum_trailing)
         } else if minimum_leading + minimum_trailing > 0.0 {
@@ -162,7 +162,7 @@ impl<C> LayoutTrait<C> for Layout {
             cross = cross.max(cross_axis.extent(size));
             let mut point = Size::ZERO;
             self.axis.set_extent(&mut point, offset);
-            cx.set_child_position(child, Point::new(point.width, point.height));
+            cx.set_position(child, Point::new(point.width, point.height));
         }
         let mut size = Size::ZERO;
         self.axis.set_extent(&mut size, divider_extent);
@@ -170,7 +170,7 @@ impl<C> LayoutTrait<C> for Layout {
         cx.layout_child(divider, Constraints::tight(size));
         let mut point = Size::ZERO;
         self.axis.set_extent(&mut point, leading_extent);
-        cx.set_child_position(divider, Point::new(point.width, point.height));
+        cx.set_position(divider, Point::new(point.width, point.height));
         self.axis.set_extent(&mut size, main);
         bounds.constrain(size)
     }

@@ -1,4 +1,5 @@
 use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, Size, Ui, WidgetId};
+use blit_layout::round;
 
 pub use super::shared::{Behavior, State};
 use super::shared::{ScrollLayout, build_scroll, update};
@@ -37,9 +38,8 @@ pub fn build<C, I, K, F, X, T, H>(
     let item_extent = list.item_extent;
     assert!(item_extent.is_finite() && item_extent > 0.0);
     assert!(gap.is_finite() && gap >= 0.0);
-    let res = ui.layout_resolution();
-    let item_extent = res.extent(axis, item_extent);
-    let gap = res.extent(axis, gap);
+    let item_extent = round(item_extent);
+    let gap = round(gap);
     let stride = item_extent + gap;
     let count = items.len();
     let (thumb_active, viewport_known) = update(state, &mut ui, axis, config);
@@ -109,10 +109,10 @@ impl<C> Layout<C> for ListLayout {
             cross_extent = cross_extent.max(self.axis.other().extent(size));
             match self.axis {
                 Axis::Horizontal => {
-                    ui.set_child_position(child, Point::new(offset, 0.0));
+                    ui.set_position(child, Point::new(offset, 0.0));
                 }
                 Axis::Vertical => {
-                    ui.set_child_position(child, Point::new(0.0, offset));
+                    ui.set_position(child, Point::new(0.0, offset));
                 }
             }
         }
@@ -127,7 +127,7 @@ impl<C> Layout<C> for ListLayout {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Input, LayoutResolution, WidgetId};
+    use blit::{Frame, FrameInfo, Input, WidgetId};
 
     use super::*;
     use crate::test::{TestClip, TestContext};
@@ -150,7 +150,7 @@ mod tests {
                 build(
                     ui,
                     state,
-                    Config::new(1.5),
+                    Config::new(2.0),
                     rows.iter().enumerate(),
                     |row| WidgetId::new(("row", row.1)),
                     |ui, (index, _)| {
@@ -166,9 +166,7 @@ mod tests {
 
         let mut frame = Frame::default();
         let mut context = TestContext;
-        let frame_info = FrameInfo::new(Size::new(80.0, 10.0)).layout_resolution(LayoutResolution::Discrete {
-            step: Size::uniform(1.0),
-        });
+        let frame_info = FrameInfo::new(Size::new(80.0, 10.0));
         let mut state = State::new();
         let mut built = Vec::new();
 

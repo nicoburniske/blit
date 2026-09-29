@@ -1,5 +1,9 @@
-use blit::{Absolute, Anchor, Input, Interaction, NodeTarget, Point, Sense, Sides, Sizing, Ui, Widget};
-use blit_layout::single;
+use blit::{Input, Interaction, NodeTarget, Point, Sense, Sides, Ui, Widget};
+use blit_layout::{
+    Offset, Sizing,
+    absolute::{self, Anchor},
+    round, single,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Close {
@@ -90,30 +94,28 @@ where
             return None;
         }
 
-        let mut popup = root
-            .absolute(
-                Absolute {
-                    target: config.parent,
-                    ..Absolute::at(0.0, 0.0)
-                }
-                .width(Sizing::grow())
-                .height(Sizing::grow()),
-            )
-            .parent(config.parent)
+        let mut overlay = root
+            .target(config.parent)
+            .visual_parent(config.parent)
             .z_index(1)
-            .layout(single::layout());
+            .layout(absolute::Layout::new().width(Sizing::grow()).height(Sizing::grow()));
+        let mut popup = overlay.child().layout(single::layout());
         if config.close != Close::Manual {
             popup
-                .absolute(Absolute::at(0.0, 0.0).width(Sizing::grow()).height(Sizing::grow()))
+                .child()
+                .item(single::item().grow())
                 .widget_id(backdrop_id)
                 .insert(());
         }
         Some(
             popup
-                .absolute(
-                    Absolute::attach(config.target_anchor, config.child_anchor)
-                        .relative_to(anchor)
-                        .offset(config.offset.x, config.offset.y)
+                .target(anchor)
+                .layout(
+                    absolute::Layout::new()
+                        .target_anchor(config.target_anchor)
+                        .child_anchor(config.child_anchor)
+                        .x(round(config.offset.x) as Offset)
+                        .y(round(config.offset.y) as Offset)
                         .width(config.width)
                         .height(config.height),
                 )
@@ -125,6 +127,7 @@ where
                         .left(config.offset.x.max(0.0)),
                 )
                 .widget_id(content_id)
+                .child()
                 .layout(single::layout())
                 .child()
                 .item(single::item().grow())
@@ -138,6 +141,7 @@ mod tests {
     use std::time::Duration;
 
     use blit::{Frame, FrameInfo, Modifiers, PointerButton, Rect, Size, WidgetId};
+    use blit_layout::Length;
 
     use super::*;
     use crate::test::TestContext;
@@ -150,14 +154,14 @@ mod tests {
                 ui.widget_id(WidgetId::new("named trigger"))
                     .layout(single::layout())
                     .child()
-                    .item(single::item().fixed(2.0, 1.0))
+                    .item(single::item().fixed(2 as Length, 1 as Length))
                     .build(())
             },
             |ui: Ui<'_, TestContext>| {
                 ui.widget_id(WidgetId::new("named content"))
                     .layout(single::layout())
                     .child()
-                    .item(single::item().fixed(4.0, 3.0))
+                    .item(single::item().fixed(4 as Length, 3 as Length))
                     .build(())
             },
         ));
@@ -238,7 +242,9 @@ mod tests {
                     render(
                         ui,
                         &mut state,
-                        Config::new().width(Sizing::fixed(5.0)).height(Sizing::fixed(4.0)),
+                        Config::new()
+                            .width(Sizing::fixed(5 as Length))
+                            .height(Sizing::fixed(4 as Length)),
                     );
                     assert_eq!(state.open, expected.next().unwrap());
                 },

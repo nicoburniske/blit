@@ -77,7 +77,7 @@ blit::builder! {
     pub struct TextLayoutRequest {
         new(text: TextRunId),
         @optional {
-            max_width: f32,
+            max_columns: usize,
             max_lines: u16,
         },
         wrap: TextWrap = TextWrap::None,
