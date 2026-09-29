@@ -1,0 +1,19 @@
+[package]
+name = "demo-tui"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+blit.workspace = true
+blit-demo.workspace = true
+blit-tui.workspace = true
+
+[[bin]]
+name = "demo-tui"
+path = "main.rs"
+
+[[example]]
+name = "readme"
+path = "readme.rs"

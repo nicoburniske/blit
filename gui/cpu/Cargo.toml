@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 blit = { workspace = true }
 blit-gui.workspace = true
-blit_cache = { path = "../../internal/cache" }
+blit_cache.workspace = true
 blit-raster.workspace = true
 blit-text = { workspace = true }
 blit-arrayvec.workspace = true

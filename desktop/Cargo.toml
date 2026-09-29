@@ -11,8 +11,8 @@ gpu = ["dep:blit-gpu", "dep:wgpu"]
 
 [dependencies]
 blit.workspace = true
-blit-cpu = { path = "../gui/cpu", optional = true }
-blit-gpu = { path = "../gui/gpu", optional = true }
+blit-cpu = { workspace = true, optional = true }
+blit-gpu = { workspace = true, optional = true }
 blit-gui.workspace = true
 blit-executor.workspace = true
 

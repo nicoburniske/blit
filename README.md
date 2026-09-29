@@ -14,19 +14,19 @@ https://github.com/user-attachments/assets/0350260c-592f-4337-b541-9762faf7a96d
 terminal:
 
 ```sh
-nix develop --command cargo run --example tui-demo --features tui
+nix develop --command cargo run -p demo-tui
 ```
 
-desktop + CPU:
+desktop + CPU (default):
 
 ```sh
-nix develop --command cargo run --release --example desktop-demo --features cpu
+nix develop --command cargo run --release -p demo-gui
 ```
 
 desktop + GPU:
 
 ```sh
-nix develop --command cargo run -p blit-demo --features gpu --release --example desktop-demo
+nix develop --command cargo run --release -p demo-gui --features gpu
 ```
 
 ## example

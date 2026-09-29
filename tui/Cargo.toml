@@ -11,7 +11,7 @@ blit.workspace = true
 blit-layout = { workspace = true, features = ["tui"] }
 blit-widgets.workspace = true
 blit-arrayvec.workspace = true
-blit_cache = { path = "../internal/cache" }
+blit_cache.workspace = true
 rustix = { version = "1", features = ["termios", "event"] }
 signal-hook = "0.3"
 unicode-segmentation = "1.12"

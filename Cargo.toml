@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "desktop",
     "examples",
+    "examples/gui",
+    "examples/tui",
     "executor",
     "gui",
     "gui/cpu",
@@ -24,6 +26,9 @@ license = "MIT"
 
 [workspace.dependencies]
 blit = { path = "kernel" }
+blit-cpu = { path = "gui/cpu" }
+blit-demo = { path = "examples" }
+blit-desktop = { path = "desktop", default-features = false }
 blit-executor = { path = "executor" }
 blit-gui = { path = "gui" }
 blit-gpu = { path = "gui/gpu" }
@@ -34,4 +39,6 @@ blit-text-cosmic = { path = "gui/text/cosmic" }
 blit-text-fontdue = { path = "gui/text/fontdue" }
 blit-arrayvec = { path = "internal/arrayvec" }
 blit-raster = { path = "internal/raster" }
+blit-tui = { path = "tui" }
+blit_cache = { path = "internal/cache" }
 wgpu = { version = "30.0.1", default-features = false }

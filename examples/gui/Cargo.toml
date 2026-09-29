@@ -1,0 +1,30 @@
+[package]
+name = "demo-gui"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+default-run = "demo-gui"
+
+[features]
+default = ["cpu"]
+cpu = ["blit-desktop/cpu"]
+gpu = ["blit-desktop/gpu"]
+fontdue = ["cpu", "dep:blit-text-fontdue"]
+
+[dependencies]
+blit.workspace = true
+blit-demo.workspace = true
+blit-desktop.workspace = true
+blit-gui.workspace = true
+blit-text-cosmic.workspace = true
+blit-text-fontdue = { workspace = true, optional = true }
+
+[[bin]]
+name = "demo-gui"
+path = "main.rs"
+
+[[bin]]
+name = "demo-gui-fontdue"
+path = "fontdue.rs"
+required-features = ["fontdue"]

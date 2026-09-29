@@ -9,6 +9,6 @@ publish = false
 blit.workspace = true
 blit-layout.workspace = true
 blit-widgets.workspace = true
-blit_cache = { path = "../internal/cache" }
+blit_cache.workspace = true
 blit-text.workspace = true
 ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
