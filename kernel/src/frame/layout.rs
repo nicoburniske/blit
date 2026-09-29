@@ -7,7 +7,7 @@ use crate::{
     TransitionProperties,
     arena::{DataArena, DataId},
     geometry::{Constraints, Point, Size},
-    layout::{Axis, Layout, Sizing},
+    layout::Layout,
 };
 
 /// context for measuring and positioning a layout node and its flow children
@@ -65,15 +65,25 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
             .load(if id.offset().is_some() { id } else { self.default_item })
     }
 
-    /// applies an animated size override to `sizing`
+    /// returns animated width and height overrides for `node`
     #[inline]
-    pub fn resolve_sizing(&self, node: NodeId, axis: Axis, sizing: Sizing) -> Sizing {
-        let (width, height) = self.size_overrides(node);
-        let extent = match axis {
-            Axis::Horizontal => width,
-            Axis::Vertical => height,
-        };
-        extent.map_or(sizing, Sizing::fixed)
+    pub fn size_overrides(&self, node: NodeId) -> (Option<f32>, Option<f32>) {
+        if self.frame.target_sizes.is_empty() {
+            return (None, None);
+        }
+        let index = node.index();
+        let current = self.frame.nodes[index].area.size();
+        let target = self.frame.target_sizes[index];
+        (
+            target
+                .properties
+                .intersects(TransitionProperties::WIDTH)
+                .then_some(current.width),
+            target
+                .properties
+                .intersects(TransitionProperties::HEIGHT)
+                .then_some(current.height),
+        )
     }
 
     /// lays out `child` and returns its size
@@ -177,25 +187,6 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
 }
 
 impl<C, I: 'static> LayoutCx<'_, C, I> {
-    #[inline]
-    fn size_overrides(&self, node: NodeId) -> (Option<f32>, Option<f32>) {
-        if self.frame.target_sizes.is_empty() {
-            return (None, None);
-        }
-        let current = self.frame.nodes[node.index()].area.size();
-        let target = self.frame.target_sizes[node.index()];
-        (
-            target
-                .properties
-                .intersects(TransitionProperties::WIDTH)
-                .then_some(current.width),
-            target
-                .properties
-                .intersects(TransitionProperties::HEIGHT)
-                .then_some(current.height),
-        )
-    }
-
     #[track_caller]
     fn assert_child(&self, child: NodeId) {
         let stored = &self.frame.nodes[child.index()];

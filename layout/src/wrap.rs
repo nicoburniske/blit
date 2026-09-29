@@ -1,9 +1,9 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Size, Sizing};
+use blit::{Axis, Constraints, LayoutCx, Point, Size};
 
 pub use crate::size::{Item, item};
 use crate::{
-    Align, Justify, Length, Padding, distribute, flow_constraints, flow_size, justify_offset, round, round_sizing,
-    sizing_range,
+    Align, Justify, Length, Padding, Sizing, distribute, flow_constraints, flow_size, flow_sizing, justify_offset,
+    round, round_sizing, sizing_range,
 };
 
 blit::builder! {
@@ -61,19 +61,10 @@ impl<C> blit::Layout<C> for Layout {
         // measure natural child sizes
         for child in cx.children() {
             let item = cx.item(child);
+            let (main, cross) = flow_sizing(self.axis, item.width, item.height, cx.size_overrides(child));
             cx.layout_child(
                 child,
-                flow_constraints(
-                    self.axis,
-                    sizing_range(
-                        cx.resolve_sizing(child, self.axis, item.sizing(self.axis).into()),
-                        main_max,
-                    ),
-                    sizing_range(
-                        cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis).into()),
-                        cross_max,
-                    ),
-                ),
+                flow_constraints(self.axis, sizing_range(main, main_max), sizing_range(cross, cross_max)),
             );
         }
 
@@ -143,10 +134,13 @@ impl<C> blit::Layout<C> for Layout {
             let mut grows = 0usize;
             for child in start.clone().take(count) {
                 main += round(self.axis.extent(cx.size(child)));
-                grows += usize::from(matches!(
-                    round_sizing(cx.resolve_sizing(child, self.axis, cx.item(child).sizing(self.axis).into())),
-                    Sizing::Grow { .. }
-                ));
+                let item = cx.item(child);
+                let (width, height) = cx.size_overrides(child);
+                let sizing = match self.axis {
+                    Axis::Horizontal => item.width.with_override(width),
+                    Axis::Vertical => item.height.with_override(height),
+                };
+                grows += usize::from(matches!(sizing, Sizing::Grow { .. }));
             }
             let growth = if grows == 0 {
                 0.0
@@ -160,7 +154,9 @@ impl<C> blit::Layout<C> for Layout {
             let mut growth_cursor: f32 = 0.0;
             for child in start.clone().take(count) {
                 let item = cx.item(child);
-                let main_sizing = round_sizing(cx.resolve_sizing(child, self.axis, item.sizing(self.axis).into()));
+                let (main_sizing, cross_sizing) =
+                    flow_sizing(self.axis, item.width, item.height, cx.size_overrides(child));
+                let main_sizing = round_sizing(main_sizing);
                 let current = cx.size(child);
                 let current_main = round(self.axis.extent(current));
                 if matches!(main_sizing, Sizing::Grow { .. }) {
@@ -169,14 +165,7 @@ impl<C> blit::Layout<C> for Layout {
                     if assigned != current_main {
                         cx.layout_child(
                             child,
-                            flow_constraints(
-                                self.axis,
-                                (assigned, assigned),
-                                sizing_range(
-                                    cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis).into()),
-                                    cross_max,
-                                ),
-                            ),
+                            flow_constraints(self.axis, (assigned, assigned), sizing_range(cross_sizing, cross_max)),
                         );
                     }
                 }
@@ -193,7 +182,12 @@ impl<C> blit::Layout<C> for Layout {
                 let child_size = cx.size(child);
                 let child_main = round(self.axis.extent(child_size));
                 let child_cross = round(cross_axis.extent(child_size));
-                let cross_sizing = round_sizing(cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis).into()));
+                let (width, height) = cx.size_overrides(child);
+                let cross_sizing = match self.axis {
+                    Axis::Horizontal => item.height.with_override(height),
+                    Axis::Vertical => item.width.with_override(width),
+                };
+                let cross_sizing = round_sizing(cross_sizing);
                 if matches!(cross_sizing, Sizing::Grow { .. })
                     || self.align == Align::Stretch && matches!(cross_sizing, Sizing::Fit { .. })
                 {

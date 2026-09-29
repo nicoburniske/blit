@@ -1,7 +1,7 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Size, Sizing};
+use blit::{Axis, Constraints, LayoutCx, Point, Size};
 
 pub use crate::size::{Item, item};
-use crate::{Length, Padding, flow_constraints, sizing_range};
+use crate::{Length, Padding, Sizing, flow_constraints, sizing_range};
 
 blit::builder! {
     /// lays out at most one child
@@ -30,8 +30,8 @@ impl<C> blit::Layout<C> for Layout {
         assert!(children.next().is_none(), "single accepts at most one flow child");
         let content = bounds.shrink(padding.size());
         let item = cx.item(child);
-        let range = |axis: Axis, sizing: crate::Sizing| {
-            let sizing = cx.resolve_sizing(child, axis, sizing.into());
+        let (width, height) = cx.size_overrides(child);
+        let range = |axis: Axis, sizing: Sizing<f32>| {
             let minimum = axis.extent(content.min);
             let maximum = axis.extent(content.max);
             if matches!(sizing, Sizing::Grow { .. }) {
@@ -43,8 +43,8 @@ impl<C> blit::Layout<C> for Layout {
         };
         let child_bounds = flow_constraints(
             Axis::Horizontal,
-            range(Axis::Horizontal, item.width),
-            range(Axis::Vertical, item.height),
+            range(Axis::Horizontal, item.width.with_override(width)),
+            range(Axis::Vertical, item.height.with_override(height)),
         );
         let size = cx.layout_child(child, child_bounds);
         cx.set_position(child, Point::new(padding.left, padding.top));

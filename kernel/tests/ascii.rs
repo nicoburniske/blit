@@ -1,8 +1,8 @@
 use std::{cell::Cell, rc::Rc, time::Duration};
 
 use blit::{
-    Atom, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, Layout, LayoutCx, Modifiers,
-    NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Sizing, Transition, Widget, WidgetId,
+    Atom, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, Layout, LayoutCx, Modifiers,
+    NodeTarget, Point, PointerButton, Rect, Sense, Size, Transition, Widget, WidgetId,
 };
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, AsciiContext, S>;
@@ -129,8 +129,7 @@ fn empty_and_out_of_flow_children_are_valid() {
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Column);
-        root.child()
-            .item(TestItem::new(0.0).width(Sizing::grow()).height(Sizing::grow()));
+        root.child();
         root.target(NodeTarget::Parent)
             .layout(At::new(0.0, 0.0))
             .child()
@@ -277,7 +276,7 @@ fn visual_parent_preserves_outer_clip_and_supplies_out_of_flow_size() {
         let response = ui.interact_widget(popup_id, Sense::CLICK);
         let mut root = ui.layout(Overlay);
         root.target(NodeTarget::Parent)
-            .layout(At::new(1.0, 0.0).width(Sizing::fixed(5.0)).height(Sizing::fixed(5.0)))
+            .layout(At::new(1.0, 0.0).size(Size::uniform(5.0)))
             .child()
             .clip(DiamondClip)
             .build(|ui: Ui<'_>| {
@@ -285,7 +284,7 @@ fn visual_parent_preserves_outer_clip_and_supplies_out_of_flow_size() {
                 let mut outer = ui.layout(Overlay);
                 outer
                     .target(NodeTarget::Parent)
-                    .layout(At::new(2.0, 2.0).width(Sizing::fixed(1.0)).height(Sizing::fixed(1.0)))
+                    .layout(At::new(2.0, 2.0).size(Size::uniform(1.0)))
                     .child()
                     .clip(DiamondClip)
                     .build(|ui: Ui<'_>| {
@@ -293,9 +292,11 @@ fn visual_parent_preserves_outer_clip_and_supplies_out_of_flow_size() {
                             .target(NodeTarget::Parent)
                             .visual_parent(outer_id)
                             .z_index(1)
-                            .layout(At::new(-2.0, -2.0).width(Sizing::grow()).height(Sizing::grow()))
+                            .layout(At::new(-2.0, -2.0))
                             .child()
                             .widget_id(popup_id)
+                            .layout(Fraction(Size::uniform(1.0)))
+                            .child()
                             .insert(Fill::new('P', Size::ZERO));
                     });
             });
@@ -348,7 +349,7 @@ fn paint_and_interaction_follow_visual_groups() {
                 let mut modal_target = root
                     .target(NodeTarget::Parent)
                     .z_index(1)
-                    .layout(At::new(0.0, 0.0).width(Sizing::grow()).height(Sizing::grow()));
+                    .layout(At::new(0.0, 0.0).size(size));
                 let mut modal = modal_target.child().layout(Overlay);
                 modal.insert(Fill::new('D', Size::ZERO));
                 modal
@@ -482,7 +483,7 @@ fn out_of_flow_size_transitions_remain_fractional() {
             root.target(NodeTarget::Parent)
                 .widget_id(id)
                 .transition(Transition::new(Duration::from_secs(1)).width())
-                .layout(At::new(0.0, 0.0).width(Sizing::fixed(width)).height(Sizing::fixed(1.0)))
+                .layout(At::new(0.0, 0.0).size(Size::new(width, 1.0)))
                 .child()
                 .widget_id(child_id)
                 .insert(Fill::new('X', Size::uniform(1.0)));
@@ -537,49 +538,27 @@ fn transitions_resolved_positions() {
 }
 
 #[test]
-fn resolves_places_and_content_offsets() {
+fn resolves_layout_offsets_and_child_positions() {
     let (mut frame, mut context) = frame(Size::new(8.0, 4.0));
-    let fixed = WidgetId::new("fixed");
-    let grow = WidgetId::new("grow");
-    let percent = WidgetId::new("percent");
-    let fit = WidgetId::new("fit");
+    let centered = WidgetId::new("centered");
+    let wide = WidgetId::new("wide");
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut overlay = ui.layout(Overlay).offset(Point::new(1.0, 0.0));
         overlay
             .child()
             .item(TestItem::fixed(3.0, 1.0))
-            .widget_id(fixed)
+            .widget_id(centered)
             .insert(Fill::new('F', Size::uniform(1.0)));
         overlay
             .child()
-            .item(TestItem::default().width(Sizing::grow()).height(Sizing::fixed(1.0)))
-            .widget_id(grow)
+            .item(TestItem::fixed(8.0, 1.0))
+            .widget_id(wide)
             .insert(Fill::new('G', Size::uniform(1.0)));
-        overlay
-            .child()
-            .item(
-                TestItem::default()
-                    .width(Sizing::percent(0.25))
-                    .height(Sizing::fixed(1.0)),
-            )
-            .widget_id(percent)
-            .insert(Fill::new('P', Size::uniform(1.0)));
-        overlay
-            .child()
-            .item(
-                TestItem::default()
-                    .width(Sizing::fit_range(0.0, 3.0))
-                    .height(Sizing::fixed(1.0)),
-            )
-            .widget_id(fit)
-            .insert(Fill::new('M', Size::new(6.0, 1.0)));
     });
 
-    assert_eq!(frame.geometry(fixed), Some(Rect::new(3.5, 1.5, 3.0, 1.0)));
-    assert_eq!(frame.geometry(grow), Some(Rect::new(1.0, 1.5, 8.0, 1.0)));
-    assert_eq!(frame.geometry(percent), Some(Rect::new(4.0, 1.5, 2.0, 1.0)));
-    assert_eq!(frame.geometry(fit), Some(Rect::new(3.5, 1.5, 3.0, 1.0)));
+    assert_eq!(frame.geometry(centered), Some(Rect::new(3.5, 1.5, 3.0, 1.0)));
+    assert_eq!(frame.geometry(wide), Some(Rect::new(1.0, 1.5, 8.0, 1.0)));
 }
 
 #[test]
@@ -596,12 +575,9 @@ fn out_of_flow_positions_against_target_and_sizes_against_visual_parent() {
         overlay
             .target(target)
             .widget_id(id)
-            .layout(
-                At::new(0.0, 0.0)
-                    .anchors(Point::new(1.0, 1.0), Point::ZERO)
-                    .width(Sizing::percent(0.5))
-                    .height(Sizing::grow()),
-            )
+            .layout(At::new(0.0, 0.0).anchors(Point::new(1.0, 1.0), Point::ZERO))
+            .child()
+            .layout(Fraction(Size::new(0.5, 1.0)))
             .child()
             .build(|ui: Ui<'_>| {
                 let mut content = ui.layout(Overlay);
@@ -1083,31 +1059,19 @@ impl Clip<AsciiContext> for DiamondClip {
 
 struct TestItem {
     gap_before: f32,
-    width: Sizing,
-    height: Sizing,
+    size: Option<Size>,
 }
 
 impl TestItem {
     fn new(gap_before: f32) -> Self {
-        Self {
-            gap_before,
-            width: Sizing::fit(),
-            height: Sizing::fit(),
-        }
+        Self { gap_before, size: None }
     }
 
     fn fixed(width: f32, height: f32) -> Self {
-        Self::new(0.0).width(Sizing::fixed(width)).height(Sizing::fixed(height))
-    }
-
-    fn width(mut self, width: Sizing) -> Self {
-        self.width = width;
-        self
-    }
-
-    fn height(mut self, height: Sizing) -> Self {
-        self.height = height;
-        self
+        Self {
+            gap_before: 0.0,
+            size: Some(Size::new(width, height)),
+        }
     }
 }
 
@@ -1127,7 +1091,10 @@ impl<C> Layout<C> for Column {
         let mut children = Size::ZERO;
         for child in cx.children() {
             let item = cx.item(child);
-            let size = resolve_child(cx, child, constraints.max, true, false);
+            let bounds = item
+                .size
+                .map_or(Constraints::loose(constraints.max), Constraints::tight);
+            let size = cx.layout_child(child, bounds);
             children.width = children.width.max(size.width);
             children.height += item.gap_before + size.height;
         }
@@ -1152,7 +1119,11 @@ impl<C> Layout<C> for Overlay {
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         let mut size = Size::ZERO;
         for child in cx.children() {
-            size = size.max(resolve_child(cx, child, constraints.max, true, true));
+            let bounds = cx
+                .item(child)
+                .size
+                .map_or(Constraints::loose(constraints.max), Constraints::tight);
+            size = size.max(cx.layout_child(child, bounds));
         }
         let size = constraints.constrain(size);
         for child in cx.children() {
@@ -1174,8 +1145,7 @@ struct At {
     offset: Point,
     target_anchor: Point,
     child_anchor: Point,
-    width: Sizing,
-    height: Sizing,
+    size: Option<Size>,
 }
 
 impl At {
@@ -1184,8 +1154,7 @@ impl At {
             offset: Point::new(x, y),
             target_anchor: Point::ZERO,
             child_anchor: Point::ZERO,
-            width: Sizing::fit(),
-            height: Sizing::fit(),
+            size: None,
         }
     }
 
@@ -1195,13 +1164,8 @@ impl At {
         self
     }
 
-    fn width(mut self, width: Sizing) -> Self {
-        self.width = width;
-        self
-    }
-
-    fn height(mut self, height: Sizing) -> Self {
-        self.height = height;
+    fn size(mut self, size: Size) -> Self {
+        self.size = Some(size);
         self
     }
 }
@@ -1213,31 +1177,14 @@ impl<C> Layout<C> for At {
         let child = cx.children().next().expect("positioned content is missing");
         let node = cx.node();
         let containing = cx.size(cx.visual_parent());
-        let range = |sizing: Sizing, available: f32| match sizing {
-            Sizing::Fit { min, max } => {
-                let min = min.max(0.0);
-                (min, max.max(min).min(available).max(min))
-            }
-            Sizing::Grow { .. } => {
-                let size = sizing.clamp(available);
-                (size, size)
-            }
-            Sizing::Fixed(size) => (size.max(0.0), size.max(0.0)),
-            Sizing::Percent(fraction) if available.is_finite() => {
-                let size = available * fraction;
-                (size, size)
-            }
-            Sizing::Percent(_) => (0.0, 0.0),
-        };
-        let width = range(self.width, containing.width);
-        let height = range(self.height, containing.height);
-        let size = cx.layout_child(
-            child,
+        let child_bounds = self.size.map_or(
             Constraints {
-                min: bounds.constrain(Size::new(width.0, height.0)),
-                max: bounds.constrain(Size::new(width.1, height.1)),
+                min: bounds.min,
+                max: bounds.constrain(containing),
             },
+            |size| Constraints::tight(bounds.constrain(size)),
         );
+        let size = cx.layout_child(child, child_bounds);
         let target = cx.size(cx.parent());
         cx.set_position(child, Point::ZERO);
         cx.set_position(
@@ -1255,53 +1202,35 @@ impl<C> Layout<C> for At {
 struct Fixed(Size);
 
 impl<C> Layout<C> for Fixed {
-    type Item = TestItem;
+    type Item = ();
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
         let size = constraints.constrain(self.0);
         for child in cx.children() {
-            resolve_child(cx, child, constraints.max, true, true);
+            cx.layout_child(child, Constraints::tight(size));
             cx.set_position(child, Point::ZERO);
         }
         size
     }
 }
 
-fn resolve_child<C>(
-    cx: &mut LayoutCx<'_, C, TestItem>,
-    child: NodeId,
-    available: Size,
-    width_cross: bool,
-    height_cross: bool,
-) -> Size {
-    let resolve = |sizing: Sizing, intrinsic: f32, available: f32, stretch: bool| match sizing {
-        Sizing::Fit { .. } => sizing.clamp(intrinsic.min(available)),
-        Sizing::Grow { .. } if stretch => sizing.clamp(available),
-        Sizing::Grow { .. } => sizing.clamp(intrinsic.min(available)),
-        Sizing::Fixed(size) => size.max(0.0),
-        Sizing::Percent(fraction) if available.is_finite() => {
-            assert!((0.0..=1.0).contains(&fraction));
-            available * fraction
+#[derive(Clone, Copy)]
+struct Fraction(Size);
+
+impl<C> Layout<C> for Fraction {
+    type Item = ();
+
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
+        let size = constraints.constrain(Size::new(
+            constraints.max.width * self.0.width,
+            constraints.max.height * self.0.height,
+        ));
+        for child in cx.children() {
+            cx.layout_child(child, Constraints::tight(size));
+            cx.set_position(child, Point::ZERO);
         }
-        Sizing::Percent(_) => 0.0,
-    };
-    let intrinsic = cx.layout_child(child, Constraints::loose(available));
-    let item = cx.item(child);
-    let size = Size::new(
-        resolve(
-            cx.resolve_sizing(child, Axis::Horizontal, item.width),
-            intrinsic.width,
-            available.width,
-            width_cross,
-        ),
-        resolve(
-            cx.resolve_sizing(child, Axis::Vertical, item.height),
-            intrinsic.height,
-            available.height,
-            height_cross,
-        ),
-    );
-    cx.layout_child(child, Constraints::tight(size))
+        size
+    }
 }
 
 struct AsciiContext {

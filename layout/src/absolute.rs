@@ -40,9 +40,9 @@ impl<C> blit::Layout<C> for Layout {
 
         let containing = cx.size(cx.visual_parent());
         let range = |sizing: Sizing, available: f32| {
-            let sizing: blit::Sizing = sizing.into();
+            let sizing = sizing.into_float();
             let available = round(available);
-            if matches!(sizing, blit::Sizing::Grow { .. }) {
+            if matches!(sizing, Sizing::Grow { .. }) {
                 let size = sizing.clamp(available);
                 (size, size)
             } else {

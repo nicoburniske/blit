@@ -1,8 +1,8 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Size, Sizing};
+use blit::{Axis, Constraints, LayoutCx, Point, Size};
 
 use crate::{
-    Align, Justify, Length, Padding, distribute, flow_constraints, flow_size, justify_offset, round, round_sizing,
-    sizing_range,
+    Align, Justify, Length, Padding, Sizing, distribute, flow_constraints, flow_size, flow_sizing, justify_offset,
+    round, round_sizing, sizing_range,
 };
 
 blit::builder! {
@@ -44,12 +44,6 @@ impl Item {
         self.width = crate::Sizing::grow();
         self.height = crate::Sizing::grow();
         self
-    }
-    pub fn sizing(&self, axis: Axis) -> crate::Sizing {
-        match axis {
-            Axis::Horizontal => self.width,
-            Axis::Vertical => self.height,
-        }
     }
 }
 
@@ -93,15 +87,18 @@ impl<C> blit::Layout<C> for Layout {
         for child in cx.children() {
             count += 1;
             let item = cx.item(child);
-            if let Sizing::Grow { min, max } =
-                round_sizing(cx.resolve_sizing(child, self.axis, item.sizing(self.axis).into()))
-            {
+            let (width, height) = cx.size_overrides(child);
+            let sizing = match self.axis {
+                Axis::Horizontal => item.width.with_override(width),
+                Axis::Vertical => item.height.with_override(height),
+            };
+            if let Sizing::Grow { min, max } = round_sizing(sizing) {
                 assert!(
                     item.weight.is_finite() && item.weight > 0.0,
                     "flex weight must be finite and positive"
                 );
                 let min = min.max(0.0);
-                let capacity = (max.max(min) - min).max(0.0);
+                let capacity = (max.unwrap_or(f32::INFINITY).max(min) - min).max(0.0);
                 assert!(min.is_finite(), "flex minimum must be finite");
                 grows += 1;
                 minimums += min;
@@ -141,7 +138,8 @@ impl<C> blit::Layout<C> for Layout {
         };
         for child in cx.children() {
             let item = cx.item(child);
-            let sizing = round_sizing(cx.resolve_sizing(child, self.axis, item.sizing(self.axis).into()));
+            let (main_sizing, cross_sizing) = flow_sizing(self.axis, item.width, item.height, cx.size_overrides(child));
+            let sizing = round_sizing(main_sizing);
             if matches!(sizing, Sizing::Grow { .. }) {
                 continue;
             }
@@ -152,11 +150,7 @@ impl<C> blit::Layout<C> for Layout {
             } else {
                 remaining
             };
-            let child_bounds = flow_constraints(
-                self.axis,
-                sizing_range(sizing, budget),
-                cross_bounds(cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis).into())),
-            );
+            let child_bounds = flow_constraints(self.axis, sizing_range(sizing, budget), cross_bounds(cross_sizing));
             let size = cx.layout_child(child, child_bounds);
             let main = round(self.axis.extent(size));
             used += main;
@@ -182,19 +176,17 @@ impl<C> blit::Layout<C> for Layout {
             let mut ideal = 0.0;
             for child in cx.children() {
                 let item = cx.item(child);
-                let sizing = round_sizing(cx.resolve_sizing(child, self.axis, item.sizing(self.axis).into()));
+                let (main_sizing, cross_sizing) =
+                    flow_sizing(self.axis, item.width, item.height, cx.size_overrides(child));
+                let sizing = round_sizing(main_sizing);
                 let Sizing::Grow { min, max } = sizing else {
                     continue;
                 };
                 let min = min.max(0.0);
-                let capacity = (max.max(min) - min).max(0.0);
+                let capacity = (max.unwrap_or(f32::INFINITY).max(min) - min).max(0.0);
                 let share = min + (unit * item.weight).min(capacity);
                 let main = distribute(&mut ideal, share);
-                let child_bounds = flow_constraints(
-                    self.axis,
-                    (main, main),
-                    cross_bounds(cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis).into())),
-                );
+                let child_bounds = flow_constraints(self.axis, (main, main), cross_bounds(cross_sizing));
                 let size = cx.layout_child(child, child_bounds);
                 used += round(self.axis.extent(size));
                 cross = cross.max(round(cross_axis.extent(size)));

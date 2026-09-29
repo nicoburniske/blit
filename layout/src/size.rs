@@ -68,16 +68,16 @@ impl From<Padding> for blit::Sides {
     }
 }
 
-/// physical extents use the platform layout unit; percentages remain ratios
+/// physical extents use the platform layout unit by default; percentages remain ratios
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Sizing {
-    Fit { min: Length, max: Option<Length> },
-    Grow { min: Length, max: Option<Length> },
-    Fixed(Length),
+pub enum Sizing<Unit = Length> {
+    Fit { min: Unit, max: Option<Unit> },
+    Grow { min: Unit, max: Option<Unit> },
+    Fixed(Unit),
     Percent(f32),
 }
 
-impl Sizing {
+impl Sizing<Length> {
     pub const fn fit() -> Self {
         Self::Fit {
             min: 0 as Length,
@@ -111,15 +111,36 @@ impl Sizing {
     pub const fn percent(fraction: f32) -> Self {
         Self::Percent(fraction)
     }
+
+    pub fn into_float(self) -> Sizing<f32> {
+        match self {
+            Self::Fit { min, max } => Sizing::Fit {
+                min: min as f32,
+                max: max.map(|max| max as f32),
+            },
+            Self::Grow { min, max } => Sizing::Grow {
+                min: min as f32,
+                max: max.map(|max| max as f32),
+            },
+            Self::Fixed(size) => Sizing::Fixed(size as f32),
+            Self::Percent(fraction) => Sizing::Percent(fraction),
+        }
+    }
+
+    pub fn with_override(self, animated: Option<f32>) -> Sizing<f32> {
+        animated.map_or_else(|| self.into_float(), Sizing::Fixed)
+    }
 }
 
-impl From<Sizing> for blit::Sizing {
-    fn from(value: Sizing) -> Self {
-        match value {
-            Sizing::Fit { min, max } => Self::fit_range(min as f32, max.map_or(f32::INFINITY, |max| max as f32)),
-            Sizing::Grow { min, max } => Self::grow_range(min as f32, max.map_or(f32::INFINITY, |max| max as f32)),
-            Sizing::Fixed(size) => Self::fixed(size as f32),
-            Sizing::Percent(fraction) => Self::percent(fraction),
+impl Sizing<f32> {
+    #[inline]
+    pub fn clamp(self, size: f32) -> f32 {
+        match self {
+            Self::Fit { min, max } | Self::Grow { min, max } => {
+                size.clamp(min.max(0.0), max.unwrap_or(f32::INFINITY).max(min).max(0.0))
+            }
+            Self::Fixed(fixed) => fixed.max(0.0),
+            Self::Percent(_) => size.max(0.0),
         }
     }
 }
@@ -146,31 +167,38 @@ impl Item {
         self.height = Sizing::grow();
         self
     }
-
-    pub fn sizing(&self, axis: Axis) -> Sizing {
-        match axis {
-            Axis::Horizontal => self.width,
-            Axis::Vertical => self.height,
-        }
-    }
 }
 
 pub fn item() -> Item {
     Item::new()
 }
 
-pub fn round_sizing(sizing: blit::Sizing) -> blit::Sizing {
+pub fn round_sizing(sizing: Sizing<f32>) -> Sizing<f32> {
     match sizing {
-        blit::Sizing::Fit { min, max } => blit::Sizing::Fit {
+        Sizing::Fit { min, max } => Sizing::Fit {
             min: round(min),
-            max: round(max),
+            max: max.map(round),
         },
-        blit::Sizing::Grow { min, max } => blit::Sizing::Grow {
+        Sizing::Grow { min, max } => Sizing::Grow {
             min: round(min),
-            max: round(max),
+            max: max.map(round),
         },
-        blit::Sizing::Fixed(size) => blit::Sizing::Fixed(round(size)),
-        blit::Sizing::Percent(fraction) => blit::Sizing::Percent(fraction),
+        Sizing::Fixed(size) => Sizing::Fixed(round(size)),
+        Sizing::Percent(fraction) => Sizing::Percent(fraction),
+    }
+}
+
+pub fn flow_sizing(
+    axis: Axis,
+    width: Sizing,
+    height: Sizing,
+    (width_override, height_override): (Option<f32>, Option<f32>),
+) -> (Sizing<f32>, Sizing<f32>) {
+    let width = width.with_override(width_override);
+    let height = height.with_override(height_override);
+    match axis {
+        Axis::Horizontal => (width, height),
+        Axis::Vertical => (height, width),
     }
 }
 
@@ -182,17 +210,18 @@ pub fn flow_size(main: f32, cross: f32, axis: Axis) -> Size {
 }
 
 #[inline]
-pub fn sizing_range(sizing: blit::Sizing, available: f32) -> (f32, f32) {
+pub fn sizing_range(sizing: Sizing<f32>, available: f32) -> (f32, f32) {
     match round_sizing(sizing) {
-        blit::Sizing::Fit { min, max } | blit::Sizing::Grow { min, max } => {
+        Sizing::Fit { min, max } | Sizing::Grow { min, max } => {
             let min = min.max(0.0);
+            let max = max.unwrap_or(f32::INFINITY);
             (min, max.max(min).min(available).max(min))
         }
-        blit::Sizing::Fixed(size) => {
+        Sizing::Fixed(size) => {
             let size = size.max(0.0);
             (size, size)
         }
-        blit::Sizing::Percent(fraction) => {
+        Sizing::Percent(fraction) => {
             assert!((0.0..=1.0).contains(&fraction));
             let size = if available.is_finite() {
                 available * fraction
