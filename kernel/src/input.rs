@@ -1,27 +1,27 @@
-use crate::geometry::Point;
+use crate::geometry::LogicalPoint;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Input {
     #[default]
     None,
     PointerDown {
-        position: Point,
+        position: LogicalPoint,
         button: PointerButton,
         modifiers: Modifiers,
     },
     PointerUp {
-        position: Point,
+        position: LogicalPoint,
         button: PointerButton,
         modifiers: Modifiers,
         leave: bool,
     },
     PointerMove {
-        position: Point,
+        position: LogicalPoint,
         modifiers: Modifiers,
     },
     PointerLeave,
     Scroll {
-        position: Point,
+        position: LogicalPoint,
         delta_x: f32,
         delta_y: f32,
         modifiers: Modifiers,

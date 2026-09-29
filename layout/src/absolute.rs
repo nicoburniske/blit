@@ -1,4 +1,4 @@
-use blit::{Constraints, Point, Size};
+use blit::{Constraints, LogicalPoint, LogicalSize};
 
 use crate::{Offset, Sizing, round, sizing_range};
 
@@ -33,7 +33,7 @@ pub enum Anchor {
 impl<C> blit::Layout<C> for Layout {
     type Item = ();
 
-    fn layout(&self, cx: &mut blit::LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
+    fn layout(&self, cx: &mut blit::LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
         let mut children = cx.children();
         let child = children.next().expect("absolute requires one flow child");
         assert!(children.next().is_none(), "absolute accepts one flow child");
@@ -54,28 +54,28 @@ impl<C> blit::Layout<C> for Layout {
         let size = cx.layout_child(
             child,
             Constraints {
-                min: bounds.constrain(Size::new(round(width.0), round(height.0))),
-                max: bounds.constrain(Size::new(round(width.1), round(height.1))),
+                min: bounds.constrain(LogicalSize::new(round(width.0), round(height.0))),
+                max: bounds.constrain(LogicalSize::new(round(width.1), round(height.1))),
             },
         );
         let target = cx.size(cx.parent());
         let anchor = |anchor| match anchor {
-            Anchor::TopLeft => Point::new(0.0, 0.0),
-            Anchor::Top => Point::new(0.5, 0.0),
-            Anchor::TopRight => Point::new(1.0, 0.0),
-            Anchor::Left => Point::new(0.0, 0.5),
-            Anchor::Center => Point::new(0.5, 0.5),
-            Anchor::Right => Point::new(1.0, 0.5),
-            Anchor::BottomLeft => Point::new(0.0, 1.0),
-            Anchor::Bottom => Point::new(0.5, 1.0),
-            Anchor::BottomRight => Point::new(1.0, 1.0),
+            Anchor::TopLeft => LogicalPoint::new(0.0, 0.0),
+            Anchor::Top => LogicalPoint::new(0.5, 0.0),
+            Anchor::TopRight => LogicalPoint::new(1.0, 0.0),
+            Anchor::Left => LogicalPoint::new(0.0, 0.5),
+            Anchor::Center => LogicalPoint::new(0.5, 0.5),
+            Anchor::Right => LogicalPoint::new(1.0, 0.5),
+            Anchor::BottomLeft => LogicalPoint::new(0.0, 1.0),
+            Anchor::Bottom => LogicalPoint::new(0.5, 1.0),
+            Anchor::BottomRight => LogicalPoint::new(1.0, 1.0),
         };
         let target_anchor = anchor(self.target_anchor);
         let child_anchor = anchor(self.child_anchor);
-        cx.set_position(child, Point::ZERO);
+        cx.set_position(child, LogicalPoint::ZERO);
         cx.set_position(
             cx.node(),
-            Point::new(
+            LogicalPoint::new(
                 round(round(target.width) * target_anchor.x - round(size.width) * child_anchor.x + self.x as f32),
                 round(round(target.height) * target_anchor.y - round(size.height) * child_anchor.y + self.y as f32),
             ),

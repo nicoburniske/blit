@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, Constraints, LogicalRect, LogicalSize};
 
 use crate::{
     TuiContext,
@@ -74,14 +74,14 @@ impl BarChart {
 }
 
 impl Atom<TuiContext> for BarChart {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> LogicalSize {
         let width = self
             .bars
             .borrow()
             .len()
             .saturating_mul(self.bar_width + self.gap)
             .saturating_sub(self.gap);
-        constraints.constrain(Size::new(width as f32, 5.0))
+        constraints.constrain(LogicalSize::new(width as f32, 5.0))
     }
 
     fn paint(&self, context: &mut TuiContext, area: LogicalRect) {

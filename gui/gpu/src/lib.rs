@@ -838,8 +838,8 @@ impl Renderer {
                             self.glyph_instances.push(GlyphInstance {
                                 draw: physical_rect(draw),
                                 atlas: [
-                                    cached.atlas[0] + u32::try_from(draw.x - shape.x).unwrap(),
-                                    cached.atlas[1] + u32::try_from(draw.y - shape.y).unwrap(),
+                                    cached.atlas.x + u32::try_from(draw.x - shape.x).unwrap(),
+                                    cached.atlas.y + u32::try_from(draw.y - shape.y).unwrap(),
                                 ],
                                 color,
                                 clip: record.clip.0,

@@ -1,5 +1,7 @@
 // adapted from etagere 0.3.0
 
+use blit::{Point, Size};
+
 const SHELF_SPLIT_THRESHOLD: u16 = 8;
 const ITEM_SPLIT_THRESHOLD: u16 = 8;
 
@@ -49,7 +51,7 @@ pub struct AllocId {
 
 pub struct Allocation {
     pub id: AllocId,
-    pub position: [u32; 2],
+    pub position: Point<u32>,
 }
 
 pub struct AtlasAllocator {
@@ -63,10 +65,10 @@ pub struct AtlasAllocator {
 }
 
 impl AtlasAllocator {
-    pub fn new(size: [u32; 2]) -> Self {
-        assert!(size[0] > 0 && size[1] > 0, "atlas size must be positive");
-        let width = u16::try_from(size[0]).expect("atlas is too wide");
-        let height = u16::try_from(size[1]).expect("atlas is too tall");
+    pub fn new(size: Size<u32>) -> Self {
+        assert!(size.width > 0 && size.height > 0, "atlas size must be positive");
+        let width = u16::try_from(size.width).expect("atlas is too wide");
+        let height = u16::try_from(size.height).expect("atlas is too tall");
         Self {
             width,
             height,
@@ -95,13 +97,17 @@ impl AtlasAllocator {
         }
     }
 
-    pub fn allocate(&mut self, size: [u32; 2]) -> Option<Allocation> {
-        if size[0] == 0 || size[1] == 0 || size[0] > u32::from(self.width) || size[1] > u32::from(self.height) {
+    pub fn allocate(&mut self, size: Size<u32>) -> Option<Allocation> {
+        if size.width == 0
+            || size.height == 0
+            || size.width > u32::from(self.width)
+            || size.height > u32::from(self.height)
+        {
             return None;
         }
 
-        let width = size[0] as u16;
-        let requested_height = size[1] as u16;
+        let width = size.width as u16;
+        let requested_height = size.height as u16;
         let alignment = match requested_height {
             0..=31 => 8,
             32..=127 => 16,
@@ -236,7 +242,7 @@ impl AtlasAllocator {
                 item: selected_item,
                 generation: self.items[selected_item.index()].generation,
             },
-            position: [u32::from(item.x), u32::from(shelf.y)],
+            position: Point::new(u32::from(item.x), u32::from(shelf.y)),
         })
     }
 
@@ -356,11 +362,11 @@ mod tests {
         #[derive(Clone, Copy)]
         struct Live {
             id: AllocId,
-            position: [u32; 2],
-            size: [u32; 2],
+            position: Point<u32>,
+            size: Size<u32>,
         }
 
-        let mut atlas = AtlasAllocator::new([256, 256]);
+        let mut atlas = AtlasAllocator::new(Size::uniform(256));
         let mut live: Vec<Live> = Vec::new();
         let mut state = 0x1234_5678_u32;
         let mut random = || {
@@ -375,17 +381,17 @@ mod tests {
                 continue;
             }
 
-            let size = [random() % 48 + 1, random() % 48 + 1];
+            let size = Size::new(random() % 48 + 1, random() % 48 + 1);
             let Some(allocation) = atlas.allocate(size) else {
                 continue;
             };
-            assert!(allocation.position[0] + size[0] <= 256);
-            assert!(allocation.position[1] + size[1] <= 256);
+            assert!(allocation.position.x + size.width <= 256);
+            assert!(allocation.position.y + size.height <= 256);
             assert!(live.iter().all(|other| {
-                allocation.position[0] + size[0] <= other.position[0]
-                    || other.position[0] + other.size[0] <= allocation.position[0]
-                    || allocation.position[1] + size[1] <= other.position[1]
-                    || other.position[1] + other.size[1] <= allocation.position[1]
+                allocation.position.x + size.width <= other.position.x
+                    || other.position.x + other.size.width <= allocation.position.x
+                    || allocation.position.y + size.height <= other.position.y
+                    || other.position.y + other.size.height <= allocation.position.y
             }));
             live.push(Live {
                 id: allocation.id,
@@ -399,22 +405,22 @@ mod tests {
         }
 
         assert!(atlas.is_empty());
-        let full = atlas.allocate([256, 256]).unwrap();
-        assert_eq!(full.position, [0, 0]);
+        let full = atlas.allocate(Size::uniform(256)).unwrap();
+        assert_eq!(full.position, Point::new(0, 0));
     }
 
     #[test]
     fn reuses_evicted_glyph_space() {
-        let mut atlas = AtlasAllocator::new([64, 32]);
-        let a = atlas.allocate([16, 16]).unwrap();
-        let b = atlas.allocate([16, 16]).unwrap();
-        let c = atlas.allocate([16, 16]).unwrap();
-        assert_eq!(a.position, [0, 0]);
-        assert_eq!(b.position, [16, 0]);
-        assert_eq!(c.position, [32, 0]);
+        let mut atlas = AtlasAllocator::new(Size::new(64, 32));
+        let a = atlas.allocate(Size::uniform(16)).unwrap();
+        let b = atlas.allocate(Size::uniform(16)).unwrap();
+        let c = atlas.allocate(Size::uniform(16)).unwrap();
+        assert_eq!(a.position, Point::new(0, 0));
+        assert_eq!(b.position, Point::new(16, 0));
+        assert_eq!(c.position, Point::new(32, 0));
 
         atlas.deallocate(b.id);
-        let replacement = atlas.allocate([16, 16]).unwrap();
-        assert_eq!(replacement.position, [16, 0]);
+        let replacement = atlas.allocate(Size::uniform(16)).unwrap();
+        assert_eq!(replacement.position, Point::new(16, 0));
     }
 }

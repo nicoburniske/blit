@@ -4,7 +4,7 @@ use super::{Frame, NodeId};
 use crate::{
     animation::{Transition, TransitionProperties},
     arena::DataArena,
-    geometry::{Constraints, Point, Rect, Size},
+    geometry::{Constraints, LogicalPoint, LogicalRect, LogicalSize},
     interact::WidgetId,
 };
 
@@ -14,7 +14,7 @@ use crate::{
 /// - active size transitions write animated sizes into node geometry and replay layout
 /// - target sizes remain available for structural decisions such as wrapping
 /// - position transitions apply after layout without replay
-pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size, resized: bool) {
+pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: LogicalSize, resized: bool) {
     for index in 0..frame.geometry.len() {
         let record = frame.geometry[index];
         let Some(config) = record.transition else {
@@ -104,7 +104,7 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
     }
 }
 
-fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size) {
+fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: LogicalSize) {
     let root = NodeId::new(0);
     frame.layout_node(data, root, context, Constraints::tight(size));
     for index in 1..frame.nodes.len() {
@@ -115,7 +115,7 @@ fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size
         frame.nodes[index].area.y = 0.0;
         let node = NodeId::new(index);
         let mut constraints = if frame.nodes[index].layout.index().is_some() {
-            Constraints::loose(Size::uniform(f32::INFINITY))
+            Constraints::loose(LogicalSize::uniform(f32::INFINITY))
         } else {
             let containing = frame.nodes[index].visual_parent;
             Constraints::loose(frame.nodes[containing.index()].area.size())
@@ -139,13 +139,13 @@ fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size
     }
 }
 
-fn offset<C>(frame: &Frame<C>, node: NodeId) -> Point {
+fn offset<C>(frame: &Frame<C>, node: NodeId) -> LogicalPoint {
     if frame.nodes[node.index()].out_of_flow {
-        return Point::ZERO;
+        return LogicalPoint::ZERO;
     }
     let parent = frame.nodes[node.index()].parent;
     if parent == node {
-        Point::ZERO
+        LogicalPoint::ZERO
     } else {
         frame.layout_offset(parent)
     }
@@ -153,9 +153,9 @@ fn offset<C>(frame: &Frame<C>, node: NodeId) -> Point {
 
 pub struct TransitionState {
     pub id: WidgetId,
-    pub current: Rect,
-    pub initial: Rect,
-    pub target: Rect,
+    pub current: LogicalRect,
+    pub initial: LogicalRect,
+    pub target: LogicalRect,
     pub started_at: Option<Duration>,
     pub active: TransitionProperties,
     pub node: NodeId,
@@ -168,9 +168,9 @@ impl TransitionState {
     pub fn new(id: WidgetId, node: NodeId, config: Transition) -> Self {
         Self {
             id,
-            current: Rect::default(),
-            initial: Rect::default(),
-            target: Rect::default(),
+            current: LogicalRect::default(),
+            initial: LogicalRect::default(),
+            target: LogicalRect::default(),
             started_at: None,
             active: TransitionProperties::NONE,
             node,
@@ -205,7 +205,7 @@ impl TransitionState {
         }
     }
 
-    pub fn advance(&mut self, target: Rect, now: Duration, resized: bool) {
+    pub fn advance(&mut self, target: LogicalRect, now: Duration, resized: bool) {
         if !self.initialized || (resized && !self.config.properties.intersects(TransitionProperties::RESIZE)) {
             self.current = target;
             self.initial = target;

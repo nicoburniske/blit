@@ -4,7 +4,7 @@ use std::{
 };
 
 use blit::{
-    Frame, FrameInfo, LogicalPoint, Size,
+    Frame, FrameInfo, LogicalPoint, LogicalSize,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use blit_executor::LocalExecutor;
@@ -212,7 +212,7 @@ impl<A: Application> Runner<A> {
             return;
         }
         let scale = active.scale();
-        let info = FrameInfo::new(Size::new(size.width as f32 / scale, size.height as f32 / scale));
+        let info = FrameInfo::new(LogicalSize::new(size.width as f32 / scale, size.height as f32 / scale));
         let no_input = self.inputs.is_empty().then_some(Input::None);
         for input in self.inputs.drain(..).chain(no_input) {
             active.gui.profiler_mut().begin_build();

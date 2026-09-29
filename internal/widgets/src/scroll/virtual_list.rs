@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
-use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, Size, Ui, WidgetId};
+use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, LogicalPoint, LogicalSize, Ui, WidgetId};
 
 pub use super::shared::Behavior;
 use super::shared::{self, ScrollItem, ScrollLayout, build_scroll, update};
@@ -193,7 +193,7 @@ pub struct Response {
 pub struct State {
     scroll: shared::State,
     table: Rc<RefCell<RowTable>>,
-    screen: Option<Size>,
+    screen: Option<LogicalSize>,
     dirty: bool,
     reveal: Option<WidgetId>,
     visible: Range<usize>,
@@ -245,7 +245,7 @@ struct MeasuredScrollLayout {
 impl<C> Layout<C> for MeasuredScrollLayout {
     type Item = ScrollItem;
 
-    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         self.scroll.layout_with_offset(ui, constraints, |maximum| {
             let mut table = self.table.borrow_mut();
             table.offset = table.offset.clamp(0.0, maximum);
@@ -263,15 +263,15 @@ struct MeasuredLayout {
 impl<C> Layout<C> for MeasuredLayout {
     type Item = ();
 
-    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let mut table = self.table.borrow_mut();
         let mut changed = None;
         for (index, child) in ui.children().enumerate() {
             let size = ui.layout_child(
                 child,
                 Constraints {
-                    min: Size::new(constraints.max.width, 0.0),
-                    max: Size::new(constraints.max.width, f32::INFINITY),
+                    min: LogicalSize::new(constraints.max.width, 0.0),
+                    max: LogicalSize::new(constraints.max.width, f32::INFINITY),
                 },
             );
             assert!(size.height.is_finite() && size.height >= 0.0);
@@ -297,9 +297,9 @@ impl<C> Layout<C> for MeasuredLayout {
             table.offset = row.top + within.min(row.height);
         }
         for (index, child) in ui.children().enumerate() {
-            ui.set_position(child, Point::new(0.0, table.rows[self.first + index].top));
+            ui.set_position(child, LogicalPoint::new(0.0, table.rows[self.first + index].top));
         }
-        constraints.constrain(Size::new(constraints.max.width, table.total))
+        constraints.constrain(LogicalSize::new(constraints.max.width, table.total))
     }
 }
 
@@ -321,7 +321,7 @@ mod tests {
             let context = &mut TestContext;
             frame.build(
                 context,
-                FrameInfo::new(Size::new(80.0, 50.0)),
+                FrameInfo::new(LogicalSize::new(80.0, 50.0)),
                 Duration::ZERO,
                 Input::None,
                 |ui: Ui<'_, TestContext>| {

@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Atom, Axis, Constraints, Easing, Interaction, LogicalRect, Point, Sense, Sides, Size, Sizing,
-    Transition, Widget, WidgetId,
+    Absolute, Anchor, Atom, Axis, Constraints, Easing, Interaction, LogicalPoint, LogicalRect, LogicalSize, Sense,
+    Sides, Sizing, Transition, Widget, WidgetId,
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 #[cfg(not(feature = "gpu"))]
@@ -155,7 +155,7 @@ impl Application for App {
                 popover::Config::new()
                     .target_anchor(Anchor::BottomRight)
                     .child_anchor(Anchor::TopRight)
-                    .offset(Point::new(0.0, sz::XXS))
+                    .offset(LogicalPoint::new(0.0, sz::XXS))
                     .open_on_hover(true)
                     .close(popover::Close::Exit),
                 |ui, interaction, open| {
@@ -399,10 +399,10 @@ impl Widget<GuiContext> for &mut TextPage {
                             .widget_id(WidgetId::new("rich text preview"))
                             .build(resize::new(
                                 resize,
-                                resize::Config::new(Size::new(560.0, 360.0))
-                                    .minimum(Size::new(260.0, 160.0))
+                                resize::Config::new(LogicalSize::new(560.0, 360.0))
+                                    .minimum(LogicalSize::new(260.0, 160.0))
                                     .maximum(screen)
-                                    .grip_size(Size::uniform(sz::MD)),
+                                    .grip_size(LogicalSize::uniform(sz::MD)),
                                 |ui: Ui<'_>| {
                                     let mut paragraph =
                                         ui.layout(single::layout().padding(Sides::all(sz::LG))).clip(BoundsClip);
@@ -508,7 +508,7 @@ impl Widget<GuiContext> for &mut LayoutPage {
             split: split_state,
         } = self;
         let screen = ui.screen().size();
-        let unit = Size::uniform(sz::SM);
+        let unit = LogicalSize::uniform(sz::SM);
         let preview_config = *canvas;
         let mut body = ui.layout(flex::row());
         body.child().item(flex::item().grow()).widget_id(WidgetId::new("layout page split")).build(
@@ -682,7 +682,7 @@ impl Widget<GuiContext> for &mut LayoutPage {
                                 resize,
                                 resize::Config::new(initial)
                                     .minimum(sz::CANVAS_MIN)
-                                    .grip_size(Size::uniform(sz::MD)),
+                                    .grip_size(LogicalSize::uniform(sz::MD)),
                                 Canvas {
                                     config: preview_config,
                                     unit,
@@ -1015,8 +1015,8 @@ struct TerrainBuffers {
 }
 
 impl Atom<GuiContext> for Terrain {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> Size {
-        constraints.constrain(Size::ZERO)
+    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> LogicalSize {
+        constraints.constrain(LogicalSize::ZERO)
     }
 
     fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
@@ -1105,8 +1105,8 @@ fn split<'a>(
             move |ui: Ui<'_>| {
                 let active = interaction.hovered || interaction.dragging;
                 let marker = match axis {
-                    Axis::Horizontal => Size::new(sz::BORDER_STRONG, sz::XXXL),
-                    Axis::Vertical => Size::new(sz::XXXL, sz::BORDER_STRONG),
+                    Axis::Horizontal => LogicalSize::new(sz::BORDER_STRONG, sz::XXXL),
+                    Axis::Vertical => LogicalSize::new(sz::XXXL, sz::BORDER_STRONG),
                 };
                 let mut divider = ui.layout(
                     flex::row()
@@ -1135,9 +1135,9 @@ impl Widget<GuiContext> for DesktopGrip {
 
     fn build(self, ui: Ui<'_>) {
         let marker = match self.0.edge {
-            resize::Edge::Right => Size::new(sz::XXS, sz::XXXXL),
-            resize::Edge::Bottom => Size::new(sz::XXXXL, sz::XXS),
-            resize::Edge::Corner => Size::uniform(sz::XS),
+            resize::Edge::Right => LogicalSize::new(sz::XXS, sz::XXXXL),
+            resize::Edge::Bottom => LogicalSize::new(sz::XXXXL, sz::XXS),
+            resize::Edge::Corner => LogicalSize::uniform(sz::XS),
         };
         let active = self.0.interaction.hovered || self.0.interaction.active || self.0.interaction.dragging;
         let color = if active {
@@ -1238,7 +1238,7 @@ fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, optio
 #[derive(Clone, Copy)]
 struct Canvas {
     config: CanvasConfig,
-    unit: Size,
+    unit: LogicalSize,
 }
 
 impl Widget<GuiContext> for Canvas {
@@ -1426,7 +1426,7 @@ fn panel(background: Color) -> Rectangle {
 }
 
 mod sz {
-    use blit::Size;
+    use blit::LogicalSize;
 
     pub const BORDER: f32 = 1.0;
     pub const BORDER_STRONG: f32 = 2.0;
@@ -1449,9 +1449,9 @@ mod sz {
     pub const BADGE_WIDTH: f32 = 36.0;
 
     pub const CANVAS_INITIAL_SCALE: f32 = 0.8;
-    pub const CANVAS_INITIAL_OFFSET: Size = Size::new(430.0, 150.0);
-    pub const CANVAS_INITIAL_MIN: Size = Size::new(280.0, 220.0);
-    pub const CANVAS_MIN: Size = Size::new(240.0, 180.0);
+    pub const CANVAS_INITIAL_OFFSET: LogicalSize = LogicalSize::new(430.0, 150.0);
+    pub const CANVAS_INITIAL_MIN: LogicalSize = LogicalSize::new(280.0, 220.0);
+    pub const CANVAS_MIN: LogicalSize = LogicalSize::new(240.0, 180.0);
 }
 
 mod graphics {

@@ -62,7 +62,7 @@ pub use self::{
 crate::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct FrameInfo {
-        new(size: Size),
+        new(size: LogicalSize),
     }
 }
 
@@ -88,14 +88,14 @@ pub trait Atom<C>: 'static {
     ///
     /// measurement may be skipped under tight constraints. painting must not
     /// depend on prior measurement.
-    fn measure(&self, context: &mut C, constraints: Constraints) -> Size;
+    fn measure(&self, context: &mut C, constraints: Constraints) -> LogicalSize;
 
-    fn paint(&self, context: &mut C, area: Rect);
+    fn paint(&self, context: &mut C, area: LogicalRect);
 
     /// conservative bounds containing everything this atom may paint
     ///
     /// these bounds may extend beyond the layout `area`
-    fn paint_bounds(&self, area: Rect) -> Rect;
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect;
 }
 
 impl<C, F, O> Widget<C> for F
@@ -118,19 +118,19 @@ impl<C> Widget<C> for () {
 }
 
 impl<C> Atom<C> for () {
-    fn measure(&self, _: &mut C, constraints: Constraints) -> Size {
-        constraints.constrain(Size::ZERO)
+    fn measure(&self, _: &mut C, constraints: Constraints) -> LogicalSize {
+        constraints.constrain(LogicalSize::ZERO)
     }
 
-    fn paint(&self, _: &mut C, _: Rect) {}
+    fn paint(&self, _: &mut C, _: LogicalRect) {}
 
-    fn paint_bounds(&self, _: Rect) -> Rect {
-        Rect::default()
+    fn paint_bounds(&self, _: LogicalRect) -> LogicalRect {
+        LogicalRect::default()
     }
 }
 
 pub trait Clip<C>: 'static {
-    fn push(&self, context: &mut C, area: Rect);
+    fn push(&self, context: &mut C, area: LogicalRect);
 
     fn pop(&self, context: &mut C);
 }

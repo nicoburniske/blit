@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Size};
+use blit::{Axis, Constraints, LayoutCx, LogicalPoint, LogicalSize};
 
 use crate::{Length, Padding, flow_constraints, round};
 
@@ -112,7 +112,7 @@ pub fn item() -> Item {
 impl<C> blit::Layout<C> for Layout {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let range = |preferred: Option<Length>, available| {
             if let Some(preferred) = preferred {
                 let preferred = (preferred as f32).max(0.0);
@@ -223,7 +223,7 @@ impl<C> blit::Layout<C> for Layout {
                 let assigned_height = (round(padding.top + end_row as f32 * (row_height + row_gap) - row_gap)
                     - round(padding.top + row as f32 * (row_height + row_gap)))
                 .max(0.0);
-                let child_size = Size {
+                let child_size = LogicalSize {
                     width: assigned_width,
                     height: assigned_height,
                 };
@@ -232,14 +232,14 @@ impl<C> blit::Layout<C> for Layout {
                 }
                 cx.set_position(
                     child,
-                    Point::new(
+                    LogicalPoint::new(
                         column_start(column),
                         round(padding.top + row as f32 * (row_height + row_gap)),
                     ),
                 );
             }
 
-            return constraints.constrain(Size {
+            return constraints.constrain(LogicalSize {
                 width,
                 height: row_height * rows as f32 + row_gap * rows.saturating_sub(1) as f32 + vertical_padding,
             });
@@ -277,16 +277,16 @@ impl<C> blit::Layout<C> for Layout {
             natural_height += row_height;
 
             for (column, child) in row.take(row_count).enumerate() {
-                let child_size = Size::new(column_width(column, 1), row_height);
+                let child_size = LogicalSize::new(column_width(column, 1), row_height);
                 if cx.size(child) != child_size {
                     cx.layout_child(child, Constraints::tight(child_size));
                 }
-                cx.set_position(child, Point::new(column_start(column), y));
+                cx.set_position(child, LogicalPoint::new(column_start(column), y));
             }
             y += row_height + row_gap;
         }
 
-        constraints.constrain(Size {
+        constraints.constrain(LogicalSize {
             width,
             height: natural_height,
         })

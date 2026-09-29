@@ -1,6 +1,6 @@
 use std::ops::{BitOr, BitOrAssign};
 
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, Constraints, LogicalRect, LogicalSize};
 
 use crate::{
     TuiContext,
@@ -29,8 +29,8 @@ impl Block {
 }
 
 impl Atom<TuiContext> for Block {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> Size {
-        constraints.constrain(Size::ZERO)
+    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> LogicalSize {
+        constraints.constrain(LogicalSize::ZERO)
     }
 
     fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
@@ -304,7 +304,7 @@ fn border_character(style: BorderStyle, edges: u8) -> char {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Input, Size};
+    use blit::{Frame, FrameInfo, Input, LogicalSize};
     use blit_layout::single;
 
     use super::*;
@@ -318,7 +318,7 @@ mod tests {
         context.begin_paint();
         frame.build(
             &mut context,
-            FrameInfo::new(Size::new(20.0, 5.0)),
+            FrameInfo::new(LogicalSize::new(20.0, 5.0)),
             Duration::ZERO,
             Input::None,
             |ui: crate::Ui<'_>| {

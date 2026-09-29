@@ -1,5 +1,5 @@
 pub use crate::frame::layout::{Children, LayoutCx};
-use crate::geometry::{Constraints, Size};
+use crate::geometry::{Constraints, LogicalSize};
 
 pub trait Layout<C>: 'static {
     /// per-child data interpreted by this layout
@@ -23,7 +23,7 @@ pub trait Layout<C>: 'static {
     ///
     /// - use [`LayoutCx::size_overrides`] when sizing affects allocation before laying out the child
     /// - use [`LayoutCx::target_size`] when animated size must not change structure such as wrapping
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size;
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize;
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -43,7 +43,7 @@ impl Axis {
     }
 
     #[inline]
-    pub const fn extent(self, size: Size) -> f32 {
+    pub const fn extent(self, size: LogicalSize) -> f32 {
         match self {
             Self::Horizontal => size.width,
             Self::Vertical => size.height,
@@ -51,7 +51,7 @@ impl Axis {
     }
 
     #[inline]
-    pub fn set_extent(self, size: &mut Size, extent: f32) {
+    pub fn set_extent(self, size: &mut LogicalSize, extent: f32) {
         match self {
             Self::Horizontal => size.width = extent,
             Self::Vertical => size.height = extent,

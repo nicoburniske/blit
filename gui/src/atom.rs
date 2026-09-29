@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, Constraints, LogicalRect, LogicalSize};
 
 use crate::{
     GuiContext,
@@ -21,8 +21,8 @@ blit::builder! {
 }
 
 impl Atom<GuiContext> for Rectangle {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> Size {
-        constraints.constrain(Size::ZERO)
+    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> LogicalSize {
+        constraints.constrain(LogicalSize::ZERO)
     }
 
     fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
@@ -54,7 +54,7 @@ blit::builder! {
 }
 
 impl Atom<GuiContext> for Text {
-    fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> LogicalSize {
         let measured = context.measure_text(&TextLayoutRequest {
             text: self.text,
             wrap: self.options.wrap,
@@ -84,7 +84,7 @@ impl Atom<GuiContext> for Text {
 #[derive(Clone, Copy)]
 pub struct Image {
     pub image: ImageId,
-    pub intrinsic: Size,
+    pub intrinsic: LogicalSize,
     pub fit: ImageFit,
     pub sampling: ImageSampling,
     pub opacity: f32,
@@ -95,7 +95,7 @@ pub struct Image {
 }
 
 impl Atom<GuiContext> for Image {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> LogicalSize {
         constraints.constrain(self.intrinsic)
     }
 
@@ -150,8 +150,8 @@ impl Shadow {
 }
 
 impl Atom<GuiContext> for Shadow {
-    fn measure(&self, _: &mut GuiContext, _: Constraints) -> Size {
-        Size::ZERO
+    fn measure(&self, _: &mut GuiContext, _: Constraints) -> LogicalSize {
+        LogicalSize::ZERO
     }
 
     fn paint(&self, context: &mut GuiContext, area: LogicalRect) {

@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, Constraints, LogicalRect, LogicalSize, PhysicalPoint};
 
 use crate::{
     TuiContext,
@@ -25,8 +25,8 @@ impl Shadow {
 }
 
 impl Atom<TuiContext> for Shadow {
-    fn measure(&self, _: &mut TuiContext, _: Constraints) -> Size {
-        Size::ZERO
+    fn measure(&self, _: &mut TuiContext, _: Constraints) -> LogicalSize {
+        LogicalSize::ZERO
     }
 
     fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
@@ -43,7 +43,7 @@ impl Atom<TuiContext> for Shadow {
             for x in 0..cells.columns() {
                 let screen_x = shifted_cells.x.saturating_add(x as i32);
                 let screen_y = shifted_cells.y.saturating_add(y as i32);
-                if area.contains(screen_x, screen_y) {
+                if area.contains(PhysicalPoint::new(screen_x, screen_y)) {
                     continue;
                 }
                 cells.set_cell(x, y, Cell::default().style(style));

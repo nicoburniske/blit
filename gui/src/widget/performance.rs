@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use blit::{Anchor, Interaction, Sides, Size, Sizing, Widget};
+use blit::{Anchor, Interaction, LogicalSize, Sides, Sizing, Widget};
 use blit_widgets::performance as shared;
 
 use crate::{
@@ -28,15 +28,15 @@ blit::builder! {
         badge_padding: Sides = Sides::xy(12.0, 8.0),
         padding: Sides = Sides::all(12.0),
         gap: f32 = 8.0,
-        table_gap: Size = Size::new(18.0, 4.0),
+        table_gap: LogicalSize = LogicalSize::new(18.0, 4.0),
         marker_size: f32 = 8.0,
         marker_radius: BorderRadius = BorderRadius::uniform(4.0),
-        graph_size: Size = Size::new(300.0, 100.0),
+        graph_size: LogicalSize = LogicalSize::new(300.0, 100.0),
         text_style: TextStyle = TextStyle { size: 14.0, ..TextStyle::default() },
         popover: popover::Config = popover::Config::new()
             .target_anchor(Anchor::TopRight)
             .child_anchor(Anchor::BottomRight)
-            .offset(blit::Point::new(0.0, -8.0)),
+            .offset(blit::LogicalPoint::new(0.0, -8.0)),
     }
 }
 

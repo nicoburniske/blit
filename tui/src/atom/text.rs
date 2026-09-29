@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, Constraints, LogicalRect, LogicalSize};
 
 use crate::{
     TuiContext,
@@ -17,7 +17,7 @@ blit::builder! {
 }
 
 impl Atom<TuiContext> for Text {
-    fn measure(&self, context: &mut TuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, context: &mut TuiContext, constraints: Constraints) -> LogicalSize {
         let mut request = TextLayoutRequest::new(self.text).wrap(self.options.wrap);
         if self.options.wrap != TextWrap::None && constraints.max.width.is_finite() {
             request = request.max_columns(constraints.max.width.floor().max(0.0) as usize);

@@ -1,7 +1,8 @@
 use std::{hint::black_box, time::Duration};
 
 use blit::{
-    Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, Point, Sense, Size, Transition, Ui, WidgetId, state,
+    Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, LogicalPoint, LogicalSize, Sense, Transition, Ui, WidgetId,
+    state,
 };
 
 #[global_allocator]
@@ -92,7 +93,7 @@ fn build_geometry_and_layout(bencher: divan::Bencher, count: usize) {
     bencher.bench_local(|| {
         frame.build(
             &mut (),
-            FrameInfo::new(Size::uniform(1000.0)),
+            FrameInfo::new(LogicalSize::uniform(1000.0)),
             Duration::ZERO,
             Input::None,
             |mut ui: Ui<'_, ()>| {
@@ -113,7 +114,7 @@ fn build_geometry_and_layout(bencher: divan::Bencher, count: usize) {
 fn build(frame: &mut Frame<()>, count: usize, mut child: impl for<'a> FnMut(Ui<'a, (), state::Child<()>>, usize)) {
     frame.build(
         &mut (),
-        FrameInfo::new(Size::uniform(1000.0)),
+        FrameInfo::new(LogicalSize::uniform(1000.0)),
         Duration::ZERO,
         Input::None,
         |ui: Ui<'_, ()>| {
@@ -131,10 +132,10 @@ struct Stack;
 impl Layout<()> for Stack {
     type Item = ();
 
-    fn layout(&self, cx: &mut LayoutCx<'_, (), ()>, constraints: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, (), ()>, constraints: Constraints) -> LogicalSize {
         for child in cx.children() {
-            cx.layout_child(child, Constraints::tight(Size::ZERO));
-            cx.set_position(child, Point::ZERO);
+            cx.layout_child(child, Constraints::tight(LogicalSize::ZERO));
+            cx.set_position(child, LogicalPoint::ZERO);
         }
         constraints.min
     }

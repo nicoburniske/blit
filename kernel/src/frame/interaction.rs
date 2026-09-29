@@ -1,6 +1,6 @@
 use super::{Frame, Request};
 use crate::{
-    geometry::{Point, Rect, Sides},
+    geometry::{LogicalPoint, LogicalRect, Sides},
     input::{Input, PointerButton},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
 };
@@ -25,7 +25,7 @@ pub fn resolve<C>(frame: &mut Frame<C>) {
                 .geometry
                 .index()
                 .map_or(Sides::all(0.0), |index| frame.geometry[index].hit);
-            let area = Rect::new(
+            let area = LogicalRect::new(
                 stored.area.x - hit.left,
                 stored.area.y - hit.top,
                 stored.area.width + hit.left + hit.right,
@@ -60,8 +60,8 @@ pub struct InteractionState {
 
 #[derive(Default)]
 struct PointerState {
-    origin: Point,
-    position: Option<Point>,
+    origin: LogicalPoint,
+    position: Option<LogicalPoint>,
     down: bool,
     dragging: bool,
     event: PointerEvent,
@@ -72,7 +72,7 @@ enum PointerEvent {
     #[default]
     None,
     Down,
-    Move(Point),
+    Move(LogicalPoint),
     Up {
         leave: bool,
     },
@@ -82,7 +82,7 @@ enum PointerEvent {
 #[derive(Clone, Copy)]
 struct HitItem {
     id: WidgetId,
-    area: Rect,
+    area: LogicalRect,
     sense: Sense,
 }
 
@@ -107,7 +107,7 @@ impl InteractionState {
             Input::PointerDown { position, .. } => self.pointer.position = Some(position),
             Input::PointerMove { position, .. } => {
                 let previous = self.pointer.position.unwrap_or(position);
-                let delta = Point::new(position.x - previous.x, position.y - previous.y);
+                let delta = LogicalPoint::new(position.x - previous.x, position.y - previous.y);
                 self.pointer.position = Some(position);
                 self.pointer.event = PointerEvent::Move(delta);
                 if self.pointer.down && !self.pointer.dragging {
@@ -147,7 +147,7 @@ impl InteractionState {
             } => {
                 self.pointer.position = Some(position);
                 self.pointer.event = PointerEvent::Scroll(ScrollInteraction {
-                    delta: Point::new(delta_x, delta_y),
+                    delta: LogicalPoint::new(delta_x, delta_y),
                     continuous,
                     phase,
                 });
@@ -204,7 +204,7 @@ impl InteractionState {
             dragging: active && self.pointer.down && self.pointer.dragging,
             drag_delta: match self.pointer.event {
                 PointerEvent::Move(delta) if active && self.pointer.dragging => delta,
-                _ => Point::ZERO,
+                _ => LogicalPoint::ZERO,
             },
             scroll: match self.pointer.event {
                 PointerEvent::Scroll(scroll) if self.scroll_owner == Some(id) => Some(scroll),
@@ -229,7 +229,7 @@ impl InteractionState {
         self.focused.take().is_some()
     }
 
-    pub fn pointer_position(&self) -> Option<Point> {
+    pub fn pointer_position(&self) -> Option<LogicalPoint> {
         self.pointer.position
     }
 
@@ -264,7 +264,7 @@ impl InteractionState {
         next_hovered.map(|item| item.id) != self.hovered
     }
 
-    fn hit(hits: &[HitItem], position: Point) -> Option<HitItem> {
+    fn hit(hits: &[HitItem], position: LogicalPoint) -> Option<HitItem> {
         hits.iter().rev().find(|item| item.area.contains(position)).copied()
     }
 }

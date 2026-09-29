@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use blit::{Atom, Constraints, Frame, FrameInfo, Input, Rect, Size, Transition, Ui, Widget, WidgetId};
+use blit::{Atom, Constraints, Frame, FrameInfo, Input, LogicalRect, LogicalSize, Transition, Ui, Widget, WidgetId};
 use blit_layout::{Align, Length, Padding, Sizing, absolute, flex, grid, single, wrap};
 
 #[derive(Default)]
@@ -18,17 +18,17 @@ fn layout_frame<W: Widget<TestContext>>(
 }
 
 #[derive(Clone, Copy)]
-struct BoxAtom(Size);
+struct BoxAtom(LogicalSize);
 
 impl Atom<TestContext> for BoxAtom {
-    fn measure(&self, _: &mut TestContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut TestContext, constraints: Constraints) -> LogicalSize {
         constraints.constrain(self.0)
     }
 
-    fn paint(&self, _: &mut TestContext, _: Rect) {}
+    fn paint(&self, _: &mut TestContext, _: LogicalRect) {}
 
-    fn paint_bounds(&self, _: Rect) -> Rect {
-        Rect::default()
+    fn paint_bounds(&self, _: LogicalRect) -> LogicalRect {
+        LogicalRect::default()
     }
 }
 
@@ -36,8 +36,8 @@ impl Atom<TestContext> for BoxAtom {
 struct ResponsiveAtom;
 
 impl Atom<TestContext> for ResponsiveAtom {
-    fn measure(&self, _: &mut TestContext, constraints: Constraints) -> Size {
-        constraints.constrain(Size::new(
+    fn measure(&self, _: &mut TestContext, constraints: Constraints) -> LogicalSize {
+        constraints.constrain(LogicalSize::new(
             4.0,
             if constraints.max.width < 10.0 || !constraints.max.width.is_finite() {
                 2.0
@@ -47,10 +47,10 @@ impl Atom<TestContext> for ResponsiveAtom {
         ))
     }
 
-    fn paint(&self, _: &mut TestContext, _: Rect) {}
+    fn paint(&self, _: &mut TestContext, _: LogicalRect) {}
 
-    fn paint_bounds(&self, _: Rect) -> Rect {
-        Rect::default()
+    fn paint_bounds(&self, _: LogicalRect) -> LogicalRect {
+        LogicalRect::default()
     }
 }
 
@@ -62,7 +62,7 @@ fn flex_remeasures_constraint_dependent_atoms() {
     layout_frame(
         &mut frame,
         &mut context,
-        FrameInfo::new(Size::new(5.0, 10.0)),
+        FrameInfo::new(LogicalSize::new(5.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
             let mut row = ui.layout(flex::row().align(Align::Start));
             row.child()
@@ -71,7 +71,7 @@ fn flex_remeasures_constraint_dependent_atoms() {
                 .insert(ResponsiveAtom);
         },
     );
-    assert_eq!(frame.geometry(child).unwrap().size(), Size::new(5.0, 2.0));
+    assert_eq!(frame.geometry(child).unwrap().size(), LogicalSize::new(5.0, 2.0));
 }
 
 #[test]
@@ -82,21 +82,21 @@ fn flex_cross_grow_uses_natural_size_under_loose_constraints() {
     layout_frame(
         &mut frame,
         &mut TestContext,
-        FrameInfo::new(Size::new(100.0, 100.0)),
+        FrameInfo::new(LogicalSize::new(100.0, 100.0)),
         |ui: Ui<'_, TestContext>| {
             let mut column = ui.layout(flex::column());
             column.child().widget_id(header).build(|ui: Ui<'_, TestContext>| {
                 let mut row = ui.layout(flex::row());
                 row.child()
                     .item(flex::item().grow())
-                    .insert(BoxAtom(Size::uniform(10.0)));
-                row.child().insert(BoxAtom(Size::uniform(10.0)));
+                    .insert(BoxAtom(LogicalSize::uniform(10.0)));
+                row.child().insert(BoxAtom(LogicalSize::uniform(10.0)));
             });
             column
                 .child()
                 .item(flex::item().height(Sizing::grow()))
                 .widget_id(body)
-                .insert(BoxAtom(Size::ZERO));
+                .insert(BoxAtom(LogicalSize::ZERO));
         },
     );
     assert_eq!(frame.geometry(header).unwrap().height, 10.0);
@@ -114,21 +114,21 @@ fn flex_distributes_growing_space() {
     layout_frame(
         &mut frame,
         &mut context,
-        FrameInfo::new(Size::new(101.0, 20.0)),
+        FrameInfo::new(LogicalSize::new(101.0, 20.0)),
         |ui: Ui<'_, TestContext>| {
             let mut row = ui.layout(flex::row().gap(4 as Length));
             row.child()
                 .item(flex::item().width(Sizing::fixed(20 as Length)))
                 .widget_id(fixed)
-                .insert(BoxAtom(Size::new(1.0, 10.0)));
+                .insert(BoxAtom(LogicalSize::new(1.0, 10.0)));
             row.child()
                 .item(flex::item().width(Sizing::grow()))
                 .widget_id(grow)
-                .insert(BoxAtom(Size::new(1.0, 10.0)));
+                .insert(BoxAtom(LogicalSize::new(1.0, 10.0)));
             row.child()
                 .item(flex::item().width(Sizing::grow()))
                 .widget_id(other)
-                .insert(BoxAtom(Size::new(1.0, 10.0)));
+                .insert(BoxAtom(LogicalSize::new(1.0, 10.0)));
             row.target(fixed)
                 .widget_id(attached)
                 .layout(
@@ -139,7 +139,7 @@ fn flex_distributes_growing_space() {
                         .height(Sizing::fixed(1 as Length)),
                 )
                 .child()
-                .insert(BoxAtom(Size::ZERO));
+                .insert(BoxAtom(LogicalSize::ZERO));
         },
     );
     assert_eq!(frame.geometry(fixed).unwrap().width, 20.0);
@@ -155,7 +155,7 @@ fn flex_distributes_growing_space() {
     } else {
         20.0 - width / 2.0
     };
-    assert_eq!(frame.geometry(attached), Some(Rect::new(x, 0.0, width, 1.0)));
+    assert_eq!(frame.geometry(attached), Some(LogicalRect::new(x, 0.0, width, 1.0)));
 }
 
 #[test]
@@ -165,7 +165,7 @@ fn flex_respects_growth_caps() {
     layout_frame(
         &mut frame,
         &mut TestContext,
-        FrameInfo::new(Size::new(15.0, 1.0)),
+        FrameInfo::new(LogicalSize::new(15.0, 1.0)),
         |ui: Ui<'_, TestContext>| {
             let mut row = ui.layout(flex::row().align(Align::Start));
             let sizing = [
@@ -177,7 +177,7 @@ fn flex_respects_growth_caps() {
                 row.child()
                     .item(flex::item().width(sizing))
                     .widget_id(id)
-                    .insert(BoxAtom(Size::uniform(1.0)));
+                    .insert(BoxAtom(LogicalSize::uniform(1.0)));
             }
         },
     );
@@ -192,7 +192,7 @@ fn flex_size_transition_preserves_exact_overflow_and_reflows_siblings() {
     let mut render = |extent, time| {
         frame.build(
             &mut TestContext,
-            FrameInfo::new(Size::new(4.0, 2.0)),
+            FrameInfo::new(LogicalSize::new(4.0, 2.0)),
             time,
             Input::None,
             |ui: Ui<'_, TestContext>| {
@@ -201,11 +201,11 @@ fn flex_size_transition_preserves_exact_overflow_and_reflows_siblings() {
                     .item(flex::item().fixed(extent as Length, extent as Length))
                     .widget_id(animated)
                     .transition(Transition::new(Duration::from_secs(1)).size())
-                    .insert(BoxAtom(Size::ZERO));
+                    .insert(BoxAtom(LogicalSize::ZERO));
                 row.child()
                     .item(flex::item().fixed(1 as Length, 1 as Length))
                     .widget_id(sibling)
-                    .insert(BoxAtom(Size::ZERO));
+                    .insert(BoxAtom(LogicalSize::ZERO));
             },
         );
         frame.layout(&mut TestContext);
@@ -215,10 +215,13 @@ fn flex_size_transition_preserves_exact_overflow_and_reflows_siblings() {
         )
     };
 
-    assert_eq!(render(1.0, Duration::ZERO), (Size::uniform(1.0), 1.0));
-    assert_eq!(render(5.0, Duration::ZERO), (Size::uniform(1.0), 1.0));
-    assert_eq!(render(5.0, Duration::from_millis(500)), (Size::uniform(3.0), 3.0));
-    assert_eq!(render(5.0, Duration::from_secs(1)), (Size::uniform(5.0), 5.0));
+    assert_eq!(render(1.0, Duration::ZERO), (LogicalSize::uniform(1.0), 1.0));
+    assert_eq!(render(5.0, Duration::ZERO), (LogicalSize::uniform(1.0), 1.0));
+    assert_eq!(
+        render(5.0, Duration::from_millis(500)),
+        (LogicalSize::uniform(3.0), 3.0)
+    );
+    assert_eq!(render(5.0, Duration::from_secs(1)), (LogicalSize::uniform(5.0), 5.0));
 }
 
 #[test]
@@ -232,7 +235,7 @@ fn empty_layouts_keep_padding() {
     layout_frame(
         &mut frame,
         &mut TestContext,
-        FrameInfo::new(Size::new(20.0, 10.0)),
+        FrameInfo::new(LogicalSize::new(20.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
             let mut root = ui.layout(flex::row().align(Align::Start));
             let padding = Padding::all(1 as Length);
@@ -245,7 +248,7 @@ fn empty_layouts_keep_padding() {
     );
     assert_eq!(
         ids.map(|id| frame.geometry(id).unwrap().size()),
-        [Size::uniform(2.0); 3]
+        [LogicalSize::uniform(2.0); 3]
     );
 }
 
@@ -261,7 +264,7 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
     layout_frame(
         &mut frame,
         &mut TestContext,
-        FrameInfo::new(Size::new(11.0, 10.0)),
+        FrameInfo::new(LogicalSize::new(11.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
             let mut root = ui.layout(flex::row().align(Align::Start));
             let mut wrap = root
@@ -276,24 +279,29 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
                         .height(Sizing::grow()),
                 )
                 .widget_id(ids[0])
-                .insert(BoxAtom(Size::new(4.0, 1.0)));
+                .insert(BoxAtom(LogicalSize::new(4.0, 1.0)));
             wrap.child()
                 .item(wrap::item().width(Sizing::grow()))
                 .widget_id(ids[1])
-                .insert(BoxAtom(Size::new(4.0, 3.0)));
+                .insert(BoxAtom(LogicalSize::new(4.0, 3.0)));
             wrap.child()
                 .item(wrap::item().width(Sizing::grow()))
                 .widget_id(ids[2])
                 .insert(ResponsiveAtom);
         },
     );
-    assert_eq!(frame.geometry(wrap_id).unwrap().size(), Size::new(11.0, 4.0));
-    assert_eq!(frame.geometry(ids[0]), Some(Rect::new(0.0, 0.0, 5.0, 3.0)));
+    assert_eq!(frame.geometry(wrap_id).unwrap().size(), LogicalSize::new(11.0, 4.0));
+    assert_eq!(frame.geometry(ids[0]), Some(LogicalRect::new(0.0, 0.0, 5.0, 3.0)));
     assert_eq!(
         frame.geometry(ids[1]),
-        Some(Rect::new(5.0, 0.0, if cfg!(feature = "tui") { 6.0 } else { 5.5 }, 3.0,))
+        Some(LogicalRect::new(
+            5.0,
+            0.0,
+            if cfg!(feature = "tui") { 6.0 } else { 5.5 },
+            3.0,
+        ))
     );
-    assert_eq!(frame.geometry(ids[2]), Some(Rect::new(0.0, 3.0, 11.0, 1.0)));
+    assert_eq!(frame.geometry(ids[2]), Some(LogicalRect::new(0.0, 3.0, 11.0, 1.0)));
 }
 
 #[test]
@@ -303,7 +311,7 @@ fn wrap_keeps_target_runs_during_size_transitions() {
     let mut render = |width, time| {
         frame.build(
             &mut TestContext,
-            FrameInfo::new(Size::new(width, 2.0)),
+            FrameInfo::new(LogicalSize::new(width, 2.0)),
             time,
             Input::None,
             |ui: Ui<'_, TestContext>| {
@@ -313,7 +321,7 @@ fn wrap_keeps_target_runs_during_size_transitions() {
                         .item(wrap::item().width(Sizing::grow_min(2 as Length)))
                         .widget_id(id)
                         .transition(Transition::new(Duration::from_secs(1)).size())
-                        .insert(BoxAtom(Size::uniform(1.0)));
+                        .insert(BoxAtom(LogicalSize::uniform(1.0)));
                 }
             },
         );
@@ -334,7 +342,7 @@ fn wrap_shrinkwraps_animated_target_runs() {
     let mut render = |extent, time| {
         frame.build(
             &mut TestContext,
-            FrameInfo::new(Size::new(20.0, 2.0)),
+            FrameInfo::new(LogicalSize::new(20.0, 2.0)),
             time,
             Input::None,
             |ui: Ui<'_, TestContext>| {
@@ -345,7 +353,7 @@ fn wrap_shrinkwraps_animated_target_runs() {
                         .item(wrap::item().fixed(extent as Length, 1 as Length))
                         .widget_id(id)
                         .transition(Transition::new(Duration::from_secs(1)).size())
-                        .insert(BoxAtom(Size::ZERO));
+                        .insert(BoxAtom(LogicalSize::ZERO));
                 }
             },
         );
@@ -375,17 +383,17 @@ fn single_percentages_use_the_incoming_budget() {
     layout_frame(
         &mut frame,
         &mut TestContext,
-        FrameInfo::new(Size::new(20.0, 10.0)),
+        FrameInfo::new(LogicalSize::new(20.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
             let mut outer = ui.layout(single::layout());
             let mut fit = outer.child().layout(single::layout());
             fit.child()
                 .item(single::item().width(Sizing::percent(0.5)).height(Sizing::percent(0.5)))
                 .widget_id(percent)
-                .insert(BoxAtom(Size::new(4.0, 2.0)));
+                .insert(BoxAtom(LogicalSize::new(4.0, 2.0)));
         },
     );
-    assert_eq!(frame.geometry(percent), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));
+    assert_eq!(frame.geometry(percent), Some(LogicalRect::new(0.0, 0.0, 10.0, 5.0)));
 }
 
 #[test]
@@ -396,17 +404,17 @@ fn spanning_grid_sizes_spanning_items() {
     layout_frame(
         &mut frame,
         &mut TestContext,
-        FrameInfo::new(Size::new(100.0, 40.0)),
+        FrameInfo::new(LogicalSize::new(100.0, 40.0)),
         |ui: Ui<'_, TestContext>| {
             let mut grid = ui.layout(layout);
             grid.child()
                 .item(grid::item().column_span(2).preferred_height(12 as Length))
                 .widget_id(wide)
-                .insert(BoxAtom(Size::new(20.0, 10.0)));
-            grid.child().insert(BoxAtom(Size::uniform(10.0)));
+                .insert(BoxAtom(LogicalSize::new(20.0, 10.0)));
+            grid.child().insert(BoxAtom(LogicalSize::uniform(10.0)));
         },
     );
-    assert_eq!(frame.geometry(wide).unwrap().size(), Size::new(66.0, 12.0));
+    assert_eq!(frame.geometry(wide).unwrap().size(), LogicalSize::new(66.0, 12.0));
 }
 
 #[test]
@@ -416,14 +424,14 @@ fn spanning_grid_fills_available_cell() {
     layout_frame(
         &mut frame,
         &mut TestContext,
-        FrameInfo::new(Size::new(91.0, 20.0)),
+        FrameInfo::new(LogicalSize::new(91.0, 20.0)),
         |ui: Ui<'_, TestContext>| {
             let mut grid = ui.layout(grid::columns(3).spanning());
             grid.child()
                 .item(grid::item().row_span(2).column_span(2))
-                .insert(BoxAtom(Size::uniform(20.0)));
-            grid.child().insert(BoxAtom(Size::uniform(10.0)));
-            grid.child().widget_id(hole).insert(BoxAtom(Size::uniform(10.0)));
+                .insert(BoxAtom(LogicalSize::uniform(20.0)));
+            grid.child().insert(BoxAtom(LogicalSize::uniform(10.0)));
+            grid.child().widget_id(hole).insert(BoxAtom(LogicalSize::uniform(10.0)));
         },
     );
     let x = if cfg!(feature = "tui") {
@@ -431,7 +439,7 @@ fn spanning_grid_fills_available_cell() {
     } else {
         2.0 * (91.0 / 3.0)
     };
-    assert_eq!(frame.geometry(hole), Some(Rect::new(x, 10.0, 91.0 - x, 10.0)));
+    assert_eq!(frame.geometry(hole), Some(LogicalRect::new(x, 10.0, 91.0 - x, 10.0)));
 }
 
 #[test]
@@ -441,7 +449,7 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
     let mut render = |extent, time| {
         frame.build(
             &mut TestContext,
-            FrameInfo::new(Size::new(20.0, 10.0)),
+            FrameInfo::new(LogicalSize::new(20.0, 10.0)),
             time,
             Input::None,
             |ui: Ui<'_, TestContext>| {
@@ -449,8 +457,8 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
                 grid.child()
                     .widget_id(id)
                     .transition(Transition::new(Duration::from_secs(1)).height())
-                    .insert(BoxAtom(Size::new(1.0, extent)));
-                grid.child().insert(BoxAtom(Size::new(1.0, extent)));
+                    .insert(BoxAtom(LogicalSize::new(1.0, extent)));
+                grid.child().insert(BoxAtom(LogicalSize::new(1.0, extent)));
             },
         );
         frame.layout(&mut TestContext);

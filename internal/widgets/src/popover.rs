@@ -1,4 +1,4 @@
-use blit::{Input, Interaction, NodeTarget, Point, Sense, Sides, Ui, Widget};
+use blit::{Input, Interaction, LogicalPoint, NodeTarget, Sense, Sides, Ui, Widget};
 use blit_layout::{
     Offset, Sizing,
     absolute::{self, Anchor},
@@ -21,7 +21,7 @@ blit::builder! {
         parent: NodeTarget = NodeTarget::Root,
         target_anchor: Anchor = Anchor::BottomLeft,
         child_anchor: Anchor = Anchor::TopLeft,
-        offset: Point = Point::ZERO,
+        offset: LogicalPoint = LogicalPoint::ZERO,
         width: Sizing = Sizing::fit(),
         height: Sizing = Sizing::fit(),
         open_on_hover: bool = false,
@@ -140,7 +140,7 @@ where
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Modifiers, PointerButton, Rect, Size, WidgetId};
+    use blit::{Frame, FrameInfo, LogicalRect, LogicalSize, Modifiers, PointerButton, WidgetId};
     use blit_layout::Length;
 
     use super::*;
@@ -171,7 +171,7 @@ mod tests {
     fn popover_uses_root_constraints_and_close_behavior() {
         let mut frame = Frame::default();
         let mut context = TestContext;
-        let info = FrameInfo::new(Size::uniform(10.0));
+        let info = FrameInfo::new(LogicalSize::uniform(10.0));
         let mut state = State::new();
         let content_id = WidgetId::new("test popover").child("popover content");
 
@@ -184,21 +184,21 @@ mod tests {
         );
         frame.layout(&mut context);
         let config = Config::new()
-            .offset(Point::new(0.0, 1.0))
+            .offset(LogicalPoint::new(0.0, 1.0))
             .open_on_hover(true)
             .close(Close::Exit);
         let mut expected = [true, true, false].into_iter();
         for input in [
             Input::PointerMove {
-                position: Point::new(1.0, 0.5),
+                position: LogicalPoint::new(1.0, 0.5),
                 modifiers: Modifiers::NONE,
             },
             Input::PointerMove {
-                position: Point::new(1.0, 1.5),
+                position: LogicalPoint::new(1.0, 1.5),
                 modifiers: Modifiers::NONE,
             },
             Input::PointerMove {
-                position: Point::new(9.0, 9.0),
+                position: LogicalPoint::new(9.0, 9.0),
                 modifiers: Modifiers::NONE,
             },
         ] {
@@ -213,18 +213,18 @@ mod tests {
         let mut content_geometry = None;
         for input in [
             Input::PointerDown {
-                position: Point::new(1.0, 0.5),
+                position: LogicalPoint::new(1.0, 0.5),
                 button: PointerButton::Primary,
                 modifiers: Modifiers::NONE,
             },
             Input::PointerUp {
-                position: Point::new(1.0, 0.5),
+                position: LogicalPoint::new(1.0, 0.5),
                 button: PointerButton::Primary,
                 modifiers: Modifiers::NONE,
                 leave: false,
             },
             Input::PointerDown {
-                position: Point::new(9.0, 9.0),
+                position: LogicalPoint::new(9.0, 9.0),
                 button: PointerButton::Primary,
                 modifiers: Modifiers::NONE,
             },
@@ -254,10 +254,10 @@ mod tests {
                 assert_eq!(frame.geometry(WidgetId::new("named content")), content_geometry);
                 assert_eq!(
                     frame.geometry(WidgetId::new("named trigger")),
-                    Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
+                    Some(LogicalRect::new(0.0, 0.0, 2.0, 1.0)),
                 );
             }
         }
-        assert_eq!(content_geometry, Some(Rect::new(0.0, 1.0, 5.0, 4.0)));
+        assert_eq!(content_geometry, Some(LogicalRect::new(0.0, 1.0, 5.0, 4.0)));
     }
 }

@@ -6,7 +6,7 @@ use super::{Frame, NodeId, StoredNode};
 use crate::{
     TransitionProperties,
     arena::{DataArena, DataId},
-    geometry::{Constraints, Point, Size},
+    geometry::{Constraints, LogicalPoint, LogicalSize},
     layout::Layout,
 };
 
@@ -21,7 +21,7 @@ pub struct LayoutCx<'a, C, I> {
     item: PhantomData<fn() -> I>,
     first_child: NodeId,
     children_end: u32,
-    offset: Point,
+    offset: LogicalPoint,
 }
 
 impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
@@ -91,7 +91,7 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     /// animated size overrides replace the corresponding constraint axes
     ///
     /// repeating this recomputes its subtree and requires positioning it again
-    pub fn layout_child(&mut self, child: NodeId, mut constraints: Constraints) -> Size {
+    pub fn layout_child(&mut self, child: NodeId, mut constraints: Constraints) -> LogicalSize {
         self.assert_child(child);
         let (width, height) = self.size_overrides(child);
         if let Some(width) = width {
@@ -114,7 +114,7 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     ///
     /// this node's size is unresolved until its layout returns
     #[inline]
-    pub fn size(&self, node: NodeId) -> Size {
+    pub fn size(&self, node: NodeId) -> LogicalSize {
         #[cfg(debug_assertions)]
         {
             let stored = &self.frame.nodes[node.index()];
@@ -134,7 +134,7 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     /// during animated replay this preserves the first layout result while
     /// [`Self::size`] follows the animation. otherwise they match.
     #[inline]
-    pub fn target_size(&self, node: NodeId) -> Size {
+    pub fn target_size(&self, node: NodeId) -> LogicalSize {
         let current = self.size(node);
         if !self.frame.target_sizes.is_empty() {
             self.frame.target_sizes[node.index()].size
@@ -145,9 +145,9 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
 
     /// positions this node relative to its parent or a flow child relative to this layout
     #[inline]
-    pub fn set_position(&mut self, node: NodeId, position: Point) {
+    pub fn set_position(&mut self, node: NodeId, position: LogicalPoint) {
         let offset = if node == self.node {
-            Point::ZERO
+            LogicalPoint::ZERO
         } else {
             #[cfg(debug_assertions)]
             {
@@ -231,7 +231,7 @@ pub fn run<C, L: Layout<C>>(
     context: &mut C,
     id: DataId,
     constraints: Constraints,
-) -> Size {
+) -> LogicalSize {
     let layout = data.load::<L>(id);
     let nodes = frame.nodes.as_ptr();
     let stored = frame.nodes[node.index()].layout.index().unwrap();

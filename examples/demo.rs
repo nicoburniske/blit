@@ -1,4 +1,4 @@
-use blit::{Axis, Size};
+use blit::{Axis, LogicalSize};
 pub use blit_layout::{Align, Justify};
 use blit_layout::{Length, Padding, Sizing, absolute::Anchor};
 
@@ -48,7 +48,7 @@ impl Default for CanvasConfig {
 }
 
 impl CanvasConfig {
-    pub fn padding(self, unit: Size) -> Padding {
+    pub fn padding(self, unit: LogicalSize) -> Padding {
         let steps = f32::from(self.padding_steps) * self.zoom;
         Padding::new()
             .top(length(steps * unit.height))
@@ -57,7 +57,7 @@ impl CanvasConfig {
             .left(length(steps * unit.width))
     }
 
-    pub fn gap(self, axis: Axis, unit: Size) -> Length {
+    pub fn gap(self, axis: Axis, unit: LogicalSize) -> Length {
         let unit = match axis {
             Axis::Horizontal => unit.width,
             Axis::Vertical => unit.height,
@@ -65,7 +65,7 @@ impl CanvasConfig {
         length(f32::from(self.gap_steps) * self.zoom * unit)
     }
 
-    pub fn item_sizing(self, index: usize, unit: Size) -> (Sizing, Sizing) {
+    pub fn item_sizing(self, index: usize, unit: LogicalSize) -> (Sizing, Sizing) {
         let main_steps = 3.0 + (index % 5) as f32;
         let cross_steps = 3.0 + (index % 4) as f32;
         let (main_unit, cross_unit) = match self.axis {

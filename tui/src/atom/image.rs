@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, Constraints, LogicalRect, LogicalSize};
 
 use crate::{
     TuiContext,
@@ -8,12 +8,12 @@ use crate::{
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Image {
-        new(image: ImageId, intrinsic: Size),
+        new(image: ImageId, intrinsic: LogicalSize),
     }
 }
 
 impl Atom<TuiContext> for Image {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> LogicalSize {
         constraints.constrain(self.intrinsic)
     }
 

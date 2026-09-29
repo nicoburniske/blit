@@ -2,6 +2,7 @@
 
 use std::simd::f32x4;
 
+use blit::LogicalPoint;
 use blit_text::FontFace;
 use ttf_parser::{OutlineBuilder, Rect};
 
@@ -34,8 +35,8 @@ impl Default for Rasterizer {
                 vertical: Vec::new(),
                 mixed: Vec::new(),
                 stack: Vec::new(),
-                start: Point::default(),
-                previous: Point::default(),
+                start: LogicalPoint::default(),
+                previous: LogicalPoint::default(),
                 area: 0.0,
                 max_area: 0.0,
             },
@@ -240,8 +241,8 @@ struct Outline {
     vertical: Vec<Line>,
     mixed: Vec<Line>,
     stack: Vec<Segment>,
-    start: Point,
-    previous: Point,
+    start: LogicalPoint,
+    previous: LogicalPoint,
     area: f32,
     max_area: f32,
 }
@@ -251,24 +252,21 @@ impl Outline {
         self.vertical.clear();
         self.mixed.clear();
         self.stack.clear();
-        self.start = Point::default();
-        self.previous = Point::default();
+        self.start = LogicalPoint::default();
+        self.previous = LogicalPoint::default();
         self.area = 0.0;
         self.max_area = 6.0 * units_per_em / size;
     }
 
     fn finish(&mut self, bounds: Rect) {
-        let bounds = Aabb {
-            left: bounds.x_min as f32,
-            top: bounds.y_max as f32,
-        };
+        let bounds = LogicalPoint::new(bounds.x_min as f32, bounds.y_max as f32);
         let reverse = self.area > 0.0;
         for line in self.vertical.iter_mut().chain(&mut self.mixed) {
             line.reposition(bounds, reverse);
         }
     }
 
-    fn push_line(&mut self, start: Point, end: Point) {
+    fn push_line(&mut self, start: LogicalPoint, end: LogicalPoint) {
         if start.y.to_bits() == end.y.to_bits() {
             return;
         }
@@ -282,7 +280,7 @@ impl Outline {
     }
 
     #[inline]
-    fn flatten(&mut self, end: Point, point: impl Fn(f32) -> Point) {
+    fn flatten(&mut self, end: LogicalPoint, point: impl Fn(f32) -> LogicalPoint) {
         self.stack.clear();
         self.stack.push(Segment {
             start: self.previous,
@@ -318,32 +316,32 @@ impl Outline {
 
 impl OutlineBuilder for Outline {
     fn move_to(&mut self, x: f32, y: f32) {
-        self.start = Point { x, y };
+        self.start = LogicalPoint { x, y };
         self.previous = self.start;
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
-        let next = Point { x, y };
+        let next = LogicalPoint { x, y };
         self.push_line(self.previous, next);
         self.previous = next;
     }
 
     fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
-        let next = Point { x, y };
+        let next = LogicalPoint { x, y };
         let curve = Quadratic {
             start: self.previous,
-            control: Point { x: x1, y: y1 },
+            control: LogicalPoint { x: x1, y: y1 },
             end: next,
         };
         self.flatten(next, |time| curve.point(time));
     }
 
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
-        let next = Point { x, y };
+        let next = LogicalPoint { x, y };
         let curve = Cubic {
             start: self.previous,
-            first: Point { x: x1, y: y1 },
-            second: Point { x: x2, y: y2 },
+            first: LogicalPoint { x: x1, y: y1 },
+            second: LogicalPoint { x: x2, y: y2 },
             end: next,
         };
         self.flatten(next, |time| curve.point(time));
@@ -366,7 +364,7 @@ struct Line {
 }
 
 impl Line {
-    fn new(start: Point, end: Point) -> Self {
+    fn new(start: LogicalPoint, end: LogicalPoint) -> Self {
         const FLOOR: u32 = 0;
         const CEIL: u32 = 1;
         let (start_x_nudge, first_x) = if end.x >= start.x { (FLOOR, 1.0) } else { (CEIL, 0.0) };
@@ -389,41 +387,35 @@ impl Line {
         }
     }
 
-    fn reposition(&mut self, bounds: Aabb, reverse: bool) {
+    fn reposition(&mut self, bounds: LogicalPoint, reverse: bool) {
         let [x0, y0, x1, y1] = self.coords.to_array();
         let (mut x0, mut y0, mut x1, mut y1) = if reverse { (x1, y1, x0, y0) } else { (x0, y0, x1, y1) };
-        x0 -= bounds.left;
-        y0 = (y0 - bounds.top).abs();
-        x1 -= bounds.left;
-        y1 = (y1 - bounds.top).abs();
-        *self = Self::new(Point { x: x0, y: y0 }, Point { x: x1, y: y1 });
+        x0 -= bounds.x;
+        y0 = (y0 - bounds.y).abs();
+        x1 -= bounds.x;
+        y1 = (y1 - bounds.y).abs();
+        *self = Self::new(LogicalPoint { x: x0, y: y0 }, LogicalPoint { x: x1, y: y1 });
     }
-}
-
-#[derive(Clone, Copy, Default, PartialEq)]
-struct Point {
-    x: f32,
-    y: f32,
 }
 
 #[derive(Clone, Copy)]
 struct Segment {
-    start: Point,
+    start: LogicalPoint,
     start_time: f32,
-    end: Point,
+    end: LogicalPoint,
     end_time: f32,
 }
 
 struct Quadratic {
-    start: Point,
-    control: Point,
-    end: Point,
+    start: LogicalPoint,
+    control: LogicalPoint,
+    end: LogicalPoint,
 }
 
 impl Quadratic {
-    fn point(&self, time: f32) -> Point {
+    fn point(&self, time: f32) -> LogicalPoint {
         let inverse = 1.0 - time;
-        Point {
+        LogicalPoint {
             x: inverse * inverse * self.start.x + 2.0 * inverse * time * self.control.x + time * time * self.end.x,
             y: inverse * inverse * self.start.y + 2.0 * inverse * time * self.control.y + time * time * self.end.y,
         }
@@ -431,30 +423,24 @@ impl Quadratic {
 }
 
 struct Cubic {
-    start: Point,
-    first: Point,
-    second: Point,
-    end: Point,
+    start: LogicalPoint,
+    first: LogicalPoint,
+    second: LogicalPoint,
+    end: LogicalPoint,
 }
 
 impl Cubic {
-    fn point(&self, time: f32) -> Point {
+    fn point(&self, time: f32) -> LogicalPoint {
         let inverse = 1.0 - time;
         let start = inverse * inverse * inverse;
         let first = 3.0 * inverse * inverse * time;
         let second = 3.0 * inverse * time * time;
         let end = time * time * time;
-        Point {
+        LogicalPoint {
             x: start * self.start.x + first * self.first.x + second * self.second.x + end * self.end.x,
             y: start * self.start.y + first * self.first.y + second * self.second.y + end * self.end.y,
         }
     }
-}
-
-#[derive(Clone, Copy)]
-struct Aabb {
-    left: f32,
-    top: f32,
 }
 
 const COVERAGE: [u8; 256] = {

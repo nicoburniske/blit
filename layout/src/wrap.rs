@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Size};
+use blit::{Axis, Constraints, LayoutCx, LogicalPoint, LogicalSize};
 
 pub use crate::size::{Item, item};
 use crate::{
@@ -45,12 +45,12 @@ pub fn vertical() -> Layout {
 impl<C> blit::Layout<C> for Layout {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
         let padding: blit::Sides = self.padding.into();
         let cross_axis = self.axis.other();
         let main_padding = self.axis.extent(padding.size());
         let cross_padding = cross_axis.extent(padding.size());
-        let leading = Size::new(padding.left, padding.top);
+        let leading = LogicalSize::new(padding.left, padding.top);
         let main_leading = self.axis.extent(leading);
         let cross_leading = cross_axis.extent(leading);
         let main_max = (round(self.axis.extent(bounds.max)) - main_padding).max(0.0);
@@ -206,7 +206,7 @@ impl<C> blit::Layout<C> for Layout {
                     Align::End => (cross - child_cross).max(0.0),
                 };
                 let position = flow_size(round(main_cursor), round(cross_cursor + cross_offset), self.axis);
-                cx.set_position(child, Point::new(position.width, position.height));
+                cx.set_position(child, LogicalPoint::new(position.width, position.height));
                 main_cursor += child_main + item_gap + extra_gap;
             }
 

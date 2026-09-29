@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Size};
+use blit::{Axis, Constraints, LayoutCx, LogicalPoint, LogicalSize};
 
 pub use crate::size::{Item, item};
 use crate::{Length, Padding, Sizing, flow_constraints, sizing_range};
@@ -21,7 +21,7 @@ pub fn layout() -> Layout {
 impl<C> blit::Layout<C> for Layout {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
         let padding: blit::Sides = self.padding.into();
         let mut children = cx.children();
         let Some(child) = children.next() else {
@@ -47,7 +47,7 @@ impl<C> blit::Layout<C> for Layout {
             range(Axis::Vertical, item.height.with_override(height)),
         );
         let size = cx.layout_child(child, child_bounds);
-        cx.set_position(child, Point::new(padding.left, padding.top));
+        cx.set_position(child, LogicalPoint::new(padding.left, padding.top));
         bounds.constrain(size + padding.size())
     }
 }

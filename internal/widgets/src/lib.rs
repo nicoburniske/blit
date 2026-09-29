@@ -13,7 +13,7 @@ mod test {
     pub struct TestClip;
 
     impl blit::Clip<TestContext> for TestClip {
-        fn push(&self, _: &mut TestContext, _: blit::Rect) {}
+        fn push(&self, _: &mut TestContext, _: blit::LogicalRect) {}
 
         fn pop(&self, _: &mut TestContext) {}
     }

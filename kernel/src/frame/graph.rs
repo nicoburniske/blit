@@ -14,7 +14,7 @@ pub struct Frame<C> {
     resolved_clips: Vec<ResolvedClip>,
     active_clips: Vec<ResolvedClipId>,
     interaction: interaction::InteractionState,
-    geometry_previous: Vec<(WidgetId, Rect)>,
+    geometry_previous: Vec<(WidgetId, LogicalRect)>,
     requests: HashMap<WidgetId, Request, BuildHasherDefault<WidgetIdHasher>>,
     animations: Vec<animation::AnimationState>,
     transitions: Vec<transition::TransitionState>,
@@ -22,7 +22,7 @@ pub struct Frame<C> {
     timers: Vec<timer::TimerState>,
     input: Input,
     time: Duration,
-    screen: Rect,
+    screen: LogicalRect,
     resized: bool,
     frame_requested: bool,
     #[cfg(debug_assertions)]
@@ -78,7 +78,7 @@ impl<C> Default for Frame<C> {
             timers: Vec::new(),
             input: Input::None,
             time: Duration::ZERO,
-            screen: Rect::default(),
+            screen: LogicalRect::default(),
             resized: false,
             frame_requested: true,
             #[cfg(debug_assertions)]
@@ -146,7 +146,7 @@ impl<C> Frame<C> {
     }
 
     /// returns geometry from the current frame after layout
-    pub fn geometry(&self, id: WidgetId) -> Option<Rect> {
+    pub fn geometry(&self, id: WidgetId) -> Option<LogicalRect> {
         self.nodes
             .iter()
             .find_map(|node| (node.widget_id == id).then_some(node.area))
@@ -181,7 +181,7 @@ impl<C> Frame<C> {
         self.input = input;
         self.time = time;
         self.resized = self.screen.size() != frame.size;
-        self.screen = Rect::new(0.0, 0.0, frame.size.width, frame.size.height);
+        self.screen = LogicalRect::new(0.0, 0.0, frame.size.width, frame.size.height);
         for animation in &mut self.animations {
             animation.seen = false;
         }
@@ -220,7 +220,7 @@ impl<C> Frame<C> {
         node: NodeId,
         context: &mut C,
         constraints: Constraints,
-    ) -> Size {
+    ) -> LogicalSize {
         let index = node.index();
         let size = if let Some(layout) = self.nodes[index].layout.index() {
             let stored = self.layouts[layout];
@@ -242,8 +242,8 @@ impl<C> Frame<C> {
         node: NodeId,
         context: &mut C,
         constraints: Constraints,
-    ) -> Size {
-        let mut size = Size::ZERO;
+    ) -> LogicalSize {
+        let mut size = LogicalSize::ZERO;
         let mut atom = self.nodes[node.index()].first_atom;
         while let Some(index) = atom.index() {
             let stored = self.atoms[index];
@@ -306,7 +306,7 @@ impl<C> Frame<C> {
         self.layouts.push(StoredLayout {
             kind: u16::try_from(kind).expect("too many layout kinds"),
             data: self.data.store(value),
-            offset: Point::ZERO,
+            offset: LogicalPoint::ZERO,
         });
         id
     }
@@ -345,7 +345,7 @@ impl<C> Frame<C> {
             layout: StoredLayoutId::NONE,
             clip: StoredClipId::NONE,
             item: DataId::NONE,
-            area: Rect::default(),
+            area: LogicalRect::default(),
             out_of_flow: false,
             z_index: 0,
             geometry: GeometryId::NONE,
@@ -412,14 +412,14 @@ impl<C> Frame<C> {
         &mut self.geometry[index]
     }
 
-    fn layout_offset(&self, node: NodeId) -> Point {
+    fn layout_offset(&self, node: NodeId) -> LogicalPoint {
         self.nodes[node.index()]
             .layout
             .index()
-            .map_or(Point::ZERO, |layout| self.layouts[layout].offset)
+            .map_or(LogicalPoint::ZERO, |layout| self.layouts[layout].offset)
     }
 
-    fn clip_bounds(&self, clip: ResolvedClipId) -> Rect {
+    fn clip_bounds(&self, clip: ResolvedClipId) -> LogicalRect {
         clip.index()
             .map_or(self.screen, |clip| self.resolved_clips[clip].bounds)
     }
@@ -464,7 +464,7 @@ struct StoredNode {
     layout: StoredLayoutId,
     clip: StoredClipId,
     item: DataId,
-    area: Rect,
+    area: LogicalRect,
     out_of_flow: bool,
     z_index: i16,
     geometry: GeometryId,
@@ -483,7 +483,7 @@ enum LayoutState {
 
 #[derive(Clone, Copy)]
 struct TargetSize {
-    size: Size,
+    size: LogicalSize,
     properties: crate::TransitionProperties,
 }
 
@@ -505,8 +505,8 @@ struct ResolvedClip {
     parent: ResolvedClipId,
     depth: u32,
     clip: StoredClipId,
-    area: Rect,
-    bounds: Rect,
+    area: LogicalRect,
+    bounds: LogicalRect,
 }
 
 #[derive(Clone, Copy)]
@@ -520,7 +520,7 @@ struct StoredAtom {
 struct StoredLayout {
     kind: u16,
     data: DataId,
-    offset: Point,
+    offset: LogicalPoint,
 }
 
 #[derive(Clone, Copy)]
@@ -555,20 +555,20 @@ type ResolvedClipId = Index<ResolvedClip>;
 
 struct AtomKind<C> {
     type_id: TypeId,
-    measure: fn(&DataArena, DataId, &mut C, Constraints) -> Size,
-    paint_bounds: fn(&DataArena, DataId, Rect) -> Rect,
-    paint: fn(&DataArena, DataId, &mut C, Rect),
+    measure: fn(&DataArena, DataId, &mut C, Constraints) -> LogicalSize,
+    paint_bounds: fn(&DataArena, DataId, LogicalRect) -> LogicalRect,
+    paint: fn(&DataArena, DataId, &mut C, LogicalRect),
 }
 
 struct LayoutKind<C> {
     type_id: TypeId,
-    layout: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, Constraints) -> Size,
+    layout: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, Constraints) -> LogicalSize,
     default_item: DataId,
 }
 
 struct ClipKind<C> {
     type_id: TypeId,
-    push: fn(&DataArena, DataId, &mut C, Rect),
+    push: fn(&DataArena, DataId, &mut C, LogicalRect),
     pop: fn(&DataArena, DataId, &mut C),
 }
 
@@ -577,19 +577,19 @@ fn measure_atom<C, A: Atom<C>>(
     id: DataId,
     context: &mut C,
     constraints: Constraints,
-) -> Size {
+) -> LogicalSize {
     data.load::<A>(id).measure(context, constraints)
 }
 
-fn paint_bounds_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, area: Rect) -> Rect {
+fn paint_bounds_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, area: LogicalRect) -> LogicalRect {
     data.load::<A>(id).paint_bounds(area)
 }
 
-fn paint_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, context: &mut C, area: Rect) {
+fn paint_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, context: &mut C, area: LogicalRect) {
     data.load::<A>(id).paint(context, area)
 }
 
-fn push_clip<C, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C, area: Rect) {
+fn push_clip<C, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C, area: LogicalRect) {
     data.load::<X>(id).push(context, area)
 }
 

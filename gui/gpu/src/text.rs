@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use blit::{Point, Size};
 use blit_gui::ResolvedTextLayout;
 use blit_raster::{Metrics, Rasterizer};
 use blit_text::FontFaceId;
@@ -25,7 +26,7 @@ pub struct GlyphAtlas {
 #[derive(Clone, Copy)]
 pub struct Glyph {
     pub metrics: Metrics,
-    pub atlas: [u32; 2],
+    pub atlas: Point<u32>,
     pub page: usize,
 }
 
@@ -39,7 +40,7 @@ struct Page {
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
     allocator: AtlasAllocator,
-    size: [u32; 2],
+    size: Size<u32>,
     last_used: u64,
 }
 
@@ -85,7 +86,7 @@ impl GlyphAtlas {
                 break;
             };
             let page = self.pages[index].take().unwrap();
-            self.bytes -= u64::from(page.size[0]) * u64::from(page.size[1]);
+            self.bytes -= u64::from(page.size.width) * u64::from(page.size.height);
         }
         self.glyphs.retain(|_, cached| match cached.allocation {
             Some(_) => self.pages[cached.glyph.page].is_some(),
@@ -128,7 +129,7 @@ impl GlyphAtlas {
         if metrics.width == 0 || metrics.height == 0 {
             let glyph = Glyph {
                 metrics,
-                atlas: [0, 0],
+                atlas: Point::new(0, 0),
                 page: 0,
             };
             self.glyphs.insert(
@@ -148,16 +149,16 @@ impl GlyphAtlas {
             width <= self.max_size && height <= self.max_size,
             "glyph exceeds the GPU texture limit"
         );
-        let requested = [width, height];
+        let requested = Size::new(width, height);
         let base_size = PAGE_SIZE.min(self.max_size);
-        let page_size = [base_size.max(width), base_size.max(height)];
+        let page_size = Size::new(base_size.max(width), base_size.max(height));
         let mut placement = self.allocate(requested);
-        let page_bytes = u64::from(page_size[0]) * u64::from(page_size[1]);
+        let page_bytes = u64::from(page_size.width) * u64::from(page_size.height);
         let reusable = self
             .pages
             .iter()
             .flatten()
-            .any(|page| width <= page.size[0] && height <= page.size[1]);
+            .any(|page| width <= page.size.width && height <= page.size.height);
 
         if placement.is_none() && reusable && self.bytes.saturating_add(page_bytes) > CACHE_BYTES {
             self.victims.clear();
@@ -167,7 +168,7 @@ impl GlyphAtlas {
                     && cached.allocation.is_some()
                     && self.pages[page]
                         .as_ref()
-                        .is_some_and(|page| width <= page.size[0] && height <= page.size[1]))
+                        .is_some_and(|page| width <= page.size.width && height <= page.size.height))
                 .then_some((cached.last_used, *key))
             }));
             self.victims.sort_unstable_by_key(|victim| victim.0);
@@ -191,8 +192,8 @@ impl GlyphAtlas {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("blit gpu glyph atlas"),
                 size: wgpu::Extent3d {
-                    width: page_size[0],
-                    height: page_size[1],
+                    width: page_size.width,
+                    height: page_size.height,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -239,8 +240,8 @@ impl GlyphAtlas {
                 texture: &self.pages[page].as_ref().unwrap().texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
-                    x: atlas[0],
-                    y: atlas[1],
+                    x: atlas.x,
+                    y: atlas.y,
                     z: 0,
                 },
                 aspect: wgpu::TextureAspect::All,
@@ -277,7 +278,7 @@ impl GlyphAtlas {
             .bind_group
     }
 
-    fn allocate(&mut self, requested: [u32; 2]) -> Option<(usize, Allocation)> {
+    fn allocate(&mut self, requested: Size<u32>) -> Option<(usize, Allocation)> {
         self.pages
             .iter_mut()
             .enumerate()
@@ -289,7 +290,7 @@ impl GlyphAtlas {
         for page in &mut self.pages {
             if page.as_ref().is_some_and(|page| page.allocator.is_empty()) {
                 let empty = page.take().unwrap();
-                self.bytes -= u64::from(empty.size[0]) * u64::from(empty.size[1]);
+                self.bytes -= u64::from(empty.size.width) * u64::from(empty.size.height);
             }
         }
         while self.pages.last().is_some_and(Option::is_none) {
@@ -321,12 +322,12 @@ mod tests {
         let mut atlas = GlyphAtlas::new(&device, layout.clone(), 0.25);
         atlas.begin_frame();
 
-        let size = [PAGE_SIZE * 4; 2];
+        let size = Size::uniform(PAGE_SIZE * 4);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
-                width: size[0],
-                height: size[1],
+                width: size.width,
+                height: size.height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -346,7 +347,7 @@ mod tests {
             }],
         });
         let mut allocator = AtlasAllocator::new(size);
-        let allocation = allocator.allocate([1, 1]).unwrap();
+        let allocation = allocator.allocate(Size::uniform(1)).unwrap();
         atlas.pages.push(Some(Page {
             texture,
             bind_group,
@@ -354,7 +355,7 @@ mod tests {
             size,
             last_used: atlas.frame,
         }));
-        atlas.bytes = u64::from(size[0]) * u64::from(size[1]);
+        atlas.bytes = u64::from(size.width) * u64::from(size.height);
         atlas.glyphs.insert(
             GlyphKey {
                 face: FontFaceId::default(),
@@ -369,7 +370,7 @@ mod tests {
                         height: 1,
                         ..Metrics::default()
                     },
-                    atlas: [0, 0],
+                    atlas: Point::new(0, 0),
                     page: 0,
                 },
                 allocation: Some(allocation.id),
@@ -386,7 +387,7 @@ mod tests {
             CachedGlyph {
                 glyph: Glyph {
                     metrics: Metrics::default(),
-                    atlas: [0, 0],
+                    atlas: Point::new(0, 0),
                     page: 0,
                 },
                 allocation: None,

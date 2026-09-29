@@ -4,7 +4,7 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::{geometry::Point, hash::FxHasher, input::ScrollPhase};
+use crate::{geometry::LogicalPoint, hash::FxHasher, input::ScrollPhase};
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 
@@ -90,13 +90,13 @@ pub struct Interaction {
     pub hovered: bool,
     pub clicked: bool,
     pub dragging: bool,
-    pub drag_delta: Point,
+    pub drag_delta: LogicalPoint,
     pub scroll: Option<ScrollInteraction>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScrollInteraction {
-    pub delta: Point,
+    pub delta: LogicalPoint,
     pub continuous: bool,
     pub phase: ScrollPhase,
 }

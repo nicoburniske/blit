@@ -17,7 +17,7 @@ use crate::{
     Atom, Clip, Content, FrameInfo, Widget,
     animation::{Easing, Transition},
     arena::{DataArena, DataId},
-    geometry::{Constraints, Point, Rect, Sides, Size},
+    geometry::{Constraints, LogicalPoint, LogicalRect, LogicalSize, Sides},
     input::Input,
     interact::{Interaction, Sense, WidgetId},
     layout::Layout,
@@ -196,7 +196,7 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
     }
 
-    pub fn offset(mut self, offset: Point) -> Self {
+    pub fn offset(mut self, offset: LogicalPoint) -> Self {
         let node = self.inner.node;
         let frame = self.inner.frame_mut();
         let layout = frame.nodes[node.index()].layout.index().unwrap();
@@ -216,7 +216,7 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 
 impl<C, S> Ui<'_, C, S> {
     /// returns previous frame geometry and tracks this id for the next layout
-    pub fn geometry(&mut self, id: WidgetId) -> Option<Rect> {
+    pub fn geometry(&mut self, id: WidgetId) -> Option<LogicalRect> {
         self.inner.frame.requests.entry(id).or_insert(Request::Geometry);
         self.inner
             .frame
@@ -285,11 +285,11 @@ impl<C, S> Ui<'_, C, S> {
         }
     }
 
-    pub fn pointer_position(&self) -> Option<Point> {
+    pub fn pointer_position(&self) -> Option<LogicalPoint> {
         self.inner.frame.interaction.pointer_position()
     }
 
-    pub fn screen(&self) -> Rect {
+    pub fn screen(&self) -> LogicalRect {
         self.inner.frame.screen
     }
 

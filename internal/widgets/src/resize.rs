@@ -1,9 +1,9 @@
-use blit::{Constraints, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
+use blit::{Constraints, Interaction, Layout as LayoutTrait, LayoutCx, LogicalPoint, LogicalSize, Sense, Ui, Widget};
 use blit_layout::round;
 
 #[derive(Debug, Default)]
 pub struct State {
-    size: Option<Size>,
+    size: Option<LogicalSize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,10 +22,10 @@ pub struct Grip {
 blit::builder! {
     #[derive(Clone, Copy, Debug)]
     pub struct Config {
-        new(initial: Size),
-        minimum: Size = Size::ZERO,
-        maximum: Size = Size::uniform(f32::INFINITY),
-        grip_size: Size = Size::uniform(1.0),
+        new(initial: LogicalSize),
+        minimum: LogicalSize = LogicalSize::ZERO,
+        maximum: LogicalSize = LogicalSize::uniform(f32::INFINITY),
+        grip_size: LogicalSize = LogicalSize::uniform(1.0),
     }
 }
 
@@ -44,11 +44,11 @@ where
         let right = ui.interact_widget(right_id, Sense::DRAG);
         let bottom = ui.interact_widget(bottom_id, Sense::DRAG);
         let corner = ui.interact_widget(corner_id, Sense::DRAG);
-        let delta = Size::new(
+        let delta = LogicalSize::new(
             right.drag_delta.x + corner.drag_delta.x,
             bottom.drag_delta.y + corner.drag_delta.y,
         );
-        if delta != Size::ZERO {
+        if delta != LogicalSize::ZERO {
             let mut size = state
                 .size
                 .or_else(|| geometry.map(|area| area.size()))
@@ -98,39 +98,43 @@ enum Item {
 
 #[derive(Clone, Copy)]
 struct Layout {
-    size: Size,
-    minimum: Size,
-    maximum: Size,
-    grip_size: Size,
+    size: LogicalSize,
+    minimum: LogicalSize,
+    maximum: LogicalSize,
+    grip_size: LogicalSize,
 }
 
 impl<C> LayoutTrait<C> for Layout {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let maximum = self.maximum.max(self.minimum);
-        let size = constraints.constrain(Size::new(
+        let size = constraints.constrain(LogicalSize::new(
             round(self.size.width.clamp(self.minimum.width, maximum.width)),
             round(self.size.height.clamp(self.minimum.height, maximum.height)),
         ));
-        let grip = Size::new(
+        let grip = LogicalSize::new(
             round(self.grip_size.width).min(size.width),
             round(self.grip_size.height).min(size.height),
         );
         for child in cx.children() {
             let (position, child_size, z_index) = match *cx.item(child) {
-                Item::Content => (Point::ZERO, size, 0),
+                Item::Content => (LogicalPoint::ZERO, size, 0),
                 Item::Right => (
-                    Point::new(size.width - grip.width, 0.0),
-                    Size::new(grip.width, size.height),
+                    LogicalPoint::new(size.width - grip.width, 0.0),
+                    LogicalSize::new(grip.width, size.height),
                     1,
                 ),
                 Item::Bottom => (
-                    Point::new(0.0, size.height - grip.height),
-                    Size::new(size.width, grip.height),
+                    LogicalPoint::new(0.0, size.height - grip.height),
+                    LogicalSize::new(size.width, grip.height),
                     1,
                 ),
-                Item::Corner => (Point::new(size.width - grip.width, size.height - grip.height), grip, 2),
+                Item::Corner => (
+                    LogicalPoint::new(size.width - grip.width, size.height - grip.height),
+                    grip,
+                    2,
+                ),
             };
             cx.layout_child(child, Constraints::tight(child_size));
             cx.set_position(child, position);

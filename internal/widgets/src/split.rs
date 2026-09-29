@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
+use blit::{Axis, Constraints, Layout as LayoutTrait, LayoutCx, LogicalPoint, LogicalSize, Sense, Ui, Widget};
 use blit_layout::round;
 
 blit::builder! {
@@ -121,7 +121,7 @@ struct Layout {
 impl<C> LayoutTrait<C> for Layout {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
         let cross_axis = self.axis.other();
         let main = self.axis.extent(bounds.max);
         assert!(main.is_finite(), "split needs a finite main axis budget");
@@ -160,17 +160,17 @@ impl<C> LayoutTrait<C> for Layout {
             self.axis.set_extent(&mut child_bounds.max, extent);
             let size = cx.layout_child(child, child_bounds);
             cross = cross.max(cross_axis.extent(size));
-            let mut point = Size::ZERO;
+            let mut point = LogicalSize::ZERO;
             self.axis.set_extent(&mut point, offset);
-            cx.set_position(child, Point::new(point.width, point.height));
+            cx.set_position(child, LogicalPoint::new(point.width, point.height));
         }
-        let mut size = Size::ZERO;
+        let mut size = LogicalSize::ZERO;
         self.axis.set_extent(&mut size, divider_extent);
         cross_axis.set_extent(&mut size, cross);
         cx.layout_child(divider, Constraints::tight(size));
-        let mut point = Size::ZERO;
+        let mut point = LogicalSize::ZERO;
         self.axis.set_extent(&mut point, leading_extent);
-        cx.set_position(divider, Point::new(point.width, point.height));
+        cx.set_position(divider, LogicalPoint::new(point.width, point.height));
         self.axis.set_extent(&mut size, main);
         bounds.constrain(size)
     }
@@ -180,7 +180,7 @@ impl<C> LayoutTrait<C> for Layout {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Atom, Constraints, Frame, FrameInfo, Input, Rect, Size, WidgetId};
+    use blit::{Atom, Constraints, Frame, FrameInfo, Input, LogicalRect, LogicalSize, WidgetId};
     use blit_layout::single;
 
     use super::*;
@@ -189,13 +189,13 @@ mod tests {
     struct BoxAtom;
 
     impl Atom<TestContext> for BoxAtom {
-        fn measure(&self, _: &mut TestContext, constraints: Constraints) -> Size {
+        fn measure(&self, _: &mut TestContext, constraints: Constraints) -> LogicalSize {
             constraints.min
         }
 
-        fn paint(&self, _: &mut TestContext, _: Rect) {}
+        fn paint(&self, _: &mut TestContext, _: LogicalRect) {}
 
-        fn paint_bounds(&self, area: Rect) -> Rect {
+        fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
             area
         }
     }
@@ -209,7 +209,7 @@ mod tests {
         let context = &mut TestContext;
         frame.build(
             context,
-            FrameInfo::new(Size::new(100.0, 20.0)),
+            FrameInfo::new(LogicalSize::new(100.0, 20.0)),
             Duration::ZERO,
             Input::None,
             |ui: Ui<'_, TestContext>| {
@@ -232,7 +232,7 @@ mod tests {
         frame.layout(context);
         assert_eq!(
             frame.geometry(id.child("leading pane")),
-            Some(Rect::new(0.0, 0.0, 76.0, 20.0))
+            Some(LogicalRect::new(0.0, 0.0, 76.0, 20.0))
         );
     }
 }

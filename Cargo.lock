@@ -225,6 +225,7 @@ dependencies = [
 name = "blit-raster"
 version = "0.1.0"
 dependencies = [
+ "blit",
  "blit-text",
  "ttf-parser",
 ]

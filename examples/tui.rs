@@ -1,6 +1,8 @@
 use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
-use blit::{Axis, Easing, Input, Interaction, Key, NodeTarget, Sense, Sides, Size, Transition, Widget, WidgetId};
+use blit::{
+    Axis, Easing, Input, Interaction, Key, LogicalSize, NodeTarget, Sense, Sides, Transition, Widget, WidgetId,
+};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiContext, Ui,
@@ -460,13 +462,13 @@ impl Widget<TuiContext> for &mut LayoutPage {
                             .widget_id(WidgetId::new("tui layout canvas"))
                             .build(resize::new(
                                 resize,
-                                resize::Config::new(Size::new(
+                                resize::Config::new(LogicalSize::new(
                                     ((screen.width - 48.0) * 0.8).max(18.0),
                                     ((screen.height - 8.0) * 0.72).max(9.0),
                                 ))
-                                .minimum(Size::new(18.0, 9.0))
+                                .minimum(LogicalSize::new(18.0, 9.0))
                                 .maximum(screen.size())
-                                .grip_size(Size::uniform(1.0)),
+                                .grip_size(LogicalSize::uniform(1.0)),
                                 Canvas { config: preview_config },
                                 TuiGrip,
                             ));
@@ -679,10 +681,10 @@ impl Widget<TuiContext> for &mut TextPage {
                     viewport.child().widget_id(WidgetId::new("tui text preview")).build(
                         resize::new(
                             text_resize,
-                            resize::Config::new(Size::new(64.0, 16.0))
-                                .minimum(Size::new(12.0, 6.0))
+                            resize::Config::new(LogicalSize::new(64.0, 16.0))
+                                .minimum(LogicalSize::new(12.0, 6.0))
                                 .maximum(screen.size())
-                                .grip_size(Size::uniform(1.0)),
+                                .grip_size(LogicalSize::uniform(1.0)),
                             |ui: Ui<'_>| {
                                 let mut paragraph = ui
                                     .layout(flex::column().padding(Padding::all(1)))
@@ -1075,7 +1077,7 @@ impl Widget<TuiContext> for Canvas {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
-        let unit = Size::uniform(1.0);
+        let unit = LogicalSize::uniform(1.0);
         let background = Block::new()
             .background(colors::CANVAS)
             .border(Border::new(colors::CANVAS_BORDER).style(BorderStyle::Rounded));
@@ -1154,7 +1156,7 @@ impl Widget<TuiContext> for Canvas {
     }
 }
 
-fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: CanvasConfig, unit: Size) {
+fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: CanvasConfig, unit: LogicalSize) {
     let mut item = ui.layout(flex::column().align(Align::Center).justify(Justify::Center));
     item.insert(Block::new().background(colors::ITEMS[index]));
     let mut item = if config.transitions {

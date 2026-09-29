@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, Size};
+use blit::{Axis, Constraints, LogicalSize};
 
 #[cfg(feature = "tui")]
 mod platform {
@@ -202,10 +202,10 @@ pub fn flow_sizing(
     }
 }
 
-pub fn flow_size(main: f32, cross: f32, axis: Axis) -> Size {
+pub fn flow_size(main: f32, cross: f32, axis: Axis) -> LogicalSize {
     match axis {
-        Axis::Horizontal => Size::new(main, cross),
-        Axis::Vertical => Size::new(cross, main),
+        Axis::Horizontal => LogicalSize::new(main, cross),
+        Axis::Vertical => LogicalSize::new(cross, main),
     }
 }
 
@@ -239,7 +239,7 @@ pub fn flow_constraints(axis: Axis, main: (f32, f32), cross: (f32, f32)) -> Cons
         Axis::Vertical => (cross, main),
     };
     Constraints {
-        min: Size::new(round(width.0), round(height.0)),
-        max: Size::new(round(width.1), round(height.1)),
+        min: LogicalSize::new(round(width.0), round(height.0)),
+        max: LogicalSize::new(round(width.1), round(height.1)),
     }
 }

@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Widget};
+use blit::{Atom, Constraints, Input, Key, LogicalRect, LogicalSize, PointerButton, Sense, Sides, Widget};
 pub use blit_widgets::text_input::{Response, State};
 
 use crate::{
@@ -131,7 +131,7 @@ struct InputAtom {
 }
 
 impl Atom<GuiContext> for InputAtom {
-    fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> LogicalSize {
         let size = context.measure_text(&TextLayoutRequest {
             text: self.display,
             wrap: TextWrap::None,

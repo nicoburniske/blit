@@ -1,4 +1,4 @@
-use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, Size, Ui, WidgetId};
+use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, LogicalPoint, LogicalSize, Ui, WidgetId};
 use blit_layout::round;
 
 pub use super::shared::{Behavior, State};
@@ -98,7 +98,7 @@ struct ListLayout {
 impl<C> Layout<C> for ListLayout {
     type Item = usize;
 
-    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let mut cross_extent: f32 = 0.0;
         for child in ui.children() {
             let mut child_constraints = constraints;
@@ -109,16 +109,16 @@ impl<C> Layout<C> for ListLayout {
             cross_extent = cross_extent.max(self.axis.other().extent(size));
             match self.axis {
                 Axis::Horizontal => {
-                    ui.set_position(child, Point::new(offset, 0.0));
+                    ui.set_position(child, LogicalPoint::new(offset, 0.0));
                 }
                 Axis::Vertical => {
-                    ui.set_position(child, Point::new(0.0, offset));
+                    ui.set_position(child, LogicalPoint::new(0.0, offset));
                 }
             }
         }
         constraints.constrain(match self.axis {
-            Axis::Horizontal => Size::new(self.total_extent, cross_extent),
-            Axis::Vertical => Size::new(cross_extent, self.total_extent),
+            Axis::Horizontal => LogicalSize::new(self.total_extent, cross_extent),
+            Axis::Vertical => LogicalSize::new(cross_extent, self.total_extent),
         })
     }
 }
@@ -166,7 +166,7 @@ mod tests {
 
         let mut frame = Frame::default();
         let mut context = TestContext;
-        let frame_info = FrameInfo::new(Size::new(80.0, 10.0));
+        let frame_info = FrameInfo::new(LogicalSize::new(80.0, 10.0));
         let mut state = State::new();
         let mut built = Vec::new();
 

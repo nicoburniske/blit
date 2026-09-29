@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, Constraints, LogicalRect, LogicalSize};
 
 use crate::{
     TuiContext,
@@ -50,12 +50,12 @@ impl Gauge {
 }
 
 impl Atom<TuiContext> for Gauge {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> LogicalSize {
         let width = self
             .label
             .as_ref()
             .map_or_else(|| percentage_label(self.ratio).1, |label| label.chars().count());
-        constraints.constrain(Size::new(width.max(1) as f32, 1.0))
+        constraints.constrain(LogicalSize::new(width.max(1) as f32, 1.0))
     }
 
     fn paint(&self, context: &mut TuiContext, area: LogicalRect) {

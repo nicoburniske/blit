@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, ScrollPhase, Sense, Size, Ui, Widget};
+use blit::{
+    Axis, Clip, Constraints, Content, Layout, LayoutCx, LogicalPoint, LogicalSize, ScrollPhase, Sense, Ui, Widget,
+};
 use blit_layout::round;
 
 blit::builder! {
@@ -69,7 +71,7 @@ pub enum ScrollItem {
 impl<C> Layout<C> for ScrollLayout {
     type Item = ScrollItem;
 
-    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         self.layout_with_offset(ui, constraints, |_| self.offset)
     }
 }
@@ -80,7 +82,7 @@ impl ScrollLayout {
         ui: &mut LayoutCx<'_, C, ScrollItem>,
         constraints: Constraints,
         offset: impl FnOnce(f32) -> f32,
-    ) -> Size {
+    ) -> LogicalSize {
         let mut content = None;
         let mut track = None;
         let mut thumb = None;
@@ -99,7 +101,7 @@ impl ScrollLayout {
             0.0
         };
         let gutter = if track.is_some() { thickness } else { 0.0 };
-        let mut gutter_size = Size::ZERO;
+        let mut gutter_size = LogicalSize::ZERO;
         self.axis.other().set_extent(&mut gutter_size, gutter);
         let viewport_constraints = constraints.shrink(gutter_size);
         let mut content_constraints = viewport_constraints;
@@ -107,7 +109,7 @@ impl ScrollLayout {
         self.axis.set_extent(&mut content_constraints.max, f32::INFINITY);
         let content_size = ui.layout_child(content, content_constraints);
         let content_viewport_size = viewport_constraints.constrain(content_size);
-        let viewport_size = Size::new(
+        let viewport_size = LogicalSize::new(
             content_viewport_size.width + gutter_size.width,
             content_viewport_size.height + gutter_size.height,
         );
@@ -118,23 +120,23 @@ impl ScrollLayout {
         ui.set_position(
             content,
             match self.axis {
-                Axis::Horizontal => Point::new(-offset, 0.0),
-                Axis::Vertical => Point::new(0.0, -offset),
+                Axis::Horizontal => LogicalPoint::new(-offset, 0.0),
+                Axis::Vertical => LogicalPoint::new(0.0, -offset),
             },
         );
 
         if let Some(track) = track {
             let track_extent = if maximum > 0.0 { viewport_extent } else { 0.0 };
             let track_size = match self.axis {
-                Axis::Horizontal => Size::new(track_extent, thickness),
-                Axis::Vertical => Size::new(thickness, track_extent),
+                Axis::Horizontal => LogicalSize::new(track_extent, thickness),
+                Axis::Vertical => LogicalSize::new(thickness, track_extent),
             };
             ui.layout_child(track, Constraints::tight(track_size));
             ui.set_position(
                 track,
                 match self.axis {
-                    Axis::Horizontal => Point::new(0.0, content_viewport_size.height),
-                    Axis::Vertical => Point::new(content_viewport_size.width, 0.0),
+                    Axis::Horizontal => LogicalPoint::new(0.0, content_viewport_size.height),
+                    Axis::Vertical => LogicalPoint::new(content_viewport_size.width, 0.0),
                 },
             );
         }
@@ -154,15 +156,15 @@ impl ScrollLayout {
                 0.0
             };
             let thumb_size = match self.axis {
-                Axis::Horizontal => Size::new(thumb_extent, thickness),
-                Axis::Vertical => Size::new(thickness, thumb_extent),
+                Axis::Horizontal => LogicalSize::new(thumb_extent, thickness),
+                Axis::Vertical => LogicalSize::new(thickness, thumb_extent),
             };
             ui.layout_child(thumb, Constraints::tight(thumb_size));
             ui.set_position(
                 thumb,
                 match self.axis {
-                    Axis::Horizontal => Point::new(thumb_offset, viewport_size.height - thickness),
-                    Axis::Vertical => Point::new(viewport_size.width - thickness, thumb_offset),
+                    Axis::Horizontal => LogicalPoint::new(thumb_offset, viewport_size.height - thickness),
+                    Axis::Vertical => LogicalPoint::new(viewport_size.width - thickness, thumb_offset),
                 },
             );
         }

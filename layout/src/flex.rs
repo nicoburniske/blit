@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Size};
+use blit::{Axis, Constraints, LayoutCx, LogicalPoint, LogicalSize};
 
 use crate::{
     Align, Justify, Length, Padding, Sizing, distribute, flow_constraints, flow_size, flow_sizing, justify_offset,
@@ -66,13 +66,13 @@ pub fn item() -> Item {
 impl<C> blit::Layout<C> for Layout {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
         let padding: blit::Sides = self.padding.into();
         let cross_axis = self.axis.other();
         let gap = (self.gap as f32).max(0.0);
         let main_padding = self.axis.extent(padding.size());
         let cross_padding = cross_axis.extent(padding.size());
-        let leading = Size::new(padding.left, padding.top);
+        let leading = LogicalSize::new(padding.left, padding.top);
         let main_leading = self.axis.extent(leading);
         let cross_leading = cross_axis.extent(leading);
         let main_max = (round(self.axis.extent(bounds.max)) - main_padding).max(0.0);
@@ -206,7 +206,7 @@ impl<C> blit::Layout<C> for Layout {
                 Align::End => (available_cross - child_cross).max(0.0),
             };
             let pos = flow_size(round(cursor), round(cross_leading + offset), self.axis);
-            cx.set_position(child, Point::new(pos.width, pos.height));
+            cx.set_position(child, LogicalPoint::new(pos.width, pos.height));
             cursor += round(self.axis.extent(child_size)) + gap + extra_gap;
         }
         size
