@@ -2,7 +2,7 @@ use std::ops::{BitOr, BitOrAssign};
 
 use blit::LogicalRect;
 
-use super::color::Color;
+use crate::renderer::color::Color;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

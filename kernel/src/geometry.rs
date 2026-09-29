@@ -123,12 +123,11 @@ pub struct PhysicalSize {
     pub height: i32,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct PhysicalRect {
-    pub x: i32,
-    pub y: i32,
-    pub width: i32,
-    pub height: i32,
+crate::builder! {
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub struct PhysicalRect {
+        new(x: i32, y: i32, width: i32, height: i32),
+    }
 }
 
 impl PhysicalRect {

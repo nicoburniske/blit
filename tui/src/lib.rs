@@ -12,6 +12,7 @@
 //! such as Kitty and Ghostty. Windows and legacy terminals are not supported.
 
 mod context;
+mod geometry;
 mod protocol;
 mod renderer;
 mod terminal;
@@ -36,10 +37,11 @@ use std::{
 };
 
 use blit::{
-    Frame, FrameInfo, LogicalPoint, LogicalSize,
+    Frame, FrameInfo, LogicalSize,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
-use terminal::{Size, Terminal};
+
+use crate::terminal::{Size, Terminal};
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
 
@@ -266,10 +268,7 @@ impl Session {
                     column,
                     row,
                 } => {
-                    let position = LogicalPoint {
-                        x: f32::from(column) + 0.5,
-                        y: f32::from(row) + 0.5,
-                    };
+                    let position = geometry::cell_center(column, row);
                     let modifiers =
                         Modifiers::new(modifiers.shift, modifiers.control, modifiers.alt, modifiers.super_key);
                     let button = |button| match button {

@@ -1,12 +1,15 @@
 //! terminal cell drawing
 
-use blit::LogicalRect;
+use blit::{LogicalRect, PhysicalRect};
 use unicode_width::UnicodeWidthChar;
 
-use super::{
-    CellRect, Cells, Glyph, TuiRenderer,
-    color::Color,
-    text::{HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest, VerticalAlign},
+use crate::{
+    geometry::cell_rect,
+    renderer::{
+        Cells, Glyph, TuiRenderer,
+        color::Color,
+        text::{HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest, VerticalAlign},
+    },
 };
 
 blit::builder! {
@@ -43,20 +46,25 @@ impl Cell {
 
 pub struct CellBuffer<'a> {
     renderer: &'a mut TuiRenderer,
-    origin_x: isize,
-    origin_y: isize,
-    columns: usize,
-    rows: usize,
-    bounds: [isize; 4],
+    area: PhysicalRect,
+    bounds: PhysicalRect,
 }
 
 impl TuiRenderer {
     #[inline]
-    pub fn cells(&mut self, area: LogicalRect, clip: LogicalRect) -> CellBuffer<'_> {
-        CellBuffer::new(self, area, clip)
+    pub fn cells(&mut self, area: PhysicalRect, clip: PhysicalRect) -> CellBuffer<'_> {
+        let bounds = area
+            .intersection(clip)
+            .and_then(|bounds| bounds.intersection(self.screen()))
+            .unwrap_or_default();
+        CellBuffer {
+            renderer: self,
+            area,
+            bounds,
+        }
     }
 
-    pub fn paint_text(&mut self, request: TextRequest, clip: LogicalRect) {
+    pub fn paint_text(&mut self, request: TextRequest, clip: PhysicalRect) {
         self.paint_text_at(request, clip, None);
     }
 }
@@ -64,12 +72,16 @@ impl TuiRenderer {
 impl CellBuffer<'_> {
     #[inline]
     pub fn columns(&self) -> usize {
-        self.columns
+        self.area.width.max(0) as usize
     }
 
     #[inline]
     pub fn rows(&self) -> usize {
-        self.rows
+        self.area.height.max(0) as usize
+    }
+
+    pub fn area(&self) -> PhysicalRect {
+        self.area
     }
 
     /// blends rgb into existing foregrounds and backgrounds without replacing text
@@ -80,14 +92,14 @@ impl CellBuffer<'_> {
         if opacity == 0 {
             return;
         }
-        let [left, top, right, bottom] = self.bounds;
+        let bounds = self.bounds;
         let palette = &self.renderer.palette;
         let cells = &mut self.renderer.frame_cells;
         let alpha = u32::from(opacity);
-        for y in top..bottom {
+        for y in bounds.y..bounds.y + bounds.height {
             let row = y as usize * self.renderer.columns;
-            let mut start = row + left as usize;
-            let mut end = row + right as usize;
+            let mut start = row + bounds.x as usize;
+            let mut end = start + bounds.width as usize;
             while start < end && cells.glyph[start] == Glyph::CONTINUATION.0 {
                 start += 1;
             }
@@ -125,8 +137,8 @@ impl CellBuffer<'_> {
 
     pub fn clear(&mut self, cell: Cell) {
         let width = cell.character.and_then(UnicodeWidthChar::width).unwrap_or(1);
-        let [left, top, right, bottom] = self.bounds;
-        if left == right || top == bottom {
+        let bounds = self.bounds;
+        if bounds.width == 0 || bounds.height == 0 {
             return;
         }
         if width == 1
@@ -136,9 +148,9 @@ impl CellBuffer<'_> {
             let glyph = Glyph::scalar(character.unwrap_or(' '));
             let foreground = character.map_or(Color::Reset, |_| cell.style.foreground);
             let attributes = character.map_or(TextAttributes::NONE, |_| cell.style.attributes);
-            for y in top..bottom {
-                let start = y as usize * self.renderer.columns + left as usize;
-                let end = y as usize * self.renderer.columns + right as usize;
+            for y in bounds.y..bounds.y + bounds.height {
+                let start = y as usize * self.renderer.columns + bounds.x as usize;
+                let end = start + bounds.width as usize;
                 if self.renderer.frame_cells.glyph[start] != Glyph::SPACE.0 {
                     TuiRenderer::clear_glyph(&mut self.renderer.frame_cells, self.renderer.columns, start);
                 }
@@ -156,11 +168,11 @@ impl CellBuffer<'_> {
                 character: None,
                 style: cell.style,
             };
-            for y in 0..self.rows {
-                for x in 0..self.columns {
+            for y in 0..self.rows() {
+                for x in 0..self.columns() {
                     self.renderer.paint_cell(
-                        self.origin_x + x as isize,
-                        self.origin_y + y as isize,
+                        self.area.x as isize + x as isize,
+                        self.area.y as isize + y as isize,
                         self.bounds,
                         background,
                     );
@@ -168,11 +180,11 @@ impl CellBuffer<'_> {
             }
         }
         let step = width.max(1);
-        for y in 0..self.rows {
-            for x in (0..self.columns).step_by(step) {
+        for y in 0..self.rows() {
+            for x in (0..self.columns()).step_by(step) {
                 self.renderer.paint_cell(
-                    self.origin_x + x as isize,
-                    self.origin_y + y as isize,
+                    self.area.x as isize + x as isize,
+                    self.area.y as isize + y as isize,
                     self.bounds,
                     cell,
                 );
@@ -182,52 +194,49 @@ impl CellBuffer<'_> {
 
     #[inline]
     pub fn set_cell(&mut self, x: usize, y: usize, cell: Cell) {
-        if x >= self.columns || y >= self.rows {
+        if x >= self.columns() || y >= self.rows() {
             return;
         }
         self.renderer.paint_cell(
-            self.origin_x + x as isize,
-            self.origin_y + y as isize,
+            self.area.x as isize + x as isize,
+            self.area.y as isize + y as isize,
             self.bounds,
             cell,
         );
     }
 
     pub fn write(&mut self, x: usize, y: usize, text: &str, style: CellStyle) {
-        if x >= self.columns || y >= self.rows || text.is_empty() {
+        if x >= self.columns() || y >= self.rows() || text.is_empty() {
             return;
         }
-        let [left, top, right, bottom] = self.bounds;
-        if left == right || top == bottom {
+        if self.bounds.width == 0 || self.bounds.height == 0 {
             return;
         }
         let area = LogicalRect::new(
-            (self.origin_x + x as isize) as f32,
-            (self.origin_y + y as isize) as f32,
-            (self.columns - x) as f32,
-            (self.rows - y) as f32,
+            (self.area.x as isize + x as isize) as f32,
+            (self.area.y as isize + y as isize) as f32,
+            (self.columns() - x) as f32,
+            (self.rows() - y) as f32,
         );
-        let clip = LogicalRect::new(left as f32, top as f32, (right - left) as f32, (bottom - top) as f32);
         let text = self.renderer.text_run(text);
         self.renderer.paint_text_at(
             TextRequest::new(text, area)
                 .color(style.foreground)
                 .attributes(style.attributes),
-            clip,
+            self.bounds,
             style.background,
         );
     }
 }
 
 impl TuiRenderer {
-    fn paint_text_at(&mut self, request: TextRequest, clip: LogicalRect, background: Option<Color>) {
-        let (area_left, area_top, area_right, area_bottom) = self.cell_bounds(request.area);
-        let (clip_left, clip_top, clip_right, clip_bottom) = self.cell_bounds(clip);
-        let area_width = area_right - area_left;
-        let left = area_left.max(clip_left);
-        let top = area_top.max(clip_top);
-        let right = area_right.min(clip_right);
-        let bottom = area_bottom.min(clip_bottom);
+    fn paint_text_at(&mut self, request: TextRequest, clip: PhysicalRect, background: Option<Color>) {
+        let area = cell_rect(request.area);
+        let bounds = area
+            .intersection(clip)
+            .and_then(|bounds| bounds.intersection(self.screen()))
+            .unwrap_or_default();
+        let area_width = area.width as usize;
         let layout_request = TextLayoutRequest {
             text: request.text,
             wrap: request.options.wrap,
@@ -245,7 +254,7 @@ impl TuiRenderer {
             foreground: request.color,
             attributes: request.attributes,
         };
-        let resolve_style = |span: &super::ResolvedSpan| {
+        let resolve_style = |span: &crate::renderer::ResolvedSpan| {
             let mut attributes = request.attributes | span.attributes;
             attributes.set(span.remove_attributes, false);
             CellStyle {
@@ -257,17 +266,18 @@ impl TuiRenderer {
         let mut span_style = spans.first().map_or(base_style, resolve_style);
         let ellipsis = request.options.overflow == TextOverflow::Ellipsis;
         let maximum = area_width.max(1);
-        let area_width = area_width as isize;
-        let area_height = area_bottom as isize - area_top as isize;
+        let area_height = area.height as isize;
         let line_count = layout.lines.len() as isize;
         let start_y = match request.options.vertical_align {
-            VerticalAlign::Top => area_top as isize,
-            VerticalAlign::Center => area_top as isize + (area_height - line_count).div_euclid(2),
-            VerticalAlign::Bottom => area_bottom as isize - line_count,
+            VerticalAlign::Top => area.y as isize,
+            VerticalAlign::Center => area.y as isize + (area_height - line_count).div_euclid(2),
+            VerticalAlign::Bottom => (area.y + area.height) as isize - line_count,
         };
+        let right = bounds.x + bounds.width;
+        let bottom = bounds.y + bounds.height;
         for (line_index, line) in layout.lines.iter().enumerate() {
             let y = start_y + line_index as isize;
-            if y < top as isize || y >= bottom as isize {
+            if y < bounds.y as isize || y >= bottom as isize {
                 continue;
             }
             let mut line_end = layout
@@ -285,9 +295,9 @@ impl TuiRenderer {
                 line_width += 1;
             }
             let start_x = match request.options.horizontal_align {
-                HorizontalAlign::Left => area_left as isize - request.offset_x.round() as isize,
-                HorizontalAlign::Center => area_left as isize + (area_width - line_width as isize).div_euclid(2),
-                HorizontalAlign::Right => area_right as isize - line_width as isize,
+                HorizontalAlign::Left => area.x as isize - request.offset_x.round() as isize,
+                HorizontalAlign::Center => area.x as isize + (area_width as isize - line_width as isize).div_euclid(2),
+                HorizontalAlign::Right => (area.x + area.width) as isize - line_width as isize,
             };
             let mut column = 0;
             let ellipsis_offset = layout
@@ -322,7 +332,7 @@ impl TuiRenderer {
                 if x >= right as isize {
                     break;
                 }
-                if x >= left as isize && x + width as isize <= right as isize {
+                if x >= bounds.x as isize && x + width as isize <= right as isize {
                     let index = y as usize * self.columns + x as usize;
                     Self::paint_glyph(&mut self.frame_cells, self.columns, index, grapheme, width, style);
                 }
@@ -331,8 +341,7 @@ impl TuiRenderer {
         }
     }
 
-    fn paint_cell(&mut self, x: isize, y: isize, bounds: [isize; 4], cell: Cell) {
-        let [left, top, right, bottom] = bounds;
+    fn paint_cell(&mut self, x: isize, y: isize, bounds: PhysicalRect, cell: Cell) {
         let glyph = cell.character.and_then(|character| {
             character
                 .width()
@@ -340,7 +349,11 @@ impl TuiRenderer {
                 .map(|width| (Glyph::scalar(character), width))
         });
         let width = glyph.map_or(1, |(_, width)| width);
-        if x < left || y < top || y >= bottom || x + width as isize > right {
+        if x < bounds.x as isize
+            || y < bounds.y as isize
+            || y >= (bounds.y + bounds.height) as isize
+            || x + width as isize > (bounds.x + bounds.width) as isize
+        {
             return;
         }
         let index = y as usize * self.columns + x as usize;
@@ -397,27 +410,5 @@ impl TuiRenderer {
         frame_cells.glyph[range.clone()].fill(Glyph::SPACE.0);
         frame_cells.foreground[range.clone()].fill(Color::Reset.packed());
         frame_cells.attributes[range].fill(TextAttributes::NONE.0);
-    }
-}
-
-impl CellBuffer<'_> {
-    #[inline]
-    fn new(renderer: &mut TuiRenderer, area: LogicalRect, clip: LogicalRect) -> CellBuffer<'_> {
-        let area = CellRect::from_logical(area);
-        let clip = CellRect::from_logical(clip);
-        let screen_right = renderer.columns as isize;
-        let screen_bottom = renderer.rows as isize;
-        let left = area.left.max(clip.left).clamp(0, screen_right);
-        let top = area.top.max(clip.top).clamp(0, screen_bottom);
-        let right = area.right.min(clip.right).clamp(left, screen_right);
-        let bottom = area.bottom.min(clip.bottom).clamp(top, screen_bottom);
-        CellBuffer {
-            renderer,
-            origin_x: area.left,
-            origin_y: area.top,
-            columns: (area.right - area.left).max(0) as usize,
-            rows: (area.bottom - area.top).max(0) as usize,
-            bounds: [left, top, right, bottom],
-        }
     }
 }

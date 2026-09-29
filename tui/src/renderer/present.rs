@@ -1,9 +1,17 @@
 use std::fmt::Write as _;
 
 use base64::Engine as _;
-use blit::LogicalRect;
+use blit::PhysicalRect;
 
-use super::{BASE64, CellRect, KittyPlacement, TuiRenderer, image::ImagePlacement, text::TextAttributes, write_color};
+use crate::{
+    geometry::cell_rect,
+    renderer::{
+        BASE64, Color, Glyph, KittyPlacement, TuiRenderer,
+        image::{ImageFormat, ImagePlacement},
+        text::TextAttributes,
+        write_color,
+    },
+};
 
 impl TuiRenderer {
     pub fn begin_frame(&mut self) {
@@ -11,22 +19,18 @@ impl TuiRenderer {
         self.frame_cells.clear();
         self.kitty_placements.clear();
     }
-    pub fn place_image(&mut self, request: ImagePlacement, clip: LogicalRect) {
-        if let Some(area) = request.area.intersection(clip) {
-            let area = CellRect::from_logical(area);
-            let x = area.left.clamp(0, self.columns as isize) as usize;
-            let y = area.top.clamp(0, self.rows as isize) as usize;
-            let right = area.right.clamp(0, self.columns as isize) as usize;
-            let bottom = area.bottom.clamp(0, self.rows as isize) as usize;
-            if right > x && bottom > y {
-                self.kitty_placements.push(KittyPlacement {
-                    image: request.image.0 as u32,
-                    x: x as u16,
-                    y: y as u16,
-                    width: (right - x) as u16,
-                    height: (bottom - y) as u16,
-                });
-            }
+    pub fn place_image(&mut self, request: ImagePlacement, clip: PhysicalRect) {
+        if let Some(area) = cell_rect(request.area)
+            .intersection(clip)
+            .and_then(|area| area.intersection(self.screen()))
+        {
+            self.kitty_placements.push(KittyPlacement {
+                image: request.image.0 as u32,
+                x: area.x as u16,
+                y: area.y as u16,
+                width: area.width as u16,
+                height: area.height as u16,
+            });
         }
     }
 
@@ -39,8 +43,8 @@ impl TuiRenderer {
                 continue;
             }
             for index in range {
-                let old_glyph = super::Glyph(self.cells.glyph[index]);
-                let new_glyph = super::Glyph(self.frame_cells.glyph[index]);
+                let old_glyph = Glyph(self.cells.glyph[index]);
+                let new_glyph = Glyph(self.frame_cells.glyph[index]);
                 self.changed[index] = self.invalidated
                     || !Self::glyphs_equal(&self.text_runs, old_glyph, new_glyph)
                     || self.cells.foreground[index] != self.frame_cells.foreground[index]
@@ -91,14 +95,14 @@ impl TuiRenderer {
                             self.output.push_str("\x1b[");
                             let mut separator = false;
                             if foreground != next_style.0 {
-                                write_color(&mut self.output, super::Color::from_packed(next_style.0), true);
+                                write_color(&mut self.output, Color::from_packed(next_style.0), true);
                                 separator = true;
                             }
                             if background != next_style.1 {
                                 if separator {
                                     self.output.push(';');
                                 }
-                                write_color(&mut self.output, super::Color::from_packed(next_style.1), false);
+                                write_color(&mut self.output, Color::from_packed(next_style.1), false);
                             }
                         } else {
                             let attributes = TextAttributes(next_style.2);
@@ -110,14 +114,14 @@ impl TuiRenderer {
                                 }
                             }
                             self.output.push(';');
-                            write_color(&mut self.output, super::Color::from_packed(next_style.0), true);
+                            write_color(&mut self.output, Color::from_packed(next_style.0), true);
                             self.output.push(';');
-                            write_color(&mut self.output, super::Color::from_packed(next_style.1), false);
+                            write_color(&mut self.output, Color::from_packed(next_style.1), false);
                         }
                         self.output.push('m');
                         style = Some(next_style);
                     }
-                    Self::push_cell_text(&self.text_runs, super::Glyph(self.cells.glyph[index]), &mut self.output);
+                    Self::push_cell_text(&self.text_runs, Glyph(self.cells.glyph[index]), &mut self.output);
                     x += 1;
                 }
             }
@@ -149,8 +153,8 @@ impl TuiRenderer {
                     let more = usize::from((index + 1) * 3072 < bytes.len());
                     if index == 0 {
                         let format = match image.format {
-                            super::image::ImageFormat::Rgb8 => 24,
-                            super::image::ImageFormat::Rgba8 => 32,
+                            ImageFormat::Rgb8 => 24,
+                            ImageFormat::Rgba8 => 32,
                         };
                         uwrite!(
                             self.output,

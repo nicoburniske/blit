@@ -1,6 +1,6 @@
 use std::hint::black_box;
 
-use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit::{PhysicalRect, Scale2};
 use blit_tui::{
     RendererConfig, TuiRenderer,
     cell::{Cell, CellStyle},
@@ -31,7 +31,7 @@ fn renderer_creation(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
 #[divan::bench(args = [(96, 32), (240, 80), (400, 200)])]
 fn render_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
     let mut renderer = TuiRenderer::new(RendererConfig::new().columns(columns).rows(rows));
-    let screen = renderer.screen().to_logical(Scale2::IDENTITY);
+    let screen = renderer.screen();
     bencher
         .counter(ItemsCount::new(usize::from(columns) * usize::from(rows)))
         .bench_local(|| {
@@ -47,7 +47,7 @@ fn render_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
 #[divan::bench(args = [(96, 32), (240, 80), (400, 200)])]
 fn tint_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
     let mut renderer = TuiRenderer::new(RendererConfig::new().columns(columns).rows(rows));
-    let screen = renderer.screen().to_logical(Scale2::IDENTITY);
+    let screen = renderer.screen();
     renderer.begin_frame();
     renderer.cells(screen, screen).clear(
         Cell::new('x').style(
@@ -99,12 +99,12 @@ fn update_one_cell_in_large_text(bencher: divan::Bencher) {
     let old = renderer.text_run(&frame);
     let new = renderer.text_run(&changed_frame);
     renderer.begin_frame();
-    renderer.paint_text(TextRequest::new(old, area), area);
+    renderer.paint_text(TextRequest::new(old, area), screen);
     renderer.end_frame();
     let mut changed = true;
     bencher.counter(ItemsCount::new(1usize)).bench_local(|| {
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(if changed { new } else { old }, area), area);
+        renderer.paint_text(TextRequest::new(if changed { new } else { old }, area), screen);
         renderer.end_frame();
         black_box(renderer.output());
         changed = !changed;
@@ -112,16 +112,11 @@ fn update_one_cell_in_large_text(bencher: divan::Bencher) {
 }
 
 fn scene(renderer: &mut TuiRenderer, changed: bool) {
-    let screen = renderer.screen().to_logical(Scale2::IDENTITY);
+    let screen = renderer.screen();
     renderer.begin_frame();
     for row in 0..8 {
         for column in 0..12 {
-            let area = LogicalRect {
-                x: column as f32 * 8.0,
-                y: row as f32 * 4.0,
-                width: 8.0,
-                height: 4.0,
-            };
+            let area = PhysicalRect::new(column * 8, row * 4, 8, 4);
             renderer
                 .cells(area, screen)
                 .clear(Cell::default().style(CellStyle::new().background(Color::Rgb(
@@ -132,9 +127,11 @@ fn scene(renderer: &mut TuiRenderer, changed: bool) {
         }
     }
     if changed {
-        renderer
-            .cells(CHANGED_CELL.to_logical(Scale2::IDENTITY), screen)
-            .set_cell(0, 0, Cell::new('x').style(CellStyle::new().foreground(Color::WHITE)));
+        renderer.cells(CHANGED_CELL, screen).set_cell(
+            0,
+            0,
+            Cell::new('x').style(CellStyle::new().foreground(Color::WHITE)),
+        );
     }
     renderer.end_frame();
 }

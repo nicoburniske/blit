@@ -1,6 +1,6 @@
 use blit_arrayvec::ArrayVec;
 
-use super::{Event, Key, KeyCode, KeyKind, Modifiers, MouseButton, MouseKind, PaletteSlot};
+use crate::protocol::{Event, Key, KeyCode, KeyKind, Modifiers, MouseButton, MouseKind, PaletteSlot};
 
 #[derive(Default)]
 pub struct Parser {

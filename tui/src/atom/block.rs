@@ -6,7 +6,6 @@ use crate::{
     TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
-    renderer::CellRect,
     text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
 };
 
@@ -35,10 +34,11 @@ impl Atom<TuiContext> for Block {
     }
 
     fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
-        let (width, height) = {
+        let (width, height, origin_x, origin_y) = {
             let mut cells = context.cells(area);
             let width = cells.columns();
             let height = cells.rows();
+            let origin = cells.area();
             if let Some(background) = self.background {
                 cells.clear(Cell::default().style(CellStyle::new().background(background)));
             }
@@ -86,7 +86,7 @@ impl Atom<TuiContext> for Block {
                     }
                 }
             }
-            (width, height)
+            (width, height, origin.x as f32, origin.y as f32)
         };
         if height == 0 {
             return;
@@ -99,9 +99,6 @@ impl Atom<TuiContext> for Block {
             self.border
                 .is_some_and(|border| border.sides.contains(BorderSides::RIGHT)),
         ));
-        let cells = CellRect::from_logical(area);
-        let origin_x = cells.left as f32;
-        let origin_y = cells.top as f32;
         paint_title_row(
             context,
             [self.titles[0], self.titles[1], self.titles[2]],
