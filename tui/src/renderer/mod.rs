@@ -17,16 +17,17 @@ pub mod image;
 mod present;
 pub mod text;
 
-use self::{
-    color::{Color, Palette, PaletteSlot},
-    image::{ImageData, ImageHandle, ImageId},
-    text::{Span, TextAttributes, TextLayoutRequest, TextRequest, TextRunId, TextWrap},
-};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect};
 use blit_cache::{DeferredCache, Equivalent, Scale};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+use self::{
+    color::{Color, Palette, PaletteSlot},
+    image::{ImageData, ImageHandle, ImageId},
+    text::{Span, TextAttributes, TextLayoutRequest, TextRequest, TextRunId, TextWrap},
+};
 
 const TEXT_RUN_CACHE_CAPACITY: usize = 2 * 1024 * 1024;
 const TEXT_LAYOUT_CACHE_CAPACITY: usize = 4 * 1024 * 1024;
@@ -170,10 +171,7 @@ impl TuiRenderer {
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
         data.validate();
         let id = self.next_image;
-        self.next_image = self
-            .next_image
-            .checked_add(1)
-            .expect("too many terminal images");
+        self.next_image = self.next_image.checked_add(1).expect("too many terminal images");
         let handle = ImageHandle::new(ImageId(u64::from(id)), data.size);
         self.images.push(StoredImage {
             handle: handle.clone(),
@@ -221,28 +219,15 @@ impl TuiRenderer {
         });
         if self.text_runs.get_index(index).id.0 as u32 == 0 {
             let slot = u32::try_from(index + 1).expect("too many tui text runs");
-            self.text_runs
-                .update_index(index, |run| run.id.0 |= u64::from(slot));
-            self.next_text_run = self
-                .next_text_run
-                .checked_add(1)
-                .expect("too many tui text runs");
+            self.text_runs.update_index(index, |run| run.id.0 |= u64::from(slot));
+            self.next_text_run = self.next_text_run.checked_add(1).expect("too many tui text runs");
         }
         self.text_runs.get_index(index).id
     }
 
-    pub fn text_offset_at_position(
-        &mut self,
-        request: &TextRequest,
-        position: LogicalPoint,
-    ) -> usize {
-        let text = &self
-            .text_runs
-            .get_key_index(self.text_run_index(request.text))
-            .text;
-        let target = (position.x - request.area.x + request.offset_x)
-            .round()
-            .max(0.0) as usize;
+    pub fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
+        let text = &self.text_runs.get_key_index(self.text_run_index(request.text)).text;
+        let target = (position.x - request.area.x + request.offset_x).round().max(0.0) as usize;
         let mut width = 0;
         for (offset, grapheme) in text.grapheme_indices(true) {
             let next = width + UnicodeWidthStr::width(grapheme).max(1);
@@ -264,10 +249,7 @@ impl TuiRenderer {
     }
 
     pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
-        let text = &self
-            .text_runs
-            .get_key_index(self.text_run_index(request.text))
-            .text;
+        let text = &self.text_runs.get_key_index(self.text_run_index(request.text)).text;
         let before = &text[..text.floor_char_boundary(byte_offset.min(text.len()))];
         let line = before.rsplit_once('\n').map_or(before, |(_, line)| line);
         LogicalRect {
@@ -307,9 +289,7 @@ impl Color {
         match self {
             Self::Reset => 0,
             Self::Indexed(index) => 1 | u32::from(index) << 8,
-            Self::Rgb(red, green, blue) => {
-                2 | u32::from(red) << 8 | u32::from(green) << 16 | u32::from(blue) << 24
-            }
+            Self::Rgb(red, green, blue) => 2 | u32::from(red) << 8 | u32::from(green) << 16 | u32::from(blue) << 24,
         }
     }
 
@@ -318,11 +298,7 @@ impl Color {
         debug_assert!(matches!(packed as u8, 0..=2));
         match packed as u8 {
             1 => Self::Indexed((packed >> 8) as u8),
-            2 => Self::Rgb(
-                (packed >> 8) as u8,
-                (packed >> 16) as u8,
-                (packed >> 24) as u8,
-            ),
+            2 => Self::Rgb((packed >> 8) as u8, (packed >> 16) as u8, (packed >> 24) as u8),
             _ => Self::Reset,
         }
     }
@@ -539,8 +515,7 @@ impl LayoutGrapheme {
 
     #[inline]
     fn scalar(self) -> Option<char> {
-        (self.glyph & Self::SCALAR_TAG != 0)
-            .then(|| char::from_u32(self.glyph & Self::SCALAR_VALUE).unwrap())
+        (self.glyph & Self::SCALAR_TAG != 0).then(|| char::from_u32(self.glyph & Self::SCALAR_VALUE).unwrap())
     }
 
     #[inline]
@@ -562,9 +537,7 @@ impl TuiRenderer {
         (
             area.x.round().clamp(0.0, self.columns as f32) as usize,
             area.y.round().clamp(0.0, self.rows as f32) as usize,
-            (area.x + area.width)
-                .round()
-                .clamp(0.0, self.columns as f32) as usize,
+            (area.x + area.width).round().clamp(0.0, self.columns as f32) as usize,
             (area.y + area.height).round().clamp(0.0, self.rows as f32) as usize,
         )
     }
@@ -575,17 +548,11 @@ impl TuiRenderer {
         index
     }
 
-    fn glyphs_equal(
-        text_runs: &DeferredCache<RunKey, CachedRun, RunScale>,
-        left: Glyph,
-        right: Glyph,
-    ) -> bool {
+    fn glyphs_equal(text_runs: &DeferredCache<RunKey, CachedRun, RunScale>, left: Glyph, right: Glyph) -> bool {
         if left == right {
             return true;
         }
-        let (Some((left_run, left_grapheme)), Some((right_run, right_grapheme))) =
-            (left.run(), right.run())
-        else {
+        let (Some((left_run, left_grapheme)), Some((right_run, right_grapheme))) = (left.run(), right.run()) else {
             return false;
         };
         let left_key = text_runs.get_key_index(left_run as usize);
@@ -594,26 +561,18 @@ impl TuiRenderer {
         let right = text_runs.get_index(right_run as usize);
         let left_grapheme = left_grapheme as usize;
         let right_grapheme = right_grapheme as usize;
-        left_key.text
-            [left.graphemes[left_grapheme] as usize..left.graphemes[left_grapheme + 1] as usize]
-            == right_key.text[right.graphemes[right_grapheme] as usize
-                ..right.graphemes[right_grapheme + 1] as usize]
+        left_key.text[left.graphemes[left_grapheme] as usize..left.graphemes[left_grapheme + 1] as usize]
+            == right_key.text[right.graphemes[right_grapheme] as usize..right.graphemes[right_grapheme + 1] as usize]
     }
 
-    fn push_cell_text(
-        text_runs: &DeferredCache<RunKey, CachedRun, RunScale>,
-        glyph: Glyph,
-        output: &mut String,
-    ) {
+    fn push_cell_text(text_runs: &DeferredCache<RunKey, CachedRun, RunScale>, glyph: Glyph, output: &mut String) {
         if let Some(character) = glyph.scalar_value() {
             output.push(character);
         } else if let Some((run, grapheme)) = glyph.run() {
             let text = &text_runs.get_key_index(run as usize).text;
             let run = text_runs.get_index(run as usize);
             let grapheme = grapheme as usize;
-            output.push_str(
-                &text[run.graphemes[grapheme] as usize..run.graphemes[grapheme + 1] as usize],
-            );
+            output.push_str(&text[run.graphemes[grapheme] as usize..run.graphemes[grapheme + 1] as usize]);
         }
     }
 
@@ -651,9 +610,7 @@ impl TuiRenderer {
             true
         }
 
-        let max_columns = request
-            .max_width
-            .map(|width| width.floor().max(0.0) as usize);
+        let max_columns = request.max_width.map(|width| width.floor().max(0.0) as usize);
         let max_lines = usize::from(request.max_lines.unwrap_or(u16::MAX)).max(1);
         let key = LayoutKey {
             text: request.text,
@@ -669,8 +626,7 @@ impl TuiRenderer {
                 .map(|(start, _)| u32::try_from(start).unwrap())
                 .chain(std::iter::once(u32::try_from(text.len()).unwrap()))
                 .collect();
-            self.text_runs
-                .update_index(run, |run| run.graphemes = graphemes);
+            self.text_runs.update_index(run, |run| run.graphemes = graphemes);
         }
         let text = &self.text_runs.get_key_index(run).text;
         let run = self.text_runs.get_index(run);
@@ -698,17 +654,12 @@ impl TuiRenderer {
                         let token_width = run_grapheme_range
                             .clone()
                             .filter_map(|index| {
-                                grapheme_width(
-                                    &text[run_graphemes[index] as usize
-                                        ..run_graphemes[index + 1] as usize],
-                                )
+                                grapheme_width(&text[run_graphemes[index] as usize..run_graphemes[index + 1] as usize])
                             })
                             .sum::<usize>();
                         if !whitespace
                             && lines.last().unwrap().width != 0
-                            && max_columns.is_some_and(|maximum| {
-                                lines.last().unwrap().width + token_width > maximum
-                            })
+                            && max_columns.is_some_and(|maximum| lines.last().unwrap().width + token_width > maximum)
                         {
                             let current = lines.last_mut().unwrap();
                             while graphemes.len() != current.start
@@ -716,8 +667,7 @@ impl TuiRenderer {
                                     character.is_whitespace()
                                 } else {
                                     let index = graphemes.last().unwrap().glyph as usize;
-                                    text[run_graphemes[index] as usize
-                                        ..run_graphemes[index + 1] as usize]
+                                    text[run_graphemes[index] as usize..run_graphemes[index + 1] as usize]
                                         .chars()
                                         .all(char::is_whitespace)
                                 }
@@ -744,9 +694,8 @@ impl TuiRenderer {
                             let Some(width) = grapheme_width(grapheme) else {
                                 continue;
                             };
-                            if max_columns.is_some_and(|maximum| {
-                                lines.last().unwrap().width + width > maximum
-                            }) && lines.last().unwrap().width != 0
+                            if max_columns.is_some_and(|maximum| lines.last().unwrap().width + width > maximum)
+                                && lines.last().unwrap().width != 0
                             {
                                 if !start_line(lines, graphemes.len(), max_lines) {
                                     truncated = true;
@@ -769,8 +718,7 @@ impl TuiRenderer {
                     }
                 }
                 TextWrap::None | TextWrap::Character => {
-                    'graphemes: for (run_index, boundaries) in run_graphemes.windows(2).enumerate()
-                    {
+                    'graphemes: for (run_index, boundaries) in run_graphemes.windows(2).enumerate() {
                         let start = boundaries[0] as usize;
                         let end = boundaries[1] as usize;
                         let grapheme = &text[start..end];
@@ -785,9 +733,7 @@ impl TuiRenderer {
                             continue;
                         };
                         if request.wrap == TextWrap::Character
-                            && max_columns.is_some_and(|maximum| {
-                                lines.last().unwrap().width + width > maximum
-                            })
+                            && max_columns.is_some_and(|maximum| lines.last().unwrap().width + width > maximum)
                             && lines.last().unwrap().width != 0
                             && !start_line(lines, graphemes.len(), max_lines)
                         {
@@ -841,10 +787,9 @@ fn write_color(output: &mut String, color: Color, foreground: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use blit::Scale2;
 
+    use super::*;
     use crate::{
         cell::{Cell as SurfaceCell, CellStyle},
         text::{HorizontalAlign, TextOptions, TextOverflow, VerticalAlign},
@@ -872,9 +817,7 @@ mod tests {
                 0,
                 0,
                 "A界e\u{301}B",
-                CellStyle::new()
-                    .foreground(Color::RED)
-                    .attributes(TextAttributes::BOLD),
+                CellStyle::new().foreground(Color::RED).attributes(TextAttributes::BOLD),
             );
             renderer.cells(screen, screen).tint([255, 0, 0], 0);
             assert_eq!(renderer.frame_cells.foreground[0], Color::RED.packed());
@@ -897,10 +840,7 @@ mod tests {
                 renderer
                     .cells(screen, LogicalRect::new(3.0, 0.0, 1.0, 1.0))
                     .tint([0, 0, 0], 128);
-                assert_eq!(
-                    renderer.frame_cells.foreground[3],
-                    Color::Rgb(50, 25, 12).packed()
-                );
+                assert_eq!(renderer.frame_cells.foreground[3], Color::Rgb(50, 25, 12).packed());
             }
             renderer.end_frame();
             assert_eq!(renderer.plain_text(), "A界e\u{301}B\n");
@@ -915,23 +855,12 @@ mod tests {
         }
 
         renderer.begin_frame();
-        renderer
-            .cells(screen, screen)
-            .write(0, 0, "X", CellStyle::new());
+        renderer.cells(screen, screen).write(0, 0, "X", CellStyle::new());
         renderer.cells(screen, screen).tint([0, 0, 0], 128);
-        assert_eq!(
-            renderer.frame_cells.foreground[0],
-            Color::Rgb(50, 40, 30).packed()
-        );
+        assert_eq!(renderer.frame_cells.foreground[0], Color::Rgb(50, 40, 30).packed());
         renderer.cells(screen, screen).tint([3, 5, 7], 255);
-        assert_eq!(
-            renderer.frame_cells.foreground[0],
-            Color::Rgb(3, 5, 7).packed()
-        );
-        assert_eq!(
-            renderer.frame_cells.background[0],
-            Color::Rgb(3, 5, 7).packed()
-        );
+        assert_eq!(renderer.frame_cells.foreground[0], Color::Rgb(3, 5, 7).packed());
+        assert_eq!(renderer.frame_cells.background[0], Color::Rgb(3, 5, 7).packed());
     }
 
     #[test]
@@ -939,9 +868,7 @@ mod tests {
         let mut renderer = renderer(4, 1);
         let screen = renderer.screen().to_logical(SCALE);
         renderer.begin_frame();
-        renderer
-            .cells(screen, screen)
-            .write(0, 0, "界界", CellStyle::new());
+        renderer.cells(screen, screen).write(0, 0, "界界", CellStyle::new());
         renderer
             .cells(screen, LogicalRect::new(1.0, 0.0, 2.0, 1.0))
             .tint([0, 0, 0], 255);
@@ -994,9 +921,7 @@ mod tests {
         assert!(renderer.output().is_empty());
 
         renderer.begin_frame();
-        renderer
-            .cells(area, area)
-            .set_cell(1, 1, SurfaceCell::new('x'));
+        renderer.cells(area, area).set_cell(1, 1, SurfaceCell::new('x'));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "\n x\n");
     }
@@ -1041,14 +966,10 @@ mod tests {
         assert!(renderer.output().is_empty());
 
         renderer.begin_frame();
-        renderer
-            .cells(area, area)
-            .write(0, 0, "👨‍👩‍👧x", CellStyle::new());
+        renderer.cells(area, area).write(0, 0, "👨‍👩‍👧x", CellStyle::new());
         renderer.end_frame();
         renderer.begin_frame();
-        renderer
-            .cells(area, area)
-            .write(0, 0, "👨‍👩‍👧y", CellStyle::new());
+        renderer.cells(area, area).write(0, 0, "👨‍👩‍👧y", CellStyle::new());
         renderer.end_frame();
         assert!(!renderer.changed[0]);
         assert!(!renderer.changed[1]);
@@ -1078,9 +999,7 @@ mod tests {
         assert_eq!(renderer.cells.background[1], Color::RED.packed());
 
         renderer.begin_frame();
-        renderer
-            .cells(area, area)
-            .write(0, 0, "界", CellStyle::new());
+        renderer.cells(area, area).write(0, 0, "界", CellStyle::new());
         renderer
             .cells(LogicalRect::new(1.0, 0.0, 1.0, 1.0), area)
             .clear(SurfaceCell::default().style(CellStyle::new().background(Color::GREEN)));
@@ -1089,23 +1008,17 @@ mod tests {
         assert_eq!(renderer.cells.background[1], Color::GREEN.packed());
 
         renderer.begin_frame();
-        renderer
-            .cells(area, area)
-            .write(7, 0, "界", CellStyle::new());
+        renderer.cells(area, area).write(7, 0, "界", CellStyle::new());
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "\n");
 
         renderer.begin_frame();
-        renderer
-            .cells(area, area)
-            .set_cell(0, 0, SurfaceCell::new('界'));
+        renderer.cells(area, area).set_cell(0, 0, SurfaceCell::new('界'));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "界\n");
 
         renderer.begin_frame();
-        renderer
-            .cells(area, area)
-            .set_cell(0, 0, SurfaceCell::new('a'));
+        renderer.cells(area, area).set_cell(0, 0, SurfaceCell::new('a'));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "a\n");
         assert!(String::from_utf8_lossy(renderer.output()).contains("a "));
@@ -1149,8 +1062,7 @@ mod tests {
         assert!((start + 3..start + 5).all(|index| {
             renderer.cells.foreground[index] == Color::WHITE.packed()
                 && renderer.cells.background[index] == Color::Reset.packed()
-                && renderer.cells.attributes[index]
-                    == (TextAttributes::ITALIC | TextAttributes::RAPID_BLINK).0
+                && renderer.cells.attributes[index] == (TextAttributes::ITALIC | TextAttributes::RAPID_BLINK).0
         }));
         assert!(String::from_utf8_lossy(renderer.output()).contains(";6"));
     }
@@ -1196,9 +1108,7 @@ mod tests {
         let mut renderer = renderer(20, 4);
         let text = renderer.text_run("hello world");
         assert_eq!(renderer.text_run("hello world"), text);
-        let request = TextLayoutRequest::new(text)
-            .wrap(TextWrap::Word)
-            .max_width(7.0);
+        let request = TextLayoutRequest::new(text).wrap(TextWrap::Word).max_width(7.0);
         let layout = renderer.layout_text(&request);
         assert_eq!(renderer.layout_text(&request), layout);
         let layout = renderer.text_layouts.get_index(layout);

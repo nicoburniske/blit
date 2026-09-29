@@ -134,9 +134,7 @@ impl<T> Clone for ScopeHandle<T> {
 
 impl<T: 'static> ScopeHandle<T> {
     fn executor(&self) -> Rc<ExecutorCore> {
-        self.executor
-            .upgrade()
-            .expect("task executor has been dropped")
+        self.executor.upgrade().expect("task executor has been dropped")
     }
 }
 
@@ -158,9 +156,8 @@ mod tests {
         rc::Rc,
     };
 
-    use crate::LocalExecutor;
-
     use super::*;
+    use crate::LocalExecutor;
 
     struct App {
         page: Option<Page>,
@@ -229,10 +226,7 @@ mod tests {
             let _drop = DropCount(future_dropped);
             pending::<()>().await;
         });
-        let mut app = App {
-            page: None,
-            count: 0,
-        };
+        let mut app = App { page: None, count: 0 };
 
         let panic = catch_unwind(AssertUnwindSafe(|| {
             executor.run_ready(&mut app);

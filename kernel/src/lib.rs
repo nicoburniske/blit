@@ -47,15 +47,17 @@ pub mod input;
 pub mod interact;
 pub mod layout;
 
-pub use animation::{Easing, Transition, TransitionProperties};
-pub use frame::{Absolute, Anchor, Frame, NodeId, NodeTarget, Ui, state};
-pub use geometry::{
-    Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize,
-    Point, Rect, Scale2, Sides, Size,
+pub use self::{
+    animation::{Easing, Transition, TransitionProperties},
+    frame::{Absolute, Anchor, Frame, NodeId, NodeTarget, Ui, state},
+    geometry::{
+        Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
+        Scale2, Sides, Size,
+    },
+    input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
+    interact::{Interaction, ScrollInteraction, Sense, WidgetId},
+    layout::{Axis, Layout, LayoutCx, LayoutResolution, Sizing},
 };
-pub use input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase};
-pub use interact::{Interaction, ScrollInteraction, Sense, WidgetId};
-pub use layout::{Axis, Layout, LayoutCx, LayoutResolution, Sizing};
 
 crate::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]

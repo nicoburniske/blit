@@ -1,9 +1,10 @@
-use crate::{color::Color, text::TextAttributes};
 use blit::{Content, state};
 
 use crate::{
     TuiContext, Ui,
     atom::{self, Border, Shadow, TitlePosition},
+    color::Color,
+    text::TextAttributes,
 };
 
 blit::builder! {
@@ -30,10 +31,7 @@ impl Content<TuiContext> for Block<'_> {
     type Response = ();
 
     fn append(self, mut ui: Ui<'_, state::Node>) {
-        let color = self
-            .border
-            .map(|border| border.color)
-            .unwrap_or(Color::Reset);
+        let color = self.border.map(|border| border.color).unwrap_or(Color::Reset);
         let titles = self.titles.map(|title| {
             title.map(|title| {
                 let text = ui.context().renderer_mut().text_run(title.text);

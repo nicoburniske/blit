@@ -25,13 +25,7 @@ fn main() {
 
 #[divan::bench(args = [(96, 32), (240, 80), (400, 200)])]
 fn renderer_creation(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
-    bencher.bench(|| {
-        TuiRenderer::new(
-            RendererConfig::new()
-                .columns(black_box(columns))
-                .rows(black_box(rows)),
-        )
-    });
+    bencher.bench(|| TuiRenderer::new(RendererConfig::new().columns(black_box(columns)).rows(black_box(rows))));
 }
 
 #[divan::bench(args = [(96, 32), (240, 80), (400, 200)])]
@@ -99,8 +93,7 @@ fn update_one_cell_in_large_text(bencher: divan::Bencher) {
     let screen = renderer.screen();
     let frame = vec!["A".repeat(screen.width as usize); screen.height as usize].join("\n");
     let mut changed_frame = frame.clone();
-    let changed_byte =
-        CHANGED_CELL.y as usize * (screen.width as usize + 1) + CHANGED_CELL.x as usize;
+    let changed_byte = CHANGED_CELL.y as usize * (screen.width as usize + 1) + CHANGED_CELL.x as usize;
     changed_frame.replace_range(changed_byte..changed_byte + 1, "B");
     let area = screen.to_logical(Scale2::IDENTITY);
     let old = renderer.text_run(&frame);
@@ -111,10 +104,7 @@ fn update_one_cell_in_large_text(bencher: divan::Bencher) {
     let mut changed = true;
     bencher.counter(ItemsCount::new(1usize)).bench_local(|| {
         renderer.begin_frame();
-        renderer.paint_text(
-            TextRequest::new(if changed { new } else { old }, area),
-            area,
-        );
+        renderer.paint_text(TextRequest::new(if changed { new } else { old }, area), area);
         renderer.end_frame();
         black_box(renderer.output());
         changed = !changed;
@@ -134,23 +124,17 @@ fn scene(renderer: &mut TuiRenderer, changed: bool) {
             };
             renderer
                 .cells(area, screen)
-                .clear(
-                    Cell::default().style(CellStyle::new().background(Color::Rgb(
-                        (column * 19) as u8,
-                        (row * 31) as u8,
-                        ((row + column) * 13) as u8,
-                    ))),
-                );
+                .clear(Cell::default().style(CellStyle::new().background(Color::Rgb(
+                    (column * 19) as u8,
+                    (row * 31) as u8,
+                    ((row + column) * 13) as u8,
+                ))));
         }
     }
     if changed {
         renderer
             .cells(CHANGED_CELL.to_logical(Scale2::IDENTITY), screen)
-            .set_cell(
-                0,
-                0,
-                Cell::new('x').style(CellStyle::new().foreground(Color::WHITE)),
-            );
+            .set_cell(0, 0, Cell::new('x').style(CellStyle::new().foreground(Color::WHITE)));
     }
     renderer.end_frame();
 }

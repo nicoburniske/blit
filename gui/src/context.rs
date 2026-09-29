@@ -54,12 +54,7 @@ impl GuiContext {
         self.text.text_run(text, style)
     }
 
-    pub fn rich_text(
-        &mut self,
-        text: &str,
-        spans: &[Span],
-        style: TextStyle,
-    ) -> (TextRunId, TextPalette) {
+    pub fn rich_text(&mut self, text: &str, spans: &[Span], style: TextStyle) -> (TextRunId, TextPalette) {
         (
             self.text.rich_text(text, spans, style),
             self.display_list.text_palette(spans),
@@ -70,11 +65,7 @@ impl GuiContext {
         self.text.measure(request)
     }
 
-    pub fn text_offset_at_position(
-        &mut self,
-        request: &TextRequest,
-        position: LogicalPoint,
-    ) -> usize {
+    pub fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
         self.text.offset_at_position(request, position)
     }
 
@@ -84,8 +75,7 @@ impl GuiContext {
 
     pub fn paint_rectangle(&mut self, rectangle: Rectangle<'_>) {
         let bounds = rectangle.area.to_physical(self.scale);
-        self.display_list
-            .push_rectangle(rectangle, bounds, self.clip);
+        self.display_list.push_rectangle(rectangle, bounds, self.clip);
     }
 
     pub fn paint_text(&mut self, text: TextRequest) {
@@ -94,8 +84,7 @@ impl GuiContext {
 
     pub fn paint_text_palette(&mut self, text: TextRequest, palette: TextPalette) {
         let bounds = text.area.to_physical(self.scale);
-        self.display_list
-            .push_text_palette(text, palette, bounds, self.clip);
+        self.display_list.push_text_palette(text, palette, bounds, self.clip);
     }
 
     pub fn paint_image(&mut self, image: ImageRequest) {
@@ -148,9 +137,7 @@ pub struct BoundsClip;
 impl Clip<GuiContext> for BoundsClip {
     fn push(&self, gui: &mut GuiContext, area: LogicalRect) {
         let previous = gui.clip;
-        gui.clip = gui
-            .display_list
-            .push_clip(previous, area, Default::default());
+        gui.clip = gui.display_list.push_clip(previous, area, Default::default());
         gui.clips.push(previous);
     }
 

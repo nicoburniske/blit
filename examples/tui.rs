@@ -1,24 +1,18 @@
 use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Axis, Easing, Input, Interaction, Key, Sense, Sides, Size, Sizing,
-    Transition, Widget, WidgetId,
+    Absolute, Anchor, Axis, Easing, Input, Interaction, Key, Sense, Sides, Size, Sizing, Transition, Widget, WidgetId,
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiContext, Ui,
-    atom::{
-        Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, Tint,
-        TitlePosition,
-    },
+    atom::{Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, Tint, TitlePosition},
     color::Color,
     layout::{Align, Justify, flex, grid, single, wrap},
-    text::{
-        HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign,
-    },
+    text::{HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
     widget::{
-        Block, Performance, Text, TextInput, Title, performance, popover, resize, scroll_area,
-        scroll_list, split, text_input,
+        Block, Performance, Text, TextInput, Title, performance, popover, resize, scroll_area, scroll_list, split,
+        text_input,
     },
 };
 
@@ -62,8 +56,7 @@ impl Demo {
         let escape = matches!(ui.input(), Input::Key(key)
             if key.key == Key::Escape && key.pressed && !key.repeat);
         let input_focused = ui.is_focused(WidgetId::new("tui text input"));
-        if !self.modal.open && !input_focused && (escape || matches!(ui.input(), Input::Text('q')))
-        {
+        if !self.modal.open && !input_focused && (escape || matches!(ui.input(), Input::Text('q'))) {
             ui.context().quit();
             return;
         }
@@ -134,23 +127,11 @@ impl Demo {
             }
         }
         match self.page {
-            Page::Layout => root
-                .child()
-                .item(flex::item().grow())
-                .build(&mut self.layout),
+            Page::Layout => root.child().item(flex::item().grow()).build(&mut self.layout),
             Page::Text => root.child().item(flex::item().grow()).build(&mut self.text),
-            Page::Blocks => root
-                .child()
-                .item(flex::item().grow())
-                .build(&mut self.blocks),
-            Page::Atoms => root
-                .child()
-                .item(flex::item().grow())
-                .build(&mut self.atoms),
-            Page::Scroll => root
-                .child()
-                .item(flex::item().grow())
-                .build(&mut self.scroll),
+            Page::Blocks => root.child().item(flex::item().grow()).build(&mut self.blocks),
+            Page::Atoms => root.child().item(flex::item().grow()).build(&mut self.atoms),
+            Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
         };
         if self.show_performance {
             root.absolute(
@@ -223,11 +204,7 @@ impl Widget<TuiContext> for &mut Modal {
         let panel_id = WidgetId::new("tui modal panel");
         root.interact_widget(panel_id, Sense::ALL);
         let mut modal = root
-            .absolute(
-                Absolute::screen(0.0, 0.0)
-                    .width(Sizing::grow())
-                    .height(Sizing::grow()),
-            )
+            .absolute(Absolute::screen(0.0, 0.0).width(Sizing::grow()).height(Sizing::grow()))
             .parent(blit::NodeTarget::Root)
             .z_index(1)
             .widget_id(backdrop_id)
@@ -242,11 +219,9 @@ impl Widget<TuiContext> for &mut Modal {
                 .background(colors::SURFACE)
                 .border(Border::new(accent).style(BorderStyle::Rounded)),
         );
-        panel.child().insert(
-            Text::new("Appearance")
-                .color(accent)
-                .attributes(TextAttributes::BOLD),
-        );
+        panel
+            .child()
+            .insert(Text::new("Appearance").color(accent).attributes(TextAttributes::BOLD));
         panel.child().build(|ui: Ui<'_>| {
             let mut preview = ui.layout(flex::column().padding(Sides::all(1.0)));
             preview.insert(
@@ -254,11 +229,9 @@ impl Widget<TuiContext> for &mut Modal {
                     .background(Color::Rgb(24, 28, 38))
                     .border(Border::new(accent).style(BorderStyle::Rounded)),
             );
-            preview.child().insert(
-                Text::new("██  Preview")
-                    .color(accent)
-                    .attributes(TextAttributes::BOLD),
-            );
+            preview
+                .child()
+                .insert(Text::new("██  Preview").color(accent).attributes(TextAttributes::BOLD));
         });
         let selected = panel.child().build(popover::new(
             &mut self.palette,
@@ -291,10 +264,7 @@ impl Widget<TuiContext> for &mut Modal {
             self.palette.open = false;
         }
         let mut actions = panel.child().layout(flex::row().gap(2.0));
-        if actions
-            .child()
-            .build(Button::new(" Dim background ", self.dim))
-        {
+        if actions.child().build(Button::new(" Dim background ", self.dim)) {
             self.dim = !self.dim;
         }
         if actions.child().build(Button::new(" Done ", false)) {
@@ -335,124 +305,121 @@ impl Widget<TuiContext> for &mut LayoutPage {
                 |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(flex::column().padding(Sides::all(1.0)));
                     sidebar.insert(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
-                    sidebar
-                        .child()
-                        .item(flex::item().grow())
-                        .build(scroll_area::new(
-                            layout_scroll,
-                            scroll_area::Config::new().behavior(scroll_behavior()),
-                            |ui: Ui<'_>| {
-                                let mut controls = ui.layout(flex::column().gap(1.0));
-                                controls.child().insert(
-                                    Text::new("FLOW")
-                                        .color(colors::SECTION)
-                                        .attributes(TextAttributes::BOLD),
+                    sidebar.child().item(flex::item().grow()).build(scroll_area::new(
+                        layout_scroll,
+                        scroll_area::Config::new().behavior(scroll_behavior()),
+                        |ui: Ui<'_>| {
+                            let mut controls = ui.layout(flex::column().gap(1.0));
+                            controls.child().insert(
+                                Text::new("FLOW")
+                                    .color(colors::SECTION)
+                                    .attributes(TextAttributes::BOLD),
+                            );
+                            controls.child().build(|ui: Ui<'_>| {
+                                choices(
+                                    ui,
+                                    "layout",
+                                    &mut canvas.layout,
+                                    &[
+                                        (" Flex ", CanvasLayout::Flex),
+                                        (" Wrap ", CanvasLayout::Wrap),
+                                        (" Grid ", CanvasLayout::Grid),
+                                    ],
                                 );
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "layout",
-                                        &mut canvas.layout,
-                                        &[
-                                            (" Flex ", CanvasLayout::Flex),
-                                            (" Wrap ", CanvasLayout::Wrap),
-                                            (" Grid ", CanvasLayout::Grid),
-                                        ],
-                                    );
-                                });
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "axis",
-                                        &mut canvas.axis,
-                                        &[(" Horz ", Axis::Horizontal), (" Vert ", Axis::Vertical)],
-                                    );
-                                });
-                                controls.child().insert(
-                                    Text::new("DISTRIBUTION")
-                                        .color(colors::SECTION)
-                                        .attributes(TextAttributes::BOLD),
+                            });
+                            controls.child().build(|ui: Ui<'_>| {
+                                choices(
+                                    ui,
+                                    "axis",
+                                    &mut canvas.axis,
+                                    &[(" Horz ", Axis::Horizontal), (" Vert ", Axis::Vertical)],
                                 );
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "justify",
-                                        &mut canvas.justify,
-                                        &[
-                                            (" Start ", Justify::Start),
-                                            (" Center ", Justify::Center),
-                                            (" End ", Justify::End),
-                                            (" Between ", Justify::SpaceBetween),
-                                            (" Around ", Justify::SpaceAround),
-                                            (" Even ", Justify::SpaceEvenly),
-                                        ],
-                                    );
-                                });
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "align",
-                                        &mut canvas.align,
-                                        &[
-                                            (" Start ", Align::Start),
-                                            (" Center ", Align::Center),
-                                            (" End ", Align::End),
-                                            (" Stretch ", Align::Stretch),
-                                        ],
-                                    );
-                                });
-                                controls.child().insert(
-                                    Text::new("SCALE, SPACE & MOTION")
-                                        .color(colors::SECTION)
-                                        .attributes(TextAttributes::BOLD),
+                            });
+                            controls.child().insert(
+                                Text::new("DISTRIBUTION")
+                                    .color(colors::SECTION)
+                                    .attributes(TextAttributes::BOLD),
+                            );
+                            controls.child().build(|ui: Ui<'_>| {
+                                choices(
+                                    ui,
+                                    "justify",
+                                    &mut canvas.justify,
+                                    &[
+                                        (" Start ", Justify::Start),
+                                        (" Center ", Justify::Center),
+                                        (" End ", Justify::End),
+                                        (" Between ", Justify::SpaceBetween),
+                                        (" Around ", Justify::SpaceAround),
+                                        (" Even ", Justify::SpaceEvenly),
+                                    ],
                                 );
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "sizing",
-                                        &mut canvas.sizing,
-                                        &[
-                                            (" Fixed ", ItemSizing::Fixed),
-                                            (" Fit ", ItemSizing::Fit),
-                                            (" Grow ", ItemSizing::Grow),
-                                        ],
-                                    );
-                                });
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "zoom",
-                                        &mut canvas.zoom,
-                                        &[(" 75% ", 0.75), (" 100% ", 1.0), (" 125% ", 1.25)],
-                                    );
-                                });
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "gap",
-                                        &mut canvas.gap_steps,
-                                        &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
-                                    );
-                                });
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "padding",
-                                        &mut canvas.padding_steps,
-                                        &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
-                                    );
-                                });
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "transitions",
-                                        &mut canvas.transitions,
-                                        &[(" On ", true), (" Off ", false)],
-                                    );
-                                });
-                            },
-                            scrollbar,
-                        ));
+                            });
+                            controls.child().build(|ui: Ui<'_>| {
+                                choices(
+                                    ui,
+                                    "align",
+                                    &mut canvas.align,
+                                    &[
+                                        (" Start ", Align::Start),
+                                        (" Center ", Align::Center),
+                                        (" End ", Align::End),
+                                        (" Stretch ", Align::Stretch),
+                                    ],
+                                );
+                            });
+                            controls.child().insert(
+                                Text::new("SCALE, SPACE & MOTION")
+                                    .color(colors::SECTION)
+                                    .attributes(TextAttributes::BOLD),
+                            );
+                            controls.child().build(|ui: Ui<'_>| {
+                                choices(
+                                    ui,
+                                    "sizing",
+                                    &mut canvas.sizing,
+                                    &[
+                                        (" Fixed ", ItemSizing::Fixed),
+                                        (" Fit ", ItemSizing::Fit),
+                                        (" Grow ", ItemSizing::Grow),
+                                    ],
+                                );
+                            });
+                            controls.child().build(|ui: Ui<'_>| {
+                                choices(
+                                    ui,
+                                    "zoom",
+                                    &mut canvas.zoom,
+                                    &[(" 75% ", 0.75), (" 100% ", 1.0), (" 125% ", 1.25)],
+                                );
+                            });
+                            controls.child().build(|ui: Ui<'_>| {
+                                choices(
+                                    ui,
+                                    "gap",
+                                    &mut canvas.gap_steps,
+                                    &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
+                                );
+                            });
+                            controls.child().build(|ui: Ui<'_>| {
+                                choices(
+                                    ui,
+                                    "padding",
+                                    &mut canvas.padding_steps,
+                                    &[(" 0 ", 0), (" 1 ", 1), (" 2 ", 2), (" 3 ", 3)],
+                                );
+                            });
+                            controls.child().build(|ui: Ui<'_>| {
+                                choices(
+                                    ui,
+                                    "transitions",
+                                    &mut canvas.transitions,
+                                    &[(" On ", true), (" Off ", false)],
+                                );
+                            });
+                        },
+                        scrollbar,
+                    ));
                 },
                 |ui: Ui<'_>| {
                     let mut preview = ui.layout(flex::column().padding(Sides::all(1.0)));
@@ -489,9 +456,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
                                 .minimum(Size::new(18.0, 9.0))
                                 .maximum(screen.size())
                                 .grip_size(Size::uniform(1.0)),
-                                Canvas {
-                                    config: preview_config,
-                                },
+                                Canvas { config: preview_config },
                                 TuiGrip,
                             ));
                     }
@@ -819,58 +784,44 @@ impl Widget<TuiContext> for &mut BlocksPage {
                         );
                     });
                     controls.child().build(|ui: Ui<'_>| {
-                        choices(
-                            ui,
-                            "shadow",
-                            block_shadow,
-                            &[(" On ", true), (" Off ", false)],
-                        );
+                        choices(ui, "shadow", block_shadow, &[(" On ", true), (" Off ", false)]);
                     });
                     controls.child().build(|ui: Ui<'_>| {
-                        choices(
-                            ui,
-                            "background",
-                            block_background,
-                            &[(" On ", true), (" Off ", false)],
-                        );
+                        choices(ui, "background", block_background, &[(" On ", true), (" Off ", false)]);
                     });
                 },
                 |ui: Ui<'_>| {
                     let mut preview = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
                     preview.insert(panel(colors::SURFACE, " BLOCK PREVIEW "));
-                    preview
-                        .child()
-                        .item(flex::item().grow())
-                        .build(|ui: Ui<'_>| {
-                            let mut block = Block::new()
-                                .border(
-                                    Border::new(colors::CANVAS_BORDER)
-                                        .style(preview_style)
-                                        .sides(preview_sides),
-                                )
-                                .title(
-                                    Title::new(" CONFIGURED BLOCK ")
-                                        .color(colors::ACCENT)
-                                        .attributes(TextAttributes::BOLD),
-                                );
-                            if preview_background {
-                                block = block.background(colors::SURFACE_HIGH);
-                            }
-                            if preview_shadow {
-                                block = block.shadow(Shadow::new(colors::SHADOW));
-                            }
-                            let mut configured = ui.layout(
-                                flex::column()
-                                    .padding(Sides::all(1.0))
-                                    .align(Align::Center)
-                                    .justify(Justify::Center),
+                    preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
+                        let mut block = Block::new()
+                            .border(
+                                Border::new(colors::CANVAS_BORDER)
+                                    .style(preview_style)
+                                    .sides(preview_sides),
+                            )
+                            .title(
+                                Title::new(" CONFIGURED BLOCK ")
+                                    .color(colors::ACCENT)
+                                    .attributes(TextAttributes::BOLD),
                             );
-                            configured.insert(block);
-                            configured.child().insert(
-                                Text::new("change the options on the left")
-                                    .color(colors::TEXT_MUTED),
-                            );
-                        });
+                        if preview_background {
+                            block = block.background(colors::SURFACE_HIGH);
+                        }
+                        if preview_shadow {
+                            block = block.shadow(Shadow::new(colors::SHADOW));
+                        }
+                        let mut configured = ui.layout(
+                            flex::column()
+                                .padding(Sides::all(1.0))
+                                .align(Align::Center)
+                                .justify(Justify::Center),
+                        );
+                        configured.insert(block);
+                        configured
+                            .child()
+                            .insert(Text::new("change the options on the left").color(colors::TEXT_MUTED));
+                    });
                 },
             ));
     }
@@ -909,32 +860,25 @@ impl Widget<TuiContext> for &mut AtomsPage {
         );
         let ratio = (phase * std::f32::consts::TAU).sin() * 0.25 + 0.5;
         for (x, value) in self.sparkline.borrow_mut().iter_mut().enumerate() {
-            *value =
-                (((x as f32 * 0.24 + phase * std::f32::consts::TAU).sin() + 1.0) * 50.0) as u64;
+            *value = (((x as f32 * 0.24 + phase * std::f32::consts::TAU).sin() + 1.0) * 50.0) as u64;
         }
 
         let mut body = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
         body.insert(panel(colors::SURFACE, " DIRECT CELL ATOMS "));
-        body.child().insert(
-            Text::new("ratatui-style atoms paint into the resolved atom area")
-                .color(colors::TEXT_MUTED),
+        body.child()
+            .insert(Text::new("ratatui-style atoms paint into the resolved atom area").color(colors::TEXT_MUTED));
+        body.child().item(flex::item().height(Sizing::fixed(1.0))).insert(
+            Gauge::new(ratio as f64)
+                .filled(colors::ACCENT)
+                .unfilled(colors::TRACK)
+                .label_color(colors::SURFACE),
         );
-        body.child()
-            .item(flex::item().height(Sizing::fixed(1.0)))
-            .insert(
-                Gauge::new(ratio as f64)
-                    .filled(colors::ACCENT)
-                    .unfilled(colors::TRACK)
-                    .label_color(colors::SURFACE),
-            );
-        body.child()
-            .item(flex::item().height(Sizing::fixed(5.0)))
-            .insert(
-                Sparkline::new(self.sparkline.clone())
-                    .maximum(100)
-                    .color(colors::ACCENT)
-                    .background(colors::CANVAS),
-            );
+        body.child().item(flex::item().height(Sizing::fixed(5.0))).insert(
+            Sparkline::new(self.sparkline.clone())
+                .maximum(100)
+                .color(colors::ACCENT)
+                .background(colors::CANVAS),
+        );
         body.child().item(flex::item().grow()).insert(
             BarChart::new(self.bars.clone())
                 .maximum(100)
@@ -975,22 +919,14 @@ impl Widget<TuiContext> for &mut ScrollPage {
         let mut body = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
         body.insert(panel(colors::SURFACE, " SCROLL AREA "));
         {
-            let mut controls = body
-                .child()
-                .layout(flex::row().gap(1.0).align(Align::Center));
+            let mut controls = body.child().layout(flex::row().gap(1.0).align(Align::Center));
             controls.child().insert(
                 Text::new("AXIS")
                     .color(colors::TEXT_MUTED)
                     .attributes(TextAttributes::BOLD),
             );
-            for (axis, label) in [
-                (Axis::Vertical, " Vertical "),
-                (Axis::Horizontal, " Horizontal "),
-            ] {
-                if controls
-                    .child()
-                    .build(Button::new(label, *scroll_axis == axis))
-                {
+            for (axis, label) in [(Axis::Vertical, " Vertical "), (Axis::Horizontal, " Horizontal ")] {
+                if controls.child().build(Button::new(label, *scroll_axis == axis)) {
                     *scroll_axis = axis;
                     *scroll = scroll_area::State::default();
                 }
@@ -1001,41 +937,34 @@ impl Widget<TuiContext> for &mut ScrollPage {
             Axis::Horizontal => 12.0,
             Axis::Vertical => 3.0,
         };
-        body.child()
-            .item(flex::item().grow())
-            .build(scroll_list::new(
-                scroll,
-                scroll_list::Config::new(item_extent)
-                    .axis(axis)
-                    .behavior(scroll_behavior()),
-                items.iter().enumerate(),
-                |row| WidgetId::new(("tui scroll row", row.1)),
-                move |ui: Ui<'_>, (index, item)| {
-                    let layout = match axis {
-                        Axis::Horizontal => {
-                            flex::column().align(Align::Center).justify(Justify::Center)
-                        }
-                        Axis::Vertical => flex::row().padding(Sides::all(1.0)).align(Align::Center),
-                    };
-                    let background = if index.is_multiple_of(2) {
-                        colors::SURFACE_HIGH
-                    } else {
-                        colors::TRACK
-                    };
-                    let mut tile = ui.layout(layout);
-                    tile.insert(
-                        Block::new()
-                            .background(background)
-                            .border(Border::new(colors::CANVAS_BORDER)),
-                    );
-                    tile.child().insert(
-                        Text::new(item)
-                            .color(colors::TEXT)
-                            .attributes(TextAttributes::BOLD),
-                    );
-                },
-                scrollbar,
-            ));
+        body.child().item(flex::item().grow()).build(scroll_list::new(
+            scroll,
+            scroll_list::Config::new(item_extent)
+                .axis(axis)
+                .behavior(scroll_behavior()),
+            items.iter().enumerate(),
+            |row| WidgetId::new(("tui scroll row", row.1)),
+            move |ui: Ui<'_>, (index, item)| {
+                let layout = match axis {
+                    Axis::Horizontal => flex::column().align(Align::Center).justify(Justify::Center),
+                    Axis::Vertical => flex::row().padding(Sides::all(1.0)).align(Align::Center),
+                };
+                let background = if index.is_multiple_of(2) {
+                    colors::SURFACE_HIGH
+                } else {
+                    colors::TRACK
+                };
+                let mut tile = ui.layout(layout);
+                tile.insert(
+                    Block::new()
+                        .background(background)
+                        .border(Border::new(colors::CANVAS_BORDER)),
+                );
+                tile.child()
+                    .insert(Text::new(item).color(colors::TEXT).attributes(TextAttributes::BOLD));
+            },
+            scrollbar,
+        ));
     }
 }
 
@@ -1060,8 +989,7 @@ impl Widget<TuiContext> for TuiGrip {
             resize::Edge::Bottom => "═══",
             resize::Edge::Corner => "╝",
         };
-        let active =
-            self.0.interaction.hovered || self.0.interaction.active || self.0.interaction.dragging;
+        let active = self.0.interaction.hovered || self.0.interaction.active || self.0.interaction.dragging;
         let color = if active {
             colors::ACCENT
         } else if self.0.edge == resize::Edge::Corner {
@@ -1112,16 +1040,9 @@ fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction
 
 fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, options: &[(&str, T)]) {
     let mut group = ui.layout(flex::column());
-    group
-        .child()
-        .insert(Text::new(label).color(colors::TEXT_MUTED));
+    group.child().insert(Text::new(label).color(colors::TEXT_MUTED));
     group.child().build(|ui: Ui<'_>| {
-        let mut values = ui.layout(
-            wrap::horizontal()
-                .item_gap(2.0)
-                .run_gap(1.0)
-                .align(Align::Center),
-        );
+        let mut values = ui.layout(wrap::horizontal().item_gap(2.0).run_gap(1.0).align(Align::Center));
         for (index, &(option, value)) in options.iter().enumerate() {
             let clicked = values
                 .child()
@@ -1222,22 +1143,15 @@ impl Widget<TuiContext> for Canvas {
     }
 }
 
-fn canvas_item(
-    ui: Ui<'_>,
-    index: usize,
-    spec: blit_demo::ItemSpec,
-    config: CanvasConfig,
-    unit: Size,
-) {
+fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: CanvasConfig, unit: Size) {
     let mut item = ui.layout(flex::column().align(Align::Center).justify(Justify::Center));
     item.insert(Block::new().background(colors::ITEMS[index]));
     let mut item = if config.transitions {
-        item.widget_id(WidgetId::new(("tui canvas item", index)))
-            .transition(
-                Transition::new(Duration::from_millis(320))
-                    .easing(Easing::EaseOutQuad)
-                    .layout(),
-            )
+        item.widget_id(WidgetId::new(("tui canvas item", index))).transition(
+            Transition::new(Duration::from_millis(320))
+                .easing(Easing::EaseOutQuad)
+                .layout(),
+        )
     } else {
         item
     };
@@ -1274,13 +1188,10 @@ fn split<'a>(
         |_, interaction| {
             move |ui: Ui<'_>| {
                 let active = interaction.hovered || interaction.dragging;
-                let mut divider =
-                    ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
-                divider.child().insert(Text::new("⠿").color(if active {
-                    colors::ACCENT
-                } else {
-                    colors::TEXT_DIM
-                }));
+                let mut divider = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
+                divider
+                    .child()
+                    .insert(Text::new("⠿").color(if active { colors::ACCENT } else { colors::TEXT_DIM }));
             }
         },
         leading,
@@ -1295,11 +1206,7 @@ fn scroll_behavior() -> scroll_area::Behavior {
 fn scrollbar(active: bool) -> (Option<Block<'static>>, Option<Block<'static>>) {
     (
         Some(Block::new().background(colors::TRACK)),
-        Some(Block::new().background(if active {
-            colors::ACCENT
-        } else {
-            colors::ACCENT_DARK
-        })),
+        Some(Block::new().background(if active { colors::ACCENT } else { colors::ACCENT_DARK })),
     )
 }
 
@@ -1307,11 +1214,7 @@ fn panel<'a>(background: Color, title: &'a str) -> Block<'a> {
     Block::new()
         .background(background)
         .border(Border::new(colors::BORDER).style(BorderStyle::Rounded))
-        .title(
-            Title::new(title)
-                .color(colors::ACCENT)
-                .attributes(TextAttributes::BOLD),
-        )
+        .title(Title::new(title).color(colors::ACCENT).attributes(TextAttributes::BOLD))
 }
 
 mod colors {

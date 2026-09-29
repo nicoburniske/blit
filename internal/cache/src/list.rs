@@ -146,12 +146,7 @@ impl<T> LruList<T> {
     pub fn remove(&mut self, index: usize) -> Option<T> {
         let removed = {
             let item = self.items.get_mut(index)?;
-            let Node::Value(value) = std::mem::replace(
-                item,
-                Node::Empty {
-                    next: self.free_first,
-                },
-            ) else {
+            let Node::Value(value) = std::mem::replace(item, Node::Empty { next: self.free_first }) else {
                 panic!("not a value")
             };
             value

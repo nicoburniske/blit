@@ -219,11 +219,7 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 impl<C, S> Ui<'_, C, S> {
     /// returns previous frame geometry and tracks this id for the next layout
     pub fn geometry(&mut self, id: WidgetId) -> Option<Rect> {
-        self.inner
-            .frame
-            .requests
-            .entry(id)
-            .or_insert(Request::Geometry);
+        self.inner.frame.requests.entry(id).or_insert(Request::Geometry);
         self.inner
             .frame
             .geometry_previous
@@ -308,13 +304,7 @@ impl<C, S> Ui<'_, C, S> {
         self.inner.frame.time
     }
 
-    pub fn animate(
-        &mut self,
-        id: WidgetId,
-        target: f32,
-        duration: Duration,
-        easing: Easing,
-    ) -> f32 {
+    pub fn animate(&mut self, id: WidgetId, target: f32, duration: Duration, easing: Easing) -> f32 {
         let frame = self.inner.frame_mut();
         let time = frame.time;
         animation::AnimationState::update(&mut frame.animations, id, target, |animation| {
@@ -336,10 +326,7 @@ impl<C, S> Ui<'_, C, S> {
     }
 
     pub fn timer_loop(&mut self, id: WidgetId, duration: Duration) -> bool {
-        assert!(
-            !duration.is_zero(),
-            "looping timer duration must be nonzero"
-        );
+        assert!(!duration.is_zero(), "looping timer duration must be nonzero");
         let frame = self.inner.frame_mut();
         timer::TimerState::update(&mut frame.timers, id, duration, Some(duration), frame.time)
     }
@@ -531,8 +518,7 @@ impl<C> Drop for UiInner<'_, C> {
         }
         let node = self.node;
         let frame = self.frame_mut();
-        frame.nodes[node.index()].subtree_end =
-            u32::try_from(frame.nodes.len() - 1).expect("too many frame nodes");
+        frame.nodes[node.index()].subtree_end = u32::try_from(frame.nodes.len() - 1).expect("too many frame nodes");
     }
 }
 

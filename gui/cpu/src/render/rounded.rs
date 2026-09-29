@@ -139,12 +139,7 @@ pub struct RoundedGradient {
     pub bottom_clip: i32,
 }
 
-pub fn draw_line<P: Pixel>(
-    span: PhysicalRect,
-    line: i32,
-    rounded: &RoundedRectangle,
-    row: &mut [P],
-) {
+pub fn draw_line<P: Pixel>(span: PhysicalRect, line: i32, rounded: &RoundedRectangle, row: &mut [P]) {
     let width = row.len();
     let (y, border, [x1, x2, x3, x4, x5, x6, x7, x8]) = line_edges(
         span,
@@ -304,8 +299,7 @@ pub fn draw_gradient_line<P: Pixel>(
     for x in x7.floor()..x8.ceil() {
         let x = x as usize;
         if x < width {
-            let color =
-                border_color(span.x + x as i32).coverage(255 - edge_coverage(x7, x8, x as i32));
+            let color = border_color(span.x + x as i32).coverage(255 - edge_coverage(x7, x8, x as i32));
             row[x].blend(color);
         }
     }

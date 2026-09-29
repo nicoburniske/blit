@@ -18,14 +18,15 @@ use blit_gui::{
     style::Border,
     text::{TextPhases, TextRequest},
 };
-pub use pixel::{
-    Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888,
-};
 use render::{image as render_image, image_patch::AlphaRows, rectangle, shadow, triangle};
-pub use strategy::{Direct, RenderStrategy, Scanline};
 use strategy::{
     clip::ClipStack,
     command::{CommandList, PreparedText},
+};
+
+pub use self::{
+    pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
+    strategy::{Direct, RenderStrategy, Scanline},
 };
 
 const MAX_DAMAGE: usize = 32;
@@ -135,11 +136,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             }
             let mut old_end = self.previous.len();
             let mut new_end = display_list.len();
-            while old_end > start
-                && new_end > start
-                && self
-                    .previous
-                    .equivalent(old_end - 1, display_list, new_end - 1)
+            while old_end > start && new_end > start && self.previous.equivalent(old_end - 1, display_list, new_end - 1)
             {
                 old_end -= 1;
                 new_end -= 1;
@@ -168,8 +165,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         damage.extend_from_slice(&self.previous_damage);
         self.render_damage(text, image_uploads, display_list, &damage);
         self.previous_damage.clear();
-        self.previous_damage
-            .extend_from_slice(&damage[..current_damage]);
+        self.previous_damage.extend_from_slice(&damage[..current_damage]);
         std::mem::swap(&mut self.previous, display_list);
         self.damage = damage;
     }
@@ -198,8 +194,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
 
     fn prepare_rectangle(&mut self, request: &Rectangle<'_>, bounds: PhysicalRect, clip: u32) {
         if let Border::Gradient { width, gradient } = request.border
-            && let Some(prepared) =
-                rectangle::Gradient::new(request, width, gradient, self.context.scale_factor)
+            && let Some(prepared) = rectangle::Gradient::new(request, width, gradient, self.context.scale_factor)
             && let Some(bounds) = prepared.geometry.intersection(bounds)
         {
             if self
@@ -213,24 +208,20 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         if let Some(rectangle) = rectangle::Prepared::new(request, self.context.scale_factor)
             && let Some(bounds) = rectangle.geometry.intersection(bounds)
         {
-            self.context
-                .commands
-                .push_rectangle(rectangle, bounds, clip);
+            self.context.commands.push_rectangle(rectangle, bounds, clip);
         }
     }
 
     fn prepare_box_shadow(&mut self, shadow: &BoxShadow, bounds: PhysicalRect, clip: u32) {
-        let Some(request) = self.context.shadows.prepare(
-            &mut self.context.images,
-            shadow,
-            self.context.scale_factor,
-        ) else {
+        let Some(request) = self
+            .context
+            .shadows
+            .prepare(&mut self.context.images, shadow, self.context.scale_factor)
+        else {
             return;
         };
         match request {
-            shadow::Prepared::Rectangle(rectangle) => {
-                self.prepare_rectangle(&rectangle, bounds, clip)
-            }
+            shadow::Prepared::Rectangle(rectangle) => self.prepare_rectangle(&rectangle, bounds, clip),
             shadow::Prepared::Image(request) => {
                 let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
                 if let Some(texture) = self.context.images.get(image) {
@@ -281,9 +272,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         bounds: PhysicalRect,
         clip: u32,
     ) -> Option<PhysicalRect> {
-        let area = request
-            .area
-            .to_physical(Scale2::uniform(self.context.scale_factor));
+        let area = request.area.to_physical(Scale2::uniform(self.context.scale_factor));
         let visible_area = area.intersection(bounds)?;
         let (glyph_start, glyph_end, runs, paragraph_bounds) =
             self.context
@@ -360,9 +349,7 @@ impl StoredImage {
             ImageFormat::Rgb8 | ImageFormat::Luma8 => (AlphaRows::default(), true),
             ImageFormat::Rgba8 => (AlphaRows::default(), rgba_opaque()),
             ImageFormat::Rgba8Premultiplied if rgba_opaque() => (AlphaRows::default(), true),
-            ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => {
-                (AlphaRows::default(), false)
-            }
+            ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => (AlphaRows::default(), false),
             ImageFormat::Rgba8Premultiplied => {
                 let mut rows = Vec::with_capacity(height * 4);
                 for y in 0..height {
@@ -372,12 +359,7 @@ impl StoredImage {
                     let mut run_start = 0;
                     let mut opaque_start = 0;
                     let mut opaque_end = 0;
-                    for (x, alpha) in row
-                        .chunks_exact(4)
-                        .map(|pixel| pixel[3])
-                        .chain([0])
-                        .enumerate()
-                    {
+                    for (x, alpha) in row.chunks_exact(4).map(|pixel| pixel[3]).chain([0]).enumerate() {
                         if alpha != 0 {
                             visible_start = visible_start.min(x);
                             visible_end = x + 1;
@@ -482,12 +464,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         assert!(self.context.commands.is_empty());
         if !damage.is_empty() {
             for clip in display_list.clips() {
-                self.context.clips.push_node(
-                    clip.parent.0,
-                    clip.area,
-                    clip.radius,
-                    self.context.scale_factor,
-                );
+                self.context
+                    .clips
+                    .push_node(clip.parent.0, clip.area, clip.radius, self.context.scale_factor);
             }
             for record in display_list.iter() {
                 if !damage
@@ -498,32 +477,20 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                 }
                 match record.command {
                     Command::Clear => self.context.commands.push_clear(record.bounds),
-                    Command::Rectangle(rectangle) => {
-                        self.prepare_rectangle(&rectangle, record.bounds, record.clip.0)
-                    }
-                    Command::Image(image) => {
-                        self.prepare_image(&image, record.bounds, record.clip.0)
-                    }
+                    Command::Rectangle(rectangle) => self.prepare_rectangle(&rectangle, record.bounds, record.clip.0),
+                    Command::Image(image) => self.prepare_image(&image, record.bounds, record.clip.0),
                     Command::Text(request, colors) => {
                         self.prepare_text(text, &request, colors, record.bounds, record.clip.0);
                     }
-                    Command::BoxShadow(shadow) => {
-                        self.prepare_box_shadow(&shadow, record.bounds, record.clip.0)
-                    }
+                    Command::BoxShadow(shadow) => self.prepare_box_shadow(&shadow, record.bounds, record.clip.0),
                     Command::Mesh(mesh) => {
                         for indices in mesh.indices.as_chunks::<3>().0 {
                             let vertices = indices.map(|index| mesh.vertices[index as usize]);
                             if let Some(triangle) = triangle::Prepared::new(vertices, self.scale)
                                 && let Some(bounds) = triangle.bounds.intersection(record.bounds)
-                                && damage
-                                    .iter()
-                                    .any(|damage| bounds.intersection(*damage).is_some())
+                                && damage.iter().any(|damage| bounds.intersection(*damage).is_some())
                             {
-                                self.context.commands.push_triangle(
-                                    triangle,
-                                    bounds,
-                                    record.clip.0,
-                                );
+                                self.context.commands.push_triangle(triangle, bounds, record.clip.0);
                             }
                         }
                     }

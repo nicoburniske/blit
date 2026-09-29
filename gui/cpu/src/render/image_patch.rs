@@ -3,9 +3,7 @@ use std::ops::Range;
 use blit::PhysicalRect;
 use blit_gui::{
     color::Color,
-    image::{
-        ImageData, ImageFormat, ImageId, ImagePatch, ImageRequest, ImageSampling, ImageTiling,
-    },
+    image::{ImageData, ImageFormat, ImageId, ImagePatch, ImageRequest, ImageSampling, ImageTiling},
 };
 
 use crate::{Pixel, PremultipliedRgbaColor, Rgb8Pixel};
@@ -77,10 +75,8 @@ impl Prepared {
         {
             return None;
         }
-        let (step_x, scale_x, wrap_x) =
-            axis(source.width, display.width, horizontal_tiling, scale_factor);
-        let (step_y, scale_y, wrap_y) =
-            axis(source.height, display.height, vertical_tiling, scale_factor);
+        let (step_x, scale_x, wrap_x) = axis(source.width, display.width, horizontal_tiling, scale_factor);
+        let (step_y, scale_y, wrap_y) = axis(source.height, display.height, vertical_tiling, scale_factor);
         Some(Self {
             image: request.image,
             display,
@@ -243,10 +239,7 @@ impl Prepared {
                     if source_x >= texture_x && source_x < texture_right {
                         let source = source_row + source_x - texture_x;
                         let luma = unsafe { *pixels.get_unchecked(source) };
-                        destination.blend(PremultipliedRgbaColor::new(
-                            Color::rgb(luma, luma, luma),
-                            self.opacity,
-                        ));
+                        destination.blend(PremultipliedRgbaColor::new(Color::rgb(luma, luma, luma), self.opacity));
                     }
                 });
             }
@@ -320,12 +313,8 @@ impl Prepared {
     ) -> bool {
         if !matches!(
             texture.format,
-            ImageFormat::Rgb8
-                | ImageFormat::Luma8
-                | ImageFormat::Rgba8Premultiplied
-                | ImageFormat::Alpha8(_)
-        ) || matches!(texture.format, ImageFormat::Rgb8 | ImageFormat::Luma8)
-            && self.opacity != 255
+            ImageFormat::Rgb8 | ImageFormat::Luma8 | ImageFormat::Rgba8Premultiplied | ImageFormat::Alpha8(_)
+        ) || matches!(texture.format, ImageFormat::Rgb8 | ImageFormat::Luma8) && self.opacity != 255
         {
             return false;
         }
@@ -339,15 +328,13 @@ impl Prepared {
         while destination_x < destination_end {
             let source_x = self.source.x as usize + (source >> FIXED_SHIFT) as usize;
             let source_end = (self.source.x + self.source.width) as usize;
-            let len =
-                (destination_end - destination_x).min((source_end - source_x) as i32) as usize;
+            let len = (destination_end - destination_x).min((source_end - source_x) as i32) as usize;
             if source_x < texture_x || source_x + len > texture_right {
                 return false;
             }
             let destination = (destination_x - screen_x) as usize;
             let destination = &mut row[destination..destination + len];
-            let source_offset =
-                source_row + (source_x - texture_x) * texture.format.bytes_per_pixel();
+            let source_offset = source_row + (source_x - texture_x) * texture.format.bytes_per_pixel();
             match texture.format {
                 ImageFormat::Rgb8 => {
                     let bytes = &pixels[source_offset..source_offset + len * 3];
@@ -356,16 +343,13 @@ impl Prepared {
                     P::blend_texture_slice_rgb(destination, source);
                 }
                 ImageFormat::Luma8 => {
-                    for (destination, luma) in
-                        destination.iter_mut().zip(&pixels[source_offset..][..len])
-                    {
+                    for (destination, luma) in destination.iter_mut().zip(&pixels[source_offset..][..len]) {
                         *destination = P::from_rgb(*luma, *luma, *luma);
                     }
                 }
                 ImageFormat::Rgba8Premultiplied => {
                     let bytes = &pixels[source_offset..source_offset + len * 4];
-                    let (prefix, source, suffix) =
-                        unsafe { bytes.align_to::<PremultipliedRgbaColor>() };
+                    let (prefix, source, suffix) = unsafe { bytes.align_to::<PremultipliedRgbaColor>() };
                     assert!(prefix.is_empty() && suffix.is_empty());
                     if let Some(AlphaRow {
                         visible_start,
@@ -374,12 +358,8 @@ impl Prepared {
                         opaque_end,
                     }) = alpha_row
                     {
-                        let visible_start = (texture_x + visible_start as usize)
-                            .saturating_sub(source_x)
-                            .min(len);
-                        let visible_end = (texture_x + visible_end as usize)
-                            .saturating_sub(source_x)
-                            .min(len);
+                        let visible_start = (texture_x + visible_start as usize).saturating_sub(source_x).min(len);
+                        let visible_end = (texture_x + visible_end as usize).saturating_sub(source_x).min(len);
                         let (opaque_start, opaque_end) = if self.opacity == 255 {
                             (
                                 (texture_x + opaque_start as usize)
@@ -430,9 +410,7 @@ impl Prepared {
                             (texture_x + row.visible_start as usize)
                                 .saturating_sub(source_x)
                                 .min(len),
-                            (texture_x + row.visible_end as usize)
-                                .saturating_sub(source_x)
-                                .min(len),
+                            (texture_x + row.visible_end as usize).saturating_sub(source_x).min(len),
                         )
                     });
                     if visible_start < visible_end {
@@ -447,8 +425,7 @@ impl Prepared {
             }
             destination_x += len as i32;
             source += (len as u64) << FIXED_SHIFT;
-            if self.flags & flag::WRAP_X != 0 && source >= (self.source.width as u64) << FIXED_SHIFT
-            {
+            if self.flags & flag::WRAP_X != 0 && source >= (self.source.width as u64) << FIXED_SHIFT {
                 source %= (self.source.width as u64) << FIXED_SHIFT;
             }
         }
@@ -468,8 +445,7 @@ impl Prepared {
         let mut source = self.source_fixed_x(clipped.x);
         let source_span = (self.source.width as u64) << FIXED_SHIFT;
         for pixel in pixels {
-            let source_x = self.source.x as usize
-                + (source >> FIXED_SHIFT).min(self.source.width as u64 - 1) as usize;
+            let source_x = self.source.x as usize + (source >> FIXED_SHIFT).min(self.source.width as u64 - 1) as usize;
             process(pixel, source_x);
             source += self.step_x;
             if self.flags & flag::WRAP_X != 0 && source >= source_span {
@@ -534,35 +510,14 @@ impl Prepared {
             );
             let interpolate = |top_left: u8, top_right: u8, bottom_left: u8, bottom_right: u8| {
                 let top = top_left as f32 + (top_right as f32 - top_left as f32) * horizontal;
-                let bottom =
-                    bottom_left as f32 + (bottom_right as f32 - bottom_left as f32) * horizontal;
+                let bottom = bottom_left as f32 + (bottom_right as f32 - bottom_left as f32) * horizontal;
                 (top + (bottom - top) * vertical).round() as u8
             };
             row[(x - screen_x) as usize].blend(PremultipliedRgbaColor {
-                red: interpolate(
-                    top_left.red,
-                    top_right.red,
-                    bottom_left.red,
-                    bottom_right.red,
-                ),
-                green: interpolate(
-                    top_left.green,
-                    top_right.green,
-                    bottom_left.green,
-                    bottom_right.green,
-                ),
-                blue: interpolate(
-                    top_left.blue,
-                    top_right.blue,
-                    bottom_left.blue,
-                    bottom_right.blue,
-                ),
-                alpha: interpolate(
-                    top_left.alpha,
-                    top_right.alpha,
-                    bottom_left.alpha,
-                    bottom_right.alpha,
-                ),
+                red: interpolate(top_left.red, top_right.red, bottom_left.red, bottom_right.red),
+                green: interpolate(top_left.green, top_right.green, bottom_left.green, bottom_right.green),
+                blue: interpolate(top_left.blue, top_right.blue, bottom_left.blue, bottom_right.blue),
+                alpha: interpolate(top_left.alpha, top_right.alpha, bottom_left.alpha, bottom_right.alpha),
             });
         }
     }
@@ -605,20 +560,11 @@ impl Prepared {
 
     fn alpha_color(&self, color: Color) -> (Color, u8) {
         self.colorize.map_or((color, self.opacity), |replacement| {
-            (
-                replacement,
-                (self.opacity as u16 * color.alpha as u16 / 255) as u8,
-            )
+            (replacement, (self.opacity as u16 * color.alpha as u16 / 255) as u8)
         })
     }
 
-    fn source_pixel(
-        &self,
-        texture: &ImageData,
-        pixels: &[u8],
-        x: usize,
-        y: usize,
-    ) -> PremultipliedRgbaColor {
+    fn source_pixel(&self, texture: &ImageData, pixels: &[u8], x: usize, y: usize) -> PremultipliedRgbaColor {
         let texture_x = texture.texture_rect.x as usize;
         let texture_y = texture.texture_rect.y as usize;
         if x < texture_x
@@ -628,8 +574,7 @@ impl Prepared {
         {
             return PremultipliedRgbaColor::default();
         }
-        let offset = (y - texture_y) * texture.stride_bytes
-            + (x - texture_x) * texture.format.bytes_per_pixel();
+        let offset = (y - texture_y) * texture.stride_bytes + (x - texture_x) * texture.format.bytes_per_pixel();
         let pixel = match texture.format {
             ImageFormat::Rgba8Premultiplied if self.opacity == 255 => PremultipliedRgbaColor {
                 red: pixels[offset],
@@ -653,10 +598,9 @@ impl Prepared {
                 blue: pixels[offset],
                 alpha: 255,
             },
-            ImageFormat::Luma8 => PremultipliedRgbaColor::new(
-                Color::rgb(pixels[offset], pixels[offset], pixels[offset]),
-                self.opacity,
-            ),
+            ImageFormat::Luma8 => {
+                PremultipliedRgbaColor::new(Color::rgb(pixels[offset], pixels[offset], pixels[offset]), self.opacity)
+            }
             ImageFormat::Rgba8 => PremultipliedRgbaColor::new(
                 Color::rgba(
                     pixels[offset],
@@ -666,14 +610,12 @@ impl Prepared {
                 ),
                 self.opacity,
             ),
-            ImageFormat::Alpha8(color) => PremultipliedRgbaColor::new(
-                color,
-                (pixels[offset] as u16 * self.opacity as u16 / 255) as u8,
-            ),
+            ImageFormat::Alpha8(color) => {
+                PremultipliedRgbaColor::new(color, (pixels[offset] as u16 * self.opacity as u16 / 255) as u8)
+            }
         };
-        self.colorize.map_or(pixel, |color| {
-            PremultipliedRgbaColor::new(color, pixel.alpha)
-        })
+        self.colorize
+            .map_or(pixel, |color| PremultipliedRgbaColor::new(color, pixel.alpha))
     }
 }
 

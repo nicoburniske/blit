@@ -78,12 +78,7 @@ pub struct Rect {
 
 impl Rect {
     pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self {
-            x,
-            y,
-            width,
-            height,
-        }
+        Self { x, y, width, height }
     }
 
     pub const fn size(self) -> Size {
@@ -91,10 +86,7 @@ impl Rect {
     }
 
     pub fn contains(self, point: Point) -> bool {
-        point.x >= self.x
-            && point.y >= self.y
-            && point.x < self.x + self.width
-            && point.y < self.y + self.height
+        point.x >= self.x && point.y >= self.y && point.x < self.x + self.width && point.y < self.y + self.height
     }
 
     pub fn intersection(self, other: Self) -> Option<Self> {
@@ -150,10 +142,7 @@ impl PhysicalRect {
     }
 
     pub fn contains(self, x: i32, y: i32) -> bool {
-        x >= self.x
-            && y >= self.y
-            && x < self.x.saturating_add(self.width)
-            && y < self.y.saturating_add(self.height)
+        x >= self.x && y >= self.y && x < self.x.saturating_add(self.width) && y < self.y.saturating_add(self.height)
     }
 
     pub fn intersection(self, other: Self) -> Option<Self> {
@@ -272,17 +261,11 @@ pub struct Constraints {
 
 impl Constraints {
     pub const fn loose(max: Size) -> Self {
-        Self {
-            min: Size::ZERO,
-            max,
-        }
+        Self { min: Size::ZERO, max }
     }
 
     pub const fn tight(size: Size) -> Self {
-        Self {
-            min: size,
-            max: size,
-        }
+        Self { min: size, max: size }
     }
 
     #[inline]

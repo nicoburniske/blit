@@ -13,11 +13,7 @@ fn main() -> std::io::Result<()> {
         let mut root = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
 
         let quit = root.child().build(|ui: Ui<'_>| {
-            let mut header = ui.layout(
-                flex::row()
-                    .padding(Sides::all(1.0))
-                    .justify(Justify::SpaceBetween),
-            );
+            let mut header = ui.layout(flex::row().padding(Sides::all(1.0)).justify(Justify::SpaceBetween));
 
             header.insert(Block::new().border(Border::new(Color::BLUE)));
             header.child().build(|mut ui: Ui<'_>| {
@@ -31,10 +27,7 @@ fn main() -> std::io::Result<()> {
                     let interaction = ui.interact(Sense::CLICK);
 
                     ui.insert(Block::new().background(Color::BLUE));
-                    ui.insert(
-                        Text::new("quit")
-                            .options(TextOptions::new().horizontal_align(HorizontalAlign::Center)),
-                    );
+                    ui.insert(Text::new("quit").options(TextOptions::new().horizontal_align(HorizontalAlign::Center)));
 
                     interaction.clicked
                 })

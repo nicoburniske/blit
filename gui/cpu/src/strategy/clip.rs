@@ -35,11 +35,7 @@ pub struct ClipSpan {
 }
 
 impl ClipSpan {
-    pub fn for_each(
-        self,
-        mut coverage: impl FnMut(i32) -> u8,
-        mut draw: impl FnMut(Range<i32>, u8),
-    ) {
+    pub fn for_each(self, mut coverage: impl FnMut(i32) -> u8, mut draw: impl FnMut(Range<i32>, u8)) {
         let full_start = self.full_start.max(self.start).min(self.end);
         let full_end = self.full_end.max(self.start).min(self.end);
         if full_start < full_end {
@@ -68,17 +64,8 @@ impl ClipSpan {
 }
 
 impl ClipStack {
-    pub fn push_node(
-        &mut self,
-        parent: ClipId,
-        area: LogicalRect,
-        radius: BorderRadius,
-        scale_factor: f32,
-    ) -> ClipId {
-        assert!(
-            parent as usize <= self.nodes.len(),
-            "invalid rounded clip parent"
-        );
+    pub fn push_node(&mut self, parent: ClipId, area: LogicalRect, radius: BorderRadius, scale_factor: f32) -> ClipId {
+        assert!(parent as usize <= self.nodes.len(), "invalid rounded clip parent");
         let area = area.to_physical(Scale2::uniform(scale_factor));
         let id = u32::try_from(self.nodes.len() + 1).expect("too many rounded clips in one frame");
         self.nodes.push(ClipNode {
@@ -89,13 +76,7 @@ impl ClipStack {
         id
     }
 
-    pub fn for_each(
-        &self,
-        mut id: ClipId,
-        line: i32,
-        range: Range<i32>,
-        draw: impl FnMut(Range<i32>, u8),
-    ) {
+    pub fn for_each(&self, mut id: ClipId, line: i32, range: Range<i32>, draw: impl FnMut(Range<i32>, u8)) {
         let clip_id = id;
         let mut span = ClipSpan {
             start: range.start,

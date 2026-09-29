@@ -1,13 +1,13 @@
 use std::ops::{BitOr, BitOrAssign};
 
+use blit::{Atom, Constraints, LogicalRect, Size};
+
 use crate::{
+    TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
     text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
 };
-use blit::{Atom, Constraints, LogicalRect, Size};
-
-use crate::TuiContext;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -50,11 +50,7 @@ impl Atom<TuiContext> for Block {
                     for x in 0..width {
                         let edges = border_edges(border.sides, x, 0, width, height);
                         if edges != 0 {
-                            cells.set_cell(
-                                x,
-                                0,
-                                Cell::new(border_character(border.style, edges)).style(style),
-                            );
+                            cells.set_cell(x, 0, Cell::new(border_character(border.style, edges)).style(style));
                         }
                     }
                 }
@@ -74,11 +70,7 @@ impl Atom<TuiContext> for Block {
                     if border.sides.contains(BorderSides::LEFT) {
                         let edges = border_edges(border.sides, 0, y, width, height);
                         if edges != 0 {
-                            cells.set_cell(
-                                0,
-                                y,
-                                Cell::new(border_character(border.style, edges)).style(style),
-                            );
+                            cells.set_cell(0, y, Cell::new(border_character(border.style, edges)).style(style));
                         }
                     }
                     if width > 1 && border.sides.contains(BorderSides::RIGHT) {
@@ -252,25 +244,15 @@ fn paint_title_row(
     }
 }
 
-fn paint_title(
-    context: &mut TuiContext,
-    title: Title,
-    origin_x: f32,
-    y: f32,
-    x: usize,
-    width: usize,
-) {
+fn paint_title(context: &mut TuiContext, title: Title, origin_x: f32, y: f32, x: usize, width: usize) {
     if width == 0 {
         return;
     }
     context.paint_text(
-        TextRequest::new(
-            title.text,
-            LogicalRect::new(origin_x + x as f32, y, width as f32, 1.0),
-        )
-        .color(title.color)
-        .attributes(title.attributes)
-        .options(TextOptions::new().max_lines(1)),
+        TextRequest::new(title.text, LogicalRect::new(origin_x + x as f32, y, width as f32, 1.0))
+            .color(title.color)
+            .attributes(title.attributes)
+            .options(TextOptions::new().max_lines(1)),
     );
 }
 
@@ -323,12 +305,11 @@ fn border_character(style: BorderStyle, edges: u8) -> char {
 mod tests {
     use std::time::Duration;
 
-    use crate::{RendererConfig, TuiRenderer};
     use blit::{Frame, FrameInfo, Input, Size};
     use blit_layout::single;
 
     use super::*;
-    use crate::{atom::Shadow, widget};
+    use crate::{RendererConfig, TuiRenderer, atom::Shadow, widget};
 
     #[test]
     fn block_and_shadow_paint_as_atoms() {

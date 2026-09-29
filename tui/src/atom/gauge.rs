@@ -1,13 +1,13 @@
 use std::rc::Rc;
 
+use blit::{Atom, Constraints, LogicalRect, Size};
+
 use crate::{
+    TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
     text::TextAttributes,
 };
-use blit::{Atom, Constraints, LogicalRect, Size};
-
-use crate::TuiContext;
 
 pub struct Gauge {
     pub ratio: f64,
@@ -51,10 +51,10 @@ impl Gauge {
 
 impl Atom<TuiContext> for Gauge {
     fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> Size {
-        let width = self.label.as_ref().map_or_else(
-            || percentage_label(self.ratio).1,
-            |label| label.chars().count(),
-        );
+        let width = self
+            .label
+            .as_ref()
+            .map_or_else(|| percentage_label(self.ratio).1, |label| label.chars().count());
         constraints.constrain(Size::new(width.max(1) as f32, 1.0))
     }
 
@@ -65,16 +65,8 @@ impl Atom<TuiContext> for Gauge {
         let filled = (width as f64 * self.ratio.clamp(0.0, 1.0)).round() as usize;
         for y in 0..rows {
             for x in 0..width {
-                let background = if x < filled {
-                    self.filled
-                } else {
-                    self.unfilled
-                };
-                cells.set_cell(
-                    x,
-                    y,
-                    Cell::new(' ').style(CellStyle::new().background(background)),
-                );
+                let background = if x < filled { self.filled } else { self.unfilled };
+                cells.set_cell(x, y, Cell::new(' ').style(CellStyle::new().background(background)));
             }
         }
         if rows == 0 {
@@ -83,11 +75,7 @@ impl Atom<TuiContext> for Gauge {
         let style = |x| {
             CellStyle::new()
                 .foreground(self.label_color)
-                .background(if x < filled {
-                    self.filled
-                } else {
-                    self.unfilled
-                })
+                .background(if x < filled { self.filled } else { self.unfilled })
                 .attributes(TextAttributes::BOLD)
         };
         if let Some(label) = &self.label {

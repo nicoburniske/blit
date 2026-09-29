@@ -1,5 +1,8 @@
 use std::fmt::Write as _;
 
+use blit::{Anchor, Interaction, Sides, Size, Sizing, Widget};
+use blit_widgets::performance as shared;
+
 use crate::{
     TuiContext, Ui,
     atom::{Border, BorderStyle},
@@ -8,8 +11,6 @@ use crate::{
     text::TextAttributes,
     widget::{Block, Text, popover},
 };
-use blit::{Anchor, Interaction, Sides, Size, Sizing, Widget};
-use blit_widgets::performance as shared;
 
 blit::builder! {
     /// clickable performance badge with a timing table and history graph
@@ -93,9 +94,7 @@ impl Widget<TuiContext> for Performance<'_> {
                             .row_gap(self.table_gap.height),
                     );
                     for (label, values) in measurements.rows() {
-                        table
-                            .child()
-                            .insert(Text::new(label).color(self.muted_color));
+                        table.child().insert(Text::new(label).color(self.muted_color));
                         for value in values {
                             table
                                 .child()
@@ -110,16 +109,11 @@ impl Widget<TuiContext> for Performance<'_> {
                     let mut axis = chart
                         .child()
                         .item(flex::item().height(Sizing::fixed(rows as f32)))
-                        .layout(
-                            flex::column()
-                                .align(Align::End)
-                                .justify(Justify::SpaceBetween),
-                        );
+                        .layout(flex::column().align(Align::End).justify(Justify::SpaceBetween));
                     for (label, value) in axis_labels.iter_mut().zip([scale, scale / 2.0, 0.0]) {
                         label.clear();
                         let _ = write!(label, "{value:.3} ms");
-                        axis.child()
-                            .insert(Text::new(label).color(self.muted_color));
+                        axis.child().insert(Text::new(label).color(self.muted_color));
                     }
                 }
                 let mut graph = chart
@@ -138,10 +132,9 @@ impl Widget<TuiContext> for Performance<'_> {
                         .item(flex::item().fixed(1.0, full as f32 + f32::from(partial != 0)))
                         .layout(flex::column());
                     if partial != 0 {
-                        bar.child().item(flex::item().fixed(1.0, 1.0)).insert(
-                            Text::new(["", "▁", "▂", "▃", "▄", "▅", "▆", "▇"][partial])
-                                .color(self.accent),
-                        );
+                        bar.child()
+                            .item(flex::item().fixed(1.0, 1.0))
+                            .insert(Text::new(["", "▁", "▂", "▃", "▄", "▅", "▆", "▇"][partial]).color(self.accent));
                     }
                     if full != 0 {
                         bar.child()

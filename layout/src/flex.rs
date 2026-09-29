@@ -91,9 +91,7 @@ impl<C> blit::Layout<C> for Layout {
         for child in cx.children() {
             count += 1;
             let item = cx.item(child);
-            if let Sizing::Grow { min, max } =
-                cx.resolve_sizing(child, self.axis, item.sizing(self.axis))
-            {
+            if let Sizing::Grow { min, max } = cx.resolve_sizing(child, self.axis, item.sizing(self.axis)) {
                 assert!(
                     item.weight.is_finite() && item.weight > 0.0,
                     "flex weight must be finite and positive"
@@ -130,10 +128,7 @@ impl<C> blit::Layout<C> for Layout {
                     || self.align == Align::Stretch && matches!(sizing, Sizing::Fit { .. }))
             {
                 let extent = sizing.clamp(cross_max);
-                assert!(
-                    extent.is_finite(),
-                    "cross axis grow requires a finite budget"
-                );
+                assert!(extent.is_finite(), "cross axis grow requires a finite budget");
                 (extent, extent)
             } else {
                 range
@@ -166,11 +161,7 @@ impl<C> blit::Layout<C> for Layout {
         if grows != 0 {
             // saturate caps in threshold order without revisiting a child layout
             caps.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
-            let mut unit = if weights > 0.0 {
-                remaining / weights
-            } else {
-                0.0
-            };
+            let mut unit = if weights > 0.0 { remaining / weights } else { 0.0 };
             for (limit, capacity, weight) in caps {
                 if limit >= unit {
                     break;
@@ -202,15 +193,10 @@ impl<C> blit::Layout<C> for Layout {
                 cross = cross.max(cross_axis.extent(size));
             }
         }
-        let size = bounds.constrain(flow_size(
-            used + gaps + main_padding,
-            cross + cross_padding,
-            self.axis,
-        ));
+        let size = bounds.constrain(flow_size(used + gaps + main_padding, cross + cross_padding, self.axis));
         let available_main = (self.axis.extent(size) - main_padding).max(0.0);
         let available_cross = (cross_axis.extent(size) - cross_padding).max(0.0);
-        let (offset, extra_gap) =
-            justify_offset(self.justify, (available_main - used - gaps).max(0.0), count);
+        let (offset, extra_gap) = justify_offset(self.justify, (available_main - used - gaps).max(0.0), count);
         let mut cursor = main_leading + offset;
         for child in cx.children() {
             let child_size = cx.child_size(child);

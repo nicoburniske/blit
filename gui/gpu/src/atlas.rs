@@ -96,11 +96,7 @@ impl AtlasAllocator {
     }
 
     pub fn allocate(&mut self, size: [u32; 2]) -> Option<Allocation> {
-        if size[0] == 0
-            || size[1] == 0
-            || size[0] > u32::from(self.width)
-            || size[1] > u32::from(self.height)
-        {
+        if size[0] == 0 || size[1] == 0 || size[0] > u32::from(self.width) || size[1] > u32::from(self.height) {
             return None;
         }
 
@@ -112,8 +108,7 @@ impl AtlasAllocator {
             128..=511 => 32,
             _ => 64,
         };
-        let rounded_height =
-            u32::from(requested_height).saturating_add(alignment - 1) / alignment * alignment;
+        let rounded_height = u32::from(requested_height).saturating_add(alignment - 1) / alignment * alignment;
         let height = if rounded_height <= u32::from(self.height) {
             rounded_height as u16
         } else {
@@ -170,10 +165,7 @@ impl AtlasAllocator {
                 self.shelves[slot.index()] = new_shelf;
                 slot
             } else {
-                assert!(
-                    self.shelves.len() < u16::MAX as usize,
-                    "too many atlas shelves"
-                );
+                assert!(self.shelves.len() < u16::MAX as usize, "too many atlas shelves");
                 let slot = Slot(self.shelves.len() as u16);
                 self.shelves.push(new_shelf);
                 slot
@@ -251,10 +243,7 @@ impl AtlasAllocator {
     pub fn deallocate(&mut self, id: AllocId) {
         let item_slot = id.item;
         let item = self.items[item_slot.index()];
-        assert!(
-            item.allocated && item.generation == id.generation,
-            "invalid allocation"
-        );
+        assert!(item.allocated && item.generation == id.generation, "invalid allocation");
         self.items[item_slot.index()].allocated = false;
         self.allocations -= 1;
 
@@ -317,8 +306,7 @@ impl AtlasAllocator {
             let previous_shelf = self.shelves[shelf_slot.index()].previous;
             if previous_shelf.is_some() && self.shelves[previous_shelf.index()].empty {
                 let following = self.shelves[shelf_slot.index()].next;
-                self.shelves[previous_shelf.index()].height +=
-                    self.shelves[shelf_slot.index()].height;
+                self.shelves[previous_shelf.index()].height += self.shelves[shelf_slot.index()].height;
                 self.shelves[previous_shelf.index()].next = following;
                 if following.is_some() {
                     self.shelves[following.index()].previous = previous_shelf;

@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use blit::{
-    Atom, Constraints, Frame, FrameInfo, Input, LayoutResolution, Rect, Sides, Size, Sizing,
-    Transition, Ui, Widget, WidgetId,
+    Atom, Constraints, Frame, FrameInfo, Input, LayoutResolution, Rect, Sides, Size, Sizing, Transition, Ui, Widget,
+    WidgetId,
 };
 use blit_layout::{Align, flex, grid, single, wrap};
 
@@ -88,16 +88,13 @@ fn flex_cross_grow_uses_natural_size_under_loose_constraints() {
         FrameInfo::new(Size::new(100.0, 100.0)),
         |ui: Ui<'_, TestContext>| {
             let mut column = ui.layout(flex::column());
-            column
-                .child()
-                .widget_id(header)
-                .build(|ui: Ui<'_, TestContext>| {
-                    let mut row = ui.layout(flex::row());
-                    row.child()
-                        .item(flex::item().grow())
-                        .insert(BoxAtom(Size::uniform(10.0)));
-                    row.child().insert(BoxAtom(Size::uniform(10.0)));
-                });
+            column.child().widget_id(header).build(|ui: Ui<'_, TestContext>| {
+                let mut row = ui.layout(flex::row());
+                row.child()
+                    .item(flex::item().grow())
+                    .insert(BoxAtom(Size::uniform(10.0)));
+                row.child().insert(BoxAtom(Size::uniform(10.0)));
+            });
             column
                 .child()
                 .item(flex::item().height(Sizing::grow()))
@@ -138,11 +135,7 @@ fn flex_distributes_growing_space() {
 #[test]
 fn flex_respects_growth_caps() {
     let mut frame = Frame::default();
-    let ids = [
-        WidgetId::new("two"),
-        WidgetId::new("four"),
-        WidgetId::new("unbounded"),
-    ];
+    let ids = [WidgetId::new("two"), WidgetId::new("four"), WidgetId::new("unbounded")];
     layout_frame(
         &mut frame,
         &mut TestContext,
@@ -162,10 +155,7 @@ fn flex_respects_growth_caps() {
             }
         },
     );
-    assert_eq!(
-        ids.map(|id| frame.geometry(id).unwrap().width),
-        [2.0, 4.0, 9.0]
-    );
+    assert_eq!(ids.map(|id| frame.geometry(id).unwrap().width), [2.0, 4.0, 9.0]);
 }
 
 #[test]
@@ -201,14 +191,8 @@ fn flex_size_transition_preserves_exact_overflow_and_reflows_siblings() {
 
     assert_eq!(render(1.0, Duration::ZERO), (Size::uniform(1.0), 1.0));
     assert_eq!(render(5.0, Duration::ZERO), (Size::uniform(1.0), 1.0));
-    assert_eq!(
-        render(5.0, Duration::from_millis(500)),
-        (Size::uniform(3.0), 3.0)
-    );
-    assert_eq!(
-        render(5.0, Duration::from_secs(1)),
-        (Size::uniform(5.0), 5.0)
-    );
+    assert_eq!(render(5.0, Duration::from_millis(500)), (Size::uniform(3.0), 3.0));
+    assert_eq!(render(5.0, Duration::from_secs(1)), (Size::uniform(5.0), 5.0));
 }
 
 #[test]
@@ -228,15 +212,11 @@ fn empty_layouts_keep_padding() {
         |ui: Ui<'_, TestContext>| {
             let mut root = ui.layout(flex::row().align(Align::Start));
             let padding = Sides::all(1.2);
-            root.child()
-                .widget_id(ids[0])
-                .layout(flex::row().padding(padding));
+            root.child().widget_id(ids[0]).layout(flex::row().padding(padding));
             root.child()
                 .widget_id(ids[1])
                 .layout(wrap::horizontal().padding(padding));
-            root.child()
-                .widget_id(ids[2])
-                .layout(grid::columns(2).padding(padding));
+            root.child().widget_id(ids[2]).layout(grid::columns(2).padding(padding));
         },
     );
     assert_eq!(
@@ -266,11 +246,7 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
                 .widget_id(wrap_id)
                 .layout(wrap::horizontal().align(Align::Start));
             wrap.child()
-                .item(
-                    wrap::item()
-                        .width(Sizing::grow_range(0.0, 5.0))
-                        .height(Sizing::grow()),
-                )
+                .item(wrap::item().width(Sizing::grow_range(0.0, 5.0)).height(Sizing::grow()))
                 .widget_id(ids[0])
                 .insert(BoxAtom(Size::new(4.0, 1.0)));
             wrap.child()
@@ -283,10 +259,7 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
                 .insert(ResponsiveAtom);
         },
     );
-    assert_eq!(
-        frame.geometry(wrap_id).unwrap().size(),
-        Size::new(11.0, 4.0)
-    );
+    assert_eq!(frame.geometry(wrap_id).unwrap().size(), Size::new(11.0, 4.0));
     assert_eq!(frame.geometry(ids[0]), Some(Rect::new(0.0, 0.0, 5.0, 3.0)));
     assert_eq!(frame.geometry(ids[1]), Some(Rect::new(5.0, 0.0, 5.5, 3.0)));
     assert_eq!(frame.geometry(ids[2]), Some(Rect::new(0.0, 3.0, 11.0, 1.0)));
@@ -371,19 +344,12 @@ fn single_percentages_use_the_incoming_budget() {
             let mut outer = ui.layout(single::layout());
             let mut fit = outer.child().layout(single::layout());
             fit.child()
-                .item(
-                    single::item()
-                        .width(Sizing::percent(0.5))
-                        .height(Sizing::percent(0.5)),
-                )
+                .item(single::item().width(Sizing::percent(0.5)).height(Sizing::percent(0.5)))
                 .widget_id(percent)
                 .insert(BoxAtom(Size::new(4.0, 2.0)));
         },
     );
-    assert_eq!(
-        frame.geometry(percent),
-        Some(Rect::new(0.0, 0.0, 10.0, 5.0))
-    );
+    assert_eq!(frame.geometry(percent), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));
 }
 
 #[test]
@@ -421,15 +387,10 @@ fn spanning_grid_fills_available_cell() {
                 .item(grid::item().row_span(2).column_span(2))
                 .insert(BoxAtom(Size::uniform(20.0)));
             grid.child().insert(BoxAtom(Size::uniform(10.0)));
-            grid.child()
-                .widget_id(hole)
-                .insert(BoxAtom(Size::uniform(10.0)));
+            grid.child().widget_id(hole).insert(BoxAtom(Size::uniform(10.0)));
         },
     );
-    assert_eq!(
-        frame.geometry(hole),
-        Some(Rect::new(60.0, 10.0, 30.0, 10.0))
-    );
+    assert_eq!(frame.geometry(hole), Some(Rect::new(60.0, 10.0, 30.0, 10.0)));
 }
 
 #[test]

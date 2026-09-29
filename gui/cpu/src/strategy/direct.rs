@@ -71,27 +71,22 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                             buffer,
                         );
                     } else {
-                        clips.for_each(
-                            clip_id,
-                            line,
-                            bounds.x..bounds.x + bounds.width,
-                            |range, coverage| {
-                                raster::draw_line(
-                                    &payload,
-                                    line,
-                                    PhysicalRect {
-                                        x: range.start,
-                                        y: line,
-                                        width: range.end - range.start,
-                                        height: 1,
-                                    },
-                                    coverage,
-                                    images,
-                                    text,
-                                    buffer,
-                                );
-                            },
-                        );
+                        clips.for_each(clip_id, line, bounds.x..bounds.x + bounds.width, |range, coverage| {
+                            raster::draw_line(
+                                &payload,
+                                line,
+                                PhysicalRect {
+                                    x: range.start,
+                                    y: line,
+                                    width: range.end - range.start,
+                                    height: 1,
+                                },
+                                coverage,
+                                images,
+                                text,
+                                buffer,
+                            );
+                        });
                     }
                 }
             }

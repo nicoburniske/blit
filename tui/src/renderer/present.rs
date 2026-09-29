@@ -3,9 +3,7 @@ use std::fmt::Write as _;
 use base64::Engine as _;
 use blit::LogicalRect;
 
-use super::{
-    BASE64, KittyPlacement, TuiRenderer, image::ImagePlacement, text::TextAttributes, write_color,
-};
+use super::{BASE64, KittyPlacement, TuiRenderer, image::ImagePlacement, text::TextAttributes, write_color};
 
 impl TuiRenderer {
     pub fn begin_frame(&mut self) {
@@ -92,22 +90,14 @@ impl TuiRenderer {
                             self.output.push_str("\x1b[");
                             let mut separator = false;
                             if foreground != next_style.0 {
-                                write_color(
-                                    &mut self.output,
-                                    super::Color::from_packed(next_style.0),
-                                    true,
-                                );
+                                write_color(&mut self.output, super::Color::from_packed(next_style.0), true);
                                 separator = true;
                             }
                             if background != next_style.1 {
                                 if separator {
                                     self.output.push(';');
                                 }
-                                write_color(
-                                    &mut self.output,
-                                    super::Color::from_packed(next_style.1),
-                                    false,
-                                );
+                                write_color(&mut self.output, super::Color::from_packed(next_style.1), false);
                             }
                         } else {
                             let attributes = TextAttributes(next_style.2);
@@ -119,26 +109,14 @@ impl TuiRenderer {
                                 }
                             }
                             self.output.push(';');
-                            write_color(
-                                &mut self.output,
-                                super::Color::from_packed(next_style.0),
-                                true,
-                            );
+                            write_color(&mut self.output, super::Color::from_packed(next_style.0), true);
                             self.output.push(';');
-                            write_color(
-                                &mut self.output,
-                                super::Color::from_packed(next_style.1),
-                                false,
-                            );
+                            write_color(&mut self.output, super::Color::from_packed(next_style.1), false);
                         }
                         self.output.push('m');
                         style = Some(next_style);
                     }
-                    Self::push_cell_text(
-                        &self.text_runs,
-                        super::Glyph(self.cells.glyph[index]),
-                        &mut self.output,
-                    );
+                    Self::push_cell_text(&self.text_runs, super::Glyph(self.cells.glyph[index]), &mut self.output);
                     x += 1;
                 }
             }
@@ -205,10 +183,7 @@ impl TuiRenderer {
         while image < self.images.len() {
             let id = self.images[image].handle.id().0 as u32;
             if !self.images[image].handle.is_uniquely_owned()
-                || self
-                    .kitty_placements
-                    .iter()
-                    .any(|placement| placement.image == id)
+                || self.kitty_placements.iter().any(|placement| placement.image == id)
             {
                 image += 1;
                 continue;
@@ -218,13 +193,9 @@ impl TuiRenderer {
             }
             self.images.swap_remove(image);
         }
-        std::mem::swap(
-            &mut self.presented_kitty_placements,
-            &mut self.kitty_placements,
-        );
+        std::mem::swap(&mut self.presented_kitty_placements, &mut self.kitty_placements);
         self.text_layouts.trim_to_weight();
-        self.text_runs
-            .trim_to_weight_if(|_, run| run.screen_references == 0);
+        self.text_runs.trim_to_weight_if(|_, run| run.screen_references == 0);
     }
 
     pub fn invalidate(&mut self) {

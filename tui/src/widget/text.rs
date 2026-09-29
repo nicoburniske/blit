@@ -1,10 +1,10 @@
+use blit::{Content, state};
+
 use crate::{
+    TuiContext, Ui, atom,
     color::Color,
     text::{Span, TextAttributes, TextOptions},
 };
-use blit::{Content, state};
-
-use crate::{TuiContext, Ui, atom};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]

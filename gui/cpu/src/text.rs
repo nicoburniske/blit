@@ -1,6 +1,5 @@
 use std::{mem::size_of, ptr::NonNull};
 
-use crate::{Pixel, PixelSpan, RendererConfig, glyph::GlyphCache, strategy::command::PreparedText};
 use blit::{PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use blit_gui::{
@@ -9,6 +8,8 @@ use blit_gui::{
     text::{HorizontalAlign, TextRequest, VerticalAlign},
 };
 use blit_text::FontFaceId;
+
+use crate::{Pixel, PixelSpan, RendererConfig, glyph::GlyphCache, strategy::command::PreparedText};
 
 pub struct TextRenderer {
     paints: DeferredCache<PaintKey, CachedPaint, PaintScale>,
@@ -143,23 +144,18 @@ impl TextRenderer {
                 let mut top = i32::MAX;
                 let mut bottom = i32::MIN;
                 let size = (run.size * scale_factor).to_bits();
-                for glyph in
-                    &resolved.layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize]
-                {
+                for glyph in &resolved.layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
                     let x = (glyph.position.x + offset.x - request.offset_x) * scale_factor;
                     let x_phases = (x * phase_count as f32).round() as i32;
                     let phase = x_phases.rem_euclid(phase_count) as u8;
                     let cached = glyphs.glyph(&resolved, run.face, glyph.id, size, phase);
                     let cached = glyphs.get(cached);
-                    let x =
-                        (x_phases as f32 * phase_scale + cached.metrics.bounds.xmin).floor() as i32;
+                    let x = (x_phases as f32 * phase_scale + cached.metrics.bounds.xmin).floor() as i32;
                     let y = ((glyph.position.y + offset.y) * scale_factor
                         + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin).floor())
                     .round() as i32;
-                    let glyph_width =
-                        i32::try_from(cached.metrics.width).expect("glyph is too wide");
-                    let glyph_height =
-                        i32::try_from(cached.metrics.height).expect("glyph is too tall");
+                    let glyph_width = i32::try_from(cached.metrics.width).expect("glyph is too wide");
+                    let glyph_height = i32::try_from(cached.metrics.height).expect("glyph is too tall");
                     let right = x.saturating_add(glyph_width);
                     let glyph_bottom = y.saturating_add(glyph_height);
                     if glyph_width == 0
@@ -211,9 +207,9 @@ impl TextRenderer {
         let paint = self.paints.get_index(paint_index);
         let glyph_start = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
         for glyph in &paint.glyphs {
-            let cached =
-                self.glyphs
-                    .glyph(&resolved, glyph.face, glyph.glyph, glyph.size, glyph.phase);
+            let cached = self
+                .glyphs
+                .glyph(&resolved, glyph.face, glyph.glyph, glyph.size, glyph.phase);
             let cached = self.glyphs.get(cached);
             self.prepared.push(PreparedGlyph {
                 alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),
@@ -225,29 +221,28 @@ impl TextRenderer {
         }
         let glyph_end = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
         let color = |run: &PaintRun| colors.get(run.span as usize).copied().flatten();
-        let runs =
-            if paint.runs.len() > 1 || paint.runs.first().is_some_and(|run| color(run).is_some()) {
-                let start = u32::try_from(self.runs.len()).expect("too many prepared runs");
-                for run in &paint.runs {
-                    self.runs.push(PreparedRun {
-                        glyph_start: glyph_start
-                            .checked_add(run.glyph_start)
-                            .expect("too many prepared glyphs"),
-                        glyph_end: glyph_start
-                            .checked_add(run.glyph_end)
-                            .expect("too many prepared glyphs"),
-                        top: run.top,
-                        bottom: run.bottom,
-                        color: color(run).unwrap_or(request.color),
-                    });
-                }
-                PreparedRuns {
-                    start,
-                    end: u32::try_from(self.runs.len()).expect("too many prepared runs"),
-                }
-            } else {
-                PreparedRuns::NONE
-            };
+        let runs = if paint.runs.len() > 1 || paint.runs.first().is_some_and(|run| color(run).is_some()) {
+            let start = u32::try_from(self.runs.len()).expect("too many prepared runs");
+            for run in &paint.runs {
+                self.runs.push(PreparedRun {
+                    glyph_start: glyph_start
+                        .checked_add(run.glyph_start)
+                        .expect("too many prepared glyphs"),
+                    glyph_end: glyph_start
+                        .checked_add(run.glyph_end)
+                        .expect("too many prepared glyphs"),
+                    top: run.top,
+                    bottom: run.bottom,
+                    color: color(run).unwrap_or(request.color),
+                });
+            }
+            PreparedRuns {
+                start,
+                end: u32::try_from(self.runs.len()).expect("too many prepared runs"),
+            }
+        } else {
+            PreparedRuns::NONE
+        };
         let bounds = PhysicalRect {
             x: area.x.saturating_add(paint.bounds.x),
             y: area.y.saturating_add(paint.bounds.y),
@@ -308,15 +303,13 @@ impl TextRenderer {
                 let len = (right - left) as usize;
                 let source = source_y * glyph.width as usize + source_x;
                 // safety: glyph alpha allocations remain live until finish_frame
-                let alpha =
-                    unsafe { std::slice::from_raw_parts(glyph.alpha.as_ptr().add(source), len) };
+                let alpha = unsafe { std::slice::from_raw_parts(glyph.alpha.as_ptr().add(source), len) };
                 let destination_start = (left - row.x) as usize;
                 let destination_end = destination_start + len;
                 let overlap = touched_end.saturating_sub(destination_start).min(len);
                 let destination = &mut coverage[destination_start..destination_end];
                 for (destination, source) in destination[..overlap].iter_mut().zip(alpha) {
-                    *destination =
-                        (*source as u16 + *destination as u16 * (255 - *source as u16) / 255) as u8;
+                    *destination = (*source as u16 + *destination as u16 * (255 - *source as u16) / 255) as u8;
                 }
                 destination[overlap..].copy_from_slice(&alpha[overlap..]);
                 touched_start = touched_start.min(destination_start);
@@ -334,9 +327,7 @@ impl TextRenderer {
             draw(glyph_start, glyph_end, color);
         } else {
             for run in &self.runs[runs.start as usize..runs.end as usize] {
-                if line >= area.y.saturating_add(run.top)
-                    && line < area.y.saturating_add(run.bottom)
-                {
+                if line >= area.y.saturating_add(run.top) && line < area.y.saturating_add(run.bottom) {
                     draw(run.glyph_start, run.glyph_end, run.color);
                 }
             }

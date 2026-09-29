@@ -12,25 +12,15 @@ pub trait TextLayoutEngine: 'static {
 
     fn register_font(&mut self, data: FontData) -> Result<Vec<FontFaceId>, FontError>;
 
-    fn register_font_selection(
-        &mut self,
-        candidates: &[FontCandidate],
-    ) -> Result<FontSelectionId, FontError>;
+    fn register_font_selection(&mut self, candidates: &[FontCandidate]) -> Result<FontSelectionId, FontError>;
 
     fn font_face(&self, face: FontFaceId) -> Option<&FontFace>;
 
     fn shape(&mut self, text: Text<'_>) -> (Self::Shape, usize);
 
-    fn layout(&mut self, shape: &mut Self::Shape, text: &str, request: LayoutRequest)
-    -> TextLayout;
+    fn layout(&mut self, shape: &mut Self::Shape, text: &str, request: LayoutRequest) -> TextLayout;
 
-    fn carets(
-        &mut self,
-        shape: &mut Self::Shape,
-        text: &str,
-        request: LayoutRequest,
-        line: usize,
-    ) -> Box<[Caret]>;
+    fn carets(&mut self, shape: &mut Self::Shape, text: &str, request: LayoutRequest, line: usize) -> Box<[Caret]>;
 }
 
 #[derive(Clone, Copy, Debug)]

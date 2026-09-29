@@ -7,10 +7,7 @@ use super::clip::ClipId;
 use crate::{
     render::{
         image_patch::Prepared as PreparedImage,
-        rectangle::{
-            Gradient as PreparedGradient, Prepared as PreparedRectangle,
-            SolidPair as PreparedSolidPair,
-        },
+        rectangle::{Gradient as PreparedGradient, Prepared as PreparedRectangle, SolidPair as PreparedSolidPair},
         triangle::Prepared as PreparedTriangle,
     },
     text::PreparedRuns,
@@ -56,12 +53,7 @@ impl CommandList {
         self.push(StoredPayload::Clear, bounds, 0, true, false);
     }
 
-    pub fn push_rectangle(
-        &mut self,
-        rectangle: PreparedRectangle,
-        bounds: PhysicalRect,
-        clip: ClipId,
-    ) {
+    pub fn push_rectangle(&mut self, rectangle: PreparedRectangle, bounds: PhysicalRect, clip: ClipId) {
         let overwrites = clip == 0 && rectangle.overwrites();
         if clip == 0
             && let Some(previous) = self.commands.last_mut()
@@ -73,13 +65,7 @@ impl CommandList {
             previous.payload = StoredPayload::SolidPair(pair);
             return;
         }
-        self.push(
-            StoredPayload::Rectangle(rectangle),
-            bounds,
-            clip,
-            overwrites,
-            false,
-        );
+        self.push(StoredPayload::Rectangle(rectangle), bounds, clip, overwrites, false);
     }
 
     pub fn push_gradient_rectangle(
@@ -136,19 +122,8 @@ impl CommandList {
         self.push(StoredPayload::Text(text), bounds, clip, false, false);
     }
 
-    pub fn push_triangle(
-        &mut self,
-        triangle: PreparedTriangle,
-        bounds: PhysicalRect,
-        clip: ClipId,
-    ) {
-        self.push(
-            StoredPayload::Triangle(triangle),
-            bounds,
-            clip,
-            false,
-            false,
-        );
+    pub fn push_triangle(&mut self, triangle: PreparedTriangle, bounds: PhysicalRect, clip: ClipId) {
+        self.push(StoredPayload::Triangle(triangle), bounds, clip, false, false);
     }
 
     #[inline]

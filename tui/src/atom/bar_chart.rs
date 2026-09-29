@@ -1,12 +1,12 @@
 use std::{cell::RefCell, rc::Rc};
 
+use blit::{Atom, Constraints, LogicalRect, Size};
+
 use crate::{
+    TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
 };
-use blit::{Atom, Constraints, LogicalRect, Size};
-
-use crate::TuiContext;
 
 pub struct Bar {
     pub value: u64,
@@ -102,16 +102,12 @@ impl Atom<TuiContext> for BarChart {
             .unwrap_or_else(|| bars.iter().map(|bar| bar.value).max().unwrap_or(0))
             .max(1);
         let bar_style = if let Some(background) = self.background {
-            CellStyle::new()
-                .foreground(self.color)
-                .background(background)
+            CellStyle::new().foreground(self.color).background(background)
         } else {
             CellStyle::new().foreground(self.color)
         };
         let label_style = if let Some(background) = self.background {
-            CellStyle::new()
-                .foreground(self.label_color)
-                .background(background)
+            CellStyle::new().foreground(self.label_color).background(background)
         } else {
             CellStyle::new().foreground(self.label_color)
         };
@@ -120,8 +116,7 @@ impl Atom<TuiContext> for BarChart {
             if start >= width {
                 break;
             }
-            let mut eighths =
-                ((bar.value as u128 * chart_rows as u128 * 8) / maximum as u128) as usize;
+            let mut eighths = ((bar.value as u128 * chart_rows as u128 * 8) / maximum as u128) as usize;
             for y in (0..chart_rows).rev() {
                 if eighths == 0 {
                     break;
@@ -135,11 +130,7 @@ impl Atom<TuiContext> for BarChart {
             let label_width = bar.label.chars().count().min(self.bar_width);
             let label_start = start + self.bar_width.saturating_sub(label_width) / 2;
             for (offset, character) in bar.label.chars().take(label_width).enumerate() {
-                cells.set_cell(
-                    label_start + offset,
-                    rows - 1,
-                    Cell::new(character).style(label_style),
-                );
+                cells.set_cell(label_start + offset, rows - 1, Cell::new(character).style(label_style));
             }
         }
     }

@@ -2,11 +2,12 @@
 
 use std::rc::Rc;
 
-use crate::color::Color;
 use blit::{
     Scale2,
     geometry::{LogicalRect, PhysicalRect, PhysicalSize},
 };
+
+use crate::color::Color;
 
 #[derive(Clone, Debug)]
 pub struct ImageHandle(Rc<ImageInner>);
@@ -162,11 +163,7 @@ pub fn prepare_image_patches(
         width: source_size.width,
         height: source_size.height,
     };
-    if geometry.width <= 0
-        || geometry.height <= 0
-        || source.width <= 0
-        || source.height <= 0
-        || request.opacity <= 0.0
+    if geometry.width <= 0 || geometry.height <= 0 || source.width <= 0 || source.height <= 0 || request.opacity <= 0.0
     {
         return;
     }
@@ -190,8 +187,7 @@ pub fn prepare_image_patches(
             if first + second <= available {
                 (first, second)
             } else {
-                let first =
-                    (first as f32 * available as f32 / (first + second) as f32).round() as i32;
+                let first = (first as f32 * available as f32 / (first + second) as f32).round() as i32;
                 (first, available - first)
             }
         };
@@ -205,18 +201,8 @@ pub fn prepare_image_patches(
             (slice.bottom as f32 * scale_factor).round() as i32,
             geometry.height,
         );
-        let source_x = [
-            0,
-            slice.left as i32,
-            source.width - slice.right as i32,
-            source.width,
-        ];
-        let source_y = [
-            0,
-            slice.top as i32,
-            source.height - slice.bottom as i32,
-            source.height,
-        ];
+        let source_x = [0, slice.left as i32, source.width - slice.right as i32, source.width];
+        let source_y = [0, slice.top as i32, source.height - slice.bottom as i32, source.height];
         let destination_x = [
             geometry.x,
             geometry.x + left,
@@ -263,8 +249,7 @@ pub fn prepare_image_patches(
         return;
     }
 
-    let tiled = request.horizontal_tiling != ImageTiling::None
-        || request.vertical_tiling != ImageTiling::None;
+    let tiled = request.horizontal_tiling != ImageTiling::None || request.vertical_tiling != ImageTiling::None;
     let display = if tiled {
         geometry
     } else {

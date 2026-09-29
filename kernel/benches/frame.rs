@@ -1,8 +1,7 @@
 use std::{hint::black_box, time::Duration};
 
 use blit::{
-    Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, Point, Sense, Size, Transition, Ui,
-    WidgetId, state,
+    Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, Point, Sense, Size, Transition, Ui, WidgetId, state,
 };
 
 #[global_allocator]
@@ -47,8 +46,7 @@ fn build_transitions(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
         build(&mut frame, count, |ui, _| {
-            ui.transition(Transition::new(Duration::from_secs(1)))
-                .insert(());
+            ui.transition(Transition::new(Duration::from_secs(1))).insert(());
         })
     });
 }
@@ -112,11 +110,7 @@ fn build_geometry_and_layout(bencher: divan::Bencher, count: usize) {
     });
 }
 
-fn build(
-    frame: &mut Frame<()>,
-    count: usize,
-    mut child: impl for<'a> FnMut(Ui<'a, (), state::Child<()>>, usize),
-) {
+fn build(frame: &mut Frame<()>, count: usize, mut child: impl for<'a> FnMut(Ui<'a, (), state::Child<()>>, usize)) {
     frame.build(
         &mut (),
         FrameInfo::new(Size::uniform(1000.0)),

@@ -5,9 +5,8 @@ mod line;
 mod raster;
 
 use blit::geometry::PhysicalRect;
-pub use direct::Direct;
-pub use line::Scanline;
 
+pub use self::{direct::Direct, line::Scanline};
 use crate::{PixelBuffer, RenderContext};
 
 pub trait RenderStrategy<B: PixelBuffer> {

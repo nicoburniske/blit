@@ -1,8 +1,9 @@
 use std::ops::Range;
 
-use crate::color::Color;
 use blit::geometry::LogicalRect;
 pub use blit_text::FontStyle;
+
+use crate::color::Color;
 
 /// cached horizontal positions for grayscale glyph rasterization
 ///

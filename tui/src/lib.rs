@@ -19,13 +19,20 @@ mod terminal;
 pub mod atom;
 pub mod widget;
 pub use blit_layout as layout;
-pub use context::{BoundsClip, TuiContext};
-pub use renderer::{RendererConfig, TuiRenderer, cell, color, image, text};
+
+pub use self::{
+    context::{BoundsClip, TuiContext},
+    renderer::{RendererConfig, TuiRenderer, cell, color, image, text},
+};
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiContext, S>;
 
 use std::{
-    io, io::Write as _, os::unix::net::UnixStream, sync::Arc, time::Duration, time::Instant,
+    io,
+    io::Write as _,
+    os::unix::net::UnixStream,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 use blit::{
@@ -88,8 +95,7 @@ impl Session {
         let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
         let mut input_count = 0;
         let mut pending = self.frame.has_pending_redraw();
-        let needs_frame =
-            |poll: Poll| poll.input_count != 0 || poll.resized || poll.redraw || poll.woken;
+        let needs_frame = |poll: Poll| poll.input_count != 0 || poll.resized || poll.redraw || poll.woken;
 
         // buffer events until another frame is allowed
         loop {
@@ -114,10 +120,7 @@ impl Session {
             if timer.is_some_and(|deadline| deadline <= now) {
                 break;
             }
-            let events = self.poll(
-                timer.map(|deadline| deadline - now),
-                &mut inputs[input_count..],
-            )?;
+            let events = self.poll(timer.map(|deadline| deadline - now), &mut inputs[input_count..])?;
             input_count += events.input_count;
             pending |= needs_frame(events);
         }
@@ -128,12 +131,11 @@ impl Session {
         // the prefilled Input::None runs one pass when no events were collected
         for &input in &inputs[..input_count.max(1)] {
             self.context.profiler_mut().begin_build();
-            self.frame
-                .build(&mut self.context, info, now, input, |mut ui: Ui<'_>| {
-                    if !ui.context().should_quit() {
-                        render(ui);
-                    }
-                });
+            self.frame.build(&mut self.context, info, now, input, |mut ui: Ui<'_>| {
+                if !ui.context().should_quit() {
+                    render(ui);
+                }
+            });
             self.context.profiler_mut().begin_layout();
             self.frame.layout(&mut self.context);
         }
@@ -175,10 +177,11 @@ impl Session {
 
     pub fn frame_info(&self) -> FrameInfo {
         let screen = self.context.renderer().screen();
-        FrameInfo::new(LogicalSize::new(screen.width as f32, screen.height as f32))
-            .layout_resolution(LayoutResolution::Discrete {
+        FrameInfo::new(LogicalSize::new(screen.width as f32, screen.height as f32)).layout_resolution(
+            LayoutResolution::Discrete {
                 step: LogicalSize::uniform(1.0),
-            })
+            },
+        )
     }
 
     pub fn poll(&mut self, timeout: Option<Duration>, inputs: &mut [Input]) -> io::Result<Poll> {
@@ -224,13 +227,11 @@ impl Session {
                         key.modifiers.super_key,
                     );
                     let logical = match key.code {
-                        protocol::KeyCode::Character(character) => {
-                            Some(Key::Character(if modifiers.shift() {
-                                key.shifted.unwrap_or(character)
-                            } else {
-                                character
-                            }))
-                        }
+                        protocol::KeyCode::Character(character) => Some(Key::Character(if modifiers.shift() {
+                            key.shifted.unwrap_or(character)
+                        } else {
+                            character
+                        })),
                         protocol::KeyCode::Escape => Some(Key::Escape),
                         protocol::KeyCode::Enter => Some(Key::Enter),
                         protocol::KeyCode::Tab => Some(Key::Tab),
@@ -250,12 +251,9 @@ impl Session {
                     };
                     match logical {
                         Some(Key::Character(character))
-                            if !modifiers.control()
-                                && !modifiers.alt()
-                                && !modifiers.super_key() =>
+                            if !modifiers.control() && !modifiers.alt() && !modifiers.super_key() =>
                         {
-                            (!key.text && key.kind != protocol::KeyKind::Release)
-                                .then_some(Input::Text(character))
+                            (!key.text && key.kind != protocol::KeyKind::Release).then_some(Input::Text(character))
                         }
                         Some(key_code) => Some(Input::Key(KeyInput {
                             key: key_code,
@@ -276,12 +274,8 @@ impl Session {
                         x: f32::from(column) + 0.5,
                         y: f32::from(row) + 0.5,
                     };
-                    let modifiers = Modifiers::new(
-                        modifiers.shift,
-                        modifiers.control,
-                        modifiers.alt,
-                        modifiers.super_key,
-                    );
+                    let modifiers =
+                        Modifiers::new(modifiers.shift, modifiers.control, modifiers.alt, modifiers.super_key);
                     let button = |button| match button {
                         protocol::MouseButton::Left => PointerButton::Primary,
                         protocol::MouseButton::Middle => PointerButton::Middle,
@@ -302,10 +296,7 @@ impl Session {
                             modifiers,
                             leave: false,
                         },
-                        protocol::MouseKind::Move => Input::PointerMove {
-                            position,
-                            modifiers,
-                        },
+                        protocol::MouseKind::Move => Input::PointerMove { position, modifiers },
                         protocol::MouseKind::Scroll { x, y } => Input::Scroll {
                             position,
                             delta_x: f32::from(x) * 3.0,
@@ -349,10 +340,7 @@ impl Session {
             return Ok(());
         }
         self.active = false;
-        let clear = self
-            .context
-            .renderer_mut()
-            .clear_kitty_graphics(&mut self.terminal);
+        let clear = self.context.renderer_mut().clear_kitty_graphics(&mut self.terminal);
         let finish = self.terminal.finish();
         clear.and(finish)
     }

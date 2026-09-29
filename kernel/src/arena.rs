@@ -31,14 +31,11 @@ impl DataArena {
             .len
             .checked_next_multiple_of(align_of::<T>())
             .expect("too much frame data");
-        let end = offset
-            .checked_add(size_of::<T>())
-            .expect("too much frame data");
+        let end = offset.checked_add(size_of::<T>()).expect("too much frame data");
         let id = DataId(u32::try_from(offset).expect("too much frame data"));
         let needs_drop = const { needs_drop::<T>() };
-        self.words.resize_with(end.div_ceil(size_of::<Word>()), || {
-            Word(MaybeUninit::uninit())
-        });
+        self.words
+            .resize_with(end.div_ceil(size_of::<Word>()), || Word(MaybeUninit::uninit()));
         if needs_drop {
             self.drops.reserve(1);
         }
@@ -77,11 +74,7 @@ impl DataArena {
         let offset = id.offset().expect("frame data is missing");
         assert!(align_of::<T>() <= align_of::<Word>());
         assert_eq!(offset % align_of::<T>(), 0);
-        assert!(
-            offset
-                .checked_add(size_of::<T>())
-                .is_some_and(|end| end <= self.len)
-        );
+        assert!(offset.checked_add(size_of::<T>()).is_some_and(|end| end <= self.len));
         offset
     }
 
@@ -116,9 +109,9 @@ struct Word(MaybeUninit<[u8; 64]>);
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::{cell::Cell, rc::Rc};
+
+    use super::*;
 
     #[test]
     fn drops_owned_values_and_skips_trivial_values() {

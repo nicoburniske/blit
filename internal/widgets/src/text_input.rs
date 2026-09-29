@@ -30,9 +30,7 @@ impl State {
                 response.changed = true;
             }
             Input::Key(key) if key.pressed => match key.key {
-                Key::Character('a' | 'A')
-                    if key.modifiers.control() || key.modifiers.super_key() =>
-                {
+                Key::Character('a' | 'A') if key.modifiers.control() || key.modifiers.super_key() => {
                     self.anchor = 0;
                     self.cursor = value.len();
                 }

@@ -1,7 +1,8 @@
 use std::ops::{BitOr, BitOrAssign};
 
-use super::color::Color;
 use blit::LogicalRect;
+
+use super::color::Color;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

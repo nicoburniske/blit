@@ -30,19 +30,14 @@ impl State {
 
     pub fn update(&mut self, timings: FrameTimings) {
         let samples = &mut self.measurements.frame_times;
-        if samples
-            .back()
-            .is_some_and(|last| last.sequence == timings.sequence)
-        {
+        if samples.back().is_some_and(|last| last.sequence == timings.sequence) {
             return;
         }
         if samples.len() == self.measurements.history_limit {
             samples.pop_front();
         }
         samples.push_back(timings);
-        self.refresh_in = self
-            .refresh_in
-            .saturating_sub(timings.interval.unwrap_or_default());
+        self.refresh_in = self.refresh_in.saturating_sub(timings.interval.unwrap_or_default());
         if !self.refresh_in.is_zero() {
             return;
         }
@@ -78,11 +73,7 @@ impl State {
             average.clear();
             let _ = write!(average, "{:.2}", total * to_millis);
             p99.clear();
-            let _ = write!(
-                p99,
-                "{:.2}",
-                self.slowest.peek().unwrap().0.as_secs_f64() * 1000.0
-            );
+            let _ = write!(p99, "{:.2}", self.slowest.peek().unwrap().0.as_secs_f64() * 1000.0);
         }
         let mut elapsed = Duration::ZERO;
         let mut count = 0;
@@ -148,15 +139,10 @@ impl Measurements {
     pub fn graph(&self, columns: usize) -> impl Iterator<Item = f32> + '_ {
         let columns = columns.max(1);
         let group = self.history_limit.div_ceil(columns) as u64;
-        let latest = self
-            .frame_times
-            .back()
-            .map(|sample| sample.sequence / group);
+        let latest = self.frame_times.back().map(|sample| sample.sequence / group);
         let mut samples = self.frame_times.iter().peekable();
         (0..columns).map(move |column| {
-            let Some(bucket) =
-                latest.and_then(|latest| latest.checked_sub((columns - column - 1) as u64))
-            else {
+            let Some(bucket) = latest.and_then(|latest| latest.checked_sub((columns - column - 1) as u64)) else {
                 return 0.0;
             };
             let mut peak = 0.0_f32;
@@ -233,9 +219,7 @@ impl FrameProfiler {
             }
         } else if stage == Stage::Build {
             self.current = FrameTimings {
-                sequence: self
-                    .completed
-                    .map_or(0, |frame| frame.sequence.wrapping_add(1)),
+                sequence: self.completed.map_or(0, |frame| frame.sequence.wrapping_add(1)),
                 interval: self.started_at.map(|started| now.saturating_sub(started)),
                 ..FrameTimings::default()
             };

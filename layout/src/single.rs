@@ -28,10 +28,7 @@ impl<C> blit::Layout<C> for Layout {
         let Some(child) = children.next() else {
             return bounds.constrain(padding.size());
         };
-        assert!(
-            children.next().is_none(),
-            "single accepts at most one flow child"
-        );
+        assert!(children.next().is_none(), "single accepts at most one flow child");
         let content = bounds.shrink(padding.size());
         let item = cx.item(child);
         let range = |axis: Axis, sizing| {
@@ -40,10 +37,7 @@ impl<C> blit::Layout<C> for Layout {
             let maximum = axis.extent(content.max);
             if matches!(sizing, Sizing::Grow { .. }) {
                 // a single child forwards the budget instead of claiming its maximum
-                (
-                    sizing.clamp(minimum),
-                    sizing.clamp(maximum).max(sizing.clamp(minimum)),
-                )
+                (sizing.clamp(minimum), sizing.clamp(maximum).max(sizing.clamp(minimum)))
             } else {
                 sizing_range(sizing, maximum)
             }

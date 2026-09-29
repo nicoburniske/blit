@@ -1,7 +1,9 @@
-use crate::image::{ImageId, ImagePlacement};
 use blit::{Atom, Constraints, LogicalRect, Size};
 
-use crate::TuiContext;
+use crate::{
+    TuiContext,
+    image::{ImageId, ImagePlacement},
+};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]

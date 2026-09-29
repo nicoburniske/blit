@@ -62,12 +62,9 @@ impl TaskExecutor {
         while let Some(id) = batch.pop_front() {
             let Some((mut future, wake)) = ({
                 let mut tasks = self.tasks.borrow_mut();
-                tasks.get_mut(id).map(|task| {
-                    (
-                        task.future.take().expect("task already running"),
-                        task.wake.clone(),
-                    )
-                })
+                tasks
+                    .get_mut(id)
+                    .map(|task| (task.future.take().expect("task already running"), task.wake.clone()))
             }) else {
                 continue;
             };

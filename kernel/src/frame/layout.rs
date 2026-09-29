@@ -43,11 +43,8 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     pub fn item(&self, child: NodeId) -> &'a I {
         self.assert_child(child);
         let id = self.frame.nodes[child.index()].item;
-        self.data.load(if id.offset().is_some() {
-            id
-        } else {
-            self.default_item
-        })
+        self.data
+            .load(if id.offset().is_some() { id } else { self.default_item })
     }
 
     /// applies layout resolution and any animated override to `sizing`
@@ -80,9 +77,7 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
             constraints.min.height = height;
             constraints.max.height = height;
         }
-        let size = self
-            .frame
-            .layout_node(self.data, child, self.context, constraints);
+        let size = self.frame.layout_node(self.data, child, self.context, constraints);
         #[cfg(debug_assertions)]
         {
             self.frame.nodes[child.index()].layout_state = LayoutState::Laid;

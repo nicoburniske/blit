@@ -2,8 +2,9 @@
 compile_error!("blit-desktop currently supports Linux and macOS only");
 
 pub use blit_executor::{AppMut, Project, Root, Scope, ScopeRef, TaskId};
-pub use event_loop::{Session, run};
 pub use winit::event_loop::EventLoopClosed;
+
+pub use self::event_loop::{Session, run};
 
 #[cfg(feature = "cpu")]
 pub mod cpu;
@@ -14,8 +15,7 @@ pub mod gpu;
 use std::{error::Error, fmt, sync::Arc};
 
 use blit_gui::{GuiContext, RenderInput, TextConfig, Ui};
-use winit::event_loop::EventLoopProxy as WinitEventLoopProxy;
-use winit::{dpi::PhysicalSize, window::Window};
+use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy as WinitEventLoopProxy, window::Window};
 
 pub struct Config<T> {
     pub title: String,

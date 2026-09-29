@@ -8,9 +8,7 @@ use blit_gui::{
     BoundsClip, FontData, FontFamily, GuiContext, TextConfig, TextSystem,
     color::Color,
     display_list::{BoxShadow, ClipId, Mesh, MeshVertex, Rectangle},
-    image::{
-        ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
-    },
+    image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{FontId, TextOptions, TextRequest, TextStyle},
 };
@@ -26,15 +24,11 @@ fn renders_primitives_and_rebuilds_frames() {
         backends,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
-    let Ok(adapter) =
-        blit_executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-    else {
+    let Ok(adapter) = blit_executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
         eprintln!("skipping native GPU test because no adapter is available");
         return;
     };
-    let (device, queue) =
-        blit_executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
-            .unwrap();
+    let (device, queue) = blit_executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
 
     const WIDTH: u32 = 128;
     const HEIGHT: u32 = 128;
@@ -75,9 +69,7 @@ fn renders_primitives_and_rebuilds_frames() {
         .unwrap(),
     );
     gui.set_scale(2.0);
-    gui.paint_rectangle(
-        Rectangle::new(LogicalRect::new(0.5, 8.0, 0.5, 0.5)).background(Color::rgb(255, 255, 255)),
-    );
+    gui.paint_rectangle(Rectangle::new(LogicalRect::new(0.5, 8.0, 0.5, 0.5)).background(Color::rgb(255, 255, 255)));
     renderer.render(&target, gui.render_input());
 
     gui.finish_frame();
@@ -86,14 +78,9 @@ fn renders_primitives_and_rebuilds_frames() {
             .background(Color::rgb(255, 0, 0))
             .radius(BorderRadius::uniform(3.0)),
     );
-    gui.paint_rectangle(
-        Rectangle::new(LogicalRect::new(2.0, 2.0, 2.0, 2.0))
-            .background(Color::rgba(0, 0, 255, 128)),
-    );
+    gui.paint_rectangle(Rectangle::new(LogicalRect::new(2.0, 2.0, 2.0, 2.0)).background(Color::rgba(0, 0, 255, 128)));
     let image = gui.create_image(ImageData::new(
-        ImagePixels::Static(&[
-            255, 255, 0, 255, 0, 255, 255, 255, 255, 0, 255, 255, 255, 255, 255, 255,
-        ]),
+        ImagePixels::Static(&[255, 255, 0, 255, 0, 255, 255, 255, 255, 0, 255, 255, 255, 255, 255, 255]),
         ImageFormat::Rgba8Premultiplied,
         2,
         2,
@@ -171,9 +158,7 @@ fn renders_primitives_and_rebuilds_frames() {
         sampling: ImageSampling::Bilinear,
         ..partial_request
     });
-    gui.paint_shadow(
-        BoxShadow::new(LogicalRect::new(14.0, 9.0, 1.0, 1.0), Color::rgb(255, 0, 0)).blur(1.0),
-    );
+    gui.paint_shadow(BoxShadow::new(LogicalRect::new(14.0, 9.0, 1.0, 1.0), Color::rgb(255, 0, 0)).blur(1.0));
     let text = gui.text_run("M", TextStyle::default());
     gui.paint_text(TextRequest {
         text,
@@ -213,11 +198,9 @@ fn renders_primitives_and_rebuilds_frames() {
         LogicalRect::new(12.5, 1.0, 3.5, 4.0),
         BorderRadius::default(),
     );
-    let inner = input.display_list.push_clip(
-        outer,
-        LogicalRect::new(12.0, 1.5, 3.5, 3.5),
-        BorderRadius::default(),
-    );
+    let inner = input
+        .display_list
+        .push_clip(outer, LogicalRect::new(12.0, 1.5, 3.5, 3.5), BorderRadius::default());
     input.display_list.push_rectangle(
         Rectangle::new(LogicalRect::new(12.0, 1.0, 4.0, 4.0))
             .border(Border::gradient(1.0, LinearGradient::new(&stops))),

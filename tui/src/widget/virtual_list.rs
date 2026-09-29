@@ -1,8 +1,7 @@
 use blit::{Content, Widget, WidgetId};
+pub use blit_widgets::scroll::virtual_list::{Behavior, Config, Response, State};
 
 use crate::{BoundsClip, TuiContext, Ui};
-
-pub use blit_widgets::scroll::virtual_list::{Behavior, Config, Response, State};
 
 pub fn new<'a, R, K, F, B, T, H>(
     state: &'a mut State,
@@ -20,8 +19,6 @@ where
     H: Content<TuiContext>,
 {
     move |ui: Ui<'_>| {
-        blit_widgets::scroll::virtual_list::build(
-            ui, state, rows, BoundsClip, config, scrollbar, widget_id, item,
-        )
+        blit_widgets::scroll::virtual_list::build(ui, state, rows, BoundsClip, config, scrollbar, widget_id, item)
     }
 }

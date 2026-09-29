@@ -1,12 +1,13 @@
 //! fully resolved display list
 
+use blit::geometry::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
+
 use crate::{
     color::Color,
     image::ImageRequest,
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{Span, TextRequest},
 };
-use blit::geometry::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 
 #[derive(Default)]
 pub struct DisplayList {
@@ -123,11 +124,7 @@ impl DisplayList {
     pub fn push_clip(&mut self, parent: ClipId, area: LogicalRect, radius: BorderRadius) -> ClipId {
         self.assert_clip(parent);
         let id = u32::try_from(self.clips.len() + 1).expect("too many display list clips");
-        self.clips.push(ClipNode {
-            parent,
-            area,
-            radius,
-        });
+        self.clips.push(ClipNode { parent, area, radius });
         ClipId(id)
     }
 
@@ -179,29 +176,13 @@ impl DisplayList {
         if spans.iter().all(|span| span.style.color.is_none()) {
             return TextPalette::NONE;
         }
-        let (start, len) = store(
-            &mut self.text_colors,
-            spans.iter().map(|span| span.style.color),
-        );
+        let (start, len) = store(&mut self.text_colors, spans.iter().map(|span| span.style.color));
         TextPalette { start, len }
     }
 
-    pub fn push_text_palette(
-        &mut self,
-        text: TextRequest,
-        palette: TextPalette,
-        bounds: PhysicalRect,
-        clip: ClipId,
-    ) {
+    pub fn push_text_palette(&mut self, text: TextRequest, palette: TextPalette, bounds: PhysicalRect, clip: ClipId) {
         self.text_colors(palette);
-        self.push(
-            bounds,
-            clip,
-            CommandKind::Text(StoredText {
-                request: text,
-                palette,
-            }),
-        )
+        self.push(bounds, clip, CommandKind::Text(StoredText { request: text, palette }))
     }
 
     pub fn push_box_shadow(&mut self, shadow: BoxShadow, bounds: PhysicalRect, clip: ClipId) {
@@ -210,15 +191,9 @@ impl DisplayList {
 
     pub fn push_mesh(&mut self, mesh: Mesh<'_>, scale: Scale2, clip: ClipId) {
         self.assert_clip(clip);
-        assert_eq!(
-            mesh.indices.len() % 3,
-            0,
-            "mesh index count must be divisible by three"
-        );
+        assert_eq!(mesh.indices.len() % 3, 0, "mesh index count must be divisible by three");
         assert!(
-            mesh.indices
-                .iter()
-                .all(|&index| (index as usize) < mesh.vertices.len()),
+            mesh.indices.iter().all(|&index| (index as usize) < mesh.vertices.len()),
             "mesh index is out of bounds"
         );
         let Some((&first, indices)) = mesh.indices.split_first() else {
@@ -245,8 +220,7 @@ impl DisplayList {
             bottom = bottom.max(point.y);
         }
         let bounds = LogicalRect::new(left, top, right - left, bottom - top).to_physical(scale);
-        let (vertex_start, vertex_len) =
-            store(&mut self.mesh_vertices, mesh.vertices.iter().copied());
+        let (vertex_start, vertex_len) = store(&mut self.mesh_vertices, mesh.vertices.iter().copied());
         let (index_start, index_len) = store(&mut self.mesh_indices, mesh.indices.iter().copied());
         self.commands.push(StoredCommand {
             bounds,
@@ -297,8 +271,7 @@ impl DisplayList {
                 let vertex_start = mesh.vertex_start as usize;
                 let index_start = mesh.index_start as usize;
                 Command::Mesh(Mesh {
-                    vertices: &self.mesh_vertices
-                        [vertex_start..vertex_start + mesh.vertex_len as usize],
+                    vertices: &self.mesh_vertices[vertex_start..vertex_start + mesh.vertex_len as usize],
                     indices: &self.mesh_indices[index_start..index_start + mesh.index_len as usize],
                 })
             }
@@ -371,16 +344,14 @@ impl DisplayList {
                             left_width == right_width
                                 && left_angle == right_angle
                                 && self.gradient_stops[left_start..left_start + left_len as usize]
-                                    == other.gradient_stops
-                                        [right_start..right_start + right_len as usize]
+                                    == other.gradient_stops[right_start..right_start + right_len as usize]
                         }
                         _ => false,
                     }
             }
             (CommandKind::Image(left), CommandKind::Image(right)) => left == right,
             (CommandKind::Text(left), CommandKind::Text(right)) => {
-                left.request == right.request
-                    && self.text_colors(left.palette) == other.text_colors(right.palette)
+                left.request == right.request && self.text_colors(left.palette) == other.text_colors(right.palette)
             }
             (CommandKind::BoxShadow(left), CommandKind::BoxShadow(right)) => left == right,
             (CommandKind::Mesh(left), CommandKind::Mesh(right)) => {
@@ -400,8 +371,7 @@ impl DisplayList {
 
 impl DisplayList {
     fn clip(&self, id: ClipId) -> Option<&ClipNode> {
-        id.0.checked_sub(1)
-            .and_then(|index| self.clips.get(index as usize))
+        id.0.checked_sub(1).and_then(|index| self.clips.get(index as usize))
     }
 
     fn push(&mut self, bounds: PhysicalRect, clip: ClipId, kind: CommandKind) {
@@ -427,10 +397,7 @@ impl DisplayList {
     }
 
     fn assert_clip(&self, clip: ClipId) {
-        assert!(
-            clip.0 as usize <= self.clips.len(),
-            "invalid display list clip"
-        );
+        assert!(clip.0 as usize <= self.clips.len(), "invalid display list clip");
     }
 
     fn text_colors(&self, palette: TextPalette) -> &[Option<Color>] {

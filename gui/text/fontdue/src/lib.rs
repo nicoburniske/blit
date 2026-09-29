@@ -2,16 +2,14 @@ use std::{borrow::Borrow, cmp::Reverse, mem::size_of, ops::Range};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use blit_text::{
-    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle,
-    Glyph, LayoutLine, LayoutRequest, LayoutRun, TextLayout, TextLayoutEngine, TextOverflow,
-    TextStyle, TextWrap,
+    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle, Glyph, LayoutLine,
+    LayoutRequest, LayoutRun, TextLayout, TextLayoutEngine, TextOverflow, TextStyle, TextWrap,
 };
 use fontdue::{
     Font, FontSettings,
     layout::{
         CoordinateSystem, GlyphPosition, HorizontalAlign as FontdueHorizontalAlign, Layout,
-        LayoutSettings as FontdueLayoutSettings, LinePosition, TextStyle as FontdueTextStyle,
-        WrapStyle,
+        LayoutSettings as FontdueLayoutSettings, LinePosition, TextStyle as FontdueTextStyle, WrapStyle,
     },
 };
 
@@ -90,9 +88,7 @@ impl TextLayoutEngine for Backend {
                 },
             )
             .map_err(|_| FontError::InvalidData)?;
-            let id = FontFaceId(
-                u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?,
-            );
+            let id = FontFaceId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
             self.faces.push(Face {
                 data: FontFace {
                     data: data.clone(),
@@ -108,10 +104,7 @@ impl TextLayoutEngine for Backend {
         Ok(registered)
     }
 
-    fn register_font_selection(
-        &mut self,
-        candidates: &[FontCandidate],
-    ) -> Result<FontSelectionId, FontError> {
+    fn register_font_selection(&mut self, candidates: &[FontCandidate]) -> Result<FontSelectionId, FontError> {
         if candidates.is_empty()
             || candidates
                 .iter()
@@ -119,9 +112,7 @@ impl TextLayoutEngine for Backend {
         {
             return Err(FontError::NotFound);
         }
-        let id = FontSelectionId(
-            u64::try_from(self.selections.len() + 1).map_err(|_| FontError::Unsupported)?,
-        );
+        let id = FontSelectionId(u64::try_from(self.selections.len() + 1).map_err(|_| FontError::Unsupported)?);
         self.selections.push(candidates.into());
         Ok(id)
     }
@@ -146,8 +137,7 @@ impl TextLayoutEngine for Backend {
                     (
                         match (style.style, candidate.style) {
                             (requested, candidate) if requested == candidate => 0,
-                            (FontStyle::Italic, FontStyle::Oblique)
-                            | (FontStyle::Oblique, FontStyle::Italic) => 1,
+                            (FontStyle::Italic, FontStyle::Oblique) | (FontStyle::Oblique, FontStyle::Italic) => 1,
                             _ => 2,
                         },
                         candidate.stretch.abs_diff(style.stretch),
@@ -180,11 +170,7 @@ impl TextLayoutEngine for Backend {
         let default = shape.spans.first().expect("text requires a span");
         let face_index = default.face;
         let Some(source_lines) = self.layout.lines() else {
-            if request.max_lines == Some(0)
-                || request
-                    .max_height
-                    .is_some_and(|height| height < empty_height)
-            {
+            if request.max_lines == Some(0) || request.max_height.is_some_and(|height| height < empty_height) {
                 return TextLayout::default();
             }
             return TextLayout {
@@ -309,22 +295,13 @@ impl TextLayoutEngine for Backend {
         }
     }
 
-    fn carets(
-        &mut self,
-        shape: &mut Shape,
-        text: &str,
-        request: LayoutRequest,
-        line_index: usize,
-    ) -> Box<[Caret]> {
-        let (visible_lines, _, empty_height) =
-            prepare(&mut self.layout, &self.faces, shape, text, request);
+    fn carets(&mut self, shape: &mut Shape, text: &str, request: LayoutRequest, line_index: usize) -> Box<[Caret]> {
+        let (visible_lines, _, empty_height) = prepare(&mut self.layout, &self.faces, shape, text, request);
         let default = shape.spans.first().expect("text requires a span");
         let Some(source_lines) = self.layout.lines() else {
             if line_index != 0
                 || request.max_lines == Some(0)
-                || request
-                    .max_height
-                    .is_some_and(|height| height < empty_height)
+                || request.max_height.is_some_and(|height| height < empty_height)
             {
                 return Box::new([]);
             }
@@ -335,10 +312,7 @@ impl TextLayoutEngine for Backend {
             }]);
         };
 
-        let Some(line) = source_lines
-            .get(line_index)
-            .filter(|_| line_index < visible_lines)
-        else {
+        let Some(line) = source_lines.get(line_index).filter(|_| line_index < visible_lines) else {
             return Box::new([]);
         };
         let source = line_glyphs(self.layout.glyphs(), line);
@@ -361,8 +335,7 @@ impl TextLayoutEngine for Backend {
         for source in &prepared.glyphs[..prepared.len] {
             let (metrics, pen) = glyph_metrics(&self.faces, source);
             let caret = Caret {
-                byte_offset: u32::try_from(source.user_data.0 + source.byte_offset)
-                    .expect("text is too long"),
+                byte_offset: u32::try_from(source.user_data.0 + source.byte_offset).expect("text is too long"),
                 position: LogicalPoint { x: pen, y },
                 height: line.max_new_line_size,
             };
@@ -417,18 +390,13 @@ fn prepare(
     let empty_height = faces[default.face]
         .font
         .horizontal_line_metrics(default.size)
-        .map_or(default.size.max(0.0), |metrics| {
-            metrics.new_line_size.ceil().max(0.0)
-        });
+        .map_or(default.size.max(0.0), |metrics| metrics.new_line_size.ceil().max(0.0));
     let mut visible_lines = 0;
     let mut content_height = 0.0f32;
     let max_lines = request.max_lines.map_or(usize::MAX, usize::from);
     for line in layout.lines().into_iter().flatten().take(max_lines) {
         let bottom = line.baseline_y - line.max_ascent + line.max_new_line_size;
-        if request
-            .max_height
-            .is_some_and(|height| bottom > height.max(0.0))
-        {
+        if request.max_height.is_some_and(|height| bottom > height.max(0.0)) {
             break;
         }
         visible_lines += 1;
@@ -459,8 +427,7 @@ fn glyph_metrics(faces: &[Face], glyph: &GlyphPosition<(usize, usize)>) -> (font
 
 fn push_caret(carets: &mut Vec<Caret>, caret: Caret) {
     if carets.last().is_none_or(|previous| {
-        previous.byte_offset != caret.byte_offset
-            || previous.position.x.to_bits() != caret.position.x.to_bits()
+        previous.byte_offset != caret.byte_offset || previous.position.x.to_bits() != caret.position.x.to_bits()
     }) {
         carets.push(caret);
     }
@@ -485,10 +452,7 @@ fn prepare_line<'a>(
     }
     if request.overflow != TextOverflow::Ellipsis
         || !last
-        || !(truncated
-            || request
-                .max_width
-                .is_some_and(|max_width| width > max_width.max(0.0)))
+        || !(truncated || request.max_width.is_some_and(|max_width| width > max_width.max(0.0)))
     {
         return Line {
             glyphs,
@@ -519,10 +483,7 @@ fn prepare_line<'a>(
         }
         let font = &faces[ellipsis.face].font;
         ellipsis.glyph = font.lookup_glyph_index('…');
-        ellipsis.advance = font
-            .metrics_indexed(ellipsis.glyph, ellipsis.size)
-            .advance_width
-            .ceil();
+        ellipsis.advance = font.metrics_indexed(ellipsis.glyph, ellipsis.size).advance_width.ceil();
         width = last.map_or(0.0, |glyph| {
             let (metrics, pen) = glyph_metrics(faces, glyph);
             pen + metrics.advance_width.ceil()
@@ -542,8 +503,9 @@ fn prepare_line<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use blit_text::FontStyle;
+
+    use super::*;
 
     #[test]
     fn registered_font_produces_common_layout() {
@@ -606,12 +568,7 @@ mod tests {
 
         assert!(!layout.glyphs.is_empty());
         assert_eq!(layout.lines.len(), 1);
-        assert!(
-            layout
-                .runs
-                .iter()
-                .any(|run| run.span == 0 && run.face == face)
-        );
+        assert!(layout.runs.iter().any(|run| run.span == 0 && run.face == face));
         assert!(
             layout
                 .runs

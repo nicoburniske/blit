@@ -1,10 +1,10 @@
+use blit::{Atom, Constraints, LogicalRect, Size};
+
 use crate::{
+    TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
 };
-use blit::{Atom, Constraints, LogicalRect, Size};
-
-use crate::TuiContext;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]

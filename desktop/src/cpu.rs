@@ -1,13 +1,12 @@
 use std::{num::NonZeroU32, ptr::NonNull, sync::Arc};
 
+pub use blit_cpu::RendererConfig as Config;
 use blit_cpu::{PixelBuffer, Renderer, Scanline, Xrgb8888};
 use blit_gui::RenderInput;
 use softbuffer::{Context, Surface};
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::{GraphicsBackend, GraphicsError};
-
-pub use blit_cpu::RendererConfig as Config;
 
 pub struct Backend {
     active: Option<Active>,
@@ -39,9 +38,7 @@ impl GraphicsBackend for Backend {
         let Some(active) = &mut self.active else {
             return Ok(());
         };
-        let (Some(width), Some(height)) =
-            (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
-        else {
+        let (Some(width), Some(height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
             return Ok(());
         };
         active.surface.resize(width, height)?;
@@ -114,8 +111,6 @@ impl PixelBuffer for DesktopBuffer {
     fn line_mut(&mut self, line: usize) -> &mut [Self::Pixel] {
         assert!(line < self.height);
         // safety: set provides writable u32 pixels and Xrgb8888 is transparent over u32
-        unsafe {
-            std::slice::from_raw_parts_mut(self.pixels.as_ptr().add(line * self.width), self.width)
-        }
+        unsafe { std::slice::from_raw_parts_mut(self.pixels.as_ptr().add(line * self.width), self.width) }
     }
 }

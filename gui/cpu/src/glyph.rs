@@ -53,9 +53,7 @@ impl GlyphCache {
             phase_scale,
         } = self;
         let (_, index) = glyphs.get_or_insert(key, |key| {
-            let face = text
-                .font_face(key.face)
-                .expect("text backend returned an unknown font");
+            let face = text.font_face(key.face).expect("text backend returned an unknown font");
             let (metrics, alpha) = rasterizer.rasterize(
                 face,
                 key.glyph,

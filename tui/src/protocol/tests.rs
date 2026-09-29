@@ -7,14 +7,8 @@ fn protocol_vectors_at_every_split() {
 
     // wire examples from kitty's keyboard protocol and xterm's control sequences
     let none = Modifiers::default();
-    let control = Modifiers {
-        control: true,
-        ..none
-    };
-    let shift = Modifiers {
-        shift: true,
-        ..none
-    };
+    let control = Modifiers { control: true, ..none };
+    let shift = Modifiers { shift: true, ..none };
     let plain = Key {
         code: Character('a'),
         shifted: None,
@@ -69,10 +63,7 @@ fn protocol_vectors_at_every_split() {
         ),
         (b"\xc2\r\xa9", &[key(Enter, none, Press)]),
         (b"\x1b[13~", &[key(Function(3), none, Press)]),
-        (
-            b"\x1b[7~\x1b[8~",
-            &[key(Home, none, Press), key(End, none, Press)],
-        ),
+        (b"\x1b[7~\x1b[8~", &[key(Home, none, Press), key(End, none, Press)]),
         (b"\x1b[97;1:3u", &[key(Character('a'), none, Release)]),
         (
             b"\x1b[97:65:97;2;65u",
@@ -153,10 +144,7 @@ fn protocol_vectors_at_every_split() {
         (
             b"\x1b[97;;97:769u",
             &[
-                Event::Key(Key {
-                    text: true,
-                    ..plain
-                }),
+                Event::Key(Key { text: true, ..plain }),
                 Event::Text('a'),
                 Event::Text('\u{301}'),
             ],
@@ -167,10 +155,7 @@ fn protocol_vectors_at_every_split() {
         ),
         (
             b"\x1b[15~\x1b[24~",
-            &[
-                key(Function(5), none, Press),
-                key(Function(12), none, Press),
-            ],
+            &[key(Function(5), none, Press), key(Function(12), none, Press)],
         ),
         (
             b"\x1b[<128;12;3M",

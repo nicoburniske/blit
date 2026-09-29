@@ -1,14 +1,12 @@
+use blit::{Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Ui, Widget};
+pub use blit_widgets::text_input::{Response, State};
+
 use crate::{
+    TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
     text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
 };
-use blit::{
-    Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Ui, Widget,
-};
-pub use blit_widgets::text_input::{Response, State};
-
-use crate::TuiContext;
 
 blit::builder! {
     pub struct TextInput<'a> {
@@ -73,21 +71,13 @@ impl Widget<TuiContext> for TextInput<'_> {
         };
         if let Some(area) = ui.geometry(id) {
             let area = content_area(area, padding);
-            let request = TextRequest::new(text, area)
-                .offset_x(state.offset_x)
-                .options(options);
+            let request = TextRequest::new(text, area).offset_x(state.offset_x).options(options);
             if let Some((position, extend)) = pointer {
-                let offset = ui
-                    .context()
-                    .renderer_mut()
-                    .text_offset_at_position(&request, position);
+                let offset = ui.context().renderer_mut().text_offset_at_position(&request, position);
                 state.move_to(value, offset, extend);
             }
             if area.width > 0.0 {
-                let cursor = ui
-                    .context()
-                    .renderer_mut()
-                    .text_cursor_rect(&request, state.cursor);
+                let cursor = ui.context().renderer_mut().text_cursor_rect(&request, state.cursor);
                 if cursor.x < area.x {
                     state.offset_x = (state.offset_x - area.x + cursor.x).max(0.0);
                 } else if cursor.x + cursor.width > area.x + area.width {
@@ -158,12 +148,10 @@ impl Atom<TuiContext> for InputAtom {
         if start != end {
             let start = context.renderer_mut().text_cursor_rect(&request, start);
             let end = context.renderer_mut().text_cursor_rect(&request, end);
-            if let Some(selection) =
-                blit::LogicalRect::new(start.x, start.y, end.x - start.x, 1.0).intersection(area)
-            {
-                context.cells(selection).clear(
-                    Cell::default().style(CellStyle::new().background(self.selection_background)),
-                );
+            if let Some(selection) = blit::LogicalRect::new(start.x, start.y, end.x - start.x, 1.0).intersection(area) {
+                context
+                    .cells(selection)
+                    .clear(Cell::default().style(CellStyle::new().background(self.selection_background)));
             }
         }
         if self.focused {
@@ -172,9 +160,9 @@ impl Atom<TuiContext> for InputAtom {
                 .text_cursor_rect(&request, self.state.cursor)
                 .intersection(area)
             {
-                context.cells(cursor).clear(
-                    Cell::default().style(CellStyle::new().background(self.cursor_background)),
-                );
+                context
+                    .cells(cursor)
+                    .clear(Cell::default().style(CellStyle::new().background(self.cursor_background)));
             }
         }
         context.paint_text(

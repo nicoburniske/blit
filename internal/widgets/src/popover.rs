@@ -1,6 +1,4 @@
-use blit::{
-    Absolute, Anchor, Input, Interaction, NodeTarget, Point, Sense, Sides, Sizing, Ui, Widget,
-};
+use blit::{Absolute, Anchor, Input, Interaction, NodeTarget, Point, Sense, Sides, Sizing, Ui, Widget};
 use blit_layout::single;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -80,11 +78,7 @@ where
                     .filter_map(|id| root.geometry(id))
                     .any(|area| area.contains(position))
             });
-        let pointer_exited = !pointer_inside
-            && matches!(
-                root.input(),
-                Input::PointerMove { .. } | Input::PointerLeave
-            );
+        let pointer_exited = !pointer_inside && matches!(root.input(), Input::PointerMove { .. } | Input::PointerLeave);
         if match config.close {
             Close::Click => backdrop.activated,
             Close::Exit => pointer_exited,
@@ -110,11 +104,7 @@ where
             .layout(single::layout());
         if config.close != Close::Manual {
             popup
-                .absolute(
-                    Absolute::at(0.0, 0.0)
-                        .width(Sizing::grow())
-                        .height(Sizing::grow()),
-                )
+                .absolute(Absolute::at(0.0, 0.0).width(Sizing::grow()).height(Sizing::grow()))
                 .widget_id(backdrop_id)
                 .insert(());
         }
@@ -208,16 +198,10 @@ mod tests {
                 modifiers: Modifiers::NONE,
             },
         ] {
-            frame.build(
-                &mut context,
-                info,
-                Duration::ZERO,
-                input,
-                |ui: Ui<'_, TestContext>| {
-                    render(ui, &mut state, config);
-                    assert_eq!(state.open, expected.next().unwrap());
-                },
-            );
+            frame.build(&mut context, info, Duration::ZERO, input, |ui: Ui<'_, TestContext>| {
+                render(ui, &mut state, config);
+                assert_eq!(state.open, expected.next().unwrap());
+            });
             frame.layout(&mut context);
         }
 
@@ -254,19 +238,14 @@ mod tests {
                     render(
                         ui,
                         &mut state,
-                        Config::new()
-                            .width(Sizing::fixed(5.0))
-                            .height(Sizing::fixed(4.0)),
+                        Config::new().width(Sizing::fixed(5.0)).height(Sizing::fixed(4.0)),
                     );
                     assert_eq!(state.open, expected.next().unwrap());
                 },
             );
             frame.layout(&mut context);
             if inspect {
-                assert_eq!(
-                    frame.geometry(WidgetId::new("named content")),
-                    content_geometry
-                );
+                assert_eq!(frame.geometry(WidgetId::new("named content")), content_geometry);
                 assert_eq!(
                     frame.geometry(WidgetId::new("named trigger")),
                     Some(Rect::new(0.0, 0.0, 2.0, 1.0)),

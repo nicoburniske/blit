@@ -1,10 +1,9 @@
+use super::{Frame, Request};
 use crate::{
     geometry::{Point, Rect, Sides},
     input::{Input, PointerButton},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
 };
-
-use super::{Frame, Request};
 
 const DRAG_THRESHOLD: f32 = 6.0;
 
@@ -43,19 +42,14 @@ pub fn resolve<C>(frame: &mut Frame<C>) {
                     let area = Rect::new(left, top, right - left, bottom - top);
                     let left = (clip_bounds.x / step.width - 0.5).ceil() * step.width;
                     let top = (clip_bounds.y / step.height - 0.5).ceil() * step.height;
-                    let right = ((clip_bounds.x + clip_bounds.width) / step.width - 0.5).ceil()
-                        * step.width;
-                    let bottom = ((clip_bounds.y + clip_bounds.height) / step.height - 0.5).ceil()
-                        * step.height;
+                    let right = ((clip_bounds.x + clip_bounds.width) / step.width - 0.5).ceil() * step.width;
+                    let bottom = ((clip_bounds.y + clip_bounds.height) / step.height - 0.5).ceil() * step.height;
                     area.intersection(Rect::new(left, top, right - left, bottom - top))
                 }
             };
             // todo: test interaction against the actual custom clip chain
             if let Some(area) = area {
-                frame
-                    .interaction
-                    .current_hits
-                    .push(HitItem { id, area, sense });
+                frame.interaction.current_hits.push(HitItem { id, area, sense });
             }
         }
     }
@@ -285,9 +279,6 @@ impl InteractionState {
     }
 
     fn hit(hits: &[HitItem], position: Point) -> Option<HitItem> {
-        hits.iter()
-            .rev()
-            .find(|item| item.area.contains(position))
-            .copied()
+        hits.iter().rev().find(|item| item.area.contains(position)).copied()
     }
 }

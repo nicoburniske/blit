@@ -15,12 +15,7 @@ pub struct AnimationState {
 }
 
 impl AnimationState {
-    pub fn update(
-        animations: &mut Vec<Self>,
-        id: WidgetId,
-        initial: f32,
-        advance: impl FnOnce(&mut Self),
-    ) -> f32 {
+    pub fn update(animations: &mut Vec<Self>, id: WidgetId, initial: f32, advance: impl FnOnce(&mut Self)) -> f32 {
         let index = match animations.binary_search_by_key(&id, |animation| animation.id) {
             Ok(index) => index,
             Err(index) => {
@@ -28,10 +23,7 @@ impl AnimationState {
                 index
             }
         };
-        assert!(
-            !animations[index].seen,
-            "duplicate animation WidgetId {id:?}"
-        );
+        assert!(!animations[index].seen, "duplicate animation WidgetId {id:?}");
         advance(&mut animations[index]);
         animations[index].value
     }
@@ -62,9 +54,7 @@ impl AnimationState {
             self.looping = false;
         }
         if let Some(started_at) = self.started_at {
-            let progress = (now.saturating_sub(started_at).as_secs_f32()
-                / self.duration.as_secs_f32())
-            .min(1.0);
+            let progress = (now.saturating_sub(started_at).as_secs_f32() / self.duration.as_secs_f32()).min(1.0);
             self.value = self.start + (self.target - self.start) * self.easing.apply(progress);
             if progress == 1.0 {
                 self.value = self.target;

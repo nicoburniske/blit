@@ -1,8 +1,7 @@
-pub use super::shared::{Behavior, State};
+use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, Size, Ui, WidgetId};
 
+pub use super::shared::{Behavior, State};
 use super::shared::{ScrollLayout, build_scroll, update};
-use blit::{Axis, Constraints, Layout, LayoutCx, Point, Size};
-use blit::{Clip, Content, Ui, WidgetId};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug)]
@@ -50,9 +49,7 @@ pub fn build<C, I, K, F, X, T, H>(
         ui.request_frame();
         axis.extent(ui.screen().size())
     };
-    let first = ((state.offset / stride).floor() as usize)
-        .min(count)
-        .saturating_sub(1);
+    let first = ((state.offset / stride).floor() as usize).min(count).saturating_sub(1);
     let end = (((state.offset + viewport_extent) / stride).ceil() as usize)
         .saturating_add(1)
         .min(count);
@@ -105,10 +102,8 @@ impl<C> Layout<C> for ListLayout {
         let mut cross_extent: f32 = 0.0;
         for child in ui.children() {
             let mut child_constraints = constraints;
-            self.axis
-                .set_extent(&mut child_constraints.min, self.item_extent);
-            self.axis
-                .set_extent(&mut child_constraints.max, self.item_extent);
+            self.axis.set_extent(&mut child_constraints.min, self.item_extent);
+            self.axis.set_extent(&mut child_constraints.max, self.item_extent);
             let size = ui.layout_child(child, child_constraints);
             let offset = *ui.item(child) as f32 * self.stride;
             cross_extent = cross_extent.max(self.axis.other().extent(size));
@@ -151,36 +146,29 @@ mod tests {
             if swap {
                 rows.swap(5, 6);
             }
-            frame.build(
-                context,
-                info,
-                Duration::ZERO,
-                Input::None,
-                |ui: Ui<'_, TestContext>| {
-                    build(
-                        ui,
-                        state,
-                        Config::new(1.5),
-                        rows.iter().enumerate(),
-                        |row| WidgetId::new(("row", row.1)),
-                        |ui, (index, _)| {
-                            built.push((index, ui.current_widget_id()));
-                            ui.build(());
-                        },
-                        TestClip,
-                        |_| (None::<()>, None::<()>),
-                    )
-                },
-            );
+            frame.build(context, info, Duration::ZERO, Input::None, |ui: Ui<'_, TestContext>| {
+                build(
+                    ui,
+                    state,
+                    Config::new(1.5),
+                    rows.iter().enumerate(),
+                    |row| WidgetId::new(("row", row.1)),
+                    |ui, (index, _)| {
+                        built.push((index, ui.current_widget_id()));
+                        ui.build(());
+                    },
+                    TestClip,
+                    |_| (None::<()>, None::<()>),
+                )
+            });
             frame.layout(context);
         }
 
         let mut frame = Frame::default();
         let mut context = TestContext;
-        let frame_info =
-            FrameInfo::new(Size::new(80.0, 10.0)).layout_resolution(LayoutResolution::Discrete {
-                step: Size::uniform(1.0),
-            });
+        let frame_info = FrameInfo::new(Size::new(80.0, 10.0)).layout_resolution(LayoutResolution::Discrete {
+            step: Size::uniform(1.0),
+        });
         let mut state = State::new();
         let mut built = Vec::new();
 

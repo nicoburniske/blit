@@ -1,12 +1,12 @@
 use std::{cell::RefCell, rc::Rc};
 
+use blit::{Atom, Constraints, LogicalRect, Size};
+
 use crate::{
+    TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
 };
-use blit::{Atom, Constraints, LogicalRect, Size};
-
-use crate::TuiContext;
 
 pub struct Sparkline {
     pub data: Rc<RefCell<Vec<u64>>>,
@@ -53,9 +53,7 @@ impl Atom<TuiContext> for Sparkline {
         let width = cells.columns();
         let rows = cells.rows();
         let style = if let Some(background) = self.background {
-            CellStyle::new()
-                .foreground(self.color)
-                .background(background)
+            CellStyle::new().foreground(self.color).background(background)
         } else {
             CellStyle::new().foreground(self.color)
         };

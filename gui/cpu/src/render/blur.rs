@@ -24,11 +24,7 @@ pub fn stack(alpha: &mut [u8], width: usize, height: usize, radius: u32) {
             radius,
             scale,
             &mut stack,
-            |alpha, x| {
-                I32x8::from_array(std::array::from_fn(|lane| {
-                    alpha[(y + lane) * width + x] as i32
-                }))
-            },
+            |alpha, x| I32x8::from_array(std::array::from_fn(|lane| alpha[(y + lane) * width + x] as i32)),
             |alpha, x, output| {
                 for (lane, output) in output.to_array().into_iter().enumerate() {
                     alpha[(y + lane) * width + x] = output;
@@ -124,15 +120,7 @@ fn simd_pass(
     }
 }
 
-fn line(
-    alpha: &mut [u8],
-    start: usize,
-    step: usize,
-    length: usize,
-    radius: usize,
-    scale: f32,
-    stack: &mut [I32x8],
-) {
+fn line(alpha: &mut [u8], start: usize, step: usize, length: usize, radius: usize, scale: f32, stack: &mut [I32x8]) {
     let div = radius * 2 + 1;
     let first = alpha[start] as i32;
     let mut sum = 0;
@@ -185,26 +173,10 @@ fn simd_matches_scalar() {
     let scale = 1.0 / ((radius + 1) * (radius + 1)) as f32;
     let mut scratch = vec![I32x8::splat(0); div];
     for row in 0..height {
-        line(
-            &mut expected,
-            row * width,
-            1,
-            width,
-            radius,
-            scale,
-            &mut scratch,
-        );
+        line(&mut expected, row * width, 1, width, radius, scale, &mut scratch);
     }
     for column in 0..width {
-        line(
-            &mut expected,
-            column,
-            width,
-            height,
-            radius,
-            scale,
-            &mut scratch,
-        );
+        line(&mut expected, column, width, height, radius, scale, &mut scratch);
     }
     stack(&mut actual, width, height, radius as u32);
     assert_eq!(actual, expected);

@@ -10,7 +10,10 @@ pub mod widget;
 
 pub use blit_layout as layout;
 pub use blit_text::{FontData, FontError, TextLayoutEngine};
-pub use context::{BoundsClip, GuiContext, RenderInput};
-pub use text_system::{FontFamily, ResolvedTextLayout, TextConfig, TextLayoutId, TextSystem};
+
+pub use self::{
+    context::{BoundsClip, GuiContext, RenderInput},
+    text_system::{FontFamily, ResolvedTextLayout, TextConfig, TextLayoutId, TextSystem},
+};
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, GuiContext, S>;

@@ -14,23 +14,14 @@ use crate::{
 /// - active size transitions write animated sizes into node geometry and replay layout
 /// - target sizes remain available for structural decisions such as wrapping
 /// - position transitions apply after layout without replay
-pub fn resolve<C>(
-    frame: &mut Frame<C>,
-    data: &DataArena,
-    context: &mut C,
-    size: Size,
-    resized: bool,
-) {
+pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size, resized: bool) {
     for index in 0..frame.geometry.len() {
         let record = frame.geometry[index];
         let Some(config) = record.transition else {
             continue;
         };
         let id = frame.nodes[record.node.index()].widget_id;
-        match frame
-            .transitions
-            .binary_search_by_key(&id, |state| state.id)
-        {
+        match frame.transitions.binary_search_by_key(&id, |state| state.id) {
             Ok(index) => frame.transitions[index].begin(record.node, config),
             Err(index) => frame
                 .transitions
@@ -162,13 +153,7 @@ impl TransitionState {
     }
 
     pub fn advance(&mut self, target: Rect, now: Duration, resized: bool) {
-        if !self.initialized
-            || (resized
-                && !self
-                    .config
-                    .properties
-                    .intersects(TransitionProperties::RESIZE))
-        {
+        if !self.initialized || (resized && !self.config.properties.intersects(TransitionProperties::RESIZE)) {
             self.current = target;
             self.initial = target;
             self.target = target;
@@ -187,9 +172,7 @@ impl TransitionState {
             self.active = TransitionProperties::NONE;
         }
         if let Some(started_at) = self.started_at {
-            let progress = (now.saturating_sub(started_at).as_secs_f32()
-                / self.config.duration.as_secs_f32())
-            .min(1.0);
+            let progress = (now.saturating_sub(started_at).as_secs_f32() / self.config.duration.as_secs_f32()).min(1.0);
             let amount = self.config.easing.apply(progress);
             if self.active.intersects(TransitionProperties::X) {
                 self.current.x = self.initial.x + (self.target.x - self.initial.x) * amount;
@@ -198,12 +181,10 @@ impl TransitionState {
                 self.current.y = self.initial.y + (self.target.y - self.initial.y) * amount;
             }
             if self.active.intersects(TransitionProperties::WIDTH) {
-                self.current.width =
-                    self.initial.width + (self.target.width - self.initial.width) * amount;
+                self.current.width = self.initial.width + (self.target.width - self.initial.width) * amount;
             }
             if self.active.intersects(TransitionProperties::HEIGHT) {
-                self.current.height =
-                    self.initial.height + (self.target.height - self.initial.height) * amount;
+                self.current.height = self.initial.height + (self.target.height - self.initial.height) * amount;
             }
             if progress == 1.0 {
                 self.current = self.target;
@@ -219,20 +200,10 @@ impl TransitionState {
         if self.config.properties.intersects(TransitionProperties::Y) && self.target.y != target.y {
             changed = changed.union(TransitionProperties::Y);
         }
-        if self
-            .config
-            .properties
-            .intersects(TransitionProperties::WIDTH)
-            && self.target.width != target.width
-        {
+        if self.config.properties.intersects(TransitionProperties::WIDTH) && self.target.width != target.width {
             changed = changed.union(TransitionProperties::WIDTH);
         }
-        if self
-            .config
-            .properties
-            .intersects(TransitionProperties::HEIGHT)
-            && self.target.height != target.height
-        {
+        if self.config.properties.intersects(TransitionProperties::HEIGHT) && self.target.height != target.height {
             changed = changed.union(TransitionProperties::HEIGHT);
         }
 

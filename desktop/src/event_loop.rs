@@ -31,9 +31,7 @@ where
     A: Application,
 {
     let Session {
-        event_loop,
-        mut runner,
-        ..
+        event_loop, mut runner, ..
     } = Session::<A>::new(config)?;
     event_loop.run_app(&mut runner)?;
     runner.error.map_or(Ok(()), Err)
@@ -160,10 +158,7 @@ impl<A: Application> Runner<A> {
     }
 
     fn push_input(&mut self, input: Input) {
-        if let Input::PointerMove {
-            position,
-            modifiers,
-        } = input
+        if let Input::PointerMove { position, modifiers } = input
             && let Some(Input::PointerMove {
                 position: pending,
                 modifiers: pending_modifiers,
@@ -217,18 +212,13 @@ impl<A: Application> Runner<A> {
             return;
         }
         let scale = active.scale();
-        let info = FrameInfo::new(Size::new(
-            size.width as f32 / scale,
-            size.height as f32 / scale,
-        ));
+        let info = FrameInfo::new(Size::new(size.width as f32 / scale, size.height as f32 / scale));
         let no_input = self.inputs.is_empty().then_some(Input::None);
         for input in self.inputs.drain(..).chain(no_input) {
             active.gui.profiler_mut().begin_build();
             active
                 .frame
-                .build(&mut active.gui, info, time, input, |ui: Ui<'_>| {
-                    active.app.render(ui)
-                });
+                .build(&mut active.gui, info, time, input, |ui: Ui<'_>| active.app.render(ui));
             active.gui.profiler_mut().begin_layout();
             active.frame.layout(&mut active.gui);
         }
@@ -331,12 +321,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
         }
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: WindowId,
-        event: WindowEvent,
-    ) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
         let Some(State::Active(active)) = &mut self.state else {
             return;
         };
@@ -432,11 +417,9 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 );
                 let (delta_x, delta_y, continuous) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (-x * 40.0, -y * 40.0, false),
-                    MouseScrollDelta::PixelDelta(delta) => (
-                        (-delta.x / scale as f64) as f32,
-                        (-delta.y / scale as f64) as f32,
-                        true,
-                    ),
+                    MouseScrollDelta::PixelDelta(delta) => {
+                        ((-delta.x / scale as f64) as f32, (-delta.y / scale as f64) as f32, true)
+                    }
                 };
                 let phase = match phase {
                     TouchPhase::Started => ScrollPhase::Started,
@@ -491,9 +474,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 if let Some(key) = key {
                     if event.state == ElementState::Pressed && self.modifiers.control() {
                         let scale = match key {
-                            Key::Character('+') | Key::Character('=') => {
-                                Some(active.ui_scale + 0.25)
-                            }
+                            Key::Character('+') | Key::Character('=') => Some(active.ui_scale + 0.25),
                             Key::Character('-') => Some(active.ui_scale - 0.25),
                             _ => None,
                         };

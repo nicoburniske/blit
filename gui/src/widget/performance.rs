@@ -1,5 +1,8 @@
 use std::fmt::Write as _;
 
+use blit::{Anchor, Interaction, Sides, Size, Sizing, Widget};
+use blit_widgets::performance as shared;
+
 use crate::{
     GuiContext, Ui,
     atom::Rectangle,
@@ -9,8 +12,6 @@ use crate::{
     text::TextStyle,
     widget::{Text, popover},
 };
-use blit::{Anchor, Interaction, Sides, Size, Sizing, Widget};
-use blit_widgets::performance as shared;
 
 blit::builder! {
     /// clickable performance badge with a timing table and history graph
@@ -52,9 +53,7 @@ impl Widget<GuiContext> for Performance<'_> {
             inner.update(timings);
         }
         let measurements = inner.measurements();
-        let border = self
-            .border
-            .unwrap_or_else(|| Border::solid(1.0, self.accent));
+        let border = self.border.unwrap_or_else(|| Border::solid(1.0, self.accent));
         let graph_width = self.graph_size.width.max(1.0);
         let graph_height = self.graph_size.height.max(1.0);
         let columns = graph_width.ceil() as usize;
@@ -81,16 +80,10 @@ impl Widget<GuiContext> for Performance<'_> {
                 badge
                     .child()
                     .item(flex::item().fixed(self.marker_size, self.marker_size))
-                    .insert(
-                        Rectangle::new()
-                            .background(self.accent)
-                            .radius(self.marker_radius),
-                    );
-                badge.child().insert(
-                    Text::new(&measurements.label)
-                        .style(self.text_style)
-                        .color(self.color),
-                );
+                    .insert(Rectangle::new().background(self.accent).radius(self.marker_radius));
+                badge
+                    .child()
+                    .insert(Text::new(&measurements.label).style(self.text_style).color(self.color));
             },
             |ui: Ui<'_>| {
                 let scale = measurements.graph(columns).fold(33.4_f32, f32::max);
@@ -108,11 +101,9 @@ impl Widget<GuiContext> for Performance<'_> {
                             .row_gap(self.table_gap.height),
                     );
                     for (label, values) in measurements.rows() {
-                        table.child().insert(
-                            Text::new(label)
-                                .style(self.text_style)
-                                .color(self.muted_color),
-                        );
+                        table
+                            .child()
+                            .insert(Text::new(label).style(self.text_style).color(self.muted_color));
                         for value in values {
                             table
                                 .child()
@@ -135,11 +126,8 @@ impl Widget<GuiContext> for Performance<'_> {
                     for (label, value) in axis_labels.iter_mut().zip([scale, scale / 2.0, 0.0]) {
                         label.clear();
                         let _ = write!(label, "{value:.1} ms");
-                        axis.child().insert(
-                            Text::new(label)
-                                .style(self.text_style)
-                                .color(self.muted_color),
-                        );
+                        axis.child()
+                            .insert(Text::new(label).style(self.text_style).color(self.muted_color));
                     }
                 }
                 let mut graph = chart

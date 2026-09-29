@@ -2,16 +2,13 @@ use std::hint::black_box;
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cpu::{
-    Direct, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer, RendererConfig, Scanline,
-    VecBuffer, Xrgb8888,
+    Direct, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888,
 };
 use blit_gui::{
     FontData, FontFamily, GuiContext, RenderInput, TextConfig, TextSystem,
     color::Color,
     display_list::{BoxShadow, ClipId, DisplayList, Rectangle},
-    image::{
-        ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
-    },
+    image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{FontId, TextOptions, TextPhases, TextRequest, TextStyle, TextWrap},
 };
@@ -45,11 +42,7 @@ fn blend_premultiplied_rgba(bencher: divan::Bencher, opacity: u8) {
     let mut destination = vec![Xrgb8888::from_raw(0x183048); WIDTH];
 
     bencher.counter(ItemsCount::new(WIDTH)).bench_local(|| {
-        Xrgb8888::blend_texture_slice_rgba(
-            black_box(&mut destination),
-            black_box(&source),
-            opacity,
-        );
+        Xrgb8888::blend_texture_slice_rgba(black_box(&mut destination), black_box(&source), opacity);
     });
 }
 
@@ -64,11 +57,7 @@ fn render_rectangles(bencher: divan::Bencher) {
             height: 80.0,
         };
         display_list.push_rectangle(
-            Rectangle::new(area).background(Color::rgb(
-                (index * 31) as u8,
-                (index * 47) as u8,
-                (index * 61) as u8,
-            )),
+            Rectangle::new(area).background(Color::rgb((index * 31) as u8, (index * 47) as u8, (index * 61) as u8)),
             area.to_physical(SCALE),
             ClipId::default(),
         );
@@ -139,11 +128,7 @@ fn small_images_premultiplied_rgba_direct(bencher: divan::Bencher) {
 
 #[divan::bench]
 fn small_images_alpha_direct(bencher: divan::Bencher) {
-    benchmark_small_images(
-        bencher,
-        Direct::default(),
-        ImageFormat::Alpha8(Color::rgb(38, 96, 176)),
-    )
+    benchmark_small_images(bencher, Direct::default(), ImageFormat::Alpha8(Color::rgb(38, 96, 176)))
 }
 
 #[divan::bench]
@@ -208,10 +193,7 @@ fn gradient_border(bencher: divan::Bencher) {
     display_list.push_rectangle(
         Rectangle::new(area)
             .background(Color::rgb(16, 24, 40))
-            .border(Border::gradient(
-                2.0,
-                LinearGradient::new(&stops).angle(35.0),
-            ))
+            .border(Border::gradient(2.0, LinearGradient::new(&stops).angle(35.0)))
             .radius(BorderRadius::uniform(24.0)),
         area.to_physical(SCALE),
         ClipId::default(),
@@ -237,18 +219,10 @@ fn shadow(bencher: divan::Bencher, cached: bool) {
         .radius(BorderRadius::uniform(24.0))
         .blur(16.0);
     let mut display_list = DisplayList::default();
-    display_list.push_box_shadow(
-        shadow,
-        shadow.bounds().to_physical(SCALE),
-        ClipId::default(),
-    );
+    display_list.push_box_shadow(shadow, shadow.bounds().to_physical(SCALE), ClipId::default());
     let damage = [shadow.bounds().to_physical(SCALE)];
-    let mut renderer = renderer_with_shadow_cache(
-        WIDTH,
-        HEIGHT,
-        Scanline::default(),
-        if cached { 512 * 1024 } else { 0 },
-    );
+    let mut renderer =
+        renderer_with_shadow_cache(WIDTH, HEIGHT, Scanline::default(), if cached { 512 * 1024 } else { 0 });
     renderer.render(&display_list, &damage);
 
     bencher
@@ -270,11 +244,7 @@ where
             height: 1.0,
         };
         display_list.push_rectangle(
-            Rectangle::new(area).background(Color::rgb(
-                index as u8,
-                (index * 31) as u8,
-                (index * 67) as u8,
-            )),
+            Rectangle::new(area).background(Color::rgb(index as u8, (index * 31) as u8, (index * 67) as u8)),
             area.to_physical(SCALE),
             ClipId::default(),
         );
@@ -422,9 +392,7 @@ where
 {
     const COMMANDS: usize = 48;
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
-    let text = renderer
-        .gui
-        .text_run("secure approval", TextStyle::default());
+    let text = renderer.gui.text_run("secure approval", TextStyle::default());
     let mut display_list = DisplayList::default();
     for index in 0..COMMANDS {
         let area = LogicalRect {
@@ -600,12 +568,9 @@ struct BenchRenderer<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> {
 impl<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> BenchRenderer<B, S> {
     fn render(&mut self, display_list: &DisplayList, damage: &[PhysicalRect]) {
         let RenderInput {
-            text,
-            image_uploads,
-            ..
+            text, image_uploads, ..
         } = self.gui.render_input();
-        self.render
-            .render_damage(text, image_uploads, display_list, damage);
+        self.render.render_damage(text, image_uploads, display_list, damage);
         self.gui.finish_frame();
     }
 }

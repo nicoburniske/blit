@@ -1,8 +1,7 @@
 use blit::{Content, Widget};
+pub use blit_widgets::scroll::area::{Behavior, Config, State};
 
 use crate::{BoundsClip, GuiContext, Ui};
-
-pub use blit_widgets::scroll::area::{Behavior, Config, State};
 
 pub fn new<'a, C, B, T, H>(
     state: &'a mut State,
@@ -16,7 +15,5 @@ where
     T: Content<GuiContext>,
     H: Content<GuiContext>,
 {
-    move |ui: Ui<'_>| {
-        blit_widgets::scroll::area::build(ui, state, config, BoundsClip, content, scrollbar)
-    }
+    move |ui: Ui<'_>| blit_widgets::scroll::area::build(ui, state, config, BoundsClip, content, scrollbar)
 }

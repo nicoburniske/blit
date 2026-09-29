@@ -1,11 +1,12 @@
+use blit::{Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Widget};
+pub use blit_widgets::text_input::{Response, State};
+
 use crate::{
     GuiContext, Ui,
     color::Color,
     display_list::Rectangle,
     text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
 };
-use blit::{Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Widget};
-pub use blit_widgets::text_input::{Response, State};
 
 blit::builder! {
     pub struct TextInput<'a> {
@@ -160,16 +161,11 @@ impl Atom<GuiContext> for InputAtom {
             if let Some(selection) =
                 LogicalRect::new(start.x, start.y, end.x - start.x, start.height).intersection(area)
             {
-                context.paint_rectangle(
-                    Rectangle::new(selection).background(self.selection_background),
-                );
+                context.paint_rectangle(Rectangle::new(selection).background(self.selection_background));
             }
         }
         if self.focused {
-            if let Some(cursor) = context
-                .text_cursor_rect(&request, self.state.cursor)
-                .intersection(area)
-            {
+            if let Some(cursor) = context.text_cursor_rect(&request, self.state.cursor).intersection(area) {
                 context.paint_rectangle(Rectangle::new(cursor).background(self.cursor_background));
             }
         }

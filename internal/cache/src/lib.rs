@@ -130,11 +130,7 @@ where
     K: std::hash::Hash,
     S: Scale<K, V>,
 {
-    pub fn get_or_insert<Q>(
-        &mut self,
-        query: Q,
-        insert: impl FnOnce(Q) -> (K, V),
-    ) -> Result<(&V, usize), V>
+    pub fn get_or_insert<Q>(&mut self, query: Q, insert: impl FnOnce(Q) -> (K, V)) -> Result<(&V, usize), V>
     where
         Q: Equivalent<K> + std::hash::Hash,
     {
@@ -147,11 +143,7 @@ where
     K: std::hash::Hash,
     S: Scale<K, V>,
 {
-    fn get_or_insert_inner<Q>(
-        &mut self,
-        query: Q,
-        insert: impl FnOnce(Q) -> (K, V),
-    ) -> Result<(&V, usize), V>
+    fn get_or_insert_inner<Q>(&mut self, query: Q, insert: impl FnOnce(Q) -> (K, V)) -> Result<(&V, usize), V>
     where
         Q: Equivalent<K> + std::hash::Hash,
     {
@@ -168,9 +160,8 @@ where
         let (_, index) = self.entries.insert(Entry { key, value });
         let entries = &self.entries;
         let hash_builder = &self.hash_builder;
-        self.table.insert_unique(hash, index, |index| {
-            hash_builder.hash_one(&entries.get(*index).key)
-        });
+        self.table
+            .insert_unique(hash, index, |index| hash_builder.hash_one(&entries.get(*index).key));
         self.weight += weight;
         if TRIM_ON_INSERT {
             self.trim_to_weight();

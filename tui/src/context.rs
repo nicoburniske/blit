@@ -1,6 +1,7 @@
-use crate::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 use blit::{Clip, LogicalRect, Scale2};
 use blit_widgets::performance::FrameProfiler;
+
+use crate::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 
 /// rendering resources independent of terminal io and event loop ownership
 pub struct TuiContext {

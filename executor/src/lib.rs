@@ -18,8 +18,10 @@ use std::{
 mod scope;
 mod task;
 
-pub use scope::{Scope, ScopeRef};
-pub use task::TaskId;
+pub use self::{
+    scope::{Scope, ScopeRef},
+    task::TaskId,
+};
 
 /// blocks the current thread until a future completes
 pub fn block_on<F: Future>(future: F) -> F::Output {
@@ -138,9 +140,7 @@ impl<A: 'static> LocalExecutor<A> {
             matches!(executor.access.get(), AppAccess::Inactive),
             "tasks already running"
         );
-        executor
-            .access
-            .set(AppAccess::Available(NonNull::from(app).cast()));
+        executor.access.set(AppAccess::Available(NonNull::from(app).cast()));
         let _reset_app_access = ResetAppAccess(executor);
         executor.tasks.run_ready(|task| {
             if let AppAccess::Borrowed(location) = executor.access.get() {

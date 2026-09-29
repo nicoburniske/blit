@@ -1,5 +1,4 @@
 pub use crate::frame::layout::{Children, LayoutCx};
-
 use crate::geometry::{Constraints, Sides, Size};
 
 pub trait Layout<C>: 'static {
@@ -98,9 +97,7 @@ impl Sizing {
     #[inline]
     pub fn clamp(self, size: f32) -> f32 {
         match self {
-            Self::Fit { min, max } | Self::Grow { min, max } => {
-                size.clamp(min.max(0.0), max.max(min).max(0.0))
-            }
+            Self::Fit { min, max } | Self::Grow { min, max } => size.clamp(min.max(0.0), max.max(min).max(0.0)),
             Self::Fixed(fixed) => fixed.max(0.0),
             Self::Percent(_) => size.max(0.0),
         }

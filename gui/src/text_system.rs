@@ -6,13 +6,13 @@ use std::{
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use blit_cache::{DeferredCache, Equivalent, Scale};
 use blit_text::{
-    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle,
-    LayoutRequest, TextLayout, TextLayoutEngine,
+    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle, LayoutRequest,
+    TextLayout, TextLayoutEngine,
 };
 
 use crate::text::{
-    FontId, HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextOverflow, TextRequest,
-    TextRunId, TextStyle, TextWrap, VerticalAlign,
+    FontId, HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextOverflow, TextRequest, TextRunId, TextStyle,
+    TextWrap, VerticalAlign,
 };
 
 pub struct TextConfig {
@@ -110,9 +110,7 @@ impl Equivalent<TextKey> for TextQuery<'_> {
             return false;
         }
         match &key.spans {
-            CachedSpans::One(style) => {
-                self.spans.len() == 1 && *style == self.resolve(&self.spans[0])
-            }
+            CachedSpans::One(style) => self.spans.len() == 1 && *style == self.resolve(&self.spans[0]),
             CachedSpans::Many(spans) => {
                 spans.len() == self.spans.len()
                     && spans.iter().zip(self.spans).all(|(cached_span, span)| {
@@ -172,8 +170,7 @@ trait ErasedTextEngine {
 
     fn layout(&mut self, text: ShapedText<'_>, request: LayoutRequest) -> TextLayout;
 
-    fn carets(&mut self, text: ShapedText<'_>, request: LayoutRequest, line: usize)
-    -> Box<[Caret]>;
+    fn carets(&mut self, text: ShapedText<'_>, request: LayoutRequest, line: usize) -> Box<[Caret]>;
 
     fn remove_shape(&mut self, index: usize);
 }
@@ -202,13 +199,8 @@ impl<E: TextLayoutEngine> ErasedTextEngine for ErasedEngine<E> {
         size_of::<E::Shape>() + heap_weight
     }
 
-    fn layout(
-        &mut self,
-        ShapedText { index, text }: ShapedText<'_>,
-        request: LayoutRequest,
-    ) -> TextLayout {
-        self.engine
-            .layout(self.shapes[index].as_mut().unwrap(), text, request)
+    fn layout(&mut self, ShapedText { index, text }: ShapedText<'_>, request: LayoutRequest) -> TextLayout {
+        self.engine.layout(self.shapes[index].as_mut().unwrap(), text, request)
     }
 
     fn carets(
@@ -234,11 +226,7 @@ impl Scale<TextKey, CachedText> for TextScale {
             CachedSpans::One(_) => 0,
             CachedSpans::Many(spans) => spans.len() * size_of::<blit_text::TextSpan>(),
         };
-        size_of::<TextKey>()
-            + size_of::<CachedText>()
-            + key.text.len()
-            + spans
-            + text.shape.unwrap_or(0)
+        size_of::<TextKey>() + size_of::<CachedText>() + key.text.len() + spans + text.shape.unwrap_or(0)
     }
 }
 
@@ -265,21 +253,15 @@ impl TextSystem {
         let mut fonts = Vec::new();
         let mut candidates = Vec::new();
         for configured in config.fonts {
-            if fonts
-                .iter()
-                .any(|font: &ConfiguredFont| font.id == configured.id)
-            {
+            if fonts.iter().any(|font: &ConfiguredFont| font.id == configured.id) {
                 return Err(FontError::InvalidData);
             }
             candidates.clear();
             for data in configured.fonts {
                 for backend_face in engine.register_font(data)? {
-                    let registered = engine
-                        .font_face(backend_face)
-                        .ok_or(FontError::InvalidData)?;
-                    let face =
-                        ttf_parser::Face::parse(registered.data.as_ref(), registered.face_index)
-                            .map_err(|_| FontError::InvalidData)?;
+                    let registered = engine.font_face(backend_face).ok_or(FontError::InvalidData)?;
+                    let face = ttf_parser::Face::parse(registered.data.as_ref(), registered.face_index)
+                        .map_err(|_| FontError::InvalidData)?;
                     let stretch = match face.width() {
                         ttf_parser::Width::UltraCondensed => 50,
                         ttf_parser::Width::ExtraCondensed => 63,
@@ -393,8 +375,7 @@ impl TextSystem {
         });
         if inserted {
             let slot = u32::try_from(index + 1).expect("too many cached texts");
-            self.texts
-                .update_index(index, |text| text.id.0 |= u64::from(slot));
+            self.texts.update_index(index, |text| text.id.0 |= u64::from(slot));
             self.next_text = self.next_text.checked_add(1).expect("too many texts");
         }
         self.texts.get_index(index).id
@@ -483,12 +464,7 @@ impl TextSystem {
             .map_or(0, |caret| caret.byte_offset as usize)
     }
 
-    pub fn cursor_rect(
-        &mut self,
-        request: &TextRequest,
-        byte_offset: usize,
-        width: f32,
-    ) -> LogicalRect {
+    pub fn cursor_rect(&mut self, request: &TextRequest, byte_offset: usize, width: f32) -> LogicalRect {
         let (layout_request, placement) = paint_request(request);
         let (layout_index, text_index) = self.layout(request.text, layout_request);
         let Some(line) = ({
@@ -527,8 +503,7 @@ impl TextSystem {
             .min_by_key(|caret| (caret.byte_offset as usize).abs_diff(byte_offset));
         let offset = placement_offset(placement, &cached.layout, line);
         LogicalRect {
-            x: request.area.x + caret.map_or(0.0, |caret| caret.position.x) + offset.x
-                - request.offset_x,
+            x: request.area.x + caret.map_or(0.0, |caret| caret.position.x) + offset.x - request.offset_x,
             y: request.area.y + caret.map_or(0.0, |caret| caret.position.y) + offset.y,
             width,
             height: caret.map_or(0.0, |caret| caret.height),
@@ -575,8 +550,7 @@ impl TextSystem {
                     spans,
                 },
             );
-            self.texts
-                .update_index(index, |cached| cached.shape = Some(shape));
+            self.texts.update_index(index, |cached| cached.shape = Some(shape));
         }
         let key = LayoutKey {
             text: id,
@@ -601,10 +575,7 @@ impl TextSystem {
             )
         });
         if self.layouts.get_index(layout).id.0 == next_layout {
-            self.next_layout = self
-                .next_layout
-                .checked_add(1)
-                .expect("too many text layouts");
+            self.next_layout = self.next_layout.checked_add(1).expect("too many text layouts");
         }
         (layout, index)
     }
@@ -620,9 +591,7 @@ impl TextSystem {
             return;
         }
         let text = &self.texts.get_key_index(index).text;
-        let carets = self
-            .engine
-            .carets(ShapedText { index, text }, request, line);
+        let carets = self.engine.carets(ShapedText { index, text }, request, line);
         self.layouts.update_index(layout, |cached| {
             cached.carets.push(LineCarets {
                 line: u32::try_from(line).expect("too many text lines"),
@@ -653,8 +622,7 @@ fn paint_request(request: &TextRequest) -> (LayoutRequest, Placement) {
     let height = request.area.height.max(0.0);
     (
         LayoutRequest {
-            max_width: (wrap != blit_text::TextWrap::None
-                || overflow == blit_text::TextOverflow::Ellipsis)
+            max_width: (wrap != blit_text::TextWrap::None || overflow == blit_text::TextOverflow::Ellipsis)
                 .then_some(width),
             max_height: (overflow == blit_text::TextOverflow::Ellipsis).then_some(height),
             max_lines,

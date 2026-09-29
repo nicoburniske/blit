@@ -86,11 +86,7 @@ where
             minimum_leading: config.minimum_leading,
             minimum_trailing: config.minimum_trailing,
         });
-        panes
-            .child()
-            .item(Item::Leading)
-            .widget_id(leading_id)
-            .build(leading);
+        panes.child().item(Item::Leading).widget_id(leading_id).build(leading);
         panes
             .child()
             .item(Item::Divider)
@@ -142,10 +138,7 @@ impl<C> LayoutTrait<C> for Layout {
         let leading = leading.expect("missing split leading content");
         let trailing = trailing.expect("missing split trailing content");
         let divider = divider.expect("missing split divider");
-        let divider_extent = res
-            .extent(self.axis, self.divider_extent)
-            .max(0.0)
-            .min(main);
+        let divider_extent = res.extent(self.axis, self.divider_extent).max(0.0).min(main);
         let available = (main - divider_extent).max(0.0);
         let minimum_leading = res.extent(self.axis, self.minimum_leading).max(0.0);
         let minimum_trailing = res.extent(self.axis, self.minimum_trailing).max(0.0);
@@ -160,11 +153,7 @@ impl<C> LayoutTrait<C> for Layout {
         let mut cross = cross_axis.extent(bounds.min);
         for (child, extent, offset) in [
             (leading, leading_extent, 0.0),
-            (
-                trailing,
-                available - leading_extent,
-                leading_extent + divider_extent,
-            ),
+            (trailing, available - leading_extent, leading_extent + divider_extent),
         ] {
             let mut child_bounds = bounds;
             self.axis.set_extent(&mut child_bounds.min, extent);

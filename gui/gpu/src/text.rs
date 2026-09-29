@@ -120,13 +120,11 @@ impl GlyphAtlas {
             return glyph;
         }
 
-        let face = text
-            .font_face(face)
-            .expect("text backend returned an unknown font");
+        let face = text.font_face(face).expect("text backend returned an unknown font");
         let size = size_eighths as f32 / SIZE_QUANTIZATION;
-        let (metrics, alpha) =
-            self.rasterizer
-                .rasterize(face, glyph, size, phase as f32 * self.phase_scale);
+        let (metrics, alpha) = self
+            .rasterizer
+            .rasterize(face, glyph, size, phase as f32 * self.phase_scale);
         if metrics.width == 0 || metrics.height == 0 {
             let glyph = Glyph {
                 metrics,
@@ -163,16 +161,15 @@ impl GlyphAtlas {
 
         if placement.is_none() && reusable && self.bytes.saturating_add(page_bytes) > CACHE_BYTES {
             self.victims.clear();
-            self.victims
-                .extend(self.glyphs.iter().filter_map(|(key, cached)| {
-                    let page = cached.glyph.page;
-                    (cached.last_used != self.frame
-                        && cached.allocation.is_some()
-                        && self.pages[page]
-                            .as_ref()
-                            .is_some_and(|page| width <= page.size[0] && height <= page.size[1]))
-                    .then_some((cached.last_used, *key))
-                }));
+            self.victims.extend(self.glyphs.iter().filter_map(|(key, cached)| {
+                let page = cached.glyph.page;
+                (cached.last_used != self.frame
+                    && cached.allocation.is_some()
+                    && self.pages[page]
+                        .as_ref()
+                        .is_some_and(|page| width <= page.size[0] && height <= page.size[1]))
+                .then_some((cached.last_used, *key))
+            }));
             self.victims.sort_unstable_by_key(|victim| victim.0);
 
             let mut index = 0;
@@ -216,11 +213,7 @@ impl GlyphAtlas {
             });
             let mut allocator = AtlasAllocator::new(page_size);
             let allocation = allocator.allocate(requested).unwrap();
-            let page = self
-                .pages
-                .iter()
-                .position(Option::is_none)
-                .unwrap_or(self.pages.len());
+            let page = self.pages.iter().position(Option::is_none).unwrap_or(self.pages.len());
             let resource = Page {
                 texture,
                 bind_group,
@@ -265,11 +258,7 @@ impl GlyphAtlas {
             },
         );
 
-        let glyph = Glyph {
-            metrics,
-            atlas,
-            page,
-        };
+        let glyph = Glyph { metrics, atlas, page };
         self.glyphs.insert(
             key,
             CachedGlyph {
@@ -293,11 +282,7 @@ impl GlyphAtlas {
             .iter_mut()
             .enumerate()
             .filter_map(|(index, page)| Some((index, page.as_mut()?)))
-            .find_map(|(index, page)| {
-                page.allocator
-                    .allocate(requested)
-                    .map(|allocation| (index, allocation))
-            })
+            .find_map(|(index, page)| page.allocator.allocate(requested).map(|allocation| (index, allocation)))
     }
 
     fn drop_empty_pages(&mut self) {

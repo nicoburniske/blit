@@ -4,8 +4,7 @@ use blit_gui::{
     color::Color,
     display_list::{BoxShadow, Rectangle},
     image::{
-        ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageRequest, ImageSampling,
-        ImageTiling, NineSlice,
+        ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageRequest, ImageSampling, ImageTiling, NineSlice,
     },
     style::BorderRadius,
 };
@@ -195,24 +194,18 @@ impl Cache {
             };
             let center_x = width / 2;
             let mut left = center_x;
-            while left > 0
-                && (0..height).all(|y| alpha[y * width + left - 1] == alpha[y * width + center_x])
-            {
+            while left > 0 && (0..height).all(|y| alpha[y * width + left - 1] == alpha[y * width + center_x]) {
                 left -= 1;
             }
             let mut right_start = center_x + 1;
             while right_start < width
-                && (0..height)
-                    .all(|y| alpha[y * width + right_start] == alpha[y * width + center_x])
+                && (0..height).all(|y| alpha[y * width + right_start] == alpha[y * width + center_x])
             {
                 right_start += 1;
             }
             let center_y = height / 2;
             let mut top = center_y;
-            while top > 0
-                && alpha[(top - 1) * width..top * width]
-                    == alpha[center_y * width..(center_y + 1) * width]
-            {
+            while top > 0 && alpha[(top - 1) * width..top * width] == alpha[center_y * width..(center_y + 1) * width] {
                 top -= 1;
             }
             let mut bottom_start = center_y + 1;
@@ -239,8 +232,7 @@ impl Cache {
                     } else {
                         destination_x + removed_columns
                     };
-                    alpha[destination_y * image_width + destination_x] =
-                        alpha[source_y * width + source_x];
+                    alpha[destination_y * image_width + destination_x] = alpha[source_y * width + source_x];
                 }
             }
             alpha.truncate(image_width * image_height);

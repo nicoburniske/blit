@@ -6,10 +6,7 @@ use unicode_width::UnicodeWidthChar;
 use super::{
     Cells, Glyph, TuiRenderer,
     color::Color,
-    text::{
-        HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest,
-        VerticalAlign,
-    },
+    text::{HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest, VerticalAlign},
 };
 
 blit::builder! {
@@ -117,9 +114,7 @@ impl CellBuffer<'_> {
                         continue;
                     };
                     let blended: [u8; 3] = std::array::from_fn(|channel| {
-                        ((u32::from(color[channel]) * alpha
-                            + u32::from(destination[channel]) * (255 - alpha)
-                            + 127)
+                        ((u32::from(color[channel]) * alpha + u32::from(destination[channel]) * (255 - alpha) + 127)
                             / 255) as u8
                     });
                     *packed = Color::Rgb(blended[0], blended[1], blended[2]).packed();
@@ -129,10 +124,7 @@ impl CellBuffer<'_> {
     }
 
     pub fn clear(&mut self, cell: Cell) {
-        let width = cell
-            .character
-            .and_then(UnicodeWidthChar::width)
-            .unwrap_or(1);
+        let width = cell.character.and_then(UnicodeWidthChar::width).unwrap_or(1);
         let [left, top, right, bottom] = self.bounds;
         if left == right || top == bottom {
             return;
@@ -140,9 +132,7 @@ impl CellBuffer<'_> {
         if width == 1
             && let Some(background) = cell.style.background
         {
-            let character = cell
-                .character
-                .filter(|character| character.width() == Some(1));
+            let character = cell.character.filter(|character| character.width() == Some(1));
             let glyph = Glyph::scalar(character.unwrap_or(' '));
             let foreground = character.map_or(Color::Reset, |_| cell.style.foreground);
             let attributes = character.map_or(TextAttributes::NONE, |_| cell.style.attributes);
@@ -150,26 +140,14 @@ impl CellBuffer<'_> {
                 let start = y as usize * self.renderer.columns + left as usize;
                 let end = y as usize * self.renderer.columns + right as usize;
                 if self.renderer.frame_cells.glyph[start] != Glyph::SPACE.0 {
-                    TuiRenderer::clear_glyph(
-                        &mut self.renderer.frame_cells,
-                        self.renderer.columns,
-                        start,
-                    );
+                    TuiRenderer::clear_glyph(&mut self.renderer.frame_cells, self.renderer.columns, start);
                 }
                 if self.renderer.frame_cells.glyph[end - 1] != Glyph::SPACE.0 {
-                    TuiRenderer::clear_glyph(
-                        &mut self.renderer.frame_cells,
-                        self.renderer.columns,
-                        end - 1,
-                    );
+                    TuiRenderer::clear_glyph(&mut self.renderer.frame_cells, self.renderer.columns, end - 1);
                 }
-                self.renderer.frame_cells.fill(
-                    start..end,
-                    glyph,
-                    foreground,
-                    background,
-                    attributes,
-                );
+                self.renderer
+                    .frame_cells
+                    .fill(start..end, glyph, foreground, background, attributes);
             }
             return;
         }
@@ -229,12 +207,7 @@ impl CellBuffer<'_> {
             (self.columns - x) as f32,
             (self.rows - y) as f32,
         );
-        let clip = LogicalRect::new(
-            left as f32,
-            top as f32,
-            (right - left) as f32,
-            (bottom - top) as f32,
-        );
+        let clip = LogicalRect::new(left as f32, top as f32, (right - left) as f32, (bottom - top) as f32);
         let text = self.renderer.text_run(text);
         self.renderer.paint_text_at(
             TextRequest::new(text, area)
@@ -247,12 +220,7 @@ impl CellBuffer<'_> {
 }
 
 impl TuiRenderer {
-    fn paint_text_at(
-        &mut self,
-        request: TextRequest,
-        clip: LogicalRect,
-        background: Option<Color>,
-    ) {
+    fn paint_text_at(&mut self, request: TextRequest, clip: LogicalRect, background: Option<Color>) {
         let (area_left, area_top, area_right, area_bottom) = self.cell_bounds(request.area);
         let (clip_left, clip_top, clip_right, clip_bottom) = self.cell_bounds(clip);
         let left = area_left.max(clip_left);
@@ -318,20 +286,14 @@ impl TuiRenderer {
             }
             let start_x = match request.options.horizontal_align {
                 HorizontalAlign::Left => area_left as isize - request.offset_x.round() as isize,
-                HorizontalAlign::Center => {
-                    area_left as isize + (area_width - line_width as isize).div_euclid(2)
-                }
+                HorizontalAlign::Center => area_left as isize + (area_width - line_width as isize).div_euclid(2),
                 HorizontalAlign::Right => area_right as isize - line_width as isize,
             };
             let mut column = 0;
             let ellipsis_offset = layout
                 .graphemes
                 .get(line_end)
-                .or_else(|| {
-                    line_end
-                        .checked_sub(1)
-                        .and_then(|end| layout.graphemes.get(end))
-                })
+                .or_else(|| line_end.checked_sub(1).and_then(|end| layout.graphemes.get(end)))
                 .map(|grapheme| grapheme.start as usize);
             let graphemes = layout.graphemes[line.start..line_end]
                 .iter()
@@ -362,14 +324,7 @@ impl TuiRenderer {
                 }
                 if x >= left as isize && x + width as isize <= right as isize {
                     let index = y as usize * self.columns + x as usize;
-                    Self::paint_glyph(
-                        &mut self.frame_cells,
-                        self.columns,
-                        index,
-                        grapheme,
-                        width,
-                        style,
-                    );
+                    Self::paint_glyph(&mut self.frame_cells, self.columns, index, grapheme, width, style);
                 }
                 column += width;
             }
@@ -391,14 +346,7 @@ impl TuiRenderer {
         let index = y as usize * self.columns + x as usize;
         let style = cell.style;
         if let Some((text, width)) = glyph {
-            Self::paint_glyph(
-                &mut self.frame_cells,
-                self.columns,
-                index,
-                text,
-                width,
-                style,
-            );
+            Self::paint_glyph(&mut self.frame_cells, self.columns, index, text, width, style);
         } else if let Some(background) = style.background {
             if self.frame_cells.glyph[index] != Glyph::SPACE.0 {
                 Self::clear_glyph(&mut self.frame_cells, self.columns, index);
@@ -421,9 +369,7 @@ impl TuiRenderer {
                 Self::clear_glyph(frame_cells, columns, index);
             }
         }
-        let background = style
-            .background
-            .map_or(frame_cells.background[index], Color::packed);
+        let background = style.background.map_or(frame_cells.background[index], Color::packed);
         let foreground = style.foreground.packed();
         let attributes = style.attributes.0;
         frame_cells.glyph[index] = glyph.0;

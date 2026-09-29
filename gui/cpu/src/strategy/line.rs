@@ -116,15 +116,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
             width: end - start,
             height: 1,
         };
-        raster::draw_line(
-            &commands.get(*command),
-            line,
-            clip,
-            255,
-            images,
-            text,
-            buffer,
-        );
+        raster::draw_line(&commands.get(*command), line, clip, 255, images, text, buffer);
     }
 }
 
@@ -156,11 +148,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 let mut next_boundary = height as i32;
                 for region in damage {
                     let top = region.y.max(0).min(height as i32);
-                    let bottom = region
-                        .y
-                        .saturating_add(region.height)
-                        .max(0)
-                        .min(height as i32);
+                    let bottom = region.y.saturating_add(region.height).max(0).min(height as i32);
                     if bottom <= line {
                         continue;
                     }
@@ -170,11 +158,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     }
                     next_boundary = next_boundary.min(bottom);
                     let start = region.x.max(0).min(width as i32) as usize;
-                    let end = region
-                        .x
-                        .saturating_add(region.width)
-                        .max(0)
-                        .min(width as i32) as usize;
+                    let end = region.x.saturating_add(region.width).max(0).min(width as i32) as usize;
                     if start < end {
                         self.ranges.push(start..end);
                     }
@@ -202,9 +186,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
 
             self.active
                 .retain(|command| commands.vertical_bounds(*command).end > line);
-            while next < self.starts.len()
-                && commands.vertical_bounds(self.starts[next]).start <= line
-            {
+            while next < self.starts.len() && commands.vertical_bounds(self.starts[next]).start <= line {
                 let command = self.starts[next];
                 if commands.vertical_bounds(command).end > line {
                     let position = self.active.binary_search(&command).unwrap_err();
@@ -237,9 +219,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         commands.overwrites(**command)
                             && commands
                                 .overwrite_span(**command, line)
-                                .is_some_and(|span| {
-                                    span.start <= range.start as i32 && span.end >= range.end as i32
-                                })
+                                .is_some_and(|span| span.start <= range.start as i32 && span.end >= range.end as i32)
                     })
                     .map(|(index, _)| index)
                     .unwrap_or(0);
@@ -255,29 +235,18 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             line: line as usize,
                         };
                         if clipped {
-                            draw_commands::<true, _>(
-                                commands,
-                                active,
-                                &self.clip_ranges,
-                                images,
-                                text,
-                                &mut buffer,
-                            );
+                            draw_commands::<true, _>(commands, active, &self.clip_ranges, images, text, &mut buffer);
                         } else {
-                            draw_commands::<false, _>(
-                                commands,
-                                active,
-                                &self.clip_ranges,
-                                images,
-                                text,
-                                &mut buffer,
-                            );
+                            draw_commands::<false, _>(commands, active, &self.clip_ranges, images, text, &mut buffer);
                         }
                     });
                     continue;
                 }
-                let overwrite = self.active[first + 1..].iter().enumerate().rev().find_map(
-                    |(offset, command)| {
+                let overwrite = self.active[first + 1..]
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find_map(|(offset, command)| {
                         let command_first = first + 1 + offset;
                         // rounded commands and partially opaque images can hide a scanline center
                         let span = if commands.overwrites(*command) {
@@ -288,20 +257,14 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             };
                             let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
                             let texture = images.get(image_id)?;
-                            image.opaque_span(
-                                line,
-                                commands.bounds(*command),
-                                &texture.data,
-                                &texture.alpha_rows,
-                            )
+                            image.opaque_span(line, commands.bounds(*command), &texture.data, &texture.alpha_rows)
                         } else {
                             None
                         }?;
                         let start = span.start.max(range.start as i32);
                         let end = span.end.min(range.end as i32);
                         (start < end).then_some((start as usize, end as usize, command_first))
-                    },
-                );
+                    });
                 let active = &self.active;
                 buffer.process_line(line as usize, range.clone(), |pixels| {
                     let mut draw = |first: usize, start: usize, end: usize| {

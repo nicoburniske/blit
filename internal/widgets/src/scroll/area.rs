@@ -1,7 +1,6 @@
 use blit::{Axis, Clip, Content, Ui, Widget};
 
 pub use super::shared::{Behavior, State};
-
 use super::shared::{ScrollLayout, build_scroll, update};
 
 blit::builder! {

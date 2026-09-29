@@ -80,12 +80,10 @@ pub fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: 
         let target_anchor = anchor(positioned.target_anchor);
         let child_anchor = anchor(positioned.child_anchor);
         let reference_offset = offset(frame, node);
-        frame.nodes[index].area.x = target.width * target_anchor.x - size.width * child_anchor.x
-            + positioned.offset.x
-            + reference_offset.x;
-        frame.nodes[index].area.y = target.height * target_anchor.y - size.height * child_anchor.y
-            + positioned.offset.y
-            + reference_offset.y;
+        frame.nodes[index].area.x =
+            target.width * target_anchor.x - size.width * child_anchor.x + positioned.offset.x + reference_offset.x;
+        frame.nodes[index].area.y =
+            target.height * target_anchor.y - size.height * child_anchor.y + positioned.offset.y + reference_offset.y;
     }
 }
 

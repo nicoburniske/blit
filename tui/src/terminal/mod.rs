@@ -2,8 +2,7 @@ use std::{
     collections::VecDeque,
     fs::{File, OpenOptions},
     io::{self, BufWriter, Write},
-    os::fd::AsFd,
-    os::unix::net::UnixStream,
+    os::{fd::AsFd, unix::net::UnixStream},
     time::{Duration, Instant},
 };
 
@@ -128,14 +127,9 @@ impl Terminal {
                 let mut bytes = ArrayVec::<u8, 4096>::new();
                 match read_into(&self.input, &mut bytes) {
                     Ok(0) => {
-                        return Err(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "terminal closed",
-                        ));
+                        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "terminal closed"));
                     }
-                    Ok(_) => self
-                        .parser
-                        .parse(&bytes, |event| self.events.push_back(event)),
+                    Ok(_) => self.parser.parse(&bytes, |event| self.events.push_back(event)),
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                     Err(error) => return Err(error),
                 }
@@ -200,17 +194,10 @@ mod poll {
             Self
         }
 
-        pub fn wait(
-            &mut self,
-            fds: [Fd<'_>; 3],
-            timeout: Option<&Timespec>,
-        ) -> rustix::io::Result<[bool; 3]> {
+        pub fn wait(&mut self, fds: [Fd<'_>; 3], timeout: Option<&Timespec>) -> rustix::io::Result<[bool; 3]> {
             let mut pollfds = fds.each_ref().map(|fd| PollFd::new(fd, PollFlags::IN));
             poll(&mut pollfds, timeout)?;
-            Ok(pollfds.map(|fd| {
-                fd.revents()
-                    .intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR)
-            }))
+            Ok(pollfds.map(|fd| fd.revents().intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR)))
         }
     }
 }
@@ -221,9 +208,7 @@ mod poll {
 
     use std::os::fd::{AsRawFd as _, BorrowedFd, RawFd};
 
-    use rustix::event::{
-        FdSetElement, FdSetIter, Timespec, fd_set_insert, fd_set_num_elements, select,
-    };
+    use rustix::event::{FdSetElement, FdSetIter, Timespec, fd_set_insert, fd_set_num_elements, select};
 
     pub type Fd<'a> = BorrowedFd<'a>;
 
@@ -241,11 +226,7 @@ mod poll {
             }
         }
 
-        pub fn wait(
-            &mut self,
-            fds: [Fd<'_>; 3],
-            timeout: Option<&Timespec>,
-        ) -> rustix::io::Result<[bool; 3]> {
+        pub fn wait(&mut self, fds: [Fd<'_>; 3], timeout: Option<&Timespec>) -> rustix::io::Result<[bool; 3]> {
             let fds = fds.map(|fd| fd.as_raw_fd());
             self.readfds.fill(FdSetElement::default());
             for fd in fds {

@@ -1,18 +1,15 @@
 use std::{iter, mem::size_of, sync::Arc};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
+use blit_text::{
+    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle, Glyph, LayoutLine,
+    LayoutRequest, LayoutRun, SystemFontRequest, TextLayout, TextOverflow, TextStyle, TextWrap,
+};
 use cosmic_text::{
-    Align, Attrs, Buffer, Ellipsize, EllipsizeHeightLimit, Family, FontSystem, LineIter, Metrics,
-    Shaping, Wrap,
+    Align, Attrs, Buffer, Ellipsize, EllipsizeHeightLimit, Family, FontSystem, LineIter, Metrics, Shaping, Wrap,
     fontdb::{self, Query, Source},
 };
 use unicode_segmentation::UnicodeSegmentation;
-
-use blit_text::{
-    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle,
-    Glyph, LayoutLine, LayoutRequest, LayoutRun, SystemFontRequest, TextLayout, TextOverflow,
-    TextStyle, TextWrap,
-};
 
 pub struct Backend {
     fonts: FontSystem,
@@ -94,15 +91,8 @@ impl blit_text::TextLayoutEngine for Backend {
         }
         let mut registered = Vec::new();
         for cosmic in faces {
-            let face_index = self
-                .fonts
-                .db()
-                .face(cosmic)
-                .ok_or(FontError::InvalidData)?
-                .index;
-            let id = FontFaceId(
-                u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?,
-            );
+            let face_index = self.fonts.db().face(cosmic).ok_or(FontError::InvalidData)?.index;
+            let id = FontFaceId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
             self.faces.push(CosmicFace {
                 cosmic,
                 data: FontFace {
@@ -115,10 +105,7 @@ impl blit_text::TextLayoutEngine for Backend {
         Ok(registered)
     }
 
-    fn register_font_selection(
-        &mut self,
-        candidates: &[FontCandidate],
-    ) -> Result<FontSelectionId, FontError> {
+    fn register_font_selection(&mut self, candidates: &[FontCandidate]) -> Result<FontSelectionId, FontError> {
         if candidates.is_empty() {
             return Err(FontError::NotFound);
         }
@@ -138,19 +125,12 @@ impl blit_text::TextLayoutEngine for Backend {
             }
         }
 
-        let id = FontSelectionId(
-            u64::try_from(self.selections.len() + 1).map_err(|_| FontError::Unsupported)?,
-        );
+        let id = FontSelectionId(u64::try_from(self.selections.len() + 1).map_err(|_| FontError::Unsupported)?);
         // expose configured candidates to cosmic as one private family
         let family = format!("\0blit-{}", id.0).into_boxed_str();
         for candidate in candidates {
             let index = usize::try_from(candidate.face.0).unwrap() - 1;
-            let mut info = self
-                .fonts
-                .db()
-                .face(self.faces[index].cosmic)
-                .unwrap()
-                .clone();
+            let mut info = self.fonts.db().face(self.faces[index].cosmic).unwrap().clone();
             info.id = fontdb::ID::dummy();
             info.families[0].0 = family.to_string();
             info.families.truncate(1);
@@ -201,9 +181,7 @@ impl blit_text::TextLayoutEngine for Backend {
             line_starts.push(0);
         }
         let weight = line_starts.len() * size_of::<u32>()
-            + text.text.len()
-                * (2 + size_of::<cosmic_text::ShapeGlyph>()
-                    + size_of::<cosmic_text::LayoutGlyph>());
+            + text.text.len() * (2 + size_of::<cosmic_text::ShapeGlyph>() + size_of::<cosmic_text::LayoutGlyph>());
         (
             Shape {
                 buffer,
@@ -255,13 +233,8 @@ impl blit_text::TextLayoutEngine for Backend {
                 {
                     end += 1;
                 }
-                let face = face(
-                    self.fonts.db(),
-                    &mut self.faces,
-                    &self.aliases,
-                    source.font_id,
-                )
-                .expect("cosmic-text returned invalid font");
+                let face = face(self.fonts.db(), &mut self.faces, &self.aliases, source.font_id)
+                    .expect("cosmic-text returned invalid font");
                 let glyph_start = u32::try_from(glyphs.len()).expect("too many glyphs");
                 glyphs.extend(line.glyphs[start..end].iter().map(|glyph| Glyph {
                     id: glyph.glyph_id,
@@ -279,12 +252,7 @@ impl blit_text::TextLayoutEngine for Backend {
                 });
                 start = end;
             }
-            let text_start = line
-                .glyphs
-                .iter()
-                .map(|glyph| glyph.start)
-                .min()
-                .unwrap_or(0);
+            let text_start = line.glyphs.iter().map(|glyph| glyph.start).min().unwrap_or(0);
             let text_end = line.glyphs.iter().map(|glyph| glyph.end).max().unwrap_or(0);
             lines.push(LayoutLine {
                 bounds,
@@ -304,13 +272,7 @@ impl blit_text::TextLayoutEngine for Backend {
         }
     }
 
-    fn carets(
-        &mut self,
-        shape: &mut Shape,
-        _text: &str,
-        request: LayoutRequest,
-        line_index: usize,
-    ) -> Box<[Caret]> {
+    fn carets(&mut self, shape: &mut Shape, _text: &str, request: LayoutRequest, line_index: usize) -> Box<[Caret]> {
         prepare(shape, &mut self.fonts, request);
         let max_lines = request.max_lines.map_or(usize::MAX, usize::from);
         let Some(line) = shape.buffer.layout_runs().take(max_lines).nth(line_index) else {
@@ -353,8 +315,7 @@ impl blit_text::TextLayoutEngine for Backend {
                 carets.push((
                     end,
                     Caret {
-                        byte_offset: u32::try_from(line_start.saturating_add(index))
-                            .expect("text is too long"),
+                        byte_offset: u32::try_from(line_start.saturating_add(index)).expect("text is too long"),
                         position: LogicalPoint {
                             x: if glyph.level.is_rtl() {
                                 glyph.x + glyph.w - offset
@@ -440,8 +401,9 @@ fn cosmic_style(style: FontStyle) -> fontdb::Style {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use blit_text::TextLayoutEngine as _;
+
+    use super::*;
 
     #[test]
     fn selection_and_size_resolve_per_span() {
@@ -502,12 +464,7 @@ mod tests {
             },
         );
 
-        assert!(
-            layout
-                .runs
-                .iter()
-                .any(|run| run.span == 0 && run.face == regular)
-        );
+        assert!(layout.runs.iter().any(|run| run.span == 0 && run.face == regular));
         assert!(
             layout
                 .runs

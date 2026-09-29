@@ -87,11 +87,7 @@ pub trait Pixel: Copy {
         }
     }
 
-    fn blend_solid_pair(
-        pixels: &mut [Self],
-        first: PremultipliedRgbaColor,
-        second: PremultipliedRgbaColor,
-    ) {
+    fn blend_solid_pair(pixels: &mut [Self], first: PremultipliedRgbaColor, second: PremultipliedRgbaColor) {
         Self::blend_slice(pixels, first);
         Self::blend_slice(pixels, second);
     }
@@ -111,11 +107,7 @@ pub trait Pixel: Copy {
         }
     }
 
-    fn blend_texture_slice_rgba(
-        pixels: &mut [Self],
-        source: &[PremultipliedRgbaColor],
-        opacity: u8,
-    ) {
+    fn blend_texture_slice_rgba(pixels: &mut [Self], source: &[PremultipliedRgbaColor], opacity: u8) {
         for (pixel, source) in pixels.iter_mut().zip(source) {
             pixel.blend(if opacity == 255 {
                 *source
@@ -145,9 +137,7 @@ pub type Xrgb8888 = PackedPixel<16, 8, 0, 0>;
 pub type Argb8888 = PackedPixel<16, 8, 0, 0xff00_0000>;
 pub type Rgba8888 = PackedPixel<24, 16, 8, 0x0000_00ff>;
 
-impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32>
-    PackedPixel<RED, GREEN, BLUE, ALPHA>
-{
+impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> PackedPixel<RED, GREEN, BLUE, ALPHA> {
     pub const fn from_raw(raw: u32) -> Self {
         Self(raw)
     }
@@ -157,9 +147,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32>
     }
 }
 
-impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
-    for PackedPixel<RED, GREEN, BLUE, ALPHA>
-{
+impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for PackedPixel<RED, GREEN, BLUE, ALPHA> {
     fn blend_translucent(&mut self, color: PremultipliedRgbaColor) {
         let inverse = 255 - color.alpha as u32;
         let red = ((self.0 >> RED) & 0xff) * inverse / 255 + color.red as u32;
@@ -203,10 +191,8 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
         let (chunks, tail) = pixels.as_chunks_mut::<8>();
         for pixels in chunks {
             let channel = |index| {
-                ((I32x8::splat(color[index])
-                    + I32x8::splat(step[index]) * lanes
-                    + I32x8::splat(HALF))
-                .simd_clamp(zero, maximum)
+                ((I32x8::splat(color[index]) + I32x8::splat(step[index]) * lanes + I32x8::splat(HALF))
+                    .simd_clamp(zero, maximum)
                     >> I32x8::splat(FRACTION_BITS as i32))
                 .cast::<u32>()
             };
@@ -220,8 +206,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
             }
         }
         for pixel in tail {
-            let channel =
-                |index: usize| ((color[index] + HALF) >> FRACTION_BITS).clamp(0, 255) as u8;
+            let channel = |index: usize| ((color[index] + HALF) >> FRACTION_BITS).clamp(0, 255) as u8;
             *pixel = Self::from_rgb(channel(0), channel(1), channel(2));
             for index in 0..3 {
                 color[index] = color[index].wrapping_add(step[index]);
@@ -286,11 +271,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel
         }
     }
 
-    fn blend_texture_slice_rgba(
-        pixels: &mut [Self],
-        source: &[PremultipliedRgbaColor],
-        opacity: u8,
-    ) {
+    fn blend_texture_slice_rgba(pixels: &mut [Self], source: &[PremultipliedRgbaColor], opacity: u8) {
         if opacity == 0 {
             return;
         }
@@ -331,11 +312,7 @@ fn divide_by_255(value: U16x8) -> U16x8 {
 #[inline(always)]
 fn write_opaque_gradient_scalar<P: Pixel>(pixels: &mut [P], mut color: [f32; 3], step: [f32; 3]) {
     for pixel in pixels {
-        *pixel = P::from_rgb(
-            (color[0] + 0.5) as u8,
-            (color[1] + 0.5) as u8,
-            (color[2] + 0.5) as u8,
-        );
+        *pixel = P::from_rgb((color[0] + 0.5) as u8, (color[1] + 0.5) as u8, (color[2] + 0.5) as u8);
         for channel in 0..3 {
             color[channel] += step[channel];
         }
@@ -350,15 +327,13 @@ fn blend<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32>(
     blue: U16x8,
 ) -> U32x8 {
     let inverse = U16x8::splat(255) - alpha;
-    let red = divide_by_255(
-        ((destination >> U32x8::splat(RED as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse,
-    ) + red;
-    let green = divide_by_255(
-        ((destination >> U32x8::splat(GREEN as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse,
-    ) + green;
-    let blue = divide_by_255(
-        ((destination >> U32x8::splat(BLUE as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse,
-    ) + blue;
+    let red =
+        divide_by_255(((destination >> U32x8::splat(RED as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse) + red;
+    let green =
+        divide_by_255(((destination >> U32x8::splat(GREEN as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse)
+            + green;
+    let blue =
+        divide_by_255(((destination >> U32x8::splat(BLUE as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse) + blue;
     let output = red.cast::<u32>() << U32x8::splat(RED as u32)
         | green.cast::<u32>() << U32x8::splat(GREEN as u32)
         | blue.cast::<u32>() << U32x8::splat(BLUE as u32);
@@ -388,12 +363,7 @@ pub trait PixelBuffer {
     fn height(&self) -> usize;
     fn line_mut(&mut self, line: usize) -> &mut [Self::Pixel];
 
-    fn process_line(
-        &mut self,
-        line: usize,
-        range: Range<usize>,
-        process: impl FnOnce(&mut [Self::Pixel]),
-    ) {
+    fn process_line(&mut self, line: usize, range: Range<usize>, process: impl FnOnce(&mut [Self::Pixel])) {
         process(&mut self.line_mut(line)[range]);
     }
 }
@@ -406,9 +376,7 @@ pub struct VecBuffer<P> {
 
 impl<P: Pixel> VecBuffer<P> {
     pub fn new(width: usize, height: usize) -> Self {
-        let len = width
-            .checked_mul(height)
-            .expect("pixel buffer dimensions overflow");
+        let len = width.checked_mul(height).expect("pixel buffer dimensions overflow");
         Self {
             pixels: vec![P::background(); len],
             width,
@@ -420,9 +388,7 @@ impl<P: Pixel> VecBuffer<P> {
         if self.width == width && self.height == height {
             return;
         }
-        let len = width
-            .checked_mul(height)
-            .expect("pixel buffer dimensions overflow");
+        let len = width.checked_mul(height).expect("pixel buffer dimensions overflow");
         self.pixels.clear();
         self.pixels.resize(len, P::background());
         self.width = width;
@@ -497,12 +463,7 @@ mod test {
             let mut actual: [P; 11] = std::array::from_fn(|index| {
                 let mut pixel = P::background();
                 pixel.blend(PremultipliedRgbaColor::new(
-                    Color::rgba(
-                        index as u8 * 17,
-                        220 - index as u8 * 11,
-                        index as u8 * 7,
-                        181,
-                    ),
+                    Color::rgba(index as u8 * 17, 220 - index as u8 * 11, index as u8 * 7, 181),
                     index as u8 * 23,
                 ));
                 pixel
@@ -526,12 +487,7 @@ mod test {
 
             let source: [PremultipliedRgbaColor; 11] = std::array::from_fn(|index| {
                 PremultipliedRgbaColor::new(
-                    Color::rgba(
-                        230 - index as u8 * 13,
-                        index as u8 * 19,
-                        40 + index as u8 * 7,
-                        220,
-                    ),
+                    Color::rgba(230 - index as u8 * 13, index as u8 * 19, 40 + index as u8 * 7, 220),
                     20 + index as u8 * 21,
                 )
             });
@@ -545,11 +501,7 @@ mod test {
             let step = [4.125, -3.75, 1.0];
             P::write_opaque_gradient(&mut actual, color, step);
             for pixel in &mut expected {
-                *pixel = P::from_rgb(
-                    (color[0] + 0.5) as u8,
-                    (color[1] + 0.5) as u8,
-                    (color[2] + 0.5) as u8,
-                );
+                *pixel = P::from_rgb((color[0] + 0.5) as u8, (color[1] + 0.5) as u8, (color[2] + 0.5) as u8);
                 for channel in 0..3 {
                     color[channel] += step[channel];
                 }

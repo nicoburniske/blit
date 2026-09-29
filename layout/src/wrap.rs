@@ -63,14 +63,8 @@ impl<C> blit::Layout<C> for Layout {
                 child,
                 flow_constraints(
                     self.axis,
-                    sizing_range(
-                        cx.resolve_sizing(child, self.axis, item.sizing(self.axis)),
-                        main_max,
-                    ),
-                    sizing_range(
-                        cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis)),
-                        cross_max,
-                    ),
+                    sizing_range(cx.resolve_sizing(child, self.axis, item.sizing(self.axis)), main_max),
+                    sizing_range(cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis)), cross_max),
                 ),
             );
         }
@@ -112,11 +106,7 @@ impl<C> blit::Layout<C> for Layout {
             }
         }
         target_longest = target_longest.max(target_run);
-        let target_size = bounds.constrain(flow_size(
-            target_longest + main_padding,
-            cross_padding,
-            self.axis,
-        ));
+        let target_size = bounds.constrain(flow_size(target_longest + main_padding, cross_padding, self.axis));
         let target_available = (self.axis.extent(target_size) - main_padding).max(0.0);
 
         let mut children = cx.children().peekable();
@@ -172,10 +162,7 @@ impl<C> blit::Layout<C> for Layout {
                             flow_constraints(
                                 self.axis,
                                 (assigned, assigned),
-                                sizing_range(
-                                    cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis)),
-                                    cross_max,
-                                ),
+                                sizing_range(cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis)), cross_max),
                             ),
                         );
                     }
@@ -186,8 +173,7 @@ impl<C> blit::Layout<C> for Layout {
             }
 
             // stretch and position the completed run
-            let (offset, extra_gap) =
-                justify_offset(self.justify, (available - main).max(0.0), count);
+            let (offset, extra_gap) = justify_offset(self.justify, (available - main).max(0.0), count);
             let mut main_cursor = main_leading + offset;
             for child in start.take(count) {
                 let item = cx.item(child);
@@ -202,11 +188,7 @@ impl<C> blit::Layout<C> for Layout {
                     if assigned != child_cross {
                         cx.layout_child(
                             child,
-                            flow_constraints(
-                                self.axis,
-                                (child_main, child_main),
-                                (assigned, assigned),
-                            ),
+                            flow_constraints(self.axis, (child_main, child_main), (assigned, assigned)),
                         );
                     }
                 }

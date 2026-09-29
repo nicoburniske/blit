@@ -1,9 +1,9 @@
 mod parser;
 
-pub use parser::Parser;
-
-use crate::color::PaletteSlot;
 use std::io::{self, Write};
+
+pub use self::parser::Parser;
+use crate::color::PaletteSlot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -88,8 +88,10 @@ pub enum KeyKind {
 
 // disambiguate keys and report repeats, releases and alternate keys
 // save and enable focus (1004) and theme (2031) notifications on entry, restore on exit
-pub const ENTER: &[u8] = b"\x1b[?1049h\x1b[?25l\x1b[?1003h\x1b[?1006h\x1b[?2004h\x1b[>7u\x1b[?1004s\x1b[?2031s\x1b[?1004h\x1b[?2031h";
-pub const LEAVE: &[u8] = b"\x1b[?2031l\x1b[?1004l\x1b[?2031r\x1b[?1004r\x1b[<u\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?25h\x1b[?1049l";
+pub const ENTER: &[u8] =
+    b"\x1b[?1049h\x1b[?25l\x1b[?1003h\x1b[?1006h\x1b[?2004h\x1b[>7u\x1b[?1004s\x1b[?2031s\x1b[?1004h\x1b[?2031h";
+pub const LEAVE: &[u8] =
+    b"\x1b[?2031l\x1b[?1004l\x1b[?2031r\x1b[?1004r\x1b[<u\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?25h\x1b[?1049l";
 
 pub fn query_colors(output: &mut impl Write) -> io::Result<()> {
     output.write_all(b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\")?;

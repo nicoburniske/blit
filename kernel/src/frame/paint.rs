@@ -33,13 +33,8 @@ pub fn resolve_order<C>(frame: &mut Frame<C>) {
             child = frame.paint_links[child as usize].next_sibling;
         }
         let children = &mut frame.order_stack[start..];
-        if children
-            .iter()
-            .any(|id| frame.nodes[id.index()].z_index != 0)
-        {
-            children.sort_unstable_by_key(|id| {
-                std::cmp::Reverse((frame.nodes[id.index()].z_index, id.index()))
-            });
+        if children.iter().any(|id| frame.nodes[id.index()].z_index != 0) {
+            children.sort_unstable_by_key(|id| std::cmp::Reverse((frame.nodes[id.index()].z_index, id.index())));
         }
     }
     debug_assert_eq!(frame.paint_order.len(), frame.nodes.len());
@@ -114,16 +109,7 @@ fn push<C>(
         return;
     }
     let stored = resolved[clip.index().unwrap()];
-    push(
-        data,
-        clips,
-        kinds,
-        resolved,
-        active,
-        context,
-        stored.parent,
-        common,
-    );
+    push(data, clips, kinds, resolved, active, context, stored.parent, common);
     let clip_data = clips[stored.clip.index().unwrap()];
     (kinds[clip_data.kind as usize].push)(data, clip_data.data, context, stored.area);
     active.push(clip);
@@ -152,9 +138,7 @@ fn set<C>(
         let clip_data = clips[stored.clip.index().unwrap()];
         (kinds[clip_data.kind as usize].pop)(data, clip_data.data, context);
     }
-    push(
-        data, clips, kinds, resolved, active, context, target, common.0,
-    );
+    push(data, clips, kinds, resolved, active, context, target, common.0);
 }
 
 fn paint_node<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, node: usize) {

@@ -68,12 +68,7 @@ impl Renderer {
     /// creates a renderer for targets using `format`
     ///
     /// pass the linear format configured on every target passed to [`Self::render`]
-    pub fn new(
-        device: wgpu::Device,
-        queue: wgpu::Queue,
-        format: wgpu::TextureFormat,
-        config: RendererConfig,
-    ) -> Self {
+    pub fn new(device: wgpu::Device, queue: wgpu::Queue, format: wgpu::TextureFormat, config: RendererConfig) -> Self {
         assert!(!format.is_srgb(), "GPU rendering requires a linear target");
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("blit gpu data"),
@@ -140,31 +135,29 @@ impl Renderer {
                 },
             ],
         });
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("blit gpu texture"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                }],
-            });
+        let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("blit gpu texture"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("blit gpu pipeline"),
             bind_group_layouts: &[Some(&bind_group_layout)],
             immediate_size: 0,
         });
-        let texture_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("blit gpu texture pipeline"),
-                bind_group_layouts: &[Some(&bind_group_layout), Some(&texture_bind_group_layout)],
-                immediate_size: 0,
-            });
+        let texture_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("blit gpu texture pipeline"),
+            bind_group_layouts: &[Some(&bind_group_layout), Some(&texture_bind_group_layout)],
+            immediate_size: 0,
+        });
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
         let draw_attributes = wgpu::vertex_attr_array![0 => Uint32];
         let draw_layout = [Some(wgpu::VertexBufferLayout {
@@ -172,49 +165,38 @@ impl Renderer {
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &draw_attributes,
         })];
-        let pipeline = |label,
-                        layout,
-                        vertex_entry,
-                        buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
-                        entry_point,
-                        blend| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some(vertex_entry),
-                    compilation_options: Default::default(),
-                    buffers,
-                },
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(entry_point),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
-        let clear_pipeline = pipeline(
-            "blit gpu clear",
-            &pipeline_layout,
-            "vertex",
-            &[],
-            "clear",
-            None,
-        );
+        let pipeline =
+            |label, layout, vertex_entry, buffers: &[Option<wgpu::VertexBufferLayout<'_>>], entry_point, blend| {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some(vertex_entry),
+                        compilation_options: Default::default(),
+                        buffers,
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some(entry_point),
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            };
+        let clear_pipeline = pipeline("blit gpu clear", &pipeline_layout, "vertex", &[], "clear", None);
         let blend = Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
         let content_pipeline = pipeline(
             "blit gpu content",
@@ -370,26 +352,14 @@ impl Renderer {
         for (handle, data) in image_uploads.drain(..) {
             data.validate();
             let copy_size = wgpu::Extent3d {
-                width: u32::try_from(data.texture_rect.width)
-                    .expect("image texture width is too large"),
-                height: u32::try_from(data.texture_rect.height)
-                    .expect("image texture height is too large"),
+                width: u32::try_from(data.texture_rect.width).expect("image texture width is too large"),
+                height: u32::try_from(data.texture_rect.height).expect("image texture height is too large"),
                 depth_or_array_layers: 1,
             };
             let source = data.pixels.bytes();
             let (format, row_bytes, mask_color, pixels): (_, usize, _, &[u8]) = match data.format {
-                ImageFormat::Rgba8Premultiplied => (
-                    wgpu::TextureFormat::Rgba8Unorm,
-                    data.stride_bytes,
-                    None,
-                    source,
-                ),
-                ImageFormat::Alpha8(color) => (
-                    wgpu::TextureFormat::R8Unorm,
-                    data.stride_bytes,
-                    Some(color),
-                    source,
-                ),
+                ImageFormat::Rgba8Premultiplied => (wgpu::TextureFormat::Rgba8Unorm, data.stride_bytes, None, source),
+                ImageFormat::Alpha8(color) => (wgpu::TextureFormat::R8Unorm, data.stride_bytes, Some(color), source),
                 ImageFormat::Rgb8 | ImageFormat::Luma8 | ImageFormat::Rgba8 => {
                     let pixels = (copy_size.width as usize)
                         .checked_mul(copy_size.height as usize)
@@ -401,8 +371,7 @@ impl Renderer {
                         let row = &source[y * data.stride_bytes..];
                         match data.format {
                             ImageFormat::Rgb8 => {
-                                for pixel in row[..copy_size.width as usize * 3].as_chunks::<3>().0
-                                {
+                                for pixel in row[..copy_size.width as usize * 3].as_chunks::<3>().0 {
                                     self.upload.extend([pixel[0], pixel[1], pixel[2], 255]);
                                 }
                             }
@@ -412,8 +381,7 @@ impl Renderer {
                                 }
                             }
                             ImageFormat::Rgba8 => {
-                                for pixel in row[..copy_size.width as usize * 4].as_chunks::<4>().0
-                                {
+                                for pixel in row[..copy_size.width as usize * 4].as_chunks::<4>().0 {
                                     let alpha = pixel[3] as u16;
                                     self.upload.extend([
                                         (pixel[0] as u16 * alpha / 255) as u8,
@@ -435,8 +403,8 @@ impl Renderer {
                     )
                 }
             };
-            let bytes_per_row = (copy_size.height > 1)
-                .then(|| u32::try_from(row_bytes).expect("image row is too large"));
+            let bytes_per_row =
+                (copy_size.height > 1).then(|| u32::try_from(row_bytes).expect("image row is too large"));
             // todo: handle oversized textures
             // wgpu currently sends oversized textures to the device error handler (panics)
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -535,8 +503,7 @@ impl Renderer {
                     Pipeline::Clear
                 }
                 Command::Rectangle(rectangle) => {
-                    let opacity =
-                        ((rectangle.opacity.clamp(0.0, 1.0) * 255.0).round() as u8) as f32 / 255.0;
+                    let opacity = ((rectangle.opacity.clamp(0.0, 1.0) * 255.0).round() as u8) as f32 / 255.0;
                     if opacity == 0.0 {
                         continue;
                     }
@@ -548,8 +515,7 @@ impl Renderer {
                         let Some(draw) = record.bounds.intersection(screen) else {
                             continue;
                         };
-                        let vertex =
-                            u32::try_from(self.mesh_data.len()).expect("too much GPU mesh data");
+                        let vertex = u32::try_from(self.mesh_data.len()).expect("too much GPU mesh data");
                         vertex.checked_add(3).expect("too many GPU mesh vertices");
                         let color = u32::from_le_bytes([
                             rectangle.background.red,
@@ -595,9 +561,7 @@ impl Renderer {
                             if gradient.stops.len() >= 2
                                 && gradient.angle_degrees.is_finite()
                                 && gradient.stops.iter().all(|stop| {
-                                    stop.position.is_finite()
-                                        && stop.position >= 0.0
-                                        && stop.position <= 1.0
+                                    stop.position.is_finite() && stop.position >= 0.0 && stop.position <= 1.0
                                 })
                                 && gradient
                                     .stops
@@ -609,31 +573,24 @@ impl Renderer {
                                 let angle = gradient.angle_degrees.to_radians();
                                 let direction_x = angle.cos();
                                 let direction_y = angle.sin();
-                                let extent = direction_x.abs() * area.width as f32
-                                    + direction_y.abs() * area.height as f32;
+                                let extent =
+                                    direction_x.abs() * area.width as f32 + direction_y.abs() * area.height as f32;
                                 let minimum = direction_x.min(0.0) * area.width as f32
                                     + direction_y.min(0.0) * area.height as f32;
                                 params[1] = direction_x / extent;
                                 params[2] = direction_y / extent;
-                                params[3] =
-                                    (0.5 * direction_x + 0.5 * direction_y - minimum) / extent;
+                                params[3] = (0.5 * direction_x + 0.5 * direction_y - minimum) / extent;
                                 data[1] = self.stops.len() as u32;
                                 data[2] = gradient.stops.len() as u32;
-                                self.stops
-                                    .extend(gradient.stops.iter().map(|stop| GradientStop {
-                                        color: over(
-                                            premultiplied(stop.color, opacity),
-                                            inner_color,
-                                        ),
-                                        data: [stop.position, 0.0, 0.0, 0.0],
-                                    }));
+                                self.stops.extend(gradient.stops.iter().map(|stop| GradientStop {
+                                    color: over(premultiplied(stop.color, opacity), inner_color),
+                                    data: [stop.position, 0.0, 0.0, 0.0],
+                                }));
                             }
                         }
                         Border::Gradient { .. } => {}
                     }
-                    if inner_color[3] <= 0.0
-                        && (border_width <= 0.0 || (data[2] == 0 && border_color[3] <= 0.0))
-                    {
+                    if inner_color[3] <= 0.0 && (border_width <= 0.0 || (data[2] == 0 && border_color[3] <= 0.0)) {
                         continue;
                     }
                     params[0] = border_width;
@@ -697,10 +654,9 @@ impl Renderer {
                             let Some(diameter) = blur.checked_mul(2) else {
                                 continue;
                             };
-                            let (Some(width), Some(height)) = (
-                                shape.width.checked_add(diameter),
-                                shape.height.checked_add(diameter),
-                            ) else {
+                            let (Some(width), Some(height)) =
+                                (shape.width.checked_add(diameter), shape.height.checked_add(diameter))
+                            else {
                                 continue;
                             };
                             PhysicalRect {
@@ -728,20 +684,14 @@ impl Renderer {
                             radii: physical_radii(radius, scale, shape.width, shape.height),
                             inner_color: premultiplied(shadow.color, 1.0),
                             params: [blur as f32, 0.0, 0.0, 0.0],
-                            data: [
-                                record.clip.0,
-                                0,
-                                0,
-                                if blur == 0 { 0 } else { OUTSET_SHADOW },
-                            ],
+                            data: [record.clip.0, 0, 0, if blur == 0 { 0 } else { OUTSET_SHADOW }],
                             ..Instance::zeroed()
                         });
                     }
                     Pipeline::Content(None)
                 }
                 Command::Image(request) => {
-                    let opacity =
-                        ((request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8) as f32 / 255.0;
+                    let opacity = ((request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8) as f32 / 255.0;
                     if opacity == 0.0 {
                         continue;
                     }
@@ -760,12 +710,10 @@ impl Renderer {
                         else {
                             return;
                         };
-                        let offset_x =
-                            u64::try_from(i64::from(draw.x) - i64::from(patch.display.x))
-                                .expect("clipped image starts before its display area");
-                        let offset_y =
-                            u64::try_from(i64::from(draw.y) - i64::from(patch.display.y))
-                                .expect("clipped image starts before its display area");
+                        let offset_x = u64::try_from(i64::from(draw.x) - i64::from(patch.display.x))
+                            .expect("clipped image starts before its display area");
+                        let offset_y = u64::try_from(i64::from(draw.y) - i64::from(patch.display.y))
+                            .expect("clipped image starts before its display area");
                         let (fixed_x, phase_x, step_x, bilinear_x, wrap_x) = image_axis(
                             patch.source.width,
                             patch.display.width,
@@ -780,8 +728,8 @@ impl Renderer {
                             scale,
                             offset_y,
                         );
-                        let mut flags = (u32::from(wrap_x) * image_flag::WRAP_X)
-                            | (u32::from(wrap_y) * image_flag::WRAP_Y);
+                        let mut flags =
+                            (u32::from(wrap_x) * image_flag::WRAP_X) | (u32::from(wrap_y) * image_flag::WRAP_Y);
                         if request.sampling == ImageSampling::Bilinear {
                             flags |= image_flag::BILINEAR;
                         }
@@ -791,35 +739,34 @@ impl Renderer {
                         if request.colorize.is_some() {
                             flags |= image_flag::COLORIZE;
                         }
-                        let (shape, params, axes, source_size) =
-                            if request.sampling == ImageSampling::Bilinear {
-                                (
-                                    [0.0; 4],
-                                    [step_x, step_y, opacity, 0.0],
-                                    [bilinear_x.to_bits(), bilinear_y.to_bits()],
-                                    [patch.source.width as f32, patch.source.height as f32],
-                                )
-                            } else {
-                                (
-                                    [
-                                        f32::from_bits((fixed_x >> 32) as u32),
-                                        f32::from_bits((fixed_y >> 32) as u32),
-                                        f32::from_bits((phase_x >> 32) as u32),
-                                        f32::from_bits((phase_y >> 32) as u32),
-                                    ],
-                                    [
-                                        f32::from_bits(phase_x as u32),
-                                        f32::from_bits(phase_y as u32),
-                                        opacity,
-                                        0.0,
-                                    ],
-                                    [fixed_x as u32, fixed_y as u32],
-                                    [
-                                        f32::from_bits(patch.source.width as u32),
-                                        f32::from_bits(patch.source.height as u32),
-                                    ],
-                                )
-                            };
+                        let (shape, params, axes, source_size) = if request.sampling == ImageSampling::Bilinear {
+                            (
+                                [0.0; 4],
+                                [step_x, step_y, opacity, 0.0],
+                                [bilinear_x.to_bits(), bilinear_y.to_bits()],
+                                [patch.source.width as f32, patch.source.height as f32],
+                            )
+                        } else {
+                            (
+                                [
+                                    f32::from_bits((fixed_x >> 32) as u32),
+                                    f32::from_bits((fixed_y >> 32) as u32),
+                                    f32::from_bits((phase_x >> 32) as u32),
+                                    f32::from_bits((phase_y >> 32) as u32),
+                                ],
+                                [
+                                    f32::from_bits(phase_x as u32),
+                                    f32::from_bits(phase_y as u32),
+                                    opacity,
+                                    0.0,
+                                ],
+                                [fixed_x as u32, fixed_y as u32],
+                                [
+                                    f32::from_bits(patch.source.width as u32),
+                                    f32::from_bits(patch.source.height as u32),
+                                ],
+                            )
+                        };
                         self.instances.push(Instance {
                             shape,
                             draw: physical_rect(draw),
@@ -850,20 +797,13 @@ impl Renderer {
                     let resolved = text_system.paint_layout(&request);
                     for run in &resolved.layout.runs {
                         let offset = resolved.line_offset(run.line as usize);
-                        let color = colors
-                            .get(run.span)
-                            .copied()
-                            .flatten()
-                            .unwrap_or(request.color);
+                        let color = colors.get(run.span).copied().flatten().unwrap_or(request.color);
                         if color.alpha == 0 {
                             continue;
                         }
-                        let color =
-                            u32::from_le_bytes([color.red, color.green, color.blue, color.alpha]);
+                        let color = u32::from_le_bytes([color.red, color.green, color.blue, color.alpha]);
                         let size = run.size * scale;
-                        for glyph in &resolved.layout.glyphs
-                            [run.glyphs.start as usize..run.glyphs.end as usize]
-                        {
+                        for glyph in &resolved.layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
                             let x = (glyph.position.x + offset.x - request.offset_x) * scale;
                             let x_phases = (x * phase_count as f32).round() as i32;
                             let phase = x_phases.rem_euclid(phase_count) as u8;
@@ -876,18 +816,14 @@ impl Renderer {
                                 size,
                                 phase,
                             );
-                            let width =
-                                i32::try_from(cached.metrics.width).expect("glyph is too wide");
-                            let height =
-                                i32::try_from(cached.metrics.height).expect("glyph is too tall");
+                            let width = i32::try_from(cached.metrics.width).expect("glyph is too wide");
+                            let height = i32::try_from(cached.metrics.height).expect("glyph is too tall");
                             if width == 0 || height == 0 {
                                 continue;
                             }
-                            let x = (x_phases as f32 * phase_scale + cached.metrics.bounds.xmin)
-                                .floor() as i32;
+                            let x = (x_phases as f32 * phase_scale + cached.metrics.bounds.xmin).floor() as i32;
                             let y = ((glyph.position.y + offset.y) * scale
-                                + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin)
-                                    .floor())
+                                + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin).floor())
                             .round() as i32;
                             let shape = PhysicalRect {
                                 x: area.x.saturating_add(x),
@@ -917,8 +853,7 @@ impl Renderer {
                     if record.bounds.intersection(screen).is_none() {
                         continue;
                     }
-                    let vertex_start =
-                        u32::try_from(self.mesh_data.len()).expect("too much GPU mesh data");
+                    let vertex_start = u32::try_from(self.mesh_data.len()).expect("too much GPU mesh data");
                     self.mesh_data.extend(mesh.vertices.iter().map(|vertex| {
                         MeshData([
                             (vertex.position.x * scale).to_bits(),
@@ -933,11 +868,8 @@ impl Renderer {
                         ])
                     }));
                     for triangle in mesh.indices.as_chunks::<3>().0 {
-                        let [first, second, third] = triangle.map(|index| {
-                            vertex_start
-                                .checked_add(index)
-                                .expect("too many GPU mesh vertices")
-                        });
+                        let [first, second, third] =
+                            triangle.map(|index| vertex_start.checked_add(index).expect("too many GPU mesh vertices"));
                         self.push_mesh_primitive([first, second, third, third]);
                     }
                     continue;
@@ -957,11 +889,7 @@ impl Renderer {
             {
                 batch.end = end;
             } else {
-                self.batches.push(Batch {
-                    pipeline,
-                    start,
-                    end,
-                });
+                self.batches.push(Batch { pipeline, start, end });
             }
         }
 
@@ -979,12 +907,7 @@ impl Renderer {
             || stop_bytes > self.stop_buffer.size()
         {
             let device = &self.device;
-            grow_buffer(
-                device,
-                &mut self.instance_buffer,
-                &self.instances,
-                "blit gpu instances",
-            );
+            grow_buffer(device, &mut self.instance_buffer, &self.instances, "blit gpu instances");
             grow_buffer(
                 device,
                 &mut self.glyph_buffer,
@@ -992,19 +915,9 @@ impl Renderer {
                 "blit gpu glyph instances",
             );
             grow_buffer(device, &mut self.draw_buffer, &self.draws, "blit gpu draws");
-            grow_buffer(
-                device,
-                &mut self.mesh_buffer,
-                &self.mesh_data,
-                "blit gpu mesh data",
-            );
+            grow_buffer(device, &mut self.mesh_buffer, &self.mesh_data, "blit gpu mesh data");
             grow_buffer(device, &mut self.clip_buffer, &self.clips, "blit gpu clips");
-            grow_buffer(
-                device,
-                &mut self.stop_buffer,
-                &self.stops,
-                "blit gpu gradient stops",
-            );
+            grow_buffer(device, &mut self.stop_buffer, &self.stops, "blit gpu gradient stops");
             self.bind_group = data_bind_group(
                 &self.device,
                 &self.bind_group_layout,
@@ -1029,18 +942,12 @@ impl Renderer {
             self.frame_size = frame_size;
         }
         if !self.instances.is_empty() {
-            self.queue.write_buffer(
-                &self.instance_buffer,
-                0,
-                bytemuck::cast_slice(&self.instances),
-            );
+            self.queue
+                .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&self.instances));
         }
         if !self.glyph_instances.is_empty() {
-            self.queue.write_buffer(
-                &self.glyph_buffer,
-                0,
-                bytemuck::cast_slice(&self.glyph_instances),
-            );
+            self.queue
+                .write_buffer(&self.glyph_buffer, 0, bytemuck::cast_slice(&self.glyph_instances));
         }
         if !self.draws.is_empty() {
             self.queue
@@ -1063,11 +970,9 @@ impl Renderer {
         }
 
         let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("blit gpu frame"),
-            });
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("blit gpu frame"),
+        });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("blit gpu frame"),
@@ -1105,8 +1010,7 @@ impl Renderer {
         }
         self.queue.submit([encoder.finish()]);
         self.glyphs.end_frame();
-        self.images
-            .retain(|_, image| !image.handle.is_uniquely_owned());
+        self.images.retain(|_, image| !image.handle.is_uniquely_owned());
     }
 
     #[doc(hidden)]
@@ -1126,8 +1030,7 @@ impl Renderer {
         self.draws.push(draw);
         let end = self.draws.len() as u32;
         if let Some(batch) = self.batches.last_mut()
-            && let (Pipeline::Content(current), Pipeline::Content(texture)) =
-                (&mut batch.pipeline, pipeline)
+            && let (Pipeline::Content(current), Pipeline::Content(texture)) = (&mut batch.pipeline, pipeline)
             && (current.is_none() || texture.is_none() || *current == texture)
         {
             if current.is_none() {
@@ -1136,11 +1039,7 @@ impl Renderer {
             batch.end = end;
             return;
         }
-        self.batches.push(Batch {
-            pipeline,
-            start,
-            end,
-        });
+        self.batches.push(Batch { pipeline, start, end });
     }
 }
 
@@ -1219,16 +1118,11 @@ fn grow_buffer<T>(device: &wgpu::Device, buffer: &mut wgpu::Buffer, items: &[T],
     let limits = device.limits();
     let usage = buffer.usage();
     let limit = if usage.contains(wgpu::BufferUsages::STORAGE) {
-        limits
-            .max_buffer_size
-            .min(limits.max_storage_buffer_binding_size)
+        limits.max_buffer_size.min(limits.max_storage_buffer_binding_size)
     } else {
         limits.max_buffer_size
     };
-    assert!(
-        required_size <= limit,
-        "GPU frame data exceeds device limits"
-    );
+    assert!(required_size <= limit, "GPU frame data exceeds device limits");
     *buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
         size: (items.len() as u64)
@@ -1283,12 +1177,7 @@ fn data_bind_group(
 }
 
 fn physical_rect(rect: PhysicalRect) -> [f32; 4] {
-    [
-        rect.x as f32,
-        rect.y as f32,
-        rect.width as f32,
-        rect.height as f32,
-    ]
+    [rect.x as f32, rect.y as f32, rect.width as f32, rect.height as f32]
 }
 
 fn physical_radii(radius: BorderRadius, scale: f32, width: i32, height: i32) -> [f32; 4] {
@@ -1334,10 +1223,8 @@ fn image_axis(
             let native = (source as f32 * scale_factor).max(1.0);
             let count = (target as f32 / native).round().max(1.0) as u64;
             (
-                u64::try_from(
-                    ((source as u128 * u128::from(count)) << FIXED_SHIFT) / target as u128,
-                )
-                .expect("image scale is too large"),
+                u64::try_from(((source as u128 * u128::from(count)) << FIXED_SHIFT) / target as u128)
+                    .expect("image scale is too large"),
                 source as f32 * count as f32 / target as f32,
                 true,
             )
@@ -1348,9 +1235,7 @@ fn image_axis(
     let phase = if wrap {
         (u128::from(offset) * u128::from(fixed) % u128::from(period)) as u64
     } else {
-        offset
-            .checked_mul(fixed)
-            .expect("image coordinate is too large")
+        offset.checked_mul(fixed).expect("image coordinate is too large")
     };
     let bilinear = (offset as f64 + 0.5) * step as f64 - 0.5;
     let bilinear = if wrap {
@@ -1433,8 +1318,7 @@ mod tests {
         assert_eq!(phase, -0.375);
         assert!(!wrap);
 
-        let (_, _, step, phase, wrap) =
-            image_axis(3, i32::MAX, ImageTiling::Repeat, 1.0, 20_000_003);
+        let (_, _, step, phase, wrap) = image_axis(3, i32::MAX, ImageTiling::Repeat, 1.0, 20_000_003);
 
         assert_eq!(step, 1.0);
         assert_eq!(phase, 2.0);

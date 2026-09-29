@@ -1,20 +1,19 @@
 pub mod performance;
 pub use blit_widgets::{popover, resize, split};
-pub use performance::Performance;
 
 pub mod scroll_area;
 pub mod scroll_list;
 pub mod text_input;
 pub mod virtual_list;
 
-pub use text_input::TextInput;
+use blit::{Content, state};
 
+pub use self::{performance::Performance, text_input::TextInput};
 use crate::{
     GuiContext, Ui, atom,
     color::Color,
     text::{Span, TextOptions, TextStyle},
 };
-use blit::{Content, state};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]

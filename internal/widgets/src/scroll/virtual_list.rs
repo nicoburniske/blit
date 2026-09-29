@@ -1,8 +1,9 @@
-pub use super::shared::Behavior;
-
-use super::shared::{self, ScrollItem, ScrollLayout, build_scroll, update};
-use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, Size, Ui, WidgetId};
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
+
+use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, Size, Ui, WidgetId};
+
+pub use super::shared::Behavior;
+use super::shared::{self, ScrollItem, ScrollLayout, build_scroll, update};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug)]
@@ -43,17 +44,15 @@ where
     state.scroll.offset = table.offset;
     state.scroll.content_extent = table.total;
     let previous = state.scroll.offset;
-    let elapsed = state.scroll.last_frame.map_or(0.0, |previous| {
-        ui.time().saturating_sub(previous).as_secs_f32()
-    });
+    let elapsed = state
+        .scroll
+        .last_frame
+        .map_or(0.0, |previous| ui.time().saturating_sub(previous).as_secs_f32());
     let (thumb_active, _) = update(&mut state.scroll, &mut ui, Axis::Vertical, config);
     let index = table
         .rows
         .partition_point(|row| row.top + row.height <= state.scroll.offset);
-    let mut target = table
-        .rows
-        .get(index)
-        .map(|row| (index, state.scroll.offset - row.top));
+    let mut target = table.rows.get(index).map(|row| (index, state.scroll.offset - row.top));
     let mut full = false;
     if table.rows.len() != rows.len() || state.dirty {
         let anchor = target.map(|(index, within)| (table.rows[index].id, within));
@@ -79,11 +78,7 @@ where
     }
     let reveal = state.reveal.take();
     if let Some(id) = reveal {
-        target = table
-            .rows
-            .iter()
-            .position(|row| row.id == id)
-            .map(|index| (index, 0.0));
+        target = table.rows.iter().position(|row| row.id == id).map(|index| (index, 0.0));
     }
     if let Some((index, within)) = target {
         state.scroll.offset = table.rows[index].top + within.min(table.rows[index].height);
@@ -97,10 +92,7 @@ where
     if !full && let Some(viewport) = viewport {
         state.scroll.content_extent = table.total;
         state.scroll.viewport_extent = viewport.height;
-        state.scroll.offset = state
-            .scroll
-            .offset
-            .clamp(0.0, state.scroll.maximum_offset());
+        state.scroll.offset = state.scroll.offset.clamp(0.0, state.scroll.maximum_offset());
         if edge_scroll {
             state.scroll.velocity = 0.0;
             if let Some(pointer) = ui.pointer_position() {
@@ -182,9 +174,7 @@ where
             });
             for index in visible {
                 let id = table.borrow().rows[index].id;
-                list.child()
-                    .widget_id(id)
-                    .build(|ui: Ui<'_, C>| item(ui, &rows[index]));
+                list.child().widget_id(id).build(|ui: Ui<'_, C>| item(ui, &rows[index]));
             }
         },
         track,
@@ -317,9 +307,9 @@ impl<C> Layout<C> for MeasuredLayout {
 mod tests {
     use std::time::Duration;
 
-    use super::*;
     use blit::{Frame, FrameInfo, Input};
 
+    use super::*;
     use crate::test::{TestClip, TestContext};
 
     #[test]

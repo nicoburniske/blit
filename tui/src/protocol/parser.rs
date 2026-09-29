@@ -251,10 +251,7 @@ impl Parser {
                 let text = fields.next().filter(|s| !s.is_empty());
                 if modifiers.next().is_some()
                     || fields.next().is_some()
-                    || text.is_some_and(|text| {
-                        text.split(':')
-                            .any(|s| number(s).and_then(char::from_u32).is_none())
-                    })
+                    || text.is_some_and(|text| text.split(':').any(|s| number(s).and_then(char::from_u32).is_none()))
                 {
                     return None;
                 }
@@ -301,9 +298,7 @@ fn osc(bytes: &[u8], emit: &mut impl FnMut(Event)) {
     match fields.next() {
         Some("4") => {
             while let (Some(index), Some(value)) = (fields.next(), fields.next()) {
-                if let (Some(index), Some(rgb)) =
-                    (number(index).and_then(|n| u8::try_from(n).ok()), rgb(value))
-                {
+                if let (Some(index), Some(rgb)) = (number(index).and_then(|n| u8::try_from(n).ok()), rgb(value)) {
                     emit(Event::Color {
                         slot: PaletteSlot::Indexed(index),
                         rgb,
@@ -339,8 +334,7 @@ fn rgb(text: &str) -> Option<[u8; 3]> {
         if !(1..=4).contains(&value.len()) || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
-        *channel =
-            (u32::from_str_radix(value, 16).ok()? * 255 / ((1 << (4 * value.len())) - 1)) as u8;
+        *channel = (u32::from_str_radix(value, 16).ok()? * 255 / ((1 << (4 * value.len())) - 1)) as u8;
     }
     fields.next().is_none().then_some(rgb)
 }

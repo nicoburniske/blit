@@ -21,15 +21,14 @@ pub fn prepare(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{PixelBuffer, VecBuffer, Xrgb8888, render::image_patch::AlphaRows};
     use blit::LogicalRect;
     use blit_gui::{
         color::Color,
-        image::{
-            ImageFit, ImageFormat, ImageId, ImagePixels, ImageSampling, ImageTiling, NineSlice,
-        },
+        image::{ImageFit, ImageFormat, ImageId, ImagePixels, ImageSampling, ImageTiling, NineSlice},
     };
+
+    use super::*;
+    use crate::{PixelBuffer, VecBuffer, Xrgb8888, render::image_patch::AlphaRows};
 
     fn draw<B: PixelBuffer>(
         buffer: &mut B,
@@ -48,14 +47,7 @@ mod tests {
             };
             if let Some(clip) = clip.intersection(screen) {
                 for y in clip.y..clip.y + clip.height {
-                    image.draw_line(
-                        buffer.line_mut(y as usize),
-                        texture,
-                        &alpha_rows,
-                        clip,
-                        screen.x,
-                        y,
-                    );
+                    image.draw_line(buffer.line_mut(y as usize), texture, &alpha_rows, clip, screen.x, y);
                 }
             }
         });
@@ -63,9 +55,7 @@ mod tests {
 
     #[test]
     fn nearest_scaled_image_respects_clip() {
-        static PIXELS: [u8; 16] = [
-            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
-        ];
+        static PIXELS: [u8; 16] = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8, 2, 2);
         let request = ImageRequest {
             image: ImageId(0),
@@ -109,12 +99,7 @@ mod tests {
     #[test]
     fn colorize_uses_rgba_alpha() {
         static PIXELS: [u8; 4] = [16, 8, 4, 128];
-        let texture = ImageData::new(
-            ImagePixels::Static(&PIXELS),
-            ImageFormat::Rgba8Premultiplied,
-            1,
-            1,
-        );
+        let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8Premultiplied, 1, 1);
         let request = ImageRequest {
             image: ImageId(0),
             area: LogicalRect {
@@ -170,10 +155,7 @@ mod tests {
 
         draw(&mut buffer, &request, &texture, clip, 1.0);
 
-        assert_eq!(
-            buffer.pixels(),
-            [0x800000, 0x800000, 0x800000].map(Xrgb8888::from_raw)
-        );
+        assert_eq!(buffer.pixels(), [0x800000, 0x800000, 0x800000].map(Xrgb8888::from_raw));
         let mut opaque = None;
         prepare(&request, &texture, clip, 1.0, |image, _| {
             opaque = Some(image.is_opaque(&texture, true));
@@ -216,21 +198,13 @@ mod tests {
             1.0,
         );
 
-        assert_eq!(
-            buffer.pixels(),
-            [0xff0000, 0x800080, 0x0000ff].map(Xrgb8888::from_raw)
-        );
+        assert_eq!(buffer.pixels(), [0xff0000, 0x800080, 0x0000ff].map(Xrgb8888::from_raw));
     }
 
     #[test]
     fn unscaled_premultiplied_image_applies_opacity() {
         static PIXELS: [u8; 8] = [255, 0, 0, 255, 0, 128, 0, 128];
-        let texture = ImageData::new(
-            ImagePixels::Static(&PIXELS),
-            ImageFormat::Rgba8Premultiplied,
-            2,
-            1,
-        );
+        let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8Premultiplied, 2, 1);
         let request = ImageRequest {
             image: ImageId(0),
             area: LogicalRect {
@@ -262,10 +236,7 @@ mod tests {
             1.0,
         );
 
-        assert_eq!(
-            buffer.pixels(),
-            [0x800000, 0x004000].map(Xrgb8888::from_raw)
-        );
+        assert_eq!(buffer.pixels(), [0x800000, 0x004000].map(Xrgb8888::from_raw));
     }
 
     #[test]
@@ -356,8 +327,7 @@ mod tests {
     #[test]
     fn nine_slice_preserves_corners() {
         static PIXELS: [u8; 27] = [
-            255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0, 255, 0, 255, 0, 255, 255, 128, 0, 0, 0,
-            128, 0, 0, 0, 128,
+            255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0, 255, 0, 255, 0, 255, 255, 128, 0, 0, 0, 128, 0, 0, 0, 128,
         ];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgb8, 3, 3);
         let request = ImageRequest {

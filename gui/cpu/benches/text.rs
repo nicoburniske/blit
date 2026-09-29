@@ -4,9 +4,7 @@ use blit::{LogicalPoint, LogicalRect};
 use blit_gui::{
     FontData, FontFamily, TextConfig, TextSystem,
     color::Color,
-    text::{
-        FontId, HorizontalAlign, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap,
-    },
+    text::{FontId, HorizontalAlign, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap},
 };
 
 const TEXT: &str = "Passport keeps your keys offline while making secure approvals clear and deliberate. Every transaction is reviewed on the trusted display before it is signed. Recovery information stays under your control, and the device never needs to expose private keys.";
@@ -95,11 +93,7 @@ fn placement_changed(bencher: divan::Bencher) {
     let mut height = 200.0f32;
 
     bencher.bench_local(|| {
-        height = if height < 360.0 {
-            height + 0.125
-        } else {
-            200.0
-        };
+        height = if height < 360.0 { height + 0.125 } else { 200.0 };
         let request = TextRequest {
             text: run,
             area: LogicalRect::new(0.0, 0.0, 320.0, black_box(height)),
@@ -149,10 +143,7 @@ fn layout_with_caret_query(bencher: divan::Bencher) {
     };
 
     bencher.bench_local(|| {
-        let offset = text.offset_at_position(
-            black_box(&request),
-            black_box(LogicalPoint { x: 140.0, y: 42.0 }),
-        );
+        let offset = text.offset_at_position(black_box(&request), black_box(LogicalPoint { x: 140.0, y: 42.0 }));
         text.finish_frame();
         offset
     });

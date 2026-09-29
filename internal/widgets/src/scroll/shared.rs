@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use blit::{
-    Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, ScrollPhase, Sense, Size, Ui, Widget,
-};
+use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, ScrollPhase, Sense, Size, Ui, Widget};
 
 blit::builder! {
     /// persistent scroll position and motion
@@ -108,8 +106,7 @@ impl ScrollLayout {
         let viewport_constraints = constraints.shrink(gutter_size);
         let mut content_constraints = viewport_constraints;
         self.axis.set_extent(&mut content_constraints.min, 0.0);
-        self.axis
-            .set_extent(&mut content_constraints.max, f32::INFINITY);
+        self.axis.set_extent(&mut content_constraints.max, f32::INFINITY);
         let content_size = ui.layout_child(content, content_constraints);
         let content_viewport_size = viewport_constraints.constrain(content_size);
         let viewport_size = Size::new(
@@ -178,12 +175,7 @@ impl ScrollLayout {
 
 /// updates scroll input and motion returning thumb activity and viewport availability
 /// uses children named `content` and `scroll thumb` for geometry when present
-pub fn update<C>(
-    state: &mut State,
-    ui: &mut Ui<'_, C>,
-    axis: Axis,
-    config: Behavior,
-) -> (bool, bool) {
+pub fn update<C>(state: &mut State, ui: &mut Ui<'_, C>, axis: Axis, config: Behavior) -> (bool, bool) {
     let id = ui.current_widget_id();
     let content_id = id.child("content");
     let thumb_id = id.child("scroll thumb");
@@ -209,9 +201,7 @@ pub fn update<C>(
     let maximum = state.maximum_offset();
     let drag = thumb_interaction.dragging.then_some(thumb_interaction);
     if drag.is_some() || track_interaction.activated || track_interaction.dragging {
-        let thumb = ui
-            .geometry(thumb_id)
-            .map_or(0.0, |area| axis.extent(area.size()));
+        let thumb = ui.geometry(thumb_id).map_or(0.0, |area| axis.extent(area.size()));
         let travel = state.viewport_extent - thumb;
         if travel > 0.0 {
             let offset = if let Some(drag) = drag {
@@ -220,8 +210,7 @@ pub fn update<C>(
                     Axis::Vertical => drag.drag_delta.y,
                 };
                 state.offset + delta * maximum / travel
-            } else if let Some((track, pointer)) = ui.geometry(track_id).zip(ui.pointer_position())
-            {
+            } else if let Some((track, pointer)) = ui.geometry(track_id).zip(ui.pointer_position()) {
                 let position = match axis {
                     Axis::Horizontal => pointer.x - track.x,
                     Axis::Vertical => pointer.y - track.y,
@@ -279,8 +268,7 @@ pub fn update<C>(
         if direct_delta != 0.0 {
             state.offset = (state.offset + direct_delta).clamp(0.0, maximum);
             if sample_velocity && elapsed > 0.0 {
-                state.velocity =
-                    (direct_delta / elapsed).clamp(-MAX_SCROLL_VELOCITY, MAX_SCROLL_VELOCITY);
+                state.velocity = (direct_delta / elapsed).clamp(-MAX_SCROLL_VELOCITY, MAX_SCROLL_VELOCITY);
             }
         }
 
@@ -298,10 +286,7 @@ pub fn update<C>(
             state.offset = state.offset.clamp(0.0, maximum);
         }
     }
-    (
-        thumb_interaction.active || track_interaction.active,
-        viewport_known,
-    )
+    (thumb_interaction.active || track_interaction.active, viewport_known)
 }
 
 pub fn build_scroll<C, W, X, T, H>(

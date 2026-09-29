@@ -1,6 +1,4 @@
-use blit::{
-    Axis, Constraints, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget,
-};
+use blit::{Axis, Constraints, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -30,12 +28,7 @@ blit::builder! {
     }
 }
 
-pub fn new<'a, C, W, F, G>(
-    state: &'a mut State,
-    config: Config,
-    content: W,
-    mut grip: F,
-) -> impl Widget<C> + 'a
+pub fn new<'a, C, W, F, G>(state: &'a mut State, config: Config, content: W, mut grip: F) -> impl Widget<C> + 'a
 where
     W: Widget<C> + 'a,
     F: FnMut(Grip) -> G + 'a,
@@ -64,14 +57,12 @@ where
             state.size = Some(size);
         }
         if let Some(size) = &mut state.size {
-            size.width = size.width.clamp(
-                config.minimum.width,
-                config.maximum.width.max(config.minimum.width),
-            );
-            size.height = size.height.clamp(
-                config.minimum.height,
-                config.maximum.height.max(config.minimum.height),
-            );
+            size.width = size
+                .width
+                .clamp(config.minimum.width, config.maximum.width.max(config.minimum.width));
+            size.height = size
+                .height
+                .clamp(config.minimum.height, config.maximum.height.max(config.minimum.height));
         }
         let size = state.size.unwrap_or(config.initial);
         let mut shell = ui.layout(Layout {
@@ -129,10 +120,8 @@ impl<C> LayoutTrait<C> for Layout {
             ),
         ));
         let grip = Size::new(
-            res.extent(Axis::Horizontal, self.grip_size.width)
-                .min(size.width),
-            res.extent(Axis::Vertical, self.grip_size.height)
-                .min(size.height),
+            res.extent(Axis::Horizontal, self.grip_size.width).min(size.width),
+            res.extent(Axis::Vertical, self.grip_size.height).min(size.height),
         );
         for child in cx.children() {
             let (position, child_size, z_index) = match *cx.item(child) {
@@ -147,11 +136,7 @@ impl<C> LayoutTrait<C> for Layout {
                     Size::new(size.width, grip.height),
                     1,
                 ),
-                Item::Corner => (
-                    Point::new(size.width - grip.width, size.height - grip.height),
-                    grip,
-                    2,
-                ),
+                Item::Corner => (Point::new(size.width - grip.width, size.height - grip.height), grip, 2),
             };
             cx.layout_child(child, Constraints::tight(child_size));
             cx.set_child_position(child, position);

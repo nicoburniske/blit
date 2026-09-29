@@ -23,8 +23,7 @@ enum ColorKind {
 
 impl Prepared {
     pub fn new(vertices: [MeshVertex; 3], scale: Scale2) -> Option<Self> {
-        let mut points =
-            vertices.map(|vertex| [vertex.position.x * scale.x, vertex.position.y * scale.y]);
+        let mut points = vertices.map(|vertex| [vertex.position.x * scale.x, vertex.position.y * scale.y]);
         if !points.iter().flatten().all(|value| value.is_finite()) {
             return None;
         }
@@ -58,12 +57,8 @@ impl Prepared {
                 color.alpha as f32,
             ]
         });
-        let second_color = std::array::from_fn::<_, 4, _>(|channel| {
-            components[1][channel] - components[0][channel]
-        });
-        let third_color = std::array::from_fn::<_, 4, _>(|channel| {
-            components[2][channel] - components[0][channel]
-        });
+        let second_color = std::array::from_fn::<_, 4, _>(|channel| components[1][channel] - components[0][channel]);
+        let third_color = std::array::from_fn::<_, 4, _>(|channel| components[2][channel] - components[0][channel]);
         let second = [points[1][0] - points[0][0], points[1][1] - points[0][1]];
         let third = [points[2][0] - points[0][0], points[2][1] - points[0][1]];
         let color_step_x = std::array::from_fn(|channel| {
@@ -72,9 +67,7 @@ impl Prepared {
         let color_step_y = std::array::from_fn(|channel| {
             (third_color[channel] * second[0] - second_color[channel] * third[0]) * inverse_area
         });
-        let inclusive = |start: [f32; 2], end: [f32; 2]| {
-            start[1] < end[1] || (start[1] == end[1] && start[0] < end[0])
-        };
+        let inclusive = |start: [f32; 2], end: [f32; 2]| start[1] < end[1] || (start[1] == end[1] && start[0] < end[0]);
         let inclusive = [
             inclusive(points[1], points[2]),
             inclusive(points[2], points[0]),
@@ -102,13 +95,7 @@ impl Prepared {
         })
     }
 
-    pub fn draw_line<P: Pixel>(
-        &self,
-        line: i32,
-        clip: PhysicalRect,
-        coverage: u8,
-        row: PixelSpan<'_, P>,
-    ) {
+    pub fn draw_line<P: Pixel>(&self, line: i32, clip: PhysicalRect, coverage: u8, row: PixelSpan<'_, P>) {
         let [first, second, third] = self.points;
         let y = line as f32 + 0.5;
         let x = clip.x as f32 + 0.5;
@@ -116,11 +103,7 @@ impl Prepared {
             (end[0] - start[0]) * (y - start[1]) - (end[1] - start[1]) * (x - start[0])
         };
         let edges = [edge(second, third), edge(third, first), edge(first, second)];
-        let steps = [
-            second[1] - third[1],
-            third[1] - first[1],
-            first[1] - second[1],
-        ];
+        let steps = [second[1] - third[1], third[1] - first[1], first[1] - second[1]];
         let covered = |offset: i32| {
             let offset = offset as f32;
             (0..3).all(|index| {
@@ -172,19 +155,13 @@ impl Prepared {
         let offset_x = x + left as f32 - first[0];
         let offset_y = y - first[1];
         let mut color = std::array::from_fn::<_, 4, _>(|channel| {
-            base[channel]
-                + self.color_step_x[channel] * offset_x
-                + self.color_step_y[channel] * offset_y
+            base[channel] + self.color_step_x[channel] * offset_x + self.color_step_y[channel] * offset_y
         });
         if self.color_kind == ColorKind::Opaque && coverage == 255 {
             P::write_opaque_gradient(
                 pixels,
                 [color[0], color[1], color[2]],
-                [
-                    self.color_step_x[0],
-                    self.color_step_x[1],
-                    self.color_step_x[2],
-                ],
+                [self.color_step_x[0], self.color_step_x[1], self.color_step_x[2]],
             );
             return;
         }

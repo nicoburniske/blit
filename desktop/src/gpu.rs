@@ -1,5 +1,4 @@
-use std::io::Error as IoError;
-use std::sync::Arc;
+use std::{io::Error as IoError, sync::Arc};
 
 use blit_gpu::Renderer;
 use blit_gui::RenderInput;
@@ -46,12 +45,10 @@ impl GraphicsBackend for Backend {
         let surface_config = if let Some(gpu) = &self.gpu {
             gpu.surface_config(&surface, width, height)?
         } else {
-            let adapter = blit_executor::block_on(self.instance.request_adapter(
-                &wgpu::RequestAdapterOptions {
-                    compatible_surface: Some(&surface),
-                    ..Default::default()
-                },
-            ))?;
+            let adapter = blit_executor::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
+                compatible_surface: Some(&surface),
+                ..Default::default()
+            }))?;
             let mut surface_config = surface
                 .get_default_config(&adapter, width, height)
                 .ok_or_else(|| IoError::other("GPU surface is not supported by the adapter"))?;
@@ -65,11 +62,10 @@ impl GraphicsBackend for Backend {
                     .find(|format| !format.is_srgb())
                     .ok_or_else(|| IoError::other("GPU surface has no non-sRGB format"))?;
             }
-            let (device, queue) =
-                blit_executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                    required_limits: wgpu::Limits::default().using_resolution(adapter.limits()),
-                    ..Default::default()
-                }))?;
+            let (device, queue) = blit_executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                required_limits: wgpu::Limits::default().using_resolution(adapter.limits()),
+                ..Default::default()
+            }))?;
             let renderer = Renderer::new(
                 device.clone(),
                 queue.clone(),
@@ -126,17 +122,11 @@ impl GraphicsBackend for Backend {
                 CurrentSurfaceTexture::Occluded => {
                     return Ok(false);
                 }
-                status @ (CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost)
-                    if !retried =>
-                {
+                status @ (CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost) if !retried => {
                     retried = true;
                     if matches!(status, CurrentSurfaceTexture::Lost) {
                         let surface = self.instance.create_surface(active.window.clone())?;
-                        let config = gpu.surface_config(
-                            &surface,
-                            active.config.width,
-                            active.config.height,
-                        )?;
+                        let config = gpu.surface_config(&surface, active.config.width, active.config.height)?;
                         surface.configure(&gpu.device, &config);
                         active.surface = surface;
                         active.config = config;
@@ -188,11 +178,7 @@ impl Gpu {
         let mut config = surface
             .get_default_config(&self.adapter, width, height)
             .ok_or_else(|| IoError::other("GPU surface is not supported by the adapter"))?;
-        if !surface
-            .get_capabilities(&self.adapter)
-            .formats
-            .contains(&self.format)
-        {
+        if !surface.get_capabilities(&self.adapter).formats.contains(&self.format) {
             return Err(IoError::other("GPU surface format changed"));
         }
         config.format = self.format;

@@ -1,3 +1,5 @@
+use blit::{Atom, Constraints, LogicalRect, Size};
+
 use crate::{
     GuiContext,
     color::Color,
@@ -6,7 +8,6 @@ use crate::{
     style::{Border, BorderRadius},
     text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextWrap},
 };
-use blit::{Atom, Constraints, LogicalRect, Size};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]

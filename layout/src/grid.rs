@@ -162,16 +162,14 @@ impl<C> blit::Layout<C> for Layout {
                 let item = cx.item(child);
                 let width = range(Axis::Horizontal, item.width.preferred(), f32::INFINITY);
                 let height = range(Axis::Vertical, item.height.preferred(), max_height);
-                let child_size =
-                    cx.layout_child(child, flow_constraints(Axis::Horizontal, width, height));
+                let child_size = cx.layout_child(child, flow_constraints(Axis::Horizontal, width, height));
                 let span = if self.spanning { item.column_span } else { 1 };
                 let internal_gaps = column_gap * span.saturating_sub(1) as f32;
-                natural_column_width = natural_column_width
-                    .max((child_size.width - internal_gaps).max(0.0) / span as f32);
+                natural_column_width =
+                    natural_column_width.max((child_size.width - internal_gaps).max(0.0) / span as f32);
             }
 
-            let natural_width =
-                natural_column_width * columns as f32 + horizontal_gaps + horizontal_padding;
+            let natural_width = natural_column_width * columns as f32 + horizontal_gaps + horizontal_padding;
             natural_width.clamp(constraints.min.width, constraints.max.width)
         };
         let cell_width = (width - horizontal_padding - horizontal_gaps).max(0.0) / columns as f32;
@@ -181,16 +179,15 @@ impl<C> blit::Layout<C> for Layout {
 
             for child in cx.children() {
                 let item = cx.item(child);
-                let assigned_width = cell_width * item.column_span as f32
-                    + column_gap * item.column_span.saturating_sub(1) as f32;
+                let assigned_width =
+                    cell_width * item.column_span as f32 + column_gap * item.column_span.saturating_sub(1) as f32;
                 let height = range(Axis::Vertical, item.height.preferred(), max_height);
                 let child_size = cx.layout_child(
                     child,
                     flow_constraints(Axis::Horizontal, (assigned_width, assigned_width), height),
                 );
                 let internal_gaps = row_gap * item.row_span.saturating_sub(1) as f32;
-                row_height = row_height
-                    .max((child_size.height - internal_gaps).max(0.0) / item.row_span as f32);
+                row_height = row_height.max((child_size.height - internal_gaps).max(0.0) / item.row_span as f32);
             }
 
             let mut column_rows = [0u16; MAX_SPANNING_COLUMNS];
@@ -206,9 +203,7 @@ impl<C> blit::Layout<C> for Layout {
                 let span = item.column_span as usize;
                 let column = cursor_column;
                 let (row, column) = if column + span <= columns
-                    && column_rows[column..column + span]
-                        .iter()
-                        .all(|row| *row <= cursor_row)
+                    && column_rows[column..column + span].iter().all(|row| *row <= cursor_row)
                 {
                     (cursor_row, column)
                 } else {
@@ -240,10 +235,10 @@ impl<C> blit::Layout<C> for Layout {
                     cursor_column = next_column;
                 }
                 rows = rows.max(row as usize + item.row_span as usize);
-                let assigned_width = cell_width * item.column_span as f32
-                    + column_gap * item.column_span.saturating_sub(1) as f32;
-                let assigned_height = row_height * item.row_span as f32
-                    + row_gap * item.row_span.saturating_sub(1) as f32;
+                let assigned_width =
+                    cell_width * item.column_span as f32 + column_gap * item.column_span.saturating_sub(1) as f32;
+                let assigned_height =
+                    row_height * item.row_span as f32 + row_gap * item.row_span.saturating_sub(1) as f32;
                 let child_size = Size {
                     width: assigned_width,
                     height: assigned_height,
@@ -262,9 +257,7 @@ impl<C> blit::Layout<C> for Layout {
 
             return constraints.constrain(Size {
                 width,
-                height: row_height * rows as f32
-                    + row_gap * rows.saturating_sub(1) as f32
-                    + vertical_padding,
+                height: row_height * rows as f32 + row_gap * rows.saturating_sub(1) as f32 + vertical_padding,
             });
         }
 
