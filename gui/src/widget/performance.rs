@@ -1,13 +1,13 @@
 use std::fmt::Write as _;
 
-use blit::{Anchor, Interaction, LogicalSize, Sides, Sizing, Widget};
+use blit::{Interaction, LogicalSize, Widget};
 use blit_widgets::performance as shared;
 
 use crate::{
     GuiContext, Ui,
     atom::Rectangle,
     color::Color,
-    layout::{Align, flex, grid},
+    layout::{Align, Length, Padding, Sizing, absolute::Anchor, flex, grid},
     style::{Border, BorderRadius},
     text::TextStyle,
     widget::{Text, popover},
@@ -25,8 +25,8 @@ blit::builder! {
         hover_background: Option<Color> = None,
         border: Option<Border<'static>> = None,
         radius: BorderRadius = BorderRadius::uniform(8.0),
-        badge_padding: Sides = Sides::xy(12.0, 8.0),
-        padding: Sides = Sides::all(12.0),
+        badge_padding: Padding = Padding::all(12 as Length).top(8 as Length).bottom(8 as Length),
+        padding: Padding = Padding::all(12 as Length),
         gap: f32 = 8.0,
         table_gap: LogicalSize = LogicalSize::new(18.0, 4.0),
         marker_size: f32 = 8.0,
@@ -64,7 +64,7 @@ impl Widget<GuiContext> for Performance<'_> {
                 let mut badge = ui.layout(
                     flex::row()
                         .padding(self.badge_padding)
-                        .gap(self.gap)
+                        .gap(self.gap as Length)
                         .align(Align::Center),
                 );
                 badge.insert(
@@ -79,7 +79,7 @@ impl Widget<GuiContext> for Performance<'_> {
                 );
                 badge
                     .child()
-                    .item(flex::item().fixed(self.marker_size, self.marker_size))
+                    .item(flex::item().fixed(self.marker_size as Length, self.marker_size as Length))
                     .insert(Rectangle::new().background(self.accent).radius(self.marker_radius));
                 badge
                     .child()
@@ -87,7 +87,7 @@ impl Widget<GuiContext> for Performance<'_> {
             },
             |ui: Ui<'_>| {
                 let scale = measurements.graph(columns).fold(33.4_f32, f32::max);
-                let mut panel = ui.layout(flex::column().padding(self.padding).gap(self.gap));
+                let mut panel = ui.layout(flex::column().padding(self.padding).gap(self.gap as Length));
                 panel.insert(
                     Rectangle::new()
                         .background(self.background)
@@ -97,8 +97,8 @@ impl Widget<GuiContext> for Performance<'_> {
                 {
                     let mut table = panel.child().layout(
                         grid::columns(3)
-                            .column_gap(self.table_gap.width)
-                            .row_gap(self.table_gap.height),
+                            .column_gap(self.table_gap.width as Length)
+                            .row_gap(self.table_gap.height as Length),
                     );
                     for (label, values) in measurements.rows() {
                         table
@@ -113,11 +113,11 @@ impl Widget<GuiContext> for Performance<'_> {
                         }
                     }
                 }
-                let mut chart = panel.child().layout(flex::row().gap(self.gap));
+                let mut chart = panel.child().layout(flex::row().gap(self.gap as Length));
                 {
                     let mut axis = chart
                         .child()
-                        .item(flex::item().height(Sizing::fixed(graph_height)))
+                        .item(flex::item().height(Sizing::fixed(graph_height as Length)))
                         .layout(
                             flex::column()
                                 .align(Align::End)
@@ -132,7 +132,7 @@ impl Widget<GuiContext> for Performance<'_> {
                 }
                 let mut graph = chart
                     .child()
-                    .item(flex::item().fixed(graph_width, graph_height))
+                    .item(flex::item().fixed(graph_width as Length, graph_height as Length))
                     .layout(flex::row().align(Align::End));
                 graph.insert(Rectangle::new().background(self.graph_background));
                 for millis in measurements.graph(columns) {
@@ -141,7 +141,7 @@ impl Widget<GuiContext> for Performance<'_> {
                         .item(
                             flex::item()
                                 .width(Sizing::grow())
-                                .height(Sizing::fixed(graph_height * millis / scale)),
+                                .height(Sizing::fixed((graph_height * millis / scale) as Length)),
                         )
                         .insert(Rectangle::new().background(self.accent));
                 }
