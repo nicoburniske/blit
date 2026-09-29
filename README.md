@@ -14,19 +14,19 @@ https://github.com/user-attachments/assets/0350260c-592f-4337-b541-9762faf7a96d
 terminal:
 
 ```sh
-nix develop --command cargo run --example tui-demo
+nix develop --command cargo run --example tui-demo --features tui
 ```
 
 desktop + CPU:
 
 ```sh
-nix develop --command cargo run --release --example desktop-demo
+nix develop --command cargo run --release --example desktop-demo --features cpu
 ```
 
 desktop + GPU:
 
 ```sh
-nix develop --command cargo run -p blit-demo --no-default-features --features gpu --release --example desktop-demo
+nix develop --command cargo run -p blit-demo --features gpu --release --example desktop-demo
 ```
 
 ## example
@@ -35,12 +35,12 @@ each frame builds a tree of nodes. widgets can be types or closures, and every
 node can draw content and choose how to lay out its children:
 
 ```rust
-use blit::{Input, Sense, Sides};
+use blit::{Input, Sense};
 use blit_tui::{
     Ui,
     atom::Border,
     color::Color,
-    layout::{Justify, flex},
+    layout::{Justify, Padding, flex},
     text::{HorizontalAlign, TextAttributes, TextOptions},
     widget::{Block, Text},
 };
@@ -48,7 +48,7 @@ use blit_tui::{
 fn main() -> std::io::Result<()> {
     blit_tui::run(|ui| {
         // layout arranges the root's children in a column
-        let mut root = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
+        let mut root = ui.layout(flex::column().padding(Padding::all(1)).gap(1));
 
         let quit = root
             // default flex behavior sizes the header to its contents
@@ -57,7 +57,7 @@ fn main() -> std::io::Result<()> {
             .build(|ui: Ui<'_>| {
                 let mut header = ui.layout(
                     flex::row()
-                        .padding(Sides::all(1.0))
+                        .padding(Padding::all(1))
                         .justify(Justify::SpaceBetween),
                 );
 
@@ -72,7 +72,7 @@ fn main() -> std::io::Result<()> {
                 // RHS button
                 header
                     .child()
-                    .item(flex::item().fixed(8.0, 1.0))
+                    .item(flex::item().fixed(8, 1))
                     .build(|mut ui: Ui<'_>| {
                         let interaction = ui.interact(Sense::CLICK);
 

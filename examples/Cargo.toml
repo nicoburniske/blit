@@ -7,34 +7,40 @@ publish = false
 autoexamples = false
 
 [features]
-default = ["cpu"]
-cpu = ["blit-desktop/cpu"]
-gpu = ["blit-desktop/gpu"]
+tui = ["dep:blit-tui"]
+desktop = ["dep:blit-desktop", "dep:blit-gui", "dep:blit-text-cosmic"]
+cpu = ["desktop", "blit-desktop/cpu"]
+gpu = ["desktop", "blit-desktop/gpu"]
+fontdue = ["cpu", "dep:blit-text-fontdue"]
 
 [lib]
 path = "demo.rs"
 
 [dependencies]
 blit.workspace = true
-blit-desktop = { path = "../desktop", default-features = false }
-blit-gui.workspace = true
+blit-desktop = { path = "../desktop", default-features = false, optional = true }
+blit-gui = { workspace = true, optional = true }
 blit-layout.workspace = true
-blit-text-cosmic.workspace = true
-blit-text-fontdue.workspace = true
-blit-tui = { path = "../tui" }
+blit-text-cosmic = { workspace = true, optional = true }
+blit-text-fontdue = { workspace = true, optional = true }
+blit-tui = { path = "../tui", optional = true }
 
 [[example]]
 name = "desktop-demo"
 path = "desktop.rs"
+required-features = ["desktop"]
 
 [[example]]
 name = "desktop-demo-fontdue"
 path = "desktop_fontdue.rs"
+required-features = ["fontdue"]
 
 [[example]]
 name = "tui-demo"
 path = "tui.rs"
+required-features = ["tui"]
 
 [[example]]
 name = "readme"
 path = "readme.rs"
+required-features = ["tui"]

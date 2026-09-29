@@ -1,5 +1,6 @@
-use blit::{Anchor, Axis, Sides, Size, Sizing};
+use blit::{Axis, Size};
 pub use blit_layout::{Align, Justify};
+use blit_layout::{Length, Padding, Sizing, absolute::Anchor};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CanvasLayout {
@@ -47,22 +48,21 @@ impl Default for CanvasConfig {
 }
 
 impl CanvasConfig {
-    pub fn padding(self, unit: Size) -> Sides {
+    pub fn padding(self, unit: Size) -> Padding {
         let steps = f32::from(self.padding_steps) * self.zoom;
-        Sides {
-            top: steps * unit.height,
-            right: steps * unit.width,
-            bottom: steps * unit.height,
-            left: steps * unit.width,
-        }
+        Padding::new()
+            .top(length(steps * unit.height))
+            .right(length(steps * unit.width))
+            .bottom(length(steps * unit.height))
+            .left(length(steps * unit.width))
     }
 
-    pub fn gap(self, axis: Axis, unit: Size) -> f32 {
+    pub fn gap(self, axis: Axis, unit: Size) -> Length {
         let unit = match axis {
             Axis::Horizontal => unit.width,
             Axis::Vertical => unit.height,
         };
-        f32::from(self.gap_steps) * self.zoom * unit
+        length(f32::from(self.gap_steps) * self.zoom * unit)
     }
 
     pub fn item_sizing(self, index: usize, unit: Size) -> (Sizing, Sizing) {
@@ -75,20 +75,24 @@ impl CanvasConfig {
         let natural_main = main_steps * main_unit * self.zoom;
         let natural_cross = cross_steps * cross_unit * self.zoom;
         let main = match self.sizing {
-            ItemSizing::Fixed => Sizing::fixed(natural_main),
-            ItemSizing::Fit => Sizing::fit_range(2.0 * main_unit, natural_main),
-            ItemSizing::Grow => Sizing::grow_range(2.0 * main_unit, f32::INFINITY),
+            ItemSizing::Fixed => Sizing::fixed(length(natural_main)),
+            ItemSizing::Fit => Sizing::fit_range(length(2.0 * main_unit), length(natural_main)),
+            ItemSizing::Grow => Sizing::grow_min(length(2.0 * main_unit)),
         };
         let cross = if self.align == Align::Stretch {
             Sizing::fit()
         } else {
-            Sizing::fixed(natural_cross)
+            Sizing::fixed(length(natural_cross))
         };
         match self.axis {
             Axis::Horizontal => (main, cross),
             Axis::Vertical => (cross, main),
         }
     }
+}
+
+fn length(value: f32) -> Length {
+    blit_layout::round(value.max(0.0)) as Length
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
