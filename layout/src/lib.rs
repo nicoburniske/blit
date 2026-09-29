@@ -1,12 +1,13 @@
+pub mod absolute;
 pub mod flex;
 pub mod grid;
-pub mod rect;
 pub mod single;
 pub mod wrap;
 
-mod sizing;
+mod size;
 
-use blit::{Axis, Constraints, Size, Sizing};
+pub use size::{Length, Offset, Padding, Sizing};
+use size::{distribute, flow_constraints, flow_size, round, round_sizing, sizing_range};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {
@@ -26,47 +27,6 @@ pub enum Justify {
     SpaceBetween,
     SpaceAround,
     SpaceEvenly,
-}
-
-fn flow_size(main: f32, cross: f32, axis: Axis) -> Size {
-    match axis {
-        Axis::Horizontal => Size::new(main, cross),
-        Axis::Vertical => Size::new(cross, main),
-    }
-}
-
-#[inline]
-fn sizing_range(sizing: Sizing, available: f32) -> (f32, f32) {
-    match sizing {
-        Sizing::Fit { min, max } | Sizing::Grow { min, max } => {
-            let min = min.max(0.0);
-            (min, max.max(min).min(available).max(min))
-        }
-        Sizing::Fixed(size) => {
-            let size = size.max(0.0);
-            (size, size)
-        }
-        Sizing::Percent(fraction) => {
-            assert!((0.0..=1.0).contains(&fraction));
-            let size = if available.is_finite() {
-                available * fraction
-            } else {
-                0.0
-            };
-            (size, size)
-        }
-    }
-}
-
-fn flow_constraints(axis: Axis, main: (f32, f32), cross: (f32, f32)) -> Constraints {
-    let (width, height) = match axis {
-        Axis::Horizontal => (main, cross),
-        Axis::Vertical => (cross, main),
-    };
-    Constraints {
-        min: Size::new(width.0, height.0),
-        max: Size::new(width.1, height.1),
-    }
 }
 
 fn justify_offset(justify: Justify, remaining: f32, count: usize) -> (f32, f32) {

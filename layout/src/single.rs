@@ -1,7 +1,7 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Sides, Size, Sizing};
+use blit::{Axis, Constraints, LayoutCx, Point, Size, Sizing};
 
-pub use super::sizing::{Item, item};
-use super::{flow_constraints, sizing_range};
+pub use crate::size::{Item, item};
+use crate::{Length, Padding, flow_constraints, sizing_range};
 
 blit::builder! {
     /// lays out at most one child
@@ -10,7 +10,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Layout {
         new(),
-        padding: Sides = Sides::all(0.0),
+        padding: Padding = Padding::all(0 as Length),
     }
 }
 
@@ -22,8 +22,7 @@ impl<C> blit::Layout<C> for Layout {
     type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
-        let res = cx.resolution();
-        let padding = res.sides(self.padding);
+        let padding: blit::Sides = self.padding.into();
         let mut children = cx.children();
         let Some(child) = children.next() else {
             return bounds.constrain(padding.size());
@@ -31,8 +30,8 @@ impl<C> blit::Layout<C> for Layout {
         assert!(children.next().is_none(), "single accepts at most one flow child");
         let content = bounds.shrink(padding.size());
         let item = cx.item(child);
-        let range = |axis: Axis, sizing| {
-            let sizing = res.sizing(axis, sizing);
+        let range = |axis: Axis, sizing: crate::Sizing| {
+            let sizing = cx.resolve_sizing(child, axis, sizing.into());
             let minimum = axis.extent(content.min);
             let maximum = axis.extent(content.max);
             if matches!(sizing, Sizing::Grow { .. }) {
@@ -48,7 +47,7 @@ impl<C> blit::Layout<C> for Layout {
             range(Axis::Vertical, item.height),
         );
         let size = cx.layout_child(child, child_bounds);
-        cx.set_child_position(child, Point::new(padding.left, padding.top));
+        cx.set_position(child, Point::new(padding.left, padding.top));
         bounds.constrain(size + padding.size())
     }
 }
