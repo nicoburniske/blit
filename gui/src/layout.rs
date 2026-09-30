@@ -58,10 +58,10 @@ pub mod single {
 }
 
 pub mod grid {
-    pub type Layout = blit_layout::grid::Layout<super::Length>;
+    pub type Layout<const N: usize = 64> = blit_layout::grid::Layout<super::Length, N>;
     pub type Item = blit_layout::grid::Item<super::Length>;
 
-    pub fn columns(columns: usize) -> Layout {
+    pub const fn columns(columns: u16) -> Layout {
         Layout::new(columns)
     }
     pub const fn item() -> Item {

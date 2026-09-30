@@ -1315,7 +1315,7 @@ impl Widget<GuiContext> for Canvas {
             }
             CanvasLayout::Grid => {
                 let grid = grid::columns(5)
-                    .spanning()
+                    .spanning(true)
                     .padding(self.config.padding(self.unit))
                     .column_gap(self.config.gap(Axis::Horizontal, self.unit))
                     .row_gap(self.config.gap(Axis::Vertical, self.unit));

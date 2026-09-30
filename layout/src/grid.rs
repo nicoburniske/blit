@@ -2,58 +2,22 @@ use blit::{Axis, Constraints, LayoutCx, LogicalPoint, LogicalSize};
 
 use crate::{Padding, Unit, flow_constraints};
 
-const MAX_SPANNING_COLUMNS: usize = 64;
-
-/// fixed-column row-major grid
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Layout<U: Unit> {
-    columns: u16,
-    spanning: bool,
-    padding: Padding<U>,
-    column_gap: U,
-    row_gap: U,
+blit::builder! {
+    #[const]
+    /// fixed-column row-major grid
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Layout<U: Unit, const N: usize = 64> {
+        new(columns: u16),
+        spanning: bool = false,
+        padding: Padding<U> = Padding::all(U::ZERO),
+        column_gap: U = U::ZERO,
+        row_gap: U = U::ZERO,
+    }
 }
 
-impl<U: Unit> Layout<U> {
-    pub fn new(columns: usize) -> Self {
-        assert!(columns != 0, "grid must have at least one column");
-        Self {
-            columns: u16::try_from(columns).expect("too many grid columns"),
-            spanning: false,
-            padding: Padding::all(U::ZERO),
-            column_gap: U::ZERO,
-            row_gap: U::ZERO,
-        }
-    }
-
-    pub const fn spanning(mut self) -> Self {
-        assert!(
-            self.columns as usize <= MAX_SPANNING_COLUMNS,
-            "spanning grid supports at most 64 columns"
-        );
-        self.spanning = true;
-        self
-    }
-
-    pub const fn padding(mut self, padding: Padding<U>) -> Self {
-        self.padding = padding;
-        self
-    }
-
-    pub const fn gap(mut self, gap: U) -> Self {
-        self.column_gap = gap;
-        self.row_gap = gap;
-        self
-    }
-
-    pub const fn column_gap(mut self, gap: U) -> Self {
-        self.column_gap = gap;
-        self
-    }
-
-    pub const fn row_gap(mut self, gap: U) -> Self {
-        self.row_gap = gap;
-        self
+impl<U: Unit, const N: usize> Layout<U, N> {
+    pub const fn gap(self, gap: U) -> Self {
+        self.column_gap(gap).row_gap(gap)
     }
 }
 
@@ -72,10 +36,14 @@ blit::builder! {
     }
 }
 
-impl<C, U: Unit> blit::Layout<C> for Layout<U> {
+impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
     type Item = Item<U>;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+        assert!(
+            !self.spanning || self.columns as usize <= N,
+            "grid column count exceeds spanning capacity"
+        );
         let range = |preferred: Option<U>, available| {
             if let Some(preferred) = preferred {
                 let preferred = preferred.into_float().max(0.0);
@@ -92,7 +60,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
         let vertical_padding = padding.top + padding.bottom;
         let horizontal_gaps = column_gap * columns.saturating_sub(1) as f32;
         let max_height = (U::round(constraints.max.height) - vertical_padding).max(0.0);
-        if cx.children().next().is_none() {
+        if columns == 0 || cx.children().next().is_none() {
             return constraints.constrain(padding.size());
         }
 
@@ -105,8 +73,11 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
                 let width = range(item.preferred_width, f32::INFINITY);
                 let height = range(item.preferred_height, max_height);
                 let child_size = cx.layout_child(child, flow_constraints::<U>(Axis::Horizontal, width, height));
-                let span = if self.spanning { item.column_span } else { 1 };
-                assert!(span != 0, "grid column span must be nonzero");
+                let span = if self.spanning {
+                    item.column_span.clamp(1, self.columns)
+                } else {
+                    1
+                };
                 let internal_gaps = column_gap * span.saturating_sub(1) as f32;
                 natural_column_width =
                     natural_column_width.max((U::round(child_size.width) - internal_gaps).max(0.0) / span as f32);
@@ -128,32 +99,26 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
 
             for child in cx.children() {
                 let item = cx.item(child);
-                assert!(
-                    item.row_span != 0 && item.column_span != 0,
-                    "grid spans must be nonzero"
-                );
-                assert!(
-                    item.column_span <= self.columns,
-                    "grid column span exceeds its column count"
-                );
-                let assigned_width = column_width(0, item.column_span as usize);
+                let row_span = item.row_span.max(1);
+                let column_span = item.column_span.clamp(1, self.columns);
+                let assigned_width = column_width(0, column_span as usize);
                 let height = range(item.preferred_height, max_height);
                 let child_size = cx.layout_child(
                     child,
                     flow_constraints::<U>(Axis::Horizontal, (assigned_width, assigned_width), height),
                 );
-                let internal_gaps = row_gap * item.row_span.saturating_sub(1) as f32;
-                row_height =
-                    row_height.max((U::round(child_size.height) - internal_gaps).max(0.0) / item.row_span as f32);
+                let internal_gaps = row_gap * (row_span - 1) as f32;
+                row_height = row_height.max((U::round(child_size.height) - internal_gaps).max(0.0) / row_span as f32);
             }
 
-            let mut column_rows = [0u16; MAX_SPANNING_COLUMNS];
-            let mut cursor_row = 0u16;
+            let mut column_rows = [0usize; N];
+            let mut cursor_row = 0usize;
             let mut cursor_column = 0usize;
             let mut rows = 0usize;
             for child in cx.children() {
                 let item = cx.item(child);
-                let span = item.column_span as usize;
+                let row_span = item.row_span.max(1) as usize;
+                let span = item.column_span.clamp(1, self.columns) as usize;
                 let column = cursor_column;
                 let (row, column) = if column + span <= columns
                     && column_rows[column..column + span].iter().all(|row| *row <= cursor_row)
@@ -163,7 +128,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
                     let mut placement = None;
                     for column in 0..=columns - span {
                         let mut row = if column < cursor_column {
-                            cursor_row.checked_add(1).expect("too many grid rows")
+                            cursor_row + 1
                         } else {
                             cursor_row
                         };
@@ -177,18 +142,18 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
                     placement.unwrap()
                 };
 
-                let end_row = row.checked_add(item.row_span).expect("too many grid rows");
+                let end_row = row + row_span;
                 column_rows[column..column + span].fill(end_row);
                 let next_column = column + span;
                 if next_column == columns {
-                    cursor_row = row.checked_add(1).expect("too many grid rows");
+                    cursor_row = row + 1;
                     cursor_column = 0;
                 } else {
                     cursor_row = row;
                     cursor_column = next_column;
                 }
-                rows = rows.max(row as usize + item.row_span as usize);
-                let assigned_width = column_width(column, item.column_span as usize);
+                rows = rows.max(end_row);
+                let assigned_width = column_width(column, span);
                 let assigned_height = (U::round(padding.top + end_row as f32 * (row_height + row_gap) - row_gap)
                     - U::round(padding.top + row as f32 * (row_height + row_gap)))
                 .max(0.0);
@@ -218,10 +183,6 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
         for child in cx.children() {
             count += 1;
             let item = cx.item(child);
-            assert!(
-                item.row_span == 1 && item.column_span == 1,
-                "grid spans must be enabled with grid::Layout::spanning"
-            );
             let height = range(item.preferred_height, max_height);
             cx.layout_child(
                 child,

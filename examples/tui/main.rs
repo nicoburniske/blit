@@ -1132,7 +1132,7 @@ impl Widget<TuiContext> for Canvas {
             }
             CanvasLayout::Grid => {
                 let grid = grid::columns(5)
-                    .spanning()
+                    .spanning(true)
                     .padding(self.config.padding(unit))
                     .column_gap(self.config.gap(Axis::Horizontal, unit))
                     .row_gap(self.config.gap(Axis::Vertical, unit));

@@ -400,7 +400,7 @@ fn single_percentages_use_the_incoming_budget() {
 fn spanning_grid_sizes_spanning_items() {
     let mut frame = Frame::default();
     let wide = WidgetId::new("wide");
-    let layout = grid::Layout::<Length>::new(3).spanning().gap(2 as Length);
+    let layout = grid::Layout::<Length>::new(3).spanning(true).gap(2 as Length);
     layout_frame(
         &mut frame,
         &mut TestContext,
@@ -426,7 +426,7 @@ fn spanning_grid_fills_available_cell() {
         &mut TestContext,
         FrameInfo::new(LogicalSize::new(91.0, 20.0)),
         |ui: Ui<'_, TestContext>| {
-            let mut grid = ui.layout(grid::Layout::<Length>::new(3).spanning());
+            let mut grid = ui.layout(grid::Layout::<Length>::new(3).spanning(true));
             grid.child()
                 .item(grid::Item::new().row_span(2).column_span(2))
                 .insert(BoxAtom(LogicalSize::uniform(20.0)));
