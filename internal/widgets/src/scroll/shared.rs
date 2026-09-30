@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Content, Layout, LayoutCx, LogicalPoint, LogicalSize, ScrollPhase, Sense, Ui, Widget,
+    Axis, Clip, Constraints, Content, IntrinsicQuery, IntrinsicSize, Layout, LayoutCx, LogicalPoint, LogicalSize,
+    MeasureCx, ScrollPhase, Sense, Ui, Widget,
 };
 use blit_layout::Unit;
 
@@ -73,6 +74,41 @@ pub enum ScrollItem {
 impl<C, U: Unit> Layout<C> for ScrollLayout<U> {
     type Item = ScrollItem;
 
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        let content = cx
+            .children()
+            .find(|child| matches!(child.item, ScrollItem::Content))
+            .expect("scroll area content is missing");
+        let gutter = if cx.children().any(|child| matches!(child.item, ScrollItem::Track)) {
+            self.scrollbar_thickness.into_float().max(0.0)
+        } else {
+            0.0
+        };
+        let scrolling = query.axis == self.axis;
+        let size = cx.intrinsic(
+            content.id,
+            IntrinsicQuery {
+                axis: query.axis,
+                cross: if scrolling {
+                    query.cross.map(|size| (size - gutter).max(0.0))
+                } else {
+                    None
+                },
+            },
+        );
+        if scrolling {
+            IntrinsicSize {
+                min: 0.0,
+                preferred: size.preferred,
+            }
+        } else {
+            IntrinsicSize {
+                min: size.min + gutter,
+                preferred: size.preferred + gutter,
+            }
+        }
+    }
+
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         self.layout_with_offset(ui, constraints, |_| self.offset)
     }
@@ -89,10 +125,10 @@ impl<U: Unit> ScrollLayout<U> {
         let mut track = None;
         let mut thumb = None;
         for child in ui.children() {
-            match *ui.item(child) {
-                ScrollItem::Content => content = Some(child),
-                ScrollItem::Track => track = Some(child),
-                ScrollItem::Thumb => thumb = Some(child),
+            match *child.item {
+                ScrollItem::Content => content = Some(child.id),
+                ScrollItem::Track => track = Some(child.id),
+                ScrollItem::Thumb => thumb = Some(child.id),
             }
         }
         let content = content.expect("scroll area content is missing");

@@ -1,4 +1,7 @@
-use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, LogicalPoint, LogicalSize, Ui, WidgetId};
+use blit::{
+    Axis, Clip, Constraints, Content, IntrinsicQuery, IntrinsicSize, Layout, LayoutCx, LogicalPoint, LogicalSize,
+    MeasureCx, Ui, WidgetId,
+};
 use blit_layout::Unit;
 
 pub use crate::scroll::shared::{Behavior, State};
@@ -97,21 +100,43 @@ struct ListLayout {
 impl<C> Layout<C> for ListLayout {
     type Item = usize;
 
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        if query.axis == self.axis {
+            return IntrinsicSize {
+                min: self.total_extent,
+                preferred: self.total_extent,
+            };
+        }
+        let mut result = IntrinsicSize::default();
+        for child in cx.children() {
+            let size = cx.intrinsic(
+                child.id,
+                IntrinsicQuery {
+                    axis: query.axis,
+                    cross: Some(self.item_extent),
+                },
+            );
+            result.min = result.min.max(size.min);
+            result.preferred = result.preferred.max(size.preferred);
+        }
+        result
+    }
+
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let mut cross_extent: f32 = 0.0;
         for child in ui.children() {
             let mut child_constraints = constraints;
             self.axis.set_extent(&mut child_constraints.min, self.item_extent);
             self.axis.set_extent(&mut child_constraints.max, self.item_extent);
-            let size = ui.layout_child(child, child_constraints);
-            let offset = *ui.item(child) as f32 * self.stride;
+            let size = ui.layout_child(child.id, child_constraints);
+            let offset = *child.item as f32 * self.stride;
             cross_extent = cross_extent.max(self.axis.other().extent(size));
             match self.axis {
                 Axis::Horizontal => {
-                    ui.set_position(child, LogicalPoint::new(offset, 0.0));
+                    ui.set_position(child.id, LogicalPoint::new(offset, 0.0));
                 }
                 Axis::Vertical => {
-                    ui.set_position(child, LogicalPoint::new(0.0, offset));
+                    ui.set_position(child.id, LogicalPoint::new(0.0, offset));
                 }
             }
         }

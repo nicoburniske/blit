@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use blit::{
-    Atom, Axis, Constraints, Easing, Interaction, LogicalPoint, LogicalRect, LogicalSize, NodeTarget, Sense, Sides,
-    Transition, Widget, WidgetId,
+    Atom, Axis, Easing, Interaction, LogicalPoint, LogicalRect, LogicalSize, NodeTarget, Sense, Sides, Transition,
+    Widget, WidgetId,
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 #[cfg(not(feature = "gpu"))]
@@ -1030,10 +1030,6 @@ struct TerrainBuffers {
 }
 
 impl Atom<GuiContext> for Terrain {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> LogicalSize {
-        constraints.constrain(LogicalSize::ZERO)
-    }
-
     fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
         let travel = self.phase * std::f32::consts::TAU;
         let mut buffers = self.buffers.borrow_mut();
@@ -1100,10 +1096,6 @@ impl Atom<GuiContext> for Terrain {
             vertices: &vertices,
             indices: &indices,
         });
-    }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
     }
 }
 

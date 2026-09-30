@@ -1,4 +1,7 @@
-use blit::{Constraints, Interaction, Layout as LayoutTrait, LayoutCx, LogicalPoint, LogicalSize, Sense, Ui, Widget};
+use blit::{
+    Constraints, Interaction, IntrinsicQuery, IntrinsicSize, Layout as LayoutTrait, LayoutCx, LogicalPoint,
+    LogicalSize, MeasureCx, Sense, Ui, Widget,
+};
 use blit_layout::Unit;
 
 #[derive(Debug, Default)]
@@ -113,6 +116,16 @@ struct Layout<U: Unit> {
 impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
     type Item = Item;
 
+    fn intrinsic(&self, _: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        let min = U::round(query.axis.extent(self.minimum)).max(0.0);
+        let max = query.axis.extent(self.maximum).max(min);
+        let preferred = U::round(query.axis.extent(self.size).clamp(min, max));
+        IntrinsicSize {
+            min,
+            preferred: preferred.max(min),
+        }
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let maximum = self.maximum.max(self.minimum);
         let size = constraints.constrain(LogicalSize::new(
@@ -124,7 +137,7 @@ impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
             self.grip_size.height.into_float().min(size.height),
         );
         for child in cx.children() {
-            let (position, child_size, z_index) = match *cx.item(child) {
+            let (position, child_size, z_index) = match *child.item {
                 Item::Content => (LogicalPoint::ZERO, size, 0),
                 Item::Right => (
                     LogicalPoint::new(size.width - grip.width, 0.0),
@@ -142,9 +155,9 @@ impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
                     2,
                 ),
             };
-            cx.layout_child(child, Constraints::tight(child_size));
-            cx.set_position(child, position);
-            cx.set_child_z_index(child, z_index);
+            cx.layout_child(child.id, Constraints::tight(child_size));
+            cx.set_position(child.id, position);
+            cx.set_child_z_index(child.id, z_index);
         }
         size
     }

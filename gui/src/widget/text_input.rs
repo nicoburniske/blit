@@ -1,4 +1,7 @@
-use blit::{Atom, Constraints, Input, Key, LogicalRect, LogicalSize, PointerButton, Sense, Sides, Widget};
+use blit::{
+    Atom, Axis, Constraints, Input, IntrinsicQuery, IntrinsicSize, Key, LogicalRect, LogicalSize, PointerButton, Sense,
+    Sides, Widget,
+};
 pub use blit_widgets::text_input::{Response, State};
 
 use crate::{
@@ -131,6 +134,26 @@ struct InputAtom {
 }
 
 impl Atom<GuiContext> for InputAtom {
+    fn intrinsic(&self, context: &mut GuiContext, query: IntrinsicQuery) -> IntrinsicSize {
+        let mut size = context.intrinsic_text(
+            &TextLayoutRequest {
+                text: self.display,
+                wrap: TextWrap::None,
+                max_width: None,
+                max_lines: Some(1),
+            },
+            query,
+        );
+        if query.axis == Axis::Horizontal {
+            size.min = 0.0;
+        }
+        let padding = query.axis.extent(self.padding.size());
+        IntrinsicSize {
+            min: size.min + padding,
+            preferred: size.preferred + padding,
+        }
+    }
+
     fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> LogicalSize {
         let size = context.measure_text(&TextLayoutRequest {
             text: self.display,
@@ -179,10 +202,6 @@ impl Atom<GuiContext> for InputAtom {
             ..request
         };
         context.paint_text(request);
-    }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
     }
 }
 

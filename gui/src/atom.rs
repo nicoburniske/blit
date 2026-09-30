@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, LogicalSize};
+use blit::{Atom, Constraints, IntrinsicQuery, IntrinsicSize, LogicalRect, LogicalSize};
 
 use crate::{
     GuiContext,
@@ -22,10 +22,6 @@ blit::builder! {
 }
 
 impl Atom<GuiContext> for Rectangle {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> LogicalSize {
-        constraints.constrain(LogicalSize::ZERO)
-    }
-
     fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
         if self.background != Color::TRANSPARENT || !matches!(self.border, Border::None) {
             context.paint_rectangle(DrawRectangle {
@@ -36,10 +32,6 @@ impl Atom<GuiContext> for Rectangle {
                 opacity: self.opacity,
             });
         }
-    }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
     }
 }
 
@@ -55,6 +47,18 @@ blit::builder! {
 }
 
 impl Atom<GuiContext> for Text {
+    fn intrinsic(&self, context: &mut GuiContext, query: IntrinsicQuery) -> IntrinsicSize {
+        context.intrinsic_text(
+            &TextLayoutRequest {
+                text: self.text,
+                wrap: self.options.wrap,
+                max_width: None,
+                max_lines: self.options.max_lines,
+            },
+            query,
+        )
+    }
+
     fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> LogicalSize {
         let measured = context.measure_text(&TextLayoutRequest {
             text: self.text,
@@ -76,10 +80,6 @@ impl Atom<GuiContext> for Text {
         };
         context.paint_text_palette(request, self.palette);
     }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -96,8 +96,11 @@ pub struct Image {
 }
 
 impl Atom<GuiContext> for Image {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> LogicalSize {
-        constraints.constrain(self.intrinsic)
+    fn intrinsic(&self, _: &mut GuiContext, query: IntrinsicQuery) -> IntrinsicSize {
+        IntrinsicSize {
+            min: 0.0,
+            preferred: query.axis.extent(self.intrinsic),
+        }
     }
 
     fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
@@ -113,10 +116,6 @@ impl Atom<GuiContext> for Image {
             vertical_tiling: self.vertical_tiling,
         };
         context.paint_image(request);
-    }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
     }
 }
 
@@ -152,10 +151,6 @@ impl Shadow {
 }
 
 impl Atom<GuiContext> for Shadow {
-    fn measure(&self, _: &mut GuiContext, _: Constraints) -> LogicalSize {
-        LogicalSize::ZERO
-    }
-
     fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
         context.paint_shadow(self.command(area));
     }

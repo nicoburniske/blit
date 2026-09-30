@@ -1,4 +1,7 @@
-use blit::{Axis, Constraints, Layout as LayoutTrait, LayoutCx, LogicalPoint, LogicalSize, Sense, Ui, Widget};
+use blit::{
+    Axis, Constraints, IntrinsicQuery, IntrinsicSize, Layout as LayoutTrait, LayoutCx, LogicalPoint, LogicalSize,
+    MeasureCx, Sense, Ui, Widget,
+};
 use blit_layout::Unit;
 
 blit::builder! {
@@ -122,6 +125,50 @@ struct Layout<U: Unit> {
 impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
     type Item = Item;
 
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        let divider = self.divider_extent.into_float().max(0.0);
+        let mut result = IntrinsicSize::default();
+        for child in cx.children() {
+            let minimum = match child.item {
+                Item::Leading => self.minimum_leading.into_float().max(0.0),
+                Item::Trailing => self.minimum_trailing.into_float().max(0.0),
+                Item::Divider => continue,
+            };
+            let cross = if query.axis == self.axis {
+                query.cross
+            } else {
+                query.cross.map(|budget| {
+                    let available = (budget - divider).max(0.0);
+                    let leading = leading_extent(self, available);
+                    if matches!(child.item, Item::Leading) {
+                        leading
+                    } else {
+                        available - leading
+                    }
+                })
+            };
+            let size = cx.intrinsic(
+                child.id,
+                IntrinsicQuery {
+                    axis: query.axis,
+                    cross,
+                },
+            );
+            if query.axis == self.axis {
+                result.min += size.min.max(minimum);
+                result.preferred += size.preferred.max(minimum);
+            } else {
+                result.min = result.min.max(size.min);
+                result.preferred = result.preferred.max(size.preferred);
+            }
+        }
+        if query.axis == self.axis {
+            result.min += divider;
+            result.preferred += divider;
+        }
+        result
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
         let cross_axis = self.axis.other();
         let main = self.axis.extent(bounds.max);
@@ -130,10 +177,10 @@ impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
         let mut trailing = None;
         let mut divider = None;
         for child in cx.children() {
-            match cx.item(child) {
-                Item::Leading => leading = Some(child),
-                Item::Trailing => trailing = Some(child),
-                Item::Divider => divider = Some(child),
+            match child.item {
+                Item::Leading => leading = Some(child.id),
+                Item::Trailing => trailing = Some(child.id),
+                Item::Divider => divider = Some(child.id),
             }
         }
         let leading = leading.expect("missing split leading content");
@@ -141,16 +188,7 @@ impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
         let divider = divider.expect("missing split divider");
         let divider_extent = self.divider_extent.into_float().max(0.0).min(main);
         let available = (main - divider_extent).max(0.0);
-        let minimum_leading = self.minimum_leading.into_float().max(0.0);
-        let minimum_trailing = self.minimum_trailing.into_float().max(0.0);
-        let desired = U::round(self.extent).max(0.0);
-        let leading_extent = if minimum_leading + minimum_trailing <= available {
-            desired.clamp(minimum_leading, available - minimum_trailing)
-        } else if minimum_leading + minimum_trailing > 0.0 {
-            available * minimum_leading / (minimum_leading + minimum_trailing)
-        } else {
-            desired.min(available)
-        };
+        let leading_extent = leading_extent(self, available);
         let mut cross = cross_axis.extent(bounds.min);
         for (child, extent, offset) in [
             (leading, leading_extent, 0.0),
@@ -174,6 +212,19 @@ impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
         cx.set_position(divider, LogicalPoint::new(point.width, point.height));
         self.axis.set_extent(&mut size, main);
         bounds.constrain(size)
+    }
+}
+
+fn leading_extent<U: Unit>(layout: &Layout<U>, available: f32) -> f32 {
+    let minimum_leading = layout.minimum_leading.into_float().max(0.0);
+    let minimum_trailing = layout.minimum_trailing.into_float().max(0.0);
+    let desired = U::round(layout.extent).max(0.0);
+    if minimum_leading + minimum_trailing <= available {
+        desired.clamp(minimum_leading, available - minimum_trailing)
+    } else if minimum_leading + minimum_trailing > 0.0 {
+        available * minimum_leading / (minimum_leading + minimum_trailing)
+    } else {
+        desired.min(available)
     }
 }
 

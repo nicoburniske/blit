@@ -61,6 +61,25 @@ impl GuiContext {
         )
     }
 
+    /// reports text extents using the selected wrapping mode
+    pub fn intrinsic_text(&mut self, request: &TextLayoutRequest, query: blit::IntrinsicQuery) -> blit::IntrinsicSize {
+        let mut request = *request;
+        request.max_width = if query.axis == blit::Axis::Vertical {
+            query.cross
+        } else {
+            None
+        };
+        let preferred = query.axis.extent(self.measure_text(&request));
+        let min = if query.axis == blit::Axis::Horizontal && request.wrap != crate::text::TextWrap::None {
+            request.max_width = Some(0.0);
+            request.max_lines = None;
+            self.measure_text(&request).width.min(preferred)
+        } else {
+            preferred
+        };
+        blit::IntrinsicSize { min, preferred }
+    }
+
     pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
         self.text.measure(request)
     }

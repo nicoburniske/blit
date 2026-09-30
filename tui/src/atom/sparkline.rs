@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use blit::{Atom, Constraints, LogicalRect, LogicalSize};
+use blit::{Atom, Axis, Constraints, IntrinsicQuery, IntrinsicSize, LogicalRect, LogicalSize};
 
 use crate::{
     TuiContext,
@@ -20,6 +20,16 @@ blit::builder! {
 }
 
 impl Atom<TuiContext> for Sparkline {
+    fn intrinsic(&self, context: &mut TuiContext, query: IntrinsicQuery) -> IntrinsicSize {
+        let preferred = query
+            .axis
+            .extent(self.measure(context, Constraints::loose(LogicalSize::uniform(f32::INFINITY))));
+        IntrinsicSize {
+            min: if query.axis == Axis::Vertical { 1.0 } else { 0.0 },
+            preferred,
+        }
+    }
+
     fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> LogicalSize {
         constraints.constrain(LogicalSize::new(self.data.borrow().len() as f32, 1.0))
     }
@@ -53,9 +63,5 @@ impl Atom<TuiContext> for Sparkline {
                 eighths = eighths.saturating_sub(8);
             }
         }
-    }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
     }
 }

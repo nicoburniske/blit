@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, LogicalSize};
+use blit::{Atom, LogicalRect};
 
 use crate::TuiContext;
 
@@ -14,15 +14,7 @@ blit::builder! {
 }
 
 impl Atom<TuiContext> for Tint {
-    fn measure(&self, _: &mut TuiContext, _: Constraints) -> LogicalSize {
-        LogicalSize::ZERO
-    }
-
     fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
         context.cells(area).tint(self.color, self.opacity);
-    }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
     }
 }

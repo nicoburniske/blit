@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, LogicalSize};
+use blit::{Atom, IntrinsicQuery, IntrinsicSize, LogicalRect, LogicalSize};
 
 use crate::{
     TuiContext,
@@ -14,15 +14,14 @@ blit::builder! {
 }
 
 impl Atom<TuiContext> for Image {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> LogicalSize {
-        constraints.constrain(self.intrinsic)
+    fn intrinsic(&self, _: &mut TuiContext, query: IntrinsicQuery) -> IntrinsicSize {
+        IntrinsicSize {
+            min: 0.0,
+            preferred: query.axis.extent(self.intrinsic),
+        }
     }
 
     fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
         context.place_image(ImagePlacement::new(self.image, area));
-    }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
     }
 }

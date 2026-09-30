@@ -1,8 +1,8 @@
 use std::{hint::black_box, time::Duration};
 
 use blit::{
-    Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, LogicalPoint, LogicalSize, Sense, Transition, Ui, WidgetId,
-    state,
+    Constraints, Frame, FrameInfo, Input, IntrinsicQuery, IntrinsicSize, Layout, LayoutCx, LogicalPoint, LogicalSize,
+    MeasureCx, Sense, Transition, Ui, WidgetId, state,
 };
 
 #[global_allocator]
@@ -132,10 +132,14 @@ struct Stack;
 impl Layout<()> for Stack {
     type Item = ();
 
+    fn intrinsic(&self, _: &mut MeasureCx<'_, (), ()>, _: IntrinsicQuery) -> IntrinsicSize {
+        IntrinsicSize::default()
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, (), ()>, constraints: Constraints) -> LogicalSize {
         for child in cx.children() {
-            cx.layout_child(child, Constraints::tight(LogicalSize::ZERO));
-            cx.set_position(child, LogicalPoint::ZERO);
+            cx.layout_child(child.id, Constraints::tight(LogicalSize::ZERO));
+            cx.set_position(child.id, LogicalPoint::ZERO);
         }
         constraints.min
     }

@@ -245,6 +245,25 @@ impl TuiRenderer {
         text.len()
     }
 
+    /// reports text extents using the selected wrapping mode
+    pub fn intrinsic_text(&mut self, request: &TextLayoutRequest, query: blit::IntrinsicQuery) -> blit::IntrinsicSize {
+        let mut request = *request;
+        request.max_columns = if query.axis == blit::Axis::Vertical {
+            query.cross.map(|width| width.floor().max(0.0) as usize)
+        } else {
+            None
+        };
+        let preferred = query.axis.extent(self.measure_text(&request));
+        let min = if query.axis == blit::Axis::Horizontal && request.wrap != TextWrap::None {
+            request.max_columns = Some(0);
+            request.max_lines = None;
+            self.measure_text(&request).width.min(preferred)
+        } else {
+            preferred
+        };
+        blit::IntrinsicSize { min, preferred }
+    }
+
     pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
         let layout = self.layout_text(request);
         let layout = self.text_layouts.get_index(layout);

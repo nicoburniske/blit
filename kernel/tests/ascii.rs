@@ -1,8 +1,9 @@
 use std::{cell::Cell, rc::Rc, time::Duration};
 
 use blit::{
-    Atom, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, Layout, LayoutCx, LogicalPoint,
-    LogicalRect, LogicalSize, Modifiers, NodeTarget, PointerButton, Sense, Transition, Widget, WidgetId,
+    Atom, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, IntrinsicQuery,
+    IntrinsicSize, Layout, LayoutCx, LogicalPoint, LogicalRect, LogicalSize, MeasureCx, Modifiers, NodeTarget,
+    PointerButton, Sense, Transition, Widget, WidgetId,
 };
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, AsciiContext, S>;
@@ -166,17 +167,27 @@ fn default_children_share_one_item() {
     impl Layout<AsciiContext> for SharedDefault {
         type Item = Rc<()>;
 
+        fn intrinsic(&self, cx: &mut MeasureCx<'_, AsciiContext, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+            let mut result = IntrinsicSize::default();
+            for child in cx.children() {
+                let size = cx.intrinsic(child.id, query);
+                result.min = result.min.max(size.min);
+                result.preferred = result.preferred.max(size.preferred);
+            }
+            result
+        }
+
         fn layout(&self, cx: &mut LayoutCx<'_, AsciiContext, Rc<()>>, constraints: Constraints) -> LogicalSize {
             let mut count = 0;
             for child in cx.children() {
-                let item = Rc::as_ptr(cx.item(child));
+                let item = Rc::as_ptr(child.item);
                 if let Some(default) = self.default.get() {
                     assert_eq!(item, default);
                 } else {
                     self.default.set(Some(item));
                 }
-                cx.layout_child(child, Constraints::loose(constraints.max));
-                cx.set_position(child, LogicalPoint::ZERO);
+                cx.layout_child(child.id, Constraints::loose(constraints.max));
+                cx.set_position(child.id, LogicalPoint::ZERO);
                 count += 1;
             }
             self.children.set(count);
@@ -444,10 +455,14 @@ fn size_transitions_override_child_constraints() {
     impl<C> Layout<C> for Loose {
         type Item = ();
 
+        fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+            cx.intrinsic(cx.children().next().unwrap().id, query)
+        }
+
         fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
             let child = cx.children().next().unwrap();
-            let size = cx.layout_child(child, Constraints::loose(constraints.max));
-            cx.set_position(child, LogicalPoint::ZERO);
+            let size = cx.layout_child(child.id, Constraints::loose(constraints.max));
+            cx.set_position(child.id, LogicalPoint::ZERO);
             constraints.constrain(size)
         }
     }
@@ -909,6 +924,13 @@ struct PaintCount {
 }
 
 impl Atom<AsciiContext> for PaintCount {
+    fn intrinsic(&self, _: &mut AsciiContext, _: IntrinsicQuery) -> IntrinsicSize {
+        IntrinsicSize {
+            min: 0.0,
+            preferred: 1.0,
+        }
+    }
+
     fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> LogicalSize {
         constraints.constrain(LogicalSize::uniform(1.0))
     }
@@ -933,6 +955,10 @@ struct OwnedValue {
 
 impl<C> Layout<C> for OwnedValue {
     type Item = ();
+
+    fn intrinsic(&self, _: &mut MeasureCx<'_, C, Self::Item>, _: IntrinsicQuery) -> IntrinsicSize {
+        IntrinsicSize::default()
+    }
 
     fn layout(&self, _: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         constraints.min
@@ -973,6 +999,13 @@ impl Fill {
 }
 
 impl Atom<AsciiContext> for Fill {
+    fn intrinsic(&self, _: &mut AsciiContext, query: IntrinsicQuery) -> IntrinsicSize {
+        IntrinsicSize {
+            min: 0.0,
+            preferred: query.axis.extent(self.size),
+        }
+    }
+
     fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> LogicalSize {
         constraints.constrain(self.size)
     }
@@ -1090,14 +1123,37 @@ struct Column;
 impl<C> Layout<C> for Column {
     type Item = TestItem;
 
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        let mut result = IntrinsicSize::default();
+        for child in cx.children() {
+            let size = if let Some(size) = child.item.size {
+                let extent = query.axis.extent(size);
+                IntrinsicSize {
+                    min: extent,
+                    preferred: extent,
+                }
+            } else {
+                cx.intrinsic(child.id, query)
+            };
+            if query.axis == Axis::Vertical {
+                result.min += child.item.gap_before + size.min;
+                result.preferred += child.item.gap_before + size.preferred;
+            } else {
+                result.min = result.min.max(size.min);
+                result.preferred = result.preferred.max(size.preferred);
+            }
+        }
+        result
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let mut children = LogicalSize::ZERO;
         for child in cx.children() {
-            let item = cx.item(child);
+            let item = child.item;
             let bounds = item
                 .size
                 .map_or(Constraints::loose(constraints.max), Constraints::tight);
-            let size = cx.layout_child(child, bounds);
+            let size = cx.layout_child(child.id, bounds);
             children.width = children.width.max(size.width);
             children.height += item.gap_before + size.height;
         }
@@ -1105,9 +1161,9 @@ impl<C> Layout<C> for Column {
         let size = constraints.constrain(children);
         let mut y = 0.0;
         for child in cx.children() {
-            y += cx.item(child).gap_before;
-            cx.set_position(child, LogicalPoint::new(0.0, y));
-            y += cx.size(child).height;
+            y += child.item.gap_before;
+            cx.set_position(child.id, LogicalPoint::new(0.0, y));
+            y += cx.size(child.id).height;
         }
         size
     }
@@ -1119,20 +1175,38 @@ struct Overlay;
 impl<C> Layout<C> for Overlay {
     type Item = TestItem;
 
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        let mut result = IntrinsicSize::default();
+        for child in cx.children() {
+            let size = if let Some(size) = child.item.size {
+                let extent = query.axis.extent(size);
+                IntrinsicSize {
+                    min: extent,
+                    preferred: extent,
+                }
+            } else {
+                cx.intrinsic(child.id, query)
+            };
+            result.min = result.min.max(size.min);
+            result.preferred = result.preferred.max(size.preferred);
+        }
+        result
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let mut size = LogicalSize::ZERO;
         for child in cx.children() {
-            let bounds = cx
-                .item(child)
+            let bounds = child
+                .item
                 .size
                 .map_or(Constraints::loose(constraints.max), Constraints::tight);
-            size = size.max(cx.layout_child(child, bounds));
+            size = size.max(cx.layout_child(child.id, bounds));
         }
         let size = constraints.constrain(size);
         for child in cx.children() {
-            let child_size = cx.size(child);
+            let child_size = cx.size(child.id);
             cx.set_position(
-                child,
+                child.id,
                 LogicalPoint::new(
                     (size.width - child_size.width) / 2.0,
                     (size.height - child_size.height) / 2.0,
@@ -1176,6 +1250,18 @@ impl At {
 impl<C> Layout<C> for At {
     type Item = ();
 
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        if let Some(size) = self.size {
+            let extent = query.axis.extent(size);
+            IntrinsicSize {
+                min: extent,
+                preferred: extent,
+            }
+        } else {
+            cx.intrinsic(cx.children().next().unwrap().id, query)
+        }
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
         let child = cx.children().next().expect("positioned content is missing");
         let node = cx.node();
@@ -1187,9 +1273,9 @@ impl<C> Layout<C> for At {
             },
             |size| Constraints::tight(bounds.constrain(size)),
         );
-        let size = cx.layout_child(child, child_bounds);
+        let size = cx.layout_child(child.id, child_bounds);
         let target = cx.size(cx.relative());
-        cx.set_position(child, LogicalPoint::ZERO);
+        cx.set_position(child.id, LogicalPoint::ZERO);
         cx.set_position(
             node,
             LogicalPoint::new(
@@ -1207,11 +1293,19 @@ struct Fixed(LogicalSize);
 impl<C> Layout<C> for Fixed {
     type Item = ();
 
+    fn intrinsic(&self, _: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        let extent = query.axis.extent(self.0);
+        IntrinsicSize {
+            min: extent,
+            preferred: extent,
+        }
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let size = constraints.constrain(self.0);
         for child in cx.children() {
-            cx.layout_child(child, Constraints::tight(size));
-            cx.set_position(child, LogicalPoint::ZERO);
+            cx.layout_child(child.id, Constraints::tight(size));
+            cx.set_position(child.id, LogicalPoint::ZERO);
         }
         size
     }
@@ -1223,14 +1317,18 @@ struct Fraction(LogicalSize);
 impl<C> Layout<C> for Fraction {
     type Item = ();
 
+    fn intrinsic(&self, _: &mut MeasureCx<'_, C, Self::Item>, _: IntrinsicQuery) -> IntrinsicSize {
+        IntrinsicSize::default()
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let size = constraints.constrain(LogicalSize::new(
             constraints.max.width * self.0.width,
             constraints.max.height * self.0.height,
         ));
         for child in cx.children() {
-            cx.layout_child(child, Constraints::tight(size));
-            cx.set_position(child, LogicalPoint::ZERO);
+            cx.layout_child(child.id, Constraints::tight(size));
+            cx.set_position(child.id, LogicalPoint::ZERO);
         }
         size
     }

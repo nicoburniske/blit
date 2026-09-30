@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, LogicalSize};
+use blit::{Atom, Constraints, IntrinsicQuery, IntrinsicSize, LogicalRect, LogicalSize};
 
 use crate::{
     TuiContext,
@@ -18,6 +18,18 @@ blit::builder! {
 }
 
 impl Atom<TuiContext> for Text {
+    fn intrinsic(&self, context: &mut TuiContext, query: IntrinsicQuery) -> IntrinsicSize {
+        context.renderer_mut().intrinsic_text(
+            &TextLayoutRequest {
+                text: self.text,
+                wrap: self.options.wrap,
+                max_columns: None,
+                max_lines: self.options.max_lines,
+            },
+            query,
+        )
+    }
+
     fn measure(&self, context: &mut TuiContext, constraints: Constraints) -> LogicalSize {
         let mut request = TextLayoutRequest::new(self.text).wrap(self.options.wrap);
         if self.options.wrap != TextWrap::None && constraints.max.width.is_finite() {
@@ -36,9 +48,5 @@ impl Atom<TuiContext> for Text {
                 .attributes(self.attributes)
                 .options(self.options),
         );
-    }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
     }
 }

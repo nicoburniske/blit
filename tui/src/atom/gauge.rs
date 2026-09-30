@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use blit::{Atom, Constraints, LogicalRect, LogicalSize};
+use blit::{Atom, Constraints, IntrinsicQuery, IntrinsicSize, LogicalRect, LogicalSize};
 
 use crate::{
     TuiContext,
@@ -50,6 +50,13 @@ impl Gauge {
 }
 
 impl Atom<TuiContext> for Gauge {
+    fn intrinsic(&self, context: &mut TuiContext, query: IntrinsicQuery) -> IntrinsicSize {
+        let preferred = query
+            .axis
+            .extent(self.measure(context, Constraints::loose(LogicalSize::uniform(f32::INFINITY))));
+        IntrinsicSize { min: 1.0, preferred }
+    }
+
     fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> LogicalSize {
         let width = self
             .label
@@ -94,10 +101,6 @@ impl Atom<TuiContext> for Gauge {
                 cells.set_cell(x, rows / 2, Cell::new(character).style(style(x)));
             }
         }
-    }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
     }
 }
 

@@ -1,6 +1,9 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
-use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, LogicalPoint, LogicalSize, Ui, WidgetId};
+use blit::{
+    Axis, Clip, Constraints, Content, IntrinsicQuery, IntrinsicSize, Layout, LayoutCx, LogicalPoint, LogicalSize,
+    MeasureCx, Ui, WidgetId,
+};
 use blit_layout::Unit;
 
 pub use crate::scroll::shared::Behavior;
@@ -247,6 +250,10 @@ struct MeasuredScrollLayout<U: Unit> {
 impl<C, U: Unit> Layout<C> for MeasuredScrollLayout<U> {
     type Item = ScrollItem;
 
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        self.scroll.intrinsic(cx, query)
+    }
+
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         self.scroll.layout_with_offset(ui, constraints, |maximum| {
             let mut table = self.table.borrow_mut();
@@ -265,12 +272,46 @@ struct MeasuredLayout {
 impl<C> Layout<C> for MeasuredLayout {
     type Item = ();
 
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        let table = self.table.borrow();
+        if query.axis == Axis::Vertical {
+            // unbuilt rows retain their estimated heights
+            let mut result = IntrinsicSize {
+                min: table.total,
+                preferred: table.total,
+            };
+            for (index, child) in cx.children().enumerate() {
+                let size = cx.intrinsic(child.id, query);
+                let height = table.rows[self.first + index].height;
+                result.min += size.min - height;
+                result.preferred += size.preferred - height;
+            }
+            result.min = result.min.max(0.0);
+            result.preferred = result.preferred.max(result.min);
+            result
+        } else {
+            let mut result = IntrinsicSize::default();
+            for child in cx.children() {
+                let size = cx.intrinsic(
+                    child.id,
+                    IntrinsicQuery {
+                        axis: query.axis,
+                        cross: None,
+                    },
+                );
+                result.min = result.min.max(size.min);
+                result.preferred = result.preferred.max(size.preferred);
+            }
+            result
+        }
+    }
+
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let mut table = self.table.borrow_mut();
         let mut changed = None;
         for (index, child) in ui.children().enumerate() {
             let size = ui.layout_child(
-                child,
+                child.id,
                 Constraints {
                     min: LogicalSize::new(constraints.max.width, 0.0),
                     max: LogicalSize::new(constraints.max.width, f32::INFINITY),
@@ -299,7 +340,7 @@ impl<C> Layout<C> for MeasuredLayout {
             table.offset = row.top + within.min(row.height);
         }
         for (index, child) in ui.children().enumerate() {
-            ui.set_position(child, LogicalPoint::new(0.0, table.rows[self.first + index].top));
+            ui.set_position(child.id, LogicalPoint::new(0.0, table.rows[self.first + index].top));
         }
         constraints.constrain(LogicalSize::new(constraints.max.width, table.total))
     }

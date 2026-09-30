@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, LogicalSize, PhysicalPoint};
+use blit::{Atom, LogicalRect, PhysicalPoint};
 
 use crate::{
     TuiContext,
@@ -26,10 +26,6 @@ impl Shadow {
 }
 
 impl Atom<TuiContext> for Shadow {
-    fn measure(&self, _: &mut TuiContext, _: Constraints) -> LogicalSize {
-        LogicalSize::ZERO
-    }
-
     fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
         let shifted = LogicalRect {
             x: area.x + self.offset_x,
