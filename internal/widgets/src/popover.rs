@@ -98,20 +98,23 @@ where
             .target(config.parent)
             .visual_parent(config.parent)
             .z_index(1)
-            .layout(absolute::Layout::new().width(Sizing::grow()).height(Sizing::grow()));
-        let mut popup = overlay.child().layout(single::layout());
+            .layout(
+                absolute::Layout::new(single::layout())
+                    .width(Sizing::grow())
+                    .height(Sizing::grow()),
+            );
         if config.close != Close::Manual {
-            popup
+            overlay
                 .child()
                 .item(single::item().grow())
                 .widget_id(backdrop_id)
                 .insert(());
         }
         Some(
-            popup
+            overlay
                 .target(anchor)
                 .layout(
-                    absolute::Layout::new()
+                    absolute::Layout::new(single::layout())
                         .target_anchor(config.target_anchor)
                         .child_anchor(config.child_anchor)
                         .x(round(config.offset.x) as Offset)
@@ -127,8 +130,6 @@ where
                         .left(config.offset.x.max(0.0)),
                 )
                 .widget_id(content_id)
-                .child()
-                .layout(single::layout())
                 .child()
                 .item(single::item().grow())
                 .build(content),

@@ -16,7 +16,7 @@ use blit_gui::{
     color::Color,
     display_list::{Mesh, MeshVertex},
     layout::{
-        Align, Padding, Sizing,
+        Align, Justify, Padding, Sizing,
         absolute::{self, Anchor},
         flex, grid, single, wrap,
     },
@@ -201,7 +201,7 @@ impl Application for App {
         if self.show_performance {
             root.target(NodeTarget::Root)
                 .layout(
-                    absolute::Layout::new()
+                    absolute::Layout::new(single::layout())
                         .target_anchor(Anchor::BottomRight)
                         .child_anchor(Anchor::BottomRight)
                         .x(-sz::LG)
@@ -1368,38 +1368,31 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .color(Color::WHITE),
     );
     if let Some(anchor) = spec.badge {
-        item.target(NodeTarget::Parent)
+        let mut badge = item
+            .target(NodeTarget::Parent)
             .visual_parent(WidgetId::new("desktop canvas"))
             .z_index(1)
             .layout(
-                absolute::Layout::new()
+                absolute::Layout::new(flex::row().align(Align::Center).justify(Justify::Center))
                     .target_anchor(anchor)
                     .child_anchor(Anchor::Center)
                     .width(Sizing::fixed(sz::BADGE_WIDTH * config.zoom))
                     .height(Sizing::fixed(sz::LG * config.zoom)),
-            )
-            .child()
-            .build(|ui: Ui<'_>| {
-                let mut badge = ui.layout(
-                    flex::row()
-                        .align(Align::Center)
-                        .justify(blit_gui::layout::Justify::Center),
-                );
-                badge.insert(
-                    Rectangle::new()
-                        .background(colors::BACKGROUND)
-                        .border(Border::solid(sz::BORDER, Color::WHITE))
-                        .radius(BorderRadius::uniform(sz::XXS)),
-                );
-                badge.child().insert(
-                    Text::new("ABS")
-                        .style(TextStyle {
-                            size: (sz::XS * config.zoom).max(sz::XS),
-                            ..TextStyle::default()
-                        })
-                        .color(Color::WHITE),
-                );
-            });
+            );
+        badge.insert(
+            Rectangle::new()
+                .background(colors::BACKGROUND)
+                .border(Border::solid(sz::BORDER, Color::WHITE))
+                .radius(BorderRadius::uniform(sz::XXS)),
+        );
+        badge.child().insert(
+            Text::new("ABS")
+                .style(TextStyle {
+                    size: (sz::XS * config.zoom).max(sz::XS),
+                    ..TextStyle::default()
+                })
+                .color(Color::WHITE),
+        );
     }
 }
 
@@ -1531,44 +1524,37 @@ mod graphics {
                 buffers: Rc::clone(&self.terrain),
             });
 
-            stage
-                .target(NodeTarget::Parent)
-                .z_index(2)
-                .layout(
-                    absolute::Layout::new()
-                        .target_anchor(Anchor::BottomLeft)
-                        .child_anchor(Anchor::BottomLeft)
-                        .x(sz::LG)
-                        .y(-sz::LG)
-                        .width(Sizing::fixed(390.0))
-                        .height(Sizing::fixed(52.0)),
+            let mut controls = stage.target(NodeTarget::Parent).z_index(2).layout(
+                absolute::Layout::new(
+                    flex::row()
+                        .padding(Padding::all(sz::XS))
+                        .gap(sz::XXS)
+                        .align(Align::Center),
                 )
+                .target_anchor(Anchor::BottomLeft)
+                .child_anchor(Anchor::BottomLeft)
+                .x(sz::LG)
+                .y(-sz::LG)
+                .width(Sizing::fixed(390.0))
+                .height(Sizing::fixed(52.0)),
+            );
+            controls.insert(
+                Rectangle::new()
+                    .background(PANEL)
+                    .border(Border::solid(sz::BORDER, colors::BORDER))
+                    .radius(BorderRadius::uniform(sz::SM)),
+            );
+            for (label, value) in [("4K", Detail::Low), ("18K", Detail::Medium), ("74K", Detail::High)] {
+                if controls.child().build(Button::new(label, self.detail == value)) {
+                    self.detail = value;
+                }
+            }
+            if controls
                 .child()
-                .build(|ui: Ui<'_>| {
-                    let mut controls = ui.layout(
-                        flex::row()
-                            .padding(Padding::all(sz::XS))
-                            .gap(sz::XXS)
-                            .align(Align::Center),
-                    );
-                    controls.insert(
-                        Rectangle::new()
-                            .background(PANEL)
-                            .border(Border::solid(sz::BORDER, colors::BORDER))
-                            .radius(BorderRadius::uniform(sz::SM)),
-                    );
-                    for (label, value) in [("4K", Detail::Low), ("18K", Detail::Medium), ("74K", Detail::High)] {
-                        if controls.child().build(Button::new(label, self.detail == value)) {
-                            self.detail = value;
-                        }
-                    }
-                    if controls
-                        .child()
-                        .build(Button::new(if self.running { "pause" } else { "play" }, self.running))
-                    {
-                        self.running = !self.running;
-                    }
-                });
+                .build(Button::new(if self.running { "pause" } else { "play" }, self.running))
+            {
+                self.running = !self.running;
+            }
         }
     }
 

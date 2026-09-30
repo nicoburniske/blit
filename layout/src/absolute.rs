@@ -3,10 +3,10 @@ use blit::{Constraints, LogicalPoint, LogicalSize};
 use crate::{Offset, Sizing, round, sizing_range};
 
 blit::builder! {
-    /// positions one child relative to the target selected by `Ui::target`
+    /// positions a layout relative to the target selected by `Ui::target`
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Layout {
-        new(),
+    pub struct Layout<L> {
+        new(inner: L),
         x: Offset = 0 as Offset,
         y: Offset = 0 as Offset,
         target_anchor: Anchor = Anchor::TopLeft,
@@ -30,14 +30,10 @@ pub enum Anchor {
     BottomRight,
 }
 
-impl<C> blit::Layout<C> for Layout {
-    type Item = ();
+impl<C, L: blit::Layout<C>> blit::Layout<C> for Layout<L> {
+    type Item = L::Item;
 
     fn layout(&self, cx: &mut blit::LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
-        let mut children = cx.children();
-        let child = children.next().expect("absolute requires one flow child");
-        assert!(children.next().is_none(), "absolute accepts one flow child");
-
         let containing = cx.size(cx.visual_parent());
         let range = |sizing: Sizing, available: f32| {
             let sizing = sizing.into_float();
@@ -51,8 +47,8 @@ impl<C> blit::Layout<C> for Layout {
         };
         let width = range(self.width, containing.width);
         let height = range(self.height, containing.height);
-        let size = cx.layout_child(
-            child,
+        let size = self.inner.layout(
+            cx,
             Constraints {
                 min: bounds.constrain(LogicalSize::new(round(width.0), round(height.0))),
                 max: bounds.constrain(LogicalSize::new(round(width.1), round(height.1))),
@@ -72,7 +68,6 @@ impl<C> blit::Layout<C> for Layout {
         };
         let target_anchor = anchor(self.target_anchor);
         let child_anchor = anchor(self.child_anchor);
-        cx.set_position(child, LogicalPoint::ZERO);
         cx.set_position(
             cx.node(),
             LogicalPoint::new(

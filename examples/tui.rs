@@ -140,7 +140,7 @@ impl Demo {
         if self.show_performance {
             root.target(NodeTarget::Root)
                 .layout(
-                    absolute::Layout::new()
+                    absolute::Layout::new(single::layout())
                         .target_anchor(Anchor::BottomRight)
                         .child_anchor(Anchor::BottomRight)
                         .x(-1)
@@ -216,17 +216,17 @@ impl Widget<TuiContext> for &mut Modal {
             .visual_parent(NodeTarget::Root)
             .z_index(1)
             .widget_id(backdrop_id)
-            .layout(absolute::Layout::new().width(Sizing::grow()).height(Sizing::grow()));
+            .layout(
+                absolute::Layout::new(single::layout())
+                    .width(Sizing::grow())
+                    .height(Sizing::grow()),
+            );
         overlay.insert(Tint::new([0, 0, 0], if self.dim { 180 } else { 80 }));
-        let mut modal = overlay.child().layout(single::layout());
-        let mut panel_position = modal.target(NodeTarget::Parent).widget_id(panel_id).layout(
-            absolute::Layout::new()
+        let mut panel = overlay.target(NodeTarget::Parent).widget_id(panel_id).layout(
+            absolute::Layout::new(flex::column().padding(Padding::all(1)).gap(1))
                 .target_anchor(Anchor::Center)
                 .child_anchor(Anchor::Center),
         );
-        let mut panel = panel_position
-            .child()
-            .layout(flex::column().padding(Padding::all(1)).gap(1));
         panel.insert(
             Block::new()
                 .background(colors::SURFACE)
@@ -1174,22 +1174,19 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .attributes(TextAttributes::BOLD),
     );
     if let Some(anchor) = spec.badge {
-        item.target(NodeTarget::Parent)
+        let mut badge = item
+            .target(NodeTarget::Parent)
             .visual_parent(WidgetId::new("tui canvas"))
             .z_index(1)
             .layout(
-                absolute::Layout::new()
+                absolute::Layout::new(flex::row().align(Align::Center).justify(Justify::Center))
                     .target_anchor(anchor)
                     .child_anchor(Anchor::Center)
                     .width(Sizing::fixed((unit.width * 2.0) as Length))
                     .height(Sizing::fixed(unit.height as Length)),
-            )
-            .child()
-            .build(|ui: Ui<'_>| {
-                let mut badge = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
-                badge.insert(Block::new().background(colors::ACCENT_DARK));
-                badge.child().insert(Text::new("A").color(colors::TEXT));
-            });
+            );
+        badge.insert(Block::new().background(colors::ACCENT_DARK));
+        badge.child().insert(Text::new("A").color(colors::TEXT));
     }
 }
 

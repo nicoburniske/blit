@@ -132,13 +132,14 @@ fn flex_distributes_growing_space() {
             row.target(fixed)
                 .widget_id(attached)
                 .layout(
-                    absolute::Layout::new()
+                    absolute::Layout::new(flex::row())
                         .target_anchor(absolute::Anchor::TopRight)
                         .child_anchor(absolute::Anchor::Top)
                         .width(Sizing::percent(0.1))
                         .height(Sizing::fixed(1 as Length)),
                 )
                 .child()
+                .item(flex::item().grow())
                 .insert(BoxAtom(LogicalSize::ZERO));
         },
     );
