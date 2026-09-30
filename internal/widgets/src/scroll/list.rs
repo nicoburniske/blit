@@ -1,25 +1,25 @@
 use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, LogicalPoint, LogicalSize, Ui, WidgetId};
-use blit_layout::round;
+use blit_layout::Unit;
 
-pub use super::shared::{Behavior, State};
-use super::shared::{ScrollLayout, build_scroll, update};
+pub use crate::scroll::shared::{Behavior, State};
+use crate::scroll::shared::{ScrollLayout, build_scroll, update};
 
 blit::builder! {
     #[const]
     #[derive(Clone, Copy, Debug)]
-    pub struct Config {
-        new(item_extent: f32),
+    pub struct Config<U: Unit> {
+        new(item_extent: U),
         axis: Axis = Axis::Vertical,
-        gap: f32 = 0.0,
-        behavior: Behavior = Behavior::new(),
+        gap: U = U::ZERO,
+        behavior: Behavior<U> = Behavior::new(),
     }
 }
 
 /// scrolls uniform items while building only the visible range
-pub fn build<C, I, K, F, X, T, H>(
+pub fn build<C, U: Unit, I, K, F, X, T, H>(
     mut ui: Ui<'_, C>,
     state: &mut State,
-    list: Config,
+    list: Config<U>,
     items: I,
     mut widget_id: K,
     mut item: F,
@@ -35,12 +35,10 @@ pub fn build<C, I, K, F, X, T, H>(
 {
     let config = list.behavior;
     let axis = list.axis;
-    let gap = list.gap;
-    let item_extent = list.item_extent;
+    let gap = list.gap.into_float();
+    let item_extent = list.item_extent.into_float();
     assert!(item_extent.is_finite() && item_extent > 0.0);
     assert!(gap.is_finite() && gap >= 0.0);
-    let item_extent = round(item_extent);
-    let gap = round(gap);
     let stride = item_extent + gap;
     let count = items.len();
     let (thumb_active, viewport_known) = update(state, &mut ui, axis, config);

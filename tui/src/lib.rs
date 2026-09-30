@@ -18,8 +18,8 @@ mod renderer;
 mod terminal;
 
 pub mod atom;
+pub mod layout;
 pub mod widget;
-pub use blit_layout as layout;
 
 pub use self::{
     context::{BoundsClip, TuiContext},

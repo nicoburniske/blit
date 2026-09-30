@@ -1,54 +1,73 @@
 use blit::{Axis, Constraints, LogicalSize};
 
-#[cfg(feature = "tui")]
-mod platform {
-    pub type Length = u16;
-    pub type Offset = i32;
+/// physical layout units and their allocation precision
+pub trait Unit: Copy + std::fmt::Debug + PartialEq + 'static {
+    type Offset: Unit;
+    const ZERO: Self;
+    const ONE: Self;
+
+    fn into_float(self) -> f32;
+    fn from_float(value: f32) -> Self;
+    fn round(value: f32) -> f32;
 
     #[inline]
-    pub fn round(value: f32) -> f32 {
-        value.round()
-    }
-
-    pub fn distribute(cursor: &mut f32, share: f32) -> f32 {
-        let previous = cursor.round();
+    fn distribute(cursor: &mut f32, share: f32) -> f32 {
+        let previous = Self::round(*cursor);
         *cursor += share;
-        cursor.round() - previous
+        Self::round(*cursor) - previous
     }
 }
 
-#[cfg(not(feature = "tui"))]
-mod platform {
-    pub type Length = f32;
-    pub type Offset = f32;
+macro_rules! unit {
+    ($(($ty:ty, $offset:ty, $round:path $(, $extra:item)*)),+ $(,)?) => {
+        $(impl Unit for $ty {
+            type Offset = $offset;
+            const ZERO: Self = 0 as Self;
+            const ONE: Self = 1 as Self;
 
-    #[inline]
-    pub fn round(value: f32) -> f32 {
-        value
-    }
-
-    pub fn distribute(_: &mut f32, share: f32) -> f32 {
-        share
-    }
+            #[inline]
+            fn into_float(self) -> f32 {
+                self as f32
+            }
+            #[inline]
+            fn from_float(value: f32) -> Self {
+                Self::round(value) as Self
+            }
+            #[inline]
+            fn round(value: f32) -> f32 {
+                $round(value)
+            }
+            $($extra)*
+        })+
+    };
 }
 
-pub use platform::*;
+unit! {
+    (f32, f32, std::convert::identity,
+        #[inline]
+        fn distribute(_: &mut f32, share: f32) -> f32 {
+            share
+        }
+    ),
+    (u16, i32, f32::round),
+    (i32, i32, f32::round),
+}
 
 blit::builder! {
     #[const]
     /// layout-owned inset lengths
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Padding {
+    pub struct Padding<U: Unit> {
         new(),
-        top: Length = 0 as Length,
-        right: Length = 0 as Length,
-        bottom: Length = 0 as Length,
-        left: Length = 0 as Length,
+        top: U = U::ZERO,
+        right: U = U::ZERO,
+        bottom: U = U::ZERO,
+        left: U = U::ZERO,
     }
 }
 
-impl Padding {
-    pub const fn all(value: Length) -> Self {
+impl<U: Unit> Padding<U> {
+    pub const fn all(value: U) -> Self {
         Self {
             top: value,
             right: value,
@@ -58,54 +77,54 @@ impl Padding {
     }
 }
 
-impl From<Padding> for blit::Sides {
-    fn from(value: Padding) -> Self {
+impl<U: Unit> From<Padding<U>> for blit::Sides {
+    fn from(value: Padding<U>) -> Self {
         Self {
-            top: value.top as f32,
-            right: value.right as f32,
-            bottom: value.bottom as f32,
-            left: value.left as f32,
+            top: value.top.into_float(),
+            right: value.right.into_float(),
+            bottom: value.bottom.into_float(),
+            left: value.left.into_float(),
         }
     }
 }
 
-/// physical extents use the platform layout unit by default; percentages remain ratios
+/// physical extents use the selected unit and percentages remain ratios
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Sizing<Unit = Length> {
-    Fit { min: Unit, max: Option<Unit> },
-    Grow { min: Unit, max: Option<Unit> },
-    Fixed(Unit),
+pub enum Sizing<U> {
+    Fit { min: U, max: Option<U> },
+    Grow { min: U, max: Option<U> },
+    Fixed(U),
     Percent(f32),
 }
 
-impl Sizing<Length> {
+impl<U: Unit> Sizing<U> {
     pub const fn fit() -> Self {
         Self::Fit {
-            min: 0 as Length,
+            min: U::ZERO,
             max: None,
         }
     }
 
-    pub const fn fit_range(min: Length, max: Length) -> Self {
+    pub const fn fit_range(min: U, max: U) -> Self {
         Self::Fit { min, max: Some(max) }
     }
 
     pub const fn grow() -> Self {
         Self::Grow {
-            min: 0 as Length,
+            min: U::ZERO,
             max: None,
         }
     }
 
-    pub const fn grow_min(min: Length) -> Self {
+    pub const fn grow_min(min: U) -> Self {
         Self::Grow { min, max: None }
     }
 
-    pub const fn grow_range(min: Length, max: Length) -> Self {
+    pub const fn grow_range(min: U, max: U) -> Self {
         Self::Grow { min, max: Some(max) }
     }
 
-    pub const fn fixed(size: Length) -> Self {
+    pub const fn fixed(size: U) -> Self {
         Self::Fixed(size)
     }
 
@@ -113,19 +132,24 @@ impl Sizing<Length> {
         Self::Percent(fraction)
     }
 
-    pub fn into_float(self) -> Sizing<f32> {
+    /// transforms lengths while leaving percentages unchanged
+    pub fn map<V>(self, f: impl Fn(U) -> V) -> Sizing<V> {
         match self {
             Self::Fit { min, max } => Sizing::Fit {
-                min: min as f32,
-                max: max.map(|max| max as f32),
+                min: f(min),
+                max: max.map(f),
             },
             Self::Grow { min, max } => Sizing::Grow {
-                min: min as f32,
-                max: max.map(|max| max as f32),
+                min: f(min),
+                max: max.map(f),
             },
-            Self::Fixed(size) => Sizing::Fixed(size as f32),
+            Self::Fixed(size) => Sizing::Fixed(f(size)),
             Self::Percent(fraction) => Sizing::Percent(fraction),
         }
+    }
+
+    pub fn into_float(self) -> Sizing<f32> {
+        self.map(U::into_float)
     }
 
     pub fn with_override(self, animated: Option<f32>) -> Sizing<f32> {
@@ -150,15 +174,15 @@ blit::builder! {
     #[const]
     /// sizing policy for a flow layout child
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Item {
+    pub struct Item<U: Unit> {
         new(),
-        width: Sizing = Sizing::fit(),
-        height: Sizing = Sizing::fit(),
+        width: Sizing<U> = Sizing::fit(),
+        height: Sizing<U> = Sizing::fit(),
     }
 }
 
-impl Item {
-    pub const fn fixed(mut self, width: Length, height: Length) -> Self {
+impl<U: Unit> Item<U> {
+    pub const fn fixed(mut self, width: U, height: U) -> Self {
         self.width = Sizing::fixed(width);
         self.height = Sizing::fixed(height);
         self
@@ -171,29 +195,10 @@ impl Item {
     }
 }
 
-pub const fn item() -> Item {
-    Item::new()
-}
-
-pub fn round_sizing(sizing: Sizing<f32>) -> Sizing<f32> {
-    match sizing {
-        Sizing::Fit { min, max } => Sizing::Fit {
-            min: round(min),
-            max: max.map(round),
-        },
-        Sizing::Grow { min, max } => Sizing::Grow {
-            min: round(min),
-            max: max.map(round),
-        },
-        Sizing::Fixed(size) => Sizing::Fixed(round(size)),
-        Sizing::Percent(fraction) => Sizing::Percent(fraction),
-    }
-}
-
-pub fn flow_sizing(
+pub fn flow_sizing<U: Unit>(
     axis: Axis,
-    width: Sizing,
-    height: Sizing,
+    width: Sizing<U>,
+    height: Sizing<U>,
     (width_override, height_override): (Option<f32>, Option<f32>),
 ) -> (Sizing<f32>, Sizing<f32>) {
     let width = width.with_override(width_override);
@@ -212,8 +217,8 @@ pub fn flow_size(main: f32, cross: f32, axis: Axis) -> LogicalSize {
 }
 
 #[inline]
-pub fn sizing_range(sizing: Sizing<f32>, available: f32) -> (f32, f32) {
-    match round_sizing(sizing) {
+pub fn sizing_range<U: Unit>(sizing: Sizing<f32>, available: f32) -> (f32, f32) {
+    match sizing.map(U::round) {
         Sizing::Fit { min, max } | Sizing::Grow { min, max } => {
             let min = min.max(0.0);
             let max = max.unwrap_or(f32::INFINITY);
@@ -235,13 +240,13 @@ pub fn sizing_range(sizing: Sizing<f32>, available: f32) -> (f32, f32) {
     }
 }
 
-pub fn flow_constraints(axis: Axis, main: (f32, f32), cross: (f32, f32)) -> Constraints {
+pub fn flow_constraints<U: Unit>(axis: Axis, main: (f32, f32), cross: (f32, f32)) -> Constraints {
     let (width, height) = match axis {
         Axis::Horizontal => (main, cross),
         Axis::Vertical => (cross, main),
     };
     Constraints {
-        min: LogicalSize::new(round(width.0), round(height.0)),
-        max: LogicalSize::new(round(width.1), round(height.1)),
+        min: LogicalSize::new(U::round(width.0), U::round(height.0)),
+        max: LogicalSize::new(U::round(width.1), U::round(height.1)),
     }
 }

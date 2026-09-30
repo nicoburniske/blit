@@ -3,7 +3,7 @@ use std::time::Duration;
 use blit::{
     Axis, Clip, Constraints, Content, Layout, LayoutCx, LogicalPoint, LogicalSize, ScrollPhase, Sense, Ui, Widget,
 };
-use blit_layout::round;
+use blit_layout::Unit;
 
 blit::builder! {
     #[const]
@@ -24,13 +24,13 @@ blit::builder! {
     #[const]
     /// scrollbar behavior and geometry
     #[derive(Clone, Copy, Debug)]
-    pub struct Behavior {
+    pub struct Behavior<U: Unit> {
         new(),
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 6.0,
         sense: Sense = Sense::SCROLL,
-        scrollbar_thickness: f32 = 1.0,
-        minimum_thumb_extent: f32 = 1.0,
+        scrollbar_thickness: U = U::ONE,
+        minimum_thumb_extent: U = U::ONE,
     }
 }
 
@@ -55,11 +55,11 @@ impl State {
 }
 
 #[derive(Clone, Copy)]
-pub struct ScrollLayout {
+pub struct ScrollLayout<U: Unit> {
     pub axis: Axis,
     pub offset: f32,
-    pub scrollbar_thickness: f32,
-    pub minimum_thumb_extent: f32,
+    pub scrollbar_thickness: U,
+    pub minimum_thumb_extent: U,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -70,7 +70,7 @@ pub enum ScrollItem {
     Thumb,
 }
 
-impl<C> Layout<C> for ScrollLayout {
+impl<C, U: Unit> Layout<C> for ScrollLayout<U> {
     type Item = ScrollItem;
 
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
@@ -78,7 +78,7 @@ impl<C> Layout<C> for ScrollLayout {
     }
 }
 
-impl ScrollLayout {
+impl<U: Unit> ScrollLayout<U> {
     pub fn layout_with_offset<C>(
         &self,
         ui: &mut LayoutCx<'_, C, ScrollItem>,
@@ -98,7 +98,7 @@ impl ScrollLayout {
         let content = content.expect("scroll area content is missing");
         let thickness = if thumb.is_some() || track.is_some() {
             let maximum = self.axis.other().extent(constraints.max);
-            round(self.scrollbar_thickness).max(0.0).min(maximum.max(0.0))
+            self.scrollbar_thickness.into_float().max(0.0).min(maximum.max(0.0))
         } else {
             0.0
         };
@@ -144,7 +144,7 @@ impl ScrollLayout {
         }
 
         if let Some(thumb) = thumb {
-            let minimum_extent = round(self.minimum_thumb_extent).max(0.0);
+            let minimum_extent = self.minimum_thumb_extent.into_float().max(0.0);
             let thumb_extent = if content_extent > viewport_extent && content_extent > 0.0 {
                 (viewport_extent * viewport_extent / content_extent)
                     .max(minimum_extent)
@@ -177,7 +177,7 @@ impl ScrollLayout {
 
 /// updates scroll input and motion returning thumb activity and viewport availability
 /// uses children named `content` and `scroll thumb` for geometry when present
-pub fn update<C>(state: &mut State, ui: &mut Ui<'_, C>, axis: Axis, config: Behavior) -> (bool, bool) {
+pub fn update<C, U: Unit>(state: &mut State, ui: &mut Ui<'_, C>, axis: Axis, config: Behavior<U>) -> (bool, bool) {
     let id = ui.current_widget_id();
     let content_id = id.child("content");
     let thumb_id = id.child("scroll thumb");

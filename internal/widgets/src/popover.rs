@@ -1,8 +1,8 @@
-use blit::{Input, Interaction, LogicalPoint, NodeTarget, Sense, Sides, Ui, Widget};
+use blit::{Input, Interaction, NodeTarget, Sense, Sides, Ui, Widget};
 use blit_layout::{
-    Offset, Sizing,
+    Sizing, Unit,
     absolute::{self, Anchor},
-    round, single,
+    single,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -17,14 +17,14 @@ blit::builder! {
     #[const]
     /// popover placement
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Config {
+    pub struct Config<U: Unit> {
         new(),
         parent: NodeTarget = NodeTarget::Root,
         target_anchor: Anchor = Anchor::BottomLeft,
         child_anchor: Anchor = Anchor::TopLeft,
-        offset: LogicalPoint = LogicalPoint::ZERO,
-        width: Sizing = Sizing::fit(),
-        height: Sizing = Sizing::fit(),
+        offset: blit::Point<U::Offset> = blit::Point::new(U::Offset::ZERO, U::Offset::ZERO),
+        width: Sizing<U> = Sizing::fit(),
+        height: Sizing<U> = Sizing::fit(),
         open_on_hover: bool = false,
         close: Close = Close::Click,
     }
@@ -40,9 +40,9 @@ blit::builder! {
     }
 }
 
-pub fn new<'a, C, T, W>(
+pub fn new<'a, C, U: Unit, T, W>(
     state: &'a mut State,
-    config: Config,
+    config: Config<U>,
     trigger: T,
     content: W,
 ) -> impl Widget<C, Response = Option<W::Response>> + 'a
@@ -59,13 +59,13 @@ where
         } else if !config.open_on_hover && interaction.activated {
             state.open = !state.open;
         }
-        let mut root = ui.layout(single::layout());
+        let mut root = ui.layout(single::Layout::<U>::new());
         let anchor = {
-            let mut trigger_node = root.child().widget_id(trigger_id).layout(single::layout());
+            let mut trigger_node = root.child().widget_id(trigger_id).layout(single::Layout::<U>::new());
             let anchor = trigger_node.id();
             trigger_node
                 .child()
-                .item(single::item().grow())
+                .item(single::Item::new().grow())
                 .build(|ui: Ui<'_, C>| trigger(ui, interaction, state.open));
             anchor
         };
@@ -101,39 +101,41 @@ where
             .visual_parent(config.parent)
             .z_index(1)
             .layout(
-                absolute::Layout::new(single::layout())
+                absolute::Layout::<_, U>::new(single::Layout::<U>::new())
                     .width(Sizing::grow())
                     .height(Sizing::grow()),
             );
         if config.close != Close::Manual {
             overlay
                 .child()
-                .item(single::item().grow())
+                .item(single::Item::new().grow())
                 .widget_id(backdrop_id)
                 .insert(());
         }
+        let offset_x = config.offset.x.into_float();
+        let offset_y = config.offset.y.into_float();
         Some(
             overlay
                 .target(anchor)
                 .layout(
-                    absolute::Layout::new(single::layout())
+                    absolute::Layout::<_, U>::new(single::Layout::<U>::new())
                         .target_anchor(config.target_anchor)
                         .child_anchor(config.child_anchor)
-                        .x(round(config.offset.x) as Offset)
-                        .y(round(config.offset.y) as Offset)
+                        .x(config.offset.x)
+                        .y(config.offset.y)
                         .width(config.width)
                         .height(config.height),
                 )
                 .hit(
                     Sides::new()
-                        .top(config.offset.y.max(0.0))
-                        .right((-config.offset.x).max(0.0))
-                        .bottom((-config.offset.y).max(0.0))
-                        .left(config.offset.x.max(0.0)),
+                        .top(offset_y.max(0.0))
+                        .right((-offset_x).max(0.0))
+                        .bottom((-offset_y).max(0.0))
+                        .left(offset_x.max(0.0)),
                 )
                 .widget_id(content_id)
                 .child()
-                .item(single::item().grow())
+                .item(single::Item::new().grow())
                 .build(content),
         )
     }
@@ -143,28 +145,27 @@ where
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, LogicalRect, LogicalSize, Modifiers, PointerButton, WidgetId};
-    use blit_layout::Length;
+    use blit::{Frame, FrameInfo, LogicalPoint, LogicalRect, LogicalSize, Modifiers, PointerButton, WidgetId};
 
     use super::*;
     use crate::test::TestContext;
 
-    fn render(ui: Ui<'_, TestContext>, state: &mut State, config: Config) {
+    fn render(ui: Ui<'_, TestContext>, state: &mut State, config: Config<f32>) {
         ui.widget_id(WidgetId::new("test popover")).build(new(
             state,
             config,
             |ui: Ui<'_, TestContext>, _, _| {
                 ui.widget_id(WidgetId::new("named trigger"))
-                    .layout(single::layout())
+                    .layout(single::Layout::<f32>::new())
                     .child()
-                    .item(single::item().fixed(2 as Length, 1 as Length))
+                    .item(single::Item::new().fixed(2.0, 1.0))
                     .build(())
             },
             |ui: Ui<'_, TestContext>| {
                 ui.widget_id(WidgetId::new("named content"))
-                    .layout(single::layout())
+                    .layout(single::Layout::<f32>::new())
                     .child()
-                    .item(single::item().fixed(4 as Length, 3 as Length))
+                    .item(single::Item::new().fixed(4.0, 3.0))
                     .build(())
             },
         ));
@@ -245,9 +246,7 @@ mod tests {
                     render(
                         ui,
                         &mut state,
-                        Config::new()
-                            .width(Sizing::fixed(5 as Length))
-                            .height(Sizing::fixed(4 as Length)),
+                        Config::new().width(Sizing::fixed(5.0)).height(Sizing::fixed(4.0)),
                     );
                     assert_eq!(state.open, expected.next().unwrap());
                 },

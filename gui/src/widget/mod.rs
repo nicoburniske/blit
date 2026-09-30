@@ -1,10 +1,23 @@
 pub mod performance;
-pub use blit_widgets::{popover, resize, split};
-
 pub mod scroll_area;
 pub mod scroll_list;
 pub mod text_input;
 pub mod virtual_list;
+
+pub mod popover {
+    pub use blit_widgets::popover::{Close, State, new};
+    pub type Config = blit_widgets::popover::Config<f32>;
+}
+
+pub mod resize {
+    pub use blit_widgets::resize::{Edge, Grip, State, new};
+    pub type Config = blit_widgets::resize::Config<f32>;
+}
+
+pub mod split {
+    pub use blit_widgets::split::{State, new};
+    pub type Config = blit_widgets::split::Config<f32>;
+}
 
 use blit::{Content, state};
 

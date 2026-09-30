@@ -1,6 +1,6 @@
 use blit::{Axis, LogicalSize};
 pub use blit_layout::{Align, Justify};
-use blit_layout::{Length, Padding, Sizing, absolute::Anchor};
+use blit_layout::{Padding, Sizing, Unit, absolute::Anchor};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CanvasLayout {
@@ -48,24 +48,24 @@ impl Default for CanvasConfig {
 }
 
 impl CanvasConfig {
-    pub fn padding(self, unit: LogicalSize) -> Padding {
+    pub fn padding<U: Unit>(self, unit: LogicalSize) -> Padding<U> {
         let steps = f32::from(self.padding_steps) * self.zoom;
         Padding::new()
-            .top(length(steps * unit.height))
-            .right(length(steps * unit.width))
-            .bottom(length(steps * unit.height))
-            .left(length(steps * unit.width))
+            .top(U::from_float(steps * unit.height))
+            .right(U::from_float(steps * unit.width))
+            .bottom(U::from_float(steps * unit.height))
+            .left(U::from_float(steps * unit.width))
     }
 
-    pub fn gap(self, axis: Axis, unit: LogicalSize) -> Length {
+    pub fn gap<U: Unit>(self, axis: Axis, unit: LogicalSize) -> U {
         let unit = match axis {
             Axis::Horizontal => unit.width,
             Axis::Vertical => unit.height,
         };
-        length(f32::from(self.gap_steps) * self.zoom * unit)
+        U::from_float(f32::from(self.gap_steps) * self.zoom * unit)
     }
 
-    pub fn item_sizing(self, index: usize, unit: LogicalSize) -> (Sizing, Sizing) {
+    pub fn item_sizing<U: Unit>(self, index: usize, unit: LogicalSize) -> (Sizing<U>, Sizing<U>) {
         let main_steps = 3.0 + (index % 5) as f32;
         let cross_steps = 3.0 + (index % 4) as f32;
         let (main_unit, cross_unit) = match self.axis {
@@ -75,14 +75,14 @@ impl CanvasConfig {
         let natural_main = main_steps * main_unit * self.zoom;
         let natural_cross = cross_steps * cross_unit * self.zoom;
         let main = match self.sizing {
-            ItemSizing::Fixed => Sizing::fixed(length(natural_main)),
-            ItemSizing::Fit => Sizing::fit_range(length(2.0 * main_unit), length(natural_main)),
-            ItemSizing::Grow => Sizing::grow_min(length(2.0 * main_unit)),
+            ItemSizing::Fixed => Sizing::fixed(U::from_float(natural_main)),
+            ItemSizing::Fit => Sizing::fit_range(U::from_float(2.0 * main_unit), U::from_float(natural_main)),
+            ItemSizing::Grow => Sizing::grow_min(U::from_float(2.0 * main_unit)),
         };
         let cross = if self.align == Align::Stretch {
             Sizing::fit()
         } else {
-            Sizing::fixed(length(natural_cross))
+            Sizing::fixed(U::from_float(natural_cross))
         };
         match self.axis {
             Axis::Horizontal => (main, cross),
@@ -91,15 +91,11 @@ impl CanvasConfig {
     }
 }
 
-fn length(value: f32) -> Length {
-    blit_layout::round(value.max(0.0)) as Length
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ItemSpec {
     pub label: &'static str,
-    pub rows: usize,
-    pub columns: usize,
+    pub rows: u16,
+    pub columns: u16,
     pub badge: Option<Anchor>,
 }
 

@@ -1,5 +1,5 @@
 use blit::{Constraints, Interaction, Layout as LayoutTrait, LayoutCx, LogicalPoint, LogicalSize, Sense, Ui, Widget};
-use blit_layout::round;
+use blit_layout::Unit;
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -22,15 +22,20 @@ pub struct Grip {
 blit::builder! {
     #[const]
     #[derive(Clone, Copy, Debug)]
-    pub struct Config {
+    pub struct Config<U: Unit> {
         new(initial: LogicalSize),
         minimum: LogicalSize = LogicalSize::ZERO,
         maximum: LogicalSize = LogicalSize::uniform(f32::INFINITY),
-        grip_size: LogicalSize = LogicalSize::uniform(1.0),
+        grip_size: blit::Size<U> = blit::Size::uniform(U::ONE),
     }
 }
 
-pub fn new<'a, C, W, F, G>(state: &'a mut State, config: Config, content: W, mut grip: F) -> impl Widget<C> + 'a
+pub fn new<'a, C, U: Unit, W, F, G>(
+    state: &'a mut State,
+    config: Config<U>,
+    content: W,
+    mut grip: F,
+) -> impl Widget<C> + 'a
 where
     W: Widget<C> + 'a,
     F: FnMut(Grip) -> G + 'a,
@@ -98,25 +103,25 @@ enum Item {
 }
 
 #[derive(Clone, Copy)]
-struct Layout {
+struct Layout<U: Unit> {
     size: LogicalSize,
     minimum: LogicalSize,
     maximum: LogicalSize,
-    grip_size: LogicalSize,
+    grip_size: blit::Size<U>,
 }
 
-impl<C> LayoutTrait<C> for Layout {
+impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
     type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
         let maximum = self.maximum.max(self.minimum);
         let size = constraints.constrain(LogicalSize::new(
-            round(self.size.width.clamp(self.minimum.width, maximum.width)),
-            round(self.size.height.clamp(self.minimum.height, maximum.height)),
+            U::round(self.size.width.clamp(self.minimum.width, maximum.width)),
+            U::round(self.size.height.clamp(self.minimum.height, maximum.height)),
         ));
         let grip = LogicalSize::new(
-            round(self.grip_size.width).min(size.width),
-            round(self.grip_size.height).min(size.height),
+            self.grip_size.width.into_float().min(size.width),
+            self.grip_size.height.into_float().min(size.height),
         );
         for child in cx.children() {
             let (position, child_size, z_index) = match *cx.item(child) {

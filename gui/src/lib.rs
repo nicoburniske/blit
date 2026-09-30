@@ -8,7 +8,7 @@ pub mod text;
 mod text_system;
 pub mod widget;
 
-pub use blit_layout as layout;
+pub mod layout;
 pub use blit_text::{FontData, FontError, TextLayoutEngine};
 
 pub use self::{

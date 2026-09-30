@@ -1,5 +1,7 @@
 use blit::{Content, Widget};
-pub use blit_widgets::scroll::area::{Behavior, Config, State};
+pub use blit_widgets::scroll::area::State;
+pub type Behavior = blit_widgets::scroll::area::Behavior<f32>;
+pub type Config = blit_widgets::scroll::area::Config<f32>;
 
 use crate::{BoundsClip, GuiContext, Ui};
 

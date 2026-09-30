@@ -1,5 +1,7 @@
 use blit::{Content, Widget, WidgetId};
-pub use blit_widgets::scroll::virtual_list::{Behavior, Config, Response, State};
+pub use blit_widgets::scroll::virtual_list::{Response, State};
+pub type Behavior = blit_widgets::scroll::virtual_list::Behavior<f32>;
+pub type Config = blit_widgets::scroll::virtual_list::Config<f32>;
 
 use crate::{BoundsClip, GuiContext, Ui};
 

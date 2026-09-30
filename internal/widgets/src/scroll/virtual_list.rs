@@ -1,27 +1,28 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
 use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, LogicalPoint, LogicalSize, Ui, WidgetId};
+use blit_layout::Unit;
 
-pub use super::shared::Behavior;
-use super::shared::{self, ScrollItem, ScrollLayout, build_scroll, update};
+pub use crate::scroll::shared::Behavior;
+use crate::scroll::shared::{self, ScrollItem, ScrollLayout, build_scroll, update};
 
 blit::builder! {
     #[const]
     #[derive(Clone, Copy, Debug)]
-    pub struct Config {
+    pub struct Config<U: Unit> {
         new(),
         edge_scroll: bool = false,
-        behavior: Behavior = Behavior::new(),
+        behavior: Behavior<U> = Behavior::new(),
     }
 }
 
 /// measures all rows initially then corrects visible heights as layout changes
-pub fn build<C, R, X, K, F, T, H>(
+pub fn build<C, U: Unit, R, X, K, F, T, H>(
     mut ui: Ui<'_, C>,
     state: &mut State,
     rows: &[R],
     clip: X,
-    list: Config,
+    list: Config<U>,
     scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
     mut widget_id: K,
     mut item: F,
@@ -238,12 +239,12 @@ struct RowTable {
     offset: f32,
 }
 
-struct MeasuredScrollLayout {
-    scroll: ScrollLayout,
+struct MeasuredScrollLayout<U: Unit> {
+    scroll: ScrollLayout<U>,
     table: Rc<RefCell<RowTable>>,
 }
 
-impl<C> Layout<C> for MeasuredScrollLayout {
+impl<C, U: Unit> Layout<C> for MeasuredScrollLayout<U> {
     type Item = ScrollItem;
 
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
@@ -316,7 +317,7 @@ mod tests {
     #[test]
     fn remeasured_rows_resolve_scroll_before_the_first_paint() {
         use blit::WidgetId;
-        use blit_layout::{Length, Padding};
+        use blit_layout::Padding;
 
         fn layout(frame: &mut Frame<TestContext>, state: &mut State, rows: &[(u32, f32)]) {
             let context = &mut TestContext;
@@ -331,16 +332,13 @@ mod tests {
                         state,
                         rows,
                         TestClip,
-                        Config::new(),
+                        Config::<f32>::new(),
                         |_| (None::<()>, None::<()>),
                         |row| WidgetId::new(row.0),
                         |ui, row| {
                             ui.layout(
-                                blit_layout::single::layout().padding(
-                                    Padding::new()
-                                        .top((row.1 / 2.0).floor() as Length)
-                                        .bottom((row.1 / 2.0).ceil() as Length),
-                                ),
+                                blit_layout::single::Layout::<f32>::new()
+                                    .padding(Padding::new().top((row.1 / 2.0).floor()).bottom((row.1 / 2.0).ceil())),
                             );
                         },
                     )

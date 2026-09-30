@@ -1,16 +1,16 @@
 use blit::{Axis, Constraints, Layout as LayoutTrait, LayoutCx, LogicalPoint, LogicalSize, Sense, Ui, Widget};
-use blit_layout::round;
+use blit_layout::Unit;
 
 blit::builder! {
     #[const]
     /// split behavior and geometry
     #[derive(Clone, Copy, Debug)]
-    pub struct Config {
+    pub struct Config<U: Unit> {
         new(initial_extent: f32),
         axis: Axis = Axis::Horizontal,
-        divider_extent: f32 = 1.0,
-        minimum_leading: f32 = 0.0,
-        minimum_trailing: f32 = 0.0,
+        divider_extent: U = U::ONE,
+        minimum_leading: U = U::ZERO,
+        minimum_trailing: U = U::ZERO,
         sense: Sense = Sense::DRAG,
     }
 }
@@ -37,9 +37,9 @@ impl State {
     }
 }
 
-pub fn new<'a, C, L, T, D, W>(
+pub fn new<'a, C, U: Unit, L, T, D, W>(
     state: &'a mut State,
-    config: Config,
+    config: Config<U>,
     divider: D,
     leading: L,
     trailing: T,
@@ -111,15 +111,15 @@ enum Item {
 }
 
 #[derive(Clone, Copy)]
-struct Layout {
+struct Layout<U: Unit> {
     axis: Axis,
-    divider_extent: f32,
+    divider_extent: U,
     extent: f32,
-    minimum_leading: f32,
-    minimum_trailing: f32,
+    minimum_leading: U,
+    minimum_trailing: U,
 }
 
-impl<C> LayoutTrait<C> for Layout {
+impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
     type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
@@ -139,11 +139,11 @@ impl<C> LayoutTrait<C> for Layout {
         let leading = leading.expect("missing split leading content");
         let trailing = trailing.expect("missing split trailing content");
         let divider = divider.expect("missing split divider");
-        let divider_extent = round(self.divider_extent).max(0.0).min(main);
+        let divider_extent = self.divider_extent.into_float().max(0.0).min(main);
         let available = (main - divider_extent).max(0.0);
-        let minimum_leading = round(self.minimum_leading).max(0.0);
-        let minimum_trailing = round(self.minimum_trailing).max(0.0);
-        let desired = round(self.extent).max(0.0);
+        let minimum_leading = self.minimum_leading.into_float().max(0.0);
+        let minimum_trailing = self.minimum_trailing.into_float().max(0.0);
+        let desired = U::round(self.extent).max(0.0);
         let leading_extent = if minimum_leading + minimum_trailing <= available {
             desired.clamp(minimum_leading, available - minimum_trailing)
         } else if minimum_leading + minimum_trailing > 0.0 {
@@ -214,9 +214,9 @@ mod tests {
             Duration::ZERO,
             Input::None,
             |ui: Ui<'_, TestContext>| {
-                ui.layout(single::layout())
+                ui.layout(single::Layout::<f32>::new())
                     .child()
-                    .item(single::item().grow())
+                    .item(single::Item::new().grow())
                     .widget_id(id)
                     .build(new(
                         &mut state,

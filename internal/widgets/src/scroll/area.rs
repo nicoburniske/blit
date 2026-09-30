@@ -1,22 +1,23 @@
 use blit::{Axis, Clip, Content, Ui, Widget};
+use blit_layout::Unit;
 
-pub use super::shared::{Behavior, State};
-use super::shared::{ScrollLayout, build_scroll, update};
+pub use crate::scroll::shared::{Behavior, State};
+use crate::scroll::shared::{ScrollLayout, build_scroll, update};
 
 blit::builder! {
     #[const]
     #[derive(Clone, Copy, Debug)]
-    pub struct Config {
+    pub struct Config<U: Unit> {
         new(),
         axis: Axis = Axis::Vertical,
-        behavior: Behavior = Behavior::new(),
+        behavior: Behavior<U> = Behavior::new(),
     }
 }
 
-pub fn build<C, W, X, T, H>(
+pub fn build<C, U: Unit, W, X, T, H>(
     mut ui: Ui<'_, C>,
     state: &mut State,
-    area: Config,
+    area: Config<U>,
     clip: X,
     content: W,
     scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),

@@ -1,7 +1,7 @@
 use blit::{Axis, Constraints, LayoutCx, LogicalPoint, LogicalSize};
 
-pub use crate::size::{Item, item};
-use crate::{Length, Padding, Sizing, flow_constraints, sizing_range};
+pub use crate::size::Item;
+use crate::{Padding, Sizing, Unit, flow_constraints, sizing_range};
 
 blit::builder! {
     #[const]
@@ -9,18 +9,14 @@ blit::builder! {
     ///
     /// percentages use the space offered to the layout, not the child's natural size
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Layout {
+    pub struct Layout<U: Unit> {
         new(),
-        padding: Padding = Padding::all(0 as Length),
+        padding: Padding<U> = Padding::all(U::ZERO),
     }
 }
 
-pub const fn layout() -> Layout {
-    Layout::new()
-}
-
-impl<C> blit::Layout<C> for Layout {
-    type Item = Item;
+impl<C, U: Unit> blit::Layout<C> for Layout<U> {
+    type Item = Item<U>;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
         let padding: blit::Sides = self.padding.into();
@@ -39,10 +35,10 @@ impl<C> blit::Layout<C> for Layout {
                 // a single child forwards the budget instead of claiming its maximum
                 (sizing.clamp(minimum), sizing.clamp(maximum).max(sizing.clamp(minimum)))
             } else {
-                sizing_range(sizing, maximum)
+                sizing_range::<U>(sizing, maximum)
             }
         };
-        let child_bounds = flow_constraints(
+        let child_bounds = flow_constraints::<U>(
             Axis::Horizontal,
             range(Axis::Horizontal, item.width.with_override(width)),
             range(Axis::Vertical, item.height.with_override(height)),

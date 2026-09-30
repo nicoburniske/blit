@@ -6,8 +6,8 @@ pub mod wrap;
 
 mod size;
 
-pub use size::{Length, Offset, Padding, Sizing, round};
-use size::{distribute, flow_constraints, flow_size, flow_sizing, round_sizing, sizing_range};
+pub use size::{Padding, Sizing, Unit};
+use size::{flow_constraints, flow_size, flow_sizing, sizing_range};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {

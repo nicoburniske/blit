@@ -308,10 +308,9 @@ mod tests {
     use std::time::Duration;
 
     use blit::{Frame, FrameInfo, Input, LogicalSize};
-    use blit_layout::single;
 
     use super::*;
-    use crate::{RendererConfig, TuiRenderer, atom::Shadow, widget};
+    use crate::{RendererConfig, TuiRenderer, atom::Shadow, layout::single, widget};
 
     #[test]
     fn block_and_shadow_paint_as_atoms() {

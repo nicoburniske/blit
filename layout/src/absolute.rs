@@ -1,18 +1,18 @@
 use blit::{Constraints, LogicalPoint, LogicalSize};
 
-use crate::{Offset, Sizing, round, sizing_range};
+use crate::{Sizing, Unit, sizing_range};
 
 blit::builder! {
     /// positions a layout relative to the target selected by `Ui::target`
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Layout<L> {
+    pub struct Layout<L, U: Unit> {
         new(inner: L),
-        x: Offset = 0 as Offset,
-        y: Offset = 0 as Offset,
+        x: U::Offset = U::Offset::ZERO,
+        y: U::Offset = U::Offset::ZERO,
         target_anchor: Anchor = Anchor::TopLeft,
         child_anchor: Anchor = Anchor::TopLeft,
-        width: Sizing = Sizing::fit(),
-        height: Sizing = Sizing::fit(),
+        width: Sizing<U> = Sizing::fit(),
+        height: Sizing<U> = Sizing::fit(),
     }
 }
 
@@ -30,19 +30,19 @@ pub enum Anchor {
     BottomRight,
 }
 
-impl<C, L: blit::Layout<C>> blit::Layout<C> for Layout<L> {
+impl<C, L: blit::Layout<C>, U: Unit> blit::Layout<C> for Layout<L, U> {
     type Item = L::Item;
 
     fn layout(&self, cx: &mut blit::LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
         let containing = cx.size(cx.visual_parent());
-        let range = |sizing: Sizing, available: f32| {
+        let range = |sizing: Sizing<U>, available: f32| {
             let sizing = sizing.into_float();
-            let available = round(available);
+            let available = U::round(available);
             if matches!(sizing, Sizing::Grow { .. }) {
                 let size = sizing.clamp(available);
                 (size, size)
             } else {
-                sizing_range(sizing, available)
+                sizing_range::<U>(sizing, available)
             }
         };
         let width = range(self.width, containing.width);
@@ -50,8 +50,8 @@ impl<C, L: blit::Layout<C>> blit::Layout<C> for Layout<L> {
         let size = self.inner.layout(
             cx,
             Constraints {
-                min: bounds.constrain(LogicalSize::new(round(width.0), round(height.0))),
-                max: bounds.constrain(LogicalSize::new(round(width.1), round(height.1))),
+                min: bounds.constrain(LogicalSize::new(U::round(width.0), U::round(height.0))),
+                max: bounds.constrain(LogicalSize::new(U::round(width.1), U::round(height.1))),
             },
         );
         let target = cx.size(cx.parent());
@@ -71,8 +71,14 @@ impl<C, L: blit::Layout<C>> blit::Layout<C> for Layout<L> {
         cx.set_position(
             cx.node(),
             LogicalPoint::new(
-                round(round(target.width) * target_anchor.x - round(size.width) * child_anchor.x + self.x as f32),
-                round(round(target.height) * target_anchor.y - round(size.height) * child_anchor.y + self.y as f32),
+                U::round(
+                    U::round(target.width) * target_anchor.x - U::round(size.width) * child_anchor.x
+                        + self.x.into_float(),
+                ),
+                U::round(
+                    U::round(target.height) * target_anchor.y - U::round(size.height) * child_anchor.y
+                        + self.y.into_float(),
+                ),
             ),
         );
         bounds.constrain(size)

@@ -468,7 +468,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
                                 ))
                                 .minimum(LogicalSize::new(18.0, 9.0))
                                 .maximum(screen.size())
-                                .grip_size(LogicalSize::uniform(1.0)),
+                                .grip_size(blit::Size::uniform(1)),
                                 Canvas { config: preview_config },
                                 TuiGrip,
                             ));
@@ -684,7 +684,7 @@ impl Widget<TuiContext> for &mut TextPage {
                             resize::Config::new(LogicalSize::new(64.0, 16.0))
                                 .minimum(LogicalSize::new(12.0, 6.0))
                                 .maximum(screen.size())
-                                .grip_size(LogicalSize::uniform(1.0)),
+                                .grip_size(blit::Size::uniform(1)),
                             |ui: Ui<'_>| {
                                 let mut paragraph = ui
                                     .layout(flex::column().padding(Padding::all(1)))
@@ -947,8 +947,8 @@ impl Widget<TuiContext> for &mut ScrollPage {
         }
         let axis = *scroll_axis;
         let item_extent = match axis {
-            Axis::Horizontal => 12.0,
-            Axis::Vertical => 3.0,
+            Axis::Horizontal => 12,
+            Axis::Vertical => 3,
         };
         body.child().item(flex::item().grow()).build(scroll_list::new(
             scroll,
@@ -1214,7 +1214,7 @@ fn split<'a>(
 }
 
 fn scroll_behavior() -> scroll_area::Behavior {
-    scroll_area::Behavior::new().minimum_thumb_extent(4.0)
+    scroll_area::Behavior::new().minimum_thumb_extent(4)
 }
 
 fn scrollbar(active: bool) -> (Option<Block<'static>>, Option<Block<'static>>) {
