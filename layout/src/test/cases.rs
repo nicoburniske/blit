@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use blit::{Atom, Constraints, Frame, FrameInfo, Input, LogicalRect, LogicalSize, Transition, Ui, Widget, WidgetId};
-use blit_layout::{Align, Padding, Sizing, absolute, flex, grid, single, wrap};
+
+use crate::{Align, Padding, Sizing, absolute, flex, grid, single, wrap};
 
 #[derive(Default)]
 struct TestContext;

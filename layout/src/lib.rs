@@ -46,3 +46,6 @@ fn justify_offset(justify: Justify, remaining: f32, count: usize) -> (f32, f32) 
         _ => (0.0, 0.0),
     }
 }
+
+#[cfg(test)]
+mod test;
