@@ -1,3 +1,5 @@
+mod intrinsic;
+
 mod gui {
     type Length = f32;
     const TUI: bool = false;

@@ -8,6 +8,7 @@ pub struct Frame<C> {
     layout_kinds: Vec<LayoutKind<C>>,
     clip_kinds: Vec<ClipKind<C>>,
     data: DataArena,
+    scratch: DataArena,
     paint_links: Vec<PaintLinks>,
     paint_order: Vec<NodeId>,
     order_stack: Vec<NodeId>,
@@ -64,6 +65,7 @@ impl<C> Default for Frame<C> {
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
             data: DataArena::default(),
+            scratch: DataArena::default(),
             paint_links: Vec::new(),
             paint_order: Vec::new(),
             order_stack: Vec::new(),
@@ -103,6 +105,7 @@ impl<C> Frame<C> {
 
     /// resolves layout, positioning, clipping and interaction for the built graph
     pub fn layout(&mut self, context: &mut C) {
+        self.scratch.rewind(0);
         let data = std::mem::take(&mut self.data);
         transition::resolve(self, &data, context, self.screen.size(), self.resized);
         paint::resolve_order(self);
@@ -238,6 +241,41 @@ impl<C> Frame<C> {
         size
     }
 
+    fn intrinsic_node(
+        &mut self,
+        data: &DataArena,
+        node: NodeId,
+        context: &mut C,
+        query: crate::IntrinsicQuery,
+    ) -> crate::IntrinsicSize {
+        assert!(query.cross.is_none_or(|value| value.is_finite() && value >= 0.0));
+        let result = if let Some(layout) = self.nodes[node.index()].layout.index() {
+            let stored = self.layouts[layout];
+            let run = self.layout_kinds[stored.kind as usize].intrinsic;
+            run(data, self, node, context, stored.data, query)
+        } else {
+            let mut size = crate::IntrinsicSize::default();
+            let mut atom = self.nodes[node.index()].first_atom;
+            while let Some(index) = atom.index() {
+                let stored = self.atoms[index];
+                let intrinsic = self.atom_kinds[stored.kind as usize].intrinsic;
+                let measured = intrinsic(data, stored.data, context, query);
+                size.min = size.min.max(measured.min);
+                size.preferred = size.preferred.max(measured.preferred);
+                atom = stored.next;
+            }
+            size
+        };
+        assert!(
+            result.min.is_finite()
+                && result.min >= 0.0
+                && result.preferred.is_finite()
+                && result.preferred >= result.min,
+            "invalid intrinsic size"
+        );
+        result
+    }
+
     fn measure_base(
         &mut self,
         data: &DataArena,
@@ -267,6 +305,7 @@ impl<C> Frame<C> {
                 self.atom_kinds.push(AtomKind {
                     type_id,
                     measure: measure_atom::<C, A>,
+                    intrinsic: intrinsic_atom::<C, A>,
                     paint_bounds: paint_bounds_atom::<C, A>,
                     paint: paint_atom::<C, A>,
                 });
@@ -297,6 +336,7 @@ impl<C> Frame<C> {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
                     layout: layout::run::<C, L>,
+                    intrinsic: layout::intrinsic::<C, L>,
                     default_item: DataId::NONE,
                 });
                 self.layout_kinds.len() - 1
@@ -553,6 +593,7 @@ type ResolvedClipId = Index<ResolvedClip>;
 
 struct AtomKind<C> {
     type_id: TypeId,
+    intrinsic: fn(&DataArena, DataId, &mut C, crate::IntrinsicQuery) -> crate::IntrinsicSize,
     measure: fn(&DataArena, DataId, &mut C, Constraints) -> LogicalSize,
     paint_bounds: fn(&DataArena, DataId, LogicalRect) -> LogicalRect,
     paint: fn(&DataArena, DataId, &mut C, LogicalRect),
@@ -561,6 +602,7 @@ struct AtomKind<C> {
 struct LayoutKind<C> {
     type_id: TypeId,
     layout: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, Constraints) -> LogicalSize,
+    intrinsic: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, crate::IntrinsicQuery) -> crate::IntrinsicSize,
     default_item: DataId,
 }
 
@@ -570,8 +612,19 @@ struct ClipKind<C> {
     pop: fn(&DataArena, DataId, &mut C),
 }
 
+fn intrinsic_atom<C, A: Atom<C>>(
+    data: &DataArena,
+    id: DataId,
+    context: &mut C,
+    query: crate::IntrinsicQuery,
+) -> crate::IntrinsicSize {
+    // safety: atom registration pairs this dispatch with stored A values
+    unsafe { data.load_unchecked::<A>(id) }.intrinsic(context, query)
+}
+
 fn measure_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, context: &mut C, constraints: Constraints) -> LogicalSize {
-    data.load::<A>(id).measure(context, constraints)
+    // safety: atom registration pairs this dispatch with stored A values
+    unsafe { data.load_unchecked::<A>(id) }.measure(context, constraints)
 }
 
 fn paint_bounds_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, area: LogicalRect) -> LogicalRect {

@@ -22,6 +22,13 @@ fn layout_frame(frame: &mut Frame<TestContext>, size: LogicalSize, widget: impl 
 struct BoxAtom(LogicalSize);
 
 impl Atom<TestContext> for BoxAtom {
+    fn intrinsic(&self, _: &mut TestContext, query: blit::IntrinsicQuery) -> blit::IntrinsicSize {
+        blit::IntrinsicSize {
+            min: 0.0,
+            preferred: query.axis.extent(self.0),
+        }
+    }
+
     fn measure(&self, _: &mut TestContext, constraints: Constraints) -> LogicalSize {
         constraints.constrain(self.0)
     }
@@ -37,6 +44,20 @@ impl Atom<TestContext> for BoxAtom {
 struct ResponsiveAtom;
 
 impl Atom<TestContext> for ResponsiveAtom {
+    fn intrinsic(&self, _: &mut TestContext, query: blit::IntrinsicQuery) -> blit::IntrinsicSize {
+        let preferred = match query.axis {
+            blit::Axis::Horizontal => 4.0,
+            blit::Axis::Vertical => {
+                if query.cross.is_some_and(|width| width >= 10.0) {
+                    1.0
+                } else {
+                    2.0
+                }
+            }
+        };
+        blit::IntrinsicSize { min: 0.0, preferred }
+    }
+
     fn measure(&self, _: &mut TestContext, constraints: Constraints) -> LogicalSize {
         constraints.constrain(LogicalSize::new(
             4.0,
@@ -140,21 +161,23 @@ fn flex_distributes_growing_space() {
 fn flex_respects_growth_caps() {
     let mut frame = Frame::default();
     let ids = [WidgetId::new("two"), WidgetId::new("four"), WidgetId::new("unbounded")];
-    layout_frame(&mut frame, LogicalSize::new(15.0, 1.0), |ui: Ui<'_, TestContext>| {
-        let mut row = ui.layout(flex::Layout::<Length>::new(blit::Axis::Horizontal).align(Align::Start));
-        let sizing = [
-            Sizing::grow_range(0 as Length, 2 as Length),
-            Sizing::grow_range(0 as Length, 4 as Length),
-            Sizing::grow(),
-        ];
-        for (id, sizing) in ids.into_iter().zip(sizing) {
-            row.child()
-                .item(flex::Item::new().width(sizing))
-                .widget_id(id)
-                .insert(BoxAtom(LogicalSize::uniform(1.0)));
-        }
-    });
-    assert_eq!(ids.map(|id| frame.geometry(id).unwrap().width), [2.0, 4.0, 9.0]);
+    for capped in [false, true] {
+        layout_frame(&mut frame, LogicalSize::new(15.0, 1.0), |ui: Ui<'_, TestContext>| {
+            let mut row = ui.layout(flex::Layout::<Length>::new(blit::Axis::Horizontal).align(Align::Start));
+            let sizing = [
+                Sizing::grow_range(0 as Length, 2 as Length),
+                Sizing::grow_range(0 as Length, 4 as Length),
+                if capped { Sizing::grow_range(0 as Length, 6 as Length) } else { Sizing::grow() },
+            ];
+            for (id, sizing) in ids.into_iter().zip(sizing) {
+                row.child()
+                    .item(flex::Item::new().width(sizing))
+                    .widget_id(id)
+                    .insert(BoxAtom(LogicalSize::uniform(1.0)));
+            }
+        });
+        assert_eq!(ids.map(|id| frame.geometry(id).unwrap().width), [2.0, 4.0, if capped { 6.0 } else { 9.0 }]);
+    }
 }
 
 #[test]

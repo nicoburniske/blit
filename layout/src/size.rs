@@ -195,6 +195,19 @@ impl<U: Unit> Item<U> {
     }
 }
 
+#[inline(always)]
+pub fn axis_sizing<U: Unit>(
+    axis: Axis,
+    width: Sizing<U>,
+    height: Sizing<U>,
+    (width_override, height_override): (Option<f32>, Option<f32>),
+) -> Sizing<f32> {
+    match axis {
+        Axis::Horizontal => width.with_override(width_override),
+        Axis::Vertical => height.with_override(height_override),
+    }
+}
+
 pub fn flow_sizing<U: Unit>(
     axis: Axis,
     width: Sizing<U>,
@@ -249,4 +262,61 @@ pub fn flow_constraints<U: Unit>(axis: Axis, main: (f32, f32), cross: (f32, f32)
         min: LogicalSize::new(U::round(width.0), U::round(height.0)),
         max: LogicalSize::new(U::round(width.1), U::round(height.1)),
     }
+}
+
+pub fn intrinsic_range(sizing: Sizing<f32>, size: blit::IntrinsicSize) -> blit::IntrinsicSize {
+    blit::IntrinsicSize {
+        min: sizing.clamp(size.min),
+        preferred: sizing.clamp(size.preferred),
+    }
+}
+
+pub fn intrinsic_cross(sizing: Sizing<f32>, cross: Option<f32>) -> Option<f32> {
+    match sizing {
+        Sizing::Fixed(size) => Some(size.max(0.0)),
+        Sizing::Percent(fraction) => {
+            assert!((0.0..=1.0).contains(&fraction));
+            cross.map(|value| value * fraction)
+        }
+        _ => cross.map(|value| sizing.clamp(value)),
+    }
+}
+
+pub fn intrinsic_child<C, I: 'static, U: Unit>(
+    cx: &mut blit::MeasureCx<'_, C, I>,
+    child: blit::NodeId,
+    query: blit::IntrinsicQuery,
+    main: Sizing<f32>,
+    cross: Sizing<f32>,
+    stretch: bool,
+) -> blit::IntrinsicSize {
+    if let Sizing::Fixed(value) = main {
+        let value = U::round(value).max(0.0);
+        return blit::IntrinsicSize {
+            min: value,
+            preferred: value,
+        };
+    }
+    let cross = match (cross, query.cross) {
+        (Sizing::Fit { .. }, Some(available)) if !stretch => {
+            let natural = cx.intrinsic(
+                child,
+                blit::IntrinsicQuery {
+                    axis: query.axis.other(),
+                    cross: None,
+                },
+            );
+            let range = sizing_range::<U>(cross, available);
+            Some(U::round(natural.preferred).clamp(range.0, range.1))
+        }
+        _ => intrinsic_cross(cross, query.cross),
+    };
+    let size = cx.intrinsic(
+        child,
+        blit::IntrinsicQuery {
+            axis: query.axis,
+            cross,
+        },
+    );
+    intrinsic_range(main.map(U::round), size)
 }

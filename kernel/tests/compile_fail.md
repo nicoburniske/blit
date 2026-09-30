@@ -1,3 +1,14 @@
+scratch handles cannot escape their layout callback
+
+```compile_fail
+use blit::{MeasureCx, ScratchSlice};
+
+fn escape<'a>(cx: &mut MeasureCx<'_, Option<ScratchSlice<'a, u32>>, ()>) {
+    let slice = cx.scratch(1, 0);
+    *cx.context() = Some(slice);
+}
+```
+
 children require a layout
 
 ```compile_fail

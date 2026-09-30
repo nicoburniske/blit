@@ -1,8 +1,9 @@
-use blit::{Axis, Constraints, LayoutCx, LogicalPoint, LogicalSize};
+use blit::{Axis, Constraints, IntrinsicQuery, IntrinsicSize, LayoutCx, LogicalPoint, LogicalSize, MeasureCx};
 
 pub use crate::size::Item;
 use crate::{
-    Align, Justify, Padding, Sizing, Unit, flow_constraints, flow_size, flow_sizing, justify_offset, sizing_range,
+    Align, Justify, Padding, Sizing, Unit, flow_constraints, flow_size, flow_sizing, intrinsic_child, intrinsic_range,
+    justify_offset, size::axis_sizing, sizing_range,
 };
 
 blit::builder! {
@@ -33,6 +34,120 @@ impl<U: Unit> Layout<U> {
 impl<C, U: Unit> blit::Layout<C> for Layout<U> {
     type Item = Item<U>;
 
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        let padding: blit::Sides = self.padding.into();
+        let extent = query.axis.extent(padding.size());
+        let item_gap = self.item_gap.into_float().max(0.0);
+        let run_gap = self.run_gap.into_float().max(0.0);
+        if query.axis == self.axis {
+            let mut result = IntrinsicSize {
+                min: extent,
+                preferred: extent,
+            };
+            let mut count = 0;
+            for child in cx.children() {
+                let (main, cross) = flow_sizing(self.axis, child.item.width, child.item.height, (None, None));
+                let cross = match cross {
+                    Sizing::Grow { min, max } => Sizing::Fit { min, max },
+                    cross => cross,
+                };
+                let size = intrinsic_child::<_, _, U>(
+                    cx,
+                    child.id,
+                    IntrinsicQuery {
+                        axis: query.axis,
+                        cross: query
+                            .cross
+                            .map(|value| (value - query.axis.other().extent(padding.size())).max(0.0)),
+                    },
+                    main,
+                    cross,
+                    false,
+                );
+                result.min = result.min.max(U::round(size.min) + extent);
+                result.preferred += U::round(size.preferred) + if count == 0 { 0.0 } else { item_gap };
+                count += 1;
+            }
+            return result;
+        }
+        let available = query.cross.map_or(f32::INFINITY, |value| {
+            (U::round(value) - self.axis.extent(padding.size())).max(0.0)
+        });
+        let mut widths = cx.scratch(cx.children().count(), 0.0f32);
+        let mut percentages = 0.0;
+        for (index, child) in cx.children().enumerate() {
+            let (mut main, cross) = flow_sizing(self.axis, child.item.width, child.item.height, (None, None));
+            if matches!(main, Sizing::Percent(_)) && !available.is_finite() {
+                main = Sizing::fit();
+            }
+            let range = sizing_range::<U>(main, available);
+            let width = if matches!(main, Sizing::Fixed(_) | Sizing::Percent(_)) {
+                U::distribute(&mut percentages, range.0)
+            } else {
+                let size = intrinsic_child::<_, _, U>(
+                    cx,
+                    child.id,
+                    IntrinsicQuery {
+                        axis: self.axis,
+                        cross: None,
+                    },
+                    main,
+                    cross,
+                    false,
+                );
+                U::round(main.clamp(size.preferred)).clamp(range.0, range.1)
+            };
+            cx.scratch_mut(&mut widths)[index] = width;
+        }
+        let mut children = cx.children().enumerate();
+        let mut result = IntrinsicSize {
+            min: extent,
+            preferred: extent,
+        };
+        let mut runs = 0;
+        let mut next = 0;
+        while next < cx.scratch_mut(&mut widths).len() {
+            let run = next_run(cx.scratch_mut(&mut widths), next, available, item_gap, 0.0);
+            let count = run.end - next;
+            grow_run::<U>(
+                &mut cx.scratch_mut(&mut widths)[next..run.end],
+                if available.is_finite() { available } else { run.used },
+                run.used,
+                children
+                    .clone()
+                    .take(count)
+                    .map(|(_, child)| axis_sizing(self.axis, child.item.width, child.item.height, (None, None))),
+            );
+            next = run.end;
+            let mut run = IntrinsicSize::default();
+            for (index, child) in children.by_ref().take(count) {
+                let cross = axis_sizing(query.axis, child.item.width, child.item.height, (None, None));
+                let width = cx.scratch_mut(&mut widths)[index];
+                let size = if let Sizing::Fixed(value) = cross {
+                    IntrinsicSize {
+                        min: value.max(0.0),
+                        preferred: value.max(0.0),
+                    }
+                } else {
+                    cx.intrinsic(
+                        child.id,
+                        IntrinsicQuery {
+                            axis: query.axis,
+                            cross: Some(width),
+                        },
+                    )
+                };
+                let size = intrinsic_range(cross, size);
+                run.min = run.min.max(U::round(size.min));
+                run.preferred = run.preferred.max(U::round(size.preferred));
+            }
+            result.min += run.min + if runs == 0 { 0.0 } else { run_gap };
+            result.preferred += run.preferred + if runs == 0 { 0.0 } else { run_gap };
+            runs += 1;
+        }
+        result
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
         let padding: blit::Sides = self.padding.into();
         let cross_axis = self.axis.other();
@@ -49,125 +164,82 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
         // measure natural child sizes
         let mut percentages = 0.0;
         for child in cx.children() {
-            let item = cx.item(child);
-            let (main, cross) = flow_sizing(self.axis, item.width, item.height, cx.size_overrides(child));
+            let item = child.item;
+            let (main, cross) = flow_sizing(self.axis, item.width, item.height, cx.size_overrides(child.id));
             let mut main_bounds = sizing_range::<U>(main, main_max);
             if matches!(main, Sizing::Percent(_)) {
                 let extent = U::distribute(&mut percentages, main_bounds.0);
                 main_bounds = (extent, extent);
             }
             cx.layout_child(
-                child,
+                child.id,
                 flow_constraints::<U>(self.axis, main_bounds, sizing_range::<U>(cross, cross_max)),
             );
         }
 
-        // shrinkwrap the longest current run
-        let mut longest: f32 = 0.0;
-        let mut run: f32 = 0.0;
-        let mut count = 0usize;
-        for child in cx.children() {
-            let child = U::round(self.axis.extent(cx.size(child)));
-            let needed = child + if count == 0 { 0.0 } else { item_gap };
-            if count != 0 && run + needed > main_max {
-                longest = longest.max(run);
-                run = child;
-                count = 1;
-            } else {
-                run += needed;
-                count += 1;
-            }
+        let count = cx.children().count();
+        let mut widths = cx.scratch(count, 0.0f32);
+        let mut targets = cx.scratch(count, 0.0f32);
+        for (index, child) in cx.children().enumerate() {
+            let current = U::round(self.axis.extent(cx.size(child.id)));
+            let target = U::round(self.axis.extent(cx.target_size(child.id)));
+            cx.scratch_mut(&mut widths)[index] = current;
+            cx.scratch_mut(&mut targets)[index] = target;
         }
-        longest = longest.max(run);
+        let longest = longest_run(cx.scratch_mut(&mut widths), main_max, item_gap);
         let size = bounds.constrain(flow_size(longest + main_padding, cross_padding, self.axis));
         let available = (U::round(self.axis.extent(size)) - main_padding).max(0.0);
 
-        // preserve target runs during size transitions
-        let mut target_longest: f32 = 0.0;
-        let mut target_run: f32 = 0.0;
-        let mut target_count = 0usize;
-        for child in cx.children() {
-            let child = U::round(self.axis.extent(cx.target_size(child)));
-            let needed = child + if target_count == 0 { 0.0 } else { item_gap };
-            if target_count != 0 && target_run + needed > main_max {
-                target_longest = target_longest.max(target_run);
-                target_run = child;
-                target_count = 1;
-            } else {
-                target_run += needed;
-                target_count += 1;
-            }
-        }
-        target_longest = target_longest.max(target_run);
+        let target_longest = longest_run(cx.scratch_mut(&mut targets), main_max, item_gap);
         let target_size = bounds.constrain(flow_size(target_longest + main_padding, cross_padding, self.axis));
         let target_available = (U::round(self.axis.extent(target_size)) - main_padding).max(0.0);
 
-        let mut children = cx.children().peekable();
+        let mut children = cx.children();
         let mut cross_cursor = cross_leading;
         let mut occupied_cross: f32 = 0.0;
         let mut runs = 0usize;
-        while children.peek().is_some() {
-            // form the next target run
+        let mut next = 0;
+        while next < count {
             let start = children.clone();
-            let mut count = 0usize;
-            let mut target_main = 0.0;
-            while let Some(&child) = children.peek() {
-                let child = U::round(self.axis.extent(cx.target_size(child)));
-                let needed = child + if count == 0 { 0.0 } else { item_gap };
-                let tolerance = f32::EPSILON * target_available * (count + 1) as f32;
-                if count != 0 && target_main + needed - target_available > tolerance {
-                    break;
-                }
-                children.next();
-                target_main += needed;
-                count += 1;
-            }
+            let run = next_run(
+                cx.scratch_mut(&mut targets),
+                next,
+                target_available,
+                item_gap,
+                f32::EPSILON * target_available,
+            );
+            let count = run.end - next;
+            let run_widths = &mut cx.scratch_mut(&mut widths)[next..run.end];
+            let used = run_widths
+                .iter()
+                .fold(item_gap * count.saturating_sub(1) as f32, |used, width| used + width);
+            let sizing = start.clone().take(count).map(|child| {
+                let item = child.item;
+                axis_sizing(self.axis, item.width, item.height, cx.size_overrides(child.id)).map(U::round)
+            });
+            grow_run::<U>(run_widths, available, used, sizing);
+            next = run.end;
 
-            // divide spare space equally among grow children
+            // lay out assigned widths and find the run cross extent
             let mut main = item_gap * count.saturating_sub(1) as f32;
-            let mut grows = 0usize;
-            for child in start.clone().take(count) {
-                main += U::round(self.axis.extent(cx.size(child)));
-                let item = cx.item(child);
-                let (width, height) = cx.size_overrides(child);
-                let sizing = match self.axis {
-                    Axis::Horizontal => item.width.with_override(width),
-                    Axis::Vertical => item.height.with_override(height),
-                };
-                grows += usize::from(matches!(sizing, Sizing::Grow { .. }));
-            }
-            let growth = if grows == 0 {
-                0.0
-            } else {
-                (available - main).max(0.0) / grows as f32
-            };
-
-            // apply main growth and find the run cross extent
-            main = item_gap * count.saturating_sub(1) as f32;
             let mut cross: f32 = 0.0;
-            let mut growth_cursor: f32 = 0.0;
-            for child in start.clone().take(count) {
-                let item = cx.item(child);
-                let (main_sizing, cross_sizing) =
-                    flow_sizing(self.axis, item.width, item.height, cx.size_overrides(child));
-                let main_sizing = main_sizing.map(U::round);
-                let current = cx.size(child);
+            for (index, child) in start.clone().take(count).enumerate() {
+                let item = child.item;
+                let cross_sizing = axis_sizing(cross_axis, item.width, item.height, cx.size_overrides(child.id));
+                let current = cx.size(child.id);
                 let current_main = U::round(self.axis.extent(current));
-                if matches!(main_sizing, Sizing::Grow { .. }) {
-                    let target = main_sizing.clamp(current_main + growth);
-                    let assigned = current_main + U::distribute(&mut growth_cursor, target - current_main);
-                    if assigned != current_main {
-                        cx.layout_child(
-                            child,
-                            flow_constraints::<U>(
-                                self.axis,
-                                (assigned, assigned),
-                                sizing_range::<U>(cross_sizing, cross_max),
-                            ),
-                        );
-                    }
+                let assigned = cx.scratch_mut(&mut widths)[next - count + index];
+                if assigned != current_main {
+                    cx.layout_child(
+                        child.id,
+                        flow_constraints::<U>(
+                            self.axis,
+                            (assigned, assigned),
+                            sizing_range::<U>(cross_sizing, cross_max),
+                        ),
+                    );
                 }
-                let child = cx.size(child);
+                let child = cx.size(child.id);
                 main += U::round(self.axis.extent(child));
                 cross = cross.max(U::round(cross_axis.extent(child)));
             }
@@ -175,16 +247,12 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
             // stretch and position the completed run
             let (offset, extra_gap) = justify_offset(self.justify, (available - main).max(0.0), count);
             let mut main_cursor = main_leading + offset;
-            for child in start.take(count) {
-                let item = cx.item(child);
-                let child_size = cx.size(child);
+            for child in children.by_ref().take(count) {
+                let item = child.item;
+                let child_size = cx.size(child.id);
                 let child_main = U::round(self.axis.extent(child_size));
                 let child_cross = U::round(cross_axis.extent(child_size));
-                let (width, height) = cx.size_overrides(child);
-                let cross_sizing = match self.axis {
-                    Axis::Horizontal => item.height.with_override(height),
-                    Axis::Vertical => item.width.with_override(width),
-                };
+                let cross_sizing = axis_sizing(cross_axis, item.width, item.height, cx.size_overrides(child.id));
                 let cross_sizing = cross_sizing.map(U::round);
                 if matches!(cross_sizing, Sizing::Grow { .. })
                     || self.align == Align::Stretch && matches!(cross_sizing, Sizing::Fit { .. })
@@ -192,19 +260,19 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
                     let assigned = cross_sizing.clamp(cross);
                     if assigned != child_cross {
                         cx.layout_child(
-                            child,
+                            child.id,
                             flow_constraints::<U>(self.axis, (child_main, child_main), (assigned, assigned)),
                         );
                     }
                 }
-                let child_cross = U::round(cross_axis.extent(cx.size(child)));
+                let child_cross = U::round(cross_axis.extent(cx.size(child.id)));
                 let cross_offset = match self.align {
                     Align::Start | Align::Stretch => 0.0,
                     Align::Center => (cross - child_cross).max(0.0) / 2.0,
                     Align::End => (cross - child_cross).max(0.0),
                 };
                 let position = flow_size(U::round(main_cursor), U::round(cross_cursor + cross_offset), self.axis);
-                cx.set_position(child, LogicalPoint::new(position.width, position.height));
+                cx.set_position(child.id, LogicalPoint::new(position.width, position.height));
                 main_cursor += child_main + item_gap + extra_gap;
             }
 
@@ -216,4 +284,54 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
         let main = U::round(self.axis.extent(size));
         bounds.constrain(flow_size(main, occupied_cross + cross_padding, self.axis))
     }
+}
+
+struct Run {
+    end: usize,
+    used: f32,
+}
+
+fn grow_run<U: Unit>(widths: &mut [f32], available: f32, used: f32, sizing: impl Iterator<Item = Sizing<f32>> + Clone) {
+    let grows = sizing
+        .clone()
+        .filter(|sizing| matches!(sizing, Sizing::Grow { .. }))
+        .count();
+    let growth = if grows == 0 {
+        0.0
+    } else {
+        (available - used).max(0.0) / grows as f32
+    };
+    let mut cursor = 0.0;
+    for (width, sizing) in widths.iter_mut().zip(sizing) {
+        if matches!(sizing, Sizing::Grow { .. }) {
+            *width += U::distribute(&mut cursor, sizing.clamp(*width + growth) - *width);
+        }
+    }
+}
+
+#[inline]
+fn next_run(widths: &[f32], start: usize, available: f32, gap: f32, tolerance: f32) -> Run {
+    let mut run = Run { end: start, used: 0.0 };
+    for &width in &widths[start..] {
+        let count = run.end - start;
+        let needed = width + if count == 0 { 0.0 } else { gap };
+        if count != 0 && run.used + needed - available > tolerance * (count + 1) as f32 {
+            break;
+        }
+        run.used += needed;
+        run.end += 1;
+    }
+    run
+}
+
+#[inline]
+fn longest_run(widths: &[f32], available: f32, gap: f32) -> f32 {
+    let mut longest: f32 = 0.0;
+    let mut next = 0;
+    while next < widths.len() {
+        let run = next_run(widths, next, available, gap, 0.0);
+        longest = longest.max(run.used);
+        next = run.end;
+    }
+    longest
 }

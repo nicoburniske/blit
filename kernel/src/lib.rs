@@ -56,7 +56,7 @@ pub use self::{
     },
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
-    layout::{Axis, Layout, LayoutCx},
+    layout::{Axis, Child, IntrinsicQuery, IntrinsicSize, Layout, LayoutCx, MeasureCx, ScratchSlice},
 };
 
 crate::builder! {
@@ -85,18 +85,44 @@ pub trait Content<C> {
 ///
 /// every atom implements [`Content`]
 pub trait Atom<C>: 'static {
-    /// returns the size requested by this atom under `constraints`
-    ///
-    /// measurement may be skipped under tight constraints. painting must not
-    /// depend on prior measurement.
-    fn measure(&self, context: &mut C, constraints: Constraints) -> LogicalSize;
+    /// reports minimum and preferred extents used by layouts to allocate space
+    fn intrinsic(&self, _: &mut C, _: IntrinsicQuery) -> IntrinsicSize {
+        IntrinsicSize::default()
+    }
 
+    /// chooses the actual size within constraints supplied by the layout
+    /// may be skipped under tight constraints
+    fn measure(&self, context: &mut C, constraints: Constraints) -> LogicalSize {
+        let width = self
+            .intrinsic(
+                context,
+                IntrinsicQuery {
+                    axis: Axis::Horizontal,
+                    cross: None,
+                },
+            )
+            .preferred
+            .clamp(constraints.min.width, constraints.max.width);
+        let height = self
+            .intrinsic(
+                context,
+                IntrinsicQuery {
+                    axis: Axis::Vertical,
+                    cross: Some(width),
+                },
+            )
+            .preferred;
+        constraints.constrain(LogicalSize::new(width, height))
+    }
+
+    /// paints at the resolved geometry after layout
+    /// must not depend on prior measurement
     fn paint(&self, context: &mut C, area: LogicalRect);
 
-    /// conservative bounds containing everything this atom may paint
-    ///
-    /// these bounds may extend beyond the layout `area`
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect;
+    /// bounds all painted content for culling including overflow outside `area`
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+        area
+    }
 }
 
 impl<C, F, O> Widget<C> for F
@@ -119,10 +145,6 @@ impl<C> Widget<C> for () {
 }
 
 impl<C> Atom<C> for () {
-    fn measure(&self, _: &mut C, constraints: Constraints) -> LogicalSize {
-        constraints.constrain(LogicalSize::ZERO)
-    }
-
     fn paint(&self, _: &mut C, _: LogicalRect) {}
 
     fn paint_bounds(&self, _: LogicalRect) -> LogicalRect {
