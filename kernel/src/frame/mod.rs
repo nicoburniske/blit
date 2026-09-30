@@ -15,7 +15,7 @@ use std::{
 
 use crate::{
     Atom, Clip, Content, FrameInfo, Widget,
-    animation::{Easing, Transition},
+    animation::{Easing, Transition, TransitionProperties},
     arena::{DataArena, DataId},
     geometry::{Constraints, LogicalPoint, LogicalRect, LogicalSize, Sides},
     input::Input,

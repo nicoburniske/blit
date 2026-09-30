@@ -47,16 +47,18 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
         let run_gap = self.run_gap.into_float().max(0.0);
 
         // measure natural child sizes
+        let mut percentages = 0.0;
         for child in cx.children() {
             let item = cx.item(child);
             let (main, cross) = flow_sizing(self.axis, item.width, item.height, cx.size_overrides(child));
+            let mut main_bounds = sizing_range::<U>(main, main_max);
+            if matches!(main, Sizing::Percent(_)) {
+                let extent = U::distribute(&mut percentages, main_bounds.0);
+                main_bounds = (extent, extent);
+            }
             cx.layout_child(
                 child,
-                flow_constraints::<U>(
-                    self.axis,
-                    sizing_range::<U>(main, main_max),
-                    sizing_range::<U>(cross, cross_max),
-                ),
+                flow_constraints::<U>(self.axis, main_bounds, sizing_range::<U>(cross, cross_max)),
             );
         }
 

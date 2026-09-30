@@ -80,14 +80,17 @@ pub trait Coordinate: Copy + PartialOrd + std::ops::Sub<Output = Self> {
 impl Coordinate for f32 {
     const ZERO: Self = 0.0;
 
+    #[inline]
     fn endpoint(self, extent: Self) -> Self {
         self + extent
     }
 
+    #[inline]
     fn min(self, other: Self) -> Self {
         f32::min(self, other)
     }
 
+    #[inline]
     fn max(self, other: Self) -> Self {
         f32::max(self, other)
     }
@@ -96,14 +99,17 @@ impl Coordinate for f32 {
 impl Coordinate for i32 {
     const ZERO: Self = 0;
 
+    #[inline]
     fn endpoint(self, extent: Self) -> Self {
         self.saturating_add(extent)
     }
 
+    #[inline]
     fn min(self, other: Self) -> Self {
         Ord::min(self, other)
     }
 
+    #[inline]
     fn max(self, other: Self) -> Self {
         Ord::max(self, other)
     }

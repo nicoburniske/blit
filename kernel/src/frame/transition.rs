@@ -114,27 +114,12 @@ fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Logi
         frame.nodes[index].area.x = 0.0;
         frame.nodes[index].area.y = 0.0;
         let node = NodeId::new(index);
-        let mut constraints = if frame.nodes[index].layout.index().is_some() {
+        let constraints = if frame.nodes[index].layout.index().is_some() {
             Constraints::loose(LogicalSize::uniform(f32::INFINITY))
         } else {
             let containing = frame.nodes[index].visual_parent;
             Constraints::loose(frame.nodes[containing.index()].area.size())
         };
-        // replay animated sizes through the node's constraints
-        if !frame.target_sizes.is_empty() {
-            let current = frame.nodes[index].area.size();
-            let active = frame.target_sizes[index].properties;
-            if active.intersects(TransitionProperties::WIDTH) {
-                let width = current.width;
-                constraints.min.width = width;
-                constraints.max.width = width;
-            }
-            if active.intersects(TransitionProperties::HEIGHT) {
-                let height = current.height;
-                constraints.min.height = height;
-                constraints.max.height = height;
-            }
-        }
         frame.layout_node(data, node, context, constraints);
     }
 }

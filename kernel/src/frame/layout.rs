@@ -91,17 +91,10 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     /// animated size overrides replace the corresponding constraint axes
     ///
     /// repeating this recomputes its subtree and requires positioning it again
-    pub fn layout_child(&mut self, child: NodeId, mut constraints: Constraints) -> LogicalSize {
+    #[inline]
+    pub fn layout_child(&mut self, child: NodeId, constraints: Constraints) -> LogicalSize {
+        #[cfg(debug_assertions)]
         self.assert_child(child);
-        let (width, height) = self.size_overrides(child);
-        if let Some(width) = width {
-            constraints.min.width = width;
-            constraints.max.width = width;
-        }
-        if let Some(height) = height {
-            constraints.min.height = height;
-            constraints.max.height = height;
-        }
         let size = self.frame.layout_node(self.data, child, self.context, constraints);
         #[cfg(debug_assertions)]
         {

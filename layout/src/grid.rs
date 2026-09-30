@@ -1,6 +1,6 @@
-use blit::{Axis, Constraints, LayoutCx, LogicalPoint, LogicalSize};
+use blit::{Constraints, LayoutCx, LogicalPoint, LogicalSize};
 
-use crate::{Padding, Unit, flow_constraints};
+use crate::{Padding, Unit};
 
 blit::builder! {
     #[const]
@@ -40,8 +40,9 @@ impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
     type Item = Item<U>;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+        let columns = self.columns.max(1) as usize;
         assert!(
-            !self.spanning || self.columns as usize <= N,
+            !self.spanning || columns <= N,
             "grid column count exceeds spanning capacity"
         );
         let range = |preferred: Option<U>, available| {
@@ -52,7 +53,6 @@ impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
                 (0.0, available)
             }
         };
-        let columns = self.columns as usize;
         let padding: blit::Sides = self.padding.into();
         let column_gap = self.column_gap.into_float().max(0.0);
         let row_gap = self.row_gap.into_float().max(0.0);
@@ -60,7 +60,7 @@ impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
         let vertical_padding = padding.top + padding.bottom;
         let horizontal_gaps = column_gap * columns.saturating_sub(1) as f32;
         let max_height = (U::round(constraints.max.height) - vertical_padding).max(0.0);
-        if columns == 0 || cx.children().next().is_none() {
+        if cx.children().next().is_none() {
             return constraints.constrain(padding.size());
         }
 
@@ -72,9 +72,15 @@ impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
                 let item = cx.item(child);
                 let width = range(item.preferred_width, f32::INFINITY);
                 let height = range(item.preferred_height, max_height);
-                let child_size = cx.layout_child(child, flow_constraints::<U>(Axis::Horizontal, width, height));
+                let child_size = cx.layout_child(
+                    child,
+                    Constraints {
+                        min: LogicalSize::new(width.0, height.0),
+                        max: LogicalSize::new(width.1, height.1),
+                    },
+                );
                 let span = if self.spanning {
-                    item.column_span.clamp(1, self.columns)
+                    (item.column_span as usize).clamp(1, columns)
                 } else {
                     1
                 };
@@ -95,30 +101,16 @@ impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
         };
 
         if self.spanning {
-            let mut row_height: f32 = 0.0;
-
-            for child in cx.children() {
-                let item = cx.item(child);
-                let row_span = item.row_span.max(1);
-                let column_span = item.column_span.clamp(1, self.columns);
-                let assigned_width = column_width(0, column_span as usize);
-                let height = range(item.preferred_height, max_height);
-                let child_size = cx.layout_child(
-                    child,
-                    flow_constraints::<U>(Axis::Horizontal, (assigned_width, assigned_width), height),
-                );
-                let internal_gaps = row_gap * (row_span - 1) as f32;
-                row_height = row_height.max((U::round(child_size.height) - internal_gaps).max(0.0) / row_span as f32);
-            }
-
-            let mut column_rows = [0usize; N];
-            let mut cursor_row = 0usize;
-            let mut cursor_column = 0usize;
-            let mut rows = 0usize;
-            for child in cx.children() {
-                let item = cx.item(child);
+            #[inline(always)]
+            fn place<U: Unit>(
+                item: &Item<U>,
+                column_rows: &mut [usize],
+                cursor: &mut (usize, usize),
+            ) -> (usize, usize, usize, usize) {
+                let columns = column_rows.len();
+                let (cursor_row, cursor_column) = *cursor;
                 let row_span = item.row_span.max(1) as usize;
-                let span = item.column_span.clamp(1, self.columns) as usize;
+                let span = (item.column_span as usize).clamp(1, columns);
                 let column = cursor_column;
                 let (row, column) = if column + span <= columns
                     && column_rows[column..column + span].iter().all(|row| *row <= cursor_row)
@@ -145,14 +137,39 @@ impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
                 let end_row = row + row_span;
                 column_rows[column..column + span].fill(end_row);
                 let next_column = column + span;
-                if next_column == columns {
-                    cursor_row = row + 1;
-                    cursor_column = 0;
+                *cursor = if next_column == columns {
+                    (row + 1, 0)
                 } else {
-                    cursor_row = row;
-                    cursor_column = next_column;
-                }
-                rows = rows.max(end_row);
+                    (row, next_column)
+                };
+                (row, column, row_span, span)
+            }
+            let mut column_rows = [0usize; N];
+            let column_rows = &mut column_rows[..columns];
+            let mut cursor = (0, 0);
+            let mut row_height: f32 = 0.0;
+            let mut rows = 0usize;
+            for child in cx.children() {
+                let item = cx.item(child);
+                let (row, column, row_span, span) = place(item, column_rows, &mut cursor);
+                rows = rows.max(row + row_span);
+                let assigned_width = column_width(column, span);
+                let height = range(item.preferred_height, max_height);
+                let child_size = cx.layout_child(
+                    child,
+                    Constraints {
+                        min: LogicalSize::new(assigned_width, height.0),
+                        max: LogicalSize::new(assigned_width, height.1),
+                    },
+                );
+                let internal_gaps = row_gap * (row_span - 1) as f32;
+                row_height = row_height.max((U::round(child_size.height) - internal_gaps).max(0.0) / row_span as f32);
+            }
+            column_rows.fill(0);
+            cursor = (0, 0);
+            for child in cx.children() {
+                let (row, column, row_span, span) = place(cx.item(child), column_rows, &mut cursor);
+                let end_row = row + row_span;
                 let assigned_width = column_width(column, span);
                 let assigned_height = (U::round(padding.top + end_row as f32 * (row_height + row_gap) - row_gap)
                     - U::round(padding.top + row as f32 * (row_height + row_gap)))
@@ -175,18 +192,22 @@ impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
 
             return constraints.constrain(LogicalSize {
                 width,
-                height: row_height * rows as f32 + row_gap * rows.saturating_sub(1) as f32 + vertical_padding,
+                height: U::round(row_height * rows as f32 + row_gap * rows.saturating_sub(1) as f32 + vertical_padding),
             });
         }
 
         let mut count = 0usize;
         for child in cx.children() {
+            let assigned_width = column_width(count % columns, 1);
             count += 1;
             let item = cx.item(child);
             let height = range(item.preferred_height, max_height);
             cx.layout_child(
                 child,
-                flow_constraints::<U>(Axis::Horizontal, (column_width(0, 1), column_width(0, 1)), height),
+                Constraints {
+                    min: LogicalSize::new(assigned_width, height.0),
+                    max: LogicalSize::new(assigned_width, height.1),
+                },
             );
         }
         let rows = count.div_ceil(columns);

@@ -124,21 +124,12 @@ impl<C> Frame<C> {
 
     pub fn has_pending_redraw(&self) -> bool {
         self.frame_requested
-            || self
-                .animations
-                .iter()
-                .any(animation::AnimationState::is_active)
-            || self
-                .transitions
-                .iter()
-                .any(transition::TransitionState::is_active)
+            || self.animations.iter().any(animation::AnimationState::is_active)
+            || self.transitions.iter().any(transition::TransitionState::is_active)
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
-        self.timers
-            .iter()
-            .filter_map(timer::TimerState::deadline)
-            .min()
+        self.timers.iter().filter_map(timer::TimerState::deadline).min()
     }
 
     pub fn request_frame(&mut self) {
@@ -200,9 +191,7 @@ impl<C> Frame<C> {
         };
         #[cfg(debug_assertions)]
         assert!(
-            self.nodes
-                .iter()
-                .all(|node| self.widget_ids.insert(node.widget_id)),
+            self.nodes.iter().all(|node| self.widget_ids.insert(node.widget_id)),
             "widget ids must identify unique nodes"
         );
         assert_eq!(
@@ -214,14 +203,27 @@ impl<C> Frame<C> {
         output
     }
 
+    #[inline(always)]
     fn layout_node(
         &mut self,
         data: &DataArena,
         node: NodeId,
         context: &mut C,
-        constraints: Constraints,
+        mut constraints: Constraints,
     ) -> LogicalSize {
         let index = node.index();
+        if !self.target_sizes.is_empty() {
+            let current = self.nodes[index].area.size();
+            let properties = self.target_sizes[index].properties;
+            if properties.intersects(TransitionProperties::WIDTH) {
+                constraints.min.width = current.width;
+                constraints.max.width = current.width;
+            }
+            if properties.intersects(TransitionProperties::HEIGHT) {
+                constraints.min.height = current.height;
+                constraints.max.height = current.height;
+            }
+        }
         let size = if let Some(layout) = self.nodes[index].layout.index() {
             let stored = self.layouts[layout];
             let run = self.layout_kinds[stored.kind as usize].layout;
@@ -389,10 +391,7 @@ impl<C> Frame<C> {
                 }
             }
         };
-        assert!(
-            target.index() < node.index(),
-            "target must be declared before its node"
-        );
+        assert!(target.index() < node.index(), "target must be declared before its node");
         target
     }
 
@@ -423,7 +422,6 @@ impl<C> Frame<C> {
         clip.index()
             .map_or(self.screen, |clip| self.resolved_clips[clip].bounds)
     }
-
 }
 
 #[cfg(debug_assertions)]
@@ -484,7 +482,7 @@ enum LayoutState {
 #[derive(Clone, Copy)]
 struct TargetSize {
     size: LogicalSize,
-    properties: crate::TransitionProperties,
+    properties: TransitionProperties,
 }
 
 #[derive(Clone, Copy)]
@@ -572,12 +570,7 @@ struct ClipKind<C> {
     pop: fn(&DataArena, DataId, &mut C),
 }
 
-fn measure_atom<C, A: Atom<C>>(
-    data: &DataArena,
-    id: DataId,
-    context: &mut C,
-    constraints: Constraints,
-) -> LogicalSize {
+fn measure_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, context: &mut C, constraints: Constraints) -> LogicalSize {
     data.load::<A>(id).measure(context, constraints)
 }
 

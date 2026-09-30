@@ -121,10 +121,11 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
                 range
             }
         };
+        let mut percentages = 0.0;
         for child in cx.children() {
             let item = cx.item(child);
-            let (main_sizing, cross_sizing) = flow_sizing(self.axis, item.width, item.height, cx.size_overrides(child));
-            let sizing = main_sizing.map(U::round);
+            let (sizing, cross_sizing) = flow_sizing(self.axis, item.width, item.height, cx.size_overrides(child));
+            let sizing = sizing.map(U::round);
             if matches!(sizing, Sizing::Grow { .. }) {
                 continue;
             }
@@ -135,8 +136,12 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
             } else {
                 remaining
             };
-            let child_bounds =
-                flow_constraints::<U>(self.axis, sizing_range::<U>(sizing, budget), cross_bounds(cross_sizing));
+            let mut main_bounds = sizing_range::<U>(sizing, budget);
+            if matches!(sizing, Sizing::Percent(_)) {
+                let main = U::distribute(&mut percentages, main_bounds.0);
+                main_bounds = (main, main);
+            }
+            let child_bounds = flow_constraints::<U>(self.axis, main_bounds, cross_bounds(cross_sizing));
             let size = cx.layout_child(child, child_bounds);
             let main = U::round(self.axis.extent(size));
             used += main;

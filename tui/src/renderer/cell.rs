@@ -126,8 +126,11 @@ impl CellBuffer<'_> {
                         continue;
                     };
                     let blended: [u8; 3] = std::array::from_fn(|channel| {
-                        ((u32::from(color[channel]) * alpha + u32::from(destination[channel]) * (255 - alpha) + 127)
-                            / 255) as u8
+                        let value =
+                            u32::from(color[channel]) * alpha + u32::from(destination[channel]) * (255 - alpha) + 127;
+                        // value is at most 65152, fitting in u16 and allowing exact division with shifts
+                        // this avoids the multiply instruction the compiler emits for / 255
+                        ((value + 1 + (value >> 8)) >> 8) as u8
                     });
                     *packed = Color::Rgb(blended[0], blended[1], blended[2]).packed();
                 }
