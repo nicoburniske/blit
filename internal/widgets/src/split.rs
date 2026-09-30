@@ -2,6 +2,7 @@ use blit::{Axis, Constraints, Layout as LayoutTrait, LayoutCx, LogicalPoint, Log
 use blit_layout::round;
 
 blit::builder! {
+    #[const]
     /// split behavior and geometry
     #[derive(Clone, Copy, Debug)]
     pub struct Config {

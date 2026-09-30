@@ -60,6 +60,7 @@ pub use self::{
 };
 
 crate::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct FrameInfo {
         new(size: LogicalSize),

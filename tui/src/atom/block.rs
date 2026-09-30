@@ -10,13 +10,14 @@ use crate::{
 };
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Block {
         new(),
-        @optional {
-            border: Border,
-            background: Color,
-        },
+        #[option]
+        border: Border,
+        #[option]
+        background: Color,
         titles: [Option<Title>; 6] = [None; 6],
     }
 }
@@ -123,6 +124,7 @@ impl Atom<TuiContext> for Block {
 }
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct Border {
         new(color: Color),
@@ -172,6 +174,7 @@ impl BitOrAssign for BorderSides {
 }
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct Title {
         new(text: TextRunId),

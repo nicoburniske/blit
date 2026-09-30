@@ -3,6 +3,7 @@ use blit::{Atom, Constraints, LogicalRect, LogicalSize};
 use crate::TuiContext;
 
 blit::builder! {
+    #[const]
     /// tints previously painted cells without replacing their text
     ///
     /// opacity ranges from zero to 255. Kitty images are unaffected.

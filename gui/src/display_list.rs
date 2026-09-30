@@ -60,21 +60,23 @@ impl MeshVertex {
 }
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Rectangle<'a> {
         new(area: LogicalRect),
         background: Color = Color::TRANSPARENT,
         border: Border<'a> = Border::None,
-        radius: BorderRadius = BorderRadius::default(),
+        radius: BorderRadius = BorderRadius::new(),
         opacity: f32 = 1.0,
     }
 }
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct BoxShadow {
         new(area: LogicalRect, color: Color),
-        radius: BorderRadius = BorderRadius::default(),
+        radius: BorderRadius = BorderRadius::new(),
         offset_x: f32 = 0.0,
         offset_y: f32 = 0.0,
         blur: f32 = 0.0,

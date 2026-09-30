@@ -9,11 +9,11 @@ use crate::{
 };
 
 blit::builder! {
+    #[const]
     pub struct TextInput<'a> {
         new(state: &'a mut State, value: &'a mut String),
-        @optional {
-            background: Color,
-        },
+        #[option]
+        background: Color,
         placeholder: &'a str = "",
         padding: Sides = Sides::all(0.0),
         color: Color = Color::Reset,

@@ -5,12 +5,13 @@ pub use super::shared::{Behavior, State};
 use super::shared::{ScrollLayout, build_scroll, update};
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug)]
     pub struct Config {
         new(item_extent: f32),
         axis: Axis = Axis::Vertical,
         gap: f32 = 0.0,
-        behavior: Behavior = Behavior::default(),
+        behavior: Behavior = Behavior::new(),
     }
 }
 

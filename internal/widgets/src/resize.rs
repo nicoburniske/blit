@@ -20,6 +20,7 @@ pub struct Grip {
 }
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug)]
     pub struct Config {
         new(initial: LogicalSize),

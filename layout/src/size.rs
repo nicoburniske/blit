@@ -35,6 +35,7 @@ mod platform {
 pub use platform::*;
 
 blit::builder! {
+    #[const]
     /// layout-owned inset lengths
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Padding {
@@ -146,6 +147,7 @@ impl Sizing<f32> {
 }
 
 blit::builder! {
+    #[const]
     /// sizing policy for a flow layout child
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Item {
@@ -156,20 +158,20 @@ blit::builder! {
 }
 
 impl Item {
-    pub fn fixed(mut self, width: Length, height: Length) -> Self {
+    pub const fn fixed(mut self, width: Length, height: Length) -> Self {
         self.width = Sizing::fixed(width);
         self.height = Sizing::fixed(height);
         self
     }
 
-    pub fn grow(mut self) -> Self {
+    pub const fn grow(mut self) -> Self {
         self.width = Sizing::grow();
         self.height = Sizing::grow();
         self
     }
 }
 
-pub fn item() -> Item {
+pub const fn item() -> Item {
     Item::new()
 }
 

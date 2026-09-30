@@ -10,12 +10,13 @@ use crate::{
 };
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Rectangle {
         new(),
         background: Color = Color::TRANSPARENT,
         border: Border<'static> = Border::None,
-        radius: BorderRadius = BorderRadius::default(),
+        radius: BorderRadius = BorderRadius::new(),
         opacity: f32 = 1.0,
     }
 }
@@ -120,10 +121,11 @@ impl Atom<GuiContext> for Image {
 }
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Shadow {
         new(color: Color),
-        radius: BorderRadius = BorderRadius::default(),
+        radius: BorderRadius = BorderRadius::new(),
         offset_x: f32 = 0.0,
         offset_y: f32 = 0.0,
         blur: f32 = 0.0,

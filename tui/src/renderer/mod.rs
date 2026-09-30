@@ -36,6 +36,7 @@ const TEXT_RUN_CACHE_CAPACITY: usize = 2 * 1024 * 1024;
 const TEXT_LAYOUT_CACHE_CAPACITY: usize = 4 * 1024 * 1024;
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct RendererConfig {
         new(),

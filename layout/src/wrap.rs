@@ -7,6 +7,7 @@ use crate::{
 };
 
 blit::builder! {
+    #[const]
     /// wraps children into rows or columns
     ///
     /// natural sizes choose the runs, then grow children share the space left in each run
@@ -30,15 +31,15 @@ impl Layout {
     }
 }
 
-pub fn layout(axis: Axis) -> Layout {
+pub const fn layout(axis: Axis) -> Layout {
     Layout::new(axis)
 }
 
-pub fn horizontal() -> Layout {
+pub const fn horizontal() -> Layout {
     layout(Axis::Horizontal)
 }
 
-pub fn vertical() -> Layout {
+pub const fn vertical() -> Layout {
     layout(Axis::Vertical)
 }
 

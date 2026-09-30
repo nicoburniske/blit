@@ -7,6 +7,7 @@ use crate::{
 };
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Text {
         new(text: TextRunId),

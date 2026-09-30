@@ -5,33 +5,24 @@ pub type PhysicalPoint = Point<i32>;
 pub type PhysicalRect = Rect<i32>;
 pub type PhysicalSize = Size<i32>;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Point<T> {
-    pub x: T,
-    pub y: T,
-}
-
-impl<T> Point<T> {
-    pub const fn new(x: T, y: T) -> Self {
-        Self { x, y }
+crate::builder! {
+    #[const]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub struct Point<T: Copy> {
+        new(x: T, y: T),
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Size<T> {
-    pub width: T,
-    pub height: T,
+crate::builder! {
+    #[const]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub struct Size<T: Copy> {
+        new(width: T, height: T),
+    }
 }
 
-impl<T> Size<T> {
-    pub const fn new(width: T, height: T) -> Self {
-        Self { width, height }
-    }
-
-    pub const fn uniform(size: T) -> Self
-    where
-        T: Copy,
-    {
+impl<T: Copy> Size<T> {
+    pub const fn uniform(size: T) -> Self {
         Self::new(size, size)
     }
 }
@@ -54,7 +45,7 @@ impl<T: Coordinate> Size<T> {
     }
 }
 
-impl<T: std::ops::Add<Output = T>> std::ops::Add for Size<T> {
+impl<T: Copy + std::ops::Add<Output = T>> std::ops::Add for Size<T> {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
@@ -62,7 +53,7 @@ impl<T: std::ops::Add<Output = T>> std::ops::Add for Size<T> {
     }
 }
 
-impl<T: std::ops::Sub<Output = T>> std::ops::Sub for Size<T> {
+impl<T: Copy + std::ops::Sub<Output = T>> std::ops::Sub for Size<T> {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self {
@@ -118,23 +109,16 @@ impl Coordinate for i32 {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Rect<T> {
-    pub x: T,
-    pub y: T,
-    pub width: T,
-    pub height: T,
+crate::builder! {
+    #[const]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub struct Rect<T: Copy> {
+        new(x: T, y: T, width: T, height: T),
+    }
 }
 
-impl<T> Rect<T> {
-    pub const fn new(x: T, y: T, width: T, height: T) -> Self {
-        Self { x, y, width, height }
-    }
-
-    pub const fn size(self) -> Size<T>
-    where
-        T: Copy,
-    {
+impl<T: Copy> Rect<T> {
+    pub const fn size(self) -> Size<T> {
         Size::new(self.width, self.height)
     }
 }
@@ -190,7 +174,7 @@ impl Rect<f32> {
 }
 
 impl Rect<i32> {
-    pub fn to_logical(self, scale: Scale2) -> LogicalRect {
+    pub const fn to_logical(self, scale: Scale2) -> LogicalRect {
         Rect {
             x: self.x as f32 / scale.x,
             y: self.y as f32 / scale.y,
@@ -199,7 +183,7 @@ impl Rect<i32> {
         }
     }
 
-    pub fn area(self) -> i64 {
+    pub const fn area(self) -> i64 {
         self.width as i64 * self.height as i64
     }
 }
@@ -219,6 +203,7 @@ impl Scale2 {
 }
 
 crate::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Sides {
         new(),
@@ -231,7 +216,7 @@ crate::builder! {
 
 impl Sides {
     #[inline]
-    pub fn size(self) -> LogicalSize {
+    pub const fn size(self) -> LogicalSize {
         LogicalSize::new(self.left + self.right, self.top + self.bottom)
     }
 

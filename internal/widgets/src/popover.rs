@@ -14,6 +14,7 @@ pub enum Close {
 }
 
 blit::builder! {
+    #[const]
     /// popover placement
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Config {
@@ -30,6 +31,7 @@ blit::builder! {
 }
 
 blit::builder! {
+    #[const]
     /// persistent popover visibility
     #[derive(Debug)]
     pub struct State {

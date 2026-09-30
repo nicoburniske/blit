@@ -8,6 +8,7 @@ use crate::{
 };
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Shadow {
         new(color: Color),

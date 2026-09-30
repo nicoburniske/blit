@@ -88,6 +88,7 @@ impl ImageFormat {
 }
 
 blit::builder! {
+    #[const]
     /// Kitty image placement for a resolved logical area
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct ImagePlacement {

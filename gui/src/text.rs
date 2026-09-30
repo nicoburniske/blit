@@ -21,22 +21,28 @@ pub enum TextPhases {
 }
 
 blit::builder! {
+    #[const]
     /// style overrides for a rich text span
     #[derive(Clone, Debug, PartialEq)]
     pub struct SpanStyle {
         new(),
-        @optional {
-            font: FontId,
-            size: f32,
-            weight: u16,
-            stretch: u16,
-            style: FontStyle,
-            color: Color,
-        },
+        #[option]
+        font: FontId,
+        #[option]
+        size: f32,
+        #[option]
+        weight: u16,
+        #[option]
+        stretch: u16,
+        #[option]
+        style: FontStyle,
+        #[option]
+        color: Color,
     }
 }
 
 blit::builder! {
+    #[const]
     /// a styled byte range within a rich text string
     #[derive(Clone, Debug, PartialEq)]
     pub struct Span {

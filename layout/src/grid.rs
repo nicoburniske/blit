@@ -105,7 +105,7 @@ impl Item {
     }
 }
 
-pub fn item() -> Item {
+pub const fn item() -> Item {
     Item::new()
 }
 

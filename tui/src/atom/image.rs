@@ -6,6 +6,7 @@ use crate::{
 };
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Image {
         new(image: ImageId, intrinsic: LogicalSize),

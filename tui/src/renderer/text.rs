@@ -5,13 +5,14 @@ use blit::LogicalRect;
 use crate::renderer::color::Color;
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct Span<'a> {
         new(text: &'a str),
-        @optional {
-            color: Color,
-            background: Color,
-        },
+        #[option]
+        color: Color,
+        #[option]
+        background: Color,
         attributes: TextAttributes = TextAttributes::NONE,
         remove_attributes: TextAttributes = TextAttributes::NONE,
     }
@@ -62,6 +63,7 @@ impl BitOrAssign for TextAttributes {
 }
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct TextRequest {
         new(text: TextRunId, area: LogicalRect),
@@ -73,24 +75,25 @@ blit::builder! {
 }
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct TextLayoutRequest {
         new(text: TextRunId),
-        @optional {
-            max_columns: usize,
-            max_lines: u16,
-        },
+        #[option]
+        max_columns: usize,
+        #[option]
+        max_lines: u16,
         wrap: TextWrap = TextWrap::None,
     }
 }
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct TextOptions {
         new(),
-        @optional {
-            max_lines: u16,
-        },
+        #[option]
+        max_lines: u16,
         wrap: TextWrap = TextWrap::None,
         overflow: TextOverflow = TextOverflow::Clip,
         horizontal_align: HorizontalAlign = HorizontalAlign::Left,

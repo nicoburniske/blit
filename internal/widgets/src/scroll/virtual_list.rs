@@ -6,11 +6,12 @@ pub use super::shared::Behavior;
 use super::shared::{self, ScrollItem, ScrollLayout, build_scroll, update};
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug)]
     pub struct Config {
         new(),
         edge_scroll: bool = false,
-        behavior: Behavior = Behavior::default(),
+        behavior: Behavior = Behavior::new(),
     }
 }
 

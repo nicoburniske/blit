@@ -13,6 +13,7 @@ use crate::{
 };
 
 blit::builder! {
+    #[const]
     /// clickable performance badge with a timing table and history graph
     pub struct Performance<'a> {
         new(state: &'a mut State),

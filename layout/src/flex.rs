@@ -6,6 +6,7 @@ use crate::{
 };
 
 blit::builder! {
+    #[const]
     /// lays out children in a row or column
     ///
     /// fixed and fit children are sized first, then grow children share what is left
@@ -22,6 +23,7 @@ blit::builder! {
 }
 
 blit::builder! {
+    #[const]
     /// sizing and growth weight for a flex child
     ///
     /// weight only affects how grow children share leftover space
@@ -35,31 +37,31 @@ blit::builder! {
 }
 
 impl Item {
-    pub fn fixed(mut self, width: Length, height: Length) -> Self {
+    pub const fn fixed(mut self, width: Length, height: Length) -> Self {
         self.width = crate::Sizing::fixed(width);
         self.height = crate::Sizing::fixed(height);
         self
     }
-    pub fn grow(mut self) -> Self {
+    pub const fn grow(mut self) -> Self {
         self.width = crate::Sizing::grow();
         self.height = crate::Sizing::grow();
         self
     }
 }
 
-pub fn layout(axis: Axis) -> Layout {
+pub const fn layout(axis: Axis) -> Layout {
     Layout::new(axis)
 }
 
-pub fn row() -> Layout {
+pub const fn row() -> Layout {
     layout(Axis::Horizontal)
 }
 
-pub fn column() -> Layout {
+pub const fn column() -> Layout {
     layout(Axis::Vertical)
 }
 
-pub fn item() -> Item {
+pub const fn item() -> Item {
     Item::new()
 }
 

@@ -27,6 +27,7 @@ impl<'a> Border<'a> {
 }
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct BorderRadius {
         new(),

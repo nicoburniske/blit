@@ -13,12 +13,12 @@ use crate::{
 };
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct CellStyle {
         new(),
-        @optional {
-            background: Color,
-        },
+        #[option]
+        background: Color,
         foreground: Color = Color::Reset,
         attributes: TextAttributes = TextAttributes::NONE,
     }
@@ -31,7 +31,7 @@ pub struct Cell {
 }
 
 impl Cell {
-    pub fn new(character: char) -> Self {
+    pub const fn new(character: char) -> Self {
         Self {
             character: Some(character),
             style: CellStyle::new(),

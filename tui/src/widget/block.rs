@@ -8,14 +8,16 @@ use crate::{
 };
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Block<'a> {
         new(),
-        @optional {
-            border: Border,
-            background: Color,
-            shadow: Shadow,
-        },
+        #[option]
+        border: Border,
+        #[option]
+        background: Color,
+        #[option]
+        shadow: Shadow,
         titles: [Option<Title<'a>>; 6] = [None; 6],
     }
 }
@@ -53,12 +55,12 @@ impl Content<TuiContext> for Block<'_> {
 }
 
 blit::builder! {
+    #[const]
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Title<'a> {
         new(text: &'a str),
-        @optional {
-            color: Color,
-        },
+        #[option]
+        color: Color,
         attributes: TextAttributes = TextAttributes::NONE,
         position: TitlePosition = TitlePosition::TopLeft,
     }

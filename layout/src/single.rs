@@ -4,6 +4,7 @@ pub use crate::size::{Item, item};
 use crate::{Length, Padding, Sizing, flow_constraints, sizing_range};
 
 blit::builder! {
+    #[const]
     /// lays out at most one child
     ///
     /// percentages use the space offered to the layout, not the child's natural size
@@ -14,7 +15,7 @@ blit::builder! {
     }
 }
 
-pub fn layout() -> Layout {
+pub const fn layout() -> Layout {
     Layout::new()
 }
 

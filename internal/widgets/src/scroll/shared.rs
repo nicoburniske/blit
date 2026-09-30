@@ -6,6 +6,7 @@ use blit::{
 use blit_layout::round;
 
 blit::builder! {
+    #[const]
     /// persistent scroll position and motion
     #[derive(Debug)]
     pub struct State {
@@ -20,6 +21,7 @@ blit::builder! {
 }
 
 blit::builder! {
+    #[const]
     /// scrollbar behavior and geometry
     #[derive(Clone, Copy, Debug)]
     pub struct Behavior {
