@@ -60,14 +60,14 @@ fn culls_only_atoms_with_disjoint_known_paint_bounds() {
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        root.target(NodeTarget::Parent)
+        root.relative(NodeTarget::Parent)
             .layout(At::new(4.0, 0.0))
             .child()
             .insert(PaintCount {
                 count: culled.clone(),
                 bounds_offset: LogicalPoint::ZERO,
             });
-        root.target(NodeTarget::Parent)
+        root.relative(NodeTarget::Parent)
             .layout(At::new(4.0, 0.0))
             .child()
             .insert(PaintCount {
@@ -77,7 +77,7 @@ fn culls_only_atoms_with_disjoint_known_paint_bounds() {
         root.child().item(TestItem::fixed(1.0, 1.0)).build(|ui: Ui<'_>| {
             let mut panel = ui.layout(Overlay).clip(DiamondClip);
             panel
-                .target(NodeTarget::Parent)
+                .relative(NodeTarget::Parent)
                 .layout(At::new(1.0, 0.0))
                 .child()
                 .insert(PaintCount {
@@ -130,7 +130,7 @@ fn empty_and_out_of_flow_children_are_valid() {
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Column);
         root.child();
-        root.target(NodeTarget::Parent)
+        root.relative(NodeTarget::Parent)
             .layout(At::new(0.0, 0.0))
             .child()
             .insert(());
@@ -224,7 +224,7 @@ fn resolves_named_anchors_and_clipping() {
             .widget_id(target)
             .insert(Fill::new('T', LogicalSize::uniform(2.0)));
         overlay
-            .target(target)
+            .relative(target)
             .layout(At::new(0.0, 0.0).anchors(LogicalPoint::new(1.0, 1.0), LogicalPoint::ZERO))
             .child()
             .insert(Fill::new('A', LogicalSize::uniform(1.0)));
@@ -244,7 +244,7 @@ fn resolves_named_anchors_and_clipping() {
             panel.insert(Fill::new('p', LogicalSize::ZERO));
             panel
                 .child()
-                .visual_parent(NodeTarget::Root)
+                .parent(NodeTarget::Root)
                 .insert(Fill::new('L', LogicalSize::uniform(3.0)));
         });
     });
@@ -261,7 +261,7 @@ fn resolves_named_anchors_and_clipping() {
             panel.insert(Fill::new('p', LogicalSize::ZERO));
             panel
                 .child()
-                .visual_parent(panel_id)
+                .parent(panel_id)
                 .insert(Fill::new('L', LogicalSize::uniform(3.0)));
         });
     });
@@ -269,13 +269,13 @@ fn resolves_named_anchors_and_clipping() {
 }
 
 #[test]
-fn visual_parent_preserves_outer_clip_and_supplies_out_of_flow_size() {
+fn parent_preserves_outer_clip_and_supplies_out_of_flow_size() {
     let (mut frame, mut context) = frame(LogicalSize::new(7.0, 5.0));
     let popup_id = WidgetId::new("popup");
     let build = |mut ui: Ui<'_>| {
         let response = ui.interact_widget(popup_id, Sense::CLICK);
         let mut root = ui.layout(Overlay);
-        root.target(NodeTarget::Parent)
+        root.relative(NodeTarget::Parent)
             .layout(At::new(1.0, 0.0).size(LogicalSize::uniform(5.0)))
             .child()
             .clip(DiamondClip)
@@ -283,14 +283,14 @@ fn visual_parent_preserves_outer_clip_and_supplies_out_of_flow_size() {
                 let outer_id = ui.id();
                 let mut outer = ui.layout(Overlay);
                 outer
-                    .target(NodeTarget::Parent)
+                    .relative(NodeTarget::Parent)
                     .layout(At::new(2.0, 2.0).size(LogicalSize::uniform(1.0)))
                     .child()
                     .clip(DiamondClip)
                     .build(|ui: Ui<'_>| {
                         ui.layout(Overlay)
-                            .target(NodeTarget::Parent)
-                            .visual_parent(outer_id)
+                            .relative(NodeTarget::Parent)
+                            .parent(outer_id)
                             .z_index(1)
                             .layout(At::new(-2.0, -2.0))
                             .child()
@@ -347,13 +347,13 @@ fn paint_and_interaction_follow_visual_groups() {
             let mut root = ui.widget_id(ids[0]).layout(Overlay);
             if open {
                 let mut modal_target = root
-                    .target(NodeTarget::Parent)
+                    .relative(NodeTarget::Parent)
                     .z_index(1)
                     .layout(At::new(0.0, 0.0).size(size));
                 let mut modal = modal_target.child().layout(Overlay);
                 modal.insert(Fill::new('D', LogicalSize::ZERO));
                 modal
-                    .target(NodeTarget::Parent)
+                    .relative(NodeTarget::Parent)
                     .layout(At::new(0.0, 0.0))
                     .child()
                     .widget_id(ids[2])
@@ -368,9 +368,9 @@ fn paint_and_interaction_follow_visual_groups() {
                         .item(TestItem::fixed(3.0, 1.0))
                         .build(|ui: Ui<'_>| {
                             let mut rect = ui.layout(Overlay);
-                            let mut badge = rect.target(NodeTarget::Parent);
+                            let mut badge = rect.relative(NodeTarget::Parent);
                             if open {
-                                badge = badge.visual_parent(canvas_id).z_index(i16::MAX);
+                                badge = badge.parent(canvas_id).z_index(i16::MAX);
                             }
                             badge
                                 .layout(At::new(0.0, 0.0))
@@ -483,14 +483,14 @@ fn out_of_flow_size_transitions_remain_fractional() {
     let mut render = |width, time| {
         render_inputs(&mut frame, &mut context, time, [Input::None], |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
-            root.target(NodeTarget::Parent)
+            root.relative(NodeTarget::Parent)
                 .widget_id(id)
                 .transition(Transition::new(Duration::from_secs(1)).width())
                 .layout(At::new(0.0, 0.0).size(LogicalSize::new(width, 1.0)))
                 .child()
                 .widget_id(child_id)
                 .insert(Fill::new('X', LogicalSize::uniform(1.0)));
-            root.target(NodeTarget::Parent)
+            root.relative(NodeTarget::Parent)
                 .widget_id(fixed_id)
                 .transition(Transition::new(Duration::from_secs(1)).width())
                 .layout(Fixed(LogicalSize::new(width, 1.0)));
@@ -510,7 +510,7 @@ fn out_of_flow_leaf_size_transitions() {
     let mut render = |width, time| {
         render_inputs(&mut frame, &mut context, time, [Input::None], |ui: Ui<'_>| {
             ui.layout(Overlay)
-                .target(NodeTarget::Root)
+                .relative(NodeTarget::Root)
                 .widget_id(id)
                 .transition(Transition::new(Duration::from_secs(1)).width())
                 .insert(Fill::new('X', LogicalSize::new(width, 1.0)));
@@ -565,7 +565,7 @@ fn resolves_layout_offsets_and_child_positions() {
 }
 
 #[test]
-fn out_of_flow_positions_against_target_and_sizes_against_visual_parent() {
+fn out_of_flow_positions_against_reference_and_sizes_against_parent() {
     let (mut frame, mut context) = frame(LogicalSize::new(10.0, 4.0));
     let id = WidgetId::new("out of flow");
 
@@ -576,7 +576,7 @@ fn out_of_flow_positions_against_target_and_sizes_against_visual_parent() {
             ui.id()
         });
         overlay
-            .target(target)
+            .relative(target)
             .widget_id(id)
             .layout(At::new(0.0, 0.0).anchors(LogicalPoint::new(1.0, 1.0), LogicalPoint::ZERO))
             .child()
@@ -592,7 +592,7 @@ fn out_of_flow_positions_against_target_and_sizes_against_visual_parent() {
 }
 
 #[test]
-fn out_of_flow_target_paints_after_its_declaring_subtree() {
+fn relative_child_paints_after_its_declaring_subtree() {
     let (mut frame, mut context) = frame(LogicalSize::uniform(1.0));
     let id = WidgetId::new("popup");
 
@@ -600,8 +600,8 @@ fn out_of_flow_target_paints_after_its_declaring_subtree() {
         let mut root = ui.layout(Overlay);
         let mut panel = root.child().layout(Overlay);
         panel
-            .target(NodeTarget::Root)
-            .visual_parent(NodeTarget::Root)
+            .relative(NodeTarget::Root)
+            .parent(NodeTarget::Root)
             .layout(At::new(0.0, 0.0))
             .child()
             .widget_id(id)
@@ -631,28 +631,28 @@ fn targets_reject_invalid_references() {
     let cases: &[fn(Ui<'_>, WidgetId)] = &[
         |ui, _| {
             let id = ui.id();
-            ui.visual_parent(id).insert(());
+            ui.parent(id).insert(());
         },
         |ui, _| {
             let mut root = ui.layout(Overlay);
             let child = root.child().build(|ui: Ui<'_>| ui.id());
-            root.visual_parent(child).insert(());
+            root.parent(child).insert(());
         },
         |ui, id| {
             let mut root = ui.layout(Overlay);
-            root.child().visual_parent(id).insert(());
+            root.child().parent(id).insert(());
             root.widget_id(id).insert(());
         },
         |ui, id| {
             let mut root = ui.layout(Overlay);
-            root.target(id).insert(());
+            root.relative(id).insert(());
             root.widget_id(id).insert(());
         },
-        |ui, id| ui.widget_id(id).visual_parent(id).insert(()),
+        |ui, id| ui.widget_id(id).parent(id).insert(()),
         |ui, id| {
             let mut root = ui.layout(Overlay);
             root.child().widget_id(id).insert(());
-            root.visual_parent(id).insert(());
+            root.parent(id).insert(());
         },
         #[cfg(debug_assertions)]
         |ui, id| {
@@ -671,7 +671,7 @@ fn targets_reject_invalid_references() {
                 .widget_id(id.child("renamed"))
                 .layout(Overlay)
                 .child()
-                .visual_parent(id)
+                .parent(id)
                 .insert(());
         },
         #[cfg(debug_assertions)]
@@ -709,9 +709,9 @@ fn node_targets_reject_previous_renders() {
                 render(&mut frame, &mut context, |ui: Ui<'_>| {
                     let mut root = ui.layout(Overlay);
                     if anchor {
-                        root.target(previous).insert(());
+                        root.relative(previous).insert(());
                     } else {
-                        root.child().visual_parent(previous).insert(());
+                        root.child().parent(previous).insert(());
                     }
                 });
             }))
@@ -741,8 +741,8 @@ fn named_bindings_follow_each_build() {
                     return;
                 }
                 root.child().widget_id(b).insert(());
-                root.child().widget_id(a).visual_parent(b).insert(());
-                root.target(a).insert(());
+                root.child().widget_id(a).parent(b).insert(());
+                root.relative(a).insert(());
             },
         );
         assert_eq!(frame.geometry(a).is_some(), count != 0);
@@ -1179,7 +1179,7 @@ impl<C> Layout<C> for At {
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
         let child = cx.children().next().expect("positioned content is missing");
         let node = cx.node();
-        let containing = cx.size(cx.visual_parent());
+        let containing = cx.size(cx.parent());
         let child_bounds = self.size.map_or(
             Constraints {
                 min: bounds.min,
@@ -1188,7 +1188,7 @@ impl<C> Layout<C> for At {
             |size| Constraints::tight(bounds.constrain(size)),
         );
         let size = cx.layout_child(child, child_bounds);
-        let target = cx.size(cx.parent());
+        let target = cx.size(cx.relative());
         cx.set_position(child, LogicalPoint::ZERO);
         cx.set_position(
             node,

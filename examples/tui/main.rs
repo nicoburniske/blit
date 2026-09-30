@@ -138,7 +138,7 @@ impl Demo {
             Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
         };
         if self.show_performance {
-            root.target(NodeTarget::Root)
+            root.relative(NodeTarget::Root)
                 .layout(
                     absolute::Layout::new(single::layout())
                         .target_anchor(Anchor::BottomRight)
@@ -212,8 +212,8 @@ impl Widget<TuiContext> for &mut Modal {
         let panel_id = WidgetId::new("tui modal panel");
         root.interact_widget(panel_id, Sense::ALL);
         let mut overlay = root
-            .target(NodeTarget::Root)
-            .visual_parent(NodeTarget::Root)
+            .relative(NodeTarget::Root)
+            .parent(NodeTarget::Root)
             .z_index(1)
             .widget_id(backdrop_id)
             .layout(
@@ -222,7 +222,7 @@ impl Widget<TuiContext> for &mut Modal {
                     .height(Sizing::grow()),
             );
         overlay.insert(Tint::new([0, 0, 0], if self.dim { 180 } else { 80 }));
-        let mut panel = overlay.target(NodeTarget::Parent).widget_id(panel_id).layout(
+        let mut panel = overlay.relative(NodeTarget::Parent).widget_id(panel_id).layout(
             absolute::Layout::new(flex::column().padding(Padding::all(1)).gap(1))
                 .target_anchor(Anchor::Center)
                 .child_anchor(Anchor::Center),
@@ -1175,8 +1175,8 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     );
     if let Some(anchor) = spec.badge {
         let mut badge = item
-            .target(NodeTarget::Parent)
-            .visual_parent(WidgetId::new("tui canvas"))
+            .relative(NodeTarget::Parent)
+            .parent(WidgetId::new("tui canvas"))
             .z_index(1)
             .layout(
                 absolute::Layout::new(flex::row().align(Align::Center).justify(Justify::Center))

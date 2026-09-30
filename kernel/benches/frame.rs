@@ -58,7 +58,7 @@ fn build_named_parent(bencher: divan::Bencher, count: usize) {
     let id = WidgetId::new("bench root");
     bencher.bench_local(|| {
         build(&mut frame, count, |ui, _| {
-            ui.visual_parent(id).insert(());
+            ui.parent(id).insert(());
         })
     });
 }

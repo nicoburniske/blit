@@ -339,8 +339,8 @@ impl<C> Frame<C> {
         let id = NodeId::new(self.nodes.len());
         self.nodes.push(StoredNode {
             widget_id,
+            relative: parent.unwrap_or(id),
             parent: parent.unwrap_or(id),
-            visual_parent: parent.unwrap_or(id),
             subtree_end: id.value,
             first_atom: StoredAtomId::NONE,
             last_atom: StoredAtomId::NONE,
@@ -360,22 +360,22 @@ impl<C> Frame<C> {
 
     fn resolve_target(&self, node: NodeId, target: NodeTarget) -> NodeId {
         let target = match target {
-            NodeTarget::Parent => self.nodes[node.index()].parent,
+            NodeTarget::Parent => self.nodes[node.index()].relative,
             NodeTarget::Root => NodeId::new(0),
             NodeTarget::Node(id) => id,
             NodeTarget::Widget(id) => {
                 let open = {
-                    // open ancestors are cheap to find on the parent chain
-                    let mut ancestor = self.nodes[node.index()].parent;
+                    // open ancestors follow the positioning reference chain
+                    let mut ancestor = self.nodes[node.index()].relative;
                     loop {
                         let stored = &self.nodes[ancestor.index()];
                         if stored.widget_id == id {
                             break Some(ancestor);
                         }
-                        if stored.parent == ancestor {
+                        if stored.relative == ancestor {
                             break None;
                         }
-                        ancestor = stored.parent;
+                        ancestor = stored.relative;
                     }
                 };
                 if let Some(open) = open {
@@ -454,8 +454,8 @@ mod generation {
 #[derive(Clone, Copy)]
 struct StoredNode {
     widget_id: WidgetId,
+    relative: NodeId,
     parent: NodeId,
-    visual_parent: NodeId,
     subtree_end: u32,
     first_atom: StoredAtomId,
     last_atom: StoredAtomId,

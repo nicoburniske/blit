@@ -199,7 +199,7 @@ impl Application for App {
             Page::Graphics => root.child().item(flex::item().grow()).build(&mut self.graphics),
         };
         if self.show_performance {
-            root.target(NodeTarget::Root)
+            root.relative(NodeTarget::Root)
                 .layout(
                     absolute::Layout::new(single::layout())
                         .target_anchor(Anchor::BottomRight)
@@ -1369,8 +1369,8 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     );
     if let Some(anchor) = spec.badge {
         let mut badge = item
-            .target(NodeTarget::Parent)
-            .visual_parent(WidgetId::new("desktop canvas"))
+            .relative(NodeTarget::Parent)
+            .parent(WidgetId::new("desktop canvas"))
             .z_index(1)
             .layout(
                 absolute::Layout::new(flex::row().align(Align::Center).justify(Justify::Center))
@@ -1524,7 +1524,7 @@ mod graphics {
                 buffers: Rc::clone(&self.terrain),
             });
 
-            let mut controls = stage.target(NodeTarget::Parent).z_index(2).layout(
+            let mut controls = stage.relative(NodeTarget::Parent).z_index(2).layout(
                 absolute::Layout::new(
                     flex::row()
                         .padding(Padding::all(sz::XS))

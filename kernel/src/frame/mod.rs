@@ -84,11 +84,11 @@ impl<'ui, C, S> Ui<'ui, C, S> {
     }
 
     /// selects the parent for stacking, clipping and containing size
-    pub fn visual_parent(mut self, target: impl Into<NodeTarget>) -> Self {
+    pub fn parent(mut self, parent: impl Into<NodeTarget>) -> Self {
         let node = self.inner.node;
         let frame = self.inner.frame_mut();
-        let parent = frame.resolve_target(node, target.into());
-        frame.nodes[node.index()].visual_parent = parent;
+        let parent = frame.resolve_target(node, parent.into());
+        frame.nodes[node.index()].parent = parent;
         self
     }
 
@@ -204,11 +204,11 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         self
     }
 
-    /// creates a child outside this layout, positioned relative to `target`
-    pub fn target(&mut self, target: impl Into<NodeTarget>) -> Ui<'_, C> {
+    /// creates an out-of-flow child positioned relative to `relative`
+    pub fn relative(&mut self, relative: impl Into<NodeTarget>) -> Ui<'_, C> {
         let node = self.inner.push_child();
         let frame = self.inner.frame_mut();
-        frame.nodes[node.index()].parent = frame.resolve_target(node, target.into());
+        frame.nodes[node.index()].relative = frame.resolve_target(node, relative.into());
         frame.nodes[node.index()].out_of_flow = true;
         Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
     }
@@ -350,10 +350,10 @@ pub struct NodeId {
     generation: u16,
 }
 
-/// selects a node for visual parenting or out-of-flow layout
+/// selects a node for parenting or relative positioning
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NodeTarget {
-    /// the node's current parent
+    /// the node's current positioning reference
     #[default]
     Parent,
     /// an earlier node in the current render

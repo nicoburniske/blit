@@ -31,16 +31,16 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
         self.node
     }
 
-    /// returns this node's layout parent
+    /// returns this node's positioning reference
+    #[inline]
+    pub fn relative(&self) -> NodeId {
+        self.frame.nodes[self.node.index()].relative
+    }
+
+    /// returns the parent for stacking, clipping and containing size
     #[inline]
     pub fn parent(&self) -> NodeId {
         self.frame.nodes[self.node.index()].parent
-    }
-
-    /// returns this node's paint and clipping parent
-    #[inline]
-    pub fn visual_parent(&self) -> NodeId {
-        self.frame.nodes[self.node.index()].visual_parent
     }
 
     /// iterates direct flow children in declaration order
@@ -111,7 +111,7 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
         #[cfg(debug_assertions)]
         {
             let stored = &self.frame.nodes[node.index()];
-            if stored.parent == self.node && !stored.out_of_flow && node != self.node {
+            if stored.relative == self.node && !stored.out_of_flow && node != self.node {
                 assert_ne!(
                     stored.layout_state,
                     LayoutState::Unlaid,
@@ -136,7 +136,7 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
         }
     }
 
-    /// positions this node relative to its parent or a flow child relative to this layout
+    /// positions this node against its reference or a flow child against this layout
     #[inline]
     pub fn set_position(&mut self, node: NodeId, position: LogicalPoint) {
         let offset = if node == self.node {
@@ -184,7 +184,7 @@ impl<C, I: 'static> LayoutCx<'_, C, I> {
     fn assert_child(&self, child: NodeId) {
         let stored = &self.frame.nodes[child.index()];
         assert!(
-            child != self.node && stored.parent == self.node && !stored.out_of_flow,
+            child != self.node && stored.relative == self.node && !stored.out_of_flow,
             "layout can only access direct flow children"
         );
     }

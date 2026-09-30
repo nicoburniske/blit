@@ -113,7 +113,7 @@ fn flex_distributes_growing_space() {
             .item(flex::Item::new().width(Sizing::grow()))
             .widget_id(other)
             .insert(BoxAtom(LogicalSize::new(1.0, 10.0)));
-        row.target(fixed)
+        row.relative(fixed)
             .widget_id(attached)
             .layout(
                 absolute::Layout::<_, Length>::new(flex::Layout::<Length>::new(blit::Axis::Horizontal))

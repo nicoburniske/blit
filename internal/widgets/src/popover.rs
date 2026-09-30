@@ -96,15 +96,11 @@ where
             return None;
         }
 
-        let mut overlay = root
-            .target(config.parent)
-            .visual_parent(config.parent)
-            .z_index(1)
-            .layout(
-                absolute::Layout::<_, U>::new(single::Layout::<U>::new())
-                    .width(Sizing::grow())
-                    .height(Sizing::grow()),
-            );
+        let mut overlay = root.relative(config.parent).parent(config.parent).z_index(1).layout(
+            absolute::Layout::<_, U>::new(single::Layout::<U>::new())
+                .width(Sizing::grow())
+                .height(Sizing::grow()),
+        );
         if config.close != Close::Manual {
             overlay
                 .child()
@@ -116,7 +112,7 @@ where
         let offset_y = config.offset.y.into_float();
         Some(
             overlay
-                .target(anchor)
+                .relative(anchor)
                 .layout(
                     absolute::Layout::<_, U>::new(single::Layout::<U>::new())
                         .target_anchor(config.target_anchor)

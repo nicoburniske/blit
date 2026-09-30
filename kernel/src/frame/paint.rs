@@ -6,7 +6,7 @@ pub fn resolve_order<C>(frame: &mut Frame<C>) {
     if !frame
         .nodes
         .iter()
-        .any(|node| node.z_index != 0 || node.visual_parent != node.parent || node.out_of_flow)
+        .any(|node| node.z_index != 0 || node.parent != node.relative || node.out_of_flow)
     {
         return;
     }
@@ -17,7 +17,7 @@ pub fn resolve_order<C>(frame: &mut Frame<C>) {
         .resize(frame.nodes.len(), super::PaintLinks::default());
     // zero marks the end of a child list since the root has no parent
     for index in 1..frame.nodes.len() {
-        let parent = frame.nodes[index].visual_parent.index();
+        let parent = frame.nodes[index].parent.index();
         frame.paint_links[index].next_sibling = frame.paint_links[parent].first_child;
         frame.paint_links[parent].first_child = index as u32;
     }
@@ -46,7 +46,7 @@ pub fn resolve_clips<C>(frame: &mut Frame<C>) {
         let parent = if index == 0 {
             ResolvedClipId::NONE
         } else {
-            frame.nodes[frame.nodes[index].visual_parent.index()].resolved_clip
+            frame.nodes[frame.nodes[index].parent.index()].resolved_clip
         };
         if frame.nodes[index].clip.index().is_some() {
             let bounds = frame

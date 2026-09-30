@@ -3,7 +3,7 @@ use blit::{Constraints, LogicalPoint, LogicalSize};
 use crate::{Sizing, Unit, sizing_range};
 
 blit::builder! {
-    /// positions a layout relative to the target selected by `Ui::target`
+    /// positions a layout relative to the node selected by `Ui::relative`
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Layout<L, U: Unit> {
         new(inner: L),
@@ -34,7 +34,7 @@ impl<C, L: blit::Layout<C>, U: Unit> blit::Layout<C> for Layout<L, U> {
     type Item = L::Item;
 
     fn layout(&self, cx: &mut blit::LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
-        let containing = cx.size(cx.visual_parent());
+        let containing = cx.size(cx.parent());
         let range = |sizing: Sizing<U>, available: f32| {
             let sizing = sizing.into_float();
             let available = U::round(available);
@@ -54,7 +54,7 @@ impl<C, L: blit::Layout<C>, U: Unit> blit::Layout<C> for Layout<L, U> {
                 max: bounds.constrain(LogicalSize::new(U::round(width.1), U::round(height.1))),
             },
         );
-        let target = cx.size(cx.parent());
+        let target = cx.size(cx.relative());
         let anchor = |anchor| match anchor {
             Anchor::TopLeft => LogicalPoint::new(0.0, 0.0),
             Anchor::Top => LogicalPoint::new(0.5, 0.0),

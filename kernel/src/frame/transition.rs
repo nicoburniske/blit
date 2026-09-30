@@ -63,8 +63,8 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
             if properties.is_empty() {
                 continue;
             }
-            let parent = frame.nodes[node.index()].parent;
-            if parent == node {
+            let relative = frame.nodes[node.index()].relative;
+            if relative == node {
                 frame.transitions[index].snap_size();
                 continue;
             }
@@ -98,9 +98,9 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
     }
 
     for index in 1..frame.nodes.len() {
-        let parent = frame.nodes[index].parent;
-        frame.nodes[index].area.x += frame.nodes[parent.index()].area.x;
-        frame.nodes[index].area.y += frame.nodes[parent.index()].area.y;
+        let relative = frame.nodes[index].relative;
+        frame.nodes[index].area.x += frame.nodes[relative.index()].area.x;
+        frame.nodes[index].area.y += frame.nodes[relative.index()].area.y;
     }
 }
 
@@ -117,7 +117,7 @@ fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Logi
         let constraints = if frame.nodes[index].layout.index().is_some() {
             Constraints::loose(LogicalSize::uniform(f32::INFINITY))
         } else {
-            let containing = frame.nodes[index].visual_parent;
+            let containing = frame.nodes[index].parent;
             Constraints::loose(frame.nodes[containing.index()].area.size())
         };
         frame.layout_node(data, node, context, constraints);
@@ -128,11 +128,11 @@ fn offset<C>(frame: &Frame<C>, node: NodeId) -> LogicalPoint {
     if frame.nodes[node.index()].out_of_flow {
         return LogicalPoint::ZERO;
     }
-    let parent = frame.nodes[node.index()].parent;
-    if parent == node {
+    let relative = frame.nodes[node.index()].relative;
+    if relative == node {
         LogicalPoint::ZERO
     } else {
-        frame.layout_offset(parent)
+        frame.layout_offset(relative)
     }
 }
 
