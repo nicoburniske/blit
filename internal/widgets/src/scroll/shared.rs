@@ -97,15 +97,9 @@ impl<C, U: Unit> Layout<C> for ScrollLayout<U> {
             },
         );
         if scrolling {
-            IntrinsicSize {
-                min: 0.0,
-                preferred: size.preferred,
-            }
+            IntrinsicSize::new(0.0, size.preferred)
         } else {
-            IntrinsicSize {
-                min: size.min + gutter,
-                preferred: size.preferred + gutter,
-            }
+            IntrinsicSize::new(size.min + gutter, size.preferred + gutter)
         }
     }
 

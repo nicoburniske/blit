@@ -23,10 +23,7 @@ struct BoxAtom(LogicalSize);
 
 impl Atom<TestContext> for BoxAtom {
     fn intrinsic(&self, _: &mut TestContext, query: blit::IntrinsicQuery) -> blit::IntrinsicSize {
-        blit::IntrinsicSize {
-            min: 0.0,
-            preferred: query.axis.extent(self.0),
-        }
+        blit::IntrinsicSize::new(0.0, query.axis.extent(self.0))
     }
 
     fn measure(&self, _: &mut TestContext, constraints: Constraints) -> LogicalSize {
@@ -55,7 +52,7 @@ impl Atom<TestContext> for ResponsiveAtom {
                 }
             }
         };
-        blit::IntrinsicSize { min: 0.0, preferred }
+        blit::IntrinsicSize::new(0.0, preferred)
     }
 
     fn measure(&self, _: &mut TestContext, constraints: Constraints) -> LogicalSize {

@@ -925,10 +925,7 @@ struct PaintCount {
 
 impl Atom<AsciiContext> for PaintCount {
     fn intrinsic(&self, _: &mut AsciiContext, _: IntrinsicQuery) -> IntrinsicSize {
-        IntrinsicSize {
-            min: 0.0,
-            preferred: 1.0,
-        }
+        IntrinsicSize::new(0.0, 1.0)
     }
 
     fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> LogicalSize {
@@ -1000,10 +997,7 @@ impl Fill {
 
 impl Atom<AsciiContext> for Fill {
     fn intrinsic(&self, _: &mut AsciiContext, query: IntrinsicQuery) -> IntrinsicSize {
-        IntrinsicSize {
-            min: 0.0,
-            preferred: query.axis.extent(self.size),
-        }
+        IntrinsicSize::new(0.0, query.axis.extent(self.size))
     }
 
     fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> LogicalSize {
@@ -1128,10 +1122,7 @@ impl<C> Layout<C> for Column {
         for child in cx.children() {
             let size = if let Some(size) = child.item.size {
                 let extent = query.axis.extent(size);
-                IntrinsicSize {
-                    min: extent,
-                    preferred: extent,
-                }
+                IntrinsicSize::uniform(extent)
             } else {
                 cx.intrinsic(child.id, query)
             };
@@ -1180,10 +1171,7 @@ impl<C> Layout<C> for Overlay {
         for child in cx.children() {
             let size = if let Some(size) = child.item.size {
                 let extent = query.axis.extent(size);
-                IntrinsicSize {
-                    min: extent,
-                    preferred: extent,
-                }
+                IntrinsicSize::uniform(extent)
             } else {
                 cx.intrinsic(child.id, query)
             };
@@ -1253,10 +1241,7 @@ impl<C> Layout<C> for At {
     fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         if let Some(size) = self.size {
             let extent = query.axis.extent(size);
-            IntrinsicSize {
-                min: extent,
-                preferred: extent,
-            }
+            IntrinsicSize::uniform(extent)
         } else {
             cx.intrinsic(cx.children().next().unwrap().id, query)
         }
@@ -1295,10 +1280,7 @@ impl<C> Layout<C> for Fixed {
 
     fn intrinsic(&self, _: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         let extent = query.axis.extent(self.0);
-        IntrinsicSize {
-            min: extent,
-            preferred: extent,
-        }
+        IntrinsicSize::uniform(extent)
     }
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {

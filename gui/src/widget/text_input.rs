@@ -148,10 +148,7 @@ impl Atom<GuiContext> for InputAtom {
             size.min = 0.0;
         }
         let padding = query.axis.extent(self.padding.size());
-        IntrinsicSize {
-            min: size.min + padding,
-            preferred: size.preferred + padding,
-        }
+        IntrinsicSize::new(size.min + padding, size.preferred + padding)
     }
 
     fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> LogicalSize {

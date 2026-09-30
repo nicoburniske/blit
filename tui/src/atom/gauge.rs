@@ -54,7 +54,7 @@ impl Atom<TuiContext> for Gauge {
         let preferred = query
             .axis
             .extent(self.measure(context, Constraints::loose(LogicalSize::uniform(f32::INFINITY))));
-        IntrinsicSize { min: 1.0, preferred }
+        IntrinsicSize::new(1.0, preferred)
     }
 
     fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> LogicalSize {

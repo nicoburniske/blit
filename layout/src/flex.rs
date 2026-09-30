@@ -78,10 +78,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
         let count = cx.children().count();
         let gaps = gap * count.saturating_sub(1) as f32;
         if query.axis == self.axis {
-            let mut result = IntrinsicSize {
-                min: queried_padding + gaps,
-                preferred: queried_padding + gaps,
-            };
+            let mut result = IntrinsicSize::uniform(queried_padding + gaps);
             for child in cx.children() {
                 let (main, cross) = flow_sizing(self.axis, child.item.width, child.item.height, (None, None));
                 let size = intrinsic_child::<_, _, U>(
@@ -103,18 +100,12 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
             return result;
         }
 
-        let mut result = IntrinsicSize {
-            min: queried_padding,
-            preferred: queried_padding,
-        };
+        let mut result = IntrinsicSize::uniform(queried_padding);
         let Some(budget) = query.cross else {
             for child in cx.children() {
                 let (cross, main) = flow_sizing(query.axis, child.item.width, child.item.height, (None, None));
                 let size = if let Sizing::Fixed(value) = cross {
-                    IntrinsicSize {
-                        min: value.max(0.0),
-                        preferred: value.max(0.0),
-                    }
+                    IntrinsicSize::uniform(value.max(0.0))
                 } else {
                     cx.intrinsic(
                         child.id,
@@ -159,17 +150,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
             let assigned = if matches!(main, Sizing::Fixed(_) | Sizing::Percent(_)) {
                 U::distribute(&mut percentages, range.0)
             } else {
-                let size = intrinsic_child::<_, _, U>(
-                    cx,
-                    child.id,
-                    IntrinsicQuery {
-                        axis: self.axis,
-                        cross: None,
-                    },
-                    main,
-                    cross,
-                    false,
-                );
+                let size = intrinsic_child::<_, _, U>(cx, child.id, IntrinsicQuery::new(self.axis), main, cross, false);
                 U::round(size.preferred).clamp(range.0, range.1)
             };
             cx.scratch_mut(&mut shares)[index] = Share {
@@ -201,18 +182,9 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
                 share.size
             };
             let size = if let Sizing::Fixed(value) = cross {
-                IntrinsicSize {
-                    min: value.max(0.0),
-                    preferred: value.max(0.0),
-                }
+                IntrinsicSize::uniform(value.max(0.0))
             } else {
-                cx.intrinsic(
-                    child.id,
-                    IntrinsicQuery {
-                        axis: query.axis,
-                        cross: Some(assigned),
-                    },
-                )
+                cx.intrinsic(child.id, IntrinsicQuery::new(query.axis).cross(assigned))
             };
             let size = intrinsic_range(cross, size);
             result.min = result.min.max(U::round(size.min) + queried_padding);

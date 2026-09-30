@@ -54,27 +54,18 @@ impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
         let horizontal_gaps = column_gap * columns.saturating_sub(1) as f32;
         if cx.children().next().is_none() {
             let extent = query.axis.extent(padding.size());
-            return IntrinsicSize {
-                min: extent,
-                preferred: extent,
-            };
+            return IntrinsicSize::uniform(extent);
         }
         if query.axis == Axis::Horizontal {
             let width = self.natural_width(cx);
-            return IntrinsicSize {
-                min: U::round(width.min),
-                preferred: U::round(width.preferred),
-            };
+            return IntrinsicSize::new(U::round(width.min), U::round(width.preferred));
         }
         let width = query
             .cross
             .unwrap_or_else(|| U::round(self.natural_width(cx).preferred));
         let cell_width = (U::round(width) - padding.size().width - horizontal_gaps).max(0.0) / columns as f32;
         let assigned_width = |column, span| track_extent::<U>(padding.left, cell_width, column_gap, column, span);
-        let mut result = IntrinsicSize {
-            min: padding.size().height,
-            preferred: padding.size().height,
-        };
+        let mut result = IntrinsicSize::uniform(padding.size().height);
         let mut row_height = IntrinsicSize::default();
         let mut rows = 0;
         for (child, (row, column, row_span, span)) in placements::<U, N>(cx.children(), columns, self.spanning) {
@@ -232,10 +223,10 @@ impl<U: Unit, const N: usize> Layout<U, N> {
             track.preferred = track.preferred.max(track_size::<U>(size.preferred, span, gap));
         }
         let extra = gap * columns.saturating_sub(1) as f32 + padding.size().width;
-        IntrinsicSize {
-            min: track.min * columns as f32 + extra,
-            preferred: track.preferred * columns as f32 + extra,
-        }
+        IntrinsicSize::new(
+            track.min * columns as f32 + extra,
+            track.preferred * columns as f32 + extra,
+        )
     }
 }
 
@@ -298,10 +289,7 @@ fn contribution<C, U: Unit>(
     };
     if let Some(preferred) = preferred {
         let preferred = preferred.into_float().max(0.0);
-        IntrinsicSize {
-            min: preferred,
-            preferred,
-        }
+        IntrinsicSize::uniform(preferred)
     } else {
         cx.intrinsic(child.id, IntrinsicQuery { axis, cross })
     }

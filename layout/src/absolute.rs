@@ -44,10 +44,7 @@ impl<C, L: blit::Layout<C>, U: Unit> blit::Layout<C> for Layout<L, U> {
             cross: crate::intrinsic_cross(cross, query.cross),
         };
         let size = if let Sizing::Fixed(value) = main {
-            blit::IntrinsicSize {
-                min: value.max(0.0),
-                preferred: value.max(0.0),
-            }
+            blit::IntrinsicSize::uniform(value.max(0.0))
         } else {
             self.inner.intrinsic(cx, query)
         };

@@ -15,10 +15,7 @@ blit::builder! {
 
 impl Atom<TuiContext> for Image {
     fn intrinsic(&self, _: &mut TuiContext, query: IntrinsicQuery) -> IntrinsicSize {
-        IntrinsicSize {
-            min: 0.0,
-            preferred: query.axis.extent(self.intrinsic),
-        }
+        IntrinsicSize::new(0.0, query.axis.extent(self.intrinsic))
     }
 
     fn paint(&self, context: &mut TuiContext, area: LogicalRect) {

@@ -276,10 +276,7 @@ impl<C> Layout<C> for MeasuredLayout {
         let table = self.table.borrow();
         if query.axis == Axis::Vertical {
             // unbuilt rows retain their estimated heights
-            let mut result = IntrinsicSize {
-                min: table.total,
-                preferred: table.total,
-            };
+            let mut result = IntrinsicSize::uniform(table.total);
             for (index, child) in cx.children().enumerate() {
                 let size = cx.intrinsic(child.id, query);
                 let height = table.rows[self.first + index].height;
@@ -292,13 +289,7 @@ impl<C> Layout<C> for MeasuredLayout {
         } else {
             let mut result = IntrinsicSize::default();
             for child in cx.children() {
-                let size = cx.intrinsic(
-                    child.id,
-                    IntrinsicQuery {
-                        axis: query.axis,
-                        cross: None,
-                    },
-                );
+                let size = cx.intrinsic(child.id, IntrinsicQuery::new(query.axis));
                 result.min = result.min.max(size.min);
                 result.preferred = result.preferred.max(size.preferred);
             }

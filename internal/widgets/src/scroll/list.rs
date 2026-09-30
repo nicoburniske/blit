@@ -102,20 +102,11 @@ impl<C> Layout<C> for ListLayout {
 
     fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         if query.axis == self.axis {
-            return IntrinsicSize {
-                min: self.total_extent,
-                preferred: self.total_extent,
-            };
+            return IntrinsicSize::uniform(self.total_extent);
         }
         let mut result = IntrinsicSize::default();
         for child in cx.children() {
-            let size = cx.intrinsic(
-                child.id,
-                IntrinsicQuery {
-                    axis: query.axis,
-                    cross: Some(self.item_extent),
-                },
-            );
+            let size = cx.intrinsic(child.id, IntrinsicQuery::new(query.axis).cross(self.item_extent));
             result.min = result.min.max(size.min);
             result.preferred = result.preferred.max(size.preferred);
         }

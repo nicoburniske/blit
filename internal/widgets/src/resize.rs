@@ -120,10 +120,7 @@ impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
         let min = U::round(query.axis.extent(self.minimum)).max(0.0);
         let max = query.axis.extent(self.maximum).max(min);
         let preferred = U::round(query.axis.extent(self.size).clamp(min, max));
-        IntrinsicSize {
-            min,
-            preferred: preferred.max(min),
-        }
+        IntrinsicSize::new(min, preferred.max(min))
     }
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {

@@ -265,10 +265,7 @@ pub fn flow_constraints<U: Unit>(axis: Axis, main: (f32, f32), cross: (f32, f32)
 }
 
 pub fn intrinsic_range(sizing: Sizing<f32>, size: blit::IntrinsicSize) -> blit::IntrinsicSize {
-    blit::IntrinsicSize {
-        min: sizing.clamp(size.min),
-        preferred: sizing.clamp(size.preferred),
-    }
+    blit::IntrinsicSize::new(sizing.clamp(size.min), sizing.clamp(size.preferred))
 }
 
 pub fn intrinsic_cross(sizing: Sizing<f32>, cross: Option<f32>) -> Option<f32> {
@@ -292,20 +289,11 @@ pub fn intrinsic_child<C, I: 'static, U: Unit>(
 ) -> blit::IntrinsicSize {
     if let Sizing::Fixed(value) = main {
         let value = U::round(value).max(0.0);
-        return blit::IntrinsicSize {
-            min: value,
-            preferred: value,
-        };
+        return blit::IntrinsicSize::uniform(value);
     }
     let cross = match (cross, query.cross) {
         (Sizing::Fit { .. }, Some(available)) if !stretch => {
-            let natural = cx.intrinsic(
-                child,
-                blit::IntrinsicQuery {
-                    axis: query.axis.other(),
-                    cross: None,
-                },
-            );
+            let natural = cx.intrinsic(child, blit::IntrinsicQuery::new(query.axis.other()));
             let range = sizing_range::<U>(cross, available);
             Some(U::round(natural.preferred).clamp(range.0, range.1))
         }

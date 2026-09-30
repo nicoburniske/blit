@@ -40,10 +40,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
         let item_gap = self.item_gap.into_float().max(0.0);
         let run_gap = self.run_gap.into_float().max(0.0);
         if query.axis == self.axis {
-            let mut result = IntrinsicSize {
-                min: extent,
-                preferred: extent,
-            };
+            let mut result = IntrinsicSize::uniform(extent);
             let mut count = 0;
             for child in cx.children() {
                 let (main, cross) = flow_sizing(self.axis, child.item.width, child.item.height, (None, None));
@@ -84,26 +81,13 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
             let width = if matches!(main, Sizing::Fixed(_) | Sizing::Percent(_)) {
                 U::distribute(&mut percentages, range.0)
             } else {
-                let size = intrinsic_child::<_, _, U>(
-                    cx,
-                    child.id,
-                    IntrinsicQuery {
-                        axis: self.axis,
-                        cross: None,
-                    },
-                    main,
-                    cross,
-                    false,
-                );
+                let size = intrinsic_child::<_, _, U>(cx, child.id, IntrinsicQuery::new(self.axis), main, cross, false);
                 U::round(main.clamp(size.preferred)).clamp(range.0, range.1)
             };
             cx.scratch_mut(&mut widths)[index] = width;
         }
         let mut children = cx.children().enumerate();
-        let mut result = IntrinsicSize {
-            min: extent,
-            preferred: extent,
-        };
+        let mut result = IntrinsicSize::uniform(extent);
         let mut runs = 0;
         let mut next = 0;
         while next < cx.scratch_mut(&mut widths).len() {
@@ -124,18 +108,9 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
                 let cross = axis_sizing(query.axis, child.item.width, child.item.height, (None, None));
                 let width = cx.scratch_mut(&mut widths)[index];
                 let size = if let Sizing::Fixed(value) = cross {
-                    IntrinsicSize {
-                        min: value.max(0.0),
-                        preferred: value.max(0.0),
-                    }
+                    IntrinsicSize::uniform(value.max(0.0))
                 } else {
-                    cx.intrinsic(
-                        child.id,
-                        IntrinsicQuery {
-                            axis: query.axis,
-                            cross: Some(width),
-                        },
-                    )
+                    cx.intrinsic(child.id, IntrinsicQuery::new(query.axis).cross(width))
                 };
                 let size = intrinsic_range(cross, size);
                 run.min = run.min.max(U::round(size.min));

@@ -21,18 +21,12 @@ struct Text {
 impl Atom<Metrics> for Text {
     fn intrinsic(&self, _: &mut Metrics, query: IntrinsicQuery) -> IntrinsicSize {
         match query.axis {
-            Axis::Horizontal => IntrinsicSize {
-                min: self.minimum,
-                preferred: self.preferred,
-            },
+            Axis::Horizontal => IntrinsicSize::new(self.minimum, self.preferred),
             Axis::Vertical => {
                 let height = query
                     .cross
                     .map_or(1.0, |width| (self.preferred / width.max(1.0)).ceil());
-                IntrinsicSize {
-                    min: height,
-                    preferred: height,
-                }
+                IntrinsicSize::uniform(height)
             }
         }
     }
@@ -72,18 +66,9 @@ impl<L: Layout<Metrics>> Layout<Metrics> for Capture<L> {
 }
 
 const QUERIES: [IntrinsicQuery; 3] = [
-    IntrinsicQuery {
-        axis: Axis::Horizontal,
-        cross: None,
-    },
-    IntrinsicQuery {
-        axis: Axis::Vertical,
-        cross: Some(20.0),
-    },
-    IntrinsicQuery {
-        axis: Axis::Vertical,
-        cross: Some(40.0),
-    },
+    IntrinsicQuery::new(Axis::Horizontal),
+    IntrinsicQuery::new(Axis::Vertical).cross(20.0),
+    IntrinsicQuery::new(Axis::Vertical).cross(40.0),
 ];
 
 #[test]
@@ -240,13 +225,7 @@ impl Layout<Metrics> for Isolation {
         let chosen = cx.layout_child(child, Constraints::loose(LogicalSize::new(30.0, 100.0)));
         cx.set_position(child, LogicalPoint::new(7.0, 9.0));
         for width in [5.0, 10.0, 40.0] {
-            cx.intrinsic(
-                child,
-                IntrinsicQuery {
-                    axis: Axis::Vertical,
-                    cross: Some(width),
-                },
-            );
+            cx.intrinsic(child, IntrinsicQuery::new(Axis::Vertical).cross(width));
             assert_eq!(cx.size(child), chosen);
         }
         bounds.min
@@ -314,7 +293,7 @@ struct Aspect;
 impl Atom<Metrics> for Aspect {
     fn intrinsic(&self, _: &mut Metrics, query: IntrinsicQuery) -> IntrinsicSize {
         let preferred = query.cross.unwrap_or(10.0);
-        IntrinsicSize { min: 0.0, preferred }
+        IntrinsicSize::new(0.0, preferred)
     }
 
     fn paint(&self, _: &mut Metrics, _: LogicalRect) {}
@@ -327,10 +306,7 @@ fn aspect_queries_use_the_chosen_cross_size() {
             if wrapping {
                 let mut row = ui.layout(Capture {
                     inner: wrap::Layout::<f32>::new(Axis::Horizontal),
-                    queries: [IntrinsicQuery {
-                        axis: Axis::Horizontal,
-                        cross: Some(40.0),
-                    }; 3],
+                    queries: [IntrinsicQuery::new(Axis::Horizontal).cross(40.0); 3],
                 });
                 row.child()
                     .widget_id(WidgetId::new("aspect"))
@@ -372,13 +348,7 @@ fn parent_scratch_survives_recursive_growth() {
             let mut scratch = cx.scratch(4, 7u64);
             let child = cx.children().next().unwrap().id;
             for _ in 0..4 {
-                cx.intrinsic(
-                    child,
-                    IntrinsicQuery {
-                        axis: Axis::Horizontal,
-                        cross: None,
-                    },
-                );
+                cx.intrinsic(child, IntrinsicQuery::new(Axis::Horizontal));
                 assert_eq!(cx.scratch_mut(&mut scratch), &[7; 4]);
             }
             cx.layout_child(child, Constraints::tight(LogicalSize::uniform(10.0)));

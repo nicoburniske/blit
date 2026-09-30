@@ -24,10 +24,7 @@ impl Atom<TuiContext> for Sparkline {
         let preferred = query
             .axis
             .extent(self.measure(context, Constraints::loose(LogicalSize::uniform(f32::INFINITY))));
-        IntrinsicSize {
-            min: if query.axis == Axis::Vertical { 1.0 } else { 0.0 },
-            preferred,
-        }
+        IntrinsicSize::new(if query.axis == Axis::Vertical { 1.0 } else { 0.0 }, preferred)
     }
 
     fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> LogicalSize {

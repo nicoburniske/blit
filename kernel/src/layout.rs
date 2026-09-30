@@ -39,6 +39,17 @@ pub struct IntrinsicQuery {
     pub cross: Option<f32>,
 }
 
+impl IntrinsicQuery {
+    pub const fn new(axis: Axis) -> Self {
+        Self { axis, cross: None }
+    }
+
+    pub const fn cross(mut self, extent: f32) -> Self {
+        self.cross = Some(extent);
+        self
+    }
+}
+
 /// natural extents before external constraints are applied
 ///
 /// min is the content's minimum contribution and preferred is its natural extent
@@ -47,6 +58,16 @@ pub struct IntrinsicQuery {
 pub struct IntrinsicSize {
     pub min: f32,
     pub preferred: f32,
+}
+
+impl IntrinsicSize {
+    pub const fn new(min: f32, preferred: f32) -> Self {
+        Self { min, preferred }
+    }
+
+    pub const fn uniform(extent: f32) -> Self {
+        Self::new(extent, extent)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

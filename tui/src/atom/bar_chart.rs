@@ -38,7 +38,7 @@ impl Atom<TuiContext> for BarChart {
         let preferred = query
             .axis
             .extent(self.measure(context, Constraints::loose(LogicalSize::uniform(f32::INFINITY))));
-        IntrinsicSize { min: 0.0, preferred }
+        IntrinsicSize::new(0.0, preferred)
     }
 
     fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> LogicalSize {

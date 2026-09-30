@@ -94,23 +94,11 @@ pub trait Atom<C>: 'static {
     /// may be skipped under tight constraints
     fn measure(&self, context: &mut C, constraints: Constraints) -> LogicalSize {
         let width = self
-            .intrinsic(
-                context,
-                IntrinsicQuery {
-                    axis: Axis::Horizontal,
-                    cross: None,
-                },
-            )
+            .intrinsic(context, IntrinsicQuery::new(Axis::Horizontal))
             .preferred
             .clamp(constraints.min.width, constraints.max.width);
         let height = self
-            .intrinsic(
-                context,
-                IntrinsicQuery {
-                    axis: Axis::Vertical,
-                    cross: Some(width),
-                },
-            )
+            .intrinsic(context, IntrinsicQuery::new(Axis::Vertical).cross(width))
             .preferred;
         constraints.constrain(LogicalSize::new(width, height))
     }

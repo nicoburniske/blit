@@ -77,7 +77,7 @@ impl GuiContext {
         } else {
             preferred
         };
-        blit::IntrinsicSize { min, preferred }
+        blit::IntrinsicSize::new(min, preferred)
     }
 
     pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {

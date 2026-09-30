@@ -23,10 +23,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
         let extent = query.axis.extent(padding.size());
         let mut children = cx.children();
         let Some(child) = children.next() else {
-            return IntrinsicSize {
-                min: extent,
-                preferred: extent,
-            };
+            return IntrinsicSize::uniform(extent);
         };
         assert!(children.next().is_none(), "single accepts at most one flow child");
         let (main, cross) = crate::flow_sizing(query.axis, child.item.width, child.item.height, (None, None));
@@ -43,10 +40,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
             cross,
             false,
         );
-        IntrinsicSize {
-            min: size.min + extent,
-            preferred: size.preferred + extent,
-        }
+        IntrinsicSize::new(size.min + extent, size.preferred + extent)
     }
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
