@@ -5,11 +5,12 @@ use blit::{
     LogicalRect, LogicalSize, MeasureCx, Transition, Ui, Widget, WidgetId,
 };
 
-use crate::{Align, Padding, Sizing, flex, grid, single, wrap};
+use crate::{Align, Padding, Sizing, cache::cached, flex, grid, single, wrap};
 
 #[derive(Default)]
 struct Metrics {
     measured: usize,
+    queried: usize,
 }
 
 struct Text {
@@ -18,7 +19,8 @@ struct Text {
 }
 
 impl Atom<Metrics> for Text {
-    fn intrinsic(&self, _: &mut Metrics, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut Metrics, query: IntrinsicQuery) -> IntrinsicSize {
+        cx.queried += 1;
         match query.axis {
             Axis::Horizontal => IntrinsicSize::new(self.minimum, self.preferred),
             Axis::Vertical => {
@@ -67,6 +69,24 @@ const QUERIES: [IntrinsicQuery; 3] = [
     IntrinsicQuery::new(Axis::Vertical).cross(20.0),
     IntrinsicQuery::new(Axis::Vertical).cross(40.0),
 ];
+
+#[test]
+fn cached_intrinsics_reuse_answers() {
+    let widget = |ui: Ui<'_, Metrics>| {
+        ui.layout(Capture {
+            inner: cached(single::Layout::<f32>::new()),
+            queries: [IntrinsicQuery::new(Axis::Horizontal); 3],
+            expected: [IntrinsicSize::new(5.0, 20.0); 3],
+        })
+        .child()
+        .insert(Text {
+            minimum: 5.0,
+            preferred: 20.0,
+        });
+    };
+    let (_, cx) = layout(LogicalSize::uniform(40.0), widget);
+    assert_eq!(cx.queried, 1);
+}
 
 #[test]
 fn flex_allocations_respect_minimums_caps_weights_and_rounding() {
