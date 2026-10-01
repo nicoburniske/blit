@@ -129,14 +129,14 @@ fn build(frame: &mut Frame<()>, count: usize, mut child: impl for<'a> FnMut(Ui<'
 
 struct Stack;
 
-impl Layout<()> for Stack {
+impl Layout for Stack {
     type Item = ();
 
-    fn intrinsic(&self, _: &mut MeasureCx<'_, (), ()>, _: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, _: &mut MeasureCx<'_, ()>, _: IntrinsicQuery) -> IntrinsicSize {
         IntrinsicSize::default()
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, (), ()>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, ()>, constraints: Constraints) -> LogicalSize {
         for child in cx.children() {
             cx.layout_child(child.id, Constraints::tight(LogicalSize::ZERO));
             cx.set_position(child.id, LogicalPoint::ZERO);

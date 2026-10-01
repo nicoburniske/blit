@@ -3,9 +3,9 @@ scratch handles cannot escape their layout callback
 ```compile_fail
 use blit::{MeasureCx, ScratchSlice};
 
-fn escape<'a>(cx: &mut MeasureCx<'_, Option<ScratchSlice<'a, u32>>, ()>) {
+fn escape(cx: &mut MeasureCx<'_, ()>, out: &mut Option<ScratchSlice<'static, u32>>) {
     let slice = cx.scratch(1, 0);
-    *cx.context() = Some(slice);
+    *out = Some(slice);
 }
 ```
 
@@ -26,8 +26,8 @@ use blit::*;
 
 fn second_layout<C, L, M>(ui: Ui<'_, C, state::Open<L>>, next: M)
 where
-    L: Layout<C>,
-    M: Layout<C>,
+    L: Layout,
+    M: Layout,
 {
     ui.layout(next);
 }
@@ -40,7 +40,7 @@ use blit::*;
 
 fn build_into_open<C, L, W>(ui: Ui<'_, C, state::Open<L>>, widget: W)
 where
-    L: Layout<C>,
+    L: Layout,
     W: Widget<C>,
 {
     ui.build(widget);
@@ -54,7 +54,7 @@ use blit::*;
 
 fn wrong_layout_item<C, L>(mut ui: Ui<'_, C, state::Open<L>>)
 where
-    L: Layout<C>,
+    L: Layout,
 {
     ui.child().item(());
 }
@@ -67,7 +67,7 @@ use blit::*;
 
 fn layout_from_content<C, L>(ui: Ui<'_, C, state::Node>, layout: L)
 where
-    L: Layout<C>,
+    L: Layout,
 {
     ui.layout(layout);
 }

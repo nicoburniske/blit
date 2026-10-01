@@ -44,7 +44,7 @@ pub fn build<C, U: Unit, I, K, F, X, T, H>(
     assert!(gap.is_finite() && gap >= 0.0);
     let stride = item_extent + gap;
     let count = items.len();
-    let (thumb_active, viewport_known) = update(state, &mut ui, axis, config);
+    let (thumb_active, viewport_known) = update(&mut ui, state, axis, config);
     let viewport_extent = if viewport_known {
         state.viewport_extent
     } else {
@@ -97,10 +97,10 @@ struct ListLayout {
     total_extent: f32,
 }
 
-impl<C> Layout<C> for ListLayout {
+impl Layout for ListLayout {
     type Item = usize;
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         if query.axis == self.axis {
             return IntrinsicSize::uniform(self.total_extent);
         }
@@ -113,7 +113,7 @@ impl<C> Layout<C> for ListLayout {
         result
     }
 
-    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, ui: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         let mut cross_extent: f32 = 0.0;
         for child in ui.children() {
             let mut child_constraints = constraints;

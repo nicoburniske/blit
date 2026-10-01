@@ -10,7 +10,6 @@ use crate::{Align, Padding, Sizing, flex, grid, single, wrap};
 #[derive(Default)]
 struct Metrics {
     measured: usize,
-    answers: [IntrinsicSize; 3],
 }
 
 struct Text {
@@ -47,20 +46,18 @@ impl Atom<Metrics> for Text {
 struct Capture<L> {
     inner: L,
     queries: [IntrinsicQuery; 3],
+    expected: [IntrinsicSize; 3],
 }
 
-impl<L: Layout<Metrics>> Layout<Metrics> for Capture<L> {
+impl<L: Layout> Layout for Capture<L> {
     type Item = L::Item;
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, Metrics, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         self.inner.intrinsic(cx, query)
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, Metrics, Self::Item>, constraints: Constraints) -> LogicalSize {
-        for (index, query) in self.queries.iter().enumerate() {
-            let answer = self.inner.intrinsic(cx, *query);
-            cx.context().answers[index] = answer;
-        }
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
+        assert_eq!(self.queries.map(|query| self.inner.intrinsic(cx, query)), self.expected);
         self.inner.layout(cx, constraints)
     }
 }
@@ -150,6 +147,7 @@ fn intrinsic_queries_respect_width_without_measuring_atoms() {
                 let mut row = ui.layout(Capture {
                     inner: flex::Layout::<f32>::new(Axis::Horizontal).align(Align::Start),
                     queries: QUERIES,
+                    expected: expected.map(|(min, preferred)| IntrinsicSize::new(min, preferred)),
                 });
                 for preferred in [10.0, 30.0] {
                     row.child()
@@ -164,6 +162,7 @@ fn intrinsic_queries_respect_width_without_measuring_atoms() {
                 let mut grid = ui.layout(Capture {
                     inner: grid::Layout::<f32>::new(2),
                     queries: QUERIES,
+                    expected: expected.map(|(min, preferred)| IntrinsicSize::new(min, preferred)),
                 });
                 for preferred in [30.0, 10.0] {
                     grid.child().insert(Text {
@@ -176,6 +175,7 @@ fn intrinsic_queries_respect_width_without_measuring_atoms() {
                 let mut row = ui.layout(Capture {
                     inner: wrap::Layout::<f32>::new(Axis::Horizontal),
                     queries: QUERIES,
+                    expected: expected.map(|(min, preferred)| IntrinsicSize::new(min, preferred)),
                 });
                 for _ in 0..3 {
                     row.child().insert(Text {
@@ -191,6 +191,7 @@ fn intrinsic_queries_respect_width_without_measuring_atoms() {
                         .gap(2.0)
                         .padding(Padding::all(1.0)),
                     queries: QUERIES,
+                    expected: expected.map(|(min, preferred)| IntrinsicSize::new(min, preferred)),
                 });
                 grid.child()
                     .item(grid::Item::new().column_span(2).row_span(2))
@@ -201,26 +202,21 @@ fn intrinsic_queries_respect_width_without_measuring_atoms() {
             }
             _ => unreachable!(),
         });
-        assert_eq!(
-            context.answers.map(|size| (size.min, size.preferred)),
-            expected,
-            "{case}"
-        );
         assert_eq!(context.measured, measured, "{case}");
     }
 }
 
 struct Isolation;
 
-impl Layout<Metrics> for Isolation {
+impl Layout for Isolation {
     type Item = ();
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, Metrics, ()>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, ()>, query: IntrinsicQuery) -> IntrinsicSize {
         let child = cx.children().next().unwrap();
         cx.intrinsic(child.id, query)
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, Metrics, ()>, bounds: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, ()>, bounds: Constraints) -> LogicalSize {
         let child = cx.children().next().unwrap().id;
         let chosen = cx.layout_child(child, Constraints::loose(LogicalSize::new(30.0, 100.0)));
         cx.set_position(child, LogicalPoint::new(7.0, 9.0));
@@ -302,11 +298,12 @@ impl Atom<Metrics> for Aspect {
 #[test]
 fn aspect_queries_use_the_chosen_cross_size() {
     for wrapping in [false, true] {
-        let (frame, context) = layout(LogicalSize::uniform(40.0), |ui: Ui<'_, Metrics>| {
+        let (frame, _) = layout(LogicalSize::uniform(40.0), |ui: Ui<'_, Metrics>| {
             if wrapping {
                 let mut row = ui.layout(Capture {
                     inner: wrap::Layout::<f32>::new(Axis::Horizontal),
                     queries: [IntrinsicQuery::new(Axis::Horizontal).cross(40.0); 3],
+                    expected: [IntrinsicSize::new(0.0, 10.0); 3],
                 });
                 row.child()
                     .widget_id(WidgetId::new("aspect"))
@@ -316,15 +313,11 @@ fn aspect_queries_use_the_chosen_cross_size() {
                 let mut single = ui.layout(Capture {
                     inner: single::Layout::<f32>::new(),
                     queries: QUERIES,
+                    expected: [IntrinsicSize::new(0.0, 10.0); 3],
                 });
                 single.child().widget_id(WidgetId::new("aspect")).insert(Aspect);
             }
         });
-        assert_eq!(
-            context.answers.map(|size| size.preferred),
-            [10.0; 3],
-            "wrapping {wrapping}"
-        );
         assert_eq!(
             frame.geometry(WidgetId::new("aspect")).unwrap().size(),
             LogicalSize::uniform(10.0)
@@ -337,14 +330,14 @@ fn parent_scratch_survives_recursive_growth() {
     struct Parent;
     struct Child;
 
-    impl Layout<Metrics> for Parent {
+    impl Layout for Parent {
         type Item = ();
 
-        fn intrinsic(&self, _: &mut MeasureCx<'_, Metrics, ()>, _: IntrinsicQuery) -> IntrinsicSize {
+        fn intrinsic(&self, _: &mut MeasureCx<'_, ()>, _: IntrinsicQuery) -> IntrinsicSize {
             IntrinsicSize::default()
         }
 
-        fn layout(&self, cx: &mut LayoutCx<'_, Metrics, ()>, bounds: Constraints) -> LogicalSize {
+        fn layout(&self, cx: &mut LayoutCx<'_, ()>, bounds: Constraints) -> LogicalSize {
             let mut scratch = cx.scratch(4, 7u64);
             let child = cx.children().next().unwrap().id;
             for _ in 0..4 {
@@ -357,16 +350,16 @@ fn parent_scratch_survives_recursive_growth() {
         }
     }
 
-    impl Layout<Metrics> for Child {
+    impl Layout for Child {
         type Item = ();
 
-        fn intrinsic(&self, cx: &mut MeasureCx<'_, Metrics, ()>, _: IntrinsicQuery) -> IntrinsicSize {
+        fn intrinsic(&self, cx: &mut MeasureCx<'_, ()>, _: IntrinsicQuery) -> IntrinsicSize {
             let mut scratch = cx.scratch(4096, 3u64);
             cx.scratch_mut(&mut scratch)[4095] = 11;
             IntrinsicSize::default()
         }
 
-        fn layout(&self, _: &mut LayoutCx<'_, Metrics, ()>, bounds: Constraints) -> LogicalSize {
+        fn layout(&self, _: &mut LayoutCx<'_, ()>, bounds: Constraints) -> LogicalSize {
             bounds.min
         }
     }

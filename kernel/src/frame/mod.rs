@@ -56,11 +56,10 @@ impl<'ui, C, S> Ui<'ui, C, S> {
         self.inner.node
     }
 
-    pub fn clip<X: Clip<C>>(mut self, clip: X) -> Self {
+    pub fn clip<X: Clip<C>>(self, clip: X) -> Self {
         let node = self.inner.node;
-        let frame = self.inner.frame_mut();
-        let clip = frame.store_clip(clip);
-        frame.nodes[node.index()].clip = clip;
+        let clip = self.inner.frame.store_clip(clip);
+        self.inner.frame.inner.nodes[node.index()].clip = clip;
         self
     }
 
@@ -68,18 +67,18 @@ impl<'ui, C, S> Ui<'ui, C, S> {
     ///
     /// without an explicit id, it derives from the parent's id and child position
     pub fn current_widget_id(&self) -> WidgetId {
-        self.inner.frame.nodes[self.inner.node.index()].widget_id
+        self.inner.frame.inner.nodes[self.inner.node.index()].widget_id
     }
 
     pub fn hit(self, hit: Sides) -> Self {
         let node = self.inner.node;
-        self.inner.frame.geometry_mut(node).hit = hit;
+        self.inner.frame.inner.geometry_mut(node).hit = hit;
         self
     }
 
     pub fn transition(self, transition: Transition) -> Self {
         let node = self.inner.node;
-        self.inner.frame.geometry_mut(node).transition = Some(transition);
+        self.inner.frame.inner.geometry_mut(node).transition = Some(transition);
         self
     }
 
@@ -130,12 +129,11 @@ impl<'ui, C> Ui<'ui, C, state::Build> {
     }
 
     /// establishes the current node's layout
-    pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
-        let Ui { mut inner, .. } = self;
+    pub fn layout<L: Layout>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
+        let Ui { inner, .. } = self;
         let node = inner.node;
-        let frame = inner.frame_mut();
-        let layout = frame.store_layout(layout);
-        frame.nodes[node.index()].layout = layout;
+        let layout = inner.frame.inner.store_layout(layout);
+        inner.frame.inner.nodes[node.index()].layout = layout;
         Ui {
             inner,
             marker: PhantomData,
@@ -173,7 +171,7 @@ impl<'ui, C, I: 'static> Ui<'ui, C, state::Child<I>> {
     }
 
     /// establishes the current node's layout
-    pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
+    pub fn layout<L: Layout>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
         let ui: Ui<'_, C> = Ui {
             inner: self.inner,
             marker: PhantomData,
@@ -182,7 +180,7 @@ impl<'ui, C, I: 'static> Ui<'ui, C, state::Child<I>> {
     }
 }
 
-impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
+impl<'ui, C, L: Layout> Ui<'ui, C, state::Open<L>> {
     /// assigns an absolute widget id before this node is given children
     pub fn widget_id(mut self, id: WidgetId) -> Self {
         self.inner.set_widget_id(id);
@@ -193,7 +191,7 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     #[inline]
     pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
         let node = self.inner.push_child();
-        Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
+        Ui::new(&mut *self.inner.context, &mut *self.inner.frame, node)
     }
 
     pub fn offset(mut self, offset: LogicalPoint) -> Self {
@@ -210,16 +208,17 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         let frame = self.inner.frame_mut();
         frame.nodes[node.index()].relative = frame.resolve_target(node, relative.into());
         frame.nodes[node.index()].out_of_flow = true;
-        Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
+        Ui::new(&mut *self.inner.context, &mut *self.inner.frame, node)
     }
 }
 
 impl<C, S> Ui<'_, C, S> {
     /// returns previous frame geometry and tracks this id for the next layout
     pub fn geometry(&mut self, id: WidgetId) -> Option<LogicalRect> {
-        self.inner.frame.requests.entry(id).or_insert(Request::Geometry);
+        self.inner.frame.inner.requests.entry(id).or_insert(Request::Geometry);
         self.inner
             .frame
+            .inner
             .geometry_previous
             .iter()
             .find_map(|(candidate, area)| (*candidate == id).then_some(*area))
@@ -251,13 +250,13 @@ impl<C, S> Ui<'_, C, S> {
             .or_insert(Request::Interaction(sense));
         let interaction = frame.interaction.response(id);
         if interaction.activated || interaction.deactivated || interaction.clicked {
-            frame.request_frame();
+            frame.frame_requested = true;
         }
         interaction
     }
 
     pub fn input(&self) -> &Input {
-        &self.inner.frame.input
+        &self.inner.frame.inner.input
     }
 
     /// accesses context resources during frame construction
@@ -268,33 +267,33 @@ impl<C, S> Ui<'_, C, S> {
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {
-        self.inner.frame.interaction.is_focused(id)
+        self.inner.frame.inner.interaction.is_focused(id)
     }
 
     pub fn focus(&mut self, id: WidgetId) {
         let frame = self.inner.frame_mut();
         if frame.interaction.focus(id) {
-            frame.request_frame();
+            frame.frame_requested = true;
         }
     }
 
     pub fn clear_focus(&mut self) {
         let frame = self.inner.frame_mut();
         if frame.interaction.clear_focus() {
-            frame.request_frame();
+            frame.frame_requested = true;
         }
     }
 
     pub fn pointer_position(&self) -> Option<LogicalPoint> {
-        self.inner.frame.interaction.pointer_position()
+        self.inner.frame.inner.interaction.pointer_position()
     }
 
     pub fn screen(&self) -> LogicalRect {
-        self.inner.frame.screen
+        self.inner.frame.inner.screen
     }
 
     pub fn time(&self) -> Duration {
-        self.inner.frame.time
+        self.inner.frame.inner.time
     }
 
     pub fn animate(&mut self, id: WidgetId, target: f32, duration: Duration, easing: Easing) -> f32 {
@@ -325,7 +324,7 @@ impl<C, S> Ui<'_, C, S> {
     }
 
     pub fn request_frame(&mut self) {
-        self.inner.frame.request_frame();
+        self.inner.frame.inner.frame_requested = true;
     }
 }
 
@@ -397,24 +396,24 @@ impl<C> UiInner<'_, C> {
             self.next_child, 0,
             "a widget id must be assigned before children are built"
         );
-        self.frame.nodes[node.index()].widget_id = id;
+        self.frame.inner.nodes[node.index()].widget_id = id;
     }
 
     fn push_child(&mut self) -> NodeId {
         let slot = self.next_child;
         self.next_child = slot.checked_add(1).expect("child id overflow");
-        let id = self.frame.nodes[self.node.index()].widget_id.child(slot);
-        self.frame.push_node(Some(self.node), id)
+        let id = self.frame.inner.nodes[self.node.index()].widget_id.child(slot);
+        self.frame.inner.push_node(Some(self.node), id)
     }
 
     #[inline]
-    fn frame_mut(&mut self) -> &mut Frame<C> {
-        self.frame
+    fn frame_mut(&mut self) -> &mut FrameInner {
+        &mut self.frame.inner
     }
 }
 
 impl<'ui, C, S> Ui<'ui, C, S> {
-    fn new(frame: &'ui mut Frame<C>, context: &'ui mut C, node: NodeId) -> Self {
+    fn new(context: &'ui mut C, frame: &'ui mut Frame<C>, node: NodeId) -> Self {
         Self {
             inner: UiInner {
                 frame,

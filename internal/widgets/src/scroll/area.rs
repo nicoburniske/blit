@@ -29,7 +29,7 @@ pub fn build<C, U: Unit, W, X, T, H>(
 {
     let config = area.behavior;
     let axis = area.axis;
-    let (thumb_active, _) = update(state, &mut ui, axis, config);
+    let (thumb_active, _) = update(&mut ui, state, axis, config);
     let (track, thumb) = scrollbar(thumb_active);
     build_scroll(
         ui,

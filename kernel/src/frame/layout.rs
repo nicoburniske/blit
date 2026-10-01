@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 #[cfg(debug_assertions)]
 use super::LayoutState;
-use super::{Frame, NodeId, StoredNode};
+use super::{Context, FrameInner, NodeId, StoredNode};
 use crate::{
     IntrinsicQuery, IntrinsicSize, TransitionProperties,
     arena::{DataArena, DataId},
@@ -11,10 +11,10 @@ use crate::{
 };
 
 /// access to child items and intrinsic queries without changing geometry
-pub struct MeasureCx<'a, C, I> {
-    frame: &'a mut Frame<C>,
+pub struct MeasureCx<'a, I> {
+    frame: &'a mut FrameInner,
     data: &'a DataArena,
-    context: &'a mut C,
+    context: Context,
     node: NodeId,
     nodes: *const StoredNode,
     default_item: &'a I,
@@ -23,7 +23,7 @@ pub struct MeasureCx<'a, C, I> {
     scratch_start: usize,
 }
 
-impl<'a, C, I: 'static> MeasureCx<'a, C, I> {
+impl<'a, I: 'static> MeasureCx<'a, I> {
     pub fn node(&self) -> NodeId {
         self.node
     }
@@ -44,11 +44,7 @@ impl<'a, C, I: 'static> MeasureCx<'a, C, I> {
     pub fn intrinsic(&mut self, child: NodeId, query: IntrinsicQuery) -> IntrinsicSize {
         #[cfg(debug_assertions)]
         self.assert_child(child);
-        self.frame.intrinsic_node(self.data, child, self.context, query)
-    }
-
-    pub fn context(&mut self) -> &mut C {
-        self.context
+        self.frame.intrinsic_node(self.context, self.data, child, query)
     }
 
     pub fn scratch<T: Copy + 'static>(&mut self, len: usize, value: T) -> ScratchSlice<'a, T> {
@@ -75,19 +71,19 @@ impl<'a, C, I: 'static> MeasureCx<'a, C, I> {
     }
 }
 
-impl<C, I> Drop for MeasureCx<'_, C, I> {
+impl<I> Drop for MeasureCx<'_, I> {
     fn drop(&mut self) {
         self.frame.scratch.rewind(self.scratch_start);
     }
 }
 
 /// adds geometry access and child placement to MeasureCx
-pub struct LayoutCx<'a, C, I> {
-    measure: MeasureCx<'a, C, I>,
+pub struct LayoutCx<'a, I> {
+    measure: MeasureCx<'a, I>,
     offset: LogicalPoint,
 }
 
-impl<C, I: 'static> LayoutCx<'_, C, I> {
+impl<I: 'static> LayoutCx<'_, I> {
     pub fn relative(&self) -> NodeId {
         self.measure.frame.nodes[self.measure.node.index()].relative
     }
@@ -129,7 +125,7 @@ impl<C, I: 'static> LayoutCx<'_, C, I> {
         let size = self
             .measure
             .frame
-            .layout_node(self.measure.data, child, self.measure.context, constraints);
+            .layout_node(self.measure.context, self.measure.data, child, constraints);
         #[cfg(debug_assertions)]
         {
             self.measure.frame.nodes[child.index()].layout_state = LayoutState::Laid;
@@ -195,7 +191,7 @@ impl<C, I: 'static> LayoutCx<'_, C, I> {
 
     /// requests another frame when layout changes cached geometry
     pub fn request_frame(&mut self) {
-        self.measure.frame.request_frame();
+        self.measure.frame.frame_requested = true;
     }
 
     /// sets a child's paint order among its visual siblings
@@ -207,15 +203,15 @@ impl<C, I: 'static> LayoutCx<'_, C, I> {
     }
 }
 
-impl<'a, C, I> std::ops::Deref for LayoutCx<'a, C, I> {
-    type Target = MeasureCx<'a, C, I>;
+impl<'a, I> std::ops::Deref for LayoutCx<'a, I> {
+    type Target = MeasureCx<'a, I>;
 
     fn deref(&self) -> &Self::Target {
         &self.measure
     }
 }
 
-impl<C, I> std::ops::DerefMut for LayoutCx<'_, C, I> {
+impl<I> std::ops::DerefMut for LayoutCx<'_, I> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.measure
     }
@@ -280,11 +276,11 @@ impl<'a, I: 'static> Iterator for Children<'a, I> {
     }
 }
 
-pub fn run<C, L: Layout<C>>(
+pub fn run<L: Layout>(
+    context: Context,
+    frame: &mut FrameInner,
     data: &DataArena,
-    frame: &mut Frame<C>,
     node: NodeId,
-    context: &mut C,
     id: DataId,
     constraints: Constraints,
 ) -> LogicalSize {
@@ -292,7 +288,7 @@ pub fn run<C, L: Layout<C>>(
     let layout = unsafe { data.load_unchecked::<L>(id) };
     let offset = frame.layout_offset(node);
     let mut cx = LayoutCx {
-        measure: measure_cx(data, frame, node, context),
+        measure: measure_cx(context, frame, data, node),
         offset,
     };
     #[cfg(debug_assertions)]
@@ -316,26 +312,26 @@ pub fn run<C, L: Layout<C>>(
     size
 }
 
-pub fn intrinsic<C, L: Layout<C>>(
+pub fn intrinsic<L: Layout>(
+    context: Context,
+    frame: &mut FrameInner,
     data: &DataArena,
-    frame: &mut Frame<C>,
     node: NodeId,
-    context: &mut C,
     id: DataId,
     query: IntrinsicQuery,
 ) -> IntrinsicSize {
     // safety: layout registration pairs this dispatch with stored L values
     let layout = unsafe { data.load_unchecked::<L>(id) };
-    let mut cx = measure_cx(data, frame, node, context);
+    let mut cx = measure_cx(context, frame, data, node);
     layout.intrinsic(&mut cx, query)
 }
 
-fn measure_cx<'a, C, I: 'static>(
+fn measure_cx<'a, I: 'static>(
+    context: Context,
+    frame: &'a mut FrameInner,
     data: &'a DataArena,
-    frame: &'a mut Frame<C>,
     node: NodeId,
-    context: &'a mut C,
-) -> MeasureCx<'a, C, I> {
+) -> MeasureCx<'a, I> {
     let nodes = frame.nodes.as_ptr();
     let stored = frame.nodes[node.index()].layout.index().unwrap();
     let kind = frame.layouts[stored].kind as usize;

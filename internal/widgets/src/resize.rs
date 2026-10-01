@@ -1,6 +1,6 @@
 use blit::{
-    Constraints, Interaction, IntrinsicQuery, IntrinsicSize, Layout as LayoutTrait, LayoutCx, LogicalPoint,
-    LogicalSize, MeasureCx, Sense, Ui, Widget,
+    Constraints, Interaction, IntrinsicQuery, IntrinsicSize, LayoutCx, LogicalPoint, LogicalSize, MeasureCx, Sense, Ui,
+    Widget,
 };
 use blit_layout::Unit;
 
@@ -113,17 +113,17 @@ struct Layout<U: Unit> {
     grip_size: blit::Size<U>,
 }
 
-impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
+impl<U: Unit> blit::Layout for Layout<U> {
     type Item = Item;
 
-    fn intrinsic(&self, _: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, _: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         let min = U::round(query.axis.extent(self.minimum)).max(0.0);
         let max = query.axis.extent(self.maximum).max(min);
         let preferred = U::round(query.axis.extent(self.size).clamp(min, max));
         IntrinsicSize::new(min, preferred.max(min))
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         let maximum = self.maximum.max(self.minimum);
         let size = constraints.constrain(LogicalSize::new(
             U::round(self.size.width.clamp(self.minimum.width, maximum.width)),

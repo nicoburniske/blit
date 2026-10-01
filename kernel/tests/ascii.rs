@@ -164,10 +164,10 @@ fn default_children_share_one_item() {
         default: Rc<Cell<Option<*const ()>>>,
     }
 
-    impl Layout<AsciiContext> for SharedDefault {
+    impl Layout for SharedDefault {
         type Item = Rc<()>;
 
-        fn intrinsic(&self, cx: &mut MeasureCx<'_, AsciiContext, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
             let mut result = IntrinsicSize::default();
             for child in cx.children() {
                 let size = cx.intrinsic(child.id, query);
@@ -177,7 +177,7 @@ fn default_children_share_one_item() {
             result
         }
 
-        fn layout(&self, cx: &mut LayoutCx<'_, AsciiContext, Rc<()>>, constraints: Constraints) -> LogicalSize {
+        fn layout(&self, cx: &mut LayoutCx<'_, Rc<()>>, constraints: Constraints) -> LogicalSize {
             let mut count = 0;
             for child in cx.children() {
                 let item = Rc::as_ptr(child.item);
@@ -452,14 +452,14 @@ fn transitions_relayout_animated_sizes() {
 fn size_transitions_override_child_constraints() {
     struct Loose;
 
-    impl<C> Layout<C> for Loose {
+    impl Layout for Loose {
         type Item = ();
 
-        fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+        fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
             cx.intrinsic(cx.children().next().unwrap().id, query)
         }
 
-        fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+        fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
             let child = cx.children().next().unwrap();
             let size = cx.layout_child(child.id, Constraints::loose(constraints.max));
             cx.set_position(child.id, LogicalPoint::ZERO);
@@ -950,14 +950,14 @@ struct OwnedValue {
     drops: Rc<Cell<usize>>,
 }
 
-impl<C> Layout<C> for OwnedValue {
+impl Layout for OwnedValue {
     type Item = ();
 
-    fn intrinsic(&self, _: &mut MeasureCx<'_, C, Self::Item>, _: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, _: &mut MeasureCx<'_, Self::Item>, _: IntrinsicQuery) -> IntrinsicSize {
         IntrinsicSize::default()
     }
 
-    fn layout(&self, _: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, _: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         constraints.min
     }
 }
@@ -1114,10 +1114,10 @@ impl Default for TestItem {
 #[derive(Clone, Copy)]
 struct Column;
 
-impl<C> Layout<C> for Column {
+impl Layout for Column {
     type Item = TestItem;
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         let mut result = IntrinsicSize::default();
         for child in cx.children() {
             let size = if let Some(size) = child.item.size {
@@ -1137,7 +1137,7 @@ impl<C> Layout<C> for Column {
         result
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         let mut children = LogicalSize::ZERO;
         for child in cx.children() {
             let item = child.item;
@@ -1163,10 +1163,10 @@ impl<C> Layout<C> for Column {
 #[derive(Clone, Copy)]
 struct Overlay;
 
-impl<C> Layout<C> for Overlay {
+impl Layout for Overlay {
     type Item = TestItem;
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         let mut result = IntrinsicSize::default();
         for child in cx.children() {
             let size = if let Some(size) = child.item.size {
@@ -1181,7 +1181,7 @@ impl<C> Layout<C> for Overlay {
         result
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         let mut size = LogicalSize::ZERO;
         for child in cx.children() {
             let bounds = child
@@ -1235,10 +1235,10 @@ impl At {
     }
 }
 
-impl<C> Layout<C> for At {
+impl Layout for At {
     type Item = ();
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         if let Some(size) = self.size {
             let extent = query.axis.extent(size);
             IntrinsicSize::uniform(extent)
@@ -1247,7 +1247,7 @@ impl<C> Layout<C> for At {
         }
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, bounds: Constraints) -> LogicalSize {
         let child = cx.children().next().expect("positioned content is missing");
         let node = cx.node();
         let containing = cx.size(cx.parent());
@@ -1275,15 +1275,15 @@ impl<C> Layout<C> for At {
 #[derive(Clone, Copy)]
 struct Fixed(LogicalSize);
 
-impl<C> Layout<C> for Fixed {
+impl Layout for Fixed {
     type Item = ();
 
-    fn intrinsic(&self, _: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, _: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         let extent = query.axis.extent(self.0);
         IntrinsicSize::uniform(extent)
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         let size = constraints.constrain(self.0);
         for child in cx.children() {
             cx.layout_child(child.id, Constraints::tight(size));
@@ -1296,14 +1296,14 @@ impl<C> Layout<C> for Fixed {
 #[derive(Clone, Copy)]
 struct Fraction(LogicalSize);
 
-impl<C> Layout<C> for Fraction {
+impl Layout for Fraction {
     type Item = ();
 
-    fn intrinsic(&self, _: &mut MeasureCx<'_, C, Self::Item>, _: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, _: &mut MeasureCx<'_, Self::Item>, _: IntrinsicQuery) -> IntrinsicSize {
         IntrinsicSize::default()
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         let size = constraints.constrain(LogicalSize::new(
             constraints.max.width * self.0.width,
             constraints.max.height * self.0.height,

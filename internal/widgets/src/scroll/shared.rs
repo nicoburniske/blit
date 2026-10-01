@@ -71,10 +71,10 @@ pub enum ScrollItem {
     Thumb,
 }
 
-impl<C, U: Unit> Layout<C> for ScrollLayout<U> {
+impl<U: Unit> Layout for ScrollLayout<U> {
     type Item = ScrollItem;
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         let content = cx
             .children()
             .find(|child| matches!(child.item, ScrollItem::Content))
@@ -103,15 +103,15 @@ impl<C, U: Unit> Layout<C> for ScrollLayout<U> {
         }
     }
 
-    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, ui: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         self.layout_with_offset(ui, constraints, |_| self.offset)
     }
 }
 
 impl<U: Unit> ScrollLayout<U> {
-    pub fn layout_with_offset<C>(
+    pub fn layout_with_offset(
         &self,
-        ui: &mut LayoutCx<'_, C, ScrollItem>,
+        ui: &mut LayoutCx<'_, ScrollItem>,
         constraints: Constraints,
         offset: impl FnOnce(f32) -> f32,
     ) -> LogicalSize {
@@ -207,7 +207,7 @@ impl<U: Unit> ScrollLayout<U> {
 
 /// updates scroll input and motion returning thumb activity and viewport availability
 /// uses children named `content` and `scroll thumb` for geometry when present
-pub fn update<C, U: Unit>(state: &mut State, ui: &mut Ui<'_, C>, axis: Axis, config: Behavior<U>) -> (bool, bool) {
+pub fn update<C, U: Unit>(ui: &mut Ui<'_, C>, state: &mut State, axis: Axis, config: Behavior<U>) -> (bool, bool) {
     let id = ui.current_widget_id();
     let content_id = id.child("content");
     let thumb_id = id.child("scroll thumb");
@@ -323,7 +323,7 @@ pub fn update<C, U: Unit>(state: &mut State, ui: &mut Ui<'_, C>, axis: Axis, con
 
 pub fn build_scroll<C, W, X, T, H>(
     ui: Ui<'_, C>,
-    layout: impl Layout<C, Item = ScrollItem>,
+    layout: impl Layout<Item = ScrollItem>,
     clip: X,
     content: W,
     track: Option<T>,

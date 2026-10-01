@@ -53,7 +53,7 @@ where
         .scroll
         .last_frame
         .map_or(0.0, |previous| ui.time().saturating_sub(previous).as_secs_f32());
-    let (thumb_active, _) = update(&mut state.scroll, &mut ui, Axis::Vertical, config);
+    let (thumb_active, _) = update(&mut ui, &mut state.scroll, Axis::Vertical, config);
     let index = table
         .rows
         .partition_point(|row| row.top + row.height <= state.scroll.offset);
@@ -247,14 +247,14 @@ struct MeasuredScrollLayout<U: Unit> {
     table: Rc<RefCell<RowTable>>,
 }
 
-impl<C, U: Unit> Layout<C> for MeasuredScrollLayout<U> {
+impl<U: Unit> Layout for MeasuredScrollLayout<U> {
     type Item = ScrollItem;
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         self.scroll.intrinsic(cx, query)
     }
 
-    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, ui: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         self.scroll.layout_with_offset(ui, constraints, |maximum| {
             let mut table = self.table.borrow_mut();
             table.offset = table.offset.clamp(0.0, maximum);
@@ -269,10 +269,10 @@ struct MeasuredLayout {
     table: Rc<RefCell<RowTable>>,
 }
 
-impl<C> Layout<C> for MeasuredLayout {
+impl Layout for MeasuredLayout {
     type Item = ();
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         let table = self.table.borrow();
         if query.axis == Axis::Vertical {
             // unbuilt rows retain their estimated heights
@@ -297,7 +297,7 @@ impl<C> Layout<C> for MeasuredLayout {
         }
     }
 
-    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, ui: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         let mut table = self.table.borrow_mut();
         let mut changed = None;
         for (index, child) in ui.children().enumerate() {

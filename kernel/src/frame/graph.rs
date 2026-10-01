@@ -1,12 +1,199 @@
 pub struct Frame<C> {
+    inner: FrameInner,
+    context: PhantomData<fn(&mut C)>,
+}
+
+impl<C> Frame<C> {
+    /// rebuilds the frame graph for one input
+    pub fn build<W: Widget<C>>(
+        &mut self,
+        context: &mut C,
+        frame: FrameInfo,
+        time: Duration,
+        input: Input,
+        widget: W,
+    ) -> W::Response {
+        self.inner.frame_requested = false;
+
+        let state = &mut self.inner;
+        #[cfg(debug_assertions)]
+        generation::begin();
+        state.nodes.clear();
+        state.atoms.clear();
+        state.layouts.clear();
+        state.clips.clear();
+        state.geometry.clear();
+        state.requests.clear();
+        state.data.clear();
+        // have to clear these bc data arena will be cleared
+        for kind in &mut state.layout_kinds {
+            kind.default_item = DataId::NONE;
+        }
+        #[cfg(debug_assertions)]
+        state.widget_ids.clear();
+        state.paint_order.clear();
+        state.resolved_clips.clear();
+        state.active_clips.clear();
+        state.input = input;
+        state.time = time;
+        state.resized = state.screen.size() != frame.size;
+        state.screen = LogicalRect::new(0.0, 0.0, frame.size.width, frame.size.height);
+        for animation in &mut state.animations {
+            animation.seen = false;
+        }
+        for state in &mut state.transitions {
+            state.seen = false;
+        }
+        for timer in &mut state.timers {
+            timer.seen = false;
+        }
+        state.interaction.begin(&input);
+
+        let output = {
+            let id = WidgetId::new("blit frame root");
+            let root = state.push_node(None, id);
+            widget.build(Ui::new(&mut *context, &mut *self, root))
+        };
+        let state = &mut self.inner;
+        #[cfg(debug_assertions)]
+        assert!(
+            state.nodes.iter().all(|node| state.widget_ids.insert(node.widget_id)),
+            "widget ids must identify unique nodes"
+        );
+        assert_eq!(
+            state.nodes[0].subtree_end as usize,
+            state.nodes.len() - 1,
+            "a frame must have exactly one root"
+        );
+
+        output
+    }
+
+    /// resolves layout, positioning, clipping and interaction for the built graph
+    pub fn layout(&mut self, context: &mut C) {
+        let frame = &mut self.inner;
+        frame.scratch.rewind(0);
+        let data = std::mem::take(&mut frame.data);
+        let context = (context as *mut C).cast();
+        transition::resolve(context, frame, &data, frame.screen.size(), frame.resized);
+        paint::resolve_order(frame);
+        paint::resolve_clips(frame);
+        interaction::resolve(frame);
+        frame.animations.retain(|animation| animation.seen);
+        frame.transitions.retain(|state| state.seen);
+        frame.timers.retain(|timer| timer.seen);
+        frame.data = data;
+    }
+
+    /// paints the resolved graph and releases its retained values
+    pub fn paint(&mut self, context: &mut C) {
+        let frame = &mut self.inner;
+        let mut data = std::mem::take(&mut frame.data);
+        paint::render((context as *mut C).cast(), frame, &data);
+        data.clear();
+        frame.data = data;
+    }
+
+    pub fn has_pending_redraw(&self) -> bool {
+        let frame = &self.inner;
+        frame.frame_requested
+            || frame.animations.iter().any(animation::AnimationState::is_active)
+            || frame.transitions.iter().any(transition::TransitionState::is_active)
+    }
+
+    pub fn next_timer_deadline(&self) -> Option<Duration> {
+        self.inner.timers.iter().filter_map(timer::TimerState::deadline).min()
+    }
+
+    pub fn request_frame(&mut self) {
+        self.inner.frame_requested = true;
+    }
+
+    /// returns geometry from the current frame after layout
+    pub fn geometry(&self, id: WidgetId) -> Option<LogicalRect> {
+        self.inner
+            .nodes
+            .iter()
+            .find_map(|node| (node.widget_id == id).then_some(node.area))
+    }
+
+    fn push_atom<A: Atom<C>>(&mut self, node: NodeId, atom: A) {
+        let frame = &mut self.inner;
+        let type_id = TypeId::of::<A>();
+        let kind = frame
+            .atom_kinds
+            .iter()
+            .position(|kind| kind.type_id == type_id)
+            .unwrap_or_else(|| {
+                frame.atom_kinds.push(AtomKind {
+                    type_id,
+                    measure: measure_atom::<C, A>,
+                    intrinsic: intrinsic_atom::<C, A>,
+                    paint_bounds: paint_bounds_atom::<C, A>,
+                    paint: paint_atom::<C, A>,
+                });
+                frame.atom_kinds.len() - 1
+            });
+        let id = StoredAtomId::new(frame.atoms.len());
+        frame.atoms.push(StoredAtom {
+            kind: u16::try_from(kind).expect("too many atom types"),
+            data: frame.data.store(atom),
+            next: StoredAtomId::NONE,
+        });
+        let node = node.index();
+        if let Some(last) = frame.nodes[node].last_atom.index() {
+            frame.atoms[last].next = id;
+        } else {
+            frame.nodes[node].first_atom = id;
+        }
+        frame.nodes[node].last_atom = id;
+    }
+
+    fn store_clip<X: Clip<C>>(&mut self, clip: X) -> StoredClipId {
+        let frame = &mut self.inner;
+        let type_id = TypeId::of::<X>();
+        let kind = frame
+            .clip_kinds
+            .iter()
+            .position(|kind| kind.type_id == type_id)
+            .unwrap_or_else(|| {
+                frame.clip_kinds.push(ClipKind {
+                    type_id,
+                    push: push_clip::<C, X>,
+                    pop: pop_clip::<C, X>,
+                });
+                frame.clip_kinds.len() - 1
+            });
+        let id = StoredClipId::new(frame.clips.len());
+        frame.clips.push(StoredClip {
+            kind: u16::try_from(kind).expect("too many clip types"),
+            data: frame.data.store(clip),
+        });
+        id
+    }
+}
+
+impl<C> Default for Frame<C> {
+    fn default() -> Self {
+        Self {
+            inner: FrameInner::default(),
+            context: PhantomData,
+        }
+    }
+}
+
+// paired with the callbacks registered through Frame<C>
+type Context = *mut ();
+
+pub struct FrameInner {
     nodes: Vec<StoredNode>,
     atoms: Vec<StoredAtom>,
     layouts: Vec<StoredLayout>,
     clips: Vec<StoredClip>,
     geometry: Vec<GeometryRecord>,
-    atom_kinds: Vec<AtomKind<C>>,
-    layout_kinds: Vec<LayoutKind<C>>,
-    clip_kinds: Vec<ClipKind<C>>,
+    atom_kinds: Vec<AtomKind>,
+    layout_kinds: Vec<LayoutKind>,
+    clip_kinds: Vec<ClipKind>,
     data: DataArena,
     scratch: DataArena,
     paint_links: Vec<PaintLinks>,
@@ -53,7 +240,7 @@ impl Hasher for WidgetIdHasher {
     }
 }
 
-impl<C> Default for Frame<C> {
+impl Default for FrameInner {
     fn default() -> Self {
         Self {
             nodes: Vec::new(),
@@ -89,129 +276,13 @@ impl<C> Default for Frame<C> {
     }
 }
 
-impl<C> Frame<C> {
-    /// rebuilds the frame graph for one input
-    pub fn build<W: Widget<C>>(
-        &mut self,
-        context: &mut C,
-        frame: FrameInfo,
-        time: Duration,
-        input: Input,
-        widget: W,
-    ) -> W::Response {
-        self.frame_requested = false;
-        self.record(context, frame, time, input, widget)
-    }
-
-    /// resolves layout, positioning, clipping and interaction for the built graph
-    pub fn layout(&mut self, context: &mut C) {
-        self.scratch.rewind(0);
-        let data = std::mem::take(&mut self.data);
-        transition::resolve(self, &data, context, self.screen.size(), self.resized);
-        paint::resolve_order(self);
-        paint::resolve_clips(self);
-        interaction::resolve(self);
-        self.animations.retain(|animation| animation.seen);
-        self.transitions.retain(|state| state.seen);
-        self.timers.retain(|timer| timer.seen);
-        self.data = data;
-    }
-
-    /// paints the resolved graph and releases its retained values
-    pub fn paint(&mut self, context: &mut C) {
-        let mut data = std::mem::take(&mut self.data);
-        paint::render(self, &data, context);
-        data.clear();
-        self.data = data;
-    }
-
-    pub fn has_pending_redraw(&self) -> bool {
-        self.frame_requested
-            || self.animations.iter().any(animation::AnimationState::is_active)
-            || self.transitions.iter().any(transition::TransitionState::is_active)
-    }
-
-    pub fn next_timer_deadline(&self) -> Option<Duration> {
-        self.timers.iter().filter_map(timer::TimerState::deadline).min()
-    }
-
-    pub fn request_frame(&mut self) {
-        self.frame_requested = true;
-    }
-
-    /// returns geometry from the current frame after layout
-    pub fn geometry(&self, id: WidgetId) -> Option<LogicalRect> {
-        self.nodes
-            .iter()
-            .find_map(|node| (node.widget_id == id).then_some(node.area))
-    }
-
-    fn record<W: Widget<C>>(
-        &mut self,
-        context: &mut C,
-        frame: FrameInfo,
-        time: Duration,
-        input: Input,
-        widget: W,
-    ) -> W::Response {
-        #[cfg(debug_assertions)]
-        generation::begin();
-        self.nodes.clear();
-        self.atoms.clear();
-        self.layouts.clear();
-        self.clips.clear();
-        self.geometry.clear();
-        self.requests.clear();
-        self.data.clear();
-        // have to clear these bc data arena will be cleared
-        for kind in &mut self.layout_kinds {
-            kind.default_item = DataId::NONE;
-        }
-        #[cfg(debug_assertions)]
-        self.widget_ids.clear();
-        self.paint_order.clear();
-        self.resolved_clips.clear();
-        self.active_clips.clear();
-        self.input = input;
-        self.time = time;
-        self.resized = self.screen.size() != frame.size;
-        self.screen = LogicalRect::new(0.0, 0.0, frame.size.width, frame.size.height);
-        for animation in &mut self.animations {
-            animation.seen = false;
-        }
-        for state in &mut self.transitions {
-            state.seen = false;
-        }
-        for timer in &mut self.timers {
-            timer.seen = false;
-        }
-        self.interaction.begin(&input);
-
-        let output = {
-            let id = WidgetId::new("blit frame root");
-            let root = self.push_node(None, id);
-            widget.build(Ui::new(&mut *self, &mut *context, root))
-        };
-        #[cfg(debug_assertions)]
-        assert!(
-            self.nodes.iter().all(|node| self.widget_ids.insert(node.widget_id)),
-            "widget ids must identify unique nodes"
-        );
-        assert_eq!(
-            self.nodes[0].subtree_end as usize,
-            self.nodes.len() - 1,
-            "a frame must have exactly one root"
-        );
-
-        output
-    }
-
+impl FrameInner {
     #[inline(always)]
     fn layout_node(
         &mut self,
+        context: Context,
         data: &DataArena,
         node: NodeId,
-        context: &mut C,
         mut constraints: Constraints,
     ) -> LogicalSize {
         let index = node.index();
@@ -230,36 +301,37 @@ impl<C> Frame<C> {
         let size = if let Some(layout) = self.nodes[index].layout.index() {
             let stored = self.layouts[layout];
             let run = self.layout_kinds[stored.kind as usize].layout;
-            run(data, self, node, context, stored.data, constraints)
+            run(context, self, data, node, stored.data, constraints)
         } else if constraints.min == constraints.max {
             constraints.min
         } else {
-            constraints.constrain(self.measure_base(data, node, context, constraints))
+            constraints.constrain(self.measure_base(context, data, node, constraints))
         };
         self.nodes[index].area.width = size.width;
         self.nodes[index].area.height = size.height;
         size
     }
 
+    #[inline]
     fn intrinsic_node(
         &mut self,
+        context: Context,
         data: &DataArena,
         node: NodeId,
-        context: &mut C,
         query: crate::IntrinsicQuery,
     ) -> crate::IntrinsicSize {
         assert!(query.cross.is_none_or(|value| value.is_finite() && value >= 0.0));
         let result = if let Some(layout) = self.nodes[node.index()].layout.index() {
             let stored = self.layouts[layout];
             let run = self.layout_kinds[stored.kind as usize].intrinsic;
-            run(data, self, node, context, stored.data, query)
+            run(context, self, data, node, stored.data, query)
         } else {
             let mut size = crate::IntrinsicSize::default();
             let mut atom = self.nodes[node.index()].first_atom;
             while let Some(index) = atom.index() {
                 let stored = self.atoms[index];
                 let intrinsic = self.atom_kinds[stored.kind as usize].intrinsic;
-                let measured = intrinsic(data, stored.data, context, query);
+                let measured = intrinsic(context, data, stored.data, query);
                 size.min = size.min.max(measured.min);
                 size.preferred = size.preferred.max(measured.preferred);
                 atom = stored.next;
@@ -276,11 +348,12 @@ impl<C> Frame<C> {
         result
     }
 
+    #[inline]
     fn measure_base(
         &mut self,
+        context: Context,
         data: &DataArena,
         node: NodeId,
-        context: &mut C,
         constraints: Constraints,
     ) -> LogicalSize {
         let mut size = LogicalSize::ZERO;
@@ -288,45 +361,14 @@ impl<C> Frame<C> {
         while let Some(index) = atom.index() {
             let stored = self.atoms[index];
             let measure = self.atom_kinds[stored.kind as usize].measure;
-            let measured = measure(data, stored.data, context, constraints);
+            let measured = measure(context, data, stored.data, constraints);
             size = size.max(measured);
             atom = stored.next;
         }
         size
     }
 
-    fn push_atom<A: Atom<C>>(&mut self, node: NodeId, atom: A) {
-        let type_id = TypeId::of::<A>();
-        let kind = self
-            .atom_kinds
-            .iter()
-            .position(|kind| kind.type_id == type_id)
-            .unwrap_or_else(|| {
-                self.atom_kinds.push(AtomKind {
-                    type_id,
-                    measure: measure_atom::<C, A>,
-                    intrinsic: intrinsic_atom::<C, A>,
-                    paint_bounds: paint_bounds_atom::<C, A>,
-                    paint: paint_atom::<C, A>,
-                });
-                self.atom_kinds.len() - 1
-            });
-        let id = StoredAtomId::new(self.atoms.len());
-        self.atoms.push(StoredAtom {
-            kind: u16::try_from(kind).expect("too many atom types"),
-            data: self.data.store(atom),
-            next: StoredAtomId::NONE,
-        });
-        let node = node.index();
-        if let Some(last) = self.nodes[node].last_atom.index() {
-            self.atoms[last].next = id;
-        } else {
-            self.nodes[node].first_atom = id;
-        }
-        self.nodes[node].last_atom = id;
-    }
-
-    fn store_layout<L: Layout<C>>(&mut self, value: L) -> StoredLayoutId {
+    fn store_layout<L: Layout>(&mut self, value: L) -> StoredLayoutId {
         let type_id = TypeId::of::<L>();
         let kind = self
             .layout_kinds
@@ -335,8 +377,8 @@ impl<C> Frame<C> {
             .unwrap_or_else(|| {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
-                    layout: layout::run::<C, L>,
-                    intrinsic: layout::intrinsic::<C, L>,
+                    layout: layout::run::<L>,
+                    intrinsic: layout::intrinsic::<L>,
                     default_item: DataId::NONE,
                 });
                 self.layout_kinds.len() - 1
@@ -353,28 +395,7 @@ impl<C> Frame<C> {
         id
     }
 
-    fn store_clip<X: Clip<C>>(&mut self, clip: X) -> StoredClipId {
-        let type_id = TypeId::of::<X>();
-        let kind = self
-            .clip_kinds
-            .iter()
-            .position(|kind| kind.type_id == type_id)
-            .unwrap_or_else(|| {
-                self.clip_kinds.push(ClipKind {
-                    type_id,
-                    push: push_clip::<C, X>,
-                    pop: pop_clip::<C, X>,
-                });
-                self.clip_kinds.len() - 1
-            });
-        let id = StoredClipId::new(self.clips.len());
-        self.clips.push(StoredClip {
-            kind: u16::try_from(kind).expect("too many clip types"),
-            data: self.data.store(clip),
-        });
-        id
-    }
-
+    #[inline]
     fn push_node(&mut self, parent: Option<NodeId>, widget_id: WidgetId) -> NodeId {
         let id = NodeId::new(self.nodes.len());
         self.nodes.push(StoredNode {
@@ -591,54 +612,58 @@ type StoredClipId = Index<StoredClip>;
 type GeometryId = Index<GeometryRecord>;
 type ResolvedClipId = Index<ResolvedClip>;
 
-struct AtomKind<C> {
+struct AtomKind {
     type_id: TypeId,
-    intrinsic: fn(&DataArena, DataId, &mut C, crate::IntrinsicQuery) -> crate::IntrinsicSize,
-    measure: fn(&DataArena, DataId, &mut C, Constraints) -> LogicalSize,
+    intrinsic: fn(Context, &DataArena, DataId, crate::IntrinsicQuery) -> crate::IntrinsicSize,
+    measure: fn(Context, &DataArena, DataId, Constraints) -> LogicalSize,
     paint_bounds: fn(&DataArena, DataId, LogicalRect) -> LogicalRect,
-    paint: fn(&DataArena, DataId, &mut C, LogicalRect),
+    paint: fn(Context, &DataArena, DataId, LogicalRect),
 }
 
-struct LayoutKind<C> {
+struct LayoutKind {
     type_id: TypeId,
-    layout: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, Constraints) -> LogicalSize,
-    intrinsic: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, crate::IntrinsicQuery) -> crate::IntrinsicSize,
+    layout: fn(Context, &mut FrameInner, &DataArena, NodeId, DataId, Constraints) -> LogicalSize,
+    intrinsic: fn(Context, &mut FrameInner, &DataArena, NodeId, DataId, crate::IntrinsicQuery) -> crate::IntrinsicSize,
     default_item: DataId,
 }
 
-struct ClipKind<C> {
+struct ClipKind {
     type_id: TypeId,
-    push: fn(&DataArena, DataId, &mut C, LogicalRect),
-    pop: fn(&DataArena, DataId, &mut C),
+    push: fn(Context, &DataArena, DataId, LogicalRect),
+    pop: fn(Context, &DataArena, DataId),
 }
 
+// Frame<C> supplies the context and registration pairs each callback with its stored type
 fn intrinsic_atom<C, A: Atom<C>>(
+    context: Context,
     data: &DataArena,
     id: DataId,
-    context: &mut C,
     query: crate::IntrinsicQuery,
 ) -> crate::IntrinsicSize {
-    // safety: atom registration pairs this dispatch with stored A values
-    unsafe { data.load_unchecked::<A>(id) }.intrinsic(context, query)
+    unsafe { data.load_unchecked::<A>(id) }.intrinsic(unsafe { &mut *context.cast::<C>() }, query)
 }
 
-fn measure_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, context: &mut C, constraints: Constraints) -> LogicalSize {
-    // safety: atom registration pairs this dispatch with stored A values
-    unsafe { data.load_unchecked::<A>(id) }.measure(context, constraints)
+fn measure_atom<C, A: Atom<C>>(
+    context: Context,
+    data: &DataArena,
+    id: DataId,
+    constraints: Constraints,
+) -> LogicalSize {
+    unsafe { data.load_unchecked::<A>(id) }.measure(unsafe { &mut *context.cast::<C>() }, constraints)
 }
 
 fn paint_bounds_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, area: LogicalRect) -> LogicalRect {
     data.load::<A>(id).paint_bounds(area)
 }
 
-fn paint_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, context: &mut C, area: LogicalRect) {
-    data.load::<A>(id).paint(context, area)
+fn paint_atom<C, A: Atom<C>>(context: Context, data: &DataArena, id: DataId, area: LogicalRect) {
+    data.load::<A>(id).paint(unsafe { &mut *context.cast::<C>() }, area)
 }
 
-fn push_clip<C, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C, area: LogicalRect) {
-    data.load::<X>(id).push(context, area)
+fn push_clip<C, X: Clip<C>>(context: Context, data: &DataArena, id: DataId, area: LogicalRect) {
+    data.load::<X>(id).push(unsafe { &mut *context.cast::<C>() }, area)
 }
 
-fn pop_clip<C, X: Clip<C>>(data: &DataArena, id: DataId, context: &mut C) {
-    data.load::<X>(id).pop(context)
+fn pop_clip<C, X: Clip<C>>(context: Context, data: &DataArena, id: DataId) {
+    data.load::<X>(id).pop(unsafe { &mut *context.cast::<C>() })
 }

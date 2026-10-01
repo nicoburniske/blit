@@ -1,7 +1,7 @@
 pub use crate::frame::layout::{Child, Children, LayoutCx, MeasureCx, ScratchSlice};
 use crate::geometry::{Constraints, LogicalSize};
 
-pub trait Layout<C>: 'static {
+pub trait Layout: 'static {
     /// per-child data interpreted by this layout
     ///
     /// children without explicit items store no `Item` of their own
@@ -12,7 +12,7 @@ pub trait Layout<C>: 'static {
 
     /// reports natural extents without changing geometry
     /// repeated queries must agree while context resources remain unchanged
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize;
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize;
 
     /// measures this node and arranges its flow children
     ///
@@ -27,7 +27,7 @@ pub trait Layout<C>: 'static {
     ///
     /// - use [`LayoutCx::size_overrides`] when sizing affects allocation before laying out the child
     /// - use [`LayoutCx::target_size`] when animated size must not change structure such as wrapping
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize;
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize;
 }
 
 /// an axis query with an optional exact extent in the other axis

@@ -68,10 +68,10 @@ impl<U: Unit> Item<U> {
     }
 }
 
-impl<C, U: Unit> blit::Layout<C> for Layout<U> {
+impl<U: Unit> blit::Layout for Layout<U> {
     type Item = Item<U>;
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         let padding: blit::Sides = self.padding.into();
         let queried_padding = query.axis.extent(padding.size());
         let gap = self.gap.into_float().max(0.0);
@@ -81,7 +81,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
             let mut result = IntrinsicSize::uniform(queried_padding + gaps);
             for child in cx.children() {
                 let (main, cross) = flow_sizing(self.axis, child.item.width, child.item.height, (None, None));
-                let size = intrinsic_child::<_, _, U>(
+                let size = intrinsic_child::<_, U>(
                     cx,
                     child.id,
                     IntrinsicQuery {
@@ -150,7 +150,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
             let assigned = if matches!(main, Sizing::Fixed(_) | Sizing::Percent(_)) {
                 U::distribute(&mut percentages, range.0)
             } else {
-                let size = intrinsic_child::<_, _, U>(cx, child.id, IntrinsicQuery::new(self.axis), main, cross, false);
+                let size = intrinsic_child::<_, U>(cx, child.id, IntrinsicQuery::new(self.axis), main, cross, false);
                 U::round(size.preferred).clamp(range.0, range.1)
             };
             cx.scratch_mut(&mut shares)[index] = Share {
@@ -193,7 +193,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
         result
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, bounds: Constraints) -> LogicalSize {
         let padding: blit::Sides = self.padding.into();
         let cross_axis = self.axis.other();
         let gap = self.gap.into_float().max(0.0);
@@ -335,9 +335,9 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
 
 impl<U: Unit> Layout<U> {
     #[inline(always)]
-    fn share<C>(
+    fn share(
         &self,
-        cx: &mut MeasureCx<'_, C, Item<U>>,
+        cx: &mut MeasureCx<'_, Item<U>>,
         child: Child<'_, Item<U>>,
         main: Sizing<f32>,
         cross: Sizing<f32>,
@@ -353,7 +353,7 @@ impl<U: Unit> Layout<U> {
         let natural = if child.item.basis == Basis::Zero {
             IntrinsicSize::default()
         } else {
-            intrinsic_child::<_, _, U>(
+            intrinsic_child::<_, U>(
                 cx,
                 child.id,
                 IntrinsicQuery {

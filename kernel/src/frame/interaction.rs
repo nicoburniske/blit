@@ -1,4 +1,4 @@
-use super::{Frame, Request};
+use super::{FrameInner, Request};
 use crate::{
     geometry::{LogicalPoint, LogicalRect, Sides},
     input::{Input, PointerButton},
@@ -7,7 +7,7 @@ use crate::{
 
 const DRAG_THRESHOLD: f32 = 6.0;
 
-pub fn resolve<C>(frame: &mut Frame<C>) {
+pub fn resolve(frame: &mut FrameInner) {
     frame.geometry_previous.clear();
     if !frame.requests.is_empty() {
         for index in 0..frame.nodes.len() {

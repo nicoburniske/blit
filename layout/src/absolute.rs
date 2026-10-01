@@ -30,14 +30,10 @@ pub enum Anchor {
     BottomRight,
 }
 
-impl<C, L: blit::Layout<C>, U: Unit> blit::Layout<C> for Layout<L, U> {
+impl<L: blit::Layout, U: Unit> blit::Layout for Layout<L, U> {
     type Item = L::Item;
 
-    fn intrinsic(
-        &self,
-        cx: &mut blit::MeasureCx<'_, C, Self::Item>,
-        query: blit::IntrinsicQuery,
-    ) -> blit::IntrinsicSize {
+    fn intrinsic(&self, cx: &mut blit::MeasureCx<'_, Self::Item>, query: blit::IntrinsicQuery) -> blit::IntrinsicSize {
         let (main, cross) = crate::flow_sizing(query.axis, self.width, self.height, (None, None));
         let query = blit::IntrinsicQuery {
             axis: query.axis,
@@ -51,7 +47,7 @@ impl<C, L: blit::Layout<C>, U: Unit> blit::Layout<C> for Layout<L, U> {
         crate::intrinsic_range(main, size)
     }
 
-    fn layout(&self, cx: &mut blit::LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut blit::LayoutCx<'_, Self::Item>, bounds: Constraints) -> LogicalSize {
         let containing = cx.size(cx.parent());
         let range = |sizing: Sizing<U>, available: f32| {
             let sizing = sizing.into_float();

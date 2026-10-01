@@ -279,8 +279,8 @@ pub fn intrinsic_cross(sizing: Sizing<f32>, cross: Option<f32>) -> Option<f32> {
     }
 }
 
-pub fn intrinsic_child<C, I: 'static, U: Unit>(
-    cx: &mut blit::MeasureCx<'_, C, I>,
+pub fn intrinsic_child<I: 'static, U: Unit>(
+    cx: &mut blit::MeasureCx<'_, I>,
     child: blit::NodeId,
     query: blit::IntrinsicQuery,
     main: Sizing<f32>,

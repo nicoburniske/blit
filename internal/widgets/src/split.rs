@@ -1,6 +1,5 @@
 use blit::{
-    Axis, Constraints, IntrinsicQuery, IntrinsicSize, Layout as LayoutTrait, LayoutCx, LogicalPoint, LogicalSize,
-    MeasureCx, Sense, Ui, Widget,
+    Axis, Constraints, IntrinsicQuery, IntrinsicSize, LayoutCx, LogicalPoint, LogicalSize, MeasureCx, Sense, Ui, Widget,
 };
 use blit_layout::Unit;
 
@@ -122,10 +121,10 @@ struct Layout<U: Unit> {
     minimum_trailing: U,
 }
 
-impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
+impl<U: Unit> blit::Layout for Layout<U> {
     type Item = Item;
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         let divider = self.divider_extent.into_float().max(0.0);
         let mut result = IntrinsicSize::default();
         for child in cx.children() {
@@ -169,7 +168,7 @@ impl<C, U: Unit> LayoutTrait<C> for Layout<U> {
         result
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, bounds: Constraints) -> LogicalSize {
         let cross_axis = self.axis.other();
         let main = self.axis.extent(bounds.max);
         assert!(main.is_finite(), "split needs a finite main axis budget");

@@ -31,10 +31,10 @@ impl<U: Unit> Layout<U> {
     }
 }
 
-impl<C, U: Unit> blit::Layout<C> for Layout<U> {
+impl<U: Unit> blit::Layout for Layout<U> {
     type Item = Item<U>;
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         let padding: blit::Sides = self.padding.into();
         let extent = query.axis.extent(padding.size());
         let item_gap = self.item_gap.into_float().max(0.0);
@@ -48,7 +48,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
                     Sizing::Grow { min, max } => Sizing::Fit { min, max },
                     cross => cross,
                 };
-                let size = intrinsic_child::<_, _, U>(
+                let size = intrinsic_child::<_, U>(
                     cx,
                     child.id,
                     IntrinsicQuery {
@@ -81,7 +81,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
             let width = if matches!(main, Sizing::Fixed(_) | Sizing::Percent(_)) {
                 U::distribute(&mut percentages, range.0)
             } else {
-                let size = intrinsic_child::<_, _, U>(cx, child.id, IntrinsicQuery::new(self.axis), main, cross, false);
+                let size = intrinsic_child::<_, U>(cx, child.id, IntrinsicQuery::new(self.axis), main, cross, false);
                 U::round(main.clamp(size.preferred)).clamp(range.0, range.1)
             };
             cx.scratch_mut(&mut widths)[index] = width;
@@ -123,7 +123,7 @@ impl<C, U: Unit> blit::Layout<C> for Layout<U> {
         result
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, bounds: Constraints) -> LogicalSize {
         let padding: blit::Sides = self.padding.into();
         let cross_axis = self.axis.other();
         let main_padding = self.axis.extent(padding.size());

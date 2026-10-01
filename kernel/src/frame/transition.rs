@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use super::{Frame, NodeId};
+use super::{Context, FrameInner, NodeId};
 use crate::{
     animation::{Transition, TransitionProperties},
     arena::DataArena,
@@ -14,7 +14,7 @@ use crate::{
 /// - active size transitions write animated sizes into node geometry and replay layout
 /// - target sizes remain available for structural decisions such as wrapping
 /// - position transitions apply after layout without replay
-pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: LogicalSize, resized: bool) {
+pub fn resolve(context: Context, frame: &mut FrameInner, data: &DataArena, size: LogicalSize, resized: bool) {
     for index in 0..frame.geometry.len() {
         let record = frame.geometry[index];
         let Some(config) = record.transition else {
@@ -29,7 +29,7 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
         }
     }
 
-    layout(frame, data, context, size);
+    layout(context, frame, data, size);
     let mut active = TransitionProperties::NONE;
     for index in 0..frame.transitions.len() {
         if !frame.transitions[index].seen {
@@ -79,7 +79,7 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
             relayout = true;
         }
         if relayout {
-            layout(frame, data, context, size);
+            layout(context, frame, data, size);
         }
         frame.target_sizes.clear();
     }
@@ -104,9 +104,9 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
     }
 }
 
-fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: LogicalSize) {
+fn layout(context: Context, frame: &mut FrameInner, data: &DataArena, size: LogicalSize) {
     let root = NodeId::new(0);
-    frame.layout_node(data, root, context, Constraints::tight(size));
+    frame.layout_node(context, data, root, Constraints::tight(size));
     for index in 1..frame.nodes.len() {
         if !frame.nodes[index].out_of_flow {
             continue;
@@ -120,11 +120,11 @@ fn layout<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Logi
             let containing = frame.nodes[index].parent;
             Constraints::loose(frame.nodes[containing.index()].area.size())
         };
-        frame.layout_node(data, node, context, constraints);
+        frame.layout_node(context, data, node, constraints);
     }
 }
 
-fn offset<C>(frame: &Frame<C>, node: NodeId) -> LogicalPoint {
+fn offset(frame: &FrameInner, node: NodeId) -> LogicalPoint {
     if frame.nodes[node.index()].out_of_flow {
         return LogicalPoint::ZERO;
     }

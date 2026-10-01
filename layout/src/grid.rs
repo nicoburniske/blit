@@ -39,10 +39,10 @@ blit::builder! {
     }
 }
 
-impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
+impl<U: Unit, const N: usize> blit::Layout for Layout<U, N> {
     type Item = Item<U>;
 
-    fn intrinsic(&self, cx: &mut MeasureCx<'_, C, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
+    fn intrinsic(&self, cx: &mut MeasureCx<'_, Self::Item>, query: IntrinsicQuery) -> IntrinsicSize {
         let columns = self.columns.max(1) as usize;
         assert!(
             !self.spanning || columns <= N,
@@ -92,7 +92,7 @@ impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
         result
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> LogicalSize {
+    fn layout(&self, cx: &mut LayoutCx<'_, Self::Item>, constraints: Constraints) -> LogicalSize {
         let columns = self.columns.max(1) as usize;
         assert!(
             !self.spanning || columns <= N,
@@ -202,7 +202,7 @@ impl<C, U: Unit, const N: usize> blit::Layout<C> for Layout<U, N> {
 }
 
 impl<U: Unit, const N: usize> Layout<U, N> {
-    fn natural_width<C>(&self, cx: &mut MeasureCx<'_, C, Item<U>>) -> IntrinsicSize {
+    fn natural_width(&self, cx: &mut MeasureCx<'_, Item<U>>) -> IntrinsicSize {
         let columns = self.columns.max(1) as usize;
         let gap = self.column_gap.into_float().max(0.0);
         let padding: blit::Sides = self.padding.into();
@@ -277,8 +277,8 @@ fn placements<U: Unit, const N: usize>(
     })
 }
 
-fn contribution<C, U: Unit>(
-    cx: &mut MeasureCx<'_, C, Item<U>>,
+fn contribution<U: Unit>(
+    cx: &mut MeasureCx<'_, Item<U>>,
     child: Child<'_, Item<U>>,
     axis: Axis,
     cross: Option<f32>,
