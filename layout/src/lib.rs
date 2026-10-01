@@ -48,5 +48,25 @@ fn justify_offset(justify: Justify, remaining: f32, count: usize) -> (f32, f32) 
     }
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! layout_ext {
+    ($unit:ty) => {
+        pub trait LayoutExt: ::blit::Layout + Sized {
+            /// positions this layout relative to `Ui::relative`
+            fn absolute(self) -> $crate::absolute::Layout<Self, $unit> {
+                $crate::absolute::Layout::new(self)
+            }
+
+            /// caches this layout's intrinsic answers
+            fn cached(self) -> $crate::cache::Cached<Self> {
+                $crate::cache::cached(self)
+            }
+        }
+
+        impl<L: ::blit::Layout> LayoutExt for L {}
+    };
+}
+
 #[cfg(test)]
 mod test;

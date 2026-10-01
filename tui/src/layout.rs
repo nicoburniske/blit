@@ -4,6 +4,8 @@ pub type Length = u16;
 pub type Padding = blit_layout::Padding<Length>;
 pub type Sizing = blit_layout::Sizing<Length>;
 
+blit_layout::layout_ext!(Length);
+
 pub mod absolute {
     pub use blit_layout::absolute::Anchor;
     pub type Layout<L> = blit_layout::absolute::Layout<L, super::Length>;

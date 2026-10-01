@@ -8,11 +8,7 @@ use blit_tui::{
     BoundsClip, TuiContext, Ui,
     atom::{Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, Tint, TitlePosition},
     color::Color,
-    layout::{
-        Align, Justify, Length, Padding, Sizing,
-        absolute::{self, Anchor},
-        flex, grid, single, wrap,
-    },
+    layout::{Align, Justify, LayoutExt, Length, Padding, Sizing, absolute::Anchor, flex, grid, single, wrap},
     text::{HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
     widget::{
         Block, Performance, Text, TextInput, Title, performance, popover, resize, scroll_area, scroll_list, split,
@@ -140,7 +136,8 @@ impl Demo {
         if self.show_performance {
             root.relative(NodeTarget::Root)
                 .layout(
-                    absolute::Layout::new(single::layout())
+                    single::layout()
+                        .absolute()
                         .target_anchor(Anchor::BottomRight)
                         .child_anchor(Anchor::BottomRight)
                         .x(-1)
@@ -216,14 +213,13 @@ impl Widget<TuiContext> for &mut Modal {
             .parent(NodeTarget::Root)
             .z_index(1)
             .widget_id(backdrop_id)
-            .layout(
-                absolute::Layout::new(single::layout())
-                    .width(Sizing::grow())
-                    .height(Sizing::grow()),
-            );
+            .layout(single::layout().absolute().width(Sizing::grow()).height(Sizing::grow()));
         overlay.insert(Tint::new([0, 0, 0], if self.dim { 180 } else { 80 }));
         let mut panel = overlay.relative(NodeTarget::Parent).widget_id(panel_id).layout(
-            absolute::Layout::new(flex::column().padding(Padding::all(1)).gap(1))
+            flex::column()
+                .padding(Padding::all(1))
+                .gap(1)
+                .absolute()
                 .target_anchor(Anchor::Center)
                 .child_anchor(Anchor::Center),
         );
@@ -1179,7 +1175,10 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .parent(WidgetId::new("tui canvas"))
             .z_index(1)
             .layout(
-                absolute::Layout::new(flex::row().align(Align::Center).justify(Justify::Center))
+                flex::row()
+                    .align(Align::Center)
+                    .justify(Justify::Center)
+                    .absolute()
                     .target_anchor(anchor)
                     .child_anchor(Anchor::Center)
                     .width(Sizing::fixed((unit.width * 2.0) as Length))

@@ -15,11 +15,7 @@ use blit_gui::{
     atom::{Rectangle, Shadow},
     color::Color,
     display_list::{Mesh, MeshVertex},
-    layout::{
-        Align, Justify, Padding, Sizing,
-        absolute::{self, Anchor},
-        flex, grid, single, wrap,
-    },
+    layout::{Align, Justify, LayoutExt, Padding, Sizing, absolute::Anchor, flex, grid, single, wrap},
     style::{Border, BorderRadius},
     text::{
         FontId, FontStyle, HorizontalAlign, Span, SpanStyle, TextOptions, TextOverflow, TextStyle, TextWrap,
@@ -201,7 +197,8 @@ impl Application for App {
         if self.show_performance {
             root.relative(NodeTarget::Root)
                 .layout(
-                    absolute::Layout::new(single::layout())
+                    single::layout()
+                        .absolute()
                         .target_anchor(Anchor::BottomRight)
                         .child_anchor(Anchor::BottomRight)
                         .x(-sz::LG)
@@ -1365,7 +1362,10 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .parent(WidgetId::new("desktop canvas"))
             .z_index(1)
             .layout(
-                absolute::Layout::new(flex::row().align(Align::Center).justify(Justify::Center))
+                flex::row()
+                    .align(Align::Center)
+                    .justify(Justify::Center)
+                    .absolute()
                     .target_anchor(anchor)
                     .child_anchor(Anchor::Center)
                     .width(Sizing::fixed(sz::BADGE_WIDTH * config.zoom))
@@ -1517,18 +1517,17 @@ mod graphics {
             });
 
             let mut controls = stage.relative(NodeTarget::Parent).z_index(2).layout(
-                absolute::Layout::new(
-                    flex::row()
-                        .padding(Padding::all(sz::XS))
-                        .gap(sz::XXS)
-                        .align(Align::Center),
-                )
-                .target_anchor(Anchor::BottomLeft)
-                .child_anchor(Anchor::BottomLeft)
-                .x(sz::LG)
-                .y(-sz::LG)
-                .width(Sizing::fixed(390.0))
-                .height(Sizing::fixed(52.0)),
+                flex::row()
+                    .padding(Padding::all(sz::XS))
+                    .gap(sz::XXS)
+                    .align(Align::Center)
+                    .absolute()
+                    .target_anchor(Anchor::BottomLeft)
+                    .child_anchor(Anchor::BottomLeft)
+                    .x(sz::LG)
+                    .y(-sz::LG)
+                    .width(Sizing::fixed(390.0))
+                    .height(Sizing::fixed(52.0)),
             );
             controls.insert(
                 Rectangle::new()
