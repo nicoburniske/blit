@@ -128,7 +128,6 @@ impl TextRenderer {
         };
         let phase_count = self.phase_count;
         let phase_scale = 1.0 / phase_count as f32;
-        let glyphs = &mut self.glyphs;
         let (_, paint_index) = self.paints.get_or_insert(key, |key| {
             let mut paint = CachedPaint {
                 bounds: PhysicalRect::default(),
@@ -148,8 +147,8 @@ impl TextRenderer {
                     let x = (glyph.position.x + offset.x - request.offset_x) * scale_factor;
                     let x_phases = (x * phase_count as f32).round() as i32;
                     let phase = x_phases.rem_euclid(phase_count) as u8;
-                    let cached = glyphs.glyph(&resolved, run.face, glyph.id, size, phase);
-                    let cached = glyphs.get(cached);
+                    let cached = self.glyphs.glyph(&resolved, run.face, glyph.id, size, phase);
+                    let cached = self.glyphs.get(cached);
                     let x = (x_phases as f32 * phase_scale + cached.metrics.bounds.xmin).floor() as i32;
                     let y = ((glyph.position.y + offset.y) * scale_factor
                         + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin).floor())

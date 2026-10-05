@@ -85,7 +85,6 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
         let cross_padding = cross_axis.extent(padding.size());
         let leading = Size::new(padding.left, padding.top);
         let main_leading = self.axis.extent(leading);
-        let cross_leading = cross_axis.extent(leading);
         let item_gap = self.item_gap.max(T::ZERO);
         let run_gap = self.run_gap.max(T::ZERO);
         let inner_bounds = bounds.shrink(padding.size());
@@ -93,10 +92,11 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
         let main_max = self.axis.extent(inner_bounds.max);
         let cross_max = cross_axis.extent(inner_bounds.max);
         let mut percentages = 0.0;
+        let mut target_differs = false;
         for child in cx.children() {
             let item = cx.item(child);
             let main = resolve_sizing(cx, child, self.axis, item.sizing(self.axis));
-            cx.layout_child(
+            let size = cx.layout_child(
                 child,
                 flow_constraints(
                     self.axis,
@@ -107,6 +107,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                     ),
                 ),
             );
+            target_differs |= self.axis.extent(size) != self.axis.extent(cx.target_size(child));
         }
         let longest = longest_run(
             cx.children().map(|child| self.axis.extent(cx.size(child))),
@@ -114,16 +115,20 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
             item_gap,
         );
         let available = longest.clamp(main_min, main_max);
-        let target_longest = longest_run(
-            cx.children().map(|child| self.axis.extent(cx.target_size(child))),
-            main_max,
-            item_gap,
-        );
-        let target_available = target_longest.clamp(main_min, main_max);
+        let target_available = if target_differs {
+            longest_run(
+                cx.children().map(|child| self.axis.extent(cx.target_size(child))),
+                main_max,
+                item_gap,
+            )
+            .clamp(main_min, main_max)
+        } else {
+            available
+        };
         let mut targets = cx.children().peekable();
         let mut children = cx.children();
         let mut occupied_cross = T::ZERO;
-        let mut cross_cursor = cross_leading;
+        let mut cross_cursor = cross_axis.extent(leading);
         let mut runs = 0;
         while targets.peek().is_some() {
             let (count, _) = next_run(
@@ -132,11 +137,10 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                 target_available,
                 item_gap,
             );
-            let start = children;
             let gaps = item_gap.repeat(count.saturating_sub(1));
             let mut used = gaps;
             let mut grows = 0;
-            for child in start.take(count) {
+            for child in children.take(count) {
                 used += self.axis.extent(cx.size(child));
                 if let Sizing::Grow { .. } = resolve_sizing(cx, child, self.axis, cx.item(child).sizing(self.axis)) {
                     grows += 1;
@@ -150,7 +154,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
             let mut allocation = 0.0;
             let mut main = gaps;
             let mut cross = T::ZERO;
-            for child in start.take(count) {
+            for child in children.take(count) {
                 let width = self.axis.extent(cx.size(child));
                 let sizing = resolve_sizing(cx, child, self.axis, cx.item(child).sizing(self.axis));
                 if let Sizing::Grow { min, max } = sizing {

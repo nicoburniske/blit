@@ -265,7 +265,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         let end = span.end.min(range.end as i32);
                         (start < end).then_some((start as usize, end as usize, command_first))
                     });
-                let active = &self.active;
                 buffer.process_line(line as usize, range.clone(), |pixels| {
                     let mut draw = |first: usize, start: usize, end: usize| {
                         if start >= end {
@@ -281,7 +280,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         if clipped {
                             draw_commands::<true, _>(
                                 commands,
-                                &active[first..],
+                                &self.active[first..],
                                 &self.clip_ranges,
                                 images,
                                 text,
@@ -290,7 +289,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         } else {
                             draw_commands::<false, _>(
                                 commands,
-                                &active[first..],
+                                &self.active[first..],
                                 &self.clip_ranges,
                                 images,
                                 text,

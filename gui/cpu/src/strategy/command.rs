@@ -199,7 +199,9 @@ impl CommandList {
         self.has_partial_opaque = false;
         self.has_clips = false;
     }
+}
 
+impl CommandList {
     fn push(
         &mut self,
         payload: StoredPayload,

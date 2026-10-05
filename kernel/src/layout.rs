@@ -1,5 +1,5 @@
 use crate::{
-    Context,
+    Context, Ui,
     geometry::{Constraints, Point, Size},
 };
 pub use crate::{
@@ -13,7 +13,7 @@ pub trait Layout<C: Context>: 'static {
     type Item: Default + 'static;
 
     /// configures this node before the layout is stored
-    fn on_insert<'a>(&self, ui: crate::Ui<'a, C>) -> crate::Ui<'a, C> {
+    fn on_insert<'a>(&self, ui: Ui<'a, C>) -> Ui<'a, C> {
         ui
     }
 

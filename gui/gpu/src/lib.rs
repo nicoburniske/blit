@@ -701,7 +701,6 @@ impl Renderer {
                     let image_size = image.handle.size();
                     let mask_color = image.mask_color.map(|color| premultiplied(color, 1.0));
                     let colorize = request.colorize.map(|color| premultiplied(color, 1.0));
-                    let texture_origin = image.texture_origin;
                     prepare_image_patches(&request, image_size, scale, |patch| {
                         let Some(draw) = patch
                             .bounds
@@ -771,8 +770,8 @@ impl Renderer {
                             shape,
                             draw: physical_rect(draw),
                             radii: [
-                                f32::from_bits((patch.source.x - texture_origin[0]) as u32),
-                                f32::from_bits((patch.source.y - texture_origin[1]) as u32),
+                                f32::from_bits((patch.source.x - image.texture_origin[0]) as u32),
+                                f32::from_bits((patch.source.y - image.texture_origin[1]) as u32),
                                 source_size[0],
                                 source_size[1],
                             ],
@@ -1017,7 +1016,9 @@ impl Renderer {
     pub fn batch_count(&self) -> usize {
         self.batches.len()
     }
+}
 
+impl Renderer {
     fn push_mesh_primitive(&mut self, vertices: [u32; 4]) {
         let index = u32::try_from(self.mesh_data.len()).expect("too much GPU mesh data");
         assert!(index < DRAW_MESH, "too much GPU mesh data");

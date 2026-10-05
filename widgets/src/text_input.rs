@@ -91,7 +91,9 @@ impl<T: Scalar> State<T> {
             self.anchor = self.cursor;
         }
     }
+}
 
+impl<T: Scalar> State<T> {
     fn selection(&self) -> (usize, usize) {
         (self.cursor.min(self.anchor), self.cursor.max(self.anchor))
     }

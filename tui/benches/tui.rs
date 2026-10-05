@@ -95,16 +95,15 @@ fn update_one_cell_in_large_text(bencher: divan::Bencher) {
     let mut changed_frame = frame.clone();
     let changed_byte = CHANGED_CELL.y as usize * (screen.width as usize + 1) + CHANGED_CELL.x as usize;
     changed_frame.replace_range(changed_byte..changed_byte + 1, "B");
-    let area = screen;
     let old = renderer.text_run(&frame);
     let new = renderer.text_run(&changed_frame);
     renderer.begin_frame();
-    renderer.paint_text(TextRequest::new(old, area), area);
+    renderer.paint_text(TextRequest::new(old, screen), screen);
     renderer.end_frame();
     let mut changed = true;
     bencher.counter(ItemsCount::new(1usize)).bench_local(|| {
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(if changed { new } else { old }, area), area);
+        renderer.paint_text(TextRequest::new(if changed { new } else { old }, screen), screen);
         renderer.end_frame();
         black_box(renderer.output());
         changed = !changed;

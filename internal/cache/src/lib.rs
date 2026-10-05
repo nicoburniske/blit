@@ -158,10 +158,9 @@ where
             return Err(value);
         }
         let (_, index) = self.entries.insert(Entry { key, value });
-        let entries = &self.entries;
-        let hash_builder = &self.hash_builder;
-        self.table
-            .insert_unique(hash, index, |index| hash_builder.hash_one(&entries.get(*index).key));
+        self.table.insert_unique(hash, index, |index| {
+            self.hash_builder.hash_one(&self.entries.get(*index).key)
+        });
         self.weight += weight;
         if TRIM_ON_INSERT {
             self.trim_to_weight();

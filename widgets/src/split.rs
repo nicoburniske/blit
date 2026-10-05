@@ -134,12 +134,11 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
         let mut size = Size::ZERO;
         self.axis.set_extent(&mut size, divider_extent);
         cross_axis.set_extent(&mut size, cross);
-        let divider_size = size;
         let mut point = Size::ZERO;
         self.axis.set_extent(&mut point, leading_extent);
-        self.axis.set_extent(&mut size, main);
-        cx.layout_child(divider, Constraints::tight(divider_size));
+        cx.layout_child(divider, Constraints::tight(size));
         cx.set_child_position(divider, Point::new(point.width, point.height));
+        self.axis.set_extent(&mut size, main);
         bounds.constrain(size)
     }
 }

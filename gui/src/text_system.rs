@@ -346,7 +346,6 @@ impl TextSystem {
             style,
             fonts: &self.fonts,
         };
-        let next_text = self.next_text;
         let mut inserted = false;
         let (_, index) = self.texts.get_or_insert(query, |query| {
             inserted = true;
@@ -368,7 +367,7 @@ impl TextSystem {
                     spans,
                 },
                 CachedText {
-                    id: TextRunId(u64::from(next_text) << 32),
+                    id: TextRunId(u64::from(self.next_text) << 32),
                     shape: None,
                 },
             )
@@ -512,11 +511,10 @@ impl TextSystem {
 
     pub fn finish_frame(&mut self) {
         self.layouts.trim_to_weight();
-        let engine = &mut self.engine;
         self.texts.trim_to_weight_if(|_, text| {
             if text.shape.is_some() {
                 let index = (text.id.0 as u32).checked_sub(1).unwrap() as usize;
-                engine.remove_shape(index);
+                self.engine.remove_shape(index);
             }
             true
         });
@@ -560,21 +558,19 @@ impl TextSystem {
             wrap: request.wrap,
             overflow: request.overflow,
         };
-        let next_layout = self.next_layout;
-        let engine = &mut self.engine;
         let text = &self.texts.get_key_index(index).text;
         let (_, layout) = self.layouts.get_or_insert(key, |_| {
-            let layout = engine.layout(ShapedText { index, text }, request);
+            let layout = self.engine.layout(ShapedText { index, text }, request);
             (
                 key,
                 CachedLayout {
-                    id: TextLayoutId(next_layout),
+                    id: TextLayoutId(self.next_layout),
                     layout,
                     carets: Vec::new(),
                 },
             )
         });
-        if self.layouts.get_index(layout).id.0 == next_layout {
+        if self.layouts.get_index(layout).id.0 == self.next_layout {
             self.next_layout = self.next_layout.checked_add(1).expect("too many text layouts");
         }
         (layout, index)

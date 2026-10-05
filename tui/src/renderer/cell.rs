@@ -350,10 +350,9 @@ impl TuiRenderer {
             return;
         }
         let index = y as usize * self.columns + x as usize;
-        let style = cell.style;
         if let Some((text, width)) = glyph {
-            Self::paint_glyph(&mut self.frame_cells, self.columns, index, text, width, style);
-        } else if let Some(background) = style.background {
+            Self::paint_glyph(&mut self.frame_cells, self.columns, index, text, width, cell.style);
+        } else if let Some(background) = cell.style.background {
             if self.frame_cells.glyph[index] != Glyph::SPACE.0 {
                 Self::clear_glyph(&mut self.frame_cells, self.columns, index);
             }
@@ -389,9 +388,8 @@ impl TuiRenderer {
         frame_cells.attributes[continuation].fill(attributes);
     }
 
-    fn clear_glyph(frame_cells: &mut Cells, columns: usize, index: usize) {
-        let row = index / columns;
-        let mut start = index;
+    fn clear_glyph(frame_cells: &mut Cells, columns: usize, mut start: usize) {
+        let row = start / columns;
         while start > row * columns && frame_cells.glyph[start] == Glyph::CONTINUATION.0 {
             start -= 1;
         }

@@ -280,17 +280,15 @@ impl<C: Context, S> Ui<'_, C, S> {
 
     pub fn animate(&mut self, id: WidgetId, target: f32, duration: Duration, easing: Easing) -> f32 {
         let frame = &mut *self.inner.frame;
-        let time = frame.time;
         animation::AnimationState::update(&mut frame.animations, id, target, |animation| {
-            animation.advance(target, duration, easing, time)
+            animation.advance(target, duration, easing, frame.time)
         })
     }
 
     pub fn animate_loop(&mut self, id: WidgetId, duration: Duration, easing: Easing) -> f32 {
         let frame = &mut *self.inner.frame;
-        let time = frame.time;
         animation::AnimationState::update(&mut frame.animations, id, 0.0, |animation| {
-            animation.advance_loop(duration, easing, time)
+            animation.advance_loop(duration, easing, frame.time)
         })
     }
 

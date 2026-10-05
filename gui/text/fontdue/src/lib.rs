@@ -168,7 +168,6 @@ impl TextLayoutEngine for Backend {
         let (visible_lines, content_height, empty_height) =
             prepare(&mut self.layout, &self.faces, shape, text, request);
         let default = shape.spans.first().expect("text requires a span");
-        let face_index = default.face;
         let Some(source_lines) = self.layout.lines() else {
             if request.max_lines == Some(0) || request.max_height.is_some_and(|height| height < empty_height) {
                 return TextLayout::default();
@@ -206,7 +205,7 @@ impl TextLayoutEngine for Backend {
                 request,
                 line_index + 1 == visible_lines,
                 truncated,
-                face_index,
+                default.face,
                 default.size,
             );
             width = width.max(prepared.width);

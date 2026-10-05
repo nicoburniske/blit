@@ -265,7 +265,9 @@ impl<T: Scalar> InteractionState<T> {
             .and_then(|position| Self::hit(&self.previous_hits, position));
         next_hovered.map(|item| item.id) != self.hovered
     }
+}
 
+impl<T: Scalar> InteractionState<T> {
     fn hit(hits: &[HitItem<T>], position: Point<T>) -> Option<HitItem<T>> {
         hits.iter().rev().find(|item| item.area.contains(position)).copied()
     }

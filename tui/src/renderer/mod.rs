@@ -189,7 +189,6 @@ impl TuiRenderer {
     pub fn rich_text(&mut self, spans: &[Span<'_>]) -> TextRunId {
         let len = spans.iter().map(|span| span.text.len()).sum();
         assert!(u32::try_from(len).is_ok(), "tui text run too long");
-        let next = self.next_text_run;
         let (_, index) = self.text_runs.get_or_insert(RunQuery(spans), |query| {
             let mut text = String::with_capacity(len);
             let mut resolved = Vec::with_capacity(query.0.len());
@@ -211,7 +210,7 @@ impl TuiRenderer {
                     spans: resolved.into_boxed_slice(),
                 },
                 CachedRun {
-                    id: TextRunId(u64::from(next) << 32),
+                    id: TextRunId(u64::from(self.next_text_run) << 32),
                     graphemes: Box::default(),
                     screen_references: 0,
                 },
@@ -226,9 +225,8 @@ impl TuiRenderer {
     }
 
     pub fn text_offset_at_position(&mut self, request: &TextRequest, position: PhysicalPoint) -> usize {
-        let area = request.area;
         let text = &self.text_runs.get_key_index(self.text_run_index(request.text)).text;
-        let target = (position.x as isize - area.x as isize + request.offset_x as isize).max(0) as usize;
+        let target = (position.x as isize - request.area.x as isize + request.offset_x as isize).max(0) as usize;
         let mut width = 0;
         for (offset, grapheme) in text.grapheme_indices(true) {
             let next = width + UnicodeWidthStr::width(grapheme).max(1);

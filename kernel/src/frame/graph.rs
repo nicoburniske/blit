@@ -193,6 +193,9 @@ impl<C: Context> Frame<C> {
             .find_map(|(index, node)| (node.widget_id == id).then_some(self.node_geometry[index].area))
     }
 
+}
+
+impl<C: Context> Frame<C> {
     fn push_atom<A: Atom<C>>(&mut self, node: NodeId, atom: A) {
         let type_id = TypeId::of::<A>();
         let kind = self

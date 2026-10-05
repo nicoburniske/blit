@@ -56,28 +56,37 @@ pub fn resolve<C: Context>(
                 properties: TransitionProperties::NONE,
             }));
         let mut relayout = false;
-        for index in 0..frame.transitions.len() {
-            let state = &frame.transitions[index];
+        for state in &mut frame.transitions {
             if !state.seen {
                 continue;
             }
             let node = state.node;
-            let current = state.current;
             let properties = state.active.intersection(TransitionProperties::SIZE);
             if properties.is_empty() {
                 continue;
             }
             let parent = frame.nodes[node.index()].parent;
             if parent == node {
-                frame.transitions[index].snap_size();
+                if properties.intersects(TransitionProperties::WIDTH) {
+                    state.current.width = state.target.width;
+                    state.initial.width = state.target.width;
+                }
+                if properties.intersects(TransitionProperties::HEIGHT) {
+                    state.current.height = state.target.height;
+                    state.initial.height = state.target.height;
+                }
+                state.active = state.active.intersection(TransitionProperties::POSITION);
+                if state.active.is_empty() {
+                    state.started_at = None;
+                }
                 continue;
             }
             let area = &mut frame.node_geometry[node.index()].area;
             if properties.intersects(TransitionProperties::WIDTH) {
-                area.width = current.width;
+                area.width = state.current.width;
             }
             if properties.intersects(TransitionProperties::HEIGHT) {
-                area.height = current.height;
+                area.height = state.current.height;
             }
             frame.target_sizes[node.index()].properties = properties;
             relayout = true;
@@ -138,21 +147,6 @@ impl<T: Scalar> TransitionState<T> {
 
     pub fn is_active(&self) -> bool {
         self.started_at.is_some()
-    }
-
-    fn snap_size(&mut self) {
-        if self.active.intersects(TransitionProperties::WIDTH) {
-            self.current.width = self.target.width;
-            self.initial.width = self.target.width;
-        }
-        if self.active.intersects(TransitionProperties::HEIGHT) {
-            self.current.height = self.target.height;
-            self.initial.height = self.target.height;
-        }
-        self.active = self.active.intersection(TransitionProperties::POSITION);
-        if self.active.is_empty() {
-            self.started_at = None;
-        }
     }
 
     pub fn advance(&mut self, target: Rect<T>, now: Duration, resized: bool) {

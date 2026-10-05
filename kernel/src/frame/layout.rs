@@ -121,7 +121,9 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
                 .then_some(current.height),
         )
     }
+}
 
+impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     #[track_caller]
     fn assert_child(&self, child: NodeId) -> &'a StoredNode {
         let stored = &self.frame.nodes[child.index()];

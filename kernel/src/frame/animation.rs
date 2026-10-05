@@ -28,20 +28,6 @@ impl AnimationState {
         animations[index].value
     }
 
-    fn new(id: WidgetId, target: f32) -> Self {
-        Self {
-            id,
-            value: target,
-            start: target,
-            target,
-            started_at: None,
-            duration: Duration::ZERO,
-            easing: Easing::Linear,
-            seen: false,
-            looping: false,
-        }
-    }
-
     pub fn is_active(&self) -> bool {
         self.started_at.is_some()
     }
@@ -93,5 +79,21 @@ impl AnimationState {
         let progress = now.saturating_sub(started_at).as_secs_f32() / duration.as_secs_f32();
         self.value = easing.apply(progress % 1.0);
         self.seen = true;
+    }
+}
+
+impl AnimationState {
+    fn new(id: WidgetId, target: f32) -> Self {
+        Self {
+            id,
+            value: target,
+            start: target,
+            target,
+            started_at: None,
+            duration: Duration::ZERO,
+            easing: Easing::Linear,
+            seen: false,
+            looping: false,
+        }
     }
 }

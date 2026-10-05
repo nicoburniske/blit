@@ -138,7 +138,9 @@ impl Shadow {
         self.offset_y = y;
         self
     }
+}
 
+impl Shadow {
     fn command(&self, area: LogicalRect) -> BoxShadow {
         BoxShadow::new(area, self.color)
             .radius(self.radius)

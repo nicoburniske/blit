@@ -59,21 +59,6 @@ impl DataArena {
         id
     }
 
-    fn pointer<T>(&self, id: DataId) -> *mut T {
-        let offset = id.offset().expect("frame data is missing");
-        assert!(offset.checked_add(size_of::<T>()).is_some_and(|end| end <= self.len));
-        if size_of::<T>() == 0 {
-            return std::ptr::NonNull::<T>::dangling().as_ptr();
-        }
-        // safety: the offset is within the arena and shared writes use disjoint reserved ranges
-        unsafe {
-            UnsafeCell::raw_get(self.words.as_ptr().cast::<UnsafeCell<MaybeUninit<[u8; 64]>>>())
-                .cast::<u8>()
-                .add(offset)
-                .cast::<T>()
-        }
-    }
-
     pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'_, T> {
         assert!(
             align_of::<T>() <= align_of::<Word>(),
@@ -144,6 +129,23 @@ impl DataArena {
             (entry.drop)(unsafe { data.add(entry.offset as usize) });
         }
         self.len = 0;
+    }
+}
+
+impl DataArena {
+    fn pointer<T>(&self, id: DataId) -> *mut T {
+        let offset = id.offset().expect("frame data is missing");
+        assert!(offset.checked_add(size_of::<T>()).is_some_and(|end| end <= self.len));
+        if size_of::<T>() == 0 {
+            return std::ptr::NonNull::<T>::dangling().as_ptr();
+        }
+        // safety: the offset is within the arena and shared writes use disjoint reserved ranges
+        unsafe {
+            UnsafeCell::raw_get(self.words.as_ptr().cast::<UnsafeCell<MaybeUninit<[u8; 64]>>>())
+                .cast::<u8>()
+                .add(offset)
+                .cast::<T>()
+        }
     }
 }
 

@@ -98,21 +98,19 @@ impl Atom<TuiContext> for Block {
             self.border
                 .is_some_and(|border| border.sides.contains(BorderSides::RIGHT)),
         ));
-        let origin_x = area.x;
-        let origin_y = area.y;
         paint_title_row(
             context,
             [self.titles[0], self.titles[1], self.titles[2]],
-            origin_x,
-            origin_y,
+            area.x,
+            area.y,
             left,
             right,
         );
         paint_title_row(
             context,
             [self.titles[3], self.titles[4], self.titles[5]],
-            origin_x,
-            origin_y + height.saturating_sub(1) as i32,
+            area.x,
+            area.y + height.saturating_sub(1) as i32,
             left,
             right,
         );

@@ -109,7 +109,9 @@ impl Rasterizer {
         }
         (metrics, alpha)
     }
+}
 
+impl Rasterizer {
     fn draw(&mut self, width: usize, scale: f32, offset_x: f32, offset_y: f32) {
         let params = f32x4::from_array([1.0 / scale, 1.0 / scale, scale, scale]);
         let scale = f32x4::splat(scale);

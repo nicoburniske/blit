@@ -106,17 +106,15 @@ where
                 .widget_id(backdrop_id)
                 .insert(());
         }
-        let x = config.x;
-        let y = config.y;
         Some(
             popup
                 .child()
                 .hit(
                     Sides::new()
-                        .top(y.max(C::Scalar::ZERO))
-                        .right((-x).max(C::Scalar::ZERO))
-                        .bottom((-y).max(C::Scalar::ZERO))
-                        .left(x.max(C::Scalar::ZERO)),
+                        .top(config.y.max(C::Scalar::ZERO))
+                        .right((-config.x).max(C::Scalar::ZERO))
+                        .bottom((-config.y).max(C::Scalar::ZERO))
+                        .left(config.x.max(C::Scalar::ZERO)),
                 )
                 .widget_id(content_id)
                 .layout(

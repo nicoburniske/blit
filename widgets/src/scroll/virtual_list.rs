@@ -33,7 +33,6 @@ where
     F: FnMut(Ui<'_, C>, &R),
 {
     let config = list.behavior;
-    let edge_scroll = list.edge_scroll;
     let id = ui.current_widget_id();
     let viewport = ui.geometry(id);
     let screen = ui.screen().size();
@@ -96,8 +95,11 @@ where
     if !full && let Some(viewport) = viewport {
         state.scroll.content_extent = table.total;
         state.scroll.viewport_extent = viewport.height;
-        state.scroll.offset = state.scroll.offset.clamp(C::Scalar::ZERO, state.scroll.maximum_offset());
-        if edge_scroll {
+        state.scroll.offset = state
+            .scroll
+            .offset
+            .clamp(C::Scalar::ZERO, state.scroll.maximum_offset());
+        if list.edge_scroll {
             state.scroll.velocity = 0.0;
             state.scroll.tracking = false;
             if let Some(pointer) = ui.pointer_position() {
@@ -156,11 +158,9 @@ where
             .get(state.visible.start)
             .map(|row| (state.visible.start, state.scroll.offset - row.top))
     };
-    let offset = state.scroll.offset;
-    table.offset = offset;
+    table.offset = state.scroll.offset;
     drop(table);
     let table = Rc::clone(&state.table);
-    let first = visible.start;
     let (track, thumb) = scrollbar(thumb_active);
     build_scroll(
         ui,
@@ -180,7 +180,7 @@ where
         clip,
         move |ui: Ui<'_, C>| {
             let mut list = ui.layout(MeasuredLayout {
-                first,
+                first: visible.start,
                 target,
                 table: Rc::clone(&table),
             });

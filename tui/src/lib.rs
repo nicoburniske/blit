@@ -46,9 +46,8 @@ use terminal::{Size, Terminal};
 const MAX_EVENTS_PER_FRAME: usize = 32;
 
 /// runs the ui with the built in terminal and event loop at up to 240 frames per second
-pub fn run(render: impl FnMut(Ui<'_>)) -> io::Result<()> {
+pub fn run(mut render: impl FnMut(Ui<'_>)) -> io::Result<()> {
     let mut session = Session::new()?;
-    let mut render = render;
     while session.pump(&mut render)? {}
     Ok(())
 }
@@ -182,13 +181,12 @@ impl Session {
         FrameInfo::new(screen.size())
     }
 
-    pub fn poll(&mut self, timeout: Option<Duration>, inputs: &mut [Input<i32>]) -> io::Result<Poll> {
+    pub fn poll(&mut self, mut timeout: Option<Duration>, inputs: &mut [Input<i32>]) -> io::Result<Poll> {
         if inputs.is_empty() {
             return Ok(Poll::default());
         }
         self.update_colors()?;
         let mut result = Poll::default();
-        let mut timeout = timeout;
         for _ in 0..inputs.len() {
             let Some(event) = self.terminal.read(timeout)? else {
                 break;
@@ -339,7 +337,9 @@ impl Session {
         let finish = self.terminal.finish();
         clear.and(finish)
     }
+}
 
+impl Session {
     fn update_colors(&mut self) -> io::Result<()> {
         if self.query_colors {
             protocol::query_colors(&mut self.terminal)?;

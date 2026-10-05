@@ -113,11 +113,10 @@ impl GlyphAtlas {
         };
         if let Some(cached) = self.glyphs.get_mut(&key) {
             cached.last_used = self.frame;
-            let glyph = cached.glyph;
             if cached.allocation.is_some() {
-                self.pages[glyph.page].as_mut().unwrap().last_used = self.frame;
+                self.pages[cached.glyph.page].as_mut().unwrap().last_used = self.frame;
             }
-            return glyph;
+            return cached.glyph;
         }
 
         let face = text.font_face(face).expect("text backend returned an unknown font");
@@ -162,10 +161,9 @@ impl GlyphAtlas {
         if placement.is_none() && reusable && self.bytes.saturating_add(page_bytes) > CACHE_BYTES {
             self.victims.clear();
             self.victims.extend(self.glyphs.iter().filter_map(|(key, cached)| {
-                let page = cached.glyph.page;
                 (cached.last_used != self.frame
                     && cached.allocation.is_some()
-                    && self.pages[page]
+                    && self.pages[cached.glyph.page]
                         .as_ref()
                         .is_some_and(|page| width <= page.size[0] && height <= page.size[1]))
                 .then_some((cached.last_used, *key))
@@ -276,7 +274,9 @@ impl GlyphAtlas {
             .expect("text batch references an empty glyph atlas page")
             .bind_group
     }
+}
 
+impl GlyphAtlas {
     fn allocate(&mut self, requested: [u32; 2]) -> Option<(usize, Allocation)> {
         self.pages
             .iter_mut()

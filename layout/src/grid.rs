@@ -154,10 +154,9 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
         let mut y = padding.top;
         while index < count {
             let group = if spanning { count } else { columns.min(count - index) };
-            let start = children;
             let mut row_height = T::ZERO;
             let mut row_track: f32 = 0.0;
-            for (offset, child) in start.take(group).enumerate() {
+            for (offset, child) in children.take(group).enumerate() {
                 let column = if spanning { positions[index + offset].1 } else { offset };
                 let item = cx.item(child);
                 let span = item.column_span as usize;

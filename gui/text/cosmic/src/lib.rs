@@ -46,7 +46,9 @@ impl Backend {
             fontdb::Database::new(),
         ))
     }
+}
 
+impl Backend {
     fn with_font_system(fonts: FontSystem) -> Self {
         Self {
             fonts,
