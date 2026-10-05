@@ -4,7 +4,7 @@ children require a layout
 use blit::*;
 
 fn child_before_layout<C>(mut ui: Ui<'_, C>) {
-    ui.child(());
+    ui.child();
 }
 ```
 

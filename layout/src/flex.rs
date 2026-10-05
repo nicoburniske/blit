@@ -1,6 +1,7 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Sides, Size, Sizing};
+use blit::{Axis, Constraints, LayoutCx, Point, Sides, Size};
 
-use super::{Align, Justify, flow_constraints, flow_size, justify_offset, sizing_range};
+use super::{Align, Justify, allocated_range, flow_constraints, flow_size, justify_offset, sizing_range};
+use crate::{Context, Sizing, resolve_sizing};
 
 blit::builder! {
     /// lays out children in a row or column
@@ -66,32 +67,20 @@ pub fn item() -> Item {
     Item::new()
 }
 
-impl<C> blit::Layout<C> for Layout {
+impl<C: Context> blit::Layout<C> for Layout {
     type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
-        let res = cx.resolution();
-        let padding = res.sides(self.padding);
-        let cross_axis = self.axis.other();
-        let gap = res.extent(self.axis, self.gap).max(0.0);
-        let main_padding = self.axis.extent(padding.size());
-        let cross_padding = cross_axis.extent(padding.size());
-        let leading = Size::new(padding.left, padding.top);
-        let main_leading = self.axis.extent(leading);
-        let cross_leading = cross_axis.extent(leading);
-        let main_max = (self.axis.extent(bounds.max) - main_padding).max(0.0);
-        let cross_max = (cross_axis.extent(bounds.max) - cross_padding).max(0.0);
-        let tight_cross = cross_axis.extent(bounds.min) == cross_axis.extent(bounds.max);
         let mut count = 0usize;
         let mut grows = 0usize;
         let mut minimums = 0.0;
         let mut weights = 0.0;
         // only capped shares need scratch storage and sorting
-        let mut caps = Vec::new();
+        let mut cap_count = 0;
         for child in cx.children() {
             count += 1;
             let item = cx.item(child);
-            if let Sizing::Grow { min, max } = cx.resolve_sizing(child, self.axis, item.sizing(self.axis)) {
+            if let Sizing::Grow { min, max } = resolve_sizing(cx, child, self.axis, item.sizing(self.axis)) {
                 assert!(
                     item.weight.is_finite() && item.weight > 0.0,
                     "flex weight must be finite and positive"
@@ -104,14 +93,25 @@ impl<C> blit::Layout<C> for Layout {
                 if capacity > 0.0 {
                     weights += item.weight;
                     if capacity.is_finite() {
-                        caps.push((capacity / item.weight, capacity, item.weight));
+                        cap_count += 1;
                     }
                 }
             }
         }
+
+        let mut caps = cx.scratch(cap_count, (0.0, 0.0, 0.0));
+        let padding = crate::round_padding::<C>(self.padding);
+        let cross_axis = self.axis.other();
+        let gap = C::round(self.gap).max(0.0);
+        let main_padding = self.axis.extent(padding.size());
+        let cross_padding = cross_axis.extent(padding.size());
+        let main_max = (self.axis.extent(bounds.max) - main_padding).max(0.0);
+        let cross_max = (cross_axis.extent(bounds.max) - cross_padding).max(0.0);
+        let tight_cross = cross_axis.extent(bounds.min) == cross_axis.extent(bounds.max);
         if count == 0 {
             return bounds.constrain(padding.size());
         }
+        let mut cap_index = 0;
         assert!(
             grows == 0 || main_max.is_finite(),
             "main axis grow requires a finite budget"
@@ -121,48 +121,50 @@ impl<C> blit::Layout<C> for Layout {
         let mut remaining = (pool - minimums).max(0.0);
         let mut used = 0.0;
         let mut cross: f32 = 0.0;
-        let cross_bounds = |sizing| {
-            let range = sizing_range(sizing, cross_max);
-            if tight_cross
-                && (matches!(sizing, Sizing::Grow { .. })
-                    || self.align == Align::Stretch && matches!(sizing, Sizing::Fit { .. }))
-            {
+        let cross_bounds = |sizing| match (sizing, self.align) {
+            (Sizing::Grow { .. }, _) | (Sizing::Fit { .. }, Align::Stretch) if tight_cross => {
                 let extent = sizing.clamp(cross_max);
                 assert!(extent.is_finite(), "cross axis grow requires a finite budget");
                 (extent, extent)
-            } else {
-                range
             }
+            _ => sizing_range::<C>(sizing, cross_max),
         };
-        for child in cx.children() {
-            let item = cx.item(child);
-            let sizing = cx.resolve_sizing(child, self.axis, item.sizing(self.axis));
-            if matches!(sizing, Sizing::Grow { .. }) {
-                continue;
+        let mut percentages = 0.0;
+        if grows < count || !caps.is_empty() {
+            for child in cx.children() {
+                let item = cx.item(child);
+                let sizing = resolve_sizing(cx, child, self.axis, item.sizing(self.axis));
+                if let Sizing::Grow { min, max } = sizing {
+                    let min = min.max(0.0);
+                    let capacity = (max.max(min) - min).max(0.0);
+                    if capacity > 0.0 && capacity.is_finite() {
+                        caps[cap_index] = (capacity / item.weight, capacity, item.weight);
+                        cap_index += 1;
+                    }
+                    continue;
+                }
+                let budget = match sizing {
+                    Sizing::Percent(_) => pool,
+                    _ if self.overflow => f32::INFINITY,
+                    _ => remaining,
+                };
+                let child_bounds = flow_constraints(
+                    self.axis,
+                    allocated_range::<C>(sizing, budget, &mut percentages),
+                    cross_bounds(resolve_sizing(cx, child, cross_axis, item.sizing(cross_axis))),
+                );
+                let size = cx.layout_child(child, child_bounds);
+                let main = self.axis.extent(size);
+                used += main;
+                remaining = (remaining - main).max(0.0);
+                cross = cross.max(cross_axis.extent(size));
             }
-            let budget = if matches!(sizing, Sizing::Percent(_)) {
-                pool
-            } else if self.overflow {
-                f32::INFINITY
-            } else {
-                remaining
-            };
-            let child_bounds = flow_constraints(
-                self.axis,
-                sizing_range(sizing, budget),
-                cross_bounds(cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis))),
-            );
-            let size = cx.layout_child(child, child_bounds);
-            let main = self.axis.extent(size);
-            used += main;
-            remaining = (remaining - main).max(0.0);
-            cross = cross.max(cross_axis.extent(size));
         }
         if grows != 0 {
             // saturate caps in threshold order without revisiting a child layout
             caps.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
             let mut unit = if weights > 0.0 { remaining / weights } else { 0.0 };
-            for (limit, capacity, weight) in caps {
+            for &(limit, capacity, weight) in caps.iter() {
                 if limit >= unit {
                     break;
                 }
@@ -174,19 +176,20 @@ impl<C> blit::Layout<C> for Layout {
                     f32::INFINITY
                 };
             }
+            let mut allocation = 0.0;
             for child in cx.children() {
                 let item = cx.item(child);
-                let sizing = cx.resolve_sizing(child, self.axis, item.sizing(self.axis));
+                let sizing = resolve_sizing(cx, child, self.axis, item.sizing(self.axis));
                 let Sizing::Grow { min, max } = sizing else {
                     continue;
                 };
                 let min = min.max(0.0);
                 let capacity = (max.max(min) - min).max(0.0);
-                let main = min + (unit * item.weight).min(capacity);
+                let main = min + C::allocate(&mut allocation, (unit * item.weight).min(capacity));
                 let child_bounds = flow_constraints(
                     self.axis,
                     (main, main),
-                    cross_bounds(cx.resolve_sizing(child, cross_axis, item.sizing(cross_axis))),
+                    cross_bounds(resolve_sizing(cx, child, cross_axis, item.sizing(cross_axis))),
                 );
                 let size = cx.layout_child(child, child_bounds);
                 used += self.axis.extent(size);
@@ -194,19 +197,22 @@ impl<C> blit::Layout<C> for Layout {
             }
         }
         let size = bounds.constrain(flow_size(used + gaps + main_padding, cross + cross_padding, self.axis));
+        let leading = Size::new(padding.left, padding.top);
+        let main_leading = self.axis.extent(leading);
+        let cross_leading = cross_axis.extent(leading);
         let available_main = (self.axis.extent(size) - main_padding).max(0.0);
         let available_cross = (cross_axis.extent(size) - cross_padding).max(0.0);
         let (offset, extra_gap) = justify_offset(self.justify, (available_main - used - gaps).max(0.0), count);
         let mut cursor = main_leading + offset;
         for child in cx.children() {
-            let child_size = cx.child_size(child);
+            let child_size = cx.size(child);
             let child_cross = cross_axis.extent(child_size);
             let offset = match self.align {
                 Align::Start | Align::Stretch => 0.0,
                 Align::Center => (available_cross - child_cross).max(0.0) / 2.0,
                 Align::End => (available_cross - child_cross).max(0.0),
             };
-            let pos = flow_size(cursor, cross_leading + offset, self.axis);
+            let pos = flow_size(C::round(cursor), C::round(cross_leading + offset), self.axis);
             cx.set_child_position(child, Point::new(pos.width, pos.height));
             cursor += self.axis.extent(child_size) + gap + extra_gap;
         }

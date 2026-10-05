@@ -1,4 +1,5 @@
-use blit::{Axis, Constraints, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
+use blit::{Constraints, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
+use blit_layout::layout_child;
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -28,7 +29,12 @@ blit::builder! {
     }
 }
 
-pub fn new<'a, C, W, F, G>(state: &'a mut State, config: Config, content: W, mut grip: F) -> impl Widget<C> + 'a
+pub fn new<'a, C: blit_layout::Context, W, F, G>(
+    state: &'a mut State,
+    config: Config,
+    content: W,
+    mut grip: F,
+) -> impl Widget<C> + 'a
 where
     W: Widget<C> + 'a,
     F: FnMut(Grip) -> G + 'a,
@@ -103,26 +109,18 @@ struct Layout {
     grip_size: Size,
 }
 
-impl<C> LayoutTrait<C> for Layout {
+impl<C: blit_layout::Context> LayoutTrait<C> for Layout {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
-        let res = cx.resolution();
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
         let maximum = self.maximum.max(self.minimum);
-        let size = constraints.constrain(Size::new(
-            res.extent(
-                Axis::Horizontal,
-                self.size.width.clamp(self.minimum.width, maximum.width),
-            ),
-            res.extent(
-                Axis::Vertical,
-                self.size.height.clamp(self.minimum.height, maximum.height),
-            ),
-        ));
-        let grip = Size::new(
-            res.extent(Axis::Horizontal, self.grip_size.width).min(size.width),
-            res.extent(Axis::Vertical, self.grip_size.height).min(size.height),
+        let size = Size::new(
+            C::round(self.size.width.clamp(self.minimum.width, maximum.width)),
+            C::round(self.size.height.clamp(self.minimum.height, maximum.height)),
         );
+        let grip = Size::new(C::round(self.grip_size.width), C::round(self.grip_size.height));
+        let size = bounds.constrain(size);
+        let grip = Size::new(grip.width.min(size.width), grip.height.min(size.height));
         for child in cx.children() {
             let (position, child_size, z_index) = match *cx.item(child) {
                 Item::Content => (Point::ZERO, size, 0),
@@ -138,7 +136,7 @@ impl<C> LayoutTrait<C> for Layout {
                 ),
                 Item::Corner => (Point::new(size.width - grip.width, size.height - grip.height), grip, 2),
             };
-            cx.layout_child(child, Constraints::tight(child_size));
+            layout_child(cx, child, Constraints::tight(child_size));
             cx.set_child_position(child, position);
             cx.set_child_z_index(child, z_index);
         }

@@ -6,7 +6,8 @@ pub fn resolve_order<C>(frame: &mut Frame<C>) {
     if !frame
         .nodes
         .iter()
-        .any(|node| node.z_index != 0 || node.visual_parent != node.parent)
+        .enumerate()
+        .any(|(index, node)| frame.node_geometry[index].z_index != 0 || node.visual_parent != node.parent)
     {
         return;
     }
@@ -33,8 +34,9 @@ pub fn resolve_order<C>(frame: &mut Frame<C>) {
             child = frame.paint_links[child as usize].next_sibling;
         }
         let children = &mut frame.order_stack[start..];
-        if children.iter().any(|id| frame.nodes[id.index()].z_index != 0) {
-            children.sort_unstable_by_key(|id| std::cmp::Reverse((frame.nodes[id.index()].z_index, id.index())));
+        if children.iter().any(|id| frame.node_geometry[id.index()].z_index != 0) {
+            children
+                .sort_unstable_by_key(|id| std::cmp::Reverse((frame.node_geometry[id.index()].z_index, id.index())));
         }
     }
     debug_assert_eq!(frame.paint_order.len(), frame.nodes.len());
@@ -51,7 +53,7 @@ pub fn resolve_clips<C>(frame: &mut Frame<C>) {
         if frame.nodes[index].clip.index().is_some() {
             let bounds = frame
                 .clip_bounds(parent)
-                .intersection(frame.nodes[index].area)
+                .intersection(frame.node_geometry[index].area)
                 .unwrap_or_default();
             let id = ResolvedClipId::new(frame.resolved_clips.len());
             let depth = parent
@@ -61,7 +63,7 @@ pub fn resolve_clips<C>(frame: &mut Frame<C>) {
                 parent,
                 depth,
                 clip: frame.nodes[index].clip,
-                area: frame.nodes[index].area,
+                area: frame.node_geometry[index].area,
                 bounds,
             });
             frame.nodes[index].resolved_clip = id;
@@ -145,7 +147,7 @@ fn paint_node<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, node: 
     if frame.nodes[node].first_atom.index().is_none() {
         return;
     }
-    let area = frame.nodes[node].area;
+    let area = frame.node_geometry[node].area;
     let resolved_clip = frame.nodes[node].resolved_clip;
     let clip_bounds = frame.clip_bounds(resolved_clip);
     let mut clip_set = false;

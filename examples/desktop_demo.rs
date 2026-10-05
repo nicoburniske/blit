@@ -1,8 +1,7 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Atom, Axis, Constraints, Easing, Interaction, LogicalRect, Point, Sense, Sides, Size, Sizing,
-    Transition, Widget, WidgetId,
+    Atom, Axis, Constraints, Easing, Interaction, LogicalRect, Point, Sense, Sides, Size, Transition, Widget, WidgetId,
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 #[cfg(not(feature = "gpu"))]
@@ -26,6 +25,7 @@ use blit_gui::{
         text_input,
     },
 };
+use blit_layout::{Sizing, absolute, absolute::Anchor};
 
 pub fn run(text: impl TextLayoutEngine) {
     let fonts = std::fs::read_dir(std::path::Path::new(env!("BLIT_TEST_FONT")).with_file_name(""))
@@ -191,19 +191,23 @@ impl Application for App {
             Page::Graphics => root.child().item(flex::item().grow()).build(&mut self.graphics),
         };
         if self.show_performance {
-            root.absolute(
-                Absolute::screen(0.0, 0.0)
-                    .anchors(Anchor::BottomRight, Anchor::BottomRight)
-                    .offset(-sz::LG, -sz::LG),
-            )
-            .build(
-                Performance::new(&mut self.performance)
-                    .background(colors::SURFACE_HIGH)
-                    .graph_background(colors::CANVAS)
-                    .color(colors::TEXT)
-                    .muted_color(colors::TEXT_DIM)
-                    .accent(colors::ACCENT),
-            );
+            root.child()
+                .layout(
+                    absolute::place(())
+                        .target(blit::NodeTarget::Root)
+                        .target_anchor(Anchor::BottomRight)
+                        .child_anchor(Anchor::BottomRight)
+                        .offset(blit::Point::new(-sz::LG, -sz::LG)),
+                )
+                .child()
+                .build(
+                    Performance::new(&mut self.performance)
+                        .background(colors::SURFACE_HIGH)
+                        .graph_background(colors::CANVAS)
+                        .color(colors::TEXT)
+                        .muted_color(colors::TEXT_DIM)
+                        .accent(colors::ACCENT),
+                );
         }
     }
 }
@@ -388,7 +392,7 @@ impl Widget<GuiContext> for &mut TextPage {
                             .color(colors::ACCENT),
                     );
                     preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
-                        let mut viewport = ui.layout(single::layout().padding(Sides::all(sz::SM))).clip(BoundsClip);
+                        let mut viewport = ui.layout(single::new().padding(Sides::all(sz::SM))).clip(BoundsClip);
                         viewport.insert(
                             Rectangle::new()
                                 .background(colors::TRACK)
@@ -404,15 +408,16 @@ impl Widget<GuiContext> for &mut TextPage {
                                     .maximum(screen)
                                     .grip_size(Size::uniform(sz::MD)),
                                 |ui: Ui<'_>| {
-                                    let mut paragraph =
-                                        ui.layout(single::layout().padding(Sides::all(sz::LG))).clip(BoundsClip);
+                                    let mut paragraph = ui
+                                        .layout(single::new().grow().padding(Sides::all(sz::LG)))
+                                        .clip(BoundsClip);
                                     paragraph.insert(
                                         Rectangle::new()
                                             .background(colors::CANVAS)
                                             .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
                                             .radius(BorderRadius::uniform(sz::XS)),
                                     );
-                                    paragraph.child().item(single::item().grow()).insert(
+                                    paragraph.child().insert(
                                         RichText::new(text, spans)
                                             .style(TextStyle {
                                                 size: sz::LG,
@@ -453,30 +458,26 @@ impl Widget<GuiContext> for &mut InputPage {
         body.child()
             .item(flex::item().width(Sizing::fixed(560.0)).height(Sizing::fixed(sz::XXXL)))
             .build(|ui: Ui<'_>| {
-                let mut field = ui.layout(single::layout());
+                let mut field = ui.layout(single::new().grow());
                 field.insert(
                     Rectangle::new()
                         .background(colors::TRACK)
                         .border(Border::solid(sz::BORDER, colors::BORDER))
                         .radius(BorderRadius::uniform(sz::XS)),
                 );
-                field
-                    .child()
-                    .item(single::item().grow())
-                    .widget_id(WidgetId::new("desktop text input"))
-                    .build(
-                        TextInput::new(&mut self.state, &mut self.value)
-                            .style(TextStyle {
-                                size: sz::LG,
-                                ..TextStyle::default()
-                            })
-                            .padding(Sides::all(sz::SM))
-                            .color(colors::TEXT)
-                            .placeholder("Type here")
-                            .placeholder_color(colors::TEXT_DIM)
-                            .selection_background(colors::ACCENT_DARK)
-                            .cursor_background(colors::ACCENT),
-                    )
+                field.child().widget_id(WidgetId::new("desktop text input")).build(
+                    TextInput::new(&mut self.state, &mut self.value)
+                        .style(TextStyle {
+                            size: sz::LG,
+                            ..TextStyle::default()
+                        })
+                        .padding(Sides::all(sz::SM))
+                        .color(colors::TEXT)
+                        .placeholder("Type here")
+                        .placeholder_color(colors::TEXT_DIM)
+                        .selection_background(colors::ACCENT_DARK)
+                        .cursor_background(colors::ACCENT),
+                )
             });
         body.child().insert(
             Text::new("Click to focus. Escape releases focus.")
@@ -667,7 +668,7 @@ impl Widget<GuiContext> for &mut LayoutPage {
                         );
                     preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
                         let mut viewport = ui
-                            .layout(single::layout().padding(Sides::all(sz::SM)))
+                            .layout(single::new().padding(Sides::all(sz::SM)))
                             .clip(BoundsClip);
                         viewport.insert(
                             Rectangle::new()
@@ -1279,7 +1280,7 @@ impl Widget<GuiContext> for Canvas {
                 };
                 let mut canvas = ui
                     .layout(
-                        wrap::layout(self.config.axis)
+                        wrap::new(self.config.axis)
                             .padding(self.config.padding(self.unit))
                             .item_gap(self.config.gap(self.config.axis, self.unit))
                             .run_gap(self.config.gap(cross, self.unit))
@@ -1299,8 +1300,7 @@ impl Widget<GuiContext> for Canvas {
                 }
             }
             CanvasLayout::Grid => {
-                let grid = grid::columns(5)
-                    .spanning()
+                let grid = grid::new(5)
                     .padding(self.config.padding(self.unit))
                     .column_gap(self.config.gap(Axis::Horizontal, self.unit))
                     .row_gap(self.config.gap(Axis::Vertical, self.unit));
@@ -1313,7 +1313,7 @@ impl Widget<GuiContext> for Canvas {
                             grid::item()
                                 .row_span(spec.rows)
                                 .column_span(spec.columns)
-                                .preferred_height(5.0 * self.unit.height * self.config.zoom),
+                                .height(5.0 * self.unit.height * self.config.zoom),
                         )
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config);
@@ -1353,34 +1353,36 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .color(Color::WHITE),
     );
     if let Some(anchor) = spec.badge {
-        item.absolute(
-            Absolute::attach(anchor, Anchor::Center)
-                .width(Sizing::fixed(sz::BADGE_WIDTH * config.zoom))
-                .height(Sizing::fixed(sz::LG * config.zoom)),
-        )
-        .parent(WidgetId::new("desktop canvas"))
-        .z_index(1)
-        .build(|ui: Ui<'_>| {
-            let mut badge = ui.layout(
-                flex::row()
-                    .align(Align::Center)
-                    .justify(blit_gui::layout::Justify::Center),
-            );
-            badge.insert(
-                Rectangle::new()
-                    .background(colors::BACKGROUND)
-                    .border(Border::solid(sz::BORDER, Color::WHITE))
-                    .radius(BorderRadius::uniform(sz::XXS)),
-            );
-            badge.child().insert(
-                Text::new("ABS")
-                    .style(TextStyle {
-                        size: (sz::XS * config.zoom).max(sz::XS),
-                        ..TextStyle::default()
-                    })
-                    .color(Color::WHITE),
-            );
-        });
+        item.child()
+            .parent(WidgetId::new("desktop canvas"))
+            .z_index(1)
+            .build(|ui: Ui<'_>| {
+                let mut badge = ui.layout(
+                    absolute::place(
+                        flex::row()
+                            .align(Align::Center)
+                            .justify(blit_gui::layout::Justify::Center),
+                    )
+                    .target_anchor(anchor)
+                    .child_anchor(Anchor::Center)
+                    .width(absolute::Sizing::fixed(sz::BADGE_WIDTH * config.zoom))
+                    .height(absolute::Sizing::fixed(sz::LG * config.zoom)),
+                );
+                badge.insert(
+                    Rectangle::new()
+                        .background(colors::BACKGROUND)
+                        .border(Border::solid(sz::BORDER, Color::WHITE))
+                        .radius(BorderRadius::uniform(sz::XXS)),
+                );
+                badge.child().insert(
+                    Text::new("ABS")
+                        .style(TextStyle {
+                            size: (sz::XS * config.zoom).max(sz::XS),
+                            ..TextStyle::default()
+                        })
+                        .color(Color::WHITE),
+                );
+            });
     }
 }
 
@@ -1501,7 +1503,7 @@ mod graphics {
             };
 
             let mut stage = ui
-                .layout(single::layout())
+                .layout(single::new())
                 .widget_id(WidgetId::new("terrain stage"))
                 .clip(BoundsClip);
             stage.insert(Rectangle::new().background(SKY));
@@ -1512,39 +1514,38 @@ mod graphics {
                 buffers: Rc::clone(&self.terrain),
             });
 
-            stage
-                .absolute(
-                    Absolute::attach(Anchor::BottomLeft, Anchor::BottomLeft)
-                        .offset(sz::LG, -sz::LG)
-                        .width(Sizing::fixed(390.0))
-                        .height(Sizing::fixed(52.0)),
-                )
-                .z_index(2)
-                .build(|ui: Ui<'_>| {
-                    let mut controls = ui.layout(
+            stage.child().z_index(2).build(|ui: Ui<'_>| {
+                let mut controls = ui.layout(
+                    absolute::place(
                         flex::row()
                             .padding(Sides::all(sz::XS))
                             .gap(sz::XXS)
                             .align(Align::Center),
-                    );
-                    controls.insert(
-                        Rectangle::new()
-                            .background(PANEL)
-                            .border(Border::solid(sz::BORDER, colors::BORDER))
-                            .radius(BorderRadius::uniform(sz::SM)),
-                    );
-                    for (label, value) in [("4K", Detail::Low), ("18K", Detail::Medium), ("74K", Detail::High)] {
-                        if controls.child().build(Button::new(label, self.detail == value)) {
-                            self.detail = value;
-                        }
+                    )
+                    .target_anchor(Anchor::BottomLeft)
+                    .child_anchor(Anchor::BottomLeft)
+                    .offset(blit::Point::new(sz::LG, -sz::LG))
+                    .width(absolute::Sizing::fixed(390.0))
+                    .height(absolute::Sizing::fixed(52.0)),
+                );
+                controls.insert(
+                    Rectangle::new()
+                        .background(PANEL)
+                        .border(Border::solid(sz::BORDER, colors::BORDER))
+                        .radius(BorderRadius::uniform(sz::SM)),
+                );
+                for (label, value) in [("4K", Detail::Low), ("18K", Detail::Medium), ("74K", Detail::High)] {
+                    if controls.child().build(Button::new(label, self.detail == value)) {
+                        self.detail = value;
                     }
-                    if controls
-                        .child()
-                        .build(Button::new(if self.running { "pause" } else { "play" }, self.running))
-                    {
-                        self.running = !self.running;
-                    }
-                });
+                }
+                if controls
+                    .child()
+                    .build(Button::new(if self.running { "pause" } else { "play" }, self.running))
+                {
+                    self.running = !self.running;
+                }
+            });
         }
     }
 

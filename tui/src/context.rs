@@ -12,6 +12,20 @@ pub struct TuiContext {
     should_quit: bool,
 }
 
+impl blit_layout::Context for TuiContext {
+    #[inline]
+    fn round(value: f32) -> f32 {
+        value.round()
+    }
+
+    #[inline]
+    fn allocate(cursor: &mut f32, share: f32) -> f32 {
+        let start = Self::round(*cursor);
+        *cursor += share;
+        Self::round(*cursor) - start
+    }
+}
+
 impl TuiContext {
     pub fn new(renderer: TuiRenderer) -> Self {
         let clip = renderer.screen().to_logical(Scale2::IDENTITY);

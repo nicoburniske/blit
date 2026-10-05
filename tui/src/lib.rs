@@ -12,6 +12,7 @@
 //! such as Kitty and Ghostty. Windows and legacy terminals are not supported.
 
 mod context;
+pub mod geometry;
 mod protocol;
 mod renderer;
 mod terminal;
@@ -36,7 +37,7 @@ use std::{
 };
 
 use blit::{
-    Frame, FrameInfo, LayoutResolution, LogicalPoint, LogicalSize,
+    Frame, FrameInfo, LogicalSize,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use terminal::{Size, Terminal};
@@ -177,11 +178,7 @@ impl Session {
 
     pub fn frame_info(&self) -> FrameInfo {
         let screen = self.context.renderer().screen();
-        FrameInfo::new(LogicalSize::new(screen.width as f32, screen.height as f32)).layout_resolution(
-            LayoutResolution::Discrete {
-                step: LogicalSize::uniform(1.0),
-            },
-        )
+        FrameInfo::new(LogicalSize::new(screen.width as f32, screen.height as f32))
     }
 
     pub fn poll(&mut self, timeout: Option<Duration>, inputs: &mut [Input]) -> io::Result<Poll> {
@@ -270,10 +267,7 @@ impl Session {
                     column,
                     row,
                 } => {
-                    let position = LogicalPoint {
-                        x: f32::from(column) + 0.5,
-                        y: f32::from(row) + 0.5,
-                    };
+                    let position = geometry::cell_center(column, row);
                     let modifiers =
                         Modifiers::new(modifiers.shift, modifiers.control, modifiers.alt, modifiers.super_key);
                     let button = |button| match button {

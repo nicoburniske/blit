@@ -1,9 +1,8 @@
 pub struct Frame<C> {
     nodes: Vec<StoredNode>,
+    node_geometry: Vec<NodeGeometry>,
     atoms: Vec<StoredAtom>,
-    layouts: Vec<StoredLayout>,
     clips: Vec<StoredClip>,
-    positioned: Vec<Positioned>,
     geometry: Vec<GeometryRecord>,
     atom_kinds: Vec<AtomKind<C>>,
     layout_kinds: Vec<LayoutKind<C>>,
@@ -24,7 +23,6 @@ pub struct Frame<C> {
     input: Input,
     time: Duration,
     screen: Rect,
-    layout_resolution: LayoutResolution,
     resized: bool,
     frame_requested: bool,
     #[cfg(debug_assertions)]
@@ -58,10 +56,9 @@ impl<C> Default for Frame<C> {
     fn default() -> Self {
         Self {
             nodes: Vec::new(),
+            node_geometry: Vec::new(),
             atoms: Vec::new(),
-            layouts: Vec::new(),
             clips: Vec::new(),
-            positioned: Vec::new(),
             geometry: Vec::new(),
             atom_kinds: Vec::new(),
             layout_kinds: Vec::new(),
@@ -82,7 +79,6 @@ impl<C> Default for Frame<C> {
             input: Input::None,
             time: Duration::ZERO,
             screen: Rect::default(),
-            layout_resolution: LayoutResolution::Continuous,
             resized: false,
             frame_requested: true,
             #[cfg(debug_assertions)]
@@ -107,7 +103,8 @@ impl<C> Frame<C> {
 
     /// resolves layout, positioning, clipping and interaction for the built graph
     pub fn layout(&mut self, context: &mut C) {
-        let data = std::mem::take(&mut self.data);
+        let mut data = std::mem::take(&mut self.data);
+        data.prepare_scratch();
         transition::resolve(self, &data, context, self.screen.size(), self.resized);
         position::resolve(self);
         paint::resolve_order(self);
@@ -116,6 +113,7 @@ impl<C> Frame<C> {
         self.animations.retain(|animation| animation.seen);
         self.transitions.retain(|state| state.seen);
         self.timers.retain(|timer| timer.seen);
+        data.prepare_scratch();
         self.data = data;
     }
 
@@ -129,21 +127,12 @@ impl<C> Frame<C> {
 
     pub fn has_pending_redraw(&self) -> bool {
         self.frame_requested
-            || self
-                .animations
-                .iter()
-                .any(animation::AnimationState::is_active)
-            || self
-                .transitions
-                .iter()
-                .any(transition::TransitionState::is_active)
+            || self.animations.iter().any(animation::AnimationState::is_active)
+            || self.transitions.iter().any(transition::TransitionState::is_active)
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
-        self.timers
-            .iter()
-            .filter_map(timer::TimerState::deadline)
-            .min()
+        self.timers.iter().filter_map(timer::TimerState::deadline).min()
     }
 
     pub fn request_frame(&mut self) {
@@ -154,7 +143,8 @@ impl<C> Frame<C> {
     pub fn geometry(&self, id: WidgetId) -> Option<Rect> {
         self.nodes
             .iter()
-            .find_map(|node| (node.widget_id == id).then_some(node.area))
+            .enumerate()
+            .find_map(|(index, node)| (node.widget_id == id).then_some(self.node_geometry[index].area))
     }
 
     fn record<W: Widget<C>>(
@@ -168,10 +158,9 @@ impl<C> Frame<C> {
         #[cfg(debug_assertions)]
         generation::begin();
         self.nodes.clear();
+        self.node_geometry.clear();
         self.atoms.clear();
-        self.layouts.clear();
         self.clips.clear();
-        self.positioned.clear();
         self.geometry.clear();
         self.requests.clear();
         self.data.clear();
@@ -186,9 +175,9 @@ impl<C> Frame<C> {
         self.active_clips.clear();
         self.input = input;
         self.time = time;
-        self.resized = self.screen.size() != frame.size;
-        self.screen = Rect::new(0.0, 0.0, frame.size.width, frame.size.height);
-        self.layout_resolution = frame.layout_resolution;
+        let size = frame.size;
+        self.resized = self.screen.size() != size;
+        self.screen = Rect::new(0.0, 0.0, size.width, size.height);
         for animation in &mut self.animations {
             animation.seen = false;
         }
@@ -207,9 +196,7 @@ impl<C> Frame<C> {
         };
         #[cfg(debug_assertions)]
         assert!(
-            self.nodes
-                .iter()
-                .all(|node| self.widget_ids.insert(node.widget_id)),
+            self.nodes.iter().all(|node| self.widget_ids.insert(node.widget_id)),
             "widget ids must identify unique nodes"
         );
         assert_eq!(
@@ -219,47 +206,6 @@ impl<C> Frame<C> {
         );
 
         output
-    }
-
-    fn layout_node(
-        &mut self,
-        data: &DataArena,
-        node: NodeId,
-        context: &mut C,
-        constraints: Constraints,
-    ) -> Size {
-        let index = node.index();
-        let size = if let Some(layout) = self.nodes[index].layout.index() {
-            let stored = self.layouts[layout];
-            let run = self.layout_kinds[stored.kind as usize].layout;
-            run(data, self, node, context, stored.data, constraints)
-        } else if constraints.min == constraints.max {
-            constraints.min
-        } else {
-            constraints.constrain(self.measure_base(data, node, context, constraints))
-        };
-        self.nodes[index].area.width = size.width;
-        self.nodes[index].area.height = size.height;
-        size
-    }
-
-    fn measure_base(
-        &mut self,
-        data: &DataArena,
-        node: NodeId,
-        context: &mut C,
-        constraints: Constraints,
-    ) -> Size {
-        let mut size = Size::ZERO;
-        let mut atom = self.nodes[node.index()].first_atom;
-        while let Some(index) = atom.index() {
-            let stored = self.atoms[index];
-            let measure = self.atom_kinds[stored.kind as usize].measure;
-            let measured = measure(data, stored.data, context, constraints);
-            size = size.max(measured);
-            atom = stored.next;
-        }
-        size
     }
 
     fn push_atom<A: Atom<C>>(&mut self, node: NodeId, atom: A) {
@@ -283,16 +229,16 @@ impl<C> Frame<C> {
             data: self.data.store(atom),
             next: StoredAtomId::NONE,
         });
-        let node = node.index();
-        if let Some(last) = self.nodes[node].last_atom.index() {
+        let node = &mut self.nodes[node.index()];
+        if let Some(last) = node.last_atom.index() {
             self.atoms[last].next = id;
         } else {
-            self.nodes[node].first_atom = id;
+            node.first_atom = id;
         }
-        self.nodes[node].last_atom = id;
+        node.last_atom = id;
     }
 
-    fn store_layout<L: Layout<C>>(&mut self, value: L) -> StoredLayoutId {
+    fn store_layout<L: Layout<C>>(&mut self, node: NodeId, value: L) {
         let type_id = TypeId::of::<L>();
         let kind = self
             .layout_kinds
@@ -301,7 +247,7 @@ impl<C> Frame<C> {
             .unwrap_or_else(|| {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
-                    layout: layout::run::<C, L>,
+                    run: layout::run::<C, L>,
                     default_item: DataId::NONE,
                 });
                 self.layout_kinds.len() - 1
@@ -309,13 +255,11 @@ impl<C> Frame<C> {
         if self.layout_kinds[kind].default_item.offset().is_none() {
             self.layout_kinds[kind].default_item = self.data.store(L::Item::default());
         }
-        let id = StoredLayoutId::new(self.layouts.len());
-        self.layouts.push(StoredLayout {
-            kind: u16::try_from(kind).expect("too many layout kinds"),
-            data: self.data.store(value),
-            offset: Point::ZERO,
-        });
-        id
+        let kind = u16::try_from(kind).expect("too many layout kinds");
+        let data = self.data.store(value);
+        let node = &mut self.nodes[node.index()];
+        node.layout = data;
+        node.layout_kind = kind;
     }
 
     fn store_clip<X: Clip<C>>(&mut self, clip: X) -> StoredClipId {
@@ -349,39 +293,20 @@ impl<C> Frame<C> {
             subtree_end: id.value,
             first_atom: StoredAtomId::NONE,
             last_atom: StoredAtomId::NONE,
-            layout: StoredLayoutId::NONE,
+            layout: DataId::NONE,
+            layout_kind: 0,
             clip: StoredClipId::NONE,
             item: DataId::NONE,
-            area: Rect::default(),
-            positioned: PositionedId::NONE,
-            z_index: 0,
+            relative: parent.unwrap_or(id),
+            out_of_flow: false,
             geometry: GeometryId::NONE,
             resolved_clip: ResolvedClipId::NONE,
-            #[cfg(debug_assertions)]
-            layout_state: LayoutState::Unlaid,
+        });
+        self.node_geometry.push(NodeGeometry {
+            area: Rect::default(),
+            z_index: 0,
         });
         id
-    }
-
-    fn set_absolute(&mut self, node: NodeId, absolute: Absolute) {
-        let target = self.resolve_target(node, absolute.target);
-        let positioned = PositionedId::new(self.positioned.len());
-        self.nodes[node.index()].item = self.data.store(AbsoluteSizing {
-            width: self
-                .layout_resolution
-                .sizing(Axis::Horizontal, absolute.width),
-            height: self
-                .layout_resolution
-                .sizing(Axis::Vertical, absolute.height),
-        });
-        self.positioned.push(Positioned {
-            target,
-            uses_target_content_origin: matches!(absolute.target, NodeTarget::Parent),
-            target_anchor: absolute.target_anchor,
-            child_anchor: absolute.child_anchor,
-            offset: absolute.offset,
-        });
-        self.nodes[node.index()].positioned = positioned;
     }
 
     fn resolve_target(&self, node: NodeId, target: NodeTarget) -> NodeId {
@@ -417,10 +342,7 @@ impl<C> Frame<C> {
                 }
             }
         };
-        assert!(
-            target.index() < node.index(),
-            "target must be declared before its node"
-        );
+        assert!(target.index() < node.index(), "target must be declared before its node");
         target
     }
 
@@ -438,13 +360,6 @@ impl<C> Frame<C> {
             id.index().unwrap()
         };
         &mut self.geometry[index]
-    }
-
-    fn layout_offset(&self, node: NodeId) -> Point {
-        self.nodes[node.index()]
-            .layout
-            .index()
-            .map_or(Point::ZERO, |layout| self.layouts[layout].offset)
     }
 
     fn clip_bounds(&self, clip: ResolvedClipId) -> Rect {
@@ -484,7 +399,6 @@ mod generation {
     }
 }
 
-#[derive(Clone, Copy)]
 struct StoredNode {
     widget_id: WidgetId,
     parent: NodeId,
@@ -492,39 +406,20 @@ struct StoredNode {
     subtree_end: u32,
     first_atom: StoredAtomId,
     last_atom: StoredAtomId,
-    layout: StoredLayoutId,
+    layout: DataId,
+    layout_kind: u16,
     clip: StoredClipId,
     item: DataId,
-    area: Rect,
-    positioned: PositionedId,
-    z_index: i16,
+    relative: NodeId,
+    out_of_flow: bool,
     geometry: GeometryId,
     resolved_clip: ResolvedClipId,
-    #[cfg(debug_assertions)]
-    layout_state: LayoutState,
-}
-
-#[cfg(debug_assertions)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LayoutState {
-    Unlaid,
-    Laid,
-    Positioned,
 }
 
 #[derive(Clone, Copy)]
-struct Positioned {
-    target: NodeId,
-    uses_target_content_origin: bool,
-    target_anchor: Anchor,
-    child_anchor: Anchor,
-    offset: Point,
-}
-
-#[derive(Clone, Copy)]
-struct AbsoluteSizing {
-    width: Sizing,
-    height: Sizing,
+struct NodeGeometry {
+    area: Rect,
+    z_index: i16,
 }
 
 #[derive(Clone, Copy)]
@@ -563,13 +458,6 @@ struct StoredAtom {
 }
 
 #[derive(Clone, Copy)]
-struct StoredLayout {
-    kind: u16,
-    data: DataId,
-    offset: Point,
-}
-
-#[derive(Clone, Copy)]
 struct StoredClip {
     kind: u16,
     data: DataId,
@@ -588,15 +476,13 @@ impl<T> Index<T> {
         )
     }
 
-    fn index(self) -> Option<usize> {
+    fn index(&self) -> Option<usize> {
         (self.0 != u32::MAX).then_some(self.0 as usize)
     }
 }
 
 type StoredAtomId = Index<StoredAtom>;
-type StoredLayoutId = Index<StoredLayout>;
 type StoredClipId = Index<StoredClip>;
-type PositionedId = Index<Positioned>;
 type GeometryId = Index<GeometryRecord>;
 type ResolvedClipId = Index<ResolvedClip>;
 
@@ -609,7 +495,7 @@ struct AtomKind<C> {
 
 struct LayoutKind<C> {
     type_id: TypeId,
-    layout: fn(&DataArena, &mut Frame<C>, NodeId, &mut C, DataId, Constraints) -> Size,
+    run: for<'a> fn(&mut layout::LayoutCx<'a, C>, DataId, Constraints) -> Size,
     default_item: DataId,
 }
 
@@ -619,12 +505,7 @@ struct ClipKind<C> {
     pop: fn(&DataArena, DataId, &mut C),
 }
 
-fn measure_atom<C, A: Atom<C>>(
-    data: &DataArena,
-    id: DataId,
-    context: &mut C,
-    constraints: Constraints,
-) -> Size {
+fn measure_atom<C, A: Atom<C>>(data: &DataArena, id: DataId, context: &mut C, constraints: Constraints) -> Size {
     data.load::<A>(id).measure(context, constraints)
 }
 

@@ -226,8 +226,10 @@ impl TuiRenderer {
     }
 
     pub fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
+        let area = crate::geometry::cell_rect(request.area);
         let text = &self.text_runs.get_key_index(self.text_run_index(request.text)).text;
-        let target = (position.x - request.area.x + request.offset_x).round().max(0.0) as usize;
+        let target =
+            (position.x.floor() as isize - area.x as isize + request.offset_x.round() as isize).max(0) as usize;
         let mut width = 0;
         for (offset, grapheme) in text.grapheme_indices(true) {
             let next = width + UnicodeWidthStr::width(grapheme).max(1);
@@ -249,12 +251,13 @@ impl TuiRenderer {
     }
 
     pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
+        let area = crate::geometry::cell_rect(request.area);
         let text = &self.text_runs.get_key_index(self.text_run_index(request.text)).text;
         let before = &text[..text.floor_char_boundary(byte_offset.min(text.len()))];
         let line = before.rsplit_once('\n').map_or(before, |(_, line)| line);
         LogicalRect {
-            x: request.area.x + UnicodeWidthStr::width(line) as f32 - request.offset_x,
-            y: request.area.y + before.matches('\n').count() as f32,
+            x: area.x as f32 + UnicodeWidthStr::width(line) as f32 - request.offset_x.round(),
+            y: area.y as f32 + before.matches('\n').count() as f32,
             width: 1.0,
             height: 1.0,
         }
@@ -534,11 +537,12 @@ struct TextLayout {
 
 impl TuiRenderer {
     fn cell_bounds(&self, area: LogicalRect) -> (usize, usize, usize, usize) {
+        let area = crate::geometry::cell_rect(area);
         (
-            area.x.round().clamp(0.0, self.columns as f32) as usize,
-            area.y.round().clamp(0.0, self.rows as f32) as usize,
-            (area.x + area.width).round().clamp(0.0, self.columns as f32) as usize,
-            (area.y + area.height).round().clamp(0.0, self.rows as f32) as usize,
+            area.x.clamp(0, self.columns as i32) as usize,
+            area.y.clamp(0, self.rows as i32) as usize,
+            (area.x + area.width).clamp(0, self.columns as i32) as usize,
+            (area.y + area.height).clamp(0, self.rows as i32) as usize,
         )
     }
 
@@ -936,8 +940,9 @@ mod tests {
             .clear(SurfaceCell::default().style(CellStyle::new().background(Color::CYAN)));
         renderer.end_frame();
 
-        assert_eq!(renderer.cells.background[5], Color::CYAN.packed());
-        assert_eq!(renderer.cells.background[6], Color::CYAN.packed());
+        assert_eq!(renderer.cells.background[1], Color::CYAN.packed());
+        assert_eq!(renderer.cells.background[2], Color::CYAN.packed());
+        assert_eq!(renderer.cells.background[5], Color::Reset.packed());
     }
 
     #[test]

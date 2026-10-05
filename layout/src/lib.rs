@@ -1,12 +1,16 @@
+pub mod absolute;
 pub mod flex;
 pub mod grid;
 pub mod rect;
 pub mod single;
 pub mod wrap;
 
-mod sizing;
+mod context;
+mod size;
 
-use blit::{Axis, Constraints, Size, Sizing};
+use blit::{Axis, Constraints, Sides, Size};
+pub use context::{Context, layout_child, resolve_sizing};
+pub use size::Sizing;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {
@@ -28,6 +32,15 @@ pub enum Justify {
     SpaceEvenly,
 }
 
+fn round_padding<C: Context>(padding: Sides) -> Sides {
+    Sides {
+        top: C::round(padding.top),
+        right: C::round(padding.right),
+        bottom: C::round(padding.bottom),
+        left: C::round(padding.left),
+    }
+}
+
 fn flow_size(main: f32, cross: f32, axis: Axis) -> Size {
     match axis {
         Axis::Horizontal => Size::new(main, cross),
@@ -36,7 +49,12 @@ fn flow_size(main: f32, cross: f32, axis: Axis) -> Size {
 }
 
 #[inline]
-fn sizing_range(sizing: Sizing, available: f32) -> (f32, f32) {
+fn sizing_range<C: Context>(sizing: Sizing, available: f32) -> (f32, f32) {
+    allocated_range::<C>(sizing, available, &mut 0.0)
+}
+
+#[inline]
+fn allocated_range<C: Context>(sizing: Sizing, available: f32, cursor: &mut f32) -> (f32, f32) {
     match sizing {
         Sizing::Fit { min, max } | Sizing::Grow { min, max } => {
             let min = min.max(0.0);
@@ -48,11 +66,12 @@ fn sizing_range(sizing: Sizing, available: f32) -> (f32, f32) {
         }
         Sizing::Percent(fraction) => {
             assert!((0.0..=1.0).contains(&fraction));
-            let size = if available.is_finite() {
+            let share = if available.is_finite() {
                 available * fraction
             } else {
                 0.0
             };
+            let size = C::allocate(cursor, share);
             (size, size)
         }
     }

@@ -323,11 +323,11 @@ mod tests {
             Duration::ZERO,
             Input::None,
             |ui: crate::Ui<'_>| {
-                let mut root = ui.layout(single::layout());
+                let mut root = ui.layout(single::new().fixed(20.0, 4.0));
                 root.insert(widget::Text::new(
                     "xxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx",
                 ));
-                root.child().item(single::item().fixed(20.0, 4.0)).insert(
+                root.child().insert(
                     widget::Block::new()
                         .background(Color::WHITE)
                         .border(Border::new(Color::GREEN).style(BorderStyle::Double))

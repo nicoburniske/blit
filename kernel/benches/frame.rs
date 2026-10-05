@@ -1,8 +1,10 @@
 use std::{hint::black_box, time::Duration};
 
 use blit::{
-    Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, Point, Sense, Size, Transition, Ui, WidgetId, state,
+    Atom, Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, Point, Rect, Sense, Size, Transition, Ui, WidgetId,
+    state,
 };
+use blit_layout::{Sizing, flex};
 
 #[global_allocator]
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
@@ -110,6 +112,46 @@ fn build_geometry_and_layout(bencher: divan::Bencher, count: usize) {
     });
 }
 
+#[divan::bench(args = ["fit", "grow", "capped"])]
+fn flex_layout(bencher: divan::Bencher, sizing: &str) {
+    struct Child;
+    impl Atom<()> for Child {
+        fn measure(&self, _: &mut (), bounds: Constraints) -> Size {
+            bounds.constrain(Size::new(8.0, 2.0))
+        }
+        fn paint(&self, _: &mut (), _: Rect) {}
+        fn paint_bounds(&self, area: Rect) -> Rect {
+            area
+        }
+    }
+    let mut frame = Frame::default();
+    frame.build(
+        &mut (),
+        FrameInfo::new(Size::new(16000.0, 32.0)),
+        Duration::ZERO,
+        Input::None,
+        |ui: Ui<'_, ()>| {
+            let mut root = ui.layout(flex::row());
+            for index in 0..1000 {
+                let width = match sizing {
+                    "fit" => Sizing::fit(),
+                    "grow" => Sizing::grow(),
+                    "capped" => Sizing::grow_range(0.0, 8.0 + (index % 3) as f32 * 8.0),
+                    _ => unreachable!(),
+                };
+                root.child().item(flex::item().width(width)).insert(Child);
+            }
+        },
+    );
+    for _ in 0..4 {
+        frame.layout(&mut ());
+    }
+    bencher.bench_local(|| {
+        frame.layout(&mut ());
+        black_box(&frame);
+    });
+}
+
 fn build(frame: &mut Frame<()>, count: usize, mut child: impl for<'a> FnMut(Ui<'a, (), state::Child<()>>, usize)) {
     frame.build(
         &mut (),
@@ -131,11 +173,11 @@ struct Stack;
 impl Layout<()> for Stack {
     type Item = ();
 
-    fn layout(&self, cx: &mut LayoutCx<'_, (), ()>, constraints: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, (), ()>, bounds: Constraints) -> Size {
         for child in cx.children() {
             cx.layout_child(child, Constraints::tight(Size::ZERO));
             cx.set_child_position(child, Point::ZERO);
         }
-        constraints.min
+        bounds.min
     }
 }

@@ -1,6 +1,7 @@
 use std::fmt::Write as _;
 
-use blit::{Anchor, Interaction, Sides, Size, Sizing, Widget};
+use blit::{Interaction, Sides, Size, Widget};
+use blit_layout::{Sizing, absolute::Anchor};
 use blit_widgets::performance as shared;
 
 use crate::{
@@ -96,7 +97,7 @@ impl Widget<GuiContext> for Performance<'_> {
                 );
                 {
                     let mut table = panel.child().layout(
-                        grid::columns(3)
+                        grid::new(3)
                             .column_gap(self.table_gap.width)
                             .row_gap(self.table_gap.height),
                     );

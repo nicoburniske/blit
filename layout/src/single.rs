@@ -1,7 +1,7 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Sides, Size, Sizing};
+use blit::{Axis, Constraints, LayoutCx, Point, Sides, Size};
 
-pub use super::sizing::{Item, item};
 use super::{flow_constraints, sizing_range};
+use crate::{Context, Sizing, layout_child, resolve_sizing};
 
 blit::builder! {
     /// lays out at most one child
@@ -10,45 +10,59 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Layout {
         new(),
+        width: Sizing = Sizing::fit(),
+        height: Sizing = Sizing::fit(),
         padding: Sides = Sides::all(0.0),
     }
 }
 
-pub fn layout() -> Layout {
+pub fn new() -> Layout {
     Layout::new()
 }
 
-impl<C> blit::Layout<C> for Layout {
-    type Item = Item;
+impl Layout {
+    pub fn fixed(mut self, width: f32, height: f32) -> Self {
+        self.width = Sizing::fixed(width);
+        self.height = Sizing::fixed(height);
+        self
+    }
+
+    pub fn grow(mut self) -> Self {
+        self.width = Sizing::grow();
+        self.height = Sizing::grow();
+        self
+    }
+}
+
+impl<C: Context> blit::Layout<C> for Layout {
+    type Item = ();
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
-        let res = cx.resolution();
-        let padding = res.sides(self.padding);
+        let padding = crate::round_padding::<C>(self.padding);
         let mut children = cx.children();
-        let Some(child) = children.next() else {
-            return bounds.constrain(padding.size());
-        };
+        let child = children.next();
         assert!(children.next().is_none(), "single accepts at most one flow child");
-        let content = bounds.shrink(padding.size());
-        let item = cx.item(child);
         let range = |axis: Axis, sizing| {
-            let sizing = res.sizing(axis, sizing);
-            let minimum = axis.extent(content.min);
-            let maximum = axis.extent(content.max);
-            if matches!(sizing, Sizing::Grow { .. }) {
-                // a single child forwards the budget instead of claiming its maximum
+            let sizing = resolve_sizing(cx, cx.node(), axis, sizing);
+            let minimum = axis.extent(bounds.min);
+            let maximum = axis.extent(bounds.max);
+            if let Sizing::Grow { .. } = sizing {
+                // forwards the budget instead of claiming its maximum
                 (sizing.clamp(minimum), sizing.clamp(maximum).max(sizing.clamp(minimum)))
             } else {
-                sizing_range(sizing, maximum)
+                sizing_range::<C>(sizing, maximum)
             }
         };
-        let child_bounds = flow_constraints(
+        let sizing = flow_constraints(
             Axis::Horizontal,
-            range(Axis::Horizontal, item.width),
-            range(Axis::Vertical, item.height),
+            range(Axis::Horizontal, self.width),
+            range(Axis::Vertical, self.height),
         );
-        let size = cx.layout_child(child, child_bounds);
-        cx.set_child_position(child, Point::new(padding.left, padding.top));
-        bounds.constrain(size + padding.size())
+        let size = child.map_or(Size::ZERO, |child| {
+            let size = layout_child(cx, child, sizing.shrink(padding.size()));
+            cx.set_child_position(child, Point::new(padding.left, padding.top));
+            size
+        });
+        bounds.constrain(sizing.constrain(size + padding.size()))
     }
 }

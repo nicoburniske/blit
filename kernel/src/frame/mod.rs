@@ -21,7 +21,7 @@ use crate::{
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::Input,
     interact::{Interaction, Sense, WidgetId},
-    layout::{Axis, Layout, LayoutResolution, Sizing},
+    layout::Layout,
 };
 
 /// typestate modes for [`crate::Ui`]
@@ -84,9 +84,10 @@ impl<'ui, C, S> Ui<'ui, C, S> {
         self
     }
 
-    /// selects the parent for stacking, clipping and absolute sizing
+    /// selects the parent for stacking, clipping and containing size
     ///
     /// named targets must already exist. positioning stays with its anchor.
+    #[inline]
     pub fn parent(mut self, target: impl Into<NodeTarget>) -> Self {
         let node = self.inner.node;
         let frame = self.inner.frame_mut();
@@ -95,17 +96,27 @@ impl<'ui, C, S> Ui<'ui, C, S> {
         self
     }
 
+    /// positions this node against a reference outside its parent's flow
+    pub fn relative(mut self, target: impl Into<NodeTarget>) -> Self {
+        let node = self.inner.node;
+        let frame = self.inner.frame_mut();
+        let reference = frame.resolve_target(node, target.into());
+        frame.nodes[node.index()].relative = reference;
+        frame.nodes[node.index()].out_of_flow = true;
+        self
+    }
+
     /// sets this node's paint order among its visual siblings
     pub fn z_index(mut self, z_index: i16) -> Self {
         let node = self.inner.node;
         let frame = self.inner.frame_mut();
-        frame.nodes[node.index()].z_index = z_index;
+        frame.node_geometry[node.index()].z_index = z_index;
         self
     }
 
     /// inserts content into the current node
     ///
-    /// atoms contribute to sizing only when the node has no layout.
+    /// layouts choose whether their atoms contribute to sizing
     pub fn insert<X: Content<C>>(&mut self, content: X) -> X::Response {
         content.append(Ui {
             inner: UiInner {
@@ -134,11 +145,10 @@ impl<'ui, C> Ui<'ui, C, state::Build> {
 
     /// establishes the current node's layout
     pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
-        let Ui { mut inner, .. } = self;
+        let Ui { mut inner, .. } = layout.on_insert(self);
         let node = inner.node;
         let frame = inner.frame_mut();
-        let layout = frame.store_layout(layout);
-        frame.nodes[node.index()].layout = layout;
+        frame.store_layout(node, layout);
         Ui {
             inner,
             marker: PhantomData,
@@ -196,22 +206,6 @@ impl<'ui, C, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     #[inline]
     pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
         let node = self.inner.push_child();
-        Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
-    }
-
-    pub fn offset(mut self, offset: Point) -> Self {
-        let node = self.inner.node;
-        let frame = self.inner.frame_mut();
-        let layout = frame.nodes[node.index()].layout.index().unwrap();
-        frame.layouts[layout].offset = offset;
-        self
-    }
-
-    /// creates an absolutely positioned child that bypasses this layout
-    pub fn absolute(&mut self, absolute: Absolute) -> Ui<'_, C> {
-        let node = self.inner.push_child();
-        let frame = self.inner.frame_mut();
-        frame.set_absolute(node, absolute);
         Ui::new(&mut *self.inner.frame, &mut *self.inner.context, node)
     }
 }
@@ -295,11 +289,6 @@ impl<C, S> Ui<'_, C, S> {
         self.inner.frame.screen
     }
 
-    /// returns the frame's layout resolution
-    pub fn layout_resolution(&self) -> LayoutResolution {
-        self.inner.frame.layout_resolution
-    }
-
     pub fn time(&self) -> Duration {
         self.inner.frame.time
     }
@@ -357,17 +346,6 @@ pub struct NodeId {
     generation: u16,
 }
 
-/// placement and sizing of a child outside its parent layout
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Absolute {
-    pub target: NodeTarget,
-    pub target_anchor: Anchor,
-    pub child_anchor: Anchor,
-    pub offset: Point,
-    pub width: Sizing,
-    pub height: Sizing,
-}
-
 /// selects a node for visual parenting or absolute positioning
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NodeTarget {
@@ -391,71 +369,6 @@ impl From<WidgetId> for NodeTarget {
 impl From<NodeId> for NodeTarget {
     fn from(id: NodeId) -> Self {
         Self::Node(id)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Anchor {
-    #[default]
-    TopLeft,
-    Top,
-    TopRight,
-    Left,
-    Center,
-    Right,
-    BottomLeft,
-    Bottom,
-    BottomRight,
-}
-
-impl Absolute {
-    pub const fn at(x: f32, y: f32) -> Self {
-        Self {
-            target: NodeTarget::Parent,
-            target_anchor: Anchor::TopLeft,
-            child_anchor: Anchor::TopLeft,
-            offset: Point::new(x, y),
-            width: Sizing::fit(),
-            height: Sizing::fit(),
-        }
-    }
-
-    pub const fn screen(x: f32, y: f32) -> Self {
-        Self {
-            target: NodeTarget::Root,
-            ..Self::at(x, y)
-        }
-    }
-
-    pub const fn attach(target: Anchor, child: Anchor) -> Self {
-        Self::at(0.0, 0.0).anchors(target, child)
-    }
-
-    /// positions relative to the specified node
-    pub fn relative_to(mut self, target: impl Into<NodeTarget>) -> Self {
-        self.target = target.into();
-        self
-    }
-
-    pub const fn anchors(mut self, target: Anchor, child: Anchor) -> Self {
-        self.target_anchor = target;
-        self.child_anchor = child;
-        self
-    }
-
-    pub const fn offset(mut self, x: f32, y: f32) -> Self {
-        self.offset = Point::new(x, y);
-        self
-    }
-
-    pub const fn width(mut self, width: Sizing) -> Self {
-        self.width = width;
-        self
-    }
-
-    pub const fn height(mut self, height: Sizing) -> Self {
-        self.height = height;
-        self
     }
 }
 
@@ -483,6 +396,7 @@ impl<C> UiInner<'_, C> {
         self.frame.nodes[node.index()].widget_id = id;
     }
 
+    #[inline]
     fn push_child(&mut self) -> NodeId {
         let slot = self.next_child;
         self.next_child = slot.checked_add(1).expect("child id overflow");
@@ -523,6 +437,7 @@ impl<C> Drop for UiInner<'_, C> {
 }
 
 impl NodeId {
+    #[inline]
     fn new(index: usize) -> Self {
         Self {
             value: u32::try_from(index).expect("too many frame nodes"),

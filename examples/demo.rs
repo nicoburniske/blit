@@ -1,5 +1,6 @@
-use blit::{Anchor, Axis, Sides, Size, Sizing};
+use blit::{Axis, Sides, Size};
 pub use blit_layout::{Align, Justify};
+use blit_layout::{Sizing, absolute::Anchor};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CanvasLayout {
@@ -94,8 +95,8 @@ impl CanvasConfig {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ItemSpec {
     pub label: &'static str,
-    pub rows: usize,
-    pub columns: usize,
+    pub rows: u32,
+    pub columns: u32,
     pub badge: Option<Anchor>,
 }
 

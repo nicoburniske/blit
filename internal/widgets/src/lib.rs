@@ -9,6 +9,18 @@ pub mod text_input;
 mod test {
     pub struct TestContext;
 
+    impl blit_layout::Context for TestContext {
+        fn round(value: f32) -> f32 {
+            value.round()
+        }
+
+        fn allocate(cursor: &mut f32, share: f32) -> f32 {
+            let start = Self::round(*cursor);
+            *cursor += share;
+            Self::round(*cursor) - start
+        }
+    }
+
     #[derive(Clone, Copy)]
     pub struct TestClip;
 

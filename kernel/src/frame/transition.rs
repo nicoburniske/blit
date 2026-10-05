@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use super::{Frame, NodeId, position};
+use super::{Frame, NodeId, layout};
 use crate::{
     animation::{Transition, TransitionProperties},
     arena::DataArena,
@@ -29,17 +29,14 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
         }
     }
 
-    position::layout(frame, data, context, size);
+    layout::resolve(frame, data, context, size);
     let mut active = TransitionProperties::NONE;
     for index in 0..frame.transitions.len() {
         if !frame.transitions[index].seen {
             continue;
         }
         let node = frame.transitions[index].node;
-        let mut target = frame.nodes[node.index()].area;
-        let offset = position::offset(frame, node);
-        target.x -= offset.x;
-        target.y -= offset.y;
+        let target = frame.node_geometry[node.index()].area;
         frame.transitions[index].advance(target, frame.time, resized);
         active = active.union(frame.transitions[index].active);
     }
@@ -47,7 +44,7 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
     if active.intersects(TransitionProperties::SIZE) {
         frame
             .target_sizes
-            .extend(frame.nodes.iter().map(|node| super::TargetSize {
+            .extend(frame.node_geometry.iter().map(|node| super::TargetSize {
                 size: node.area.size(),
                 properties: TransitionProperties::NONE,
             }));
@@ -68,7 +65,7 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
                 frame.transitions[index].snap_size();
                 continue;
             }
-            let area = &mut frame.nodes[node.index()].area;
+            let area = &mut frame.node_geometry[node.index()].area;
             if properties.intersects(TransitionProperties::WIDTH) {
                 area.width = current.width;
             }
@@ -79,20 +76,19 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
             relayout = true;
         }
         if relayout {
-            position::layout(frame, data, context, size);
+            layout::resolve(frame, data, context, size);
         }
         frame.target_sizes.clear();
     }
 
     if active.intersects(TransitionProperties::POSITION) {
         for state in frame.transitions.iter().filter(|state| state.seen) {
-            let offset = position::offset(frame, state.node);
-            let area = &mut frame.nodes[state.node.index()].area;
+            let area = &mut frame.node_geometry[state.node.index()].area;
             if state.active.intersects(TransitionProperties::X) {
-                area.x = state.current.x + offset.x;
+                area.x = state.current.x;
             }
             if state.active.intersects(TransitionProperties::Y) {
-                area.y = state.current.y + offset.y;
+                area.y = state.current.y;
             }
         }
     }

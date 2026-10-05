@@ -1,9 +1,10 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
 use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, Size, Ui, WidgetId};
+use blit_layout::layout_child;
 
 pub use super::shared::Behavior;
-use super::shared::{self, ScrollItem, ScrollLayout, build_scroll, update};
+use super::shared::{self, ScrollLayout, build_scroll, update};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug)]
@@ -15,7 +16,7 @@ blit::builder! {
 }
 
 /// measures all rows initially then corrects visible heights as layout changes
-pub fn build<C, R, X, K, F, T, H>(
+pub fn build<C: blit_layout::Context, R, X, K, F, T, H>(
     mut ui: Ui<'_, C>,
     state: &mut State,
     rows: &[R],
@@ -156,14 +157,18 @@ where
     let (track, thumb) = scrollbar(thumb_active);
     build_scroll(
         ui,
-        MeasuredScrollLayout {
-            scroll: ScrollLayout {
-                axis: Axis::Vertical,
-                offset,
-                scrollbar_thickness: config.scrollbar_thickness,
-                minimum_thumb_extent: config.minimum_thumb_extent,
+        ScrollLayout {
+            axis: Axis::Vertical,
+            offset: {
+                let table = Rc::clone(&table);
+                move |maximum| {
+                    let mut table = table.borrow_mut();
+                    table.offset = table.offset.clamp(0.0, maximum);
+                    table.offset
+                }
             },
-            table: Rc::clone(&table),
+            scrollbar_thickness: config.scrollbar_thickness,
+            minimum_thumb_extent: config.minimum_thumb_extent,
         },
         clip,
         move |ui: Ui<'_, C>| {
@@ -237,43 +242,31 @@ struct RowTable {
     offset: f32,
 }
 
-struct MeasuredScrollLayout {
-    scroll: ScrollLayout,
-    table: Rc<RefCell<RowTable>>,
-}
-
-impl<C> Layout<C> for MeasuredScrollLayout {
-    type Item = ScrollItem;
-
-    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
-        self.scroll.layout_with_offset(ui, constraints, |maximum| {
-            let mut table = self.table.borrow_mut();
-            table.offset = table.offset.clamp(0.0, maximum);
-            table.offset
-        })
-    }
-}
-
 struct MeasuredLayout {
     first: usize,
     target: Option<(usize, f32)>,
     table: Rc<RefCell<RowTable>>,
 }
 
-impl<C> Layout<C> for MeasuredLayout {
+impl<C: blit_layout::Context> Layout<C> for MeasuredLayout {
     type Item = ();
 
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
+        let width = if constraints.max.width.is_finite() {
+            constraints.max.width
+        } else {
+            ui.children().fold(constraints.min.width, |width, child| {
+                width.max(layout_child(ui, child, Constraints::loose(Size::uniform(f32::INFINITY))).width)
+            })
+        };
+        let bounds = Constraints {
+            min: Size::new(width, 0.0),
+            max: Size::new(width, f32::INFINITY),
+        };
         let mut table = self.table.borrow_mut();
         let mut changed = None;
         for (index, child) in ui.children().enumerate() {
-            let size = ui.layout_child(
-                child,
-                Constraints {
-                    min: Size::new(constraints.max.width, 0.0),
-                    max: Size::new(constraints.max.width, f32::INFINITY),
-                },
-            );
+            let size = layout_child(ui, child, bounds);
             assert!(size.height.is_finite() && size.height >= 0.0);
             let row = &mut table.rows[self.first + index];
             if row.height != size.height {
@@ -299,7 +292,7 @@ impl<C> Layout<C> for MeasuredLayout {
         for (index, child) in ui.children().enumerate() {
             ui.set_child_position(child, Point::new(0.0, table.rows[self.first + index].top));
         }
-        constraints.constrain(Size::new(constraints.max.width, table.total))
+        constraints.constrain(Size::new(bounds.max.width, table.total))
     }
 }
 
@@ -333,7 +326,7 @@ mod tests {
                         |_| (None::<()>, None::<()>),
                         |row| WidgetId::new(row.0),
                         |ui, row| {
-                            ui.layout(blit_layout::single::layout().padding(Sides::y(row.1 / 2.0)));
+                            ui.layout(blit_layout::single::new().padding(Sides::y(row.1 / 2.0)));
                         },
                     )
                 },

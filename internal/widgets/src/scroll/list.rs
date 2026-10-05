@@ -1,4 +1,5 @@
 use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, Size, Ui, WidgetId};
+use blit_layout::layout_child;
 
 pub use super::shared::{Behavior, State};
 use super::shared::{ScrollLayout, build_scroll, update};
@@ -14,7 +15,7 @@ blit::builder! {
 }
 
 /// scrolls uniform items while building only the visible range
-pub fn build<C, I, K, F, X, T, H>(
+pub fn build<C: blit_layout::Context, I, K, F, X, T, H>(
     mut ui: Ui<'_, C>,
     state: &mut State,
     list: Config,
@@ -37,9 +38,12 @@ pub fn build<C, I, K, F, X, T, H>(
     let item_extent = list.item_extent;
     assert!(item_extent.is_finite() && item_extent > 0.0);
     assert!(gap.is_finite() && gap >= 0.0);
-    let res = ui.layout_resolution();
-    let item_extent = res.extent(axis, item_extent);
-    let gap = res.extent(axis, gap);
+    let item_extent = C::round(item_extent);
+    assert!(
+        item_extent.is_finite() && item_extent > 0.0,
+        "rounded item extent must be positive and finite"
+    );
+    let gap = C::round(gap);
     let stride = item_extent + gap;
     let count = items.len();
     let (thumb_active, viewport_known) = update(state, &mut ui, axis, config);
@@ -72,11 +76,12 @@ pub fn build<C, I, K, F, X, T, H>(
         }
     };
     let (track, thumb) = scrollbar(thumb_active);
+    let offset = state.offset;
     build_scroll(
         ui,
         ScrollLayout {
             axis,
-            offset: state.offset,
+            offset: move |_| offset,
             scrollbar_thickness: config.scrollbar_thickness,
             minimum_thumb_extent: config.minimum_thumb_extent,
         },
@@ -95,7 +100,7 @@ struct ListLayout {
     total_extent: f32,
 }
 
-impl<C> Layout<C> for ListLayout {
+impl<C: blit_layout::Context> Layout<C> for ListLayout {
     type Item = usize;
 
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
@@ -104,17 +109,16 @@ impl<C> Layout<C> for ListLayout {
             let mut child_constraints = constraints;
             self.axis.set_extent(&mut child_constraints.min, self.item_extent);
             self.axis.set_extent(&mut child_constraints.max, self.item_extent);
-            let size = ui.layout_child(child, child_constraints);
-            let offset = *ui.item(child) as f32 * self.stride;
+            let size = layout_child(ui, child, child_constraints);
             cross_extent = cross_extent.max(self.axis.other().extent(size));
-            match self.axis {
-                Axis::Horizontal => {
-                    ui.set_child_position(child, Point::new(offset, 0.0));
-                }
-                Axis::Vertical => {
-                    ui.set_child_position(child, Point::new(0.0, offset));
-                }
-            }
+            let offset = *ui.item(child) as f32 * self.stride;
+            ui.set_child_position(
+                child,
+                match self.axis {
+                    Axis::Horizontal => Point::new(offset, 0.0),
+                    Axis::Vertical => Point::new(0.0, offset),
+                },
+            );
         }
         constraints.constrain(match self.axis {
             Axis::Horizontal => Size::new(self.total_extent, cross_extent),
@@ -127,7 +131,7 @@ impl<C> Layout<C> for ListLayout {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Input, LayoutResolution, WidgetId};
+    use blit::{Frame, FrameInfo, Input, WidgetId};
 
     use super::*;
     use crate::test::{TestClip, TestContext};
@@ -166,9 +170,7 @@ mod tests {
 
         let mut frame = Frame::default();
         let mut context = TestContext;
-        let frame_info = FrameInfo::new(Size::new(80.0, 10.0)).layout_resolution(LayoutResolution::Discrete {
-            step: Size::uniform(1.0),
-        });
+        let frame_info = FrameInfo::new(Size::new(80.0, 10.0));
         let mut state = State::new();
         let mut built = Vec::new();
 

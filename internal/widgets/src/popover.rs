@@ -1,5 +1,9 @@
-use blit::{Absolute, Anchor, Input, Interaction, NodeTarget, Point, Sense, Sides, Sizing, Ui, Widget};
-use blit_layout::single;
+use blit::{Input, Interaction, NodeTarget, Point, Sense, Sides, Ui, Widget};
+use blit_layout::{
+    absolute,
+    absolute::{Anchor, Sizing},
+    single,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Close {
@@ -34,7 +38,7 @@ blit::builder! {
     }
 }
 
-pub fn new<'a, C, T, W>(
+pub fn new<'a, C: blit_layout::Context, T, W>(
     state: &'a mut State,
     config: Config,
     trigger: T,
@@ -53,13 +57,12 @@ where
         } else if !config.open_on_hover && interaction.activated {
             state.open = !state.open;
         }
-        let mut root = ui.layout(single::layout());
+        let mut root = ui.layout(single::new());
         let anchor = {
-            let mut trigger_node = root.child().widget_id(trigger_id).layout(single::layout());
+            let mut trigger_node = root.child().widget_id(trigger_id).layout(());
             let anchor = trigger_node.id();
             trigger_node
                 .child()
-                .item(single::item().grow())
                 .build(|ui: Ui<'_, C>| trigger(ui, interaction, state.open));
             anchor
         };
@@ -90,33 +93,22 @@ where
             return None;
         }
 
-        let mut popup = root
-            .absolute(
-                Absolute {
-                    target: config.parent,
-                    ..Absolute::at(0.0, 0.0)
-                }
-                .width(Sizing::grow())
-                .height(Sizing::grow()),
-            )
-            .parent(config.parent)
-            .z_index(1)
-            .layout(single::layout());
+        let mut popup = root.child().parent(config.parent).z_index(1).layout(
+            absolute::place(())
+                .target(config.parent.into())
+                .width(Sizing::full())
+                .height(Sizing::full()),
+        );
         if config.close != Close::Manual {
             popup
-                .absolute(Absolute::at(0.0, 0.0).width(Sizing::grow()).height(Sizing::grow()))
+                .child()
+                .layout(absolute::place(()).width(Sizing::full()).height(Sizing::full()))
                 .widget_id(backdrop_id)
                 .insert(());
         }
         Some(
             popup
-                .absolute(
-                    Absolute::attach(config.target_anchor, config.child_anchor)
-                        .relative_to(anchor)
-                        .offset(config.offset.x, config.offset.y)
-                        .width(config.width)
-                        .height(config.height),
-                )
+                .child()
                 .hit(
                     Sides::new()
                         .top(config.offset.y.max(0.0))
@@ -125,9 +117,16 @@ where
                         .left(config.offset.x.max(0.0)),
                 )
                 .widget_id(content_id)
-                .layout(single::layout())
+                .layout(
+                    absolute::place(())
+                        .target_anchor(config.target_anchor)
+                        .child_anchor(config.child_anchor)
+                        .target(anchor.into())
+                        .offset(blit::Point::new(config.offset.x, config.offset.y))
+                        .width(config.width)
+                        .height(config.height),
+                )
                 .child()
-                .item(single::item().grow())
                 .build(content),
         )
     }
@@ -148,16 +147,14 @@ mod tests {
             config,
             |ui: Ui<'_, TestContext>, _, _| {
                 ui.widget_id(WidgetId::new("named trigger"))
-                    .layout(single::layout())
+                    .layout(single::new().fixed(2.0, 1.0))
                     .child()
-                    .item(single::item().fixed(2.0, 1.0))
                     .build(())
             },
             |ui: Ui<'_, TestContext>| {
                 ui.widget_id(WidgetId::new("named content"))
-                    .layout(single::layout())
+                    .layout(single::new().fixed(4.0, 3.0))
                     .child()
-                    .item(single::item().fixed(4.0, 3.0))
                     .build(())
             },
         ));

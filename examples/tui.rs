@@ -1,9 +1,8 @@
 use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
-use blit::{
-    Absolute, Anchor, Axis, Easing, Input, Interaction, Key, Sense, Sides, Size, Sizing, Transition, Widget, WidgetId,
-};
+use blit::{Axis, Easing, Input, Interaction, Key, Sense, Sides, Size, Transition, Widget, WidgetId};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
+use blit_layout::{Sizing, absolute, absolute::Anchor};
 use blit_tui::{
     BoundsClip, TuiContext, Ui,
     atom::{Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, Tint, TitlePosition},
@@ -134,19 +133,23 @@ impl Demo {
             Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
         };
         if self.show_performance {
-            root.absolute(
-                Absolute::screen(0.0, 0.0)
-                    .anchors(Anchor::BottomRight, Anchor::BottomRight)
-                    .offset(-1.0, -1.0),
-            )
-            .build(
-                Performance::new(&mut self.performance)
-                    .background(colors::SURFACE_HIGH)
-                    .graph_background(colors::TRACK)
-                    .color(colors::TEXT)
-                    .muted_color(colors::TEXT)
-                    .accent(colors::ACCENT),
-            );
+            root.child()
+                .layout(
+                    absolute::place(())
+                        .target(blit::NodeTarget::Root)
+                        .target_anchor(Anchor::BottomRight)
+                        .child_anchor(Anchor::BottomRight)
+                        .offset(blit::Point::new(-1.0, -1.0)),
+                )
+                .child()
+                .build(
+                    Performance::new(&mut self.performance)
+                        .background(colors::SURFACE_HIGH)
+                        .graph_background(colors::TRACK)
+                        .color(colors::TEXT)
+                        .muted_color(colors::TEXT)
+                        .accent(colors::ACCENT),
+                );
         }
     }
 }
@@ -182,7 +185,7 @@ impl Widget<TuiContext> for &mut Modal {
                 self.open = false;
             }
         }
-        let mut root = ui.layout(single::layout());
+        let mut root = ui.layout(single::new());
         let opened = root.child().build(Button::new(" modal ", self.open));
         if opened {
             self.open = true;
@@ -204,16 +207,22 @@ impl Widget<TuiContext> for &mut Modal {
         let panel_id = WidgetId::new("tui modal panel");
         root.interact_widget(panel_id, Sense::ALL);
         let mut modal = root
-            .absolute(Absolute::screen(0.0, 0.0).width(Sizing::grow()).height(Sizing::grow()))
+            .child()
             .parent(blit::NodeTarget::Root)
             .z_index(1)
             .widget_id(backdrop_id)
-            .layout(single::layout());
+            .layout(
+                absolute::place(())
+                    .target(blit::NodeTarget::Root)
+                    .width(absolute::Sizing::full())
+                    .height(absolute::Sizing::full()),
+            );
         modal.insert(Tint::new([0, 0, 0], if self.dim { 180 } else { 80 }));
-        let mut panel = modal
-            .absolute(Absolute::attach(Anchor::Center, Anchor::Center))
-            .widget_id(panel_id)
-            .layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
+        let mut panel = modal.child().widget_id(panel_id).layout(
+            absolute::place(flex::column().padding(Sides::all(1.0)).gap(1.0))
+                .target_anchor(Anchor::Center)
+                .child_anchor(Anchor::Center),
+        );
         panel.insert(
             Block::new()
                 .background(colors::SURFACE)
@@ -441,7 +450,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
                         let mut viewport = preview
                             .child()
                             .item(flex::item().grow())
-                            .layout(single::layout().padding(Sides::all(1.0)))
+                            .layout(single::new().padding(Sides::all(1.0)))
                             .clip(BoundsClip);
                         viewport.insert(Block::new().background(colors::TRACK));
                         viewport
@@ -626,10 +635,10 @@ impl Widget<TuiContext> for &mut TextPage {
                 {
                     let mut input_preview = preview
                         .child().item(flex::item().height(Sizing::fixed(3.0)))
-                        .layout(single::layout());
+                        .layout(single::new().width(Sizing::grow()));
                     input_preview.insert(panel(colors::SURFACE, " TEXT INPUT "));
                     input_preview
-                        .child().item(single::item().width(Sizing::grow())).widget_id(WidgetId::new("tui text input"))
+                        .child().widget_id(WidgetId::new("tui text input"))
                         .build(
                             TextInput::new(input_state, input)
                                 .placeholder("type here")
@@ -644,7 +653,7 @@ impl Widget<TuiContext> for &mut TextPage {
                 {
                     let mut resizable = preview
                         .child().item(flex::item().grow())
-                        .layout(single::layout().padding(Sides::all(1.0)));
+                        .layout(single::new().grow().padding(Sides::all(1.0)));
                     resizable.insert(
                         panel(colors::SURFACE, " RESIZABLE TEXT ").title(
                             Title::new(" DRAG TO REFLOW ")
@@ -653,8 +662,8 @@ impl Widget<TuiContext> for &mut TextPage {
                         ),
                     );
                     let mut viewport = resizable
-                        .child().item(single::item().grow())
-                        .layout(single::layout())
+                        .child()
+                        .layout(single::new())
                         .clip(BoundsClip);
                     viewport.insert(Block::new().background(colors::TRACK));
                     let mut options = TextOptions::new()
@@ -1098,7 +1107,7 @@ impl Widget<TuiContext> for Canvas {
                 };
                 let mut canvas = ui
                     .layout(
-                        wrap::layout(self.config.axis)
+                        wrap::new(self.config.axis)
                             .padding(self.config.padding(unit))
                             .item_gap(self.config.gap(self.config.axis, unit))
                             .run_gap(self.config.gap(cross, unit))
@@ -1118,8 +1127,7 @@ impl Widget<TuiContext> for Canvas {
                 }
             }
             CanvasLayout::Grid => {
-                let grid = grid::columns(5)
-                    .spanning()
+                let grid = grid::new(5)
                     .padding(self.config.padding(unit))
                     .column_gap(self.config.gap(Axis::Horizontal, unit))
                     .row_gap(self.config.gap(Axis::Vertical, unit));
@@ -1132,7 +1140,7 @@ impl Widget<TuiContext> for Canvas {
                             grid::item()
                                 .row_span(spec.rows)
                                 .column_span(spec.columns)
-                                .preferred_height(3.0 * self.config.zoom),
+                                .height(3.0 * self.config.zoom),
                         )
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config, unit);
@@ -1161,18 +1169,20 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .attributes(TextAttributes::BOLD),
     );
     if let Some(anchor) = spec.badge {
-        item.absolute(
-            Absolute::attach(anchor, Anchor::Center)
-                .width(Sizing::fixed(unit.width * 2.0))
-                .height(Sizing::fixed(unit.height)),
-        )
-        .parent(WidgetId::new("tui canvas"))
-        .z_index(1)
-        .build(|ui: Ui<'_>| {
-            let mut badge = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
-            badge.insert(Block::new().background(colors::ACCENT_DARK));
-            badge.child().insert(Text::new("A").color(colors::TEXT));
-        });
+        item.child()
+            .parent(WidgetId::new("tui canvas"))
+            .z_index(1)
+            .build(|ui: Ui<'_>| {
+                let mut badge = ui.layout(
+                    absolute::place(flex::row().align(Align::Center).justify(Justify::Center))
+                        .target_anchor(anchor)
+                        .child_anchor(Anchor::Center)
+                        .width(absolute::Sizing::fixed(unit.width * 2.0))
+                        .height(absolute::Sizing::fixed(unit.height)),
+                );
+                badge.insert(Block::new().background(colors::ACCENT_DARK));
+                badge.child().insert(Text::new("A").color(colors::TEXT));
+            });
     }
 }
 

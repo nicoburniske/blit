@@ -1,4 +1,5 @@
 use blit::{Axis, Constraints, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
+use blit_layout::layout_child;
 
 blit::builder! {
     /// split behavior and geometry
@@ -35,7 +36,7 @@ impl State {
     }
 }
 
-pub fn new<'a, C, L, T, D, W>(
+pub fn new<'a, C: blit_layout::Context, L, T, D, W>(
     state: &'a mut State,
     config: Config,
     divider: D,
@@ -117,14 +118,10 @@ struct Layout {
     minimum_trailing: f32,
 }
 
-impl<C> LayoutTrait<C> for Layout {
+impl<C: blit_layout::Context> LayoutTrait<C> for Layout {
     type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
-        let cross_axis = self.axis.other();
-        let res = cx.resolution();
-        let main = self.axis.extent(bounds.max);
-        assert!(main.is_finite(), "split needs a finite main axis budget");
         let mut leading = None;
         let mut trailing = None;
         let mut divider = None;
@@ -138,18 +135,22 @@ impl<C> LayoutTrait<C> for Layout {
         let leading = leading.expect("missing split leading content");
         let trailing = trailing.expect("missing split trailing content");
         let divider = divider.expect("missing split divider");
-        let divider_extent = res.extent(self.axis, self.divider_extent).max(0.0).min(main);
+        let cross_axis = self.axis.other();
+        let main = self.axis.extent(bounds.max);
+        assert!(main.is_finite(), "split needs a finite main axis budget");
+        let divider_extent = C::round(self.divider_extent).max(0.0).min(main);
         let available = (main - divider_extent).max(0.0);
-        let minimum_leading = res.extent(self.axis, self.minimum_leading).max(0.0);
-        let minimum_trailing = res.extent(self.axis, self.minimum_trailing).max(0.0);
-        let desired = res.extent(self.axis, self.extent).max(0.0);
-        let leading_extent = if minimum_leading + minimum_trailing <= available {
+        let minimum_leading = C::round(self.minimum_leading).max(0.0);
+        let minimum_trailing = C::round(self.minimum_trailing).max(0.0);
+        let desired = C::round(self.extent).max(0.0);
+        let leading_extent = C::round(if minimum_leading + minimum_trailing <= available {
             desired.clamp(minimum_leading, available - minimum_trailing)
         } else if minimum_leading + minimum_trailing > 0.0 {
             available * minimum_leading / (minimum_leading + minimum_trailing)
         } else {
             desired.min(available)
-        };
+        })
+        .min(available);
         let mut cross = cross_axis.extent(bounds.min);
         for (child, extent, offset) in [
             (leading, leading_extent, 0.0),
@@ -158,20 +159,21 @@ impl<C> LayoutTrait<C> for Layout {
             let mut child_bounds = bounds;
             self.axis.set_extent(&mut child_bounds.min, extent);
             self.axis.set_extent(&mut child_bounds.max, extent);
-            let size = cx.layout_child(child, child_bounds);
-            cross = cross.max(cross_axis.extent(size));
             let mut point = Size::ZERO;
             self.axis.set_extent(&mut point, offset);
+            let size = layout_child(cx, child, child_bounds);
             cx.set_child_position(child, Point::new(point.width, point.height));
+            cross = cross.max(cross_axis.extent(size));
         }
         let mut size = Size::ZERO;
         self.axis.set_extent(&mut size, divider_extent);
         cross_axis.set_extent(&mut size, cross);
-        cx.layout_child(divider, Constraints::tight(size));
+        let divider_size = size;
         let mut point = Size::ZERO;
         self.axis.set_extent(&mut point, leading_extent);
-        cx.set_child_position(divider, Point::new(point.width, point.height));
         self.axis.set_extent(&mut size, main);
+        layout_child(cx, divider, Constraints::tight(divider_size));
+        cx.set_child_position(divider, Point::new(point.width, point.height));
         bounds.constrain(size)
     }
 }
@@ -213,20 +215,16 @@ mod tests {
             Duration::ZERO,
             Input::None,
             |ui: Ui<'_, TestContext>| {
-                ui.layout(single::layout())
-                    .child()
-                    .item(single::item().grow())
-                    .widget_id(id)
-                    .build(new(
-                        &mut state,
-                        Config::new(30.0)
-                            .minimum_leading(20.0)
-                            .minimum_trailing(20.0)
-                            .divider_extent(4.0),
-                        |_, _| (),
-                        |mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom),
-                        |mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom),
-                    ));
+                ui.layout(single::new().grow()).child().widget_id(id).build(new(
+                    &mut state,
+                    Config::new(30.0)
+                        .minimum_leading(20.0)
+                        .minimum_trailing(20.0)
+                        .divider_extent(4.0),
+                    |_, _| (),
+                    |mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom),
+                    |mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom),
+                ));
             },
         );
         frame.layout(context);

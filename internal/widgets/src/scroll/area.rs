@@ -12,7 +12,7 @@ blit::builder! {
     }
 }
 
-pub fn build<C, W, X, T, H>(
+pub fn build<C: blit_layout::Context, W, X, T, H>(
     mut ui: Ui<'_, C>,
     state: &mut State,
     area: Config,
@@ -28,12 +28,13 @@ pub fn build<C, W, X, T, H>(
     let config = area.behavior;
     let axis = area.axis;
     let (thumb_active, _) = update(state, &mut ui, axis, config);
+    let offset = state.offset;
     let (track, thumb) = scrollbar(thumb_active);
     build_scroll(
         ui,
         ScrollLayout {
             axis,
-            offset: state.offset,
+            offset: move |_| offset,
             scrollbar_thickness: config.scrollbar_thickness,
             minimum_thumb_extent: config.minimum_thumb_extent,
         },

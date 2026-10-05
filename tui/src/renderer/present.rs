@@ -13,10 +13,7 @@ impl TuiRenderer {
     }
     pub fn place_image(&mut self, request: ImagePlacement, clip: LogicalRect) {
         if let Some(area) = request.area.intersection(clip) {
-            let x = area.x.floor().max(0.0) as usize;
-            let y = area.y.floor().max(0.0) as usize;
-            let right = (area.x + area.width).ceil().min(self.columns as f32) as usize;
-            let bottom = (area.y + area.height).ceil().min(self.rows as f32) as usize;
+            let (x, y, right, bottom) = self.cell_bounds(area);
             if right > x && bottom > y {
                 self.kitty_placements.push(KittyPlacement {
                     image: request.image.0 as u32,

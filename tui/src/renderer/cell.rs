@@ -221,16 +221,18 @@ impl CellBuffer<'_> {
 
 impl TuiRenderer {
     fn paint_text_at(&mut self, request: TextRequest, clip: LogicalRect, background: Option<Color>) {
-        let (area_left, area_top, area_right, area_bottom) = self.cell_bounds(request.area);
+        let area = crate::geometry::cell_rect(request.area);
+        let (area_left, area_top, area_right, area_bottom) =
+            (area.x, area.y, area.x + area.width, area.y + area.height);
         let (clip_left, clip_top, clip_right, clip_bottom) = self.cell_bounds(clip);
-        let left = area_left.max(clip_left);
-        let top = area_top.max(clip_top);
-        let right = area_right.min(clip_right);
-        let bottom = area_bottom.min(clip_bottom);
+        let left = area_left.max(clip_left as i32);
+        let top = area_top.max(clip_top as i32);
+        let right = area_right.min(clip_right as i32);
+        let bottom = area_bottom.min(clip_bottom as i32);
         let layout_request = TextLayoutRequest {
             text: request.text,
             wrap: request.options.wrap,
-            max_width: Some(request.area.width),
+            max_width: Some(area.width as f32),
             max_lines: request.options.max_lines,
         };
         let run = self.text_run_index(request.text);
@@ -255,7 +257,7 @@ impl TuiRenderer {
         };
         let mut span_style = spans.first().map_or(base_style, resolve_style);
         let ellipsis = request.options.overflow == TextOverflow::Ellipsis;
-        let maximum = request.area.width.floor().max(1.0) as usize;
+        let maximum = area.width.max(1) as usize;
         let area_width = area_right as isize - area_left as isize;
         let area_height = area_bottom as isize - area_top as isize;
         let line_count = layout.lines.len() as isize;
@@ -276,7 +278,7 @@ impl TuiRenderer {
             let mut line_width = line.width;
             let line_ellipsis = ellipsis
                 && line_index + 1 == layout.lines.len()
-                && (layout.truncated || line.width as f32 > request.area.width);
+                && (layout.truncated || line.width > area.width as usize);
             if line_ellipsis {
                 while line_width >= maximum && line_end != line.start {
                     line_end -= 1;
@@ -403,14 +405,16 @@ impl TuiRenderer {
 impl CellBuffer<'_> {
     #[inline]
     fn new(renderer: &mut TuiRenderer, area: LogicalRect, clip: LogicalRect) -> CellBuffer<'_> {
-        let origin_x = area.x.round() as isize;
-        let origin_y = area.y.round() as isize;
-        let area_right = (area.x + area.width).round() as isize;
-        let area_bottom = (area.y + area.height).round() as isize;
-        let clip_left = clip.x.round() as isize;
-        let clip_top = clip.y.round() as isize;
-        let clip_right = (clip.x + clip.width).round() as isize;
-        let clip_bottom = (clip.y + clip.height).round() as isize;
+        let area = crate::geometry::cell_rect(area);
+        let clip = crate::geometry::cell_rect(clip);
+        let origin_x = area.x as isize;
+        let origin_y = area.y as isize;
+        let area_right = (area.x + area.width) as isize;
+        let area_bottom = (area.y + area.height) as isize;
+        let clip_left = clip.x as isize;
+        let clip_top = clip.y as isize;
+        let clip_right = (clip.x + clip.width) as isize;
+        let clip_bottom = (clip.y + clip.height) as isize;
         let screen_right = renderer.columns as isize;
         let screen_bottom = renderer.rows as isize;
         let left = origin_x.max(clip_left).clamp(0, screen_right);

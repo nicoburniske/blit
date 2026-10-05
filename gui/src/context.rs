@@ -1,6 +1,8 @@
 use blit::{Clip, LogicalPoint, LogicalRect, LogicalSize, Scale2};
 use blit_widgets::performance::FrameProfiler;
 
+impl blit_layout::Context for GuiContext {}
+
 use crate::{
     TextSystem,
     display_list::{BoxShadow, ClipId, DisplayList, Mesh, Rectangle, TextPalette},
