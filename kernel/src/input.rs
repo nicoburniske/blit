@@ -1,27 +1,27 @@
 use crate::geometry::Point;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum Input {
+pub enum Input<T> {
     #[default]
     None,
     PointerDown {
-        position: Point,
+        position: Point<T>,
         button: PointerButton,
         modifiers: Modifiers,
     },
     PointerUp {
-        position: Point,
+        position: Point<T>,
         button: PointerButton,
         modifiers: Modifiers,
         leave: bool,
     },
     PointerMove {
-        position: Point,
+        position: Point<T>,
         modifiers: Modifiers,
     },
     PointerLeave,
     Scroll {
-        position: Point,
+        position: Point<T>,
         delta_x: f32,
         delta_y: f32,
         modifiers: Modifiers,

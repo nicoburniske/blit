@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use super::{Frame, NodeId, layout};
 use crate::{
+    Context, Scalar,
     animation::{Transition, TransitionProperties},
     arena::DataArena,
     geometry::{Rect, Size},
@@ -14,7 +15,13 @@ use crate::{
 /// - active size transitions write animated sizes into node geometry and replay layout
 /// - target sizes remain available for structural decisions such as wrapping
 /// - position transitions apply after layout without replay
-pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size, resized: bool) {
+pub fn resolve<C: Context>(
+    frame: &mut Frame<C>,
+    data: &DataArena,
+    context: &mut C,
+    size: Size<C::Scalar>,
+    resized: bool,
+) {
     for index in 0..frame.geometry.len() {
         let record = frame.geometry[index];
         let Some(config) = record.transition else {
@@ -94,11 +101,11 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
     }
 }
 
-pub struct TransitionState {
+pub struct TransitionState<T> {
     pub id: WidgetId,
-    pub current: Rect,
-    pub initial: Rect,
-    pub target: Rect,
+    pub current: Rect<T>,
+    pub initial: Rect<T>,
+    pub target: Rect<T>,
     pub started_at: Option<Duration>,
     pub active: TransitionProperties,
     pub node: NodeId,
@@ -107,7 +114,7 @@ pub struct TransitionState {
     pub seen: bool,
 }
 
-impl TransitionState {
+impl<T: Scalar> TransitionState<T> {
     pub fn new(id: WidgetId, node: NodeId, config: Transition) -> Self {
         Self {
             id,
@@ -148,7 +155,7 @@ impl TransitionState {
         }
     }
 
-    pub fn advance(&mut self, target: Rect, now: Duration, resized: bool) {
+    pub fn advance(&mut self, target: Rect<T>, now: Duration, resized: bool) {
         if !self.initialized || (resized && !self.config.properties.intersects(TransitionProperties::RESIZE)) {
             self.current = target;
             self.initial = target;
@@ -171,16 +178,16 @@ impl TransitionState {
             let progress = (now.saturating_sub(started_at).as_secs_f32() / self.config.duration.as_secs_f32()).min(1.0);
             let amount = self.config.easing.apply(progress);
             if self.active.intersects(TransitionProperties::X) {
-                self.current.x = self.initial.x + (self.target.x - self.initial.x) * amount;
+                self.current.x = self.initial.x.lerp(self.target.x, amount);
             }
             if self.active.intersects(TransitionProperties::Y) {
-                self.current.y = self.initial.y + (self.target.y - self.initial.y) * amount;
+                self.current.y = self.initial.y.lerp(self.target.y, amount);
             }
             if self.active.intersects(TransitionProperties::WIDTH) {
-                self.current.width = self.initial.width + (self.target.width - self.initial.width) * amount;
+                self.current.width = self.initial.width.lerp(self.target.width, amount);
             }
             if self.active.intersects(TransitionProperties::HEIGHT) {
-                self.current.height = self.initial.height + (self.target.height - self.initial.height) * amount;
+                self.current.height = self.initial.height.lerp(self.target.height, amount);
             }
             if progress == 1.0 {
                 self.current = self.target;

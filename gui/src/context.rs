@@ -1,8 +1,6 @@
 use blit::{Clip, LogicalPoint, LogicalRect, LogicalSize, Scale2};
 use blit_widgets::performance::FrameProfiler;
 
-impl blit_layout::Context for GuiContext {}
-
 use crate::{
     TextSystem,
     display_list::{BoxShadow, ClipId, DisplayList, Mesh, Rectangle, TextPalette},
@@ -19,6 +17,10 @@ pub struct GuiContext {
     clip: ClipId,
     clips: Vec<ClipId>,
     profiler: FrameProfiler,
+}
+
+impl blit::Context for GuiContext {
+    type Scalar = f32;
 }
 
 /// data needed to render one frame

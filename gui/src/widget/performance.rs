@@ -1,14 +1,13 @@
 use std::fmt::Write as _;
 
 use blit::{Interaction, Sides, Size, Widget};
-use blit_layout::{Sizing, absolute::Anchor};
 use blit_widgets::performance as shared;
 
 use crate::{
     GuiContext, Ui,
     atom::Rectangle,
     color::Color,
-    layout::{Align, flex, grid},
+    layout::{Align, Sizing, absolute::Anchor, flex, grid},
     style::{Border, BorderRadius},
     text::TextStyle,
     widget::{Text, popover},
@@ -26,18 +25,18 @@ blit::builder! {
         hover_background: Option<Color> = None,
         border: Option<Border<'static>> = None,
         radius: BorderRadius = BorderRadius::uniform(8.0),
-        badge_padding: Sides = Sides::xy(12.0, 8.0),
-        padding: Sides = Sides::all(12.0),
+        badge_padding: Sides<f32> = Sides::xy(12.0, 8.0),
+        padding: Sides<f32> = Sides::all(12.0),
         gap: f32 = 8.0,
-        table_gap: Size = Size::new(18.0, 4.0),
+        table_gap: Size<f32> = Size::new(18.0, 4.0),
         marker_size: f32 = 8.0,
         marker_radius: BorderRadius = BorderRadius::uniform(4.0),
-        graph_size: Size = Size::new(300.0, 100.0),
+        graph_size: Size<f32> = Size::new(300.0, 100.0),
         text_style: TextStyle = TextStyle { size: 14.0, ..TextStyle::default() },
         popover: popover::Config = popover::Config::new()
             .target_anchor(Anchor::TopRight)
             .child_anchor(Anchor::BottomRight)
-            .offset(blit::Point::new(0.0, -8.0)),
+            .y(-8.0),
     }
 }
 
@@ -61,7 +60,7 @@ impl Widget<GuiContext> for Performance<'_> {
         ui.build(popover::new(
             popover,
             self.popover.close(popover::Close::Manual),
-            |ui: Ui<'_>, interaction: Interaction, open| {
+            |ui: Ui<'_>, interaction: Interaction<f32>, open| {
                 let mut badge = ui.layout(
                     flex::row()
                         .padding(self.badge_padding)

@@ -1,9 +1,8 @@
-use blit::{Constraints, Interaction, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
-use blit_layout::layout_child;
+use blit::{Constraints, Context, Interaction, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
 
 #[derive(Debug, Default)]
-pub struct State {
-    size: Option<Size>,
+pub struct State<T> {
+    size: Option<Size<T>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,30 +13,30 @@ pub enum Edge {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Grip {
+pub struct Grip<T> {
     pub edge: Edge,
-    pub interaction: Interaction,
+    pub interaction: Interaction<T>,
 }
 
 blit::builder! {
     #[derive(Clone, Copy, Debug)]
-    pub struct Config {
-        new(initial: Size),
-        minimum: Size = Size::ZERO,
-        maximum: Size = Size::uniform(f32::INFINITY),
-        grip_size: Size = Size::uniform(1.0),
+    pub struct Config<T: Scalar> {
+        new(initial: Size<T>),
+        minimum: Size<T> = Size::ZERO,
+        maximum: Size<T> = Size::uniform(T::UNBOUNDED),
+        grip_size: Size<T> = Size::uniform(T::from_f32(1.0)),
     }
 }
 
-pub fn new<'a, C: blit_layout::Context, W, F, G>(
-    state: &'a mut State,
-    config: Config,
+pub fn new<'a, C: Context, W, F, G>(
+    state: &'a mut State<C::Scalar>,
+    config: Config<C::Scalar>,
     content: W,
     mut grip: F,
 ) -> impl Widget<C> + 'a
 where
     W: Widget<C> + 'a,
-    F: FnMut(Grip) -> G + 'a,
+    F: FnMut(Grip<C::Scalar>) -> G + 'a,
     G: Widget<C>,
 {
     move |mut ui: Ui<'_, C>| {
@@ -54,27 +53,22 @@ where
             bottom.drag_delta.y + corner.drag_delta.y,
         );
         if delta != Size::ZERO {
-            let mut size = state
+            let size = state
                 .size
                 .or_else(|| geometry.map(|area| area.size()))
                 .unwrap_or(config.initial);
-            size.width += delta.width;
-            size.height += delta.height;
-            state.size = Some(size);
+            state.size = Some(size + delta);
         }
-        if let Some(size) = &mut state.size {
-            size.width = size
-                .width
-                .clamp(config.minimum.width, config.maximum.width.max(config.minimum.width));
-            size.height = size
-                .height
-                .clamp(config.minimum.height, config.maximum.height.max(config.minimum.height));
+        let size = Constraints {
+            min: config.minimum,
+            max: config.maximum.max(config.minimum),
         }
-        let size = state.size.unwrap_or(config.initial);
+        .constrain(state.size.unwrap_or(config.initial));
+        if let Some(stored) = &mut state.size {
+            *stored = size;
+        }
         let mut shell = ui.layout(Layout {
             size,
-            minimum: config.minimum,
-            maximum: config.maximum,
             grip_size: config.grip_size,
         });
         shell.child().item(Item::Content).build(content);
@@ -102,41 +96,36 @@ enum Item {
 }
 
 #[derive(Clone, Copy)]
-struct Layout {
-    size: Size,
-    minimum: Size,
-    maximum: Size,
-    grip_size: Size,
+struct Layout<T> {
+    size: Size<T>,
+    grip_size: Size<T>,
 }
 
-impl<C: blit_layout::Context> LayoutTrait<C> for Layout {
+impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
     type Item = Item;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
-        let maximum = self.maximum.max(self.minimum);
-        let size = Size::new(
-            C::round(self.size.width.clamp(self.minimum.width, maximum.width)),
-            C::round(self.size.height.clamp(self.minimum.height, maximum.height)),
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<T>) -> Size<T> {
+        let size = bounds.constrain(self.size);
+        let grip = Size::new(
+            self.grip_size.width.max(T::ZERO).min(size.width),
+            self.grip_size.height.max(T::ZERO).min(size.height),
         );
-        let grip = Size::new(C::round(self.grip_size.width), C::round(self.grip_size.height));
-        let size = bounds.constrain(size);
-        let grip = Size::new(grip.width.min(size.width), grip.height.min(size.height));
         for child in cx.children() {
             let (position, child_size, z_index) = match *cx.item(child) {
                 Item::Content => (Point::ZERO, size, 0),
                 Item::Right => (
-                    Point::new(size.width - grip.width, 0.0),
+                    Point::new(size.width - grip.width, T::ZERO),
                     Size::new(grip.width, size.height),
                     1,
                 ),
                 Item::Bottom => (
-                    Point::new(0.0, size.height - grip.height),
+                    Point::new(T::ZERO, size.height - grip.height),
                     Size::new(size.width, grip.height),
                     1,
                 ),
                 Item::Corner => (Point::new(size.width - grip.width, size.height - grip.height), grip, 2),
             };
-            layout_child(cx, child, Constraints::tight(child_size));
+            cx.layout_child(child, Constraints::tight(child_size));
             cx.set_child_position(child, position);
             cx.set_child_z_index(child, z_index);
         }

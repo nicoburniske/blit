@@ -1,27 +1,26 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Sides, Size};
+use blit::{Axis, Constraints, Context, LayoutCx, Point, Scalar, Sides, Size};
 
-use super::{flow_constraints, sizing_range};
-use crate::{Context, Sizing, layout_child, resolve_sizing};
+use super::{Sizing, flow_constraints, resolve_sizing, sizing_range};
 
 blit::builder! {
     /// lays out at most one child
     ///
     /// percentages use the space offered to the layout, not the child's natural size
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Layout {
+    pub struct Layout<T: Scalar> {
         new(),
-        width: Sizing = Sizing::fit(),
-        height: Sizing = Sizing::fit(),
-        padding: Sides = Sides::all(0.0),
+        width: Sizing<T> = Sizing::fit(),
+        height: Sizing<T> = Sizing::fit(),
+        padding: Sides<T> = Sides::all(T::ZERO),
     }
 }
 
-pub fn new() -> Layout {
+pub fn new<T: Scalar>() -> Layout<T> {
     Layout::new()
 }
 
-impl Layout {
-    pub fn fixed(mut self, width: f32, height: f32) -> Self {
+impl<T: Scalar> Layout<T> {
+    pub fn fixed(mut self, width: T, height: T) -> Self {
         self.width = Sizing::fixed(width);
         self.height = Sizing::fixed(height);
         self
@@ -34,11 +33,11 @@ impl Layout {
     }
 }
 
-impl<C: Context> blit::Layout<C> for Layout {
+impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
     type Item = ();
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
-        let padding = crate::round_padding::<C>(self.padding);
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<T>) -> Size<T> {
+        let padding = self.padding;
         let mut children = cx.children();
         let child = children.next();
         assert!(children.next().is_none(), "single accepts at most one flow child");
@@ -50,7 +49,7 @@ impl<C: Context> blit::Layout<C> for Layout {
                 // forwards the budget instead of claiming its maximum
                 (sizing.clamp(minimum), sizing.clamp(maximum).max(sizing.clamp(minimum)))
             } else {
-                sizing_range::<C>(sizing, maximum)
+                sizing_range(sizing, maximum)
             }
         };
         let sizing = flow_constraints(
@@ -59,7 +58,7 @@ impl<C: Context> blit::Layout<C> for Layout {
             range(Axis::Vertical, self.height),
         );
         let size = child.map_or(Size::ZERO, |child| {
-            let size = layout_child(cx, child, sizing.shrink(padding.size()));
+            let size = cx.layout_child(child, sizing.shrink(padding.size()));
             cx.set_child_position(child, Point::new(padding.left, padding.top));
             size
         });

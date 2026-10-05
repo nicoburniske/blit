@@ -116,11 +116,11 @@ fn build_geometry_and_layout(bencher: divan::Bencher, count: usize) {
 fn flex_layout(bencher: divan::Bencher, sizing: &str) {
     struct Child;
     impl Atom<()> for Child {
-        fn measure(&self, _: &mut (), bounds: Constraints) -> Size {
+        fn measure(&self, _: &mut (), bounds: Constraints<f32>) -> Size<f32> {
             bounds.constrain(Size::new(8.0, 2.0))
         }
-        fn paint(&self, _: &mut (), _: Rect) {}
-        fn paint_bounds(&self, area: Rect) -> Rect {
+        fn paint(&self, _: &mut (), _: Rect<f32>) {}
+        fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
             area
         }
     }
@@ -173,7 +173,7 @@ struct Stack;
 impl Layout<()> for Stack {
     type Item = ();
 
-    fn layout(&self, cx: &mut LayoutCx<'_, (), ()>, bounds: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, (), ()>, bounds: Constraints<f32>) -> Size<f32> {
         for child in cx.children() {
             cx.layout_child(child, Constraints::tight(Size::ZERO));
             cx.set_child_position(child, Point::ZERO);

@@ -21,7 +21,7 @@ blit::builder! {
 }
 
 impl Atom<GuiContext> for Rectangle {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut GuiContext, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
@@ -54,7 +54,7 @@ blit::builder! {
 }
 
 impl Atom<GuiContext> for Text {
-    fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, context: &mut GuiContext, constraints: Constraints<f32>) -> Size<f32> {
         let measured = context.measure_text(&TextLayoutRequest {
             text: self.text,
             wrap: self.options.wrap,
@@ -84,7 +84,7 @@ impl Atom<GuiContext> for Text {
 #[derive(Clone, Copy)]
 pub struct Image {
     pub image: ImageId,
-    pub intrinsic: Size,
+    pub intrinsic: Size<f32>,
     pub fit: ImageFit,
     pub sampling: ImageSampling,
     pub opacity: f32,
@@ -95,7 +95,7 @@ pub struct Image {
 }
 
 impl Atom<GuiContext> for Image {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut GuiContext, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(self.intrinsic)
     }
 
@@ -150,7 +150,7 @@ impl Shadow {
 }
 
 impl Atom<GuiContext> for Shadow {
-    fn measure(&self, _: &mut GuiContext, _: Constraints) -> Size {
+    fn measure(&self, _: &mut GuiContext, _: Constraints<f32>) -> Size<f32> {
         Size::ZERO
     }
 

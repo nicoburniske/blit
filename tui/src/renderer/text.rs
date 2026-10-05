@@ -1,6 +1,6 @@
 use std::ops::{BitOr, BitOrAssign};
 
-use blit::LogicalRect;
+use blit::PhysicalRect;
 
 use super::color::Color;
 
@@ -64,9 +64,9 @@ impl BitOrAssign for TextAttributes {
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct TextRequest {
-        new(text: TextRunId, area: LogicalRect),
+        new(text: TextRunId, area: PhysicalRect),
         color: Color = Color::Reset,
-        offset_x: f32 = 0.0,
+        offset_x: i32 = 0,
         attributes: TextAttributes = TextAttributes::NONE,
         options: TextOptions = TextOptions::new(),
     }
@@ -77,7 +77,7 @@ blit::builder! {
     pub struct TextLayoutRequest {
         new(text: TextRunId),
         @optional {
-            max_width: f32,
+            max_width: i32,
             max_lines: u16,
         },
         wrap: TextWrap = TextWrap::None,

@@ -1,6 +1,6 @@
 //! terminal cell drawing
 
-use blit::LogicalRect;
+use blit::PhysicalRect;
 use unicode_width::UnicodeWidthChar;
 
 use super::{
@@ -52,11 +52,11 @@ pub struct CellBuffer<'a> {
 
 impl TuiRenderer {
     #[inline]
-    pub fn cells(&mut self, area: LogicalRect, clip: LogicalRect) -> CellBuffer<'_> {
+    pub fn cells(&mut self, area: PhysicalRect, clip: PhysicalRect) -> CellBuffer<'_> {
         CellBuffer::new(self, area, clip)
     }
 
-    pub fn paint_text(&mut self, request: TextRequest, clip: LogicalRect) {
+    pub fn paint_text(&mut self, request: TextRequest, clip: PhysicalRect) {
         self.paint_text_at(request, clip, None);
     }
 }
@@ -201,13 +201,13 @@ impl CellBuffer<'_> {
         if left == right || top == bottom {
             return;
         }
-        let area = LogicalRect::new(
-            (self.origin_x + x as isize) as f32,
-            (self.origin_y + y as isize) as f32,
-            (self.columns - x) as f32,
-            (self.rows - y) as f32,
+        let area = PhysicalRect::new(
+            (self.origin_x + x as isize) as i32,
+            (self.origin_y + y as isize) as i32,
+            (self.columns - x) as i32,
+            (self.rows - y) as i32,
         );
-        let clip = LogicalRect::new(left as f32, top as f32, (right - left) as f32, (bottom - top) as f32);
+        let clip = PhysicalRect::new(left as i32, top as i32, (right - left) as i32, (bottom - top) as i32);
         let text = self.renderer.text_run(text);
         self.renderer.paint_text_at(
             TextRequest::new(text, area)
@@ -220,10 +220,14 @@ impl CellBuffer<'_> {
 }
 
 impl TuiRenderer {
-    fn paint_text_at(&mut self, request: TextRequest, clip: LogicalRect, background: Option<Color>) {
-        let area = crate::geometry::cell_rect(request.area);
-        let (area_left, area_top, area_right, area_bottom) =
-            (area.x, area.y, area.x + area.width, area.y + area.height);
+    fn paint_text_at(&mut self, request: TextRequest, clip: PhysicalRect, background: Option<Color>) {
+        let area = request.area;
+        let (area_left, area_top, area_right, area_bottom) = (
+            area.x,
+            area.y,
+            area.x.saturating_add(area.width),
+            area.y.saturating_add(area.height),
+        );
         let (clip_left, clip_top, clip_right, clip_bottom) = self.cell_bounds(clip);
         let left = area_left.max(clip_left as i32);
         let top = area_top.max(clip_top as i32);
@@ -232,7 +236,7 @@ impl TuiRenderer {
         let layout_request = TextLayoutRequest {
             text: request.text,
             wrap: request.options.wrap,
-            max_width: Some(area.width as f32),
+            max_width: Some(area.width as i32),
             max_lines: request.options.max_lines,
         };
         let run = self.text_run_index(request.text);
@@ -287,7 +291,7 @@ impl TuiRenderer {
                 line_width += 1;
             }
             let start_x = match request.options.horizontal_align {
-                HorizontalAlign::Left => area_left as isize - request.offset_x.round() as isize,
+                HorizontalAlign::Left => area_left as isize - request.offset_x as isize,
                 HorizontalAlign::Center => area_left as isize + (area_width - line_width as isize).div_euclid(2),
                 HorizontalAlign::Right => area_right as isize - line_width as isize,
             };
@@ -404,17 +408,15 @@ impl TuiRenderer {
 
 impl CellBuffer<'_> {
     #[inline]
-    fn new(renderer: &mut TuiRenderer, area: LogicalRect, clip: LogicalRect) -> CellBuffer<'_> {
-        let area = crate::geometry::cell_rect(area);
-        let clip = crate::geometry::cell_rect(clip);
+    fn new(renderer: &mut TuiRenderer, area: PhysicalRect, clip: PhysicalRect) -> CellBuffer<'_> {
         let origin_x = area.x as isize;
         let origin_y = area.y as isize;
-        let area_right = (area.x + area.width) as isize;
-        let area_bottom = (area.y + area.height) as isize;
+        let area_right = area.x.saturating_add(area.width) as isize;
+        let area_bottom = area.y.saturating_add(area.height) as isize;
         let clip_left = clip.x as isize;
         let clip_top = clip.y as isize;
-        let clip_right = (clip.x + clip.width) as isize;
-        let clip_bottom = (clip.y + clip.height) as isize;
+        let clip_right = clip.x.saturating_add(clip.width) as isize;
+        let clip_bottom = clip.y.saturating_add(clip.height) as isize;
         let screen_right = renderer.columns as isize;
         let screen_bottom = renderer.rows as isize;
         let left = origin_x.max(clip_left).clamp(0, screen_right);

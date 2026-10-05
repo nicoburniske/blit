@@ -1,16 +1,16 @@
 #[macro_export]
 macro_rules! builder {
-    (@default $name:ident $(<$($generic:tt),+>)?;) => {
-        impl $(<$($generic),+>)? Default for $name $(<$($generic),+>)? {
+    (@default $name:ident $(<$($generic:tt $( : $bound:path)?),+>)?;) => {
+        impl $(<$($generic $( : $bound)?),+>)? Default for $name $(<$($generic),+>)? {
             fn default() -> Self {
                 Self::new()
             }
         }
     };
-    (@default $name:ident $(<$($generic:tt),+>)?; $required:ident $(, $rest:ident)*) => {};
+    (@default $name:ident $(<$($generic:tt $( : $bound:path)?),+>)?; $required:ident $(, $rest:ident)*) => {};
     (
         $(#[$attribute:meta])*
-        $visibility:vis struct $name:ident $(<$($generic:tt),+>)? {
+        $visibility:vis struct $name:ident $(<$($generic:tt $( : $bound:path)?),+>)? {
             new($($required:ident: $required_type:ty),* $(,)?),
             $(
                 @optional {
@@ -25,13 +25,13 @@ macro_rules! builder {
         }
     ) => {
         $(#[$attribute])*
-        $visibility struct $name $(<$($generic),+>)? {
+        $visibility struct $name $(<$($generic $( : $bound)?),+>)? {
             $(pub $required: $required_type,)*
             $($(pub $optional_field: Option<$optional_type>,)*)?
             $(pub $field: $field_type,)*
         }
 
-        impl $(<$($generic),+>)? $name $(<$($generic),+>)? {
+        impl $(<$($generic $( : $bound)?),+>)? $name $(<$($generic),+>)? {
             #[doc = concat!("creates a new [`", stringify!($name), "`]")]
             $visibility fn new($($required: $required_type),*) -> Self {
                 Self {
@@ -66,6 +66,6 @@ macro_rules! builder {
             )*
         }
 
-        $crate::builder!(@default $name $(<$($generic),+>)?; $($required),*);
+        $crate::builder!(@default $name $(<$($generic $( : $bound)?),+>)?; $($required),*);
     };
 }

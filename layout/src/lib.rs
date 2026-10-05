@@ -5,11 +5,10 @@ pub mod rect;
 pub mod single;
 pub mod wrap;
 
-mod context;
 mod size;
 
-use blit::{Axis, Constraints, Sides, Size};
-pub use context::{Context, layout_child, resolve_sizing};
+pub use blit::Axis;
+use blit::{Constraints, Context, LayoutCx, NodeId, Scalar, Size};
 pub use size::Sizing;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -32,16 +31,23 @@ pub enum Justify {
     SpaceEvenly,
 }
 
-fn round_padding<C: Context>(padding: Sides) -> Sides {
-    Sides {
-        top: C::round(padding.top),
-        right: C::round(padding.right),
-        bottom: C::round(padding.bottom),
-        left: C::round(padding.left),
-    }
+/// resolves sizing before allocation including animated overrides
+#[inline]
+pub fn resolve_sizing<C: Context, I: 'static>(
+    cx: &LayoutCx<'_, C, I>,
+    child: NodeId,
+    axis: Axis,
+    sizing: Sizing<C::Scalar>,
+) -> Sizing<C::Scalar> {
+    let (width, height) = cx.size_overrides(child);
+    let extent = match axis {
+        Axis::Horizontal => width,
+        Axis::Vertical => height,
+    };
+    extent.map_or(sizing, Sizing::Fixed)
 }
 
-fn flow_size(main: f32, cross: f32, axis: Axis) -> Size {
+fn flow_size<T>(main: T, cross: T, axis: Axis) -> Size<T> {
     match axis {
         Axis::Horizontal => Size::new(main, cross),
         Axis::Vertical => Size::new(cross, main),
@@ -49,59 +55,99 @@ fn flow_size(main: f32, cross: f32, axis: Axis) -> Size {
 }
 
 #[inline]
-fn sizing_range<C: Context>(sizing: Sizing, available: f32) -> (f32, f32) {
-    allocated_range::<C>(sizing, available, &mut 0.0)
+fn sizing_range<T: Scalar>(sizing: Sizing<T>, available: T) -> (T, T) {
+    allocated_range(sizing, available, &mut 0.0)
 }
 
 #[inline]
-fn allocated_range<C: Context>(sizing: Sizing, available: f32, cursor: &mut f32) -> (f32, f32) {
+fn allocated_range<T: Scalar>(sizing: Sizing<T>, available: T, cursor: &mut f32) -> (T, T) {
     match sizing {
         Sizing::Fit { min, max } | Sizing::Grow { min, max } => {
-            let min = min.max(0.0);
+            let min = min.max(T::ZERO);
             (min, max.max(min).min(available).max(min))
         }
         Sizing::Fixed(size) => {
-            let size = size.max(0.0);
+            let size = size.max(T::ZERO);
             (size, size)
         }
         Sizing::Percent(fraction) => {
             assert!((0.0..=1.0).contains(&fraction));
             let share = if available.is_finite() {
-                available * fraction
+                available.to_f32() * fraction
             } else {
                 0.0
             };
-            let size = C::allocate(cursor, share);
+            let size = T::allocate(cursor, share);
             (size, size)
         }
     }
 }
 
-fn flow_constraints(axis: Axis, main: (f32, f32), cross: (f32, f32)) -> Constraints {
-    let (width, height) = match axis {
-        Axis::Horizontal => (main, cross),
-        Axis::Vertical => (cross, main),
-    };
+fn flow_constraints<T>(axis: Axis, main: (T, T), cross: (T, T)) -> Constraints<T> {
     Constraints {
-        min: Size::new(width.0, height.0),
-        max: Size::new(width.1, height.1),
+        min: flow_size(main.0, cross.0, axis),
+        max: flow_size(main.1, cross.1, axis),
     }
 }
 
-fn justify_offset(justify: Justify, remaining: f32, count: usize) -> (f32, f32) {
+fn justify_offset<T: Scalar>(justify: Justify, remaining: T, count: usize) -> (T, f32, f32) {
     match justify {
-        Justify::Start => (0.0, 0.0),
-        Justify::Center => (remaining / 2.0, 0.0),
-        Justify::End => (remaining, 0.0),
-        Justify::SpaceBetween if count > 1 => (0.0, remaining / (count - 1) as f32),
+        Justify::Start => (T::ZERO, 0.0, 0.0),
+        Justify::Center => (T::ZERO.lerp(remaining, 0.5), 0.0, 0.0),
+        Justify::End => (remaining, 0.0, 0.0),
+        Justify::SpaceBetween if count > 1 => (T::ZERO, 0.0, remaining.to_f32() / (count - 1) as f32),
         Justify::SpaceAround if count != 0 => {
-            let space = remaining / count as f32;
-            (space / 2.0, space)
+            let space = remaining.to_f32() / count as f32;
+            (T::ZERO, space / 2.0, space)
         }
         Justify::SpaceEvenly if count != 0 => {
-            let space = remaining / (count + 1) as f32;
-            (space, space)
+            let space = remaining.to_f32() / (count + 1) as f32;
+            (T::ZERO, space, space)
         }
-        _ => (0.0, 0.0),
+        _ => (T::ZERO, 0.0, 0.0),
     }
+}
+
+#[macro_export]
+macro_rules! export {
+    ($coord:ty) => {
+        pub use $crate::{Align, Justify, rect};
+        pub type Sizing = $crate::Sizing<$coord>;
+
+        pub mod absolute {
+            pub use $crate::absolute::Anchor;
+            pub type Layout<L> = $crate::absolute::Layout<L, $coord>;
+            pub type Sizing = $crate::absolute::Sizing<$coord>;
+            pub fn place<L>(inner: L) -> Layout<L> {
+                $crate::absolute::place(inner)
+            }
+        }
+        $crate::export!(@ $coord, flex, [Layout, Item], [
+            layout(axis: $crate::Axis) -> Layout,
+            row() -> Layout,
+            column() -> Layout,
+            item() -> Item
+        ]);
+        $crate::export!(@ $coord, grid, [Layout, Item], [
+            new(columns: u32) -> Layout,
+            item() -> Item
+        ]);
+        $crate::export!(@ $coord, single, [Layout], [new() -> Layout]);
+        $crate::export!(@ $coord, wrap, [Layout, Item], [
+            new(axis: $crate::Axis) -> Layout,
+            horizontal() -> Layout,
+            vertical() -> Layout,
+            item() -> Item
+        ]);
+    };
+    (@ $coord:ty, $module:ident, [$($ty:ident),+], [$(
+        $name:ident($($arg:ident: $arg_ty:ty),*) -> $result:ident
+    ),+]) => {
+        pub mod $module {
+            $(pub type $ty = $crate::$module::$ty<$coord>;)+
+            $(pub fn $name($($arg: $arg_ty),*) -> $result {
+                $crate::$module::$name($($arg),*)
+            })+
+        }
+    };
 }

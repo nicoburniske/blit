@@ -1,6 +1,6 @@
 use std::ops::{BitOr, BitOrAssign};
 
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, Constraints, PhysicalRect, Size};
 
 use crate::{
     TuiContext,
@@ -29,11 +29,11 @@ impl Block {
 }
 
 impl Atom<TuiContext> for Block {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut TuiContext, constraints: Constraints<i32>) -> Size<i32> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
+    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
         let (width, height) = {
             let mut cells = context.cells(area);
             let width = cells.columns();
@@ -98,8 +98,8 @@ impl Atom<TuiContext> for Block {
             self.border
                 .is_some_and(|border| border.sides.contains(BorderSides::RIGHT)),
         ));
-        let origin_x = area.x.round();
-        let origin_y = area.y.round();
+        let origin_x = area.x;
+        let origin_y = area.y;
         paint_title_row(
             context,
             [self.titles[0], self.titles[1], self.titles[2]],
@@ -112,13 +112,13 @@ impl Atom<TuiContext> for Block {
             context,
             [self.titles[3], self.titles[4], self.titles[5]],
             origin_x,
-            origin_y + height.saturating_sub(1) as f32,
+            origin_y + height.saturating_sub(1) as i32,
             left,
             right,
         );
     }
 
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
         area
     }
 }
@@ -202,8 +202,8 @@ impl TitlePosition {
 fn paint_title_row(
     context: &mut TuiContext,
     titles: [Option<Title>; 3],
-    origin_x: f32,
-    y: f32,
+    origin_x: i32,
+    y: i32,
     left: usize,
     right: usize,
 ) {
@@ -244,12 +244,12 @@ fn paint_title_row(
     }
 }
 
-fn paint_title(context: &mut TuiContext, title: Title, origin_x: f32, y: f32, x: usize, width: usize) {
+fn paint_title(context: &mut TuiContext, title: Title, origin_x: i32, y: i32, x: usize, width: usize) {
     if width == 0 {
         return;
     }
     context.paint_text(
-        TextRequest::new(title.text, LogicalRect::new(origin_x + x as f32, y, width as f32, 1.0))
+        TextRequest::new(title.text, PhysicalRect::new(origin_x + x as i32, y, width as i32, 1))
             .color(title.color)
             .attributes(title.attributes)
             .options(TextOptions::new().max_lines(1)),
@@ -306,10 +306,9 @@ mod tests {
     use std::time::Duration;
 
     use blit::{Frame, FrameInfo, Input, Size};
-    use blit_layout::single;
 
     use super::*;
-    use crate::{RendererConfig, TuiRenderer, atom::Shadow, widget};
+    use crate::{RendererConfig, TuiRenderer, atom::Shadow, layout::single, widget};
 
     #[test]
     fn block_and_shadow_paint_as_atoms() {
@@ -319,11 +318,11 @@ mod tests {
         context.begin_paint();
         frame.build(
             &mut context,
-            FrameInfo::new(Size::new(20.0, 5.0)),
+            FrameInfo::new(Size::new(20, 5)),
             Duration::ZERO,
             Input::None,
             |ui: crate::Ui<'_>| {
-                let mut root = ui.layout(single::new().fixed(20.0, 4.0));
+                let mut root = ui.layout(single::new().fixed(20, 4));
                 root.insert(widget::Text::new(
                     "xxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx",
                 ));

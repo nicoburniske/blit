@@ -1,6 +1,6 @@
 use std::hint::black_box;
 
-use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit::PhysicalRect;
 use blit_tui::{
     RendererConfig, TuiRenderer,
     cell::{Cell, CellStyle},
@@ -31,7 +31,7 @@ fn renderer_creation(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
 #[divan::bench(args = [(96, 32), (240, 80), (400, 200)])]
 fn render_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
     let mut renderer = TuiRenderer::new(RendererConfig::new().columns(columns).rows(rows));
-    let screen = renderer.screen().to_logical(Scale2::IDENTITY);
+    let screen = renderer.screen();
     bencher
         .counter(ItemsCount::new(usize::from(columns) * usize::from(rows)))
         .bench_local(|| {
@@ -47,7 +47,7 @@ fn render_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
 #[divan::bench(args = [(96, 32), (240, 80), (400, 200)])]
 fn tint_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
     let mut renderer = TuiRenderer::new(RendererConfig::new().columns(columns).rows(rows));
-    let screen = renderer.screen().to_logical(Scale2::IDENTITY);
+    let screen = renderer.screen();
     renderer.begin_frame();
     renderer.cells(screen, screen).clear(
         Cell::new('x').style(
@@ -95,7 +95,7 @@ fn update_one_cell_in_large_text(bencher: divan::Bencher) {
     let mut changed_frame = frame.clone();
     let changed_byte = CHANGED_CELL.y as usize * (screen.width as usize + 1) + CHANGED_CELL.x as usize;
     changed_frame.replace_range(changed_byte..changed_byte + 1, "B");
-    let area = screen.to_logical(Scale2::IDENTITY);
+    let area = screen;
     let old = renderer.text_run(&frame);
     let new = renderer.text_run(&changed_frame);
     renderer.begin_frame();
@@ -112,15 +112,15 @@ fn update_one_cell_in_large_text(bencher: divan::Bencher) {
 }
 
 fn scene(renderer: &mut TuiRenderer, changed: bool) {
-    let screen = renderer.screen().to_logical(Scale2::IDENTITY);
+    let screen = renderer.screen();
     renderer.begin_frame();
     for row in 0..8 {
         for column in 0..12 {
-            let area = LogicalRect {
-                x: column as f32 * 8.0,
-                y: row as f32 * 4.0,
-                width: 8.0,
-                height: 4.0,
+            let area = PhysicalRect {
+                x: column as i32 * 8,
+                y: row as i32 * 4,
+                width: 8,
+                height: 4,
             };
             renderer
                 .cells(area, screen)
@@ -132,9 +132,11 @@ fn scene(renderer: &mut TuiRenderer, changed: bool) {
         }
     }
     if changed {
-        renderer
-            .cells(CHANGED_CELL.to_logical(Scale2::IDENTITY), screen)
-            .set_cell(0, 0, Cell::new('x').style(CellStyle::new().foreground(Color::WHITE)));
+        renderer.cells(CHANGED_CELL, screen).set_cell(
+            0,
+            0,
+            Cell::new('x').style(CellStyle::new().foreground(Color::WHITE)),
+        );
     }
     renderer.end_frame();
 }

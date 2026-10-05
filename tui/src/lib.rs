@@ -12,14 +12,15 @@
 //! such as Kitty and Ghostty. Windows and legacy terminals are not supported.
 
 mod context;
-pub mod geometry;
 mod protocol;
 mod renderer;
 mod terminal;
 
 pub mod atom;
 pub mod widget;
-pub use blit_layout as layout;
+pub mod layout {
+    blit_layout::export!(i32);
+}
 
 pub use self::{
     context::{BoundsClip, TuiContext},
@@ -37,7 +38,7 @@ use std::{
 };
 
 use blit::{
-    Frame, FrameInfo, LogicalSize,
+    Frame, FrameInfo, PhysicalPoint,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use terminal::{Size, Terminal};
@@ -176,12 +177,12 @@ impl Session {
         &mut self.context
     }
 
-    pub fn frame_info(&self) -> FrameInfo {
+    pub fn frame_info(&self) -> FrameInfo<i32> {
         let screen = self.context.renderer().screen();
-        FrameInfo::new(LogicalSize::new(screen.width as f32, screen.height as f32))
+        FrameInfo::new(screen.size())
     }
 
-    pub fn poll(&mut self, timeout: Option<Duration>, inputs: &mut [Input]) -> io::Result<Poll> {
+    pub fn poll(&mut self, timeout: Option<Duration>, inputs: &mut [Input<i32>]) -> io::Result<Poll> {
         if inputs.is_empty() {
             return Ok(Poll::default());
         }
@@ -267,7 +268,7 @@ impl Session {
                     column,
                     row,
                 } => {
-                    let position = geometry::cell_center(column, row);
+                    let position = PhysicalPoint::new(i32::from(column), i32::from(row));
                     let modifiers =
                         Modifiers::new(modifiers.shift, modifiers.control, modifiers.alt, modifiers.super_key);
                     let button = |button| match button {

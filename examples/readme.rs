@@ -10,27 +10,24 @@ use blit_tui::{
 
 fn main() -> std::io::Result<()> {
     blit_tui::run(|ui| {
-        let mut root = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
+        let mut root = ui.layout(flex::column().padding(Sides::all(1)).gap(1));
 
         let quit = root.child().build(|ui: Ui<'_>| {
-            let mut header = ui.layout(flex::row().padding(Sides::all(1.0)).justify(Justify::SpaceBetween));
+            let mut header = ui.layout(flex::row().padding(Sides::all(1)).justify(Justify::SpaceBetween));
 
             header.insert(Block::new().border(Border::new(Color::BLUE)));
             header.child().build(|mut ui: Ui<'_>| {
                 ui.insert(Text::new("hello from blit!").attributes(TextAttributes::BOLD));
             });
 
-            header
-                .child()
-                .item(flex::item().fixed(8.0, 1.0))
-                .build(|mut ui: Ui<'_>| {
-                    let interaction = ui.interact(Sense::CLICK);
+            header.child().item(flex::item().fixed(8, 1)).build(|mut ui: Ui<'_>| {
+                let interaction = ui.interact(Sense::CLICK);
 
-                    ui.insert(Block::new().background(Color::BLUE));
-                    ui.insert(Text::new("quit").options(TextOptions::new().horizontal_align(HorizontalAlign::Center)));
+                ui.insert(Block::new().background(Color::BLUE));
+                ui.insert(Text::new("quit").options(TextOptions::new().horizontal_align(HorizontalAlign::Center)));
 
-                    interaction.clicked
-                })
+                interaction.clicked
+            })
         });
         if quit || matches!(root.input(), Input::Text('q')) {
             root.context().quit();

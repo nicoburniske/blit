@@ -1,10 +1,6 @@
-use blit::{Constraints, LayoutCx, Point, Rect, Size};
-
-use crate::{Context, layout_child};
+use blit::{Constraints, Context, LayoutCx, Point, Rect, Size};
 
 /// places children in exact supplied local rectangles
-///
-/// supplied rectangles bypass the layout coordinate policy
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Layout;
 
@@ -13,16 +9,17 @@ pub fn new() -> Layout {
 }
 
 impl<C: Context> blit::Layout<C> for Layout {
-    type Item = Rect;
+    type Item = Rect<C::Scalar>;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
         let mut natural = Size::ZERO;
         for child in cx.children() {
-            let rect = cx.item(child);
-            let size = layout_child(cx, child, Constraints::tight(rect.size().max(Size::ZERO)));
-            cx.set_child_position(child, Point::new(rect.x, rect.y));
-            natural.width = natural.width.max((rect.x + size.width).max(0.0));
-            natural.height = natural.height.max((rect.y + size.height).max(0.0));
+            let rect = *cx.item(child);
+            let size = rect.size().max(Size::ZERO);
+            let size = cx.layout_child(child, Constraints::tight(size));
+            let position = Point::new(rect.x, rect.y);
+            cx.set_child_position(child, position);
+            natural = natural.max(Size::new(position.x + size.width, position.y + size.height));
         }
         bounds.constrain(natural)
     }

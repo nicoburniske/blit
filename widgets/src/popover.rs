@@ -1,4 +1,4 @@
-use blit::{Input, Interaction, NodeTarget, Point, Sense, Sides, Ui, Widget};
+use blit::{Context, Input, Interaction, NodeTarget, Scalar, Sense, Sides, Ui, Widget};
 use blit_layout::{
     absolute,
     absolute::{Anchor, Sizing},
@@ -14,16 +14,17 @@ pub enum Close {
 }
 
 blit::builder! {
-    /// popover placement
+    /// popover placement with x and y offsets from its anchors
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Config {
+    pub struct Config<T: Scalar> {
         new(),
         parent: NodeTarget = NodeTarget::Root,
         target_anchor: Anchor = Anchor::BottomLeft,
         child_anchor: Anchor = Anchor::TopLeft,
-        offset: Point = Point::ZERO,
-        width: Sizing = Sizing::fit(),
-        height: Sizing = Sizing::fit(),
+        x: T = T::ZERO,
+        y: T = T::ZERO,
+        width: Sizing<T> = Sizing::fit(),
+        height: Sizing<T> = Sizing::fit(),
         open_on_hover: bool = false,
         close: Close = Close::Click,
     }
@@ -38,14 +39,14 @@ blit::builder! {
     }
 }
 
-pub fn new<'a, C: blit_layout::Context, T, W>(
+pub fn new<'a, C: Context, T, W>(
     state: &'a mut State,
-    config: Config,
+    config: Config<C::Scalar>,
     trigger: T,
     content: W,
 ) -> impl Widget<C, Response = Option<W::Response>> + 'a
 where
-    T: FnOnce(Ui<'_, C>, Interaction, bool) + 'a,
+    T: FnOnce(Ui<'_, C>, Interaction<C::Scalar>, bool) + 'a,
     W: Widget<C> + 'a,
 {
     move |mut ui: Ui<'_, C>| {
@@ -81,11 +82,10 @@ where
                     .filter_map(|id| root.geometry(id))
                     .any(|area| area.contains(position))
             });
-        let pointer_exited = !pointer_inside && matches!(root.input(), Input::PointerMove { .. } | Input::PointerLeave);
-        if match config.close {
-            Close::Click => backdrop.activated,
-            Close::Exit => pointer_exited,
-            Close::Manual => false,
+        if match (config.close, root.input()) {
+            (Close::Click, _) => backdrop.activated,
+            (Close::Exit, Input::PointerMove { .. } | Input::PointerLeave) => !pointer_inside,
+            _ => false,
         } {
             state.open = false;
         }
@@ -95,7 +95,7 @@ where
 
         let mut popup = root.child().parent(config.parent).z_index(1).layout(
             absolute::place(())
-                .target(config.parent.into())
+                .target(config.parent)
                 .width(Sizing::full())
                 .height(Sizing::full()),
         );
@@ -106,15 +106,17 @@ where
                 .widget_id(backdrop_id)
                 .insert(());
         }
+        let x = config.x;
+        let y = config.y;
         Some(
             popup
                 .child()
                 .hit(
                     Sides::new()
-                        .top(config.offset.y.max(0.0))
-                        .right((-config.offset.x).max(0.0))
-                        .bottom((-config.offset.y).max(0.0))
-                        .left(config.offset.x.max(0.0)),
+                        .top(y.max(C::Scalar::ZERO))
+                        .right((-x).max(C::Scalar::ZERO))
+                        .bottom((-y).max(C::Scalar::ZERO))
+                        .left(x.max(C::Scalar::ZERO)),
                 )
                 .widget_id(content_id)
                 .layout(
@@ -122,7 +124,8 @@ where
                         .target_anchor(config.target_anchor)
                         .child_anchor(config.child_anchor)
                         .target(anchor.into())
-                        .offset(blit::Point::new(config.offset.x, config.offset.y))
+                        .x(config.x)
+                        .y(config.y)
                         .width(config.width)
                         .height(config.height),
                 )
@@ -136,12 +139,12 @@ where
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Modifiers, PointerButton, Rect, Size, WidgetId};
+    use blit::{Frame, FrameInfo, Modifiers, Point as InputPoint, PointerButton, Rect, Size, WidgetId};
 
     use super::*;
     use crate::test::TestContext;
 
-    fn render(ui: Ui<'_, TestContext>, state: &mut State, config: Config) {
+    fn render(ui: Ui<'_, TestContext>, state: &mut State, config: Config<f32>) {
         ui.widget_id(WidgetId::new("test popover")).build(new(
             state,
             config,
@@ -176,22 +179,19 @@ mod tests {
             |ui: Ui<'_, TestContext>| render(ui, &mut state, Config::new()),
         );
         frame.layout(&mut context);
-        let config = Config::new()
-            .offset(Point::new(0.0, 1.0))
-            .open_on_hover(true)
-            .close(Close::Exit);
+        let config = Config::new().y(1.0).open_on_hover(true).close(Close::Exit);
         let mut expected = [true, true, false].into_iter();
         for input in [
             Input::PointerMove {
-                position: Point::new(1.0, 0.5),
+                position: InputPoint::new(1.0, 0.5),
                 modifiers: Modifiers::NONE,
             },
             Input::PointerMove {
-                position: Point::new(1.0, 1.5),
+                position: InputPoint::new(1.0, 1.5),
                 modifiers: Modifiers::NONE,
             },
             Input::PointerMove {
-                position: Point::new(9.0, 9.0),
+                position: InputPoint::new(9.0, 9.0),
                 modifiers: Modifiers::NONE,
             },
         ] {
@@ -206,30 +206,29 @@ mod tests {
         let mut content_geometry = None;
         for input in [
             Input::PointerDown {
-                position: Point::new(1.0, 0.5),
+                position: InputPoint::new(1.0, 0.5),
                 button: PointerButton::Primary,
                 modifiers: Modifiers::NONE,
             },
             Input::PointerUp {
-                position: Point::new(1.0, 0.5),
+                position: InputPoint::new(1.0, 0.5),
                 button: PointerButton::Primary,
                 modifiers: Modifiers::NONE,
                 leave: false,
             },
             Input::PointerDown {
-                position: Point::new(9.0, 9.0),
+                position: InputPoint::new(9.0, 9.0),
                 button: PointerButton::Primary,
                 modifiers: Modifiers::NONE,
             },
         ] {
-            let inspect = matches!(input, Input::PointerUp { .. });
             frame.build(
                 &mut context,
                 info,
                 Duration::ZERO,
                 input,
                 |mut ui: Ui<'_, TestContext>| {
-                    if inspect {
+                    if let Input::PointerUp { .. } = input {
                         content_geometry = ui.geometry(content_id);
                     }
                     render(
@@ -241,7 +240,7 @@ mod tests {
                 },
             );
             frame.layout(&mut context);
-            if inspect {
+            if let Input::PointerUp { .. } = input {
                 assert_eq!(frame.geometry(WidgetId::new("named content")), content_geometry);
                 assert_eq!(
                     frame.geometry(WidgetId::new("named trigger")),

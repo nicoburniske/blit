@@ -74,7 +74,7 @@ impl DataArena {
         }
     }
 
-    pub fn scratch<T: Copy + 'static>(&self, len: usize, value: T) -> Scratch<'_, T> {
+    pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'_, T> {
         assert!(
             align_of::<T>() <= align_of::<Word>(),
             "scratch alignment exceeds arena alignment"

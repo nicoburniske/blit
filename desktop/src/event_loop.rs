@@ -98,7 +98,7 @@ impl<A: Application> Session<A> {
 
 struct Runner<A: Application> {
     state: Option<State<A>>,
-    inputs: Vec<Input>,
+    inputs: Vec<Input<f32>>,
     cursor: Option<PhysicalPosition<f64>>,
     modifiers: Modifiers,
     started_at: Instant,
@@ -157,7 +157,7 @@ impl<A: Application> Runner<A> {
         self.inputs.extend(text.chars().map(Input::Text))
     }
 
-    fn push_input(&mut self, input: Input) {
+    fn push_input(&mut self, input: Input<f32>) {
         if let Input::PointerMove { position, modifiers } = input
             && let Some(Input::PointerMove {
                 position: pending,

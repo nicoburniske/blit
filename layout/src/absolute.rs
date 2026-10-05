@@ -1,42 +1,43 @@
-use blit::{Axis, Constraints, LayoutCx, NodeTarget, Point, Size, Ui};
+use blit::{Constraints, Context, LayoutCx, NodeTarget, Point, Scalar, Size, Ui};
 
-use crate::{Context, resolve_sizing, sizing_range};
+use super::sizing_range;
 
-pub fn place<L>(inner: L) -> Layout<L> {
+pub fn place<L, T: Scalar>(inner: L) -> Layout<L, T> {
     Layout::new(inner)
 }
 
 blit::builder! {
-    /// positions a layout outside its parent's flow
+    /// positions a layout outside its parent's flow with x and y offsets from its anchors
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Layout<L> {
+    pub struct Layout<L, T: Scalar> {
         new(inner: L),
         target: NodeTarget = NodeTarget::Parent,
         target_anchor: Anchor = Anchor::TopLeft,
         child_anchor: Anchor = Anchor::TopLeft,
-        offset: Point = Point::ZERO,
-        width: Sizing = Sizing::fit(),
-        height: Sizing = Sizing::fit(),
+        x: T = T::ZERO,
+        y: T = T::ZERO,
+        width: Sizing<T> = Sizing::fit(),
+        height: Sizing<T> = Sizing::fit(),
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Sizing {
-    Fit { min: f32, max: f32 },
-    Fixed(f32),
+pub enum Sizing<T> {
+    Fit { min: T, max: T },
+    Fixed(T),
     Percent(f32),
 }
 
-impl Sizing {
+impl<T: Scalar> Sizing<T> {
     pub const fn fit() -> Self {
-        Self::fit_range(0.0, f32::INFINITY)
+        Self::fit_range(T::ZERO, T::UNBOUNDED)
     }
 
-    pub const fn fit_range(min: f32, max: f32) -> Self {
+    pub const fn fit_range(min: T, max: T) -> Self {
         Self::Fit { min, max }
     }
 
-    pub const fn fixed(size: f32) -> Self {
+    pub const fn fixed(size: T) -> Self {
         Self::Fixed(size)
     }
 
@@ -63,25 +64,25 @@ pub enum Anchor {
     BottomRight,
 }
 
-impl<C: Context, L: blit::Layout<C>> blit::Layout<C> for Layout<L> {
+impl<C: Context<Scalar = T>, L: blit::Layout<C>, T: Scalar> blit::Layout<C> for Layout<L, T> {
     type Item = L::Item;
 
     fn on_insert<'a>(&self, ui: Ui<'a, C>) -> Ui<'a, C> {
         self.inner.on_insert(ui).relative(self.target)
     }
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<T>) -> Size<T> {
         let available = cx.size(cx.parent());
-        let range = |sizing, axis, available| {
+        let range = |sizing, available| {
             let sizing = match sizing {
-                Sizing::Fit { min, max } => crate::Sizing::Fit { min, max },
-                Sizing::Fixed(size) => crate::Sizing::Fixed(size),
-                Sizing::Percent(fraction) => crate::Sizing::Percent(fraction),
+                Sizing::Fit { min, max } => super::Sizing::Fit { min, max },
+                Sizing::Fixed(size) => super::Sizing::Fixed(size),
+                Sizing::Percent(fraction) => super::Sizing::Percent(fraction),
             };
-            sizing_range::<C>(resolve_sizing(cx, cx.node(), axis, sizing), available)
+            sizing_range(sizing, available)
         };
-        let width = range(self.width, Axis::Horizontal, available.width);
-        let height = range(self.height, Axis::Vertical, available.height);
+        let width = range(self.width, available.width);
+        let height = range(self.height, available.height);
         let size = self.inner.layout(
             cx,
             Constraints {
@@ -103,9 +104,16 @@ impl<C: Context, L: blit::Layout<C>> blit::Layout<C> for Layout<L> {
         let target = cx.size(cx.relative());
         let target_anchor = anchor(self.target_anchor);
         let child_anchor = anchor(self.child_anchor);
+        let offset = |target, child, target_anchor, child_anchor| {
+            let start =
+                if target_anchor == 1.0 { target } else { T::ZERO } - if child_anchor == 1.0 { child } else { T::ZERO };
+            let end =
+                if target_anchor == 0.0 { T::ZERO } else { target } - if child_anchor == 0.0 { T::ZERO } else { child };
+            start.lerp(end, 0.5)
+        };
         cx.set_position(Point::new(
-            target.width * target_anchor.x - size.width * child_anchor.x + self.offset.x,
-            target.height * target_anchor.y - size.height * child_anchor.y + self.offset.y,
+            offset(target.width, size.width, target_anchor.x, child_anchor.x) + self.x,
+            offset(target.height, size.height, target_anchor.y, child_anchor.y) + self.y,
         ));
         size
     }

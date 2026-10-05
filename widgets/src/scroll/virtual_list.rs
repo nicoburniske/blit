@@ -1,27 +1,26 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
-use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, Size, Ui, WidgetId};
-use blit_layout::layout_child;
+use blit::{Axis, Clip, Constraints, Content, Context, Layout, LayoutCx, Point, Scalar, Size, Ui, WidgetId};
 
-pub use super::shared::Behavior;
-use super::shared::{self, ScrollLayout, build_scroll, update};
+pub use super::Behavior;
+use super::{ScrollLayout, build_scroll, update};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug)]
-    pub struct Config {
+    pub struct Config<T: Scalar> {
         new(),
         edge_scroll: bool = false,
-        behavior: Behavior = Behavior::default(),
+        behavior: Behavior<T> = Behavior::default(),
     }
 }
 
 /// measures all rows initially then corrects visible heights as layout changes
-pub fn build<C: blit_layout::Context, R, X, K, F, T, H>(
+pub fn build<C: Context, R, X, K, F, T, H>(
     mut ui: Ui<'_, C>,
-    state: &mut State,
+    state: &mut State<C::Scalar>,
     rows: &[R],
     clip: X,
-    list: Config,
+    list: Config<C::Scalar>,
     scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
     mut widget_id: K,
     mut item: F,
@@ -52,26 +51,26 @@ where
     let (thumb_active, _) = update(&mut state.scroll, &mut ui, Axis::Vertical, config);
     let index = table
         .rows
-        .partition_point(|row| row.top + row.height <= state.scroll.offset);
+        .partition_point(|row| row.top.endpoint(row.height) <= state.scroll.offset);
     let mut target = table.rows.get(index).map(|row| (index, state.scroll.offset - row.top));
     let mut full = false;
     if table.rows.len() != rows.len() || state.dirty {
         let anchor = target.map(|(index, within)| (table.rows[index].id, within));
         table.rows.clear();
         target = None;
-        let mut top = 0.0;
+        let mut top = C::Scalar::ZERO;
         for value in rows {
             let id = widget_id(value);
             let height = table.heights.get(&id).copied();
             full |= height.is_none();
-            let height = height.unwrap_or(0.0);
+            let height = height.unwrap_or(C::Scalar::ZERO);
             if let Some((anchor, within)) = anchor
                 && anchor == id
             {
                 target = Some((table.rows.len(), within));
             }
             table.rows.push(Row { id, top, height });
-            top += height;
+            top = top.endpoint(height);
         }
         table.total = top;
         state.dirty = false;
@@ -79,34 +78,39 @@ where
     }
     let reveal = state.reveal.take();
     if let Some(id) = reveal {
-        target = table.rows.iter().position(|row| row.id == id).map(|index| (index, 0.0));
+        target = table
+            .rows
+            .iter()
+            .position(|row| row.id == id)
+            .map(|index| (index, C::Scalar::ZERO));
     }
     if let Some((index, within)) = target {
-        state.scroll.offset = table.rows[index].top + within.min(table.rows[index].height);
+        state.scroll.offset = table.rows[index].top.endpoint(within.min(table.rows[index].height));
     }
     if reveal.is_some() {
-        state.scroll.velocity = 0.0;
-        state.scroll.tracking = false;
+        state.scroll.content_extent = table.total;
+        state.scroll.scroll_to(state.scroll.offset);
     }
     let mut visible = 0..0;
     let mut pointer_row = None;
     if !full && let Some(viewport) = viewport {
         state.scroll.content_extent = table.total;
         state.scroll.viewport_extent = viewport.height;
-        state.scroll.offset = state.scroll.offset.clamp(0.0, state.scroll.maximum_offset());
+        state.scroll.offset = state.scroll.offset.clamp(C::Scalar::ZERO, state.scroll.maximum_offset());
         if edge_scroll {
             state.scroll.velocity = 0.0;
+            state.scroll.tracking = false;
             if let Some(pointer) = ui.pointer_position() {
-                let y = pointer.y - viewport.y;
-                let edge = 40.0_f32.min(viewport.height / 2.0).max(1.0);
+                let y = (pointer.y - viewport.y).to_f32();
+                let edge = 40.0_f32.min(viewport.height.to_f32() / 2.0).max(1.0);
                 let speed = if y < edge {
                     -((edge - y) / edge).min(1.0)
                 } else {
-                    ((y - viewport.height + edge) / edge).clamp(0.0, 1.0)
+                    ((y - viewport.height.to_f32() + edge) / edge).clamp(0.0, 1.0)
                 };
                 if speed != 0.0 {
-                    state.scroll.scroll_by(speed * 600.0 * elapsed.min(0.05));
-                    if (speed < 0.0 && state.scroll.offset > 0.0)
+                    super::move_by(&mut state.scroll, speed * 600.0 * elapsed.min(0.05));
+                    if (speed < 0.0 && state.scroll.offset > C::Scalar::ZERO)
                         || (speed > 0.0 && state.scroll.offset < state.scroll.maximum_offset())
                     {
                         ui.request_frame();
@@ -117,20 +121,23 @@ where
         if let Some(pointer) = ui.pointer_position()
             && !rows.is_empty()
         {
-            let y = state.scroll.offset + (pointer.y - viewport.y).clamp(0.0, viewport.height);
+            let y = state
+                .scroll
+                .offset
+                .endpoint((pointer.y - viewport.y).clamp(C::Scalar::ZERO, viewport.height));
             pointer_row = Some(
                 table
                     .rows
-                    .partition_point(|row| row.top + row.height <= y)
+                    .partition_point(|row| row.top.endpoint(row.height) <= y)
                     .min(rows.len() - 1),
             );
         }
         let first = table
             .rows
-            .partition_point(|row| row.top + row.height <= state.scroll.offset);
+            .partition_point(|row| row.top.endpoint(row.height) <= state.scroll.offset);
         let end = table
             .rows
-            .partition_point(|row| row.top < state.scroll.offset + viewport.height);
+            .partition_point(|row| row.top < state.scroll.offset.endpoint(viewport.height));
         state.visible = first..end;
         visible = first.saturating_sub(1)..(end + 1).min(rows.len());
     } else {
@@ -163,7 +170,7 @@ where
                 let table = Rc::clone(&table);
                 move |maximum| {
                     let mut table = table.borrow_mut();
-                    table.offset = table.offset.clamp(0.0, maximum);
+                    table.offset = table.offset.clamp(C::Scalar::ZERO, maximum);
                     table.offset
                 }
             },
@@ -195,16 +202,16 @@ pub struct Response {
 }
 
 #[derive(Default)]
-pub struct State {
-    scroll: shared::State,
-    table: Rc<RefCell<RowTable>>,
-    screen: Option<Size>,
+pub struct State<T> {
+    scroll: super::State<T>,
+    table: Rc<RefCell<RowTable<T>>>,
+    screen: Option<Size<T>>,
     dirty: bool,
     reveal: Option<WidgetId>,
     visible: Range<usize>,
 }
 
-impl State {
+impl<T: Scalar> State<T> {
     pub fn scroll_to(&mut self, id: WidgetId) {
         self.reveal = Some(id);
     }
@@ -229,45 +236,48 @@ impl State {
     }
 }
 
-struct Row {
+struct Row<T> {
     id: WidgetId,
-    top: f32,
-    height: f32,
+    top: T,
+    height: T,
 }
 #[derive(Default)]
-struct RowTable {
-    rows: Vec<Row>,
-    heights: HashMap<WidgetId, f32>,
-    total: f32,
-    offset: f32,
+struct RowTable<T> {
+    rows: Vec<Row<T>>,
+    heights: HashMap<WidgetId, T>,
+    total: T,
+    offset: T,
 }
 
-struct MeasuredLayout {
+struct MeasuredLayout<T> {
     first: usize,
-    target: Option<(usize, f32)>,
-    table: Rc<RefCell<RowTable>>,
+    target: Option<(usize, T)>,
+    table: Rc<RefCell<RowTable<T>>>,
 }
 
-impl<C: blit_layout::Context> Layout<C> for MeasuredLayout {
+impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for MeasuredLayout<T> {
     type Item = ();
 
-    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
+    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints<T>) -> Size<T> {
         let width = if constraints.max.width.is_finite() {
             constraints.max.width
         } else {
             ui.children().fold(constraints.min.width, |width, child| {
-                width.max(layout_child(ui, child, Constraints::loose(Size::uniform(f32::INFINITY))).width)
+                width.max(
+                    ui.layout_child(child, Constraints::loose(Size::uniform(T::UNBOUNDED)))
+                        .width,
+                )
             })
         };
         let bounds = Constraints {
-            min: Size::new(width, 0.0),
-            max: Size::new(width, f32::INFINITY),
+            min: Size::new(width, T::ZERO),
+            max: Size::new(width, T::UNBOUNDED),
         };
         let mut table = self.table.borrow_mut();
         let mut changed = None;
         for (index, child) in ui.children().enumerate() {
-            let size = layout_child(ui, child, bounds);
-            assert!(size.height.is_finite() && size.height >= 0.0);
+            let size = ui.layout_child(child, bounds);
+            assert!(size.height.is_finite() && size.height >= T::ZERO);
             let row = &mut table.rows[self.first + index];
             if row.height != size.height {
                 changed.get_or_insert(self.first + index);
@@ -280,17 +290,17 @@ impl<C: blit_layout::Context> Layout<C> for MeasuredLayout {
             let mut top = table.rows[first].top;
             for row in &mut table.rows[first..] {
                 row.top = top;
-                top += row.height;
+                top = top.endpoint(row.height);
             }
             table.total = top;
             ui.request_frame();
         }
         if let Some((index, within)) = self.target {
             let row = &table.rows[index];
-            table.offset = row.top + within.min(row.height);
+            table.offset = row.top.endpoint(within.min(row.height));
         }
         for (index, child) in ui.children().enumerate() {
-            ui.set_child_position(child, Point::new(0.0, table.rows[self.first + index].top));
+            ui.set_child_position(child, Point::new(T::ZERO, table.rows[self.first + index].top));
         }
         constraints.constrain(Size::new(bounds.max.width, table.total))
     }
@@ -307,9 +317,10 @@ mod tests {
 
     #[test]
     fn remeasured_rows_resolve_scroll_before_the_first_paint() {
-        use blit::{Sides, WidgetId};
+        use blit::WidgetId;
+        use blit_layout::single;
 
-        fn layout(frame: &mut Frame<TestContext>, state: &mut State, rows: &[(u32, f32)]) {
+        fn layout(frame: &mut Frame<TestContext>, state: &mut State<f32>, rows: &[(u32, f32)]) {
             let context = &mut TestContext;
             frame.build(
                 context,
@@ -326,7 +337,7 @@ mod tests {
                         |_| (None::<()>, None::<()>),
                         |row| WidgetId::new(row.0),
                         |ui, row| {
-                            ui.layout(blit_layout::single::new().padding(Sides::y(row.1 / 2.0)));
+                            ui.layout(single::new().fixed(80.0, row.1));
                         },
                     )
                 },

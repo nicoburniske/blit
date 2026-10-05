@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use base64::Engine as _;
-use blit::LogicalRect;
+use blit::PhysicalRect;
 
 use super::{BASE64, KittyPlacement, TuiRenderer, image::ImagePlacement, text::TextAttributes, write_color};
 
@@ -11,7 +11,7 @@ impl TuiRenderer {
         self.frame_cells.clear();
         self.kitty_placements.clear();
     }
-    pub fn place_image(&mut self, request: ImagePlacement, clip: LogicalRect) {
+    pub fn place_image(&mut self, request: ImagePlacement, clip: PhysicalRect) {
         if let Some(area) = request.area.intersection(clip) {
             let (x, y, right, bottom) = self.cell_bounds(area);
             if right > x && bottom > y {

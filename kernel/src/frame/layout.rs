@@ -2,17 +2,17 @@ use std::marker::PhantomData;
 
 use super::{Frame, NodeGeometry, NodeId, StoredNode};
 use crate::{
-    TransitionProperties,
+    Context, Scalar, TransitionProperties,
     arena::{DataArena, DataId, Scratch},
     geometry::{Constraints, Point, Size},
     layout::Layout,
 };
 
 #[repr(C)]
-pub struct LayoutCx<'a, C, I = ()> {
+pub struct LayoutCx<'a, C: Context, I = ()> {
     frame: &'a Frame<C>,
     data: &'a DataArena,
-    geometry: &'a mut [NodeGeometry],
+    geometry: &'a mut [NodeGeometry<C::Scalar>],
     context: &'a mut C,
     frame_requested: &'a mut bool,
     node: NodeId,
@@ -20,7 +20,7 @@ pub struct LayoutCx<'a, C, I = ()> {
     item: PhantomData<fn() -> I>,
 }
 
-impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
+impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     pub fn node(&self) -> NodeId {
         self.node
     }
@@ -33,31 +33,16 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
         self.frame.nodes[self.node.index()].visual_parent
     }
 
-    pub fn size(&self, node: NodeId) -> Size {
+    pub fn size(&self, node: NodeId) -> Size<C::Scalar> {
         self.geometry[node.index()].area.size()
     }
 
-    pub fn measure_atoms(&mut self, constraints: Constraints) -> Size {
-        self.measure(self.node, constraints)
+    pub fn measure_atoms(&mut self, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
+        let node = self.node;
+        self.cast::<()>().measure(node, constraints)
     }
 
-    #[inline]
-    fn measure(&mut self, node: NodeId, constraints: Constraints) -> Size {
-        if constraints.min == constraints.max {
-            return constraints.min;
-        }
-        let mut atom = self.frame.nodes[node.index()].first_atom;
-        let mut size = Size::ZERO;
-        while let Some(index) = atom.index() {
-            let stored = self.frame.atoms[index];
-            let measure = self.frame.atom_kinds[stored.kind as usize].measure;
-            size = size.max(measure(self.data, stored.data, self.context, constraints));
-            atom = stored.next;
-        }
-        constraints.constrain(size)
-    }
-
-    pub fn set_position(&mut self, position: Point) {
+    pub fn set_position(&mut self, position: Point<C::Scalar>) {
         let area = &mut self.geometry[self.node.index()].area;
         area.x = position.x;
         area.y = position.y;
@@ -80,12 +65,12 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     }
 
     #[inline]
-    pub fn layout_child(&mut self, child: NodeId, bounds: Constraints) -> Size {
+    pub fn layout_child(&mut self, child: NodeId, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
         self.assert_child(child);
-        self.resolve(child, bounds)
+        self.cast::<()>().resolve(child, bounds)
     }
 
-    pub fn target_size(&self, child: NodeId) -> Size {
+    pub fn target_size(&self, child: NodeId) -> Size<C::Scalar> {
         if self.frame.target_sizes.is_empty() {
             self.size(child)
         } else {
@@ -93,7 +78,7 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
         }
     }
 
-    pub fn set_child_position(&mut self, child: NodeId, position: Point) {
+    pub fn set_child_position(&mut self, child: NodeId, position: Point<C::Scalar>) {
         #[cfg(debug_assertions)]
         self.assert_child(child);
         let area = &mut self.geometry[child.index()].area;
@@ -109,7 +94,7 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
         self.context
     }
 
-    pub fn scratch<T: Copy + 'static>(&self, len: usize, value: T) -> Scratch<'a, T> {
+    pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'a, T> {
         self.data.scratch(len, value)
     }
 
@@ -119,7 +104,7 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
         self.geometry[child.index()].z_index = z_index;
     }
 
-    pub fn size_overrides(&self, child: NodeId) -> (Option<f32>, Option<f32>) {
+    pub fn size_overrides(&self, child: NodeId) -> (Option<C::Scalar>, Option<C::Scalar>) {
         if self.frame.target_sizes.is_empty() {
             return (None, None);
         }
@@ -148,16 +133,49 @@ impl<'a, C, I: 'static> LayoutCx<'a, C, I> {
     }
 
     #[inline]
-    fn resolve(&mut self, node: NodeId, bounds: Constraints) -> Size {
+    fn cast<J>(&mut self) -> &mut LayoutCx<'a, C, J> {
+        // safety: repr(C) changes only the item marker and preserves this borrow and lifetime
+        unsafe { &mut *std::ptr::from_mut(self).cast::<LayoutCx<'a, C, J>>() }
+    }
+}
+
+impl<'a, C: Context> LayoutCx<'a, C> {
+    #[inline]
+    fn measure(&mut self, node: NodeId, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
+        if constraints.min == constraints.max {
+            return constraints.min;
+        }
+        let mut atom = self.frame.nodes[node.index()].first_atom;
+        let mut size = Size::ZERO;
+        while let Some(index) = atom.index() {
+            let stored = self.frame.atoms[index];
+            let measure = self.frame.atom_kinds[stored.kind as usize].measure;
+            size = size.max(measure(self.data, stored.data, self.context, constraints));
+            atom = stored.next;
+        }
+        constraints.constrain(size)
+    }
+
+    #[inline]
+    fn resolve(&mut self, node: NodeId, mut bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
+        let (width, height) = self.size_overrides(node);
+        if let Some(width) = width {
+            bounds.min.width = width;
+            bounds.max.width = width;
+        }
+        if let Some(height) = height {
+            bounds.min.height = height;
+            bounds.max.height = height;
+        }
         let stored = &self.frame.nodes[node.index()];
         let size = if stored.layout.offset().is_some() {
             let kind = &self.frame.layout_kinds[stored.layout_kind as usize];
             let mut cx = LayoutCx {
                 frame: self.frame,
                 data: self.data,
-                geometry: &mut *self.geometry,
-                context: &mut *self.context,
-                frame_requested: &mut *self.frame_requested,
+                geometry: self.geometry,
+                context: self.context,
+                frame_requested: self.frame_requested,
                 node,
                 default_item: kind.default_item,
                 item: PhantomData,
@@ -202,7 +220,7 @@ impl Iterator for Children<'_> {
     }
 }
 
-pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size) {
+pub fn resolve<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size<C::Scalar>) {
     let mut geometry = std::mem::take(&mut frame.node_geometry);
     let mut requested = frame.frame_requested;
     let mut cx = LayoutCx {
@@ -221,17 +239,22 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
             continue;
         }
         let area = &mut cx.geometry[index].area;
-        area.x = 0.0;
-        area.y = 0.0;
-        cx.resolve(NodeId::new(index), Constraints::loose(Size::uniform(f32::INFINITY)));
+        area.x = C::Scalar::ZERO;
+        area.y = C::Scalar::ZERO;
+        cx.resolve(
+            NodeId::new(index),
+            Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)),
+        );
     }
     frame.node_geometry = geometry;
     frame.frame_requested = requested;
 }
 
-pub fn run<'a, C, L: Layout<C>>(cx: &mut LayoutCx<'a, C>, id: DataId, bounds: Constraints) -> Size {
+pub fn run<'a, C: Context, L: Layout<C>>(
+    cx: &mut LayoutCx<'a, C>,
+    id: DataId,
+    bounds: Constraints<C::Scalar>,
+) -> Size<C::Scalar> {
     let layout = cx.data.load::<L>(id);
-    // safety: repr(C) changes only the item marker and preserves this exclusive borrow and lifetime
-    let typed = unsafe { &mut *std::ptr::from_mut(cx).cast::<LayoutCx<'a, C, L::Item>>() };
-    layout.layout(typed, bounds)
+    layout.layout(cx.cast::<L::Item>(), bounds)
 }

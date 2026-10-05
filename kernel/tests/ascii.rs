@@ -4,7 +4,7 @@ use blit::{
     Atom, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, Layout, LayoutCx, Modifiers,
     NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Transition, Widget, WidgetId,
 };
-use blit_layout::{Context, Sizing, absolute, absolute::Anchor, layout_child, resolve_sizing};
+use blit_layout::{Sizing, absolute, absolute::Anchor, resolve_sizing};
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, AsciiContext, S>;
 
@@ -59,7 +59,7 @@ fn layouts_keep_disjoint_scratch_while_resolving_children() {
     impl Layout<AsciiContext> for Temporary {
         type Item = ();
 
-        fn layout(&self, cx: &mut LayoutCx<'_, AsciiContext>, bounds: Constraints) -> Size {
+        fn layout(&self, cx: &mut LayoutCx<'_, AsciiContext>, bounds: Constraints<f32>) -> Size<f32> {
             let marker = {
                 let context = cx.context();
                 context.prepared += 1;
@@ -96,27 +96,20 @@ fn culls_only_atoms_with_disjoint_known_paint_bounds() {
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        root.child()
-            .layout(absolute::place(()).offset(blit::Point::new(4.0, 0.0)))
-            .insert(PaintCount {
-                count: culled.clone(),
-                bounds_offset: Point::ZERO,
-            });
-        root.child()
-            .layout(absolute::place(()).offset(blit::Point::new(4.0, 0.0)))
-            .insert(PaintCount {
-                count: overflow.clone(),
-                bounds_offset: Point::new(-4.0, 0.0),
-            });
+        root.child().layout(absolute::place(()).x(4.0)).insert(PaintCount {
+            count: culled.clone(),
+            bounds_offset: Point::ZERO,
+        });
+        root.child().layout(absolute::place(()).x(4.0)).insert(PaintCount {
+            count: overflow.clone(),
+            bounds_offset: Point::new(-4.0, 0.0),
+        });
         root.child().item(TestItem::fixed(1.0, 1.0)).build(|ui: Ui<'_>| {
             let mut panel = ui.layout(Overlay).clip(DiamondClip);
-            panel
-                .child()
-                .layout(absolute::place(()).offset(blit::Point::new(1.0, 0.0)))
-                .insert(PaintCount {
-                    count: clipped.clone(),
-                    bounds_offset: Point::ZERO,
-                });
+            panel.child().layout(absolute::place(()).x(1.0)).insert(PaintCount {
+                count: clipped.clone(),
+                bounds_offset: Point::ZERO,
+            });
         });
     });
 
@@ -197,7 +190,7 @@ fn default_children_share_one_item() {
     impl Layout<AsciiContext> for SharedDefault {
         type Item = Rc<()>;
 
-        fn layout(&self, cx: &mut LayoutCx<'_, AsciiContext, Rc<()>>, bounds: Constraints) -> Size {
+        fn layout(&self, cx: &mut LayoutCx<'_, AsciiContext, Rc<()>>, bounds: Constraints<f32>) -> Size<f32> {
             let mut count = 0;
             for child in cx.children() {
                 let item = Rc::as_ptr(cx.item(child));
@@ -206,7 +199,7 @@ fn default_children_share_one_item() {
                 } else {
                     self.default.set(Some(item));
                 }
-                layout_child(cx, child, Constraints::loose(bounds.max));
+                cx.layout_child(child, Constraints::loose(bounds.max));
                 cx.set_child_position(child, Point::ZERO);
                 count += 1;
             }
@@ -312,21 +305,23 @@ fn visual_parent_preserves_outer_clip_and_supplies_absolute_size() {
             let outer_id = ui.id();
             let mut outer = ui.layout(
                 absolute::place(Overlay)
-                    .offset(blit::Point::new(1.0, 0.0))
+                    .x(1.0)
                     .width(absolute::Sizing::fixed(5.0))
                     .height(absolute::Sizing::fixed(5.0)),
             );
             outer.child().clip(DiamondClip).build(|ui: Ui<'_>| {
                 ui.layout(
                     absolute::place(Overlay)
-                        .offset(blit::Point::new(2.0, 2.0))
+                        .x(2.0)
+                        .y(2.0)
                         .width(absolute::Sizing::fixed(1.0))
                         .height(absolute::Sizing::fixed(1.0)),
                 )
                 .child()
                 .layout(
                     absolute::place(())
-                        .offset(blit::Point::new(-2.0, -2.0))
+                        .x(-2.0)
+                        .y(-2.0)
                         .width(absolute::Sizing::full())
                         .height(absolute::Sizing::full()),
                 )
@@ -847,7 +842,7 @@ fn position_transition_scene(
     });
 }
 
-fn clipped_button(ui: Ui<'_>) -> Interaction {
+fn clipped_button(ui: Ui<'_>) -> Interaction<f32> {
     let mut root = ui.layout(Overlay);
     root.child().build(|ui: Ui<'_>| {
         let mut panel = ui.layout(Fixed(Size::new(3.0, 1.0))).clip(DiamondClip);
@@ -878,19 +873,19 @@ fn scene(ui: Ui<'_>) {
 
 struct PaintCount {
     count: Rc<Cell<usize>>,
-    bounds_offset: Point,
+    bounds_offset: Point<f32>,
 }
 
 impl Atom<AsciiContext> for PaintCount {
-    fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut AsciiContext, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::uniform(1.0))
     }
 
-    fn paint(&self, _: &mut AsciiContext, _: Rect) {
+    fn paint(&self, _: &mut AsciiContext, _: Rect<f32>) {
         self.count.set(self.count.get() + 1);
     }
 
-    fn paint_bounds(&self, area: Rect) -> Rect {
+    fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
         Rect {
             x: area.x + self.bounds_offset.x,
             y: area.y + self.bounds_offset.y,
@@ -900,29 +895,29 @@ impl Atom<AsciiContext> for PaintCount {
 }
 
 struct OwnedValue {
-    area: Rc<Cell<Rect>>,
+    area: Rc<Cell<Rect<f32>>>,
     drops: Rc<Cell<usize>>,
 }
 
-impl<C: Context> Layout<C> for OwnedValue {
+impl<C: blit::Context<Scalar = f32>> Layout<C> for OwnedValue {
     type Item = ();
 
-    fn layout(&self, _: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
+    fn layout(&self, _: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<f32>) -> Size<f32> {
         bounds.min
     }
 }
 
 impl Atom<AsciiContext> for OwnedValue {
-    fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut AsciiContext, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, context: &mut AsciiContext, area: Rect) {
+    fn paint(&self, context: &mut AsciiContext, area: Rect<f32>) {
         self.area.set(area);
         context.cells.fill('P');
     }
 
-    fn paint_bounds(&self, area: Rect) -> Rect {
+    fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
         area
     }
 }
@@ -936,21 +931,21 @@ impl Drop for OwnedValue {
 #[derive(Clone, Copy)]
 struct Fill {
     glyph: char,
-    size: Size,
+    size: Size<f32>,
 }
 
 impl Fill {
-    const fn new(glyph: char, size: Size) -> Self {
+    const fn new(glyph: char, size: Size<f32>) -> Self {
         Self { glyph, size }
     }
 }
 
 impl Atom<AsciiContext> for Fill {
-    fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut AsciiContext, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(self.size)
     }
 
-    fn paint(&self, context: &mut AsciiContext, area: Rect) {
+    fn paint(&self, context: &mut AsciiContext, area: Rect<f32>) {
         let left = area.x.max(0.0) as usize;
         let top = area.y.max(0.0) as usize;
         let right = (area.x + area.width).min(context.width as f32) as usize;
@@ -970,7 +965,7 @@ impl Atom<AsciiContext> for Fill {
         }
     }
 
-    fn paint_bounds(&self, area: Rect) -> Rect {
+    fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
         area
     }
 }
@@ -1011,7 +1006,7 @@ impl Content<AsciiContext> for Pair {
 struct DiamondClip;
 
 impl DiamondClip {
-    fn contains_point(area: Rect, point: Point) -> bool {
+    fn contains_point(area: Rect<f32>, point: Point<f32>) -> bool {
         let radius_x = area.width / 2.0;
         let radius_y = area.height / 2.0;
         if radius_x <= 0.0 || radius_y <= 0.0 {
@@ -1024,7 +1019,7 @@ impl DiamondClip {
 }
 
 impl Clip<AsciiContext> for DiamondClip {
-    fn push(&self, context: &mut AsciiContext, area: Rect) {
+    fn push(&self, context: &mut AsciiContext, area: Rect<f32>) {
         context.diamond_clips.push(area);
     }
 
@@ -1035,8 +1030,8 @@ impl Clip<AsciiContext> for DiamondClip {
 
 struct TestItem {
     gap_before: f32,
-    width: Sizing,
-    height: Sizing,
+    width: Sizing<f32>,
+    height: Sizing<f32>,
 }
 
 impl TestItem {
@@ -1052,12 +1047,12 @@ impl TestItem {
         Self::new(0.0).width(Sizing::fixed(width)).height(Sizing::fixed(height))
     }
 
-    fn width(mut self, width: Sizing) -> Self {
+    fn width(mut self, width: Sizing<f32>) -> Self {
         self.width = width;
         self
     }
 
-    fn height(mut self, height: Sizing) -> Self {
+    fn height(mut self, height: Sizing<f32>) -> Self {
         self.height = height;
         self
     }
@@ -1072,11 +1067,11 @@ impl Default for TestItem {
 #[derive(Clone, Copy)]
 struct Column;
 
-impl<C: Context> Layout<C> for Column {
+impl<C: blit::Context<Scalar = f32>> Layout<C> for Column {
     type Item = TestItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
-        let mut size = Size::ZERO;
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<f32>) -> Size<f32> {
+        let mut size: Size<f32> = Size::ZERO;
         for child in cx.children() {
             let child_size = size_child(cx, child, bounds, true, false);
             size.width = size.width.max(child_size.width);
@@ -1091,11 +1086,11 @@ impl<C: Context> Layout<C> for Column {
 #[derive(Clone, Copy)]
 struct Overlay;
 
-impl<C: Context> Layout<C> for Overlay {
+impl<C: blit::Context<Scalar = f32>> Layout<C> for Overlay {
     type Item = TestItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
-        let mut size = Size::ZERO;
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<f32>) -> Size<f32> {
+        let mut size: Size<f32> = Size::ZERO;
         for child in cx.children() {
             size = size.max(size_child(cx, child, bounds, true, true));
         }
@@ -1115,13 +1110,13 @@ impl<C: Context> Layout<C> for Overlay {
 }
 
 #[derive(Clone, Copy)]
-struct Fixed(Size);
+struct Fixed(Size<f32>);
 
-impl<C: Context> Layout<C> for Fixed {
+impl<C: blit::Context<Scalar = f32>> Layout<C> for Fixed {
     type Item = TestItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
-        let size = Size::new(C::round(self.0.width), C::round(self.0.height));
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<f32>) -> Size<f32> {
+        let size = self.0;
         for child in cx.children() {
             size_child(cx, child, bounds, true, true);
             cx.set_child_position(child, Point::ZERO);
@@ -1130,15 +1125,15 @@ impl<C: Context> Layout<C> for Fixed {
     }
 }
 
-fn size_child<C: Context>(
+fn size_child<C: blit::Context<Scalar = f32>>(
     cx: &mut LayoutCx<'_, C, TestItem>,
     child: NodeId,
-    bounds: Constraints,
+    bounds: Constraints<f32>,
     width_cross: bool,
     height_cross: bool,
-) -> Size {
+) -> Size<f32> {
     let available = bounds.max;
-    let resolve = |sizing: Sizing, measured: f32, available: f32, stretch: bool| match sizing {
+    let resolve = |sizing: Sizing<f32>, measured: f32, available: f32, stretch: bool| match sizing {
         Sizing::Fit { .. } => sizing.clamp(measured.min(available)),
         Sizing::Grow { .. } if stretch => sizing.clamp(available),
         Sizing::Grow { .. } => sizing.clamp(measured.min(available)),
@@ -1149,7 +1144,7 @@ fn size_child<C: Context>(
         }
         Sizing::Percent(_) => 0.0,
     };
-    let measured = layout_child(cx, child, Constraints::loose(available));
+    let measured = cx.layout_child(child, Constraints::loose(available));
     let item = cx.item(child);
     let size = Size::new(
         resolve(
@@ -1168,23 +1163,25 @@ fn size_child<C: Context>(
     if measured == size {
         size
     } else {
-        layout_child(cx, child, Constraints::tight(size))
+        cx.layout_child(child, Constraints::tight(size))
     }
 }
 
 struct AsciiContext {
-    info: FrameInfo,
+    info: FrameInfo<f32>,
     width: usize,
     height: usize,
     cells: Vec<char>,
-    diamond_clips: Vec<Rect>,
+    diamond_clips: Vec<Rect<f32>>,
     prepared: usize,
 }
 
-impl Context for AsciiContext {}
+impl blit::Context for AsciiContext {
+    type Scalar = f32;
+}
 
 impl AsciiContext {
-    fn new(info: FrameInfo) -> Self {
+    fn new(info: FrameInfo<f32>) -> Self {
         Self {
             info,
             width: info.size.width as usize,
@@ -1212,11 +1209,11 @@ impl AsciiContext {
     }
 }
 
-fn frame(size: Size) -> (Frame<AsciiContext>, AsciiContext) {
+fn frame(size: Size<f32>) -> (Frame<AsciiContext>, AsciiContext) {
     frame_info(FrameInfo::new(size))
 }
 
-fn frame_info(info: FrameInfo) -> (Frame<AsciiContext>, AsciiContext) {
+fn frame_info(info: FrameInfo<f32>) -> (Frame<AsciiContext>, AsciiContext) {
     (Frame::default(), AsciiContext::new(info))
 }
 
@@ -1240,7 +1237,7 @@ fn render_inputs<O>(
     frame: &mut Frame<AsciiContext>,
     context: &mut AsciiContext,
     time: Duration,
-    inputs: impl IntoIterator<Item = Input>,
+    inputs: impl IntoIterator<Item = Input<f32>>,
     mut build: impl FnMut(Ui<'_>) -> O,
 ) {
     let info = context.info;

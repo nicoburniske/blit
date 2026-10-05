@@ -1,32 +1,31 @@
-use blit::{Axis, Constraints, Layout as LayoutTrait, LayoutCx, Point, Sense, Size, Ui, Widget};
-use blit_layout::layout_child;
+use blit::{Axis, Constraints, Context, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
 
 blit::builder! {
     /// split behavior and geometry
     #[derive(Clone, Copy, Debug)]
-    pub struct Config {
-        new(initial_extent: f32),
+    pub struct Config<T: Scalar> {
+        new(initial_extent: T),
         axis: Axis = Axis::Horizontal,
-        divider_extent: f32 = 1.0,
-        minimum_leading: f32 = 0.0,
-        minimum_trailing: f32 = 0.0,
+        divider_extent: T = T::from_f32(1.0),
+        minimum_leading: T = T::ZERO,
+        minimum_trailing: T = T::ZERO,
         sense: Sense = Sense::DRAG,
     }
 }
 
 #[derive(Debug, Default)]
-pub struct State {
-    extent: Option<f32>,
+pub struct State<T> {
+    extent: Option<T>,
     changed: bool,
 }
 
-impl State {
-    pub fn extent(&self) -> Option<f32> {
+impl<T: Scalar> State<T> {
+    pub fn extent(&self) -> Option<T> {
         self.extent
     }
 
-    pub fn set_extent(&mut self, extent: f32) {
-        self.extent = Some(extent.max(0.0));
+    pub fn set_extent(&mut self, extent: T) {
+        self.extent = Some(extent.max(T::ZERO));
         self.changed = true;
     }
 
@@ -36,9 +35,9 @@ impl State {
     }
 }
 
-pub fn new<'a, C: blit_layout::Context, L, T, D, W>(
-    state: &'a mut State,
-    config: Config,
+pub fn new<'a, C: Context, L, T, D, W>(
+    state: &'a mut State<C::Scalar>,
+    config: Config<C::Scalar>,
     divider: D,
     leading: L,
     trailing: T,
@@ -46,7 +45,7 @@ pub fn new<'a, C: blit_layout::Context, L, T, D, W>(
 where
     L: Widget<C> + 'a,
     T: Widget<C> + 'a,
-    D: FnOnce(Axis, blit::Interaction) -> W + 'a,
+    D: FnOnce(Axis, blit::Interaction<C::Scalar>) -> W + 'a,
     W: Widget<C>,
 {
     move |mut ui: Ui<'_, C>| {
@@ -56,10 +55,7 @@ where
         let divider_id = id.child("divider");
         let trailing_id = id.child("trailing pane");
         let interaction = ui.interact_widget(divider_id, config.sense);
-        let measured = ui.geometry(leading_id).map(|area| match axis {
-            Axis::Horizontal => area.width,
-            Axis::Vertical => area.height,
-        });
+        let measured = ui.geometry(leading_id).map(|area| axis.extent(area.size()));
         let delta = match axis {
             Axis::Horizontal => interaction.drag_delta.x,
             Axis::Vertical => interaction.drag_delta.y,
@@ -69,13 +65,8 @@ where
         {
             state.extent = Some(measured);
         }
-        if delta != 0.0 {
-            let extent = if state.changed {
-                state.extent
-            } else {
-                measured.or(state.extent)
-            }
-            .unwrap_or(config.initial_extent);
+        if delta != C::Scalar::ZERO {
+            let extent = state.extent.unwrap_or(config.initial_extent);
             state.extent = Some(extent + delta);
         }
         let extent = state.extent.unwrap_or(config.initial_extent);
@@ -87,73 +78,48 @@ where
             minimum_leading: config.minimum_leading,
             minimum_trailing: config.minimum_trailing,
         });
-        panes.child().item(Item::Leading).widget_id(leading_id).build(leading);
-        panes
-            .child()
-            .item(Item::Divider)
-            .widget_id(divider_id)
-            .build(divider(axis, interaction));
-        panes
-            .child()
-            .item(Item::Trailing)
-            .widget_id(trailing_id)
-            .build(trailing);
+        panes.child().widget_id(leading_id).build(leading);
+        panes.child().widget_id(divider_id).build(divider(axis, interaction));
+        panes.child().widget_id(trailing_id).build(trailing);
     }
 }
 
-#[derive(Clone, Copy, Default)]
-enum Item {
-    #[default]
-    Leading,
-    Divider,
-    Trailing,
-}
-
 #[derive(Clone, Copy)]
-struct Layout {
+struct Layout<T> {
     axis: Axis,
-    divider_extent: f32,
-    extent: f32,
-    minimum_leading: f32,
-    minimum_trailing: f32,
+    divider_extent: T,
+    extent: T,
+    minimum_leading: T,
+    minimum_trailing: T,
 }
 
-impl<C: blit_layout::Context> LayoutTrait<C> for Layout {
-    type Item = Item;
+impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
+    type Item = ();
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints) -> Size {
-        let mut leading = None;
-        let mut trailing = None;
-        let mut divider = None;
-        for child in cx.children() {
-            match cx.item(child) {
-                Item::Leading => leading = Some(child),
-                Item::Trailing => trailing = Some(child),
-                Item::Divider => divider = Some(child),
-            }
-        }
-        let leading = leading.expect("missing split leading content");
-        let trailing = trailing.expect("missing split trailing content");
-        let divider = divider.expect("missing split divider");
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<T>) -> Size<T> {
+        let mut children = cx.children();
+        let leading = children.next().expect("missing split leading content");
+        let divider = children.next().expect("missing split divider");
+        let trailing = children.next().expect("missing split trailing content");
         let cross_axis = self.axis.other();
         let main = self.axis.extent(bounds.max);
         assert!(main.is_finite(), "split needs a finite main axis budget");
-        let divider_extent = C::round(self.divider_extent).max(0.0).min(main);
-        let available = (main - divider_extent).max(0.0);
-        let minimum_leading = C::round(self.minimum_leading).max(0.0);
-        let minimum_trailing = C::round(self.minimum_trailing).max(0.0);
-        let desired = C::round(self.extent).max(0.0);
-        let leading_extent = C::round(if minimum_leading + minimum_trailing <= available {
+        let divider_extent = self.divider_extent.max(T::ZERO).min(main);
+        let available = (main - divider_extent).max(T::ZERO);
+        let minimum_leading = self.minimum_leading.max(T::ZERO);
+        let minimum_trailing = self.minimum_trailing.max(T::ZERO);
+        let desired = self.extent.max(T::ZERO);
+        let leading_extent = if minimum_leading <= available - minimum_trailing {
             desired.clamp(minimum_leading, available - minimum_trailing)
-        } else if minimum_leading + minimum_trailing > 0.0 {
-            available * minimum_leading / (minimum_leading + minimum_trailing)
         } else {
-            desired.min(available)
-        })
+            T::from_f32(
+                available.to_f32() * minimum_leading.to_f32() / (minimum_leading.to_f32() + minimum_trailing.to_f32()),
+            )
+        }
         .min(available);
         let mut cross = cross_axis.extent(bounds.min);
         for (child, extent, offset) in [
-            (leading, leading_extent, 0.0),
+            (leading, leading_extent, T::ZERO),
             (trailing, available - leading_extent, leading_extent + divider_extent),
         ] {
             let mut child_bounds = bounds;
@@ -161,7 +127,7 @@ impl<C: blit_layout::Context> LayoutTrait<C> for Layout {
             self.axis.set_extent(&mut child_bounds.max, extent);
             let mut point = Size::ZERO;
             self.axis.set_extent(&mut point, offset);
-            let size = layout_child(cx, child, child_bounds);
+            let size = cx.layout_child(child, child_bounds);
             cx.set_child_position(child, Point::new(point.width, point.height));
             cross = cross.max(cross_axis.extent(size));
         }
@@ -172,7 +138,7 @@ impl<C: blit_layout::Context> LayoutTrait<C> for Layout {
         let mut point = Size::ZERO;
         self.axis.set_extent(&mut point, leading_extent);
         self.axis.set_extent(&mut size, main);
-        layout_child(cx, divider, Constraints::tight(divider_size));
+        cx.layout_child(divider, Constraints::tight(divider_size));
         cx.set_child_position(divider, Point::new(point.width, point.height));
         bounds.constrain(size)
     }
@@ -191,13 +157,13 @@ mod tests {
     struct BoxAtom;
 
     impl Atom<TestContext> for BoxAtom {
-        fn measure(&self, _: &mut TestContext, constraints: Constraints) -> Size {
+        fn measure(&self, _: &mut TestContext, constraints: Constraints<f32>) -> Size<f32> {
             constraints.min
         }
 
-        fn paint(&self, _: &mut TestContext, _: Rect) {}
+        fn paint(&self, _: &mut TestContext, _: Rect<f32>) {}
 
-        fn paint_bounds(&self, area: Rect) -> Rect {
+        fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
             area
         }
     }

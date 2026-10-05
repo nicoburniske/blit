@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use blit::{
-    Atom, Axis, Constraints, Easing, Interaction, LogicalRect, Point, Sense, Sides, Size, Transition, Widget, WidgetId,
+    Atom, Axis, Constraints, Easing, Interaction, LogicalRect, Sense, Sides, Size, Transition, Widget, WidgetId,
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 #[cfg(not(feature = "gpu"))]
@@ -14,7 +14,7 @@ use blit_gui::{
     atom::{Rectangle, Shadow},
     color::Color,
     display_list::{Mesh, MeshVertex},
-    layout::{Align, flex, grid, single, wrap},
+    layout::{Align, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
     style::{Border, BorderRadius},
     text::{
         FontId, FontStyle, HorizontalAlign, Span, SpanStyle, TextOptions, TextOverflow, TextStyle, TextWrap,
@@ -25,7 +25,6 @@ use blit_gui::{
         text_input,
     },
 };
-use blit_layout::{Sizing, absolute, absolute::Anchor};
 
 pub fn run(text: impl TextLayoutEngine) {
     let fonts = std::fs::read_dir(std::path::Path::new(env!("BLIT_TEST_FONT")).with_file_name(""))
@@ -155,7 +154,7 @@ impl Application for App {
                 popover::Config::new()
                     .target_anchor(Anchor::BottomRight)
                     .child_anchor(Anchor::TopRight)
-                    .offset(Point::new(0.0, sz::XXS))
+                    .y(sz::XXS)
                     .open_on_hover(true)
                     .close(popover::Close::Exit),
                 |ui, interaction, open| {
@@ -197,7 +196,8 @@ impl Application for App {
                         .target(blit::NodeTarget::Root)
                         .target_anchor(Anchor::BottomRight)
                         .child_anchor(Anchor::BottomRight)
-                        .offset(blit::Point::new(-sz::LG, -sz::LG)),
+                        .x(-sz::LG)
+                        .y(-sz::LG),
                 )
                 .child()
                 .build(
@@ -1016,7 +1016,7 @@ struct TerrainBuffers {
 }
 
 impl Atom<GuiContext> for Terrain {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut GuiContext, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
@@ -1184,7 +1184,7 @@ impl Widget<GuiContext> for Button<'_> {
     }
 }
 
-fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction) {
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction<f32>) {
     let background = if interaction.active {
         colors::ACCENT_DARK
     } else if selected {
@@ -1239,7 +1239,7 @@ fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, optio
 #[derive(Clone, Copy)]
 struct Canvas {
     config: CanvasConfig,
-    unit: Size,
+    unit: Size<f32>,
 }
 
 impl Widget<GuiContext> for Canvas {
@@ -1451,9 +1451,9 @@ mod sz {
     pub const BADGE_WIDTH: f32 = 36.0;
 
     pub const CANVAS_INITIAL_SCALE: f32 = 0.8;
-    pub const CANVAS_INITIAL_OFFSET: Size = Size::new(430.0, 150.0);
-    pub const CANVAS_INITIAL_MIN: Size = Size::new(280.0, 220.0);
-    pub const CANVAS_MIN: Size = Size::new(240.0, 180.0);
+    pub const CANVAS_INITIAL_OFFSET: Size<f32> = Size::new(430.0, 150.0);
+    pub const CANVAS_INITIAL_MIN: Size<f32> = Size::new(280.0, 220.0);
+    pub const CANVAS_MIN: Size<f32> = Size::new(240.0, 180.0);
 }
 
 mod graphics {
@@ -1524,7 +1524,8 @@ mod graphics {
                     )
                     .target_anchor(Anchor::BottomLeft)
                     .child_anchor(Anchor::BottomLeft)
-                    .offset(blit::Point::new(sz::LG, -sz::LG))
+                    .x(sz::LG)
+                    .y(-sz::LG)
                     .width(absolute::Sizing::fixed(390.0))
                     .height(absolute::Sizing::fixed(52.0)),
                 );
