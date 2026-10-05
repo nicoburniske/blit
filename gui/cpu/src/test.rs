@@ -249,6 +249,11 @@ fn renderer_supports_custom_pixel_layouts() {
     let placed_start = renderer.gui.text_cursor_rect(&placed, 0);
     assert!(placed_start.x > start.x);
     assert!(placed_start.y > start.y);
+    placed.area.width += 0.5;
+    placed.area.height += 0.25;
+    let fractional_start = renderer.gui.text_cursor_rect(&placed, 0);
+    assert!((fractional_start.x - placed_start.x - 0.25).abs() < 0.001);
+    assert!((fractional_start.y - placed_start.y - 0.25).abs() < 0.001);
 }
 
 #[test]

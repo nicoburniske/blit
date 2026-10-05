@@ -643,13 +643,13 @@ fn placement_offset(placement: Placement, layout: &TextLayout, line: usize) -> L
     LogicalPoint {
         x: match placement.horizontal_align {
             HorizontalAlign::Left => 0.0,
-            HorizontalAlign::Center => ((placement.width - line.bounds.width) / 2.0).floor(),
-            HorizontalAlign::Right => (placement.width - line.bounds.width).floor(),
+            HorizontalAlign::Center => (placement.width - line.bounds.width) / 2.0,
+            HorizontalAlign::Right => placement.width - line.bounds.width,
         },
         y: match placement.vertical_align {
             VerticalAlign::Top => 0.0,
-            VerticalAlign::Center => ((placement.height - layout.size.height) / 2.0).floor(),
-            VerticalAlign::Bottom => (placement.height - layout.size.height).floor(),
+            VerticalAlign::Center => (placement.height - layout.size.height) / 2.0,
+            VerticalAlign::Bottom => placement.height - layout.size.height,
         },
     }
 }
