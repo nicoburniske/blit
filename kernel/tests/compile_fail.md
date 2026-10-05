@@ -61,3 +61,20 @@ where
     ui.layout(layout);
 }
 ```
+
+scratch cannot escape frame construction
+
+```compile_fail
+use blit::*;
+use std::time::Duration;
+
+fn escape(frame: &mut Frame<()>) {
+    let scratch = frame.build(
+        &mut (),
+        FrameInfo::new(Size::uniform(1.0)),
+        Duration::ZERO,
+        Input::None,
+        |ui: Ui<'_, ()>| ui.scratch(1, 0_u8),
+    );
+}
+```

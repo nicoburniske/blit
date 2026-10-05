@@ -18,7 +18,7 @@ use std::{
 use crate::{
     Atom, Clip, Content, FrameInfo, Widget,
     animation::{Easing, Transition},
-    arena::{DataArena, DataId},
+    arena::{DataArena, DataId, Scratch},
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::Input,
     interact::{Interaction, Sense, WidgetId},
@@ -114,12 +114,18 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
             inner: UiInner {
                 frame: self.inner.frame,
                 context: self.inner.context,
+                scratch: self.inner.scratch,
                 node: self.inner.node,
                 next_child: 0,
                 owns_node: false,
             },
             marker: PhantomData,
         })
+    }
+
+    /// temporary storage that stays usable while building this node
+    pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'ui, T> {
+        self.inner.scratch.scratch(len, value)
     }
 }
 
@@ -194,7 +200,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     #[inline]
     pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
         let node = self.inner.push_child();
-        Ui::new(self.inner.frame, self.inner.context, node)
+        Ui::new(self.inner.frame, self.inner.context, self.inner.scratch, node)
     }
 }
 
@@ -363,6 +369,7 @@ include!("graph.rs");
 struct UiInner<'ui, C: Context> {
     frame: &'ui mut Frame<C>,
     context: &'ui mut C,
+    scratch: &'ui DataArena,
     node: NodeId,
     next_child: u32,
     owns_node: bool,
@@ -387,11 +394,12 @@ impl<C: Context> UiInner<'_, C> {
 }
 
 impl<'ui, C: Context, S> Ui<'ui, C, S> {
-    fn new(frame: &'ui mut Frame<C>, context: &'ui mut C, node: NodeId) -> Self {
+    fn new(frame: &'ui mut Frame<C>, context: &'ui mut C, scratch: &'ui DataArena, node: NodeId) -> Self {
         Self {
             inner: UiInner {
                 frame,
                 context,
+                scratch,
                 node,
                 next_child: 0,
                 owns_node: true,

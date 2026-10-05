@@ -8,6 +8,7 @@ pub struct Frame<C: Context> {
     layout_kinds: Vec<LayoutKind<C>>,
     clip_kinds: Vec<ClipKind<C>>,
     data: DataArena,
+    scratch: DataArena,
     paint_links: Vec<PaintLinks>,
     paint_order: Vec<NodeId>,
     order_stack: Vec<NodeId>,
@@ -64,6 +65,7 @@ impl<C: Context> Default for Frame<C> {
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
             data: DataArena::default(),
+            scratch: DataArena::default(),
             paint_links: Vec::new(),
             paint_order: Vec::new(),
             order_stack: Vec::new(),
@@ -133,7 +135,11 @@ impl<C: Context> Frame<C> {
 
         let id = WidgetId::new("blit frame root");
         let root = self.push_node(None, id);
-        let output = widget.build(Ui::new(self, context, root));
+        let mut scratch = std::mem::take(&mut self.scratch);
+        scratch.prepare_scratch();
+        let output = widget.build(Ui::new(self, context, &scratch, root));
+        scratch.prepare_scratch();
+        self.scratch = scratch;
         #[cfg(debug_assertions)]
         assert!(
             self.nodes.iter().all(|node| self.widget_ids.insert(node.widget_id)),
