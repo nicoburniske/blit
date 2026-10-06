@@ -93,7 +93,7 @@ impl DesktopBuffer {
 
     fn set(&mut self, pixels: &mut [u32]) {
         assert!(pixels.len() >= self.width * self.height);
-        self.pixels = NonNull::new(pixels.as_mut_ptr().cast()).expect("softbuffer pixels");
+        self.pixels = NonNull::from(pixels).cast();
     }
 }
 

@@ -507,8 +507,8 @@ impl ExactSizeIterator for Iter<'_> {
 }
 
 fn store<T>(storage: &mut Vec<T>, values: impl IntoIterator<Item = T>) -> (u32, u32) {
-    let start = u32::try_from(storage.len()).expect("too much display list data");
+    let start = storage.len();
     storage.extend(values);
     let end = u32::try_from(storage.len()).expect("too much display list data");
-    (start, end - start)
+    (start as u32, end - start as u32)
 }

@@ -141,12 +141,12 @@ impl GlyphAtlas {
             return glyph;
         }
 
-        let width = u32::try_from(metrics.width).expect("glyph is too wide");
-        let height = u32::try_from(metrics.height).expect("glyph is too tall");
         assert!(
-            width <= self.max_size && height <= self.max_size,
+            metrics.width <= self.max_size as usize && metrics.height <= self.max_size as usize,
             "glyph exceeds the GPU texture limit"
         );
+        let width = metrics.width as u32;
+        let height = metrics.height as u32;
         let requested = [width, height];
         let base_size = PAGE_SIZE.min(self.max_size);
         let page_size = [base_size.max(width), base_size.max(height)];

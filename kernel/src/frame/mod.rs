@@ -414,8 +414,7 @@ impl<C: Context> Drop for UiInner<'_, C> {
         if !self.owns_node {
             return;
         }
-        self.frame.nodes[self.node.index()].subtree_end =
-            u32::try_from(self.frame.nodes.len() - 1).expect("too many frame nodes");
+        self.frame.nodes[self.node.index()].subtree_end = (self.frame.nodes.len() - 1) as u32;
     }
 }
 

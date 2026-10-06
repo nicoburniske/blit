@@ -34,10 +34,8 @@ impl DataArena {
                 "frame data alignment exceeds arena alignment"
             );
         }
-        // power of two alignment lets us round up without division
-        let mask = align_of::<T>() - 1;
-        let offset = self.len.checked_add(mask).expect("too much frame data") & !mask;
-        let end = offset.checked_add(size_of::<T>()).expect("too much frame data");
+        let offset = self.len.next_multiple_of(align_of::<T>());
+        let end = offset + size_of::<T>();
         assert!(offset < u32::MAX as usize, "too much frame data");
         let id = DataId(offset as u32);
         assert!(end <= isize::MAX as usize, "too much frame data");
@@ -60,17 +58,19 @@ impl DataArena {
     }
 
     pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'_, T> {
-        assert!(
-            align_of::<T>() <= align_of::<Word>(),
-            "scratch alignment exceeds arena alignment"
-        );
+        const {
+            assert!(
+                align_of::<T>() <= align_of::<Word>(),
+                "scratch alignment exceeds arena alignment"
+            );
+        }
         let start = self.scratch_used.get().max(self.len);
-        let offset = start
-            .checked_next_multiple_of(align_of::<T>())
+        let offset = start.next_multiple_of(align_of::<T>());
+        let end = size_of::<T>()
+            .checked_mul(len)
+            .and_then(|bytes| offset.checked_add(bytes))
+            .filter(|&end| end <= isize::MAX as usize)
             .expect("too much scratch data");
-        let bytes = size_of::<T>().checked_mul(len).expect("too much scratch data");
-        let end = offset.checked_add(bytes).expect("too much scratch data");
-        assert!(end <= isize::MAX as usize, "too much scratch data");
         let live = self.scratch_live.get().checked_add(1).expect("too many scratch guards");
         let inner = if end <= self.words.len() * size_of::<Word>() {
             let pointer = if len == 0 || size_of::<T>() == 0 {
@@ -219,6 +219,20 @@ mod tests {
     use std::{cell::Cell, rc::Rc};
 
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "too much scratch data")]
+    fn rejects_scratch_size_overflow() {
+        DataArena::default().scratch(usize::MAX, 0_u64);
+    }
+
+    #[test]
+    #[should_panic(expected = "too much scratch data")]
+    fn rejects_scratch_beyond_address_limit() {
+        let mut arena = DataArena::default();
+        arena.store(0_u8);
+        arena.scratch(isize::MAX as usize, 0_u8);
+    }
 
     #[test]
     fn drops_owned_values_and_skips_trivial_values() {

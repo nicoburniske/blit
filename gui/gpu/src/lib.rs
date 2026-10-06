@@ -352,8 +352,8 @@ impl Renderer {
         for (handle, data) in image_uploads.drain(..) {
             data.validate();
             let copy_size = wgpu::Extent3d {
-                width: u32::try_from(data.texture_rect.width).expect("image texture width is too large"),
-                height: u32::try_from(data.texture_rect.height).expect("image texture height is too large"),
+                width: data.texture_rect.width as u32,
+                height: data.texture_rect.height as u32,
                 depth_or_array_layers: 1,
             };
             let source = data.pixels.bytes();
@@ -515,8 +515,11 @@ impl Renderer {
                         let Some(draw) = record.bounds.intersection(screen) else {
                             continue;
                         };
-                        let vertex = u32::try_from(self.mesh_data.len()).expect("too much GPU mesh data");
-                        vertex.checked_add(3).expect("too many GPU mesh vertices");
+                        assert!(
+                            self.mesh_data.len() <= u32::MAX as usize - 3,
+                            "too many GPU mesh vertices"
+                        );
+                        let vertex = self.mesh_data.len() as u32;
                         let color = u32::from_le_bytes([
                             rectangle.background.red,
                             rectangle.background.green,
@@ -709,10 +712,8 @@ impl Renderer {
                         else {
                             return;
                         };
-                        let offset_x = u64::try_from(i64::from(draw.x) - i64::from(patch.display.x))
-                            .expect("clipped image starts before its display area");
-                        let offset_y = u64::try_from(i64::from(draw.y) - i64::from(patch.display.y))
-                            .expect("clipped image starts before its display area");
+                        let offset_x = (i64::from(draw.x) - i64::from(patch.display.x)) as u64;
+                        let offset_y = (i64::from(draw.y) - i64::from(patch.display.y)) as u64;
                         let (fixed_x, phase_x, step_x, bilinear_x, wrap_x) = image_axis(
                             patch.source.width,
                             patch.display.width,
@@ -815,11 +816,11 @@ impl Renderer {
                                 size,
                                 phase,
                             );
-                            let width = i32::try_from(cached.metrics.width).expect("glyph is too wide");
-                            let height = i32::try_from(cached.metrics.height).expect("glyph is too tall");
-                            if width == 0 || height == 0 {
+                            if cached.metrics.width == 0 || cached.metrics.height == 0 {
                                 continue;
                             }
+                            let width = cached.metrics.width as i32;
+                            let height = cached.metrics.height as i32;
                             let x = (x_phases as f32 * phase_scale + cached.metrics.bounds.xmin).floor() as i32;
                             let y = ((glyph.position.y + offset.y) * scale
                                 + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin).floor())
@@ -852,7 +853,7 @@ impl Renderer {
                     if record.bounds.intersection(screen).is_none() {
                         continue;
                     }
-                    let vertex_start = u32::try_from(self.mesh_data.len()).expect("too much GPU mesh data");
+                    let vertex_start = self.mesh_data.len() as u32;
                     self.mesh_data.extend(mesh.vertices.iter().map(|vertex| {
                         MeshData([
                             (vertex.position.x * scale).to_bits(),
@@ -866,9 +867,9 @@ impl Renderer {
                             record.clip.0,
                         ])
                     }));
+                    assert!(self.mesh_data.len() <= u32::MAX as usize, "too many GPU mesh vertices");
                     for triangle in mesh.indices.as_chunks::<3>().0 {
-                        let [first, second, third] =
-                            triangle.map(|index| vertex_start.checked_add(index).expect("too many GPU mesh vertices"));
+                        let [first, second, third] = triangle.map(|index| vertex_start + index);
                         self.push_mesh_primitive([first, second, third, third]);
                     }
                     continue;
@@ -1020,8 +1021,8 @@ impl Renderer {
 
 impl Renderer {
     fn push_mesh_primitive(&mut self, vertices: [u32; 4]) {
-        let index = u32::try_from(self.mesh_data.len()).expect("too much GPU mesh data");
-        assert!(index < DRAW_MESH, "too much GPU mesh data");
+        assert!(self.mesh_data.len() < DRAW_MESH as usize, "too much GPU mesh data");
+        let index = self.mesh_data.len() as u32;
         self.mesh_data.push(MeshData(vertices));
         self.push_draw(Pipeline::Content(None), DRAW_MESH | index);
     }

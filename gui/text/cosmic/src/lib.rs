@@ -155,6 +155,7 @@ impl blit_text::TextLayoutEngine for Backend {
     }
 
     fn shape(&mut self, text: blit_text::Text<'_>) -> (Shape, usize) {
+        assert!(text.text.len() <= u32::MAX as usize, "text is too long");
         let attrs = |style: TextStyle| {
             let index = style.font.0.checked_sub(1).expect("invalid font selection") as usize;
             Attrs::new()
@@ -177,7 +178,7 @@ impl blit_text::TextLayoutEngine for Backend {
         );
         buffer.shape_until_scroll(&mut self.fonts, false);
         let mut line_starts = LineIter::new(text.text)
-            .map(|(range, _)| u32::try_from(range.start).expect("text is too long"))
+            .map(|(range, _)| range.start as u32)
             .collect::<Vec<_>>();
         if line_starts.is_empty() {
             line_starts.push(0);
@@ -210,13 +211,10 @@ impl blit_text::TextLayoutEngine for Backend {
         let mut runs = Vec::new();
         let mut lines = Vec::new();
         for line in shape.buffer.layout_runs().take(max_lines) {
-            let line_start = usize::try_from(
-                *shape
-                    .line_starts
-                    .get(line.line_i)
-                    .expect("cosmic-text returned invalid line"),
-            )
-            .unwrap();
+            let line_start = *shape
+                .line_starts
+                .get(line.line_i)
+                .expect("cosmic-text returned invalid line") as usize;
             let line_index = u32::try_from(lines.len()).expect("too many lines");
             let bounds = LogicalRect {
                 x: 0.0,
@@ -237,7 +235,7 @@ impl blit_text::TextLayoutEngine for Backend {
                 }
                 let face = face(self.fonts.db(), &mut self.faces, &self.aliases, source.font_id)
                     .expect("cosmic-text returned invalid font");
-                let glyph_start = u32::try_from(glyphs.len()).expect("too many glyphs");
+                let glyph_start = glyphs.len() as u32;
                 glyphs.extend(line.glyphs[start..end].iter().map(|glyph| Glyph {
                     id: glyph.glyph_id,
                     position: LogicalPoint {
@@ -258,8 +256,7 @@ impl blit_text::TextLayoutEngine for Backend {
             let text_end = line.glyphs.iter().map(|glyph| glyph.end).max().unwrap_or(0);
             lines.push(LayoutLine {
                 bounds,
-                text: u32::try_from(line_start + text_start).expect("text is too long")
-                    ..u32::try_from(line_start + text_end).expect("text is too long"),
+                text: (line_start + text_start) as u32..(line_start + text_end) as u32,
             });
         }
 
@@ -280,16 +277,13 @@ impl blit_text::TextLayoutEngine for Backend {
         let Some(line) = shape.buffer.layout_runs().take(max_lines).nth(line_index) else {
             return Box::new([]);
         };
-        let line_start = usize::try_from(
-            *shape
-                .line_starts
-                .get(line.line_i)
-                .expect("cosmic-text returned invalid line"),
-        )
-        .unwrap();
+        let line_start = *shape
+            .line_starts
+            .get(line.line_i)
+            .expect("cosmic-text returned invalid line");
         if line.glyphs.is_empty() {
             return Box::new([Caret {
-                byte_offset: u32::try_from(line_start).expect("text is too long"),
+                byte_offset: line_start,
                 position: LogicalPoint {
                     x: 0.0,
                     y: line.line_top,
@@ -317,7 +311,7 @@ impl blit_text::TextLayoutEngine for Backend {
                 carets.push((
                     end,
                     Caret {
-                        byte_offset: u32::try_from(line_start.saturating_add(index)).expect("text is too long"),
+                        byte_offset: (line_start as usize + index) as u32,
                         position: LogicalPoint {
                             x: if glyph.level.is_rtl() {
                                 glyph.x + glyph.w - offset

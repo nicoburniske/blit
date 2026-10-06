@@ -240,7 +240,7 @@ impl TuiRenderer {
             max_lines: request.options.max_lines,
         };
         let run = self.text_run_index(request.text);
-        let cell_run = u32::try_from(run).expect("too many tui text runs");
+        let cell_run = run as u32;
         let layout = self.layout_text(&layout_request);
         let layout = self.text_layouts.get_index(layout);
         let spans = &self.text_runs.get_key_index(run).spans;
