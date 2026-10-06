@@ -16,7 +16,7 @@ blit::builder! {
 }
 
 impl Shadow {
-    pub const fn offset(mut self, x: i32, y: i32) -> Self {
+    pub fn offset(mut self, x: i32, y: i32) -> Self {
         self.offset_x = x;
         self.offset_y = y;
         self

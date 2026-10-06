@@ -15,7 +15,7 @@ blit::builder! {
         new(),
         background: Color = Color::TRANSPARENT,
         border: Border<'static> = Border::None,
-        radius: BorderRadius = BorderRadius::default(),
+        radius: BorderRadius = BorderRadius::new(),
         opacity: f32 = 1.0,
     }
 }
@@ -49,7 +49,7 @@ blit::builder! {
         palette: TextPalette = TextPalette::NONE,
         color: Color = Color::BLACK,
         offset_x: f32 = 0.0,
-        options: TextOptions = TextOptions::default(),
+        options: TextOptions = TextOptions::new(),
     }
 }
 
@@ -123,7 +123,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Shadow {
         new(color: Color),
-        radius: BorderRadius = BorderRadius::default(),
+        radius: BorderRadius = BorderRadius::new(),
         offset_x: f32 = 0.0,
         offset_y: f32 = 0.0,
         blur: f32 = 0.0,
@@ -133,7 +133,7 @@ blit::builder! {
 }
 
 impl Shadow {
-    pub const fn offset(mut self, x: f32, y: f32) -> Self {
+    pub fn offset(mut self, x: f32, y: f32) -> Self {
         self.offset_x = x;
         self.offset_y = y;
         self

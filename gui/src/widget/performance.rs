@@ -22,7 +22,9 @@ blit::builder! {
         color: Color = Color::WHITE,
         muted_color: Color = Color::rgb(157, 173, 194),
         accent: Color = Color::rgb(91, 220, 185),
+        #[into]
         hover_background: Option<Color> = None,
+        #[into]
         border: Option<Border<'static>> = None,
         radius: BorderRadius = BorderRadius::uniform(8.0),
         badge_padding: Sides<f32> = Sides::xy(12.0, 8.0),
@@ -32,7 +34,7 @@ blit::builder! {
         marker_size: f32 = 8.0,
         marker_radius: BorderRadius = BorderRadius::uniform(4.0),
         graph_size: Size<f32> = Size::new(300.0, 100.0),
-        text_style: TextStyle = TextStyle { size: 14.0, ..TextStyle::default() },
+        text_style: TextStyle = TextStyle::new().size(14.0),
         popover: popover::Config = popover::Config::new()
             .target_anchor(Anchor::TopRight)
             .child_anchor(Anchor::BottomRight)

@@ -25,14 +25,18 @@ blit::builder! {
     #[derive(Clone, Debug, PartialEq)]
     pub struct SpanStyle {
         new(),
-        @optional {
-            font: FontId,
-            size: f32,
-            weight: u16,
-            stretch: u16,
-            style: FontStyle,
-            color: Color,
-        },
+        #[into]
+        font: Option<FontId> = None,
+        #[into]
+        size: Option<f32> = None,
+        #[into]
+        weight: Option<u16> = None,
+        #[into]
+        stretch: Option<u16> = None,
+        #[into]
+        style: Option<FontStyle> = None,
+        #[into]
+        color: Option<Color> = None,
     }
 }
 
@@ -86,34 +90,29 @@ pub struct TextLayoutRequest {
     pub max_lines: Option<u16>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextStyle {
-    pub font: FontId,
-    pub size: f32,
-    pub weight: u16,
-    pub stretch: u16,
-    pub style: FontStyle,
-}
-
-impl Default for TextStyle {
-    fn default() -> Self {
-        Self {
-            font: FontId::default(),
-            size: 16.0,
-            weight: 400,
-            stretch: 100,
-            style: FontStyle::Normal,
-        }
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct TextStyle {
+        new(),
+        font: FontId = FontId(0),
+        size: f32 = 16.0,
+        weight: u16 = 400,
+        stretch: u16 = 100,
+        style: FontStyle = FontStyle::Normal,
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct TextOptions {
-    pub wrap: TextWrap,
-    pub overflow: TextOverflow,
-    pub horizontal_align: HorizontalAlign,
-    pub vertical_align: VerticalAlign,
-    pub max_lines: Option<u16>,
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct TextOptions {
+        new(),
+        wrap: TextWrap = TextWrap::None,
+        overflow: TextOverflow = TextOverflow::Clip,
+        horizontal_align: HorizontalAlign = HorizontalAlign::Left,
+        vertical_align: VerticalAlign = VerticalAlign::Top,
+        #[into]
+        max_lines: Option<u16> = None,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

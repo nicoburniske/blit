@@ -12,7 +12,7 @@ use crate::{
 blit::builder! {
     pub struct TextInput<'a> {
         new(state: &'a mut State, value: &'a mut String),
-        style: TextStyle = TextStyle::default(),
+        style: TextStyle = TextStyle::new(),
         padding: Sides<f32> = Sides::all(0.0),
         background: Color = Color::TRANSPARENT,
         color: Color = Color::BLACK,

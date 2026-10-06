@@ -244,7 +244,7 @@ impl Widget<TuiContext> for &mut Modal {
         });
         let selected = panel.child().build(popover::new(
             &mut self.palette,
-            popover::Config::new().parent(backdrop_id.into()),
+            popover::Config::new().parent(backdrop_id),
             |ui, interaction, open| {
                 draw_button(ui, " Accent color ▾ ", open, interaction);
             },

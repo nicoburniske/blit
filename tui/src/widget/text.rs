@@ -13,19 +13,14 @@ blit::builder! {
         color: Color = Color::Reset,
         attributes: TextAttributes = TextAttributes::NONE,
         options: TextOptions = TextOptions::new(),
+        #[into]
         spans: Option<&'a [Span<'a>]> = None,
     }
 }
 
 impl<'a> Text<'a> {
     pub fn rich(spans: &'a [Span<'a>]) -> Self {
-        Self {
-            text: "",
-            color: Color::Reset,
-            attributes: TextAttributes::NONE,
-            options: TextOptions::new(),
-            spans: Some(spans),
-        }
+        Self::new("").spans(spans)
     }
 }
 

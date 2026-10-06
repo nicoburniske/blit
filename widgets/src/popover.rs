@@ -18,6 +18,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Config<T: Scalar> {
         new(),
+        #[into]
         parent: NodeTarget = NodeTarget::Root,
         target_anchor: Anchor = Anchor::BottomLeft,
         child_anchor: Anchor = Anchor::TopLeft,
@@ -121,7 +122,7 @@ where
                     absolute::place(())
                         .target_anchor(config.target_anchor)
                         .child_anchor(config.child_anchor)
-                        .target(anchor.into())
+                        .target(anchor)
                         .x(config.x)
                         .y(config.y)
                         .width(config.width)

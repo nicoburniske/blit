@@ -31,7 +31,7 @@ blit::builder! {
 }
 
 impl<T: Scalar> Layout<T> {
-    pub const fn gap(mut self, gap: T) -> Self {
+    pub fn gap(mut self, gap: T) -> Self {
         self.item_gap = gap;
         self.run_gap = gap;
         self

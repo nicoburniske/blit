@@ -11,6 +11,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Layout<L, T: Scalar> {
         new(inner: L),
+        #[into]
         target: NodeTarget = NodeTarget::Parent,
         target_anchor: Anchor = Anchor::TopLeft,
         child_anchor: Anchor = Anchor::TopLeft,

@@ -8,36 +8,14 @@ use crate::{
     color::Color,
 };
 
-pub struct Sparkline {
-    pub data: Rc<RefCell<Vec<u64>>>,
-    pub maximum: Option<u64>,
-    pub color: Color,
-    pub background: Option<Color>,
-}
-
-impl Sparkline {
-    pub fn new(data: Rc<RefCell<Vec<u64>>>) -> Self {
-        Self {
-            data,
-            maximum: None,
-            color: Color::Reset,
-            background: None,
-        }
-    }
-
-    pub const fn maximum(mut self, maximum: u64) -> Self {
-        self.maximum = Some(maximum);
-        self
-    }
-
-    pub const fn color(mut self, color: Color) -> Self {
-        self.color = color;
-        self
-    }
-
-    pub const fn background(mut self, color: Color) -> Self {
-        self.background = Some(color);
-        self
+blit::builder! {
+    pub struct Sparkline {
+        new(data: Rc<RefCell<Vec<u64>>>),
+        #[into]
+        maximum: Option<u64> = None,
+        color: Color = Color::Reset,
+        #[into]
+        background: Option<Color> = None,
     }
 }
 

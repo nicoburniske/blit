@@ -37,7 +37,7 @@ blit::builder! {
     }
 }
 impl BorderRadius {
-    pub const fn uniform(radius: f32) -> Self {
+    pub fn uniform(radius: f32) -> Self {
         Self {
             top_left: radius,
             top_right: radius,

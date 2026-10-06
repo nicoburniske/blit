@@ -21,7 +21,9 @@ blit::builder! {
         color: Color = Color::WHITE,
         muted_color: Color = Color::WHITE,
         accent: Color = Color::CYAN,
+        #[into]
         hover_background: Option<Color> = None,
+        #[into]
         border: Option<Border> = None,
         badge_padding: Sides<i32> = Sides::all(1),
         padding: Sides<i32> = Sides::all(1),

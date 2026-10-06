@@ -14,7 +14,7 @@ blit::builder! {
 }
 
 impl<T: Scalar> Layout<T> {
-    pub const fn gap(mut self, gap: T) -> Self {
+    pub fn gap(mut self, gap: T) -> Self {
         self.column_gap = gap;
         self.row_gap = gap;
         self
@@ -27,10 +27,10 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Item<T: Scalar> {
         new(),
-        @optional {
-            width: T,
-            height: T,
-        },
+        #[into]
+        width: Option<T> = None,
+        #[into]
+        height: Option<T> = None,
         row_span: u32 = 1,
         column_span: u32 = 1,
     }

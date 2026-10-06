@@ -13,16 +13,16 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Block {
         new(),
-        @optional {
-            border: Border,
-            background: Color,
-        },
+        #[into]
+        border: Option<Border> = None,
+        #[into]
+        background: Option<Color> = None,
         titles: [Option<Title>; 6] = [None; 6],
     }
 }
 
 impl Block {
-    pub const fn title(mut self, title: Title) -> Self {
+    pub fn title(mut self, title: Title) -> Self {
         self.titles[title.position.index()] = Some(title);
         self
     }

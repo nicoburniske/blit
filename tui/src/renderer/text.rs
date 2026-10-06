@@ -8,10 +8,10 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct Span<'a> {
         new(text: &'a str),
-        @optional {
-            color: Color,
-            background: Color,
-        },
+        #[into]
+        color: Option<Color> = None,
+        #[into]
+        background: Option<Color> = None,
         attributes: TextAttributes = TextAttributes::NONE,
         remove_attributes: TextAttributes = TextAttributes::NONE,
     }
@@ -76,10 +76,10 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct TextLayoutRequest {
         new(text: TextRunId),
-        @optional {
-            max_width: i32,
-            max_lines: u16,
-        },
+        #[into]
+        max_width: Option<i32> = None,
+        #[into]
+        max_lines: Option<u16> = None,
         wrap: TextWrap = TextWrap::None,
     }
 }
@@ -88,9 +88,8 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct TextOptions {
         new(),
-        @optional {
-            max_lines: u16,
-        },
+        #[into]
+        max_lines: Option<u16> = None,
         wrap: TextWrap = TextWrap::None,
         overflow: TextOverflow = TextOverflow::Clip,
         horizontal_align: HorizontalAlign = HorizontalAlign::Left,

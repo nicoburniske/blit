@@ -13,9 +13,8 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct CellStyle {
         new(),
-        @optional {
-            background: Color,
-        },
+        #[into]
+        background: Option<Color> = None,
         foreground: Color = Color::Reset,
         attributes: TextAttributes = TextAttributes::NONE,
     }

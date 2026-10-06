@@ -12,9 +12,8 @@ use crate::{
 blit::builder! {
     pub struct TextInput<'a> {
         new(state: &'a mut State, value: &'a mut String),
-        @optional {
-            background: Color,
-        },
+        #[into]
+        background: Option<Color> = None,
         placeholder: &'a str = "",
         padding: Sides<i32> = Sides::all(0),
         color: Color = Color::Reset,

@@ -251,7 +251,7 @@ fn resolves_named_anchors_and_clipping() {
             absolute::place(())
                 .target_anchor(Anchor::BottomRight)
                 .child_anchor(Anchor::TopLeft)
-                .target(target.into()),
+                .target(target),
         );
         absolute.insert(Fill::new('A', Size::uniform(1.0)));
     });
@@ -565,7 +565,7 @@ fn absolute_places_position_against_the_target_and_size_against_the_parent() {
                     absolute::place(Overlay)
                         .target_anchor(Anchor::BottomRight)
                         .child_anchor(Anchor::TopLeft)
-                        .target(target.into())
+                        .target(target)
                         .width(absolute::Sizing::percent(0.5))
                         .height(absolute::Sizing::full()),
                 )
@@ -609,7 +609,7 @@ fn targets_reject_invalid_references() {
         },
         |ui, id| {
             let mut root = ui.layout(Overlay);
-            root.child().layout(absolute::place(()).target(id.into())).insert(());
+            root.child().layout(absolute::place(()).target(id)).insert(());
             root.widget_id(id).insert(());
         },
         |ui, id| ui.widget_id(id).parent(id).insert(()),
@@ -673,9 +673,7 @@ fn node_targets_reject_previous_renders() {
                 render(&mut frame, &mut context, |ui: Ui<'_>| {
                     let mut root = ui.layout(Overlay);
                     if anchor {
-                        root.child()
-                            .layout(absolute::place(()).target(previous.into()))
-                            .insert(());
+                        root.child().layout(absolute::place(()).target(previous)).insert(());
                     } else {
                         root.child().parent(previous).insert(());
                     }
@@ -708,7 +706,7 @@ fn named_bindings_follow_each_build() {
                 }
                 root.child().widget_id(b).insert(());
                 root.child().widget_id(a).parent(b).insert(());
-                root.child().layout(absolute::place(()).target(a.into())).insert(());
+                root.child().layout(absolute::place(()).target(a)).insert(());
             },
         );
         assert_eq!(frame.geometry(a).is_some(), count != 0);
