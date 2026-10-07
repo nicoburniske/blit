@@ -98,7 +98,8 @@ impl Default for App {
 impl Application for App {
     type Input = ();
 
-    fn new(_: EventLoopProxy<Self::Input>, _: Root<Self>, _: &mut GuiContext) -> Self {
+    fn new(_: EventLoopProxy<Self::Input>, _: Root<Self>, gui: &mut GuiContext) -> Self {
+        gui.performance_mut().set_enabled(true);
         Self::default()
     }
 
@@ -189,6 +190,7 @@ impl Application for App {
             Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
             Page::Graphics => root.child().item(flex::item().grow()).build(&mut self.graphics),
         };
+        root.context_mut().performance_mut().set_enabled(self.show_performance);
         if self.show_performance {
             root.child()
                 .layout(

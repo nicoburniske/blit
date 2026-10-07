@@ -1,11 +1,11 @@
 use blit::{Clip, PhysicalRect};
-use blit_widgets::performance::FrameProfiler;
+use blit_widgets::performance;
 
 use crate::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 
 /// rendering resources independent of terminal io and event loop ownership
 pub struct TuiContext {
-    profiler: FrameProfiler,
+    performance: performance::State,
     renderer: TuiRenderer,
     clip: PhysicalRect,
     clips: Vec<PhysicalRect>,
@@ -16,11 +16,23 @@ impl blit::Context for TuiContext {
     type Scalar = i32;
 }
 
+impl AsMut<TuiContext> for TuiContext {
+    fn as_mut(&mut self) -> &mut TuiContext {
+        self
+    }
+}
+
+impl AsRef<performance::State> for TuiContext {
+    fn as_ref(&self) -> &performance::State {
+        &self.performance
+    }
+}
+
 impl TuiContext {
     pub fn new(renderer: TuiRenderer) -> Self {
         let clip = renderer.screen();
         Self {
-            profiler: FrameProfiler::default(),
+            performance: performance::State::default(),
             renderer,
             clip,
             clips: Vec::new(),
@@ -58,12 +70,12 @@ impl TuiContext {
         self.renderer.place_image(image, self.clip);
     }
 
-    pub fn profiler(&self) -> &FrameProfiler {
-        &self.profiler
+    pub fn performance(&self) -> &performance::State {
+        &self.performance
     }
 
-    pub fn profiler_mut(&mut self) -> &mut FrameProfiler {
-        &mut self.profiler
+    pub fn performance_mut(&mut self) -> &mut performance::State {
+        &mut self.performance
     }
 
     pub fn begin_paint(&mut self) {

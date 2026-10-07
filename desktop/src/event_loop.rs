@@ -8,7 +8,7 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use blit_executor::LocalExecutor;
-use blit_gui::{GuiContext, TextLayoutEngine, TextSystem, Ui};
+use blit_gui::{GuiContext, TextLayoutEngine, TextSystem, Ui, widget::performance::Stage};
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize as WindowSize, PhysicalPosition, PhysicalSize},
@@ -214,21 +214,21 @@ impl<A: Application> Runner<A> {
         let scale = active.scale();
         let info = FrameInfo::new(Size::new(size.width as f32 / scale, size.height as f32 / scale));
         let no_input = self.inputs.is_empty().then_some(Input::None);
+        active.gui.performance_mut().begin_frame(time);
         for input in self.inputs.drain(..).chain(no_input) {
-            active.gui.profiler_mut().begin_build();
             active
                 .frame
                 .build(&mut active.gui, info, time, input, |ui: Ui<'_>| active.app.render(ui));
-            active.gui.profiler_mut().begin_layout();
+            active.gui.performance_mut().finish_stage(Stage::Build);
             active.frame.layout(&mut active.gui);
+            active.gui.performance_mut().finish_stage(Stage::Layout);
         }
-        active.gui.profiler_mut().begin_paint();
         active.frame.paint(&mut active.gui);
         let presented = match active.graphics.render(active.gui.render_input()) {
             Ok(presented) => presented,
             Err(error) => return self.fail(event_loop, error),
         };
-        active.gui.profiler_mut().finish();
+        active.gui.performance_mut().finish_frame();
         active.render_deferred = !presented;
         if !presented {
             active.frame.request_frame();

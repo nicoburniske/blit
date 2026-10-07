@@ -2,9 +2,10 @@ use std::fmt::Write as _;
 
 use blit::{Interaction, Sides, Size, Widget};
 use blit_widgets::performance as shared;
+pub use blit_widgets::performance::Stage;
 
 use crate::{
-    GuiContext, Ui,
+    Context,
     atom::Rectangle,
     color::Color,
     layout::{Align, Sizing, absolute::Anchor, flex, grid},
@@ -42,27 +43,35 @@ blit::builder! {
     }
 }
 
-impl Widget<GuiContext> for Performance<'_> {
+impl<C> Widget<C> for Performance<'_>
+where
+    C: Context + AsRef<shared::State>,
+{
     type Response = ();
 
-    fn build(self, ui: Ui<'_>) {
+    fn build(self, ui: blit::Ui<'_, C>) {
         let State {
-            inner,
+            label,
+            values,
             popover,
             axis_labels,
         } = self.state;
-        if let Some(timings) = ui.context().profiler().completed() {
-            inner.update(timings);
-        }
-        let measurements = inner.measurements();
         let border = self.border.unwrap_or_else(|| Border::solid(1.0, self.accent));
         let graph_width = self.graph_size.width.max(1.0);
         let graph_height = self.graph_size.height.max(1.0);
         let columns = graph_width.ceil() as usize;
+        let performance: &shared::State = ui.context().as_ref();
+        label.clone_from(&performance.label);
+        for (cached, (_, row)) in values.iter_mut().zip(performance.rows()) {
+            for (cached, value) in cached.iter_mut().zip(row) {
+                cached.clear();
+                cached.push_str(value);
+            }
+        }
         ui.build(popover::new(
             popover,
             self.popover.close(popover::Close::Manual),
-            |ui: Ui<'_>, interaction: Interaction<f32>, open| {
+            |ui: blit::Ui<'_, C>, interaction: Interaction<f32>, open| {
                 let mut badge = ui.layout(
                     flex::row()
                         .padding(self.badge_padding)
@@ -85,10 +94,17 @@ impl Widget<GuiContext> for Performance<'_> {
                     .insert(Rectangle::new().background(self.accent).radius(self.marker_radius));
                 badge
                     .child()
-                    .insert(Text::new(&measurements.label).style(self.text_style).color(self.color));
+                    .insert(Text::new(label).style(self.text_style).color(self.color));
             },
-            |ui: Ui<'_>| {
-                let scale = measurements.graph(columns).fold(33.4_f32, f32::max);
+            |ui: blit::Ui<'_, C>| {
+                let mut graph_values = ui.scratch(columns, 0.0_f32);
+                for (value, millis) in graph_values
+                    .iter_mut()
+                    .zip(AsRef::<shared::State>::as_ref(ui.context()).graph(columns))
+                {
+                    *value = millis;
+                }
+                let scale = graph_values.iter().copied().fold(33.4_f32, f32::max);
                 let mut panel = ui.layout(flex::column().padding(self.padding).gap(self.gap));
                 panel.insert(
                     Rectangle::new()
@@ -102,7 +118,10 @@ impl Widget<GuiContext> for Performance<'_> {
                             .column_gap(self.table_gap.width)
                             .row_gap(self.table_gap.height),
                     );
-                    for (label, values) in measurements.rows() {
+                    for (label, values) in ["stage", "total", "build", "layout", "paint"]
+                        .into_iter()
+                        .zip(values.iter())
+                    {
                         table
                             .child()
                             .insert(Text::new(label).style(self.text_style).color(self.muted_color));
@@ -137,7 +156,7 @@ impl Widget<GuiContext> for Performance<'_> {
                     .item(flex::item().fixed(graph_width, graph_height))
                     .layout(flex::row().align(Align::End));
                 graph.insert(Rectangle::new().background(self.graph_background));
-                for millis in measurements.graph(columns) {
+                for &millis in graph_values.iter() {
                     graph
                         .child()
                         .item(
@@ -153,16 +172,17 @@ impl Widget<GuiContext> for Performance<'_> {
 }
 
 pub struct State {
-    inner: shared::State,
+    label: String,
+    values: [[String; 2]; 5],
     popover: popover::State,
     axis_labels: [String; 3],
 }
 
 impl State {
-    /// sets the retained frame count with a minimum of one
-    pub fn new(max_samples: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            inner: shared::State::new(max_samples),
+            label: String::new(),
+            values: Default::default(),
             popover: popover::State::new(),
             axis_labels: Default::default(),
         }
@@ -171,6 +191,6 @@ impl State {
 
 impl Default for State {
     fn default() -> Self {
-        Self::new(600)
+        Self::new()
     }
 }

@@ -2,9 +2,10 @@ use std::fmt::Write as _;
 
 use blit::{Interaction, Sides, Widget};
 use blit_widgets::performance as shared;
+pub use blit_widgets::performance::Stage;
 
 use crate::{
-    TuiContext, Ui,
+    Context,
     atom::{Border, BorderStyle},
     color::Color,
     layout::{Align, Justify, Sizing, absolute::Anchor, flex, grid},
@@ -39,28 +40,36 @@ blit::builder! {
     }
 }
 
-impl Widget<TuiContext> for Performance<'_> {
+impl<C> Widget<C> for Performance<'_>
+where
+    C: Context + AsRef<shared::State>,
+{
     type Response = ();
 
-    fn build(self, ui: Ui<'_>) {
+    fn build(self, ui: blit::Ui<'_, C>) {
         let State {
-            inner,
+            label,
+            values,
             popover,
             axis_labels,
         } = self.state;
-        if let Some(timings) = ui.context().profiler().completed() {
-            inner.update(timings);
-        }
-        let measurements = inner.measurements();
         let border = self
             .border
             .unwrap_or_else(|| Border::new(self.accent).style(BorderStyle::Rounded));
         let columns = usize::from(self.graph_columns.max(1));
         let rows = usize::from(self.graph_rows.max(1));
+        let performance: &shared::State = ui.context().as_ref();
+        label.clone_from(&performance.label);
+        for (cached, (_, row)) in values.iter_mut().zip(performance.rows()) {
+            for (cached, value) in cached.iter_mut().zip(row) {
+                cached.clear();
+                cached.push_str(value);
+            }
+        }
         ui.build(popover::new(
             popover,
             self.popover.close(popover::Close::Manual),
-            |ui: Ui<'_>, interaction: Interaction<i32>, open| {
+            |ui: blit::Ui<'_, C>, interaction: Interaction<i32>, open| {
                 let mut badge = ui.layout(
                     flex::row()
                         .padding(self.badge_padding)
@@ -80,21 +89,29 @@ impl Widget<TuiContext> for Performance<'_> {
                     .child()
                     .item(flex::item().fixed(1, 1))
                     .insert(Block::new().background(self.accent));
-                badge.child().insert(
-                    Text::new(&measurements.label)
-                        .color(self.color)
-                        .attributes(self.badge_attributes),
-                );
+                badge
+                    .child()
+                    .insert(Text::new(label).color(self.color).attributes(self.badge_attributes));
             },
-            |ui: Ui<'_>| {
-                let scale = measurements.graph(columns).fold(0.001_f32, f32::max);
+            |ui: blit::Ui<'_, C>| {
+                let mut graph_values = ui.scratch(columns, 0.0_f32);
+                for (value, millis) in graph_values
+                    .iter_mut()
+                    .zip(AsRef::<shared::State>::as_ref(ui.context()).graph(columns))
+                {
+                    *value = millis;
+                }
+                let scale = graph_values.iter().copied().fold(0.001_f32, f32::max);
                 let mut panel = ui.layout(flex::column().padding(self.padding));
                 panel.insert(Block::new().background(self.background).border(border));
                 {
                     let mut table = panel
                         .child()
                         .layout(grid::new(3).column_gap(self.column_gap).row_gap(self.row_gap));
-                    for (label, values) in measurements.rows() {
+                    for (label, values) in ["stage", "total", "build", "layout", "paint"]
+                        .into_iter()
+                        .zip(values.iter())
+                    {
                         table.child().insert(Text::new(label).color(self.muted_color));
                         for value in values {
                             table
@@ -122,7 +139,7 @@ impl Widget<TuiContext> for Performance<'_> {
                     .item(flex::item().fixed(columns as i32, rows as i32))
                     .layout(flex::row().align(Align::End));
                 graph.insert(Block::new().background(self.graph_background));
-                for millis in measurements.graph(columns) {
+                for &millis in graph_values.iter() {
                     let eighths = ((rows * 8) as f32 * millis / scale)
                         .round()
                         .clamp(0.0, (rows * 8) as f32) as usize;
@@ -149,16 +166,17 @@ impl Widget<TuiContext> for Performance<'_> {
 }
 
 pub struct State {
-    inner: shared::State,
+    label: String,
+    values: [[String; 2]; 5],
     popover: popover::State,
     axis_labels: [String; 3],
 }
 
 impl State {
-    /// sets the retained frame count with a minimum of one
-    pub fn new(max_samples: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            inner: shared::State::new(max_samples),
+            label: String::new(),
+            values: Default::default(),
             popover: popover::State::new(),
             axis_labels: Default::default(),
         }
@@ -167,6 +185,6 @@ impl State {
 
 impl Default for State {
     fn default() -> Self {
-        Self::new(600)
+        Self::new()
     }
 }

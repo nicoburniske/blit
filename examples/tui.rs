@@ -131,6 +131,7 @@ impl Demo {
             Page::Atoms => root.child().item(flex::item().grow()).build(&mut self.atoms),
             Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
         };
+        root.context_mut().performance_mut().set_enabled(self.show_performance);
         if self.show_performance {
             root.child()
                 .layout(

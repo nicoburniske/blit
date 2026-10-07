@@ -29,6 +29,10 @@ pub use self::{
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiContext, S>;
 
+pub trait Context: blit::Context<Scalar = i32> + AsMut<TuiContext> {}
+
+impl<C: blit::Context<Scalar = i32> + AsMut<TuiContext>> Context for C {}
+
 use std::{
     io,
     io::Write as _,
@@ -42,6 +46,7 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use terminal::{Size, Terminal};
+use widget::performance::Stage;
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
 
@@ -130,26 +135,26 @@ impl Session {
         let now = self.started.elapsed();
         let info = self.frame_info();
         // the prefilled Input::None runs one pass when no events were collected
+        self.context.performance_mut().begin_frame(now);
         for &input in &inputs[..input_count.max(1)] {
-            self.context.profiler_mut().begin_build();
             self.frame.build(&mut self.context, info, now, input, |ui: Ui<'_>| {
                 if !ui.context().should_quit() {
                     render(ui);
                 }
             });
-            self.context.profiler_mut().begin_layout();
+            self.context.performance_mut().finish_stage(Stage::Build);
             self.frame.layout(&mut self.context);
+            self.context.performance_mut().finish_stage(Stage::Layout);
         }
         if self.context().should_quit() {
-            self.context.profiler_mut().finish();
+            self.context.performance_mut().cancel_frame();
             self.finish()?;
             return Ok(false);
         }
-        self.context.profiler_mut().begin_paint();
         self.context.begin_paint();
         self.frame.paint(&mut self.context);
         self.context.finish_paint();
-        self.context.profiler_mut().finish();
+        self.context.performance_mut().finish_frame();
         self.present()?;
         // establish the earliest time for the following frame
         self.next_frame = now + self.frame_interval;

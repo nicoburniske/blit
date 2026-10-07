@@ -1,7 +1,7 @@
 use blit::{Widget, state};
 
 use crate::{
-    TuiContext, Ui, atom,
+    Context, atom,
     color::Color,
     text::{Span, TextAttributes, TextOptions},
 };
@@ -24,14 +24,14 @@ impl<'a> Text<'a> {
     }
 }
 
-impl Widget<TuiContext, state::Node> for Text<'_> {
+impl<C: Context> Widget<C, state::Node> for Text<'_> {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_, state::Node>) {
+    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
         let run = if let Some(spans) = self.spans {
-            ui.context_mut().renderer_mut().rich_text(spans)
+            ui.context_mut().as_mut().renderer_mut().rich_text(spans)
         } else {
-            ui.context_mut().renderer_mut().text_run(self.text)
+            ui.context_mut().as_mut().renderer_mut().text_run(self.text)
         };
         ui.insert(
             atom::Text::new(run)

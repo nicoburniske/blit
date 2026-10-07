@@ -1,7 +1,7 @@
 use blit::{Widget, state};
 
 use crate::{
-    TuiContext, Ui,
+    Context,
     atom::{self, Border, Shadow, TitlePosition},
     color::Color,
     text::TextAttributes,
@@ -28,14 +28,14 @@ impl<'a> Block<'a> {
     }
 }
 
-impl Widget<TuiContext, state::Node> for Block<'_> {
+impl<C: Context> Widget<C, state::Node> for Block<'_> {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_, state::Node>) {
+    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
         let color = self.border.map(|border| border.color).unwrap_or(Color::Reset);
         let titles = self.titles.map(|title| {
             title.map(|title| {
-                let text = ui.context_mut().renderer_mut().text_run(title.text);
+                let text = ui.context_mut().as_mut().renderer_mut().text_run(title.text);
                 atom::Title::new(text)
                     .color(title.color.unwrap_or(color))
                     .attributes(title.attributes)

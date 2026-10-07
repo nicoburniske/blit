@@ -3,7 +3,7 @@ use std::ops::{BitOr, BitOrAssign};
 use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
-    TuiContext,
+    Context, TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
     text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
@@ -30,13 +30,13 @@ impl Block {
 
 blit::atom_widget!(Block);
 
-impl Atom<TuiContext> for Block {
-    fn measure(&self, _: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
+impl<C: Context> Atom<C> for Block {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
-        let context = cx.context_mut();
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
+        let context = cx.context_mut().as_mut();
         let (width, height) = {
             let mut cells = context.cells(area);
             let width = cells.columns();

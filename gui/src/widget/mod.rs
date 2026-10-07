@@ -23,11 +23,11 @@ blit::builder! {
     }
 }
 
-impl Widget<GuiContext, state::Node> for Text<'_> {
+impl<C: crate::Context> Widget<C, state::Node> for Text<'_> {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_, state::Node>) {
-        let run = ui.context_mut().text_run(self.text, self.style);
+    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
+        let run = ui.context_mut().as_mut().text_run(self.text, self.style);
         ui.insert(
             atom::Text::new(run)
                 .color(self.color)
