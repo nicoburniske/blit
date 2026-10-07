@@ -1,8 +1,8 @@
 use std::{cell::Cell, rc::Rc, time::Duration};
 
 use blit::{
-    Atom, AtomCx, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, Layout, LayoutCx,
-    Modifiers, NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Transition, Widget, WidgetId,
+    Atom, AtomCx, Axis, Clip, Constraints, Easing, Frame, FrameInfo, Input, Interaction, Layout, LayoutCx, Modifiers,
+    NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Transition, Widget, WidgetId,
 };
 use blit_layout::{Sizing, absolute, absolute::Anchor, resolve_sizing};
 
@@ -963,20 +963,20 @@ impl Atom<AsciiContext> for Fill {
 
 struct FillContent;
 
-impl Content<AsciiContext> for FillContent {
+impl Widget<AsciiContext, blit::state::Node> for FillContent {
     type Response = ();
 
-    fn insert(self, mut ui: Ui<'_, blit::state::Node>) {
+    fn build(self, mut ui: Ui<'_, blit::state::Node>) {
         ui.insert(Fill::new('A', Size::new(3.0, 1.0)));
     }
 }
 
 struct PreparedText<'a>(&'a str);
 
-impl Content<AsciiContext> for PreparedText<'_> {
+impl Widget<AsciiContext, blit::state::Node> for PreparedText<'_> {
     type Response = ();
 
-    fn insert(self, mut ui: Ui<'_, blit::state::Node>) {
+    fn build(self, mut ui: Ui<'_, blit::state::Node>) {
         let glyph = ui.context_mut().prepare(self.0);
         ui.insert(Fill::new(glyph, Size::new(2.0, 1.0)));
     }
@@ -984,10 +984,10 @@ impl Content<AsciiContext> for PreparedText<'_> {
 
 struct Pair(char, char);
 
-impl Content<AsciiContext> for Pair {
+impl Widget<AsciiContext, blit::state::Node> for Pair {
     type Response = ();
 
-    fn insert(self, mut ui: Ui<'_, blit::state::Node>) {
+    fn build(self, mut ui: Ui<'_, blit::state::Node>) {
         ui.insert(Fill::new(self.0, Size::new(2.0, 1.0)));
         ui.insert(Fill::new(self.1, Size::new(2.0, 1.0)));
     }

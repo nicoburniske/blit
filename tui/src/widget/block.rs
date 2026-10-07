@@ -1,4 +1,4 @@
-use blit::{Content, state};
+use blit::{Widget, state};
 
 use crate::{
     TuiContext, Ui,
@@ -28,10 +28,10 @@ impl<'a> Block<'a> {
     }
 }
 
-impl Content<TuiContext> for Block<'_> {
+impl Widget<TuiContext, state::Node> for Block<'_> {
     type Response = ();
 
-    fn insert(self, mut ui: Ui<'_, state::Node>) {
+    fn build(self, mut ui: Ui<'_, state::Node>) {
         let color = self.border.map(|border| border.color).unwrap_or(Color::Reset);
         let titles = self.titles.map(|title| {
             title.map(|title| {

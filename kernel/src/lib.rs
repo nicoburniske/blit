@@ -7,10 +7,9 @@
 //!
 //! - a node is the retained unit of geometry and composition. it may hold properties, atoms, an
 //!   optional layout, and child nodes
-//! - [`Widget`] receives a fresh node and builds it. it may insert content or establish a layout
-//!   and build children
-//! - [`Content`] works within an existing node. it may configure the node, use frame and context
-//!   services, and insert further content
+//! - [`Widget`] builds through a [`Ui`] whose mode controls its available operations. the default
+//!   [`state::Build`] mode may establish a layout and build children. [`state::Node`] augments an
+//!   existing node without changing its structure
 //! - [`Atom`] is visual content retained for painting. it measures under constraints, then paints
 //!   using the node's resolved position and size
 //! - [`Layout`] is retained policy for a node's children. it measures them and resolves their
@@ -74,23 +73,16 @@ builder! {
     }
 }
 
-/// immediate builder that owns and populates a new frame node
-pub trait Widget<C: Context> {
+/// immediate builder whose ui mode determines its available operations
+pub trait Widget<C: Context, S = state::Build> {
     type Response;
 
-    fn build(self, ui: Ui<'_, C>) -> Self::Response;
-}
-
-/// immediate content that augments an existing node without changing its structure
-pub trait Content<C: Context> {
-    type Response;
-
-    fn insert(self, ui: Ui<'_, C, state::Node>) -> Self::Response;
+    fn build(self, ui: Ui<'_, C, S>) -> Self::Response;
 }
 
 /// retained visual content that measures and paints after building
 ///
-/// every atom implements [`Content`]
+/// every atom implements [`Widget<C, state::Node>`] and can be inserted into an existing node
 pub trait Atom<C: Context>: 'static {
     /// returns the size requested by this atom under `constraints`
     ///

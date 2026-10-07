@@ -1,4 +1,4 @@
-use blit::{Content, state};
+use blit::{Widget, state};
 
 use crate::{
     TuiContext, Ui, atom,
@@ -24,10 +24,10 @@ impl<'a> Text<'a> {
     }
 }
 
-impl Content<TuiContext> for Text<'_> {
+impl Widget<TuiContext, state::Node> for Text<'_> {
     type Response = ();
 
-    fn insert(self, mut ui: Ui<'_, state::Node>) {
+    fn build(self, mut ui: Ui<'_, state::Node>) {
         let run = if let Some(spans) = self.spans {
             ui.context_mut().renderer_mut().rich_text(spans)
         } else {

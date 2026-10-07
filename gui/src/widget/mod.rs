@@ -3,7 +3,7 @@ pub mod text_input;
 
 blit_widgets::export!(f32, crate::GuiContext, crate::BoundsClip);
 
-use blit::{Content, state};
+use blit::{Widget, state};
 
 pub use self::{performance::Performance, text_input::TextInput};
 use crate::{
@@ -23,10 +23,10 @@ blit::builder! {
     }
 }
 
-impl Content<GuiContext> for Text<'_> {
+impl Widget<GuiContext, state::Node> for Text<'_> {
     type Response = ();
 
-    fn insert(self, mut ui: Ui<'_, state::Node>) {
+    fn build(self, mut ui: Ui<'_, state::Node>) {
         let run = ui.context_mut().text_run(self.text, self.style);
         ui.insert(
             atom::Text::new(run)
@@ -49,10 +49,10 @@ blit::builder! {
     }
 }
 
-impl Content<GuiContext> for RichText<'_> {
+impl Widget<GuiContext, state::Node> for RichText<'_> {
     type Response = ();
 
-    fn insert(self, mut ui: Ui<'_, state::Node>) {
+    fn build(self, mut ui: Ui<'_, state::Node>) {
         let (run, palette) = ui.context_mut().rich_text(self.text, self.spans, self.style);
         ui.insert(
             atom::Text::new(run)

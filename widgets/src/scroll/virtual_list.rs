@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
-use blit::{Axis, Clip, Constraints, Content, Context, Layout, LayoutCx, Point, Scalar, Size, Ui, WidgetId};
+use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget, WidgetId};
 
 pub use super::Behavior;
 use super::{ScrollLayout, build_scroll, update};
@@ -27,8 +27,8 @@ pub fn build<C: Context, R, X, K, F, T, H>(
 ) -> Response
 where
     X: Clip<C>,
-    T: Content<C>,
-    H: Content<C>,
+    T: Widget<C, blit::state::Node>,
+    H: Widget<C, blit::state::Node>,
     K: FnMut(&R) -> WidgetId,
     F: FnMut(Ui<'_, C>, &R),
 {

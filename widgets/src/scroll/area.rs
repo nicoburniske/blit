@@ -1,4 +1,4 @@
-use blit::{Axis, Clip, Content, Context, Scalar, Ui, Widget};
+use blit::{Axis, Clip, Context, Scalar, Ui, Widget};
 
 pub use super::{Behavior, State};
 use super::{ScrollLayout, build_scroll, update};
@@ -22,8 +22,8 @@ pub fn build<C: Context, W, X, T, H>(
 ) where
     W: Widget<C>,
     X: Clip<C>,
-    T: Content<C>,
-    H: Content<C>,
+    T: Widget<C, blit::state::Node>,
+    H: Widget<C, blit::state::Node>,
 {
     let config = area.behavior;
     let axis = area.axis;

@@ -4,9 +4,7 @@ pub mod virtual_list;
 
 use std::time::Duration;
 
-use blit::{
-    Axis, Clip, Constraints, Content, Context, Layout, LayoutCx, Point, Scalar, ScrollPhase, Sense, Size, Ui, Widget,
-};
+use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, ScrollPhase, Sense, Size, Ui, Widget};
 
 /// persistent scroll position and motion
 #[derive(Debug, Default)]
@@ -311,8 +309,8 @@ fn build_scroll<C: Context, W, X, T, H>(
 ) where
     W: Widget<C>,
     X: Clip<C>,
-    T: Content<C>,
-    H: Content<C>,
+    T: Widget<C, blit::state::Node>,
+    H: Widget<C, blit::state::Node>,
 {
     let id = ui.current_widget_id();
     let content_id = id.child("content");
