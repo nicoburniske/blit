@@ -54,7 +54,7 @@ impl Widget<TuiContext> for TextInput<'_> {
         }
         let focused = ui.is_focused(id);
         let response = state.update(value, if focused { &input } else { &Input::None });
-        let text = ui.context().renderer_mut().text_run(value);
+        let text = ui.context_mut().renderer_mut().text_run(value);
         let options = TextOptions::new().max_lines(1);
         let pointer = if focused {
             match input {
@@ -73,11 +73,11 @@ impl Widget<TuiContext> for TextInput<'_> {
             let area = area.inset(padding);
             let request = TextRequest::new(text, area).offset_x(state.offset_x).options(options);
             if let Some((position, extend)) = pointer {
-                let offset = ui.context().renderer_mut().text_offset_at_position(&request, position);
+                let offset = ui.context_mut().renderer_mut().text_offset_at_position(&request, position);
                 state.move_to(value, offset, extend);
             }
             if area.width > 0 {
-                let cursor = ui.context().renderer_mut().text_cursor_rect(&request, state.cursor);
+                let cursor = ui.context_mut().renderer_mut().text_cursor_rect(&request, state.cursor);
                 if cursor.x < area.x {
                     state.offset_x = (state.offset_x - area.x + cursor.x).max(0);
                 } else if cursor.x + cursor.width > area.x + area.width {
@@ -88,7 +88,7 @@ impl Widget<TuiContext> for TextInput<'_> {
             ui.request_frame();
         }
         let display = if value.is_empty() && !placeholder.is_empty() {
-            ui.context().renderer_mut().text_run(placeholder)
+            ui.context_mut().renderer_mut().text_run(placeholder)
         } else {
             text
         };

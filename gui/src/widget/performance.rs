@@ -45,7 +45,7 @@ blit::builder! {
 impl Widget<GuiContext> for Performance<'_> {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_>) {
+    fn build(self, ui: Ui<'_>) {
         let State {
             inner,
             popover,

@@ -30,7 +30,7 @@ fn main() -> std::io::Result<()> {
             })
         });
         if quit || matches!(root.input(), Input::Text('q')) {
-            root.context().quit();
+            root.context_mut().quit();
         }
     })
 }

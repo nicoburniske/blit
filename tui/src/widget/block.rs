@@ -35,7 +35,7 @@ impl Content<TuiContext> for Block<'_> {
         let color = self.border.map(|border| border.color).unwrap_or(Color::Reset);
         let titles = self.titles.map(|title| {
             title.map(|title| {
-                let text = ui.context().renderer_mut().text_run(title.text);
+                let text = ui.context_mut().renderer_mut().text_run(title.text);
                 atom::Title::new(text)
                     .color(title.color.unwrap_or(color))
                     .attributes(title.attributes)

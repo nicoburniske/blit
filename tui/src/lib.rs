@@ -132,7 +132,7 @@ impl Session {
         // the prefilled Input::None runs one pass when no events were collected
         for &input in &inputs[..input_count.max(1)] {
             self.context.profiler_mut().begin_build();
-            self.frame.build(&mut self.context, info, now, input, |mut ui: Ui<'_>| {
+            self.frame.build(&mut self.context, info, now, input, |ui: Ui<'_>| {
                 if !ui.context().should_quit() {
                     render(ui);
                 }

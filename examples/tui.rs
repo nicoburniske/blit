@@ -55,7 +55,7 @@ impl Demo {
             if key.key == Key::Escape && key.pressed && !key.repeat);
         let input_focused = ui.is_focused(WidgetId::new("tui text input"));
         if !self.modal.open && !input_focused && (escape || matches!(ui.input(), Input::Text('q'))) {
-            ui.context().quit();
+            ui.context_mut().quit();
             return;
         }
         let mut root = ui.layout(flex::column().padding(Sides::all(1)).gap(1));
@@ -115,7 +115,7 @@ impl Demo {
                     }
                     let reset = popup.child().build(Button::new(" reset ", false));
                     if popup.child().build(Button::new(" quit ", false)) {
-                        popup.context().quit();
+                        popup.context_mut().quit();
                     }
                     reset
                 },

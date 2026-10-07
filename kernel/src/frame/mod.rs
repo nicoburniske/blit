@@ -252,7 +252,11 @@ impl<C: Context, S> Ui<'_, C, S> {
     /// accesses context resources during frame construction
     ///
     /// drawing remains deferred to [`Atom`] implementations
-    pub fn context(&mut self) -> &mut C {
+    pub fn context(&self) -> &C {
+        self.inner.context
+    }
+
+    pub fn context_mut(&mut self) -> &mut C {
         self.inner.context
     }
 

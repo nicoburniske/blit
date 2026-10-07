@@ -29,9 +29,9 @@ impl Content<TuiContext> for Text<'_> {
 
     fn append(self, mut ui: Ui<'_, state::Node>) {
         let run = if let Some(spans) = self.spans {
-            ui.context().renderer_mut().rich_text(spans)
+            ui.context_mut().renderer_mut().rich_text(spans)
         } else {
-            ui.context().renderer_mut().text_run(self.text)
+            ui.context_mut().renderer_mut().text_run(self.text)
         };
         ui.insert(
             atom::Text::new(run)

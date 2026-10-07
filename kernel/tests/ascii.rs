@@ -61,7 +61,7 @@ fn layouts_keep_disjoint_scratch_while_resolving_children() {
 
         fn layout(&self, cx: &mut LayoutCx<'_, AsciiContext>, bounds: Constraints<f32>) -> Size<f32> {
             let marker = {
-                let context = cx.context();
+                let context = cx.context_mut();
                 context.prepared += 1;
                 context.prepared
             };
@@ -984,7 +984,7 @@ impl Content<AsciiContext> for PreparedText<'_> {
     type Response = ();
 
     fn append(self, mut ui: Ui<'_, blit::state::Node>) {
-        let glyph = ui.context().prepare(self.0);
+        let glyph = ui.context_mut().prepare(self.0);
         ui.insert(Fill::new(glyph, Size::new(2.0, 1.0)));
     }
 }

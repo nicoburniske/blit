@@ -27,7 +27,7 @@ impl Content<GuiContext> for Text<'_> {
     type Response = ();
 
     fn append(self, mut ui: Ui<'_, state::Node>) {
-        let run = ui.context().text_run(self.text, self.style);
+        let run = ui.context_mut().text_run(self.text, self.style);
         ui.insert(
             atom::Text::new(run)
                 .color(self.color)
@@ -53,7 +53,7 @@ impl Content<GuiContext> for RichText<'_> {
     type Response = ();
 
     fn append(self, mut ui: Ui<'_, state::Node>) {
-        let (run, palette) = ui.context().rich_text(self.text, self.spans, self.style);
+        let (run, palette) = ui.context_mut().rich_text(self.text, self.spans, self.style);
         ui.insert(
             atom::Text::new(run)
                 .palette(palette)
