@@ -90,7 +90,11 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         *self.frame_requested = true;
     }
 
-    pub fn context(&mut self) -> &mut C {
+    pub fn context(&self) -> &C {
+        self.context
+    }
+
+    pub fn context_mut(&mut self) -> &mut C {
         self.context
     }
 

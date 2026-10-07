@@ -49,7 +49,7 @@ pub mod layout;
 
 pub use self::{
     animation::{Easing, Transition, TransitionProperties},
-    frame::{Frame, NodeId, NodeTarget, Ui, state},
+    frame::{Frame, NodeId, NodeTarget, Ui, atom::AtomCx, state},
     geometry::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
         Scalar, Scale2, Sides, Size,
@@ -96,9 +96,9 @@ pub trait Atom<C: Context>: 'static {
     ///
     /// measurement may be skipped under tight constraints. painting must not
     /// depend on prior measurement.
-    fn measure(&self, context: &mut C, constraints: Constraints<C::Scalar>) -> Size<C::Scalar>;
+    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar>;
 
-    fn paint(&self, context: &mut C, area: Rect<C::Scalar>);
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: Rect<C::Scalar>);
 
     /// conservative bounds containing everything this atom may paint
     ///
@@ -126,11 +126,11 @@ impl<C: Context> Widget<C> for () {
 }
 
 impl<C: Context> Atom<C> for () {
-    fn measure(&self, _: &mut C, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, _: &mut C, _: Rect<C::Scalar>) {}
+    fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<C::Scalar>) {}
 
     fn paint_bounds(&self, _: Rect<C::Scalar>) -> Rect<C::Scalar> {
         Rect::default()

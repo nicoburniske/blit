@@ -1,8 +1,8 @@
 use std::{hint::black_box, time::Duration};
 
 use blit::{
-    Atom, Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, Point, Rect, Sense, Size, Transition, Ui, WidgetId,
-    state,
+    Atom, AtomCx, Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, Point, Rect, Sense, Size, Transition, Ui,
+    WidgetId, state,
 };
 use blit_layout::{Sizing, flex};
 
@@ -116,10 +116,10 @@ fn build_geometry_and_layout(bencher: divan::Bencher, count: usize) {
 fn flex_layout(bencher: divan::Bencher, sizing: &str) {
     struct Child;
     impl Atom<()> for Child {
-        fn measure(&self, _: &mut (), bounds: Constraints<f32>) -> Size<f32> {
+        fn measure(&self, _: &mut AtomCx<'_, ()>, bounds: Constraints<f32>) -> Size<f32> {
             bounds.constrain(Size::new(8.0, 2.0))
         }
-        fn paint(&self, _: &mut (), _: Rect<f32>) {}
+        fn paint(&self, _: &mut AtomCx<'_, ()>, _: Rect<f32>) {}
         fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
             area
         }

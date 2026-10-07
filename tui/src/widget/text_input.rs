@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, Input, Key, PhysicalRect, PointerButton, Sense, Sides, Size, Ui, Widget};
+use blit::{Atom, AtomCx, Constraints, Input, Key, PhysicalRect, PointerButton, Sense, Sides, Size, Ui, Widget};
 pub use blit_widgets::text_input::Response;
 pub type State = blit_widgets::text_input::State<i32>;
 
@@ -73,7 +73,10 @@ impl Widget<TuiContext> for TextInput<'_> {
             let area = area.inset(padding);
             let request = TextRequest::new(text, area).offset_x(state.offset_x).options(options);
             if let Some((position, extend)) = pointer {
-                let offset = ui.context_mut().renderer_mut().text_offset_at_position(&request, position);
+                let offset = ui
+                    .context_mut()
+                    .renderer_mut()
+                    .text_offset_at_position(&request, position);
                 state.move_to(value, offset, extend);
             }
             if area.width > 0 {
@@ -126,14 +129,16 @@ struct InputAtom {
 }
 
 impl Atom<TuiContext> for InputAtom {
-    fn measure(&self, context: &mut TuiContext, constraints: Constraints<i32>) -> Size<i32> {
-        let size = context
+    fn measure(&self, cx: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
+        let size = cx
+            .context_mut()
             .renderer_mut()
             .measure_text(&TextLayoutRequest::new(self.display).max_lines(1));
         constraints.constrain(size + self.padding.size())
     }
 
-    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
+    fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
+        let context = cx.context_mut();
         let area = area.inset(self.padding);
         if let Some(background) = self.background {
             context

@@ -202,36 +202,6 @@ impl<C: Context> Frame<C> {
 }
 
 impl<C: Context> Frame<C> {
-    fn push_atom<A: Atom<C>>(&mut self, node: NodeId, atom: A) {
-        let type_id = TypeId::of::<A>();
-        let kind = self
-            .atom_kinds
-            .iter()
-            .position(|kind| kind.type_id == type_id)
-            .unwrap_or_else(|| {
-                self.atom_kinds.push(AtomKind {
-                    type_id,
-                    measure: |data, id, context, constraints| data.load::<A>(id).measure(context, constraints),
-                    paint_bounds: |data, id, area| data.load::<A>(id).paint_bounds(area),
-                    paint: |data, id, context, area| data.load::<A>(id).paint(context, area),
-                });
-                self.atom_kinds.len() - 1
-            });
-        let id = StoredAtomId::new(self.atoms.len());
-        self.atoms.push(StoredAtom {
-            kind: u16::try_from(kind).expect("too many atom types"),
-            data: self.data.store(atom),
-            next: StoredAtomId::NONE,
-        });
-        let node = &mut self.nodes[node.index()];
-        if let Some(last) = node.last_atom.index() {
-            self.atoms[last].next = id;
-        } else {
-            node.first_atom = id;
-        }
-        node.last_atom = id;
-    }
-
     fn store_layout<L: Layout<C>>(&mut self, node: NodeId, value: L) {
         let type_id = TypeId::of::<L>();
         let kind = self

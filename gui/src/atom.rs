@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, LogicalRect, Size};
 
 use crate::{
     Context,
@@ -21,14 +21,13 @@ blit::builder! {
 }
 
 impl<C: Context> Atom<C> for Rectangle {
-    fn measure(&self, _: &mut C, constraints: Constraints<f32>) -> Size<f32> {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, context: &mut C, area: LogicalRect) {
-        let context = context.as_mut();
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
         if self.background != Color::TRANSPARENT || !matches!(self.border, Border::None) {
-            context.paint_rectangle(DrawRectangle {
+            cx.context_mut().as_mut().paint_rectangle(DrawRectangle {
                 area,
                 background: self.background,
                 border: self.border,
@@ -55,9 +54,8 @@ blit::builder! {
 }
 
 impl<C: Context> Atom<C> for Text {
-    fn measure(&self, context: &mut C, constraints: Constraints<f32>) -> Size<f32> {
-        let context = context.as_mut();
-        let measured = context.measure_text(&TextLayoutRequest {
+    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
+        let measured = cx.context_mut().as_mut().measure_text(&TextLayoutRequest {
             text: self.text,
             wrap: self.options.wrap,
             max_width: (self.options.wrap != TextWrap::None && constraints.max.width.is_finite())
@@ -67,8 +65,7 @@ impl<C: Context> Atom<C> for Text {
         constraints.constrain(measured)
     }
 
-    fn paint(&self, context: &mut C, area: LogicalRect) {
-        let context = context.as_mut();
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
         let request = TextRequest {
             text: self.text,
             area,
@@ -76,7 +73,7 @@ impl<C: Context> Atom<C> for Text {
             color: self.color,
             options: self.options,
         };
-        context.paint_text_palette(request, self.palette);
+        cx.context_mut().as_mut().paint_text_palette(request, self.palette);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
@@ -98,12 +95,11 @@ pub struct Image {
 }
 
 impl<C: Context> Atom<C> for Image {
-    fn measure(&self, _: &mut C, constraints: Constraints<f32>) -> Size<f32> {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(self.intrinsic)
     }
 
-    fn paint(&self, context: &mut C, area: LogicalRect) {
-        let context = context.as_mut();
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
         let request = ImageRequest {
             image: self.image,
             area,
@@ -115,7 +111,7 @@ impl<C: Context> Atom<C> for Image {
             horizontal_tiling: self.horizontal_tiling,
             vertical_tiling: self.vertical_tiling,
         };
-        context.paint_image(request);
+        cx.context_mut().as_mut().paint_image(request);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
@@ -156,13 +152,12 @@ impl Shadow {
 }
 
 impl<C: Context> Atom<C> for Shadow {
-    fn measure(&self, _: &mut C, _: Constraints<f32>) -> Size<f32> {
+    fn measure(&self, _: &mut AtomCx<'_, C>, _: Constraints<f32>) -> Size<f32> {
         Size::ZERO
     }
 
-    fn paint(&self, context: &mut C, area: LogicalRect) {
-        let context = context.as_mut();
-        context.paint_shadow(self.command(area));
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
+        cx.context_mut().as_mut().paint_shadow(self.command(area));
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {

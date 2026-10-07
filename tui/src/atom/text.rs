@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, PhysicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
     TuiContext,
@@ -17,7 +17,7 @@ blit::builder! {
 }
 
 impl Atom<TuiContext> for Text {
-    fn measure(&self, context: &mut TuiContext, constraints: Constraints<i32>) -> Size<i32> {
+    fn measure(&self, cx: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
         let mut request = TextLayoutRequest::new(self.text).wrap(self.options.wrap);
         if self.options.wrap != TextWrap::None && constraints.max.width != i32::MAX {
             request = request.max_width(constraints.max.width);
@@ -25,11 +25,11 @@ impl Atom<TuiContext> for Text {
         if let Some(max_lines) = self.options.max_lines {
             request = request.max_lines(max_lines);
         }
-        constraints.constrain(context.renderer_mut().measure_text(&request))
+        constraints.constrain(cx.context_mut().renderer_mut().measure_text(&request))
     }
 
-    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
-        context.paint_text(
+    fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
+        cx.context_mut().paint_text(
             TextRequest::new(self.text, area)
                 .color(self.color)
                 .attributes(self.attributes)

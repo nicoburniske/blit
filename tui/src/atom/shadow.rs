@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, PhysicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
     TuiContext,
@@ -24,11 +24,11 @@ impl Shadow {
 }
 
 impl Atom<TuiContext> for Shadow {
-    fn measure(&self, _: &mut TuiContext, _: Constraints<i32>) -> Size<i32> {
+    fn measure(&self, _: &mut AtomCx<'_, TuiContext>, _: Constraints<i32>) -> Size<i32> {
         Size::ZERO
     }
 
-    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
+    fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
         let shifted = PhysicalRect {
             x: area.x + self.offset_x,
             y: area.y + self.offset_y,
@@ -40,7 +40,7 @@ impl Atom<TuiContext> for Shadow {
         let bottom = (area.y + area.height) as isize;
         let origin_x = shifted.x as isize;
         let origin_y = shifted.y as isize;
-        let mut cells = context.cells(shifted);
+        let mut cells = cx.context_mut().cells(shifted);
         let style = CellStyle::new().background(self.color);
         for y in 0..cells.rows() {
             for x in 0..cells.columns() {

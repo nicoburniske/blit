@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use blit::{Atom, Constraints, PhysicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
     TuiContext,
@@ -50,7 +50,7 @@ impl Gauge {
 }
 
 impl Atom<TuiContext> for Gauge {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints<i32>) -> Size<i32> {
+    fn measure(&self, _: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
         let width = self
             .label
             .as_ref()
@@ -58,8 +58,8 @@ impl Atom<TuiContext> for Gauge {
         constraints.constrain(Size::new(width.max(1) as i32, 1))
     }
 
-    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
-        let mut cells = context.cells(area);
+    fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
+        let mut cells = cx.context_mut().cells(area);
         let width = cells.columns();
         let rows = cells.rows();
         let filled = (width as f64 * self.ratio.clamp(0.0, 1.0)).round() as usize;

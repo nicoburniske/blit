@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use blit::{Atom, Constraints, PhysicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
     TuiContext,
@@ -20,14 +20,14 @@ blit::builder! {
 }
 
 impl Atom<TuiContext> for Sparkline {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints<i32>) -> Size<i32> {
+    fn measure(&self, _: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
         constraints.constrain(Size::new(self.data.borrow().len() as i32, 1))
     }
 
-    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
+    fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
         const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let data = self.data.borrow();
-        let mut cells = context.cells(area);
+        let mut cells = cx.context_mut().cells(area);
         let width = cells.columns();
         let rows = cells.rows();
         let style = if let Some(background) = self.background {

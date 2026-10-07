@@ -1,5 +1,6 @@
 use crate::{Context, Scalar};
 pub mod animation;
+pub mod atom;
 pub mod interaction;
 pub mod layout;
 pub mod paint;
@@ -323,7 +324,7 @@ impl<C: Context, A: Atom<C>> Content<C> for A {
     type Response = ();
 
     fn append(self, ui: Ui<'_, C, state::Node>) {
-        ui.inner.frame.push_atom(ui.inner.node, self);
+        atom::insert(ui.inner.frame, ui.inner.node, self);
     }
 }
 

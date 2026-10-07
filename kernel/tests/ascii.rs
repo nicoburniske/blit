@@ -1,8 +1,8 @@
 use std::{cell::Cell, rc::Rc, time::Duration};
 
 use blit::{
-    Atom, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, Layout, LayoutCx, Modifiers,
-    NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Transition, Widget, WidgetId,
+    Atom, AtomCx, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, Layout, LayoutCx,
+    Modifiers, NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Transition, Widget, WidgetId,
 };
 use blit_layout::{Sizing, absolute, absolute::Anchor, resolve_sizing};
 
@@ -875,11 +875,11 @@ struct PaintCount {
 }
 
 impl Atom<AsciiContext> for PaintCount {
-    fn measure(&self, _: &mut AsciiContext, constraints: Constraints<f32>) -> Size<f32> {
+    fn measure(&self, _: &mut AtomCx<'_, AsciiContext>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::uniform(1.0))
     }
 
-    fn paint(&self, _: &mut AsciiContext, _: Rect<f32>) {
+    fn paint(&self, _: &mut AtomCx<'_, AsciiContext>, _: Rect<f32>) {
         self.count.set(self.count.get() + 1);
     }
 
@@ -906,13 +906,13 @@ impl<C: blit::Context<Scalar = f32>> Layout<C> for OwnedValue {
 }
 
 impl Atom<AsciiContext> for OwnedValue {
-    fn measure(&self, _: &mut AsciiContext, constraints: Constraints<f32>) -> Size<f32> {
+    fn measure(&self, _: &mut AtomCx<'_, AsciiContext>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, context: &mut AsciiContext, area: Rect<f32>) {
+    fn paint(&self, cx: &mut AtomCx<'_, AsciiContext>, area: Rect<f32>) {
         self.area.set(area);
-        context.cells.fill('P');
+        cx.context_mut().cells.fill('P');
     }
 
     fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
@@ -939,11 +939,12 @@ impl Fill {
 }
 
 impl Atom<AsciiContext> for Fill {
-    fn measure(&self, _: &mut AsciiContext, constraints: Constraints<f32>) -> Size<f32> {
+    fn measure(&self, _: &mut AtomCx<'_, AsciiContext>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(self.size)
     }
 
-    fn paint(&self, context: &mut AsciiContext, area: Rect<f32>) {
+    fn paint(&self, cx: &mut AtomCx<'_, AsciiContext>, area: Rect<f32>) {
+        let context = cx.context_mut();
         let left = area.x.max(0.0) as usize;
         let top = area.y.max(0.0) as usize;
         let right = (area.x + area.width).min(context.width as f32) as usize;

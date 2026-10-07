@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Widget};
+use blit::{Atom, AtomCx, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Widget};
 pub use blit_widgets::text_input::Response;
 pub type State = blit_widgets::text_input::State<f32>;
 
@@ -132,9 +132,8 @@ struct InputAtom {
 }
 
 impl<C: Context> Atom<C> for InputAtom {
-    fn measure(&self, context: &mut C, constraints: Constraints<f32>) -> Size<f32> {
-        let context = context.as_mut();
-        let size = context.measure_text(&TextLayoutRequest {
+    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
+        let size = cx.context_mut().as_mut().measure_text(&TextLayoutRequest {
             text: self.display,
             wrap: TextWrap::None,
             max_width: None,
@@ -143,8 +142,8 @@ impl<C: Context> Atom<C> for InputAtom {
         constraints.constrain(size + self.padding.size())
     }
 
-    fn paint(&self, context: &mut C, area: LogicalRect) {
-        let context = context.as_mut();
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
+        let context = cx.context_mut().as_mut();
         let area = area.inset(self.padding);
         if self.background != Color::TRANSPARENT {
             context.paint_rectangle(Rectangle::new(area).background(self.background));

@@ -1,6 +1,6 @@
 use std::ops::{BitOr, BitOrAssign};
 
-use blit::{Atom, Constraints, PhysicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
     TuiContext,
@@ -29,11 +29,12 @@ impl Block {
 }
 
 impl Atom<TuiContext> for Block {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints<i32>) -> Size<i32> {
+    fn measure(&self, _: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
+    fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
+        let context = cx.context_mut();
         let (width, height) = {
             let mut cells = context.cells(area);
             let width = cells.columns();

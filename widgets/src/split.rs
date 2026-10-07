@@ -147,7 +147,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Atom, Constraints, Frame, FrameInfo, Input, Rect, Size, WidgetId};
+    use blit::{Atom, AtomCx, Constraints, Frame, FrameInfo, Input, Rect, Size, WidgetId};
     use blit_layout::single;
 
     use super::*;
@@ -156,11 +156,11 @@ mod tests {
     struct BoxAtom;
 
     impl Atom<TestContext> for BoxAtom {
-        fn measure(&self, _: &mut TestContext, constraints: Constraints<f32>) -> Size<f32> {
+        fn measure(&self, _: &mut AtomCx<'_, TestContext>, constraints: Constraints<f32>) -> Size<f32> {
             constraints.min
         }
 
-        fn paint(&self, _: &mut TestContext, _: Rect<f32>) {}
+        fn paint(&self, _: &mut AtomCx<'_, TestContext>, _: Rect<f32>) {}
 
         fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
             area

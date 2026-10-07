@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use blit::{
-    Atom, Constraints, Context, Frame, FrameInfo, Input, Rect, Scalar, Sides, Size, Transition, Ui, Widget, WidgetId,
+    Atom, AtomCx, Constraints, Context, Frame, FrameInfo, Input, Rect, Scalar, Sides, Size, Transition, Ui, Widget,
+    WidgetId,
 };
 use blit_layout::{Align, Sizing, flex, grid, single, wrap};
 
@@ -33,11 +34,11 @@ fn layout_frame<C: Context, W: Widget<C>>(
 struct BoxAtom<T>(Size<T>);
 
 impl<C: Context<Scalar = T>, T: Scalar> Atom<C> for BoxAtom<T> {
-    fn measure(&self, _: &mut C, constraints: Constraints<T>) -> Size<T> {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<T>) -> Size<T> {
         constraints.constrain(self.0)
     }
 
-    fn paint(&self, _: &mut C, _: Rect<T>) {}
+    fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<T>) {}
 
     fn paint_bounds(&self, _: Rect<T>) -> Rect<T> {
         Rect::default()
@@ -48,7 +49,7 @@ impl<C: Context<Scalar = T>, T: Scalar> Atom<C> for BoxAtom<T> {
 struct ResponsiveAtom;
 
 impl<C: Context> Atom<C> for ResponsiveAtom {
-    fn measure(&self, _: &mut C, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
         constraints.constrain(Size::new(
             C::Scalar::from_f32(4.0),
             if constraints.max.width < C::Scalar::from_f32(10.0) || !constraints.max.width.is_finite() {
@@ -59,7 +60,7 @@ impl<C: Context> Atom<C> for ResponsiveAtom {
         ))
     }
 
-    fn paint(&self, _: &mut C, _: Rect<C::Scalar>) {}
+    fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<C::Scalar>) {}
 
     fn paint_bounds(&self, _: Rect<C::Scalar>) -> Rect<C::Scalar> {
         Rect::default()
