@@ -164,3 +164,19 @@ impl<C: Context> Atom<C> for Shadow {
         self.command(area).bounds()
     }
 }
+
+#[derive(Clone, Copy, Default)]
+pub struct Clear;
+
+impl<C: Context> Atom<C> for Clear {
+    fn measure(&self, _: &mut AtomCx<'_, C>, bounds: Constraints<f32>) -> Size<f32> {
+        bounds.constrain(Size::ZERO)
+    }
+
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
+        let input = cx.context_mut().as_mut().render_input();
+        input.display_list.push_clear(area.to_physical(input.scale));
+    }
+
+    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect { area }
+}
