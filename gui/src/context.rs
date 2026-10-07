@@ -2,7 +2,7 @@ use blit::{Clip, LogicalPoint, LogicalRect, LogicalSize, Scale2};
 use blit_widgets::performance::FrameProfiler;
 
 use crate::{
-    TextSystem,
+    Context, TextSystem,
     display_list::{BoxShadow, ClipId, DisplayList, Mesh, Rectangle, TextPalette},
     image::{ImageData, ImageHandle, ImageId, ImageRequest},
     text::{Span, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
@@ -17,6 +17,12 @@ pub struct GuiContext {
     clip: ClipId,
     clips: Vec<ClipId>,
     profiler: FrameProfiler,
+}
+
+impl AsMut<GuiContext> for GuiContext {
+    fn as_mut(&mut self) -> &mut GuiContext {
+        self
+    }
 }
 
 impl blit::Context for GuiContext {
@@ -138,14 +144,16 @@ impl GuiContext {
 #[derive(Clone, Copy)]
 pub struct BoundsClip;
 
-impl Clip<GuiContext> for BoundsClip {
-    fn push(&self, gui: &mut GuiContext, area: LogicalRect) {
+impl<C: Context> Clip<C> for BoundsClip {
+    fn push(&self, context: &mut C, area: LogicalRect) {
+        let gui = context.as_mut();
         let previous = gui.clip;
         gui.clip = gui.display_list.push_clip(previous, area, Default::default());
         gui.clips.push(previous);
     }
 
-    fn pop(&self, gui: &mut GuiContext) {
+    fn pop(&self, context: &mut C) {
+        let gui = context.as_mut();
         gui.clip = gui.clips.pop().unwrap();
     }
 }

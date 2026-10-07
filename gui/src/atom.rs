@@ -1,7 +1,7 @@
 use blit::{Atom, Constraints, LogicalRect, Size};
 
 use crate::{
-    GuiContext,
+    Context,
     color::Color,
     display_list::{BoxShadow, Rectangle as DrawRectangle, TextPalette},
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
@@ -20,12 +20,13 @@ blit::builder! {
     }
 }
 
-impl Atom<GuiContext> for Rectangle {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints<f32>) -> Size<f32> {
+impl<C: Context> Atom<C> for Rectangle {
+    fn measure(&self, _: &mut C, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
+    fn paint(&self, context: &mut C, area: LogicalRect) {
+        let context = context.as_mut();
         if self.background != Color::TRANSPARENT || !matches!(self.border, Border::None) {
             context.paint_rectangle(DrawRectangle {
                 area,
@@ -53,8 +54,9 @@ blit::builder! {
     }
 }
 
-impl Atom<GuiContext> for Text {
-    fn measure(&self, context: &mut GuiContext, constraints: Constraints<f32>) -> Size<f32> {
+impl<C: Context> Atom<C> for Text {
+    fn measure(&self, context: &mut C, constraints: Constraints<f32>) -> Size<f32> {
+        let context = context.as_mut();
         let measured = context.measure_text(&TextLayoutRequest {
             text: self.text,
             wrap: self.options.wrap,
@@ -65,7 +67,8 @@ impl Atom<GuiContext> for Text {
         constraints.constrain(measured)
     }
 
-    fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
+    fn paint(&self, context: &mut C, area: LogicalRect) {
+        let context = context.as_mut();
         let request = TextRequest {
             text: self.text,
             area,
@@ -94,12 +97,13 @@ pub struct Image {
     pub vertical_tiling: ImageTiling,
 }
 
-impl Atom<GuiContext> for Image {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints<f32>) -> Size<f32> {
+impl<C: Context> Atom<C> for Image {
+    fn measure(&self, _: &mut C, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(self.intrinsic)
     }
 
-    fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
+    fn paint(&self, context: &mut C, area: LogicalRect) {
+        let context = context.as_mut();
         let request = ImageRequest {
             image: self.image,
             area,
@@ -151,12 +155,13 @@ impl Shadow {
     }
 }
 
-impl Atom<GuiContext> for Shadow {
-    fn measure(&self, _: &mut GuiContext, _: Constraints<f32>) -> Size<f32> {
+impl<C: Context> Atom<C> for Shadow {
+    fn measure(&self, _: &mut C, _: Constraints<f32>) -> Size<f32> {
         Size::ZERO
     }
 
-    fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
+    fn paint(&self, context: &mut C, area: LogicalRect) {
+        let context = context.as_mut();
         context.paint_shadow(self.command(area));
     }
 

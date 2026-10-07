@@ -19,3 +19,7 @@ pub use self::{
 };
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, GuiContext, S>;
+
+pub trait Context: blit::Context<Scalar = f32> + AsMut<GuiContext> {}
+
+impl<C: blit::Context<Scalar = f32> + AsMut<GuiContext>> Context for C {}
