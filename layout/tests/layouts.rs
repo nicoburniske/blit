@@ -437,6 +437,35 @@ fn spanning_grid_sizes_spanning_items() {
 }
 
 #[test]
+fn grid_intrinsic_width_preserves_integer_spans() {
+    let grid_id = WidgetId::new("intrinsic grid");
+    let child = WidgetId::new("spanning child");
+    for (columns, start, span, width, total, x) in [(7, 2, 3, 1, 3, 1), (18, 9, 6, 25, 75, 38), (7, 0, 7, 57, 57, 0)] {
+        let mut frame = Frame::default();
+        layout_frame(
+            &mut frame,
+            &mut Cells,
+            FrameInfo::new(Size::new(100, 20)),
+            |ui: Ui<'_, Cells>| {
+                let mut root = ui.layout(single::new());
+                let mut grid = root.child().widget_id(grid_id).layout(grid::new(columns));
+                if start != 0 {
+                    grid.child()
+                        .item(grid::item().column_span(start))
+                        .insert(BoxAtom(Size::new(0, 1)));
+                }
+                grid.child()
+                    .item(grid::item().column_span(span))
+                    .widget_id(child)
+                    .insert(BoxAtom(Size::new(width, 1)));
+            },
+        );
+        assert_eq!(frame.geometry(child), Some(Rect::new(x, 0, width, 1)));
+        assert_eq!(frame.geometry(grid_id).unwrap().size(), Size::new(total, 1));
+    }
+}
+
+#[test]
 fn spanning_grid_fills_available_cell() {
     use blit_layout::grid;
     let mut frame = Frame::default();

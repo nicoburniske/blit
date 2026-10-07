@@ -125,7 +125,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
         let width = if bounds.min.width == bounds.max.width {
             bounds.min.width
         } else {
-            let mut column_width: f32 = 0.0;
+            let mut required: f32 = 0.0;
             for child in cx.children() {
                 let item = cx.item(child);
                 let size = cx.layout_child(
@@ -137,17 +137,23 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                     ),
                 );
                 let span = item.column_span as usize;
-                column_width = column_width.max(
+                required = required.max(
                     (size.width - column_gap.repeat(span.saturating_sub(1)))
                         .max(T::ZERO)
                         .to_f32()
+                        * columns as f32
                         / span as f32,
                 );
             }
-            (T::from_f32(column_width * columns as f32) + horizontal_gaps + padding.size().width)
-                .clamp(bounds.min.width, bounds.max.width)
+            let mut width = T::from_f32(required);
+            // round up to preserve intrinsic widths when snapping to integer cells
+            if width.to_f32() < required {
+                width = width.endpoint(T::from_f32(1.0));
+            }
+            (width + horizontal_gaps + padding.size().width).clamp(bounds.min.width, bounds.max.width)
         };
-        let cell = (width - padding.size().width - horizontal_gaps).max(T::ZERO).to_f32() / columns as f32;
+        let content_width = (width - padding.size().width - horizontal_gaps).max(T::ZERO).to_f32();
+        let column_edge = |column: usize| T::from_f32(column as f32 * content_width / columns as f32);
         let mut height = T::ZERO;
         let mut children = cx.children();
         let mut index = 0;
@@ -160,8 +166,8 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                 let column = if spanning { positions[index + offset].1 } else { offset };
                 let item = cx.item(child);
                 let span = item.column_span as usize;
-                let assigned = T::from_f32((column + span) as f32 * cell) - T::from_f32(column as f32 * cell)
-                    + column_gap.repeat(span.saturating_sub(1));
+                let assigned =
+                    column_edge(column + span) - column_edge(column) + column_gap.repeat(span.saturating_sub(1));
                 let size = cx.layout_child(
                     child,
                     flow_constraints(
@@ -205,7 +211,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                 cx.set_child_position(
                     child,
                     Point::new(
-                        padding.left + T::from_f32(column as f32 * cell) + column_gap.repeat(column),
+                        padding.left + column_edge(column) + column_gap.repeat(column),
                         if spanning {
                             padding.top + T::from_f32(row as f32 * row_track) + row_gap.repeat(row)
                         } else {
