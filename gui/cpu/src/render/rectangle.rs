@@ -274,7 +274,9 @@ impl Gradient {
             |x| sampler.sample(x).coverage(coverage),
         );
     }
+}
 
+impl Gradient {
     fn draw_span<P: Pixel>(&self, stops: &[GradientStop], line: i32, start: i32, coverage: u32, pixels: &mut [P]) {
         let position = self.offset
             + self.x_step * (start - self.geometry.x) as f32

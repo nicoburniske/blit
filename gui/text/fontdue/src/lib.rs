@@ -168,7 +168,6 @@ impl TextLayoutEngine for Backend {
         let (visible_lines, content_height, empty_height) =
             prepare(&mut self.layout, &self.faces, shape, text, request);
         let default = shape.spans.first().expect("text requires a span");
-        let face_index = default.face;
         let Some(source_lines) = self.layout.lines() else {
             if request.max_lines == Some(0) || request.max_height.is_some_and(|height| height < empty_height) {
                 return TextLayout::default();
@@ -206,9 +205,10 @@ impl TextLayoutEngine for Backend {
                 request,
                 line_index + 1 == visible_lines,
                 truncated,
-                face_index,
+                default.face,
                 default.size,
             );
+            let line_index = u32::try_from(line_index).expect("too many lines");
             width = width.max(prepared.width);
             let bounds = LogicalRect {
                 x: 0.0,
@@ -216,7 +216,7 @@ impl TextLayoutEngine for Backend {
                 width: prepared.width,
                 height: line.max_new_line_size,
             };
-            let line_start = u32::try_from(glyphs.len()).expect("too many glyphs");
+            let line_start = glyphs.len() as u32;
             let mut final_offset = prepared
                 .glyphs
                 .first()
@@ -227,7 +227,7 @@ impl TextLayoutEngine for Backend {
                     continue;
                 }
                 let (_, pen) = glyph_metrics(&self.faces, source);
-                let index = u32::try_from(glyphs.len()).expect("too many glyphs");
+                let index = glyphs.len() as u32;
                 let face = FontFaceId(source.font_index as u64 + 1);
                 let span = source.user_data.1;
                 if let Some(run) = runs.last_mut().filter(|run: &&mut LayoutRun| {
@@ -243,7 +243,7 @@ impl TextLayoutEngine for Backend {
                         size: source.key.px,
                         span,
                         glyphs: index..index + 1,
-                        line: u32::try_from(line_index).expect("too many lines"),
+                        line: line_index,
                     });
                 }
                 glyphs.push(Glyph {
@@ -255,13 +255,13 @@ impl TextLayoutEngine for Backend {
                 });
             }
             if let Some(ellipsis) = prepared.ellipsis {
-                let index = u32::try_from(glyphs.len()).expect("too many glyphs");
+                let index = glyphs.len() as u32;
                 runs.push(LayoutRun {
                     face: FontFaceId(ellipsis.face as u64 + 1),
                     size: ellipsis.size,
                     span: ellipsis.span,
                     glyphs: index..index + 1,
-                    line: u32::try_from(line_index).expect("too many lines"),
+                    line: line_index,
                 });
                 glyphs.push(Glyph {
                     id: ellipsis.glyph,
@@ -273,17 +273,15 @@ impl TextLayoutEngine for Backend {
             }
             lines.push(LayoutLine {
                 bounds,
-                text: u32::try_from(
-                    prepared
-                        .glyphs
-                        .first()
-                        .map_or(final_offset, |glyph| glyph.user_data.0 + glyph.byte_offset),
-                )
-                .expect("text is too long")
-                    ..u32::try_from(final_offset).expect("text is too long"),
+                text: prepared
+                    .glyphs
+                    .first()
+                    .map_or(final_offset, |glyph| glyph.user_data.0 + glyph.byte_offset) as u32
+                    ..final_offset as u32,
             });
         }
 
+        assert!(glyphs.len() <= u32::MAX as usize, "too many glyphs");
         TextLayout {
             size: LogicalSize {
                 width,
@@ -335,7 +333,7 @@ impl TextLayoutEngine for Backend {
         for source in &prepared.glyphs[..prepared.len] {
             let (metrics, pen) = glyph_metrics(&self.faces, source);
             let caret = Caret {
-                byte_offset: u32::try_from(source.user_data.0 + source.byte_offset).expect("text is too long"),
+                byte_offset: (source.user_data.0 + source.byte_offset) as u32,
                 position: LogicalPoint { x: pen, y },
                 height: line.max_new_line_size,
             };
@@ -347,7 +345,7 @@ impl TextLayoutEngine for Backend {
             final_x = prepared.width;
         }
         let final_caret = Caret {
-            byte_offset: u32::try_from(final_offset).expect("text is too long"),
+            byte_offset: final_offset as u32,
             position: LogicalPoint { x: final_x, y },
             height: line.max_new_line_size,
         };
@@ -363,6 +361,7 @@ fn prepare(
     text: &str,
     request: LayoutRequest,
 ) -> (usize, f32, f32) {
+    assert!(text.len() <= u32::MAX as usize, "text is too long");
     let wrap = request.wrap != TextWrap::None;
     layout.reset(&FontdueLayoutSettings {
         max_width: wrap.then(|| request.max_width.unwrap_or(f32::MAX).max(0.0)),

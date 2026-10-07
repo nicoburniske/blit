@@ -1,21 +1,21 @@
-use blit::{Axis, Clip, Content, Ui, Widget};
+use blit::{Axis, Clip, Content, Context, Scalar, Ui, Widget};
 
-pub use super::shared::{Behavior, State};
-use super::shared::{ScrollLayout, build_scroll, update};
+pub use super::{Behavior, State};
+use super::{ScrollLayout, build_scroll, update};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug)]
-    pub struct Config {
+    pub struct Config<T: Scalar> {
         new(),
         axis: Axis = Axis::Vertical,
-        behavior: Behavior = Behavior::default(),
+        behavior: Behavior<T> = Behavior::default(),
     }
 }
 
-pub fn build<C, W, X, T, H>(
+pub fn build<C: Context, W, X, T, H>(
     mut ui: Ui<'_, C>,
-    state: &mut State,
-    area: Config,
+    state: &mut State<C::Scalar>,
+    area: Config<C::Scalar>,
     clip: X,
     content: W,
     scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
@@ -28,12 +28,13 @@ pub fn build<C, W, X, T, H>(
     let config = area.behavior;
     let axis = area.axis;
     let (thumb_active, _) = update(state, &mut ui, axis, config);
+    let offset = state.offset;
     let (track, thumb) = scrollbar(thumb_active);
     build_scroll(
         ui,
         ScrollLayout {
             axis,
-            offset: state.offset,
+            offset: move |_| offset,
             scrollbar_thickness: config.scrollbar_thickness,
             minimum_thumb_extent: config.minimum_thumb_extent,
         },

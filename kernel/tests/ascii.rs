@@ -1,10 +1,10 @@
 use std::{cell::Cell, rc::Rc, time::Duration};
 
 use blit::{
-    Absolute, Anchor, Atom, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, Layout,
-    LayoutCx, LayoutResolution, Modifiers, NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Sizing,
-    Transition, Widget, WidgetId,
+    Atom, Axis, Clip, Constraints, Content, Easing, Frame, FrameInfo, Input, Interaction, Layout, LayoutCx, Modifiers,
+    NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Transition, Widget, WidgetId,
 };
+use blit_layout::{Sizing, absolute, absolute::Anchor, resolve_sizing};
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, AsciiContext, S>;
 
@@ -53,6 +53,41 @@ fn lays_out_and_paints_external_atoms() {
 }
 
 #[test]
+fn layouts_keep_disjoint_scratch_while_resolving_children() {
+    struct Temporary;
+
+    impl Layout<AsciiContext> for Temporary {
+        type Item = ();
+
+        fn layout(&self, cx: &mut LayoutCx<'_, AsciiContext>, bounds: Constraints<f32>) -> Size<f32> {
+            let marker = {
+                let context = cx.context();
+                context.prepared += 1;
+                context.prepared
+            };
+            let scratch = cx.scratch(1, marker);
+            let size = ().layout(cx, bounds);
+            assert_eq!(scratch[0], marker);
+            size
+        }
+    }
+
+    let (mut frame, mut context) = frame(Size::new(4.0, 1.0));
+    for prepared in [2, 4] {
+        render(&mut frame, &mut context, |ui: Ui<'_>| {
+            ui.layout(Overlay)
+                .child()
+                .layout(Temporary)
+                .child()
+                .layout(Temporary)
+                .insert(Fill::new('X', Size::new(2.0, 1.0)));
+        });
+        assert_eq!(context.prepared, prepared);
+        assert_eq!(context.contents(), " XX ");
+    }
+}
+
+#[test]
 fn culls_only_atoms_with_disjoint_known_paint_bounds() {
     let culled = Rc::new(Cell::new(0));
     let clipped = Rc::new(Cell::new(0));
@@ -61,17 +96,17 @@ fn culls_only_atoms_with_disjoint_known_paint_bounds() {
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        root.absolute(Absolute::at(4.0, 0.0)).insert(PaintCount {
+        root.child().layout(absolute::place(()).x(4.0)).insert(PaintCount {
             count: culled.clone(),
             bounds_offset: Point::ZERO,
         });
-        root.absolute(Absolute::at(4.0, 0.0)).insert(PaintCount {
+        root.child().layout(absolute::place(()).x(4.0)).insert(PaintCount {
             count: overflow.clone(),
             bounds_offset: Point::new(-4.0, 0.0),
         });
         root.child().item(TestItem::fixed(1.0, 1.0)).build(|ui: Ui<'_>| {
             let mut panel = ui.layout(Overlay).clip(DiamondClip);
-            panel.absolute(Absolute::at(1.0, 0.0)).insert(PaintCount {
+            panel.child().layout(absolute::place(()).x(1.0)).insert(PaintCount {
                 count: clipped.clone(),
                 bounds_offset: Point::ZERO,
             });
@@ -122,7 +157,7 @@ fn empty_and_absolute_children_are_valid() {
         let mut root = ui.layout(Column);
         root.child()
             .item(TestItem::new(0.0).width(Sizing::grow()).height(Sizing::grow()));
-        root.absolute(Absolute::at(0.0, 0.0));
+        root.child().layout(absolute::place(()));
     });
 }
 
@@ -155,7 +190,7 @@ fn default_children_share_one_item() {
     impl Layout<AsciiContext> for SharedDefault {
         type Item = Rc<()>;
 
-        fn layout(&self, cx: &mut LayoutCx<'_, AsciiContext, Rc<()>>, constraints: Constraints) -> Size {
+        fn layout(&self, cx: &mut LayoutCx<'_, AsciiContext, Rc<()>>, bounds: Constraints<f32>) -> Size<f32> {
             let mut count = 0;
             for child in cx.children() {
                 let item = Rc::as_ptr(cx.item(child));
@@ -164,12 +199,12 @@ fn default_children_share_one_item() {
                 } else {
                     self.default.set(Some(item));
                 }
-                cx.layout_child(child, Constraints::loose(constraints.max));
+                cx.layout_child(child, Constraints::loose(bounds.max));
                 cx.set_child_position(child, Point::ZERO);
                 count += 1;
             }
             self.children.set(count);
-            constraints.min
+            bounds.min
         }
     }
 
@@ -212,7 +247,12 @@ fn resolves_named_anchors_and_clipping() {
             .child()
             .widget_id(target)
             .insert(Fill::new('T', Size::uniform(2.0)));
-        let mut absolute = overlay.absolute(Absolute::attach(Anchor::BottomRight, Anchor::TopLeft).relative_to(target));
+        let mut absolute = overlay.child().layout(
+            absolute::place(())
+                .target_anchor(Anchor::BottomRight)
+                .child_anchor(Anchor::TopLeft)
+                .target(target),
+        );
         absolute.insert(Fill::new('A', Size::uniform(1.0)));
     });
 
@@ -261,30 +301,35 @@ fn visual_parent_preserves_outer_clip_and_supplies_absolute_size() {
     let build = |mut ui: Ui<'_>| {
         let response = ui.interact_widget(popup_id, Sense::CLICK);
         let mut root = ui.layout(Overlay);
-        root.absolute(
-            Absolute::at(1.0, 0.0)
-                .width(Sizing::fixed(5.0))
-                .height(Sizing::fixed(5.0)),
-        )
-        .clip(DiamondClip)
-        .build(|ui: Ui<'_>| {
+        root.child().clip(DiamondClip).build(|ui: Ui<'_>| {
             let outer_id = ui.id();
-            let mut outer = ui.layout(Overlay);
-            outer
-                .absolute(
-                    Absolute::at(2.0, 2.0)
-                        .width(Sizing::fixed(1.0))
-                        .height(Sizing::fixed(1.0)),
+            let mut outer = ui.layout(
+                absolute::place(Overlay)
+                    .x(1.0)
+                    .width(absolute::Sizing::fixed(5.0))
+                    .height(absolute::Sizing::fixed(5.0)),
+            );
+            outer.child().clip(DiamondClip).build(|ui: Ui<'_>| {
+                ui.layout(
+                    absolute::place(Overlay)
+                        .x(2.0)
+                        .y(2.0)
+                        .width(absolute::Sizing::fixed(1.0))
+                        .height(absolute::Sizing::fixed(1.0)),
                 )
-                .clip(DiamondClip)
-                .build(|ui: Ui<'_>| {
-                    ui.layout(Overlay)
-                        .absolute(Absolute::at(-2.0, -2.0).width(Sizing::grow()).height(Sizing::grow()))
-                        .parent(outer_id)
-                        .z_index(1)
-                        .widget_id(popup_id)
-                        .insert(Fill::new('P', Size::ZERO));
-                });
+                .child()
+                .layout(
+                    absolute::place(())
+                        .x(-2.0)
+                        .y(-2.0)
+                        .width(absolute::Sizing::full())
+                        .height(absolute::Sizing::full()),
+                )
+                .parent(outer_id)
+                .z_index(1)
+                .widget_id(popup_id)
+                .insert(Fill::new('P', Size::ZERO));
+            });
         });
         response
     };
@@ -332,13 +377,15 @@ fn paint_and_interaction_follow_visual_groups() {
             let responses = ids.map(|id| ui.interact_widget(id, Sense::CLICK));
             let mut root = ui.widget_id(ids[0]).layout(Overlay);
             if open {
-                let mut modal = root
-                    .absolute(Absolute::at(0.0, 0.0).width(Sizing::grow()).height(Sizing::grow()))
-                    .z_index(1)
-                    .layout(Overlay);
+                let mut modal = root.child().z_index(1).layout(
+                    absolute::place(Overlay)
+                        .width(absolute::Sizing::full())
+                        .height(absolute::Sizing::full()),
+                );
                 modal.insert(Fill::new('D', Size::ZERO));
                 modal
-                    .absolute(Absolute::at(0.0, 0.0))
+                    .child()
+                    .layout(absolute::place(()))
                     .widget_id(ids[2])
                     .insert(Fill::new('M', Size::uniform(1.0)));
             }
@@ -351,7 +398,7 @@ fn paint_and_interaction_follow_visual_groups() {
                         .item(TestItem::fixed(3.0, 1.0))
                         .build(|ui: Ui<'_>| {
                             let mut rect = ui.layout(Overlay);
-                            let mut badge = rect.absolute(Absolute::at(0.0, 0.0)).widget_id(ids[1]);
+                            let mut badge = rect.child().layout(absolute::place(())).widget_id(ids[1]);
                             if open {
                                 badge = badge.parent(canvas_id).z_index(i16::MAX);
                             }
@@ -418,24 +465,13 @@ fn transitions_relayout_animated_sizes() {
 
 #[test]
 fn size_transitions_override_child_constraints() {
-    struct Loose;
-
-    impl<C> Layout<C> for Loose {
-        type Item = ();
-
-        fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
-            let child = cx.children().next().unwrap();
-            let size = cx.layout_child(child, Constraints::loose(constraints.max));
-            cx.set_child_position(child, Point::ZERO);
-            constraints.constrain(size)
-        }
-    }
-
     let (mut frame, mut context) = frame(Size::uniform(4.0));
     let id = WidgetId::new("constraint transition");
     let mut render = |extent, time| {
         render_inputs(&mut frame, &mut context, time, [Input::None], |ui: Ui<'_>| {
-            ui.layout(Loose)
+            ui.layout(blit_layout::single::new())
+                .child()
+                .layout(())
                 .child()
                 .widget_id(id)
                 .transition(Transition::new(Duration::from_secs(1)).size())
@@ -451,61 +487,31 @@ fn size_transitions_override_child_constraints() {
 }
 
 #[test]
-fn absolute_size_transitions_use_layout_resolution() {
-    let info = FrameInfo::new(Size::new(5.0, 1.0)).layout_resolution(LayoutResolution::Discrete {
-        step: Size::uniform(1.0),
-    });
-    let (mut frame, mut context) = frame_info(info);
-    let id = WidgetId::new("absolute transition");
-    let mut render = |width, time| {
-        render_inputs(&mut frame, &mut context, time, [Input::None], |ui: Ui<'_>| {
-            let mut root = ui.layout(Overlay);
-            root.absolute(
-                Absolute::at(0.0, 0.0)
-                    .width(Sizing::fixed(width))
-                    .height(Sizing::fixed(1.0)),
-            )
-            .widget_id(id)
-            .transition(Transition::new(Duration::from_secs(1)).width())
-            .insert(Fill::new('X', Size::uniform(1.0)));
-        });
-        frame.geometry(id).unwrap().width
-    };
-
-    render(1.0, Duration::ZERO);
-    render(4.0, Duration::ZERO);
-    assert_eq!(render(4.0, Duration::from_millis(500)), 3.0);
-}
-
-#[test]
 fn transitions_resolved_positions() {
     let (mut frame, mut context) = frame(Size::new(1.0, 4.0));
     let id = WidgetId::new("position transition");
 
     position_transition_scene(&mut frame, &mut context, id, 0.0, Duration::ZERO);
     position_transition_scene(&mut frame, &mut context, id, 2.0, Duration::ZERO);
-    assert_eq!(context.contents(), " \nX\n \n ");
+    assert_eq!(context.contents(), "X\n \n \n ");
 
     position_transition_scene(&mut frame, &mut context, id, 2.0, Duration::from_millis(500));
-    assert_eq!(context.contents(), " \n \nX\n ");
+    assert_eq!(context.contents(), " \nX\n \n ");
 
     position_transition_scene(&mut frame, &mut context, id, 2.0, Duration::from_secs(1));
-    assert_eq!(context.contents(), " \n \n \nX");
+    assert_eq!(context.contents(), " \n \nX\n ");
 }
 
 #[test]
-fn resolves_places_and_content_offsets() {
-    let info = FrameInfo::new(Size::new(8.0, 4.0)).layout_resolution(LayoutResolution::Discrete {
-        step: Size::new(2.0, 1.0),
-    });
-    let (mut frame, mut context) = frame_info(info);
+fn resolves_child_sizing() {
+    let (mut frame, mut context) = frame(Size::new(8.0, 4.0));
     let fixed = WidgetId::new("fixed");
     let grow = WidgetId::new("grow");
     let percent = WidgetId::new("percent");
     let fit = WidgetId::new("fit");
 
     render(&mut frame, &mut context, |ui: Ui<'_>| {
-        let mut overlay = ui.layout(Overlay).offset(Point::new(1.0, 0.0));
+        let mut overlay = ui.layout(Overlay);
         overlay
             .child()
             .item(TestItem::fixed(3.0, 1.0))
@@ -536,10 +542,10 @@ fn resolves_places_and_content_offsets() {
             .insert(Fill::new('M', Size::new(6.0, 1.0)));
     });
 
-    assert_eq!(frame.geometry(fixed), Some(Rect::new(3.0, 1.5, 4.0, 1.0)));
-    assert_eq!(frame.geometry(grow), Some(Rect::new(1.0, 1.5, 8.0, 1.0)));
-    assert_eq!(frame.geometry(percent), Some(Rect::new(4.0, 1.5, 2.0, 1.0)));
-    assert_eq!(frame.geometry(fit), Some(Rect::new(3.0, 1.5, 4.0, 1.0)));
+    assert_eq!(frame.geometry(fixed), Some(Rect::new(2.5, 1.5, 3.0, 1.0)));
+    assert_eq!(frame.geometry(grow), Some(Rect::new(0.0, 1.5, 8.0, 1.0)));
+    assert_eq!(frame.geometry(percent), Some(Rect::new(3.0, 1.5, 2.0, 1.0)));
+    assert_eq!(frame.geometry(fit), Some(Rect::new(2.5, 1.5, 3.0, 1.0)));
 }
 
 #[test]
@@ -553,17 +559,19 @@ fn absolute_places_position_against_the_target_and_size_against_the_parent() {
             ui.insert(Fill::new('T', Size::new(6.0, 2.0)));
             ui.id()
         });
-        overlay
-            .absolute(
-                Absolute::attach(Anchor::BottomRight, Anchor::TopLeft)
-                    .relative_to(target)
-                    .width(Sizing::percent(0.5))
-                    .height(Sizing::grow()),
-            )
-            .build(|ui: Ui<'_>| {
-                let mut absolute = ui.layout(Overlay).widget_id(id);
-                absolute.insert(Fill::new('A', Size::ZERO));
-            });
+        overlay.child().build(|ui: Ui<'_>| {
+            let mut absolute = ui
+                .layout(
+                    absolute::place(Overlay)
+                        .target_anchor(Anchor::BottomRight)
+                        .child_anchor(Anchor::TopLeft)
+                        .target(target)
+                        .width(absolute::Sizing::percent(0.5))
+                        .height(absolute::Sizing::full()),
+                )
+                .widget_id(id);
+            absolute.insert(Fill::new('A', Size::ZERO));
+        });
     });
 
     assert_eq!(frame.geometry(id), Some(Rect::new(8.0, 3.0, 5.0, 4.0)));
@@ -601,7 +609,7 @@ fn targets_reject_invalid_references() {
         },
         |ui, id| {
             let mut root = ui.layout(Overlay);
-            root.absolute(Absolute::at(0.0, 0.0).relative_to(id)).insert(());
+            root.child().layout(absolute::place(()).target(id)).insert(());
             root.widget_id(id).insert(());
         },
         |ui, id| ui.widget_id(id).parent(id).insert(()),
@@ -665,7 +673,7 @@ fn node_targets_reject_previous_renders() {
                 render(&mut frame, &mut context, |ui: Ui<'_>| {
                     let mut root = ui.layout(Overlay);
                     if anchor {
-                        root.absolute(Absolute::at(0.0, 0.0).relative_to(previous)).insert(());
+                        root.child().layout(absolute::place(()).target(previous)).insert(());
                     } else {
                         root.child().parent(previous).insert(());
                     }
@@ -698,7 +706,7 @@ fn named_bindings_follow_each_build() {
                 }
                 root.child().widget_id(b).insert(());
                 root.child().widget_id(a).parent(b).insert(());
-                root.absolute(Absolute::at(0.0, 0.0).relative_to(a)).insert(());
+                root.child().layout(absolute::place(()).target(a)).insert(());
             },
         );
         assert_eq!(frame.geometry(a).is_some(), count != 0);
@@ -821,7 +829,7 @@ fn position_transition_scene(
     time: Duration,
 ) {
     render_inputs(frame, context, time, [Input::None], |ui: Ui<'_>| {
-        let mut column = ui.layout(Column).offset(Point::new(0.0, 1.0));
+        let mut column = ui.layout(Column);
         column.child().item(TestItem::new(gap)).build(|ui: Ui<'_>| {
             let mut child = ui
                 .layout(Overlay)
@@ -832,7 +840,7 @@ fn position_transition_scene(
     });
 }
 
-fn clipped_button(ui: Ui<'_>) -> Interaction {
+fn clipped_button(ui: Ui<'_>) -> Interaction<f32> {
     let mut root = ui.layout(Overlay);
     root.child().build(|ui: Ui<'_>| {
         let mut panel = ui.layout(Fixed(Size::new(3.0, 1.0))).clip(DiamondClip);
@@ -848,10 +856,12 @@ fn clipped_button(ui: Ui<'_>) -> Interaction {
 
 fn scene(ui: Ui<'_>) {
     let mut column = ui.layout(Column);
-    column
-        .child()
-        .item(TestItem::new(0.0))
-        .insert(Fill::new('A', Size::new(3.0, 1.0)));
+    {
+        let mut transparent = column.child().item(TestItem::new(0.0)).layout(());
+        transparent.insert(Fill::new('A', Size::uniform(1.0)));
+        transparent.child().insert(Fill::new('A', Size::new(3.0, 1.0)));
+        transparent.child().insert(Fill::new('A', Size::new(2.0, 1.0)));
+    }
     column.child().item(TestItem::new(1.0)).build(|ui: Ui<'_>| {
         let mut panel = ui.layout(Overlay).clip(DiamondClip);
         panel.child().insert(Fill::new('b', Size::new(5.0, 3.0)));
@@ -861,19 +871,19 @@ fn scene(ui: Ui<'_>) {
 
 struct PaintCount {
     count: Rc<Cell<usize>>,
-    bounds_offset: Point,
+    bounds_offset: Point<f32>,
 }
 
 impl Atom<AsciiContext> for PaintCount {
-    fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut AsciiContext, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::uniform(1.0))
     }
 
-    fn paint(&self, _: &mut AsciiContext, _: Rect) {
+    fn paint(&self, _: &mut AsciiContext, _: Rect<f32>) {
         self.count.set(self.count.get() + 1);
     }
 
-    fn paint_bounds(&self, area: Rect) -> Rect {
+    fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
         Rect {
             x: area.x + self.bounds_offset.x,
             y: area.y + self.bounds_offset.y,
@@ -883,29 +893,29 @@ impl Atom<AsciiContext> for PaintCount {
 }
 
 struct OwnedValue {
-    area: Rc<Cell<Rect>>,
+    area: Rc<Cell<Rect<f32>>>,
     drops: Rc<Cell<usize>>,
 }
 
-impl<C> Layout<C> for OwnedValue {
+impl<C: blit::Context<Scalar = f32>> Layout<C> for OwnedValue {
     type Item = ();
 
-    fn layout(&self, _: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
-        constraints.min
+    fn layout(&self, _: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<f32>) -> Size<f32> {
+        bounds.min
     }
 }
 
 impl Atom<AsciiContext> for OwnedValue {
-    fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut AsciiContext, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, context: &mut AsciiContext, area: Rect) {
+    fn paint(&self, context: &mut AsciiContext, area: Rect<f32>) {
         self.area.set(area);
         context.cells.fill('P');
     }
 
-    fn paint_bounds(&self, area: Rect) -> Rect {
+    fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
         area
     }
 }
@@ -919,21 +929,21 @@ impl Drop for OwnedValue {
 #[derive(Clone, Copy)]
 struct Fill {
     glyph: char,
-    size: Size,
+    size: Size<f32>,
 }
 
 impl Fill {
-    const fn new(glyph: char, size: Size) -> Self {
+    const fn new(glyph: char, size: Size<f32>) -> Self {
         Self { glyph, size }
     }
 }
 
 impl Atom<AsciiContext> for Fill {
-    fn measure(&self, _: &mut AsciiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut AsciiContext, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(self.size)
     }
 
-    fn paint(&self, context: &mut AsciiContext, area: Rect) {
+    fn paint(&self, context: &mut AsciiContext, area: Rect<f32>) {
         let left = area.x.max(0.0) as usize;
         let top = area.y.max(0.0) as usize;
         let right = (area.x + area.width).min(context.width as f32) as usize;
@@ -953,7 +963,7 @@ impl Atom<AsciiContext> for Fill {
         }
     }
 
-    fn paint_bounds(&self, area: Rect) -> Rect {
+    fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
         area
     }
 }
@@ -994,7 +1004,7 @@ impl Content<AsciiContext> for Pair {
 struct DiamondClip;
 
 impl DiamondClip {
-    fn contains_point(area: Rect, point: Point) -> bool {
+    fn contains_point(area: Rect<f32>, point: Point<f32>) -> bool {
         let radius_x = area.width / 2.0;
         let radius_y = area.height / 2.0;
         if radius_x <= 0.0 || radius_y <= 0.0 {
@@ -1007,7 +1017,7 @@ impl DiamondClip {
 }
 
 impl Clip<AsciiContext> for DiamondClip {
-    fn push(&self, context: &mut AsciiContext, area: Rect) {
+    fn push(&self, context: &mut AsciiContext, area: Rect<f32>) {
         context.diamond_clips.push(area);
     }
 
@@ -1018,8 +1028,8 @@ impl Clip<AsciiContext> for DiamondClip {
 
 struct TestItem {
     gap_before: f32,
-    width: Sizing,
-    height: Sizing,
+    width: Sizing<f32>,
+    height: Sizing<f32>,
 }
 
 impl TestItem {
@@ -1035,12 +1045,12 @@ impl TestItem {
         Self::new(0.0).width(Sizing::fixed(width)).height(Sizing::fixed(height))
     }
 
-    fn width(mut self, width: Sizing) -> Self {
+    fn width(mut self, width: Sizing<f32>) -> Self {
         self.width = width;
         self
     }
 
-    fn height(mut self, height: Sizing) -> Self {
+    fn height(mut self, height: Sizing<f32>) -> Self {
         self.height = height;
         self
     }
@@ -1055,43 +1065,36 @@ impl Default for TestItem {
 #[derive(Clone, Copy)]
 struct Column;
 
-impl<C> Layout<C> for Column {
+impl<C: blit::Context<Scalar = f32>> Layout<C> for Column {
     type Item = TestItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
-        let mut children = Size::ZERO;
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<f32>) -> Size<f32> {
+        let mut size: Size<f32> = Size::ZERO;
         for child in cx.children() {
-            let item = cx.item(child);
-            let size = resolve_child(cx, child, constraints.max, true, false);
-            children.width = children.width.max(size.width);
-            children.height += item.gap_before + size.height;
+            let child_size = size_child(cx, child, bounds, true, false);
+            size.width = size.width.max(child_size.width);
+            size.height += cx.item(child).gap_before;
+            cx.set_child_position(child, Point::new(0.0, size.height));
+            size.height += child_size.height;
         }
-
-        let size = constraints.constrain(children);
-        let mut y = 0.0;
-        for child in cx.children() {
-            y += cx.item(child).gap_before;
-            cx.set_child_position(child, Point::new(0.0, y));
-            y += cx.child_size(child).height;
-        }
-        size
+        bounds.constrain(size)
     }
 }
 
 #[derive(Clone, Copy)]
 struct Overlay;
 
-impl<C> Layout<C> for Overlay {
+impl<C: blit::Context<Scalar = f32>> Layout<C> for Overlay {
     type Item = TestItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
-        let mut size = Size::ZERO;
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<f32>) -> Size<f32> {
+        let mut size: Size<f32> = Size::ZERO;
         for child in cx.children() {
-            size = size.max(resolve_child(cx, child, constraints.max, true, true));
+            size = size.max(size_child(cx, child, bounds, true, true));
         }
-        let size = constraints.constrain(size);
+        let size = bounds.constrain(size);
         for child in cx.children() {
-            let child_size = cx.child_size(child);
+            let child_size = cx.size(child);
             cx.set_child_position(
                 child,
                 Point::new(
@@ -1105,32 +1108,33 @@ impl<C> Layout<C> for Overlay {
 }
 
 #[derive(Clone, Copy)]
-struct Fixed(Size);
+struct Fixed(Size<f32>);
 
-impl<C> Layout<C> for Fixed {
+impl<C: blit::Context<Scalar = f32>> Layout<C> for Fixed {
     type Item = TestItem;
 
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
-        let size = constraints.constrain(self.0);
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<f32>) -> Size<f32> {
+        let size = self.0;
         for child in cx.children() {
-            resolve_child(cx, child, constraints.max, true, true);
+            size_child(cx, child, bounds, true, true);
             cx.set_child_position(child, Point::ZERO);
         }
-        size
+        bounds.constrain(size)
     }
 }
 
-fn resolve_child<C>(
+fn size_child<C: blit::Context<Scalar = f32>>(
     cx: &mut LayoutCx<'_, C, TestItem>,
     child: NodeId,
-    available: Size,
+    bounds: Constraints<f32>,
     width_cross: bool,
     height_cross: bool,
-) -> Size {
-    let resolve = |sizing: Sizing, intrinsic: f32, available: f32, stretch: bool| match sizing {
-        Sizing::Fit { .. } => sizing.clamp(intrinsic.min(available)),
+) -> Size<f32> {
+    let available = bounds.max;
+    let resolve = |sizing: Sizing<f32>, measured: f32, available: f32, stretch: bool| match sizing {
+        Sizing::Fit { .. } => sizing.clamp(measured.min(available)),
         Sizing::Grow { .. } if stretch => sizing.clamp(available),
-        Sizing::Grow { .. } => sizing.clamp(intrinsic.min(available)),
+        Sizing::Grow { .. } => sizing.clamp(measured.min(available)),
         Sizing::Fixed(size) => size.max(0.0),
         Sizing::Percent(fraction) if available.is_finite() => {
             assert!((0.0..=1.0).contains(&fraction));
@@ -1138,36 +1142,44 @@ fn resolve_child<C>(
         }
         Sizing::Percent(_) => 0.0,
     };
-    let intrinsic = cx.layout_child(child, Constraints::loose(available));
+    let measured = cx.layout_child(child, Constraints::loose(available));
     let item = cx.item(child);
     let size = Size::new(
         resolve(
-            cx.resolve_sizing(child, Axis::Horizontal, item.width),
-            intrinsic.width,
+            resolve_sizing(cx, child, Axis::Horizontal, item.width),
+            measured.width,
             available.width,
             width_cross,
         ),
         resolve(
-            cx.resolve_sizing(child, Axis::Vertical, item.height),
-            intrinsic.height,
+            resolve_sizing(cx, child, Axis::Vertical, item.height),
+            measured.height,
             available.height,
             height_cross,
         ),
     );
-    cx.layout_child(child, Constraints::tight(size))
+    if measured == size {
+        size
+    } else {
+        cx.layout_child(child, Constraints::tight(size))
+    }
 }
 
 struct AsciiContext {
-    info: FrameInfo,
+    info: FrameInfo<f32>,
     width: usize,
     height: usize,
     cells: Vec<char>,
-    diamond_clips: Vec<Rect>,
+    diamond_clips: Vec<Rect<f32>>,
     prepared: usize,
 }
 
+impl blit::Context for AsciiContext {
+    type Scalar = f32;
+}
+
 impl AsciiContext {
-    fn new(info: FrameInfo) -> Self {
+    fn new(info: FrameInfo<f32>) -> Self {
         Self {
             info,
             width: info.size.width as usize,
@@ -1195,11 +1207,11 @@ impl AsciiContext {
     }
 }
 
-fn frame(size: Size) -> (Frame<AsciiContext>, AsciiContext) {
+fn frame(size: Size<f32>) -> (Frame<AsciiContext>, AsciiContext) {
     frame_info(FrameInfo::new(size))
 }
 
-fn frame_info(info: FrameInfo) -> (Frame<AsciiContext>, AsciiContext) {
+fn frame_info(info: FrameInfo<f32>) -> (Frame<AsciiContext>, AsciiContext) {
     (Frame::default(), AsciiContext::new(info))
 }
 
@@ -1223,7 +1235,7 @@ fn render_inputs<O>(
     frame: &mut Frame<AsciiContext>,
     context: &mut AsciiContext,
     time: Duration,
-    inputs: impl IntoIterator<Item = Input>,
+    inputs: impl IntoIterator<Item = Input<f32>>,
     mut build: impl FnMut(Ui<'_>) -> O,
 ) {
     let info = context.info;

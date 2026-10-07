@@ -48,7 +48,7 @@ use blit_tui::{
 fn main() -> std::io::Result<()> {
     blit_tui::run(|ui| {
         // layout arranges the root's children in a column
-        let mut root = ui.layout(flex::column().padding(Sides::all(1.0)).gap(1.0));
+        let mut root = ui.layout(flex::column().padding(Sides::all(1)).gap(1));
 
         let quit = root
             // default flex behavior sizes the header to its contents
@@ -57,7 +57,7 @@ fn main() -> std::io::Result<()> {
             .build(|ui: Ui<'_>| {
                 let mut header = ui.layout(
                     flex::row()
-                        .padding(Sides::all(1.0))
+                        .padding(Sides::all(1))
                         .justify(Justify::SpaceBetween),
                 );
 
@@ -72,7 +72,7 @@ fn main() -> std::io::Result<()> {
                 // RHS button
                 header
                     .child()
-                    .item(flex::item().fixed(8.0, 1.0))
+                    .item(flex::item().fixed(8, 1))
                     .build(|mut ui: Ui<'_>| {
                         let interaction = ui.interact(Sense::CLICK);
 
@@ -97,6 +97,7 @@ fn main() -> std::io::Result<()> {
 blit is a set of focused building blocks:
 
 - `blit` provides the core ui model
-- `blit-layout` provides layouts like flex, grid and wrap
+- `blit-layout` provides layouts for gui and tui
+- `blit-widgets` provides shared widget behavior
 - `blit-gui` and `blit-tui` are graphical and terminal ui toolkits
 - `blit-desktop` runs graphical applications in native windows (macos + wayland)

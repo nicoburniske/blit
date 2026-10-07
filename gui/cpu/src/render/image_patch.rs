@@ -147,7 +147,9 @@ impl Prepared {
             self.draw_bilinear(row, pixels, texture, clip, screen_x, y)
         }
     }
+}
 
+impl Prepared {
     fn draw_nearest<P: Pixel>(
         &self,
         row: &mut [P],

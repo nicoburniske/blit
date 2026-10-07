@@ -1,45 +1,54 @@
+pub mod area;
+pub mod list;
+pub mod virtual_list;
+
 use std::time::Duration;
 
-use blit::{Axis, Clip, Constraints, Content, Layout, LayoutCx, Point, ScrollPhase, Sense, Size, Ui, Widget};
+use blit::{
+    Axis, Clip, Constraints, Content, Context, Layout, LayoutCx, Point, Scalar, ScrollPhase, Sense, Size, Ui, Widget,
+};
 
-blit::builder! {
-    /// persistent scroll position and motion
-    #[derive(Debug)]
-    pub struct State {
-        new(),
-        offset: f32 = 0.0,
-        content_extent: f32 = 0.0,
-        viewport_extent: f32 = 0.0,
-        velocity: f32 = 0.0,
-        tracking: bool = false,
-        last_frame: Option<Duration> = None,
-    }
+/// persistent scroll position and motion
+#[derive(Debug, Default)]
+pub struct State<T> {
+    pub offset: T,
+    pub content_extent: T,
+    pub viewport_extent: T,
+    velocity: f32,
+    tracking: bool,
+    last_frame: Option<Duration>,
+    remainder: f32,
 }
 
 blit::builder! {
     /// scrollbar behavior and geometry
     #[derive(Clone, Copy, Debug)]
-    pub struct Behavior {
+    pub struct Behavior<T: Scalar> {
         new(),
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 6.0,
         sense: Sense = Sense::SCROLL,
-        scrollbar_thickness: f32 = 1.0,
-        minimum_thumb_extent: f32 = 1.0,
+        scrollbar_thickness: T = T::from_f32(1.0),
+        minimum_thumb_extent: T = T::from_f32(1.0),
     }
 }
 
-impl State {
-    pub fn maximum_offset(&self) -> f32 {
-        (self.content_extent - self.viewport_extent).max(0.0)
+impl<T: Scalar> State<T> {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    pub fn scroll_by(&mut self, amount: f32) {
-        self.scroll_to(self.offset + amount);
+    pub fn maximum_offset(&self) -> T {
+        (self.content_extent - self.viewport_extent).max(T::ZERO)
     }
 
-    pub fn scroll_to(&mut self, offset: f32) {
-        self.offset = offset.clamp(0.0, self.maximum_offset());
+    pub fn scroll_by(&mut self, amount: T) {
+        self.scroll_to(self.offset.endpoint(amount));
+    }
+
+    pub fn scroll_to(&mut self, offset: T) {
+        self.offset = offset.clamp(T::ZERO, self.maximum_offset());
+        self.remainder = 0.0;
         self.velocity = 0.0;
         self.tracking = false;
     }
@@ -50,37 +59,25 @@ impl State {
 }
 
 #[derive(Clone, Copy)]
-pub struct ScrollLayout {
-    pub axis: Axis,
-    pub offset: f32,
-    pub scrollbar_thickness: f32,
-    pub minimum_thumb_extent: f32,
+struct ScrollLayout<O, T> {
+    axis: Axis,
+    offset: O,
+    scrollbar_thickness: T,
+    minimum_thumb_extent: T,
 }
 
 #[derive(Clone, Copy, Default)]
-pub enum ScrollItem {
+enum ScrollItem {
     #[default]
     Content,
     Track,
     Thumb,
 }
 
-impl<C> Layout<C> for ScrollLayout {
+impl<C: Context<Scalar = T>, O: Fn(T) -> T + 'static, T: Scalar> Layout<C> for ScrollLayout<O, T> {
     type Item = ScrollItem;
 
-    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size {
-        self.layout_with_offset(ui, constraints, |_| self.offset)
-    }
-}
-
-impl ScrollLayout {
-    pub fn layout_with_offset<C>(
-        &self,
-        ui: &mut LayoutCx<'_, C, ScrollItem>,
-        constraints: Constraints,
-        offset: impl FnOnce(f32) -> f32,
-    ) -> Size {
-        let res = ui.resolution();
+    fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints<T>) -> Size<T> {
         let mut content = None;
         let mut track = None;
         let mut thumb = None;
@@ -94,39 +91,32 @@ impl ScrollLayout {
         let content = content.expect("scroll area content is missing");
         let thickness = if thumb.is_some() || track.is_some() {
             let maximum = self.axis.other().extent(constraints.max);
-            res.extent(self.axis.other(), self.scrollbar_thickness)
-                .max(0.0)
-                .min(maximum.max(0.0))
+            self.scrollbar_thickness.max(T::ZERO).min(maximum.max(T::ZERO))
         } else {
-            0.0
+            T::ZERO
         };
-        let gutter = if track.is_some() { thickness } else { 0.0 };
+        let gutter = if track.is_some() { thickness } else { T::ZERO };
         let mut gutter_size = Size::ZERO;
         self.axis.other().set_extent(&mut gutter_size, gutter);
         let viewport_constraints = constraints.shrink(gutter_size);
         let mut content_constraints = viewport_constraints;
-        self.axis.set_extent(&mut content_constraints.min, 0.0);
-        self.axis.set_extent(&mut content_constraints.max, f32::INFINITY);
+        self.axis.set_extent(&mut content_constraints.min, T::ZERO);
+        self.axis.set_extent(&mut content_constraints.max, T::UNBOUNDED);
         let content_size = ui.layout_child(content, content_constraints);
-        let content_viewport_size = viewport_constraints.constrain(content_size);
-        let viewport_size = Size::new(
-            content_viewport_size.width + gutter_size.width,
-            content_viewport_size.height + gutter_size.height,
-        );
+        let viewport_size = viewport_constraints.constrain(content_size) + gutter_size;
         let content_extent = self.axis.extent(content_size);
-        let viewport_extent = self.axis.extent(content_viewport_size);
-        let maximum = (content_extent - viewport_extent).max(0.0);
-        let offset = offset(maximum).clamp(0.0, maximum);
+        let viewport_extent = self.axis.extent(viewport_size);
+        let maximum = (content_extent - viewport_extent).max(T::ZERO);
+        let offset = (self.offset)(maximum).clamp(T::ZERO, maximum);
         ui.set_child_position(
             content,
             match self.axis {
-                Axis::Horizontal => Point::new(-offset, 0.0),
-                Axis::Vertical => Point::new(0.0, -offset),
+                Axis::Horizontal => Point::new(-offset, T::ZERO),
+                Axis::Vertical => Point::new(T::ZERO, -offset),
             },
         );
-
         if let Some(track) = track {
-            let track_extent = if maximum > 0.0 { viewport_extent } else { 0.0 };
+            let track_extent = if maximum > T::ZERO { viewport_extent } else { T::ZERO };
             let track_size = match self.axis {
                 Axis::Horizontal => Size::new(track_extent, thickness),
                 Axis::Vertical => Size::new(thickness, track_extent),
@@ -135,25 +125,24 @@ impl ScrollLayout {
             ui.set_child_position(
                 track,
                 match self.axis {
-                    Axis::Horizontal => Point::new(0.0, content_viewport_size.height),
-                    Axis::Vertical => Point::new(content_viewport_size.width, 0.0),
+                    Axis::Horizontal => Point::new(T::ZERO, viewport_size.height - thickness),
+                    Axis::Vertical => Point::new(viewport_size.width - thickness, T::ZERO),
                 },
             );
         }
-
         if let Some(thumb) = thumb {
-            let minimum_extent = res.extent(self.axis, self.minimum_thumb_extent).max(0.0);
-            let thumb_extent = if content_extent > viewport_extent && content_extent > 0.0 {
-                (viewport_extent * viewport_extent / content_extent)
+            let minimum_extent = self.minimum_thumb_extent.max(T::ZERO);
+            let thumb_extent = if content_extent > viewport_extent && content_extent > T::ZERO {
+                T::from_f32(viewport_extent.to_f32() * viewport_extent.to_f32() / content_extent.to_f32())
                     .max(minimum_extent)
                     .min(viewport_extent)
             } else {
-                0.0
+                T::ZERO
             };
-            let thumb_offset = if maximum > 0.0 {
-                offset / maximum * (viewport_extent - thumb_extent)
+            let thumb_offset = if maximum > T::ZERO {
+                T::from_f32(offset.to_f32() / maximum.to_f32() * (viewport_extent - thumb_extent).to_f32())
             } else {
-                0.0
+                T::ZERO
             };
             let thumb_size = match self.axis {
                 Axis::Horizontal => Size::new(thumb_extent, thickness),
@@ -168,14 +157,18 @@ impl ScrollLayout {
                 },
             );
         }
-
         viewport_size
     }
 }
 
 /// updates scroll input and motion returning thumb activity and viewport availability
 /// uses children named `content` and `scroll thumb` for geometry when present
-pub fn update<C>(state: &mut State, ui: &mut Ui<'_, C>, axis: Axis, config: Behavior) -> (bool, bool) {
+fn update<C: Context>(
+    state: &mut State<C::Scalar>,
+    ui: &mut Ui<'_, C>,
+    axis: Axis,
+    config: Behavior<C::Scalar>,
+) -> (bool, bool) {
     let id = ui.current_widget_id();
     let content_id = id.child("content");
     let thumb_id = id.child("scroll thumb");
@@ -201,33 +194,36 @@ pub fn update<C>(state: &mut State, ui: &mut Ui<'_, C>, axis: Axis, config: Beha
     let maximum = state.maximum_offset();
     let drag = thumb_interaction.dragging.then_some(thumb_interaction);
     if drag.is_some() || track_interaction.activated || track_interaction.dragging {
-        let thumb = ui.geometry(thumb_id).map_or(0.0, |area| axis.extent(area.size()));
+        let thumb = ui
+            .geometry(thumb_id)
+            .map_or(C::Scalar::ZERO, |area| axis.extent(area.size()));
         let travel = state.viewport_extent - thumb;
-        if travel > 0.0 {
-            let offset = if let Some(drag) = drag {
+        if travel > C::Scalar::ZERO {
+            state.velocity = 0.0;
+            state.tracking = false;
+            if let Some(drag) = drag {
                 let delta = match axis {
-                    Axis::Horizontal => drag.drag_delta.x,
-                    Axis::Vertical => drag.drag_delta.y,
+                    Axis::Horizontal => drag.drag_delta.x.to_f32(),
+                    Axis::Vertical => drag.drag_delta.y.to_f32(),
                 };
-                state.offset + delta * maximum / travel
+                move_by(state, delta * maximum.to_f32() / travel.to_f32());
             } else if let Some((track, pointer)) = ui.geometry(track_id).zip(ui.pointer_position()) {
                 let position = match axis {
-                    Axis::Horizontal => pointer.x - track.x,
-                    Axis::Vertical => pointer.y - track.y,
+                    Axis::Horizontal => (pointer.x - track.x).to_f32(),
+                    Axis::Vertical => (pointer.y - track.y).to_f32(),
                 };
-                (position - thumb / 2.0) * maximum / travel
-            } else {
-                state.offset
-            };
-            state.scroll_to(offset);
+                state.scroll_to(C::Scalar::from_f32(
+                    (position - thumb.to_f32() / 2.0) * maximum.to_f32() / travel.to_f32(),
+                ));
+            }
             ui.request_frame();
         }
     } else {
         let mut direct_delta = 0.0;
         let mut sample_velocity = false;
         let drag_delta = match axis {
-            Axis::Horizontal => interaction.drag_delta.x,
-            Axis::Vertical => interaction.drag_delta.y,
+            Axis::Horizontal => interaction.drag_delta.x.to_f32(),
+            Axis::Vertical => interaction.drag_delta.y.to_f32(),
         };
         if drag_delta != 0.0 {
             direct_delta = -drag_delta * config.scroll_speed;
@@ -266,7 +262,7 @@ pub fn update<C>(state: &mut State, ui: &mut Ui<'_, C>, axis: Axis, config: Beha
         }
 
         if direct_delta != 0.0 {
-            state.offset = (state.offset + direct_delta).clamp(0.0, maximum);
+            move_by(state, direct_delta);
             if sample_velocity && elapsed > 0.0 {
                 state.velocity = (direct_delta / elapsed).clamp(-MAX_SCROLL_VELOCITY, MAX_SCROLL_VELOCITY);
             }
@@ -274,22 +270,38 @@ pub fn update<C>(state: &mut State, ui: &mut Ui<'_, C>, axis: Axis, config: Beha
 
         if !state.tracking && state.velocity != 0.0 {
             let decay = (-config.inertia_friction * elapsed).exp();
-            let offset = state.offset + state.velocity * (1.0 - decay) / config.inertia_friction;
-            state.offset = offset.clamp(0.0, maximum);
+            let delta = state.velocity * (1.0 - decay) / config.inertia_friction;
             state.velocity *= decay;
-            if state.offset != offset || state.velocity.abs() < MIN_SCROLL_VELOCITY {
+            move_by(state, delta);
+            if state.velocity.abs() < MIN_SCROLL_VELOCITY {
                 state.velocity = 0.0;
             } else {
                 ui.request_frame();
             }
         } else {
-            state.offset = state.offset.clamp(0.0, maximum);
+            move_by(state, 0.0);
         }
     }
     (thumb_interaction.active || track_interaction.active, viewport_known)
 }
 
-pub fn build_scroll<C, W, X, T, H>(
+fn move_by<T: Scalar>(state: &mut State<T>, amount: f32) {
+    let maximum = state.maximum_offset();
+    let delta = amount + state.remainder;
+    let whole = if amount == 0.0 { T::ZERO } else { T::from_f32(delta) };
+    state.remainder = delta - whole.to_f32();
+    let offset = state.offset.endpoint(whole);
+    state.offset = offset.clamp(T::ZERO, maximum);
+    if state.offset != offset
+        || (state.offset == T::ZERO && state.remainder < 0.0)
+        || (state.offset == maximum && state.remainder > 0.0)
+    {
+        state.remainder = 0.0;
+        state.velocity = 0.0;
+    }
+}
+
+fn build_scroll<C: Context, W, X, T, H>(
     ui: Ui<'_, C>,
     layout: impl Layout<C, Item = ScrollItem>,
     clip: X,

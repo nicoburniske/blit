@@ -1,4 +1,4 @@
-use blit::{Clip, LogicalRect, Scale2};
+use blit::{Clip, PhysicalRect};
 use blit_widgets::performance::FrameProfiler;
 
 use crate::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
@@ -7,14 +7,18 @@ use crate::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequ
 pub struct TuiContext {
     profiler: FrameProfiler,
     renderer: TuiRenderer,
-    clip: LogicalRect,
-    clips: Vec<LogicalRect>,
+    clip: PhysicalRect,
+    clips: Vec<PhysicalRect>,
     should_quit: bool,
+}
+
+impl blit::Context for TuiContext {
+    type Scalar = i32;
 }
 
 impl TuiContext {
     pub fn new(renderer: TuiRenderer) -> Self {
-        let clip = renderer.screen().to_logical(Scale2::IDENTITY);
+        let clip = renderer.screen();
         Self {
             profiler: FrameProfiler::default(),
             renderer,
@@ -42,7 +46,7 @@ impl TuiContext {
         &mut self.renderer
     }
 
-    pub fn cells(&mut self, area: LogicalRect) -> CellBuffer<'_> {
+    pub fn cells(&mut self, area: PhysicalRect) -> CellBuffer<'_> {
         self.renderer.cells(area, self.clip)
     }
 
@@ -64,7 +68,7 @@ impl TuiContext {
 
     pub fn begin_paint(&mut self) {
         self.renderer.begin_frame();
-        self.clip = self.renderer.screen().to_logical(Scale2::IDENTITY);
+        self.clip = self.renderer.screen();
         self.clips.clear();
     }
 
@@ -77,7 +81,7 @@ impl TuiContext {
 pub struct BoundsClip;
 
 impl Clip<TuiContext> for BoundsClip {
-    fn push(&self, context: &mut TuiContext, area: LogicalRect) {
+    fn push(&self, context: &mut TuiContext, area: PhysicalRect) {
         let previous = context.clip;
         context.clip = previous.intersection(area).unwrap_or_default();
         context.clips.push(previous);

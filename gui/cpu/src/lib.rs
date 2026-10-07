@@ -66,14 +66,13 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
 
 impl<B: PixelBuffer> Renderer<B, Direct> {
     pub fn new(buffer: B, config: RendererConfig) -> Self {
-        let shadow_cache_capacity = config.shadow_cache_capacity;
         Self {
             context: RenderContext {
                 buffer,
                 scale_factor: 1.0,
                 images: SlotMap::with_key(),
                 image_map: HashMap::new(),
-                shadows: shadow::Cache::new(shadow_cache_capacity),
+                shadows: shadow::Cache::new(config.shadow_cache_capacity),
                 text: TextRenderer::new(&config),
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
@@ -192,6 +191,215 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         self.previous_damage.clear();
     }
 
+    #[doc(hidden)]
+    pub fn render_damage(
+        &mut self,
+        text: &mut TextSystem,
+        image_uploads: &mut Vec<(ImageHandle, ImageData)>,
+        display_list: &DisplayList,
+        damage: &[PhysicalRect],
+    ) {
+        for (handle, data) in image_uploads.drain(..) {
+            let id = handle.id();
+            let image = self.context.images.insert(StoredImage::new(handle, data));
+            assert!(
+                self.context.image_map.insert(id, image).is_none(),
+                "duplicate image resource"
+            );
+        }
+        assert!(self.context.commands.is_empty());
+        if !damage.is_empty() {
+            for clip in display_list.clips() {
+                self.context
+                    .clips
+                    .push_node(clip.parent.0, clip.area, clip.radius, self.context.scale_factor);
+            }
+            for record in display_list.iter() {
+                if !damage
+                    .iter()
+                    .any(|damage| record.bounds.intersection(*damage).is_some())
+                {
+                    continue;
+                }
+                match record.command {
+                    Command::Clear => self.context.commands.push_clear(record.bounds),
+                    Command::Rectangle(rectangle) => self.prepare_rectangle(&rectangle, record.bounds, record.clip.0),
+                    Command::Image(image) => self.prepare_image(&image, record.bounds, record.clip.0),
+                    Command::Text(request, colors) => {
+                        self.prepare_text(text, &request, colors, record.bounds, record.clip.0);
+                    }
+                    Command::BoxShadow(shadow) => self.prepare_box_shadow(&shadow, record.bounds, record.clip.0),
+                    Command::Mesh(mesh) => {
+                        for indices in mesh.indices.as_chunks::<3>().0 {
+                            let vertices = indices.map(|index| mesh.vertices[index as usize]);
+                            if let Some(triangle) = triangle::Prepared::new(vertices, self.scale)
+                                && let Some(bounds) = triangle.bounds.intersection(record.bounds)
+                                && damage.iter().any(|damage| bounds.intersection(*damage).is_some())
+                            {
+                                self.context.commands.push_triangle(triangle, bounds, record.clip.0);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            self.strategy.render(&mut self.context, damage);
+        }
+        self.context.commands.clear();
+        self.context.clips.clear();
+        self.context.finish_frame();
+    }
+}
+
+use pixel::PixelSpan;
+use slotmap::{Key, KeyData, SlotMap, new_key_type};
+use text::TextRenderer;
+
+new_key_type! {
+    struct RendererImageId;
+}
+
+#[doc(hidden)]
+pub struct RenderContext<B: PixelBuffer> {
+    buffer: B,
+    scale_factor: f32,
+    images: SlotMap<RendererImageId, StoredImage>,
+    image_map: HashMap<ImageId, RendererImageId>,
+    shadows: shadow::Cache,
+    text: TextRenderer,
+    commands: CommandList,
+    clips: ClipStack,
+}
+
+struct StoredImage {
+    handle: ImageHandle,
+    data: ImageData,
+    alpha_rows: AlphaRows,
+    has_opaque_spans: bool,
+    opaque: bool,
+}
+
+impl StoredImage {
+    fn insert(images: &mut SlotMap<RendererImageId, StoredImage>, data: ImageData) -> ImageHandle {
+        data.validate();
+        let image = images.insert_with_key(|id| {
+            let handle = ImageHandle::new(ImageId(id.data().as_ffi()), data.size);
+            Self::new(handle, data)
+        });
+        images[image].handle.clone()
+    }
+
+    fn new(handle: ImageHandle, data: ImageData) -> Self {
+        let width = data.texture_rect.width as usize;
+        let height = data.texture_rect.height as usize;
+        let bytes = data.pixels.bytes();
+        let mut has_opaque_spans = false;
+        let rgba_opaque = || {
+            (0..height).all(|line| {
+                bytes[line * data.stride_bytes..][..width * 4]
+                    .chunks_exact(4)
+                    .all(|pixel| pixel[3] == 255)
+            })
+        };
+        let (alpha_rows, opaque) = match data.format {
+            ImageFormat::Rgb8 | ImageFormat::Luma8 => (AlphaRows::default(), true),
+            ImageFormat::Rgba8 => (AlphaRows::default(), rgba_opaque()),
+            ImageFormat::Rgba8Premultiplied if rgba_opaque() => (AlphaRows::default(), true),
+            ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => (AlphaRows::default(), false),
+            ImageFormat::Rgba8Premultiplied => {
+                let mut rows = Vec::with_capacity(height * 4);
+                for y in 0..height {
+                    let row = &bytes[y * data.stride_bytes..][..width * 4];
+                    let mut visible_start = width;
+                    let mut visible_end = 0;
+                    let mut run_start = 0;
+                    let mut opaque_start = 0;
+                    let mut opaque_end = 0;
+                    for (x, alpha) in row.chunks_exact(4).map(|pixel| pixel[3]).chain([0]).enumerate() {
+                        if alpha != 0 {
+                            visible_start = visible_start.min(x);
+                            visible_end = x + 1;
+                        }
+                        if alpha == 255 {
+                            continue;
+                        }
+                        if x - run_start > opaque_end - opaque_start {
+                            opaque_start = run_start;
+                            opaque_end = x;
+                        }
+                        run_start = x + 1;
+                    }
+                    visible_start = visible_start.min(visible_end);
+                    has_opaque_spans |= opaque_start < opaque_end;
+                    rows.extend([
+                        visible_start as u16,
+                        visible_end as u16,
+                        opaque_start as u16,
+                        opaque_end as u16,
+                    ]);
+                }
+                (AlphaRows(rows.into_boxed_slice()), false)
+            }
+            ImageFormat::Alpha8(_)
+                if (0..height).all(|line| {
+                    bytes[line * data.stride_bytes..][..width]
+                        .iter()
+                        .all(|alpha| *alpha == 255)
+                }) =>
+            {
+                (AlphaRows::default(), true)
+            }
+            ImageFormat::Alpha8(_) if width > u16::MAX as usize => (AlphaRows::default(), false),
+            ImageFormat::Alpha8(_) => {
+                let mut rows = Vec::with_capacity(height * 2);
+                for y in 0..height {
+                    let row = &bytes[y * data.stride_bytes..][..width];
+                    let mut visible_start = width;
+                    let mut visible_end = 0;
+                    for (x, alpha) in row.iter().enumerate() {
+                        if *alpha != 0 {
+                            visible_start = visible_start.min(x);
+                            visible_end = x + 1;
+                        }
+                    }
+                    visible_start = visible_start.min(visible_end);
+                    rows.extend([visible_start as u16, visible_end as u16]);
+                }
+                (AlphaRows(rows.into_boxed_slice()), false)
+            }
+        };
+        Self {
+            handle,
+            data,
+            alpha_rows,
+            has_opaque_spans,
+            opaque,
+        }
+    }
+}
+
+impl<B: PixelBuffer> RenderContext<B> {
+    fn finish_frame(&mut self) {
+        self.shadows.finish_frame();
+        self.text.finish_frame();
+        self.image_map.retain(|_, image| {
+            let remove = self.images[*image].handle.is_uniquely_owned();
+            if remove {
+                self.images.remove(*image);
+            }
+            !remove
+        });
+        self.images.retain(|_, image| !image.handle.is_uniquely_owned());
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
+    fn set_scale(&mut self, scale: Scale2) {
+        assert_eq!(scale.x, scale.y, "CPU rendering requires uniform scale");
+        assert!(scale.x.is_finite() && scale.x > 0.0);
+        self.context.scale_factor = scale.x;
+    }
+
     fn prepare_rectangle(&mut self, request: &Rectangle<'_>, bounds: PhysicalRect, clip: u32) {
         if let Border::Gradient { width, gradient } = request.border
             && let Some(prepared) = rectangle::Gradient::new(request, width, gradient, self.context.scale_factor)
@@ -291,217 +499,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
             clip,
         );
         Some(bounds)
-    }
-}
-
-use pixel::PixelSpan;
-use slotmap::{Key, KeyData, SlotMap, new_key_type};
-use text::TextRenderer;
-
-new_key_type! {
-    struct RendererImageId;
-}
-
-#[doc(hidden)]
-pub struct RenderContext<B: PixelBuffer> {
-    buffer: B,
-    scale_factor: f32,
-    images: SlotMap<RendererImageId, StoredImage>,
-    image_map: HashMap<ImageId, RendererImageId>,
-    shadows: shadow::Cache,
-    text: TextRenderer,
-    commands: CommandList,
-    clips: ClipStack,
-}
-
-struct StoredImage {
-    handle: ImageHandle,
-    data: ImageData,
-    alpha_rows: AlphaRows,
-    has_opaque_spans: bool,
-    opaque: bool,
-}
-
-impl StoredImage {
-    fn insert(images: &mut SlotMap<RendererImageId, StoredImage>, data: ImageData) -> ImageHandle {
-        data.validate();
-        let size = data.size;
-        let image = images.insert_with_key(|id| {
-            let handle = ImageHandle::new(ImageId(id.data().as_ffi()), size);
-            Self::new(handle, data)
-        });
-        images[image].handle.clone()
-    }
-
-    fn new(handle: ImageHandle, data: ImageData) -> Self {
-        let width = data.texture_rect.width as usize;
-        let height = data.texture_rect.height as usize;
-        let bytes = data.pixels.bytes();
-        let mut has_opaque_spans = false;
-        let rgba_opaque = || {
-            (0..height).all(|line| {
-                bytes[line * data.stride_bytes..][..width * 4]
-                    .chunks_exact(4)
-                    .all(|pixel| pixel[3] == 255)
-            })
-        };
-        let (alpha_rows, opaque) = match data.format {
-            ImageFormat::Rgb8 | ImageFormat::Luma8 => (AlphaRows::default(), true),
-            ImageFormat::Rgba8 => (AlphaRows::default(), rgba_opaque()),
-            ImageFormat::Rgba8Premultiplied if rgba_opaque() => (AlphaRows::default(), true),
-            ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => (AlphaRows::default(), false),
-            ImageFormat::Rgba8Premultiplied => {
-                let mut rows = Vec::with_capacity(height * 4);
-                for y in 0..height {
-                    let row = &bytes[y * data.stride_bytes..][..width * 4];
-                    let mut visible_start = width;
-                    let mut visible_end = 0;
-                    let mut run_start = 0;
-                    let mut opaque_start = 0;
-                    let mut opaque_end = 0;
-                    for (x, alpha) in row.chunks_exact(4).map(|pixel| pixel[3]).chain([0]).enumerate() {
-                        if alpha != 0 {
-                            visible_start = visible_start.min(x);
-                            visible_end = x + 1;
-                        }
-                        if alpha == 255 {
-                            continue;
-                        }
-                        if x - run_start > opaque_end - opaque_start {
-                            opaque_start = run_start;
-                            opaque_end = x;
-                        }
-                        run_start = x + 1;
-                    }
-                    visible_start = visible_start.min(visible_end);
-                    has_opaque_spans |= opaque_start < opaque_end;
-                    rows.extend([
-                        visible_start as u16,
-                        visible_end as u16,
-                        opaque_start as u16,
-                        opaque_end as u16,
-                    ]);
-                }
-                (AlphaRows(rows.into_boxed_slice()), false)
-            }
-            ImageFormat::Alpha8(_)
-                if (0..height).all(|line| {
-                    bytes[line * data.stride_bytes..][..width]
-                        .iter()
-                        .all(|alpha| *alpha == 255)
-                }) =>
-            {
-                (AlphaRows::default(), true)
-            }
-            ImageFormat::Alpha8(_) if width > u16::MAX as usize => (AlphaRows::default(), false),
-            ImageFormat::Alpha8(_) => {
-                let mut rows = Vec::with_capacity(height * 2);
-                for y in 0..height {
-                    let row = &bytes[y * data.stride_bytes..][..width];
-                    let mut visible_start = width;
-                    let mut visible_end = 0;
-                    for (x, alpha) in row.iter().enumerate() {
-                        if *alpha != 0 {
-                            visible_start = visible_start.min(x);
-                            visible_end = x + 1;
-                        }
-                    }
-                    visible_start = visible_start.min(visible_end);
-                    rows.extend([visible_start as u16, visible_end as u16]);
-                }
-                (AlphaRows(rows.into_boxed_slice()), false)
-            }
-        };
-        Self {
-            handle,
-            data,
-            alpha_rows,
-            has_opaque_spans,
-            opaque,
-        }
-    }
-}
-
-impl<B: PixelBuffer> RenderContext<B> {
-    fn finish_frame(&mut self) {
-        self.shadows.finish_frame();
-        self.text.finish_frame();
-        let images = &mut self.images;
-        self.image_map.retain(|_, image| {
-            let remove = images[*image].handle.is_uniquely_owned();
-            if remove {
-                images.remove(*image);
-            }
-            !remove
-        });
-        images.retain(|_, image| !image.handle.is_uniquely_owned());
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
-    fn set_scale(&mut self, scale: Scale2) {
-        assert_eq!(scale.x, scale.y, "CPU rendering requires uniform scale");
-        assert!(scale.x.is_finite() && scale.x > 0.0);
-        self.context.scale_factor = scale.x;
-    }
-
-    #[doc(hidden)]
-    pub fn render_damage(
-        &mut self,
-        text: &mut TextSystem,
-        image_uploads: &mut Vec<(ImageHandle, ImageData)>,
-        display_list: &DisplayList,
-        damage: &[PhysicalRect],
-    ) {
-        for (handle, data) in image_uploads.drain(..) {
-            let id = handle.id();
-            let image = self.context.images.insert(StoredImage::new(handle, data));
-            assert!(
-                self.context.image_map.insert(id, image).is_none(),
-                "duplicate image resource"
-            );
-        }
-        assert!(self.context.commands.is_empty());
-        if !damage.is_empty() {
-            for clip in display_list.clips() {
-                self.context
-                    .clips
-                    .push_node(clip.parent.0, clip.area, clip.radius, self.context.scale_factor);
-            }
-            for record in display_list.iter() {
-                if !damage
-                    .iter()
-                    .any(|damage| record.bounds.intersection(*damage).is_some())
-                {
-                    continue;
-                }
-                match record.command {
-                    Command::Clear => self.context.commands.push_clear(record.bounds),
-                    Command::Rectangle(rectangle) => self.prepare_rectangle(&rectangle, record.bounds, record.clip.0),
-                    Command::Image(image) => self.prepare_image(&image, record.bounds, record.clip.0),
-                    Command::Text(request, colors) => {
-                        self.prepare_text(text, &request, colors, record.bounds, record.clip.0);
-                    }
-                    Command::BoxShadow(shadow) => self.prepare_box_shadow(&shadow, record.bounds, record.clip.0),
-                    Command::Mesh(mesh) => {
-                        for indices in mesh.indices.as_chunks::<3>().0 {
-                            let vertices = indices.map(|index| mesh.vertices[index as usize]);
-                            if let Some(triangle) = triangle::Prepared::new(vertices, self.scale)
-                                && let Some(bounds) = triangle.bounds.intersection(record.bounds)
-                                && damage.iter().any(|damage| bounds.intersection(*damage).is_some())
-                            {
-                                self.context.commands.push_triangle(triangle, bounds, record.clip.0);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            self.strategy.render(&mut self.context, damage);
-        }
-        self.context.commands.clear();
-        self.context.clips.clear();
-        self.context.finish_frame();
     }
 }
 

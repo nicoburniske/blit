@@ -319,7 +319,9 @@ impl AtlasAllocator {
     pub fn is_empty(&self) -> bool {
         self.allocations == 0
     }
+}
 
+impl AtlasAllocator {
     fn add_item(&mut self, mut item: Item) -> Slot {
         if self.free_items.is_some() {
             let slot = self.free_items;

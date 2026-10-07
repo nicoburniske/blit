@@ -65,7 +65,7 @@ blit::builder! {
         new(area: LogicalRect),
         background: Color = Color::TRANSPARENT,
         border: Border<'a> = Border::None,
-        radius: BorderRadius = BorderRadius::default(),
+        radius: BorderRadius = BorderRadius::new(),
         opacity: f32 = 1.0,
     }
 }
@@ -74,7 +74,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct BoxShadow {
         new(area: LogicalRect, color: Color),
-        radius: BorderRadius = BorderRadius::default(),
+        radius: BorderRadius = BorderRadius::new(),
         offset_x: f32 = 0.0,
         offset_y: f32 = 0.0,
         blur: f32 = 0.0,
@@ -84,7 +84,7 @@ blit::builder! {
 }
 
 impl BoxShadow {
-    pub const fn offset(mut self, x: f32, y: f32) -> Self {
+    pub fn offset(mut self, x: f32, y: f32) -> Self {
         self.offset_x = x;
         self.offset_y = y;
         self
@@ -507,8 +507,8 @@ impl ExactSizeIterator for Iter<'_> {
 }
 
 fn store<T>(storage: &mut Vec<T>, values: impl IntoIterator<Item = T>) -> (u32, u32) {
-    let start = u32::try_from(storage.len()).expect("too much display list data");
+    let start = storage.len();
     storage.extend(values);
     let end = u32::try_from(storage.len()).expect("too much display list data");
-    (start, end - start)
+    (start as u32, end - start as u32)
 }

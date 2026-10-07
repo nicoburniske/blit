@@ -28,6 +28,12 @@ impl TimerState {
         timer.advance(duration, interval, now)
     }
 
+    pub fn deadline(&self) -> Option<Duration> {
+        (!self.fired).then_some(self.deadline)
+    }
+}
+
+impl TimerState {
     fn new(id: WidgetId, duration: Duration, interval: Option<Duration>, now: Duration) -> Self {
         Self {
             id,
@@ -54,9 +60,5 @@ impl TimerState {
             self.fired = true;
         }
         true
-    }
-
-    pub fn deadline(&self) -> Option<Duration> {
-        (!self.fired).then_some(self.deadline)
     }
 }

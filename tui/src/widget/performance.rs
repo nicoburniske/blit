@@ -1,13 +1,13 @@
 use std::fmt::Write as _;
 
-use blit::{Anchor, Interaction, Sides, Size, Sizing, Widget};
+use blit::{Interaction, Sides, Widget};
 use blit_widgets::performance as shared;
 
 use crate::{
     TuiContext, Ui,
     atom::{Border, BorderStyle},
     color::Color,
-    layout::{Align, Justify, flex, grid},
+    layout::{Align, Justify, Sizing, absolute::Anchor, flex, grid},
     text::TextAttributes,
     widget::{Block, Text, popover},
 };
@@ -21,12 +21,15 @@ blit::builder! {
         color: Color = Color::WHITE,
         muted_color: Color = Color::WHITE,
         accent: Color = Color::CYAN,
+        #[into]
         hover_background: Option<Color> = None,
+        #[into]
         border: Option<Border> = None,
-        badge_padding: Sides = Sides::all(1.0),
-        padding: Sides = Sides::all(1.0),
-        gap: f32 = 1.0,
-        table_gap: Size = Size::new(2.0, 0.0),
+        badge_padding: Sides<i32> = Sides::all(1),
+        padding: Sides<i32> = Sides::all(1),
+        gap: i32 = 1,
+        column_gap: i32 = 2,
+        row_gap: i32 = 0,
         badge_attributes: TextAttributes = TextAttributes::BOLD,
         graph_columns: u16 = 40,
         graph_rows: u16 = 6,
@@ -57,7 +60,7 @@ impl Widget<TuiContext> for Performance<'_> {
         ui.build(popover::new(
             popover,
             self.popover.close(popover::Close::Manual),
-            |ui: Ui<'_>, interaction: Interaction, open| {
+            |ui: Ui<'_>, interaction: Interaction<i32>, open| {
                 let mut badge = ui.layout(
                     flex::row()
                         .padding(self.badge_padding)
@@ -75,7 +78,7 @@ impl Widget<TuiContext> for Performance<'_> {
                 );
                 badge
                     .child()
-                    .item(flex::item().fixed(1.0, 1.0))
+                    .item(flex::item().fixed(1, 1))
                     .insert(Block::new().background(self.accent));
                 badge.child().insert(
                     Text::new(&measurements.label)
@@ -88,11 +91,9 @@ impl Widget<TuiContext> for Performance<'_> {
                 let mut panel = ui.layout(flex::column().padding(self.padding));
                 panel.insert(Block::new().background(self.background).border(border));
                 {
-                    let mut table = panel.child().layout(
-                        grid::columns(3)
-                            .column_gap(self.table_gap.width)
-                            .row_gap(self.table_gap.height),
-                    );
+                    let mut table = panel
+                        .child()
+                        .layout(grid::new(3).column_gap(self.column_gap).row_gap(self.row_gap));
                     for (label, values) in measurements.rows() {
                         table.child().insert(Text::new(label).color(self.muted_color));
                         for value in values {
@@ -108,7 +109,7 @@ impl Widget<TuiContext> for Performance<'_> {
                 {
                     let mut axis = chart
                         .child()
-                        .item(flex::item().height(Sizing::fixed(rows as f32)))
+                        .item(flex::item().height(Sizing::fixed(rows as i32)))
                         .layout(flex::column().align(Align::End).justify(Justify::SpaceBetween));
                     for (label, value) in axis_labels.iter_mut().zip([scale, scale / 2.0, 0.0]) {
                         label.clear();
@@ -118,7 +119,7 @@ impl Widget<TuiContext> for Performance<'_> {
                 }
                 let mut graph = chart
                     .child()
-                    .item(flex::item().fixed(columns as f32, rows as f32))
+                    .item(flex::item().fixed(columns as i32, rows as i32))
                     .layout(flex::row().align(Align::End));
                 graph.insert(Block::new().background(self.graph_background));
                 for millis in measurements.graph(columns) {
@@ -129,16 +130,16 @@ impl Widget<TuiContext> for Performance<'_> {
                     let partial = eighths % 8;
                     let mut bar = graph
                         .child()
-                        .item(flex::item().fixed(1.0, full as f32 + f32::from(partial != 0)))
+                        .item(flex::item().fixed(1, full as i32 + i32::from(partial != 0)))
                         .layout(flex::column());
                     if partial != 0 {
                         bar.child()
-                            .item(flex::item().fixed(1.0, 1.0))
+                            .item(flex::item().fixed(1, 1))
                             .insert(Text::new(["", "▁", "▂", "▃", "▄", "▅", "▆", "▇"][partial]).color(self.accent));
                     }
                     if full != 0 {
                         bar.child()
-                            .item(flex::item().fixed(1.0, full as f32))
+                            .item(flex::item().fixed(1, full as i32))
                             .insert(Block::new().background(self.accent));
                     }
                 }

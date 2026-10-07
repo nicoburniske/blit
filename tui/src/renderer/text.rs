@@ -1,6 +1,6 @@
 use std::ops::{BitOr, BitOrAssign};
 
-use blit::LogicalRect;
+use blit::PhysicalRect;
 
 use super::color::Color;
 
@@ -8,10 +8,10 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct Span<'a> {
         new(text: &'a str),
-        @optional {
-            color: Color,
-            background: Color,
-        },
+        #[into]
+        color: Option<Color> = None,
+        #[into]
+        background: Option<Color> = None,
         attributes: TextAttributes = TextAttributes::NONE,
         remove_attributes: TextAttributes = TextAttributes::NONE,
     }
@@ -64,9 +64,9 @@ impl BitOrAssign for TextAttributes {
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct TextRequest {
-        new(text: TextRunId, area: LogicalRect),
+        new(text: TextRunId, area: PhysicalRect),
         color: Color = Color::Reset,
-        offset_x: f32 = 0.0,
+        offset_x: i32 = 0,
         attributes: TextAttributes = TextAttributes::NONE,
         options: TextOptions = TextOptions::new(),
     }
@@ -76,10 +76,10 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct TextLayoutRequest {
         new(text: TextRunId),
-        @optional {
-            max_width: f32,
-            max_lines: u16,
-        },
+        #[into]
+        max_width: Option<i32> = None,
+        #[into]
+        max_lines: Option<u16> = None,
         wrap: TextWrap = TextWrap::None,
     }
 }
@@ -88,9 +88,8 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct TextOptions {
         new(),
-        @optional {
-            max_lines: u16,
-        },
+        #[into]
+        max_lines: Option<u16> = None,
         wrap: TextWrap = TextWrap::None,
         overflow: TextOverflow = TextOverflow::Clip,
         horizontal_align: HorizontalAlign = HorizontalAlign::Left,

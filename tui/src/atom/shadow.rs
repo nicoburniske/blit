@@ -1,4 +1,4 @@
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, Constraints, PhysicalRect, Size};
 
 use crate::{
     TuiContext,
@@ -10,13 +10,13 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Shadow {
         new(color: Color),
-        offset_x: f32 = 1.0,
-        offset_y: f32 = 1.0,
+        offset_x: i32 = 1,
+        offset_y: i32 = 1,
     }
 }
 
 impl Shadow {
-    pub const fn offset(mut self, x: f32, y: f32) -> Self {
+    pub fn offset(mut self, x: i32, y: i32) -> Self {
         self.offset_x = x;
         self.offset_y = y;
         self
@@ -24,22 +24,22 @@ impl Shadow {
 }
 
 impl Atom<TuiContext> for Shadow {
-    fn measure(&self, _: &mut TuiContext, _: Constraints) -> Size {
+    fn measure(&self, _: &mut TuiContext, _: Constraints<i32>) -> Size<i32> {
         Size::ZERO
     }
 
-    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
-        let shifted = LogicalRect {
+    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
+        let shifted = PhysicalRect {
             x: area.x + self.offset_x,
             y: area.y + self.offset_y,
             ..area
         };
-        let left = area.x.round() as isize;
-        let top = area.y.round() as isize;
-        let right = (area.x + area.width).round() as isize;
-        let bottom = (area.y + area.height).round() as isize;
-        let origin_x = shifted.x.round() as isize;
-        let origin_y = shifted.y.round() as isize;
+        let left = area.x as isize;
+        let top = area.y as isize;
+        let right = (area.x + area.width) as isize;
+        let bottom = (area.y + area.height) as isize;
+        let origin_x = shifted.x as isize;
+        let origin_y = shifted.y as isize;
         let mut cells = context.cells(shifted);
         let style = CellStyle::new().background(self.color);
         for y in 0..cells.rows() {
@@ -54,8 +54,8 @@ impl Atom<TuiContext> for Shadow {
         }
     }
 
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        LogicalRect {
+    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
+        PhysicalRect {
             x: area.x + self.offset_x,
             y: area.y + self.offset_y,
             ..area

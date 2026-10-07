@@ -3,8 +3,8 @@ children require a layout
 ```compile_fail
 use blit::*;
 
-fn child_before_layout<C>(mut ui: Ui<'_, C>) {
-    ui.child(());
+fn child_before_layout<C: Context>(mut ui: Ui<'_, C>) {
+    ui.child();
 }
 ```
 
@@ -13,7 +13,7 @@ a node can establish only one layout
 ```compile_fail
 use blit::*;
 
-fn second_layout<C, L, M>(ui: Ui<'_, C, state::Open<L>>, next: M)
+fn second_layout<C: Context, L, M>(ui: Ui<'_, C, state::Open<L>>, next: M)
 where
     L: Layout<C>,
     M: Layout<C>,
@@ -27,7 +27,7 @@ widgets require fresh nodes
 ```compile_fail
 use blit::*;
 
-fn build_into_open<C, L, W>(ui: Ui<'_, C, state::Open<L>>, widget: W)
+fn build_into_open<C: Context, L, W>(ui: Ui<'_, C, state::Open<L>>, widget: W)
 where
     L: Layout<C>,
     W: Widget<C>,
@@ -41,7 +41,7 @@ children reject another layout's item
 ```compile_fail
 use blit::*;
 
-fn wrong_layout_item<C, L>(mut ui: Ui<'_, C, state::Open<L>>)
+fn wrong_layout_item<C: Context, L>(mut ui: Ui<'_, C, state::Open<L>>)
 where
     L: Layout<C>,
 {
@@ -54,10 +54,27 @@ content cannot change node structure
 ```compile_fail
 use blit::*;
 
-fn layout_from_content<C, L>(ui: Ui<'_, C, state::Node>, layout: L)
+fn layout_from_content<C: Context, L>(ui: Ui<'_, C, state::Node>, layout: L)
 where
     L: Layout<C>,
 {
     ui.layout(layout);
+}
+```
+
+scratch cannot escape frame construction
+
+```compile_fail
+use blit::*;
+use std::time::Duration;
+
+fn escape(frame: &mut Frame<()>) {
+    let scratch = frame.build(
+        &mut (),
+        FrameInfo::new(Size::uniform(1.0)),
+        Duration::ZERO,
+        Input::None,
+        |ui: Ui<'_, ()>| ui.scratch(1, 0_u8),
+    );
 }
 ```

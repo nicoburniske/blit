@@ -15,13 +15,13 @@ blit::builder! {
         new(),
         background: Color = Color::TRANSPARENT,
         border: Border<'static> = Border::None,
-        radius: BorderRadius = BorderRadius::default(),
+        radius: BorderRadius = BorderRadius::new(),
         opacity: f32 = 1.0,
     }
 }
 
 impl Atom<GuiContext> for Rectangle {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut GuiContext, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
@@ -49,12 +49,12 @@ blit::builder! {
         palette: TextPalette = TextPalette::NONE,
         color: Color = Color::BLACK,
         offset_x: f32 = 0.0,
-        options: TextOptions = TextOptions::default(),
+        options: TextOptions = TextOptions::new(),
     }
 }
 
 impl Atom<GuiContext> for Text {
-    fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, context: &mut GuiContext, constraints: Constraints<f32>) -> Size<f32> {
         let measured = context.measure_text(&TextLayoutRequest {
             text: self.text,
             wrap: self.options.wrap,
@@ -84,7 +84,7 @@ impl Atom<GuiContext> for Text {
 #[derive(Clone, Copy)]
 pub struct Image {
     pub image: ImageId,
-    pub intrinsic: Size,
+    pub intrinsic: Size<f32>,
     pub fit: ImageFit,
     pub sampling: ImageSampling,
     pub opacity: f32,
@@ -95,7 +95,7 @@ pub struct Image {
 }
 
 impl Atom<GuiContext> for Image {
-    fn measure(&self, _: &mut GuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, _: &mut GuiContext, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(self.intrinsic)
     }
 
@@ -123,7 +123,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Shadow {
         new(color: Color),
-        radius: BorderRadius = BorderRadius::default(),
+        radius: BorderRadius = BorderRadius::new(),
         offset_x: f32 = 0.0,
         offset_y: f32 = 0.0,
         blur: f32 = 0.0,
@@ -133,12 +133,14 @@ blit::builder! {
 }
 
 impl Shadow {
-    pub const fn offset(mut self, x: f32, y: f32) -> Self {
+    pub fn offset(mut self, x: f32, y: f32) -> Self {
         self.offset_x = x;
         self.offset_y = y;
         self
     }
+}
 
+impl Shadow {
     fn command(&self, area: LogicalRect) -> BoxShadow {
         BoxShadow::new(area, self.color)
             .radius(self.radius)
@@ -150,7 +152,7 @@ impl Shadow {
 }
 
 impl Atom<GuiContext> for Shadow {
-    fn measure(&self, _: &mut GuiContext, _: Constraints) -> Size {
+    fn measure(&self, _: &mut GuiContext, _: Constraints<f32>) -> Size<f32> {
         Size::ZERO
     }
 

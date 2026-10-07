@@ -207,6 +207,12 @@ impl FrameProfiler {
         self.begin(Stage::Complete);
     }
 
+    pub fn completed(&self) -> Option<FrameTimings> {
+        self.completed
+    }
+}
+
+impl FrameProfiler {
     fn begin(&mut self, stage: Stage) {
         let now = self.clock.elapsed();
         if let Some((previous, started)) = self.active {
@@ -233,10 +239,6 @@ impl FrameProfiler {
         } else {
             self.active = Some((stage, now));
         }
-    }
-
-    pub fn completed(&self) -> Option<FrameTimings> {
-        self.completed
     }
 }
 

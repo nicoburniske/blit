@@ -83,20 +83,20 @@ impl Sense {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Interaction {
+pub struct Interaction<T> {
     pub active: bool,
     pub activated: bool,
     pub deactivated: bool,
     pub hovered: bool,
     pub clicked: bool,
     pub dragging: bool,
-    pub drag_delta: Point,
+    pub drag_delta: Point<T>,
     pub scroll: Option<ScrollInteraction>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScrollInteraction {
-    pub delta: Point,
+    pub delta: Point<f32>,
     pub continuous: bool,
     pub phase: ScrollPhase,
 }

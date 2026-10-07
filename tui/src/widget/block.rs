@@ -11,17 +11,18 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Block<'a> {
         new(),
-        @optional {
-            border: Border,
-            background: Color,
-            shadow: Shadow,
-        },
+        #[into]
+        border: Option<Border> = None,
+        #[into]
+        background: Option<Color> = None,
+        #[into]
+        shadow: Option<Shadow> = None,
         titles: [Option<Title<'a>>; 6] = [None; 6],
     }
 }
 
 impl<'a> Block<'a> {
-    pub const fn title(mut self, title: Title<'a>) -> Self {
+    pub fn title(mut self, title: Title<'a>) -> Self {
         self.titles[title.position.index()] = Some(title);
         self
     }
@@ -56,9 +57,8 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Title<'a> {
         new(text: &'a str),
-        @optional {
-            color: Color,
-        },
+        #[into]
+        color: Option<Color> = None,
         attributes: TextAttributes = TextAttributes::NONE,
         position: TitlePosition = TitlePosition::TopLeft,
     }

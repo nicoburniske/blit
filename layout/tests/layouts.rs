@@ -1,18 +1,27 @@
 use std::time::Duration;
 
 use blit::{
-    Atom, Constraints, Frame, FrameInfo, Input, LayoutResolution, Rect, Sides, Size, Sizing, Transition, Ui, Widget,
-    WidgetId,
+    Atom, Constraints, Context, Frame, FrameInfo, Input, Rect, Scalar, Sides, Size, Transition, Ui, Widget, WidgetId,
 };
-use blit_layout::{Align, flex, grid, single, wrap};
+use blit_layout::{Align, Sizing, flex, grid, single, wrap};
 
 #[derive(Default)]
 struct TestContext;
 
-fn layout_frame<W: Widget<TestContext>>(
-    frame: &mut Frame<TestContext>,
-    context: &mut TestContext,
-    info: FrameInfo,
+impl Context for TestContext {
+    type Scalar = f32;
+}
+
+struct Cells;
+
+impl Context for Cells {
+    type Scalar = i32;
+}
+
+fn layout_frame<C: Context, W: Widget<C>>(
+    frame: &mut Frame<C>,
+    context: &mut C,
+    info: FrameInfo<C::Scalar>,
     widget: W,
 ) -> W::Response {
     let output = frame.build(context, info, Duration::ZERO, Input::None, widget);
@@ -21,16 +30,16 @@ fn layout_frame<W: Widget<TestContext>>(
 }
 
 #[derive(Clone, Copy)]
-struct BoxAtom(Size);
+struct BoxAtom<T>(Size<T>);
 
-impl Atom<TestContext> for BoxAtom {
-    fn measure(&self, _: &mut TestContext, constraints: Constraints) -> Size {
+impl<C: Context<Scalar = T>, T: Scalar> Atom<C> for BoxAtom<T> {
+    fn measure(&self, _: &mut C, constraints: Constraints<T>) -> Size<T> {
         constraints.constrain(self.0)
     }
 
-    fn paint(&self, _: &mut TestContext, _: Rect) {}
+    fn paint(&self, _: &mut C, _: Rect<T>) {}
 
-    fn paint_bounds(&self, _: Rect) -> Rect {
+    fn paint_bounds(&self, _: Rect<T>) -> Rect<T> {
         Rect::default()
     }
 }
@@ -38,21 +47,21 @@ impl Atom<TestContext> for BoxAtom {
 #[derive(Clone, Copy)]
 struct ResponsiveAtom;
 
-impl Atom<TestContext> for ResponsiveAtom {
-    fn measure(&self, _: &mut TestContext, constraints: Constraints) -> Size {
+impl<C: Context> Atom<C> for ResponsiveAtom {
+    fn measure(&self, _: &mut C, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
         constraints.constrain(Size::new(
-            4.0,
-            if constraints.max.width < 10.0 || !constraints.max.width.is_finite() {
-                2.0
+            C::Scalar::from_f32(4.0),
+            if constraints.max.width < C::Scalar::from_f32(10.0) || !constraints.max.width.is_finite() {
+                C::Scalar::from_f32(2.0)
             } else {
-                1.0
+                C::Scalar::from_f32(1.0)
             },
         ))
     }
 
-    fn paint(&self, _: &mut TestContext, _: Rect) {}
+    fn paint(&self, _: &mut C, _: Rect<C::Scalar>) {}
 
-    fn paint_bounds(&self, _: Rect) -> Rect {
+    fn paint_bounds(&self, _: Rect<C::Scalar>) -> Rect<C::Scalar> {
         Rect::default()
     }
 }
@@ -197,32 +206,49 @@ fn flex_size_transition_preserves_exact_overflow_and_reflows_siblings() {
 
 #[test]
 fn empty_layouts_keep_padding() {
+    use blit_layout::{flex, grid, single, wrap};
     let mut frame = Frame::default();
     let ids = [
         WidgetId::new("empty flex"),
         WidgetId::new("empty wrap"),
         WidgetId::new("empty grid"),
+        WidgetId::new("empty single"),
     ];
     layout_frame(
         &mut frame,
-        &mut TestContext,
-        FrameInfo::new(Size::new(20.0, 10.0)).layout_resolution(LayoutResolution::Discrete {
-            step: Size::uniform(1.0),
-        }),
-        |ui: Ui<'_, TestContext>| {
+        &mut Cells,
+        FrameInfo::new(Size::new(20, 10)),
+        |ui: Ui<'_, Cells>| {
             let mut root = ui.layout(flex::row().align(Align::Start));
-            let padding = Sides::all(1.2);
+            let padding = Sides::all(2);
             root.child().widget_id(ids[0]).layout(flex::row().padding(padding));
             root.child()
                 .widget_id(ids[1])
                 .layout(wrap::horizontal().padding(padding));
-            root.child().widget_id(ids[2]).layout(grid::columns(2).padding(padding));
+            root.child().widget_id(ids[2]).layout(grid::new(2).padding(padding));
+            root.child().widget_id(ids[3]).layout(single::new().padding(padding));
         },
     );
-    assert_eq!(
-        ids.map(|id| frame.geometry(id).unwrap().size()),
-        [Size::uniform(4.0); 3]
+    assert_eq!(ids.map(|id| frame.geometry(id).unwrap().size()), [Size::uniform(4); 4]);
+}
+
+#[test]
+fn wrap_uses_exact_cell_boundaries() {
+    let mut frame = Frame::default();
+    let last = WidgetId::new("last");
+    layout_frame(
+        &mut frame,
+        &mut Cells,
+        FrameInfo::new(Size::new(4096, 2)),
+        |ui: Ui<'_, Cells>| {
+            let mut wrap = ui.layout(wrap::horizontal());
+            for _ in 0..4096 {
+                wrap.child().insert(BoxAtom(Size::uniform(1)));
+            }
+            wrap.child().widget_id(last).insert(BoxAtom(Size::uniform(1)));
+        },
     );
+    assert_eq!(frame.geometry(last), Some(Rect::new(0, 1, 1, 1)));
 }
 
 #[test]
@@ -267,34 +293,33 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
 
 #[test]
 fn wrap_keeps_target_runs_during_size_transitions() {
+    use blit_layout::{Sizing, wrap};
     let mut frame = Frame::default();
     let ids: [WidgetId; 10] = std::array::from_fn(|index| WidgetId::new(("item", index)));
     let mut render = |width, time| {
         frame.build(
-            &mut TestContext,
-            FrameInfo::new(Size::new(width, 2.0)).layout_resolution(LayoutResolution::Discrete {
-                step: Size::uniform(1.0),
-            }),
+            &mut Cells,
+            FrameInfo::new(Size::new(width, 2)),
             time,
             Input::None,
-            |ui: Ui<'_, TestContext>| {
-                let mut wrap = ui.layout(wrap::horizontal().padding(Sides::all(1.0)).gap(1.0));
+            |ui: Ui<'_, Cells>| {
+                let mut wrap = ui.layout(wrap::horizontal().padding(Sides::all(1)).gap(1));
                 for id in ids {
                     wrap.child()
-                        .item(wrap::item().width(Sizing::grow_range(2.0, f32::INFINITY)))
+                        .item(wrap::item().width(Sizing::grow_range(2, i32::MAX)))
                         .widget_id(id)
                         .transition(Transition::new(Duration::from_secs(1)).size())
-                        .insert(BoxAtom(Size::uniform(1.0)));
+                        .insert(BoxAtom(Size::uniform(1)));
                 }
             },
         );
-        frame.layout(&mut TestContext);
+        frame.layout(&mut Cells);
         frame.geometry(ids[9]).unwrap()
     };
 
-    assert_eq!(render(40.0, Duration::ZERO).y, 1.0);
-    assert_eq!(render(38.0, Duration::ZERO).y, 1.0);
-    assert_eq!(render(37.0, Duration::from_millis(16)).y, 1.0);
+    assert_eq!(render(40, Duration::ZERO).y, 1);
+    assert_eq!(render(38, Duration::ZERO).y, 1);
+    assert_eq!(render(37, Duration::from_millis(16)).y, 1);
 }
 
 #[test]
@@ -309,7 +334,7 @@ fn wrap_shrinkwraps_animated_target_runs() {
             time,
             Input::None,
             |ui: Ui<'_, TestContext>| {
-                let mut root = ui.layout(single::layout());
+                let mut root = ui.layout(single::new());
                 let mut wrap = root.child().widget_id(wrap_id).layout(wrap::horizontal());
                 for id in child_ids {
                     wrap.child()
@@ -333,30 +358,68 @@ fn wrap_shrinkwraps_animated_target_runs() {
 }
 
 #[test]
+fn percentage_children_share_rounded_space() {
+    use blit_layout::{Sizing, flex, wrap};
+    let mut frame = Frame::default();
+    let ids = [0, 1, 2, 3].map(WidgetId::new);
+    layout_frame(
+        &mut frame,
+        &mut Cells,
+        FrameInfo::new(Size::new(3, 2)),
+        |ui: Ui<'_, Cells>| {
+            let mut column = ui.layout(flex::column());
+            {
+                let mut row = column.child().layout(flex::row());
+                for id in &ids[..2] {
+                    row.child()
+                        .widget_id(*id)
+                        .item(flex::item().width(Sizing::percent(0.5)))
+                        .insert(BoxAtom(Size::uniform(1)));
+                }
+            }
+            let mut row = column.child().layout(wrap::horizontal());
+            for id in &ids[2..] {
+                row.child()
+                    .widget_id(*id)
+                    .item(wrap::item().width(Sizing::percent(0.5)))
+                    .insert(BoxAtom(Size::uniform(1)));
+            }
+        },
+    );
+    for index in [1, 3] {
+        assert_eq!(frame.geometry(ids[index]), Some(Rect::new(2, (index / 2) as i32, 1, 1)));
+    }
+}
+
+#[test]
 fn single_percentages_use_the_incoming_budget() {
     let mut frame = Frame::default();
     let percent = WidgetId::new("percentage child");
+    let container = WidgetId::new("percentage container");
     layout_frame(
         &mut frame,
         &mut TestContext,
         FrameInfo::new(Size::new(20.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
-            let mut outer = ui.layout(single::layout());
-            let mut fit = outer.child().layout(single::layout());
-            fit.child()
-                .item(single::item().width(Sizing::percent(0.5)).height(Sizing::percent(0.5)))
-                .widget_id(percent)
-                .insert(BoxAtom(Size::new(4.0, 2.0)));
+            let mut outer = ui.layout(single::new());
+            let mut fit = outer.child().widget_id(container).layout(
+                single::new()
+                    .width(Sizing::percent(0.5))
+                    .height(Sizing::percent(0.5))
+                    .padding(Sides::all(1.0)),
+            );
+            fit.child().widget_id(percent).insert(BoxAtom(Size::new(4.0, 2.0)));
         },
     );
-    assert_eq!(frame.geometry(percent), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));
+    assert_eq!(frame.geometry(container), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));
+    assert_eq!(frame.geometry(percent), Some(Rect::new(1.0, 1.0, 8.0, 3.0)));
 }
 
 #[test]
 fn spanning_grid_sizes_spanning_items() {
     let mut frame = Frame::default();
     let wide = WidgetId::new("wide");
-    let layout = grid::columns(3).spanning().gap(2.0);
+    let layout = grid::new(3).gap(2.0);
     layout_frame(
         &mut frame,
         &mut TestContext,
@@ -364,7 +427,7 @@ fn spanning_grid_sizes_spanning_items() {
         |ui: Ui<'_, TestContext>| {
             let mut grid = ui.layout(layout);
             grid.child()
-                .item(grid::item().column_span(2).preferred_height(12.0))
+                .item(grid::item().column_span(2).height(12.0))
                 .widget_id(wide)
                 .insert(BoxAtom(Size::new(20.0, 10.0)));
             grid.child().insert(BoxAtom(Size::uniform(10.0)));
@@ -375,51 +438,51 @@ fn spanning_grid_sizes_spanning_items() {
 
 #[test]
 fn spanning_grid_fills_available_cell() {
+    use blit_layout::grid;
     let mut frame = Frame::default();
     let hole = WidgetId::new("hole");
     layout_frame(
         &mut frame,
-        &mut TestContext,
-        FrameInfo::new(Size::new(90.0, 20.0)),
-        |ui: Ui<'_, TestContext>| {
-            let mut grid = ui.layout(grid::columns(3).spanning());
+        &mut Cells,
+        FrameInfo::new(Size::new(28, 4)),
+        |ui: Ui<'_, Cells>| {
+            let mut grid = ui.layout(grid::new(3));
             grid.child()
                 .item(grid::item().row_span(2).column_span(2))
-                .insert(BoxAtom(Size::uniform(20.0)));
-            grid.child().insert(BoxAtom(Size::uniform(10.0)));
-            grid.child().widget_id(hole).insert(BoxAtom(Size::uniform(10.0)));
+                .insert(BoxAtom(Size::new(20, 2)));
+            grid.child().insert(ResponsiveAtom);
+            grid.child().widget_id(hole).insert(ResponsiveAtom);
         },
     );
-    assert_eq!(frame.geometry(hole), Some(Rect::new(60.0, 10.0, 30.0, 10.0)));
+    assert_eq!(frame.geometry(hole), Some(Rect::new(19, 2, 9, 2)));
 }
 
 #[test]
 fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
+    use blit_layout::grid;
     let mut frame = Frame::default();
     let id = WidgetId::new("animated grid child");
     let mut render = |extent, time| {
         frame.build(
-            &mut TestContext,
-            FrameInfo::new(Size::new(20.0, 10.0)).layout_resolution(LayoutResolution::Discrete {
-                step: Size::uniform(1.0),
-            }),
+            &mut Cells,
+            FrameInfo::new(Size::new(20, 10)),
             time,
             Input::None,
-            |ui: Ui<'_, TestContext>| {
-                let mut grid = ui.layout(grid::columns(2));
+            |ui: Ui<'_, Cells>| {
+                let mut grid = ui.layout(grid::new(2));
                 grid.child()
                     .widget_id(id)
                     .transition(Transition::new(Duration::from_secs(1)).height())
-                    .insert(BoxAtom(Size::new(1.0, extent)));
-                grid.child().insert(BoxAtom(Size::new(1.0, extent)));
+                    .insert(BoxAtom(Size::new(1, extent)));
+                grid.child().insert(BoxAtom(Size::new(1, extent)));
             },
         );
-        frame.layout(&mut TestContext);
+        frame.layout(&mut Cells);
         frame.geometry(id).unwrap().height
     };
 
-    assert_eq!(render(1.0, Duration::ZERO), 1.0);
-    assert_eq!(render(4.0, Duration::ZERO), 1.0);
-    assert_eq!(render(4.0, Duration::from_millis(500)), 3.0);
-    assert_eq!(render(4.0, Duration::from_secs(1)), 4.0);
+    assert_eq!(render(1, Duration::ZERO), 1);
+    assert_eq!(render(4, Duration::ZERO), 1);
+    assert_eq!(render(4, Duration::from_millis(500)), 3);
+    assert_eq!(render(4, Duration::from_secs(1)), 4);
 }

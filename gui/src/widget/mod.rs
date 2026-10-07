@@ -1,10 +1,7 @@
 pub mod performance;
-pub use blit_widgets::{popover, resize, split};
-
-pub mod scroll_area;
-pub mod scroll_list;
 pub mod text_input;
-pub mod virtual_list;
+
+blit_widgets::export!(f32, crate::GuiContext, crate::BoundsClip);
 
 use blit::{Content, state};
 
@@ -19,10 +16,10 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Text<'a> {
         new(text: &'a str),
-        style: TextStyle = TextStyle::default(),
+        style: TextStyle = TextStyle::new(),
         color: Color = Color::BLACK,
         offset_x: f32 = 0.0,
-        options: TextOptions = TextOptions::default(),
+        options: TextOptions = TextOptions::new(),
     }
 }
 
@@ -45,10 +42,10 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct RichText<'a> {
         new(text: &'a str, spans: &'a [Span]),
-        style: TextStyle = TextStyle::default(),
+        style: TextStyle = TextStyle::new(),
         color: Color = Color::BLACK,
         offset_x: f32 = 0.0,
-        options: TextOptions = TextOptions::default(),
+        options: TextOptions = TextOptions::new(),
     }
 }
 

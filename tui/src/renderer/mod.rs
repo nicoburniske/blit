@@ -18,7 +18,7 @@ mod present;
 pub mod text;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
-use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalRect};
+use blit::{PhysicalPoint, PhysicalRect, PhysicalSize};
 use blit_cache::{DeferredCache, Equivalent, Scale};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -189,7 +189,6 @@ impl TuiRenderer {
     pub fn rich_text(&mut self, spans: &[Span<'_>]) -> TextRunId {
         let len = spans.iter().map(|span| span.text.len()).sum();
         assert!(u32::try_from(len).is_ok(), "tui text run too long");
-        let next = self.next_text_run;
         let (_, index) = self.text_runs.get_or_insert(RunQuery(spans), |query| {
             let mut text = String::with_capacity(len);
             let mut resolved = Vec::with_capacity(query.0.len());
@@ -211,7 +210,7 @@ impl TuiRenderer {
                     spans: resolved.into_boxed_slice(),
                 },
                 CachedRun {
-                    id: TextRunId(u64::from(next) << 32),
+                    id: TextRunId(u64::from(self.next_text_run) << 32),
                     graphemes: Box::default(),
                     screen_references: 0,
                 },
@@ -225,9 +224,9 @@ impl TuiRenderer {
         self.text_runs.get_index(index).id
     }
 
-    pub fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
+    pub fn text_offset_at_position(&mut self, request: &TextRequest, position: PhysicalPoint) -> usize {
         let text = &self.text_runs.get_key_index(self.text_run_index(request.text)).text;
-        let target = (position.x - request.area.x + request.offset_x).round().max(0.0) as usize;
+        let target = (position.x as isize - request.area.x as isize + request.offset_x as isize).max(0) as usize;
         let mut width = 0;
         for (offset, grapheme) in text.grapheme_indices(true) {
             let next = width + UnicodeWidthStr::width(grapheme).max(1);
@@ -239,24 +238,25 @@ impl TuiRenderer {
         text.len()
     }
 
-    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
+    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> PhysicalSize {
         let layout = self.layout_text(request);
         let layout = self.text_layouts.get_index(layout);
-        LogicalSize {
-            width: layout.width as f32,
-            height: layout.lines.len() as f32,
+        PhysicalSize {
+            width: layout.width as i32,
+            height: layout.lines.len() as i32,
         }
     }
 
-    pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> LogicalRect {
+    pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> PhysicalRect {
+        let area = request.area;
         let text = &self.text_runs.get_key_index(self.text_run_index(request.text)).text;
         let before = &text[..text.floor_char_boundary(byte_offset.min(text.len()))];
         let line = before.rsplit_once('\n').map_or(before, |(_, line)| line);
-        LogicalRect {
-            x: request.area.x + UnicodeWidthStr::width(line) as f32 - request.offset_x,
-            y: request.area.y + before.matches('\n').count() as f32,
-            width: 1.0,
-            height: 1.0,
+        PhysicalRect {
+            x: area.x + UnicodeWidthStr::width(line) as i32 - request.offset_x,
+            y: area.y + before.matches('\n').count() as i32,
+            width: 1,
+            height: 1,
         }
     }
 }
@@ -533,12 +533,12 @@ struct TextLayout {
 }
 
 impl TuiRenderer {
-    fn cell_bounds(&self, area: LogicalRect) -> (usize, usize, usize, usize) {
+    fn cell_bounds(&self, area: PhysicalRect) -> (usize, usize, usize, usize) {
         (
-            area.x.round().clamp(0.0, self.columns as f32) as usize,
-            area.y.round().clamp(0.0, self.rows as f32) as usize,
-            (area.x + area.width).round().clamp(0.0, self.columns as f32) as usize,
-            (area.y + area.height).round().clamp(0.0, self.rows as f32) as usize,
+            area.x.clamp(0, self.columns as i32) as usize,
+            area.y.clamp(0, self.rows as i32) as usize,
+            area.x.saturating_add(area.width).clamp(0, self.columns as i32) as usize,
+            area.y.saturating_add(area.height).clamp(0, self.rows as i32) as usize,
         )
     }
 
@@ -610,7 +610,7 @@ impl TuiRenderer {
             true
         }
 
-        let max_columns = request.max_width.map(|width| width.floor().max(0.0) as usize);
+        let max_columns = request.max_width.map(|width| width.max(0) as usize);
         let max_lines = usize::from(request.max_lines.unwrap_or(u16::MAX)).max(1);
         let key = LayoutKey {
             text: request.text,
@@ -787,7 +787,6 @@ fn write_color(output: &mut String, color: Color, foreground: bool) {
 
 #[cfg(test)]
 mod tests {
-    use blit::Scale2;
 
     use super::*;
     use crate::{
@@ -795,16 +794,30 @@ mod tests {
         text::{HorizontalAlign, TextOptions, TextOverflow, VerticalAlign},
     };
 
-    const SCALE: Scale2 = Scale2::IDENTITY;
-
     fn renderer(columns: u16, rows: u16) -> TuiRenderer {
         TuiRenderer::new(RendererConfig::new().columns(columns).rows(rows))
     }
 
     #[test]
+    fn clips_overflowing_cell_and_text_rectangles() {
+        let mut renderer = renderer(4, 1);
+        let screen = renderer.screen();
+        let offscreen = PhysicalRect::new(i32::MAX - 5, i32::MAX - 5, 10, 10);
+        let clip = PhysicalRect::new(1, 0, i32::MAX, i32::MAX);
+        let text = renderer.text_run("abcd");
+        renderer.begin_frame();
+        for (area, clip) in [(offscreen, screen), (screen, offscreen), (screen, clip)] {
+            renderer.cells(area, clip).clear(SurfaceCell::new('x'));
+            renderer.paint_text(TextRequest::new(text, area), clip);
+        }
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), " bcd\n");
+    }
+
+    #[test]
     fn tint_preserves_text_and_blends_terminal_colors() {
         let mut renderer = renderer(5, 1);
-        let screen = renderer.screen().to_logical(SCALE);
+        let screen = renderer.screen();
         let mut palette = Palette::default();
         palette.indexed[1] = Some([200, 100, 50]);
         palette.foreground = Some([100, 80, 60]);
@@ -838,7 +851,7 @@ mod tests {
                         .all(|color| { *color == Color::Rgb(10, 20, 30).packed() })
                 );
                 renderer
-                    .cells(screen, LogicalRect::new(3.0, 0.0, 1.0, 1.0))
+                    .cells(screen, PhysicalRect::new(3, 0, 1, 1))
                     .tint([0, 0, 0], 128);
                 assert_eq!(renderer.frame_cells.foreground[3], Color::Rgb(50, 25, 12).packed());
             }
@@ -866,11 +879,11 @@ mod tests {
     #[test]
     fn tint_leaves_partially_clipped_glyphs_unchanged() {
         let mut renderer = renderer(4, 1);
-        let screen = renderer.screen().to_logical(SCALE);
+        let screen = renderer.screen();
         renderer.begin_frame();
         renderer.cells(screen, screen).write(0, 0, "界界", CellStyle::new());
         renderer
-            .cells(screen, LogicalRect::new(1.0, 0.0, 2.0, 1.0))
+            .cells(screen, PhysicalRect::new(1, 0, 2, 1))
             .tint([0, 0, 0], 255);
         assert!(
             renderer
@@ -891,7 +904,7 @@ mod tests {
     #[test]
     fn tint_preserves_unknown_colors() {
         let mut renderer = renderer(1, 1);
-        let screen = renderer.screen().to_logical(SCALE);
+        let screen = renderer.screen();
         renderer.begin_frame();
         renderer
             .cells(screen, screen)
@@ -904,7 +917,7 @@ mod tests {
     #[test]
     fn direct_cells_are_frame_local_and_diffed() {
         let mut renderer = renderer(5, 2);
-        let area = renderer.screen().to_logical(SCALE);
+        let area = renderer.screen();
         renderer.begin_frame();
         renderer
             .cells(area, area)
@@ -927,23 +940,9 @@ mod tests {
     }
 
     #[test]
-    fn direct_cells_quantize_half_cell_areas() {
-        let mut renderer = renderer(4, 3);
-        let screen = renderer.screen().to_logical(SCALE);
-        renderer.begin_frame();
-        renderer
-            .cells(LogicalRect::new(1.0, 0.5, 2.0, 1.0), screen)
-            .clear(SurfaceCell::default().style(CellStyle::new().background(Color::CYAN)));
-        renderer.end_frame();
-
-        assert_eq!(renderer.cells.background[5], Color::CYAN.packed());
-        assert_eq!(renderer.cells.background[6], Color::CYAN.packed());
-    }
-
-    #[test]
     fn direct_cells_support_graphemes_and_wide_overwrites() {
         let mut renderer = renderer(8, 1);
-        let area = renderer.screen().to_logical(SCALE);
+        let area = renderer.screen();
         let text = "e\u{301}界👍🏽";
         let family = "👨‍👩‍👧";
 
@@ -1001,7 +1000,7 @@ mod tests {
         renderer.begin_frame();
         renderer.cells(area, area).write(0, 0, "界", CellStyle::new());
         renderer
-            .cells(LogicalRect::new(1.0, 0.0, 1.0, 1.0), area)
+            .cells(PhysicalRect::new(1, 0, 1, 1), area)
             .clear(SurfaceCell::default().style(CellStyle::new().background(Color::GREEN)));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "\n");
@@ -1025,7 +1024,7 @@ mod tests {
     }
 
     #[test]
-    fn text_uses_quantized_alignment_and_span_styles() {
+    fn text_alignment_preserves_span_styles() {
         let mut renderer = renderer(7, 3);
         let spans = [
             Span::new("err")
@@ -1037,8 +1036,8 @@ mod tests {
         ];
         let text = renderer.rich_text(&spans);
         assert_eq!(renderer.rich_text(&spans), text);
-        let area = LogicalRect::new(0.4, 0.4, 5.2, 3.0);
-        let screen = renderer.screen().to_logical(SCALE);
+        let area = PhysicalRect::new(0, 0, 5, 3);
+        let screen = renderer.screen();
         renderer.begin_frame();
         renderer.paint_text(
             TextRequest::new(text, area)
@@ -1070,7 +1069,7 @@ mod tests {
     #[test]
     fn ellipsis_follows_last_line_overflow_and_style() {
         let mut renderer = renderer(4, 2);
-        let screen = renderer.screen().to_logical(SCALE);
+        let screen = renderer.screen();
         let overflow = TextOptions::new().overflow(TextOverflow::Ellipsis);
         let text = renderer.text_run("abcdef\nx");
         renderer.begin_frame();
@@ -1089,7 +1088,7 @@ mod tests {
     #[test]
     fn text_cache_pins_presented_runs() {
         let mut renderer = renderer(1, 1);
-        let area = renderer.screen().to_logical(SCALE);
+        let area = renderer.screen();
         let text = renderer.text_run("x");
         renderer.begin_frame();
         renderer.paint_text(TextRequest::new(text, area), area);
@@ -1108,7 +1107,7 @@ mod tests {
         let mut renderer = renderer(20, 4);
         let text = renderer.text_run("hello world");
         assert_eq!(renderer.text_run("hello world"), text);
-        let request = TextLayoutRequest::new(text).wrap(TextWrap::Word).max_width(7.0);
+        let request = TextLayoutRequest::new(text).wrap(TextWrap::Word).max_width(7);
         let layout = renderer.layout_text(&request);
         assert_eq!(renderer.layout_text(&request), layout);
         let layout = renderer.text_layouts.get_index(layout);

@@ -49,33 +49,40 @@ pub mod layout;
 
 pub use self::{
     animation::{Easing, Transition, TransitionProperties},
-    frame::{Absolute, Anchor, Frame, NodeId, NodeTarget, Ui, state},
+    frame::{Frame, NodeId, NodeTarget, Ui, state},
     geometry::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
-        Scale2, Sides, Size,
+        Scalar, Scale2, Sides, Size,
     },
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
-    layout::{Axis, Layout, LayoutCx, LayoutResolution, Sizing},
+    layout::{Axis, Layout, LayoutCx, Scratch},
 };
 
-crate::builder! {
+pub trait Context {
+    type Scalar: Scalar;
+}
+
+impl Context for () {
+    type Scalar = f32;
+}
+
+builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct FrameInfo {
-        new(size: Size),
-        layout_resolution: LayoutResolution = LayoutResolution::Continuous,
+    pub struct FrameInfo<T> {
+        new(size: Size<T>),
     }
 }
 
 /// immediate builder that owns and populates a new frame node
-pub trait Widget<C> {
+pub trait Widget<C: Context> {
     type Response;
 
     fn build(self, ui: Ui<'_, C>) -> Self::Response;
 }
 
 /// immediate content that augments an existing node without changing its structure
-pub trait Content<C> {
+pub trait Content<C: Context> {
     type Response;
 
     fn append(self, ui: Ui<'_, C, state::Node>) -> Self::Response;
@@ -84,22 +91,22 @@ pub trait Content<C> {
 /// retained visual content that measures and paints after building
 ///
 /// every atom implements [`Content`]
-pub trait Atom<C>: 'static {
+pub trait Atom<C: Context>: 'static {
     /// returns the size requested by this atom under `constraints`
     ///
     /// measurement may be skipped under tight constraints. painting must not
     /// depend on prior measurement.
-    fn measure(&self, context: &mut C, constraints: Constraints) -> Size;
+    fn measure(&self, context: &mut C, constraints: Constraints<C::Scalar>) -> Size<C::Scalar>;
 
-    fn paint(&self, context: &mut C, area: Rect);
+    fn paint(&self, context: &mut C, area: Rect<C::Scalar>);
 
     /// conservative bounds containing everything this atom may paint
     ///
     /// these bounds may extend beyond the layout `area`
-    fn paint_bounds(&self, area: Rect) -> Rect;
+    fn paint_bounds(&self, area: Rect<C::Scalar>) -> Rect<C::Scalar>;
 }
 
-impl<C, F, O> Widget<C> for F
+impl<C: Context, F, O> Widget<C> for F
 where
     F: FnOnce(Ui<'_, C>) -> O,
 {
@@ -110,7 +117,7 @@ where
     }
 }
 
-impl<C> Widget<C> for () {
+impl<C: Context> Widget<C> for () {
     type Response = ();
 
     fn build(self, mut ui: Ui<'_, C>) {
@@ -118,20 +125,20 @@ impl<C> Widget<C> for () {
     }
 }
 
-impl<C> Atom<C> for () {
-    fn measure(&self, _: &mut C, constraints: Constraints) -> Size {
+impl<C: Context> Atom<C> for () {
+    fn measure(&self, _: &mut C, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, _: &mut C, _: Rect) {}
+    fn paint(&self, _: &mut C, _: Rect<C::Scalar>) {}
 
-    fn paint_bounds(&self, _: Rect) -> Rect {
+    fn paint_bounds(&self, _: Rect<C::Scalar>) -> Rect<C::Scalar> {
         Rect::default()
     }
 }
 
-pub trait Clip<C>: 'static {
-    fn push(&self, context: &mut C, area: Rect);
+pub trait Clip<C: Context>: 'static {
+    fn push(&self, context: &mut C, area: Rect<C::Scalar>);
 
     fn pop(&self, context: &mut C);
 }

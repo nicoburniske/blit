@@ -37,7 +37,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
             }
             self.normalized.append(&mut self.pieces);
         }
-        let damage = &self.normalized;
         let commands = &context.commands;
         let clips = &context.clips;
         let images = &context.images;
@@ -47,7 +46,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
         for offset in commands.offsets() {
             let payload = commands.get(offset);
             let clip_id = commands.clip(offset);
-            for damage in damage {
+            for damage in &self.normalized {
                 let Some(bounds) = commands
                     .bounds(offset)
                     .intersection(*damage)

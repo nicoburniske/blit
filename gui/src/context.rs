@@ -19,6 +19,10 @@ pub struct GuiContext {
     profiler: FrameProfiler,
 }
 
+impl blit::Context for GuiContext {
+    type Scalar = f32;
+}
+
 /// data needed to render one frame
 #[non_exhaustive]
 pub struct RenderInput<'a> {

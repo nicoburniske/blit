@@ -1,5 +1,6 @@
-use blit::{Anchor, Axis, Sides, Size, Sizing};
+use blit::{Axis, Scalar, Sides, Size};
 pub use blit_layout::{Align, Justify};
+use blit_layout::{Sizing, absolute::Anchor};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CanvasLayout {
@@ -47,37 +48,29 @@ impl Default for CanvasConfig {
 }
 
 impl CanvasConfig {
-    pub fn padding(self, unit: Size) -> Sides {
+    pub fn padding<T: Scalar>(self, unit: Size<T>) -> Sides<T> {
         let steps = f32::from(self.padding_steps) * self.zoom;
-        Sides {
-            top: steps * unit.height,
-            right: steps * unit.width,
-            bottom: steps * unit.height,
-            left: steps * unit.width,
-        }
+        Sides::xy(
+            T::from_f32(steps * unit.width.to_f32()),
+            T::from_f32(steps * unit.height.to_f32()),
+        )
     }
 
-    pub fn gap(self, axis: Axis, unit: Size) -> f32 {
-        let unit = match axis {
-            Axis::Horizontal => unit.width,
-            Axis::Vertical => unit.height,
-        };
-        f32::from(self.gap_steps) * self.zoom * unit
+    pub fn gap<T: Scalar>(self, axis: Axis, unit: Size<T>) -> T {
+        T::from_f32(f32::from(self.gap_steps) * self.zoom * axis.extent(unit).to_f32())
     }
 
-    pub fn item_sizing(self, index: usize, unit: Size) -> (Sizing, Sizing) {
+    pub fn item_sizing<T: Scalar>(self, index: usize, unit: Size<T>) -> (Sizing<T>, Sizing<T>) {
         let main_steps = 3.0 + (index % 5) as f32;
         let cross_steps = 3.0 + (index % 4) as f32;
-        let (main_unit, cross_unit) = match self.axis {
-            Axis::Horizontal => (unit.width, unit.height),
-            Axis::Vertical => (unit.height, unit.width),
-        };
-        let natural_main = main_steps * main_unit * self.zoom;
-        let natural_cross = cross_steps * cross_unit * self.zoom;
+        let main_unit = self.axis.extent(unit).to_f32();
+        let cross_unit = self.axis.other().extent(unit).to_f32();
+        let natural_main = T::from_f32(main_steps * main_unit * self.zoom);
+        let natural_cross = T::from_f32(cross_steps * cross_unit * self.zoom);
         let main = match self.sizing {
             ItemSizing::Fixed => Sizing::fixed(natural_main),
-            ItemSizing::Fit => Sizing::fit_range(2.0 * main_unit, natural_main),
-            ItemSizing::Grow => Sizing::grow_range(2.0 * main_unit, f32::INFINITY),
+            ItemSizing::Fit => Sizing::fit_range(T::from_f32(2.0 * main_unit), natural_main),
+            ItemSizing::Grow => Sizing::grow_range(T::from_f32(2.0 * main_unit), T::UNBOUNDED),
         };
         let cross = if self.align == Align::Stretch {
             Sizing::fit()
@@ -94,8 +87,8 @@ impl CanvasConfig {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ItemSpec {
     pub label: &'static str,
-    pub rows: usize,
-    pub columns: usize,
+    pub rows: u32,
+    pub columns: u32,
     pub badge: Option<Anchor>,
 }
 

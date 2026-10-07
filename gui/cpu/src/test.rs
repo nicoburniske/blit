@@ -202,7 +202,7 @@ fn renderer_supports_custom_pixel_layouts() {
     assert!(renderer.render.buffer().pixels().iter().any(|pixel| pixel.red > 12));
 
     renderer.set_scale(Scale2::uniform(2.0));
-    let request = TextRequest {
+    let mut request = TextRequest {
         text: renderer.gui.text_run("abc", TextStyle::default()),
         area: LogicalRect {
             x: 0.0,
@@ -241,14 +241,18 @@ fn renderer_supports_custom_pixel_layouts() {
             .gui
             .text_offset_at_position(&request, LogicalPoint { x: end.x, y: end.y }),
     );
-    let mut placed = request;
-    placed.area.width = 64.0;
-    placed.area.height = 48.0;
-    placed.options.horizontal_align = HorizontalAlign::Center;
-    placed.options.vertical_align = VerticalAlign::Bottom;
-    let placed_start = renderer.gui.text_cursor_rect(&placed, 0);
+    request.area.width = 64.0;
+    request.area.height = 48.0;
+    request.options.horizontal_align = HorizontalAlign::Center;
+    request.options.vertical_align = VerticalAlign::Bottom;
+    let placed_start = renderer.gui.text_cursor_rect(&request, 0);
     assert!(placed_start.x > start.x);
     assert!(placed_start.y > start.y);
+    request.area.width += 0.5;
+    request.area.height += 0.25;
+    let fractional_start = renderer.gui.text_cursor_rect(&request, 0);
+    assert!((fractional_start.x - placed_start.x - 0.25).abs() < 0.001);
+    assert!((fractional_start.y - placed_start.y - 0.25).abs() < 0.001);
 }
 
 #[test]

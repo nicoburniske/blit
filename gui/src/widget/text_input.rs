@@ -1,5 +1,6 @@
 use blit::{Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Widget};
-pub use blit_widgets::text_input::{Response, State};
+pub use blit_widgets::text_input::Response;
+pub type State = blit_widgets::text_input::State<f32>;
 
 use crate::{
     GuiContext, Ui,
@@ -11,8 +12,8 @@ use crate::{
 blit::builder! {
     pub struct TextInput<'a> {
         new(state: &'a mut State, value: &'a mut String),
-        style: TextStyle = TextStyle::default(),
-        padding: Sides = Sides::all(0.0),
+        style: TextStyle = TextStyle::new(),
+        padding: Sides<f32> = Sides::all(0.0),
         background: Color = Color::TRANSPARENT,
         color: Color = Color::BLACK,
         placeholder: &'a str = "",
@@ -71,7 +72,7 @@ impl Widget<GuiContext> for TextInput<'_> {
             None
         };
         if let Some(area) = ui.geometry(id) {
-            let area = content_area(area, padding);
+            let area = area.inset(padding);
             let request = TextRequest {
                 text,
                 area,
@@ -121,7 +122,7 @@ struct InputAtom {
     display: TextRunId,
     state: State,
     options: TextOptions,
-    padding: Sides,
+    padding: Sides<f32>,
     focused: bool,
     background: Color,
     color: Color,
@@ -131,7 +132,7 @@ struct InputAtom {
 }
 
 impl Atom<GuiContext> for InputAtom {
-    fn measure(&self, context: &mut GuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, context: &mut GuiContext, constraints: Constraints<f32>) -> Size<f32> {
         let size = context.measure_text(&TextLayoutRequest {
             text: self.display,
             wrap: TextWrap::None,
@@ -142,7 +143,7 @@ impl Atom<GuiContext> for InputAtom {
     }
 
     fn paint(&self, context: &mut GuiContext, area: LogicalRect) {
-        let area = content_area(area, self.padding);
+        let area = area.inset(self.padding);
         if self.background != Color::TRANSPARENT {
             context.paint_rectangle(Rectangle::new(area).background(self.background));
         }
@@ -184,13 +185,4 @@ impl Atom<GuiContext> for InputAtom {
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
         area
     }
-}
-
-fn content_area(area: LogicalRect, padding: Sides) -> LogicalRect {
-    LogicalRect::new(
-        area.x + padding.left,
-        area.y + padding.top,
-        (area.width - padding.left - padding.right).max(0.0),
-        (area.height - padding.top - padding.bottom).max(0.0),
-    )
 }

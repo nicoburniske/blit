@@ -15,8 +15,8 @@ members = [
     "internal/raster",
     "kernel",
     "layout",
-    "internal/widgets",
     "tui",
+    "widgets",
 ]
 
 [workspace.package]
@@ -28,7 +28,7 @@ blit-executor = { path = "executor" }
 blit-gui = { path = "gui" }
 blit-gpu = { path = "gui/gpu" }
 blit-layout = { path = "layout" }
-blit-widgets = { path = "internal/widgets" }
+blit-widgets = { path = "widgets" }
 blit-text = { path = "gui/text" }
 blit-text-cosmic = { path = "gui/text/cosmic" }
 blit-text-fontdue = { path = "gui/text/fontdue" }

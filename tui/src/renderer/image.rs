@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use blit::{LogicalRect, PhysicalSize};
+use blit::{PhysicalRect, PhysicalSize};
 
 #[derive(Clone, Debug)]
 pub struct ImageHandle(Rc<ImageInner>);
@@ -88,10 +88,10 @@ impl ImageFormat {
 }
 
 blit::builder! {
-    /// Kitty image placement for a resolved logical area
+    /// Kitty image placement for a resolved cell area
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct ImagePlacement {
-        new(image: ImageId, area: LogicalRect),
+        new(image: ImageId, area: PhysicalRect),
     }
 }
 

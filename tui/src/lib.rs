@@ -18,7 +18,9 @@ mod terminal;
 
 pub mod atom;
 pub mod widget;
-pub use blit_layout as layout;
+pub mod layout {
+    blit_layout::export!(i32);
+}
 
 pub use self::{
     context::{BoundsClip, TuiContext},
@@ -36,7 +38,7 @@ use std::{
 };
 
 use blit::{
-    Frame, FrameInfo, LayoutResolution, LogicalPoint, LogicalSize,
+    Frame, FrameInfo, PhysicalPoint,
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use terminal::{Size, Terminal};
@@ -44,9 +46,8 @@ use terminal::{Size, Terminal};
 const MAX_EVENTS_PER_FRAME: usize = 32;
 
 /// runs the ui with the built in terminal and event loop at up to 240 frames per second
-pub fn run(render: impl FnMut(Ui<'_>)) -> io::Result<()> {
+pub fn run(mut render: impl FnMut(Ui<'_>)) -> io::Result<()> {
     let mut session = Session::new()?;
-    let mut render = render;
     while session.pump(&mut render)? {}
     Ok(())
 }
@@ -175,22 +176,17 @@ impl Session {
         &mut self.context
     }
 
-    pub fn frame_info(&self) -> FrameInfo {
+    pub fn frame_info(&self) -> FrameInfo<i32> {
         let screen = self.context.renderer().screen();
-        FrameInfo::new(LogicalSize::new(screen.width as f32, screen.height as f32)).layout_resolution(
-            LayoutResolution::Discrete {
-                step: LogicalSize::uniform(1.0),
-            },
-        )
+        FrameInfo::new(screen.size())
     }
 
-    pub fn poll(&mut self, timeout: Option<Duration>, inputs: &mut [Input]) -> io::Result<Poll> {
+    pub fn poll(&mut self, mut timeout: Option<Duration>, inputs: &mut [Input<i32>]) -> io::Result<Poll> {
         if inputs.is_empty() {
             return Ok(Poll::default());
         }
         self.update_colors()?;
         let mut result = Poll::default();
-        let mut timeout = timeout;
         for _ in 0..inputs.len() {
             let Some(event) = self.terminal.read(timeout)? else {
                 break;
@@ -270,10 +266,7 @@ impl Session {
                     column,
                     row,
                 } => {
-                    let position = LogicalPoint {
-                        x: f32::from(column) + 0.5,
-                        y: f32::from(row) + 0.5,
-                    };
+                    let position = PhysicalPoint::new(i32::from(column), i32::from(row));
                     let modifiers =
                         Modifiers::new(modifiers.shift, modifiers.control, modifiers.alt, modifiers.super_key);
                     let button = |button| match button {
@@ -344,7 +337,9 @@ impl Session {
         let finish = self.terminal.finish();
         clear.and(finish)
     }
+}
 
+impl Session {
     fn update_colors(&mut self) -> io::Result<()> {
         if self.query_colors {
             protocol::query_colors(&mut self.terminal)?;

@@ -1,11 +1,11 @@
-use blit::{Input, Key};
+use blit::{Input, Key, Scalar};
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct State {
+pub struct State<T> {
     pub cursor: usize,
     pub anchor: usize,
-    pub offset_x: f32,
+    pub offset_x: T,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -14,18 +14,22 @@ pub struct Response {
     pub submitted: bool,
 }
 
-impl State {
-    pub fn update(&mut self, value: &mut String, input: &Input) -> Response {
+impl<T: Scalar> State<T> {
+    pub fn update(&mut self, value: &mut String, input: &Input<T>) -> Response {
         self.cursor = boundary(value, self.cursor);
         self.anchor = boundary(value, self.anchor);
-        self.offset_x = self.offset_x.max(0.0);
+        self.offset_x = self.offset_x.max(T::ZERO);
         let mut response = Response::default();
         match *input {
             Input::Text(character) if !character.is_control() => {
                 self.delete_selection(value);
                 let end = self.cursor + character.len_utf8();
                 value.insert(self.cursor, character);
-                self.cursor = ceil_boundary(value, end);
+                self.cursor = value
+                    .grapheme_indices(true)
+                    .map(|(offset, _)| offset)
+                    .find(|boundary| *boundary >= end)
+                    .unwrap_or(value.len());
                 self.anchor = self.cursor;
                 response.changed = true;
             }
@@ -87,7 +91,9 @@ impl State {
             self.anchor = self.cursor;
         }
     }
+}
 
+impl<T: Scalar> State<T> {
     fn selection(&self) -> (usize, usize) {
         (self.cursor.min(self.anchor), self.cursor.max(self.anchor))
     }
@@ -125,12 +131,4 @@ fn boundary(value: &str, offset: usize) -> usize {
         .take_while(|boundary| *boundary <= offset)
         .last()
         .unwrap_or(0)
-}
-
-fn ceil_boundary(value: &str, offset: usize) -> usize {
-    value
-        .grapheme_indices(true)
-        .map(|(offset, _)| offset)
-        .find(|boundary| *boundary >= offset)
-        .unwrap_or(value.len())
 }

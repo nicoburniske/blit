@@ -1,5 +1,6 @@
-use blit::{Atom, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Ui, Widget};
-pub use blit_widgets::text_input::{Response, State};
+use blit::{Atom, Constraints, Input, Key, PhysicalRect, PointerButton, Sense, Sides, Size, Ui, Widget};
+pub use blit_widgets::text_input::Response;
+pub type State = blit_widgets::text_input::State<i32>;
 
 use crate::{
     TuiContext,
@@ -11,11 +12,10 @@ use crate::{
 blit::builder! {
     pub struct TextInput<'a> {
         new(state: &'a mut State, value: &'a mut String),
-        @optional {
-            background: Color,
-        },
+        #[into]
+        background: Option<Color> = None,
         placeholder: &'a str = "",
-        padding: Sides = Sides::all(0.0),
+        padding: Sides<i32> = Sides::all(0),
         color: Color = Color::Reset,
         placeholder_color: Color = Color::DARK_GRAY,
         selection_background: Color = Color::BLUE,
@@ -70,16 +70,16 @@ impl Widget<TuiContext> for TextInput<'_> {
             None
         };
         if let Some(area) = ui.geometry(id) {
-            let area = content_area(area, padding);
+            let area = area.inset(padding);
             let request = TextRequest::new(text, area).offset_x(state.offset_x).options(options);
             if let Some((position, extend)) = pointer {
                 let offset = ui.context().renderer_mut().text_offset_at_position(&request, position);
                 state.move_to(value, offset, extend);
             }
-            if area.width > 0.0 {
+            if area.width > 0 {
                 let cursor = ui.context().renderer_mut().text_cursor_rect(&request, state.cursor);
                 if cursor.x < area.x {
-                    state.offset_x = (state.offset_x - area.x + cursor.x).max(0.0);
+                    state.offset_x = (state.offset_x - area.x + cursor.x).max(0);
                 } else if cursor.x + cursor.width > area.x + area.width {
                     state.offset_x += cursor.x + cursor.width - area.x - area.width;
                 }
@@ -115,7 +115,7 @@ struct InputAtom {
     display: TextRunId,
     state: State,
     options: TextOptions,
-    padding: Sides,
+    padding: Sides<i32>,
     background: Option<Color>,
     color: Color,
     placeholder_color: Color,
@@ -126,15 +126,15 @@ struct InputAtom {
 }
 
 impl Atom<TuiContext> for InputAtom {
-    fn measure(&self, context: &mut TuiContext, constraints: Constraints) -> Size {
+    fn measure(&self, context: &mut TuiContext, constraints: Constraints<i32>) -> Size<i32> {
         let size = context
             .renderer_mut()
             .measure_text(&TextLayoutRequest::new(self.display).max_lines(1));
         constraints.constrain(size + self.padding.size())
     }
 
-    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
-        let area = content_area(area, self.padding);
+    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
+        let area = area.inset(self.padding);
         if let Some(background) = self.background {
             context
                 .cells(area)
@@ -148,7 +148,7 @@ impl Atom<TuiContext> for InputAtom {
         if start != end {
             let start = context.renderer_mut().text_cursor_rect(&request, start);
             let end = context.renderer_mut().text_cursor_rect(&request, end);
-            if let Some(selection) = blit::LogicalRect::new(start.x, start.y, end.x - start.x, 1.0).intersection(area) {
+            if let Some(selection) = blit::PhysicalRect::new(start.x, start.y, end.x - start.x, 1).intersection(area) {
                 context
                     .cells(selection)
                     .clear(Cell::default().style(CellStyle::new().background(self.selection_background)));
@@ -178,16 +178,7 @@ impl Atom<TuiContext> for InputAtom {
         );
     }
 
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
         area
     }
-}
-
-fn content_area(area: LogicalRect, padding: Sides) -> LogicalRect {
-    LogicalRect::new(
-        area.x + padding.left,
-        area.y + padding.top,
-        (area.width - padding.left - padding.right).max(0.0),
-        (area.height - padding.top - padding.bottom).max(0.0),
-    )
 }

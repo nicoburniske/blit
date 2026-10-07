@@ -109,7 +109,9 @@ impl Rasterizer {
         }
         (metrics, alpha)
     }
+}
 
+impl Rasterizer {
     fn draw(&mut self, width: usize, scale: f32, offset_x: f32, offset_y: f32) {
         let params = f32x4::from_array([1.0 / scale, 1.0 / scale, scale, scale]);
         let scale = f32x4::splat(scale);
@@ -125,11 +127,10 @@ impl Rasterizer {
     }
 
     fn add(&mut self, index: usize, height: f32, middle_x: f32) {
-        let next = index.checked_add(1).expect("raster index overflow");
-        assert!(next < self.coverage.len(), "raster index outside glyph");
+        let coverage = &mut self.coverage[index..][..2];
         let middle = height * middle_x;
-        self.coverage[index] += height - middle;
-        self.coverage[next] += middle;
+        coverage[0] += height - middle;
+        coverage[1] += middle;
     }
 
     fn vertical_line(&mut self, width: usize, line: Line, coordinates: f32x4) {

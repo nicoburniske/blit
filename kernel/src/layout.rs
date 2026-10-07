@@ -1,30 +1,38 @@
-pub use crate::frame::layout::{Children, LayoutCx};
-use crate::geometry::{Constraints, Sides, Size};
+use crate::{
+    Context, Ui,
+    geometry::{Constraints, Point, Size},
+};
+pub use crate::{
+    arena::Scratch,
+    frame::layout::{Children, LayoutCx},
+};
 
-pub trait Layout<C>: 'static {
-    /// per-child data interpreted by this layout
-    ///
-    /// children without explicit items store no `Item` of their own
-    /// all instances of this layout type share one default value
-    /// this avoids storing one item per child or layout instance
-    /// so it is more efficient to rely on the default value where possible
+pub trait Layout<C: Context>: 'static {
+    /// per child data interpreted by this layout
+    /// children without explicit items share this type's default value
     type Item: Default + 'static;
 
-    /// measures this node and arranges its flow children
-    ///
-    /// layout may run more than once per frame, including during size
-    /// transitions. every call must:
-    ///
-    /// - call [`LayoutCx::layout_child`] with every flow child's final constraints
-    /// - call [`LayoutCx::set_child_position`] for every flow child
-    /// - adapt layout-owned physical lengths through [`LayoutCx::resolution`]
-    /// - return a size within `constraints`
-    ///
-    /// [`LayoutCx::layout_child`] applies animated size overrides
-    ///
-    /// - use [`LayoutCx::resolve_sizing`] when sizing affects allocation before laying out the child
-    /// - use [`LayoutCx::target_child_size`] when animated size must not change structure such as wrapping
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints) -> Size;
+    /// configures this node before the layout is stored
+    fn on_insert<'a>(&self, ui: Ui<'a, C>) -> Ui<'a, C> {
+        ui
+    }
+
+    /// sizes and positions children and returns a constrained size
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<C::Scalar>) -> Size<C::Scalar>;
+}
+
+/// forwards constraints to overlapping children and measures this node's atoms
+impl<C: Context> Layout<C> for () {
+    type Item = ();
+
+    fn layout(&self, cx: &mut LayoutCx<'_, C, ()>, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
+        let mut size = cx.measure_atoms(bounds);
+        for child in cx.children() {
+            size = size.max(cx.layout_child(child, bounds));
+            cx.set_child_position(child, Point::ZERO);
+        }
+        bounds.constrain(size)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -44,7 +52,7 @@ impl Axis {
     }
 
     #[inline]
-    pub const fn extent(self, size: Size) -> f32 {
+    pub fn extent<T: Copy>(self, size: Size<T>) -> T {
         match self {
             Self::Horizontal => size.width,
             Self::Vertical => size.height,
@@ -52,117 +60,10 @@ impl Axis {
     }
 
     #[inline]
-    pub fn set_extent(self, size: &mut Size, extent: f32) {
+    pub fn set_extent<T>(self, size: &mut Size<T>, extent: T) {
         match self {
             Self::Horizontal => size.width = extent,
             Self::Vertical => size.height = extent,
-        }
-    }
-}
-
-/// one-dimensional sizing policy interpreted by a layout or absolute placement
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Sizing {
-    Fit { min: f32, max: f32 },
-    Grow { min: f32, max: f32 },
-    Fixed(f32),
-    Percent(f32),
-}
-
-impl Sizing {
-    pub const fn fit() -> Self {
-        Self::fit_range(0.0, f32::INFINITY)
-    }
-
-    pub const fn fit_range(min: f32, max: f32) -> Self {
-        Self::Fit { min, max }
-    }
-
-    pub const fn grow() -> Self {
-        Self::grow_range(0.0, f32::INFINITY)
-    }
-
-    pub const fn grow_range(min: f32, max: f32) -> Self {
-        Self::Grow { min, max }
-    }
-
-    pub const fn fixed(size: f32) -> Self {
-        Self::Fixed(size)
-    }
-
-    pub const fn percent(fraction: f32) -> Self {
-        Self::Percent(fraction)
-    }
-
-    #[inline]
-    pub fn clamp(self, size: f32) -> f32 {
-        match self {
-            Self::Fit { min, max } | Self::Grow { min, max } => size.clamp(min.max(0.0), max.max(min).max(0.0)),
-            Self::Fixed(fixed) => fixed.max(0.0),
-            Self::Percent(_) => size.max(0.0),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum LayoutResolution {
-    #[default]
-    Continuous,
-    Discrete {
-        step: Size,
-    },
-}
-
-impl LayoutResolution {
-    /// adapts an extent to this resolution
-    ///
-    /// continuous values are unchanged. discrete values round up by `step`.
-    #[inline]
-    pub fn extent(self, axis: Axis, value: f32) -> f32 {
-        let Self::Discrete { step } = self else {
-            return value;
-        };
-        if value <= 0.0 || !value.is_finite() {
-            return value;
-        }
-        let step = match axis {
-            Axis::Horizontal => step.width,
-            Axis::Vertical => step.height,
-        };
-        assert!(step.is_finite() && step > 0.0);
-        (value / step).ceil() * step
-    }
-
-    /// adapts absolute extents in a sizing policy to this resolution
-    ///
-    /// percentage policies are unchanged.
-    #[inline(always)]
-    pub fn sizing(self, axis: Axis, sizing: Sizing) -> Sizing {
-        if self == Self::Continuous {
-            return sizing;
-        }
-        match sizing {
-            Sizing::Fit { min, max } => Sizing::Fit {
-                min: self.extent(axis, min),
-                max: self.extent(axis, max),
-            },
-            Sizing::Grow { min, max } => Sizing::Grow {
-                min: self.extent(axis, min),
-                max: self.extent(axis, max),
-            },
-            Sizing::Fixed(size) => Sizing::Fixed(self.extent(axis, size)),
-            Sizing::Percent(fraction) => Sizing::Percent(fraction),
-        }
-    }
-
-    /// adapts horizontal and vertical sides on their respective axes
-    #[inline]
-    pub fn sides(self, sides: Sides) -> Sides {
-        Sides {
-            top: self.extent(Axis::Vertical, sides.top),
-            right: self.extent(Axis::Horizontal, sides.right),
-            bottom: self.extent(Axis::Vertical, sides.bottom),
-            left: self.extent(Axis::Horizontal, sides.left),
         }
     }
 }

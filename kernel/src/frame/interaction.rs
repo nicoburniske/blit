@@ -1,5 +1,6 @@
 use super::{Frame, Request};
 use crate::{
+    Context, Scalar,
     geometry::{Point, Rect, Sides},
     input::{Input, PointerButton},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
@@ -7,7 +8,7 @@ use crate::{
 
 const DRAG_THRESHOLD: f32 = 6.0;
 
-pub fn resolve<C>(frame: &mut Frame<C>) {
+pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     frame.geometry_previous.clear();
     if !frame.requests.is_empty() {
         for index in 0..frame.nodes.len() {
@@ -17,36 +18,23 @@ pub fn resolve<C>(frame: &mut Frame<C>) {
             let Some(request) = frame.requests.get(&id).copied() else {
                 continue;
             };
-            frame.geometry_previous.push((id, stored.area));
+            let area = frame.node_geometry[node].area;
+            frame.geometry_previous.push((id, area));
             let Request::Interaction(sense) = request else {
                 continue;
             };
             let hit = stored
                 .geometry
                 .index()
-                .map_or(Sides::all(0.0), |index| frame.geometry[index].hit);
+                .map_or(Sides::all(C::Scalar::ZERO), |index| frame.geometry[index].hit);
             let area = Rect::new(
-                stored.area.x - hit.left,
-                stored.area.y - hit.top,
-                stored.area.width + hit.left + hit.right,
-                stored.area.height + hit.top + hit.bottom,
+                area.x - hit.left,
+                area.y - hit.top,
+                area.width + hit.left + hit.right,
+                area.height + hit.top + hit.bottom,
             );
             let clip_bounds = frame.clip_bounds(stored.resolved_clip);
-            let area = match frame.layout_resolution {
-                crate::LayoutResolution::Continuous => area.intersection(clip_bounds),
-                crate::LayoutResolution::Discrete { step } => {
-                    let left = (area.x / step.width).round() * step.width;
-                    let top = (area.y / step.height).round() * step.height;
-                    let right = ((area.x + area.width) / step.width).round() * step.width;
-                    let bottom = ((area.y + area.height) / step.height).round() * step.height;
-                    let area = Rect::new(left, top, right - left, bottom - top);
-                    let left = (clip_bounds.x / step.width - 0.5).ceil() * step.width;
-                    let top = (clip_bounds.y / step.height - 0.5).ceil() * step.height;
-                    let right = ((clip_bounds.x + clip_bounds.width) / step.width - 0.5).ceil() * step.width;
-                    let bottom = ((clip_bounds.y + clip_bounds.height) / step.height - 0.5).ceil() * step.height;
-                    area.intersection(Rect::new(left, top, right - left, bottom - top))
-                }
-            };
+            let area = area.intersection(clip_bounds);
             // todo: test interaction against the actual custom clip chain
             if let Some(area) = area {
                 frame.interaction.current_hits.push(HitItem { id, area, sense });
@@ -59,7 +47,7 @@ pub fn resolve<C>(frame: &mut Frame<C>) {
 }
 
 #[derive(Default)]
-pub struct InteractionState {
+pub struct InteractionState<T> {
     active: Option<WidgetId>,
     focused: Option<WidgetId>,
     hovered: Option<WidgetId>,
@@ -67,26 +55,26 @@ pub struct InteractionState {
     scroll_owner: Option<WidgetId>,
     activated: Option<WidgetId>,
     deactivated: Option<WidgetId>,
-    pointer: PointerState,
-    previous_hits: Vec<HitItem>,
-    current_hits: Vec<HitItem>,
+    pointer: PointerState<T>,
+    previous_hits: Vec<HitItem<T>>,
+    current_hits: Vec<HitItem<T>>,
 }
 
 #[derive(Default)]
-struct PointerState {
-    origin: Point,
-    position: Option<Point>,
+struct PointerState<T> {
+    origin: Point<T>,
+    position: Option<Point<T>>,
     down: bool,
     dragging: bool,
-    event: PointerEvent,
+    event: PointerEvent<T>,
 }
 
 #[derive(Clone, Copy, Default)]
-enum PointerEvent {
+enum PointerEvent<T> {
     #[default]
     None,
     Down,
-    Move(Point),
+    Move(Point<T>),
     Up {
         leave: bool,
     },
@@ -94,14 +82,14 @@ enum PointerEvent {
 }
 
 #[derive(Clone, Copy)]
-struct HitItem {
+struct HitItem<T> {
     id: WidgetId,
-    area: Rect,
+    area: Rect<T>,
     sense: Sense,
 }
 
-impl InteractionState {
-    pub fn begin(&mut self, input: &Input) {
+impl<T: Scalar> InteractionState<T> {
+    pub fn begin(&mut self, input: &Input<T>) {
         self.pointer.event = PointerEvent::None;
         self.activated = None;
         self.deactivated = None;
@@ -125,8 +113,8 @@ impl InteractionState {
                 self.pointer.position = Some(position);
                 self.pointer.event = PointerEvent::Move(delta);
                 if self.pointer.down && !self.pointer.dragging {
-                    let x = position.x - self.pointer.origin.x;
-                    let y = position.y - self.pointer.origin.y;
+                    let x = (position.x - self.pointer.origin.x).to_f32();
+                    let y = (position.y - self.pointer.origin.y).to_f32();
                     if x * x + y * y >= DRAG_THRESHOLD * DRAG_THRESHOLD {
                         self.pointer.dragging = true;
                         let previous = self.active;
@@ -203,7 +191,7 @@ impl InteractionState {
         }
     }
 
-    pub fn response(&self, id: WidgetId) -> Interaction {
+    pub fn response(&self, id: WidgetId) -> Interaction<T> {
         let active = self.active == Some(id);
         let hovered = self.hovered == Some(id);
         Interaction {
@@ -243,7 +231,7 @@ impl InteractionState {
         self.focused.take().is_some()
     }
 
-    pub fn pointer_position(&self) -> Option<Point> {
+    pub fn pointer_position(&self) -> Option<Point<T>> {
         self.pointer.position
     }
 
@@ -277,8 +265,10 @@ impl InteractionState {
             .and_then(|position| Self::hit(&self.previous_hits, position));
         next_hovered.map(|item| item.id) != self.hovered
     }
+}
 
-    fn hit(hits: &[HitItem], position: Point) -> Option<HitItem> {
+impl<T: Scalar> InteractionState<T> {
+    fn hit(hits: &[HitItem<T>], position: Point<T>) -> Option<HitItem<T>> {
         hits.iter().rev().find(|item| item.area.contains(position)).copied()
     }
 }

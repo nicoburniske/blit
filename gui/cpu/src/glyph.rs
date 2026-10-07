@@ -60,6 +60,10 @@ impl GlyphCache {
                 f32::from_bits(key.size),
                 key.phase as f32 * *phase_scale,
             );
+            assert!(
+                metrics.width <= i32::MAX as usize && metrics.height <= i32::MAX as usize,
+                "glyph dimensions are too large"
+            );
             (
                 key,
                 CachedGlyph {

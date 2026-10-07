@@ -1,7 +1,8 @@
 use std::time::Duration;
 
-use super::{Frame, NodeId, position};
+use super::{Frame, NodeId, layout};
 use crate::{
+    Context, Scalar,
     animation::{Transition, TransitionProperties},
     arena::DataArena,
     geometry::{Rect, Size},
@@ -14,7 +15,13 @@ use crate::{
 /// - active size transitions write animated sizes into node geometry and replay layout
 /// - target sizes remain available for structural decisions such as wrapping
 /// - position transitions apply after layout without replay
-pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size, resized: bool) {
+pub fn resolve<C: Context>(
+    frame: &mut Frame<C>,
+    data: &DataArena,
+    context: &mut C,
+    size: Size<C::Scalar>,
+    resized: bool,
+) {
     for index in 0..frame.geometry.len() {
         let record = frame.geometry[index];
         let Some(config) = record.transition else {
@@ -29,17 +36,14 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
         }
     }
 
-    position::layout(frame, data, context, size);
+    layout::resolve(frame, data, context, size);
     let mut active = TransitionProperties::NONE;
     for index in 0..frame.transitions.len() {
         if !frame.transitions[index].seen {
             continue;
         }
         let node = frame.transitions[index].node;
-        let mut target = frame.nodes[node.index()].area;
-        let offset = position::offset(frame, node);
-        target.x -= offset.x;
-        target.y -= offset.y;
+        let target = frame.node_geometry[node.index()].area;
         frame.transitions[index].advance(target, frame.time, resized);
         active = active.union(frame.transitions[index].active);
     }
@@ -47,62 +51,70 @@ pub fn resolve<C>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size:
     if active.intersects(TransitionProperties::SIZE) {
         frame
             .target_sizes
-            .extend(frame.nodes.iter().map(|node| super::TargetSize {
+            .extend(frame.node_geometry.iter().map(|node| super::TargetSize {
                 size: node.area.size(),
                 properties: TransitionProperties::NONE,
             }));
         let mut relayout = false;
-        for index in 0..frame.transitions.len() {
-            let state = &frame.transitions[index];
+        for state in &mut frame.transitions {
             if !state.seen {
                 continue;
             }
             let node = state.node;
-            let current = state.current;
             let properties = state.active.intersection(TransitionProperties::SIZE);
             if properties.is_empty() {
                 continue;
             }
             let parent = frame.nodes[node.index()].parent;
             if parent == node {
-                frame.transitions[index].snap_size();
+                if properties.intersects(TransitionProperties::WIDTH) {
+                    state.current.width = state.target.width;
+                    state.initial.width = state.target.width;
+                }
+                if properties.intersects(TransitionProperties::HEIGHT) {
+                    state.current.height = state.target.height;
+                    state.initial.height = state.target.height;
+                }
+                state.active = state.active.intersection(TransitionProperties::POSITION);
+                if state.active.is_empty() {
+                    state.started_at = None;
+                }
                 continue;
             }
-            let area = &mut frame.nodes[node.index()].area;
+            let area = &mut frame.node_geometry[node.index()].area;
             if properties.intersects(TransitionProperties::WIDTH) {
-                area.width = current.width;
+                area.width = state.current.width;
             }
             if properties.intersects(TransitionProperties::HEIGHT) {
-                area.height = current.height;
+                area.height = state.current.height;
             }
             frame.target_sizes[node.index()].properties = properties;
             relayout = true;
         }
         if relayout {
-            position::layout(frame, data, context, size);
+            layout::resolve(frame, data, context, size);
         }
         frame.target_sizes.clear();
     }
 
     if active.intersects(TransitionProperties::POSITION) {
         for state in frame.transitions.iter().filter(|state| state.seen) {
-            let offset = position::offset(frame, state.node);
-            let area = &mut frame.nodes[state.node.index()].area;
+            let area = &mut frame.node_geometry[state.node.index()].area;
             if state.active.intersects(TransitionProperties::X) {
-                area.x = state.current.x + offset.x;
+                area.x = state.current.x;
             }
             if state.active.intersects(TransitionProperties::Y) {
-                area.y = state.current.y + offset.y;
+                area.y = state.current.y;
             }
         }
     }
 }
 
-pub struct TransitionState {
+pub struct TransitionState<T> {
     pub id: WidgetId,
-    pub current: Rect,
-    pub initial: Rect,
-    pub target: Rect,
+    pub current: Rect<T>,
+    pub initial: Rect<T>,
+    pub target: Rect<T>,
     pub started_at: Option<Duration>,
     pub active: TransitionProperties,
     pub node: NodeId,
@@ -111,7 +123,7 @@ pub struct TransitionState {
     pub seen: bool,
 }
 
-impl TransitionState {
+impl<T: Scalar> TransitionState<T> {
     pub fn new(id: WidgetId, node: NodeId, config: Transition) -> Self {
         Self {
             id,
@@ -137,22 +149,7 @@ impl TransitionState {
         self.started_at.is_some()
     }
 
-    fn snap_size(&mut self) {
-        if self.active.intersects(TransitionProperties::WIDTH) {
-            self.current.width = self.target.width;
-            self.initial.width = self.target.width;
-        }
-        if self.active.intersects(TransitionProperties::HEIGHT) {
-            self.current.height = self.target.height;
-            self.initial.height = self.target.height;
-        }
-        self.active = self.active.intersection(TransitionProperties::POSITION);
-        if self.active.is_empty() {
-            self.started_at = None;
-        }
-    }
-
-    pub fn advance(&mut self, target: Rect, now: Duration, resized: bool) {
+    pub fn advance(&mut self, target: Rect<T>, now: Duration, resized: bool) {
         if !self.initialized || (resized && !self.config.properties.intersects(TransitionProperties::RESIZE)) {
             self.current = target;
             self.initial = target;
@@ -175,16 +172,16 @@ impl TransitionState {
             let progress = (now.saturating_sub(started_at).as_secs_f32() / self.config.duration.as_secs_f32()).min(1.0);
             let amount = self.config.easing.apply(progress);
             if self.active.intersects(TransitionProperties::X) {
-                self.current.x = self.initial.x + (self.target.x - self.initial.x) * amount;
+                self.current.x = self.initial.x.lerp(self.target.x, amount);
             }
             if self.active.intersects(TransitionProperties::Y) {
-                self.current.y = self.initial.y + (self.target.y - self.initial.y) * amount;
+                self.current.y = self.initial.y.lerp(self.target.y, amount);
             }
             if self.active.intersects(TransitionProperties::WIDTH) {
-                self.current.width = self.initial.width + (self.target.width - self.initial.width) * amount;
+                self.current.width = self.initial.width.lerp(self.target.width, amount);
             }
             if self.active.intersects(TransitionProperties::HEIGHT) {
-                self.current.height = self.initial.height + (self.target.height - self.initial.height) * amount;
+                self.current.height = self.initial.height.lerp(self.target.height, amount);
             }
             if progress == 1.0 {
                 self.current = self.target;

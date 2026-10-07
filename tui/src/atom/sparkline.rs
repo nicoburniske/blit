@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use blit::{Atom, Constraints, LogicalRect, Size};
+use blit::{Atom, Constraints, PhysicalRect, Size};
 
 use crate::{
     TuiContext,
@@ -8,45 +8,23 @@ use crate::{
     color::Color,
 };
 
-pub struct Sparkline {
-    pub data: Rc<RefCell<Vec<u64>>>,
-    pub maximum: Option<u64>,
-    pub color: Color,
-    pub background: Option<Color>,
-}
-
-impl Sparkline {
-    pub fn new(data: Rc<RefCell<Vec<u64>>>) -> Self {
-        Self {
-            data,
-            maximum: None,
-            color: Color::Reset,
-            background: None,
-        }
-    }
-
-    pub const fn maximum(mut self, maximum: u64) -> Self {
-        self.maximum = Some(maximum);
-        self
-    }
-
-    pub const fn color(mut self, color: Color) -> Self {
-        self.color = color;
-        self
-    }
-
-    pub const fn background(mut self, color: Color) -> Self {
-        self.background = Some(color);
-        self
+blit::builder! {
+    pub struct Sparkline {
+        new(data: Rc<RefCell<Vec<u64>>>),
+        #[into]
+        maximum: Option<u64> = None,
+        color: Color = Color::Reset,
+        #[into]
+        background: Option<Color> = None,
     }
 }
 
 impl Atom<TuiContext> for Sparkline {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints) -> Size {
-        constraints.constrain(Size::new(self.data.borrow().len() as f32, 1.0))
+    fn measure(&self, _: &mut TuiContext, constraints: Constraints<i32>) -> Size<i32> {
+        constraints.constrain(Size::new(self.data.borrow().len() as i32, 1))
     }
 
-    fn paint(&self, context: &mut TuiContext, area: LogicalRect) {
+    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
         const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let data = self.data.borrow();
         let mut cells = context.cells(area);
@@ -77,7 +55,7 @@ impl Atom<TuiContext> for Sparkline {
         }
     }
 
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
+    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
         area
     }
 }

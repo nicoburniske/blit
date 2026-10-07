@@ -273,7 +273,9 @@ impl Parser {
             }
         }
     }
+}
 
+impl Parser {
     fn text(&mut self, byte: u8, emit: &mut impl FnMut(Event)) {
         if byte & 0xc0 != 0x80 {
             self.utf8.clear();
