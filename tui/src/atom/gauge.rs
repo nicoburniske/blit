@@ -49,6 +49,8 @@ impl Gauge {
     }
 }
 
+blit::atom_widget!(Gauge);
+
 impl Atom<TuiContext> for Gauge {
     fn measure(&self, _: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
         let width = self

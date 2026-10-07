@@ -33,6 +33,8 @@ blit::builder! {
     }
 }
 
+blit::atom_widget!(BarChart);
+
 impl Atom<TuiContext> for BarChart {
     fn measure(&self, _: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
         let width = self

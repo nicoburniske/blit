@@ -874,6 +874,8 @@ struct PaintCount {
     bounds_offset: Point<f32>,
 }
 
+blit::atom_widget!(PaintCount);
+
 impl Atom<AsciiContext> for PaintCount {
     fn measure(&self, _: &mut AtomCx<'_, AsciiContext>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::uniform(1.0))
@@ -905,6 +907,8 @@ impl<C: blit::Context<Scalar = f32>> Layout<C> for OwnedValue {
     }
 }
 
+blit::atom_widget!(OwnedValue);
+
 impl Atom<AsciiContext> for OwnedValue {
     fn measure(&self, _: &mut AtomCx<'_, AsciiContext>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
@@ -933,6 +937,8 @@ impl Fill {
         Self { glyph, size }
     }
 }
+
+blit::atom_widget!(Fill);
 
 impl Atom<AsciiContext> for Fill {
     fn measure(&self, _: &mut AtomCx<'_, AsciiContext>, constraints: Constraints<f32>) -> Size<f32> {

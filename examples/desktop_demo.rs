@@ -1015,6 +1015,8 @@ struct TerrainBuffers {
     indices: Vec<u32>,
 }
 
+blit::atom_widget!(Terrain);
+
 impl Atom<GuiContext> for Terrain {
     fn measure(&self, _: &mut AtomCx<'_, GuiContext>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)

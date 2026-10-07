@@ -319,11 +319,10 @@ impl<C: Context, S> Ui<'_, C, S> {
     }
 }
 
-impl<C: Context, A: Atom<C>> Widget<C, state::Node> for A {
-    type Response = ();
-
-    fn build(self, ui: Ui<'_, C, state::Node>) {
-        atom::insert(ui.inner.frame, ui.inner.node, self);
+impl<C: Context> Ui<'_, C, state::Node> {
+    #[doc(hidden)]
+    pub fn insert_atom<A: Atom<C>>(self, atom: A) {
+        atom::insert(self.inner.frame, self.inner.node, atom);
     }
 }
 

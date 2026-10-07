@@ -131,6 +131,8 @@ struct InputAtom {
     cursor_background: Color,
 }
 
+blit::atom_widget!(InputAtom);
+
 impl<C: Context> Atom<C> for InputAtom {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         let size = cx.context_mut().as_mut().measure_text(&TextLayoutRequest {

@@ -84,3 +84,42 @@ macro_rules! builder {
     };
     (@default $name:ident $generics:tt $arguments:tt; $required:ident $(, $rest:ident)*) => {};
 }
+
+/// implements a node widget that stores its value as an atom
+///
+/// we cannot automatically implement node `Widget`s for every `Atom` alongside generic node widgets.
+/// another crate is allowed to implement `Atom<TheirContext>` for an existing widget. then both
+/// widget implementations would apply to it, so rust rejects the combination.
+/// this macro implements each atom type explicitly so widgets can keep using generic contexts
+///
+/// ```
+/// use blit::{Atom, AtomCx, Constraints, Context, Rect, Size};
+///
+/// struct Fill<T>(Size<T>);
+///
+/// blit::atom_widget!(Fill<T>, [T: blit::Scalar]);
+///
+/// impl<C: Context> Atom<C> for Fill<C::Scalar> {
+///     fn measure(&self, _: &mut AtomCx<'_, C>, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
+///         bounds.constrain(self.0)
+///     }
+///
+///     fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<C::Scalar>) {}
+/// }
+/// ```
+#[macro_export]
+macro_rules! atom_widget {
+    ($atom:ty $(, [$($generics:tt)*])? $(,)?) => {
+        impl<__BlitContext: $crate::Context $(, $($generics)*)?>
+            $crate::Widget<__BlitContext, $crate::state::Node> for $atom
+        where
+            $atom: $crate::Atom<__BlitContext>,
+        {
+            type Response = ();
+
+            fn build(self, ui: $crate::Ui<'_, __BlitContext, $crate::state::Node>) {
+                ui.insert_atom(self);
+            }
+        }
+    };
+}

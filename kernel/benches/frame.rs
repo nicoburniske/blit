@@ -115,6 +115,7 @@ fn build_geometry_and_layout(bencher: divan::Bencher, count: usize) {
 #[divan::bench(args = ["fit", "grow", "capped"])]
 fn flex_layout(bencher: divan::Bencher, sizing: &str) {
     struct Child;
+    blit::atom_widget!(Child);
     impl Atom<()> for Child {
         fn measure(&self, _: &mut AtomCx<'_, ()>, bounds: Constraints<f32>) -> Size<f32> {
             bounds.constrain(Size::new(8.0, 2.0))

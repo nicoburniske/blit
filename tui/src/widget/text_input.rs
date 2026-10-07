@@ -128,6 +128,8 @@ struct InputAtom {
     focused: bool,
 }
 
+blit::atom_widget!(InputAtom);
+
 impl Atom<TuiContext> for InputAtom {
     fn measure(&self, cx: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
         let size = cx

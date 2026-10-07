@@ -155,6 +155,8 @@ mod tests {
 
     struct BoxAtom;
 
+    blit::atom_widget!(BoxAtom);
+
     impl Atom<TestContext> for BoxAtom {
         fn measure(&self, _: &mut AtomCx<'_, TestContext>, constraints: Constraints<f32>) -> Size<f32> {
             constraints.min

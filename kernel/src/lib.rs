@@ -82,7 +82,7 @@ pub trait Widget<C: Context, S = state::Build> {
 
 /// retained visual content that measures and paints after building
 ///
-/// every atom implements [`Widget<C, state::Node>`] and can be inserted into an existing node
+/// use [`atom_widget!`] to implement [`Widget<C, state::Node>`] for an atom type
 pub trait Atom<C: Context>: 'static {
     /// returns the size requested by this atom under `constraints`
     ///
@@ -118,6 +118,8 @@ impl<C: Context> Widget<C> for () {
         ui.insert(self);
     }
 }
+
+atom_widget!(());
 
 impl<C: Context> Atom<C> for () {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {

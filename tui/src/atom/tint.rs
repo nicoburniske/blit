@@ -12,6 +12,8 @@ blit::builder! {
     }
 }
 
+blit::atom_widget!(Tint);
+
 impl Atom<TuiContext> for Tint {
     fn measure(&self, _: &mut AtomCx<'_, TuiContext>, _: Constraints<i32>) -> Size<i32> {
         Size::ZERO
