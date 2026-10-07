@@ -116,10 +116,6 @@ impl Atom<TuiContext> for Block {
             right,
         );
     }
-
-    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
-        area
-    }
 }
 
 blit::builder! {

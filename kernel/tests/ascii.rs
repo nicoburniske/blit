@@ -914,10 +914,6 @@ impl Atom<AsciiContext> for OwnedValue {
         self.area.set(area);
         cx.context_mut().cells.fill('P');
     }
-
-    fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
-        area
-    }
 }
 
 impl Drop for OwnedValue {
@@ -963,10 +959,6 @@ impl Atom<AsciiContext> for Fill {
             }
         }
     }
-
-    fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
-        area
-    }
 }
 
 struct FillContent;
@@ -974,7 +966,7 @@ struct FillContent;
 impl Content<AsciiContext> for FillContent {
     type Response = ();
 
-    fn append(self, mut ui: Ui<'_, blit::state::Node>) {
+    fn insert(self, mut ui: Ui<'_, blit::state::Node>) {
         ui.insert(Fill::new('A', Size::new(3.0, 1.0)));
     }
 }
@@ -984,7 +976,7 @@ struct PreparedText<'a>(&'a str);
 impl Content<AsciiContext> for PreparedText<'_> {
     type Response = ();
 
-    fn append(self, mut ui: Ui<'_, blit::state::Node>) {
+    fn insert(self, mut ui: Ui<'_, blit::state::Node>) {
         let glyph = ui.context_mut().prepare(self.0);
         ui.insert(Fill::new(glyph, Size::new(2.0, 1.0)));
     }
@@ -995,7 +987,7 @@ struct Pair(char, char);
 impl Content<AsciiContext> for Pair {
     type Response = ();
 
-    fn append(self, mut ui: Ui<'_, blit::state::Node>) {
+    fn insert(self, mut ui: Ui<'_, blit::state::Node>) {
         ui.insert(Fill::new(self.0, Size::new(2.0, 1.0)));
         ui.insert(Fill::new(self.1, Size::new(2.0, 1.0)));
     }

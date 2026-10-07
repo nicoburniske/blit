@@ -182,8 +182,4 @@ impl<C: Context> Atom<C> for InputAtom {
         };
         context.paint_text(request);
     }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
-    }
 }

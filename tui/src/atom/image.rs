@@ -20,8 +20,4 @@ impl Atom<TuiContext> for Image {
     fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
         cx.context_mut().place_image(ImagePlacement::new(self.image, area));
     }
-
-    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
-        area
-    }
 }

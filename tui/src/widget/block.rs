@@ -31,7 +31,7 @@ impl<'a> Block<'a> {
 impl Content<TuiContext> for Block<'_> {
     type Response = ();
 
-    fn append(self, mut ui: Ui<'_, state::Node>) {
+    fn insert(self, mut ui: Ui<'_, state::Node>) {
         let color = self.border.map(|border| border.color).unwrap_or(Color::Reset);
         let titles = self.titles.map(|title| {
             title.map(|title| {

@@ -36,8 +36,4 @@ impl Atom<TuiContext> for Text {
                 .options(self.options),
         );
     }
-
-    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
-        area
-    }
 }

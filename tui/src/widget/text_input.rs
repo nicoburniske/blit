@@ -182,8 +182,4 @@ impl Atom<TuiContext> for InputAtom {
                 .options(self.options),
         );
     }
-
-    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
-        area
-    }
 }

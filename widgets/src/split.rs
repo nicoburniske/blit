@@ -161,10 +161,6 @@ mod tests {
         }
 
         fn paint(&self, _: &mut AtomCx<'_, TestContext>, _: Rect<f32>) {}
-
-        fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
-            area
-        }
     }
 
     #[test]

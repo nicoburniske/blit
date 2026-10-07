@@ -94,8 +94,4 @@ impl Atom<TuiContext> for BarChart {
             }
         }
     }
-
-    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
-        area
-    }
 }

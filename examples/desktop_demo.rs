@@ -1087,10 +1087,6 @@ impl Atom<GuiContext> for Terrain {
             indices: &indices,
         });
     }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
-    }
 }
 
 fn split<'a>(

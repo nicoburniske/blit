@@ -36,10 +36,6 @@ impl<C: Context> Atom<C> for Rectangle {
             });
         }
     }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
-    }
 }
 
 blit::builder! {
@@ -75,10 +71,6 @@ impl<C: Context> Atom<C> for Text {
         };
         cx.context_mut().as_mut().paint_text_palette(request, self.palette);
     }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -112,10 +104,6 @@ impl<C: Context> Atom<C> for Image {
             vertical_tiling: self.vertical_tiling,
         };
         cx.context_mut().as_mut().paint_image(request);
-    }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
-        area
     }
 }
 
@@ -177,6 +165,4 @@ impl<C: Context> Atom<C> for Clear {
         let input = cx.context_mut().as_mut().render_input();
         input.display_list.push_clear(area.to_physical(input.scale));
     }
-
-    fn paint_bounds(&self, area: LogicalRect) -> LogicalRect { area }
 }

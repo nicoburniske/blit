@@ -111,7 +111,7 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     ///
     /// layouts choose whether their atoms contribute to sizing
     pub fn insert<X: Content<C>>(&mut self, content: X) -> X::Response {
-        content.append(Ui {
+        content.insert(Ui {
             inner: UiInner {
                 frame: self.inner.frame,
                 context: self.inner.context,
@@ -323,7 +323,7 @@ impl<C: Context, S> Ui<'_, C, S> {
 impl<C: Context, A: Atom<C>> Content<C> for A {
     type Response = ();
 
-    fn append(self, ui: Ui<'_, C, state::Node>) {
+    fn insert(self, ui: Ui<'_, C, state::Node>) {
         atom::insert(ui.inner.frame, ui.inner.node, self);
     }
 }

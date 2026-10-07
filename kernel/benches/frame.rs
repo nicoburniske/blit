@@ -120,9 +120,6 @@ fn flex_layout(bencher: divan::Bencher, sizing: &str) {
             bounds.constrain(Size::new(8.0, 2.0))
         }
         fn paint(&self, _: &mut AtomCx<'_, ()>, _: Rect<f32>) {}
-        fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
-            area
-        }
     }
     let mut frame = Frame::default();
     frame.build(

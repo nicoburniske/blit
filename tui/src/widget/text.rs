@@ -27,7 +27,7 @@ impl<'a> Text<'a> {
 impl Content<TuiContext> for Text<'_> {
     type Response = ();
 
-    fn append(self, mut ui: Ui<'_, state::Node>) {
+    fn insert(self, mut ui: Ui<'_, state::Node>) {
         let run = if let Some(spans) = self.spans {
             ui.context_mut().renderer_mut().rich_text(spans)
         } else {

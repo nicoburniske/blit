@@ -95,10 +95,6 @@ impl Atom<TuiContext> for Gauge {
             }
         }
     }
-
-    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
-        area
-    }
 }
 
 fn percentage_label(ratio: f64) -> ([char; 4], usize) {

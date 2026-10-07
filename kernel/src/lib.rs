@@ -85,7 +85,7 @@ pub trait Widget<C: Context> {
 pub trait Content<C: Context> {
     type Response;
 
-    fn append(self, ui: Ui<'_, C, state::Node>) -> Self::Response;
+    fn insert(self, ui: Ui<'_, C, state::Node>) -> Self::Response;
 }
 
 /// retained visual content that measures and paints after building
@@ -102,8 +102,10 @@ pub trait Atom<C: Context>: 'static {
 
     /// conservative bounds containing everything this atom may paint
     ///
-    /// these bounds may extend beyond the layout `area`
-    fn paint_bounds(&self, area: Rect<C::Scalar>) -> Rect<C::Scalar>;
+    /// override when painting extends beyond the layout `area`
+    fn paint_bounds(&self, area: Rect<C::Scalar>) -> Rect<C::Scalar> {
+        area
+    }
 }
 
 impl<C: Context, F, O> Widget<C> for F

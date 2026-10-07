@@ -54,8 +54,4 @@ impl Atom<TuiContext> for Sparkline {
             }
         }
     }
-
-    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
-        area
-    }
 }
