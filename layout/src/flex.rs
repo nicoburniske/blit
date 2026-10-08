@@ -75,6 +75,13 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
     type Item = Item<T>;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<T>) -> Size<T> {
+        let resolve = {
+            #[inline(always)]
+            |cx: &LayoutCx<'_, C, Self::Item>, child, item: &Item<T>, axis| {
+                let sizing = item.sizing(axis).unwrap_or_else(|| cx.child_sizing(child, axis));
+                super::resolve_sizing(cx, child, axis, sizing)
+            }
+        };
         let mut count = 0usize;
         let mut grows = 0usize;
         let mut minimums = T::ZERO;
@@ -84,7 +91,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
         for child in cx.children() {
             count += 1;
             let item = cx.item(child);
-            if let Sizing::Grow { min, max } = resolve_sizing(cx, child, self.axis) {
+            if let Sizing::Grow { min, max } = resolve(cx, child, item, self.axis) {
                 assert!(
                     item.weight.is_finite() && item.weight > 0.0,
                     "flex weight must be finite and positive"
@@ -141,8 +148,8 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
         let mut percentages = 0.0;
         for child in cx.children() {
             let item = cx.item(child);
-            let sizing = resolve_sizing(cx, child, self.axis);
-            let cross = resolve_sizing(cx, child, cross_axis);
+            let sizing = resolve(cx, child, item, self.axis);
+            let cross = resolve(cx, child, item, cross_axis);
             let main_bounds = self.main_bounds(sizing, &space, &mut percentages);
             if let Sizing::Grow { min, max } = sizing
                 && main_max.is_finite()
@@ -176,8 +183,9 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
         if cross_fill {
             let mut percentages = 0.0;
             for child in cx.children() {
-                let sizing = resolve_sizing(cx, child, self.axis);
-                let cross = resolve_sizing(cx, child, cross_axis);
+                let item = cx.item(child);
+                let sizing = resolve(cx, child, item, self.axis);
+                let cross = resolve(cx, child, item, cross_axis);
                 let main_bounds = self.main_bounds(sizing, &space, &mut percentages);
                 if matches!(sizing, Sizing::Fixed(_))
                     || main_max.is_finite() && matches!(sizing, Sizing::Grow { .. })
@@ -214,7 +222,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
             let mut allocation = 0.0;
             for child in cx.children() {
                 let item = cx.item(child);
-                let Sizing::Grow { min, max } = resolve_sizing(cx, child, self.axis) else {
+                let Sizing::Grow { min, max } = resolve(cx, child, item, self.axis) else {
                     continue;
                 };
                 let min = min.max(T::ZERO);
@@ -224,21 +232,17 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                     (max.max(min) - min).to_f32()
                 };
                 let main = min + T::allocate(&mut allocation, (unit * item.weight).min(capacity));
-                self.layout_child(
-                    cx,
-                    child,
-                    (main, main),
-                    resolve_sizing(cx, child, cross_axis),
-                    &mut space,
-                );
+                let cross = resolve(cx, child, item, cross_axis);
+                self.layout_child(cx, child, (main, main), cross, &mut space);
             }
         }
         if deferred {
             for child in cx.children() {
-                let Sizing::Fixed(main) = resolve_sizing(cx, child, self.axis) else {
+                let item = cx.item(child);
+                let Sizing::Fixed(main) = resolve(cx, child, item, self.axis) else {
                     continue;
                 };
-                let cross = resolve_sizing(cx, child, cross_axis);
+                let cross = resolve(cx, child, item, cross_axis);
                 if !matches!(
                     (cross, self.align),
                     (Sizing::Grow { .. }, _) | (Sizing::Fit { .. }, Align::Stretch)
@@ -325,16 +329,4 @@ struct Space<T> {
     cross: T,
     cross_max: T,
     dynamic_cross: bool,
-}
-
-fn resolve_sizing<C: Context>(
-    cx: &LayoutCx<'_, C, Item<C::Scalar>>,
-    child: blit::NodeId,
-    axis: Axis,
-) -> Sizing<C::Scalar> {
-    let sizing = cx
-        .item(child)
-        .sizing(axis)
-        .unwrap_or_else(|| cx.child_sizing(child, axis));
-    super::resolve_sizing(cx, child, axis, sizing)
 }
