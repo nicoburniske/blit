@@ -26,6 +26,7 @@ blit::builder! {
         y: T = T::ZERO,
         width: Sizing<T> = Sizing::fit(),
         height: Sizing<T> = Sizing::fit(),
+        hit: Sides<T> = Sides::all(T::ZERO),
         open_on_hover: bool = false,
         close: Close = Close::Click,
     }
@@ -61,7 +62,7 @@ where
         }
         let mut root = ui.layout(single::new());
         let anchor = {
-            let mut trigger_node = root.child().widget_id(trigger_id).layout(());
+            let mut trigger_node = root.child().widget_id(trigger_id).hit(config.hit).layout(());
             let anchor = trigger_node.id();
             trigger_node
                 .child()

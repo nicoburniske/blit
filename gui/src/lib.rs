@@ -12,7 +12,7 @@ pub mod layout {
     blit_layout::export!(f32);
 }
 pub use blit_text::{FontData, FontError, TextLayoutEngine};
-pub use blit_widgets::performance;
+pub use blit_widgets::{performance, scroll};
 
 pub use self::{
     context::{BoundsClip, GuiContext, RenderInput},
