@@ -198,7 +198,6 @@ impl<C: Context> Frame<C> {
             .enumerate()
             .find_map(|(index, node)| (node.widget_id == id).then_some(self.node_geometry[index].area))
     }
-
 }
 
 impl<C: Context> Frame<C> {
@@ -212,6 +211,7 @@ impl<C: Context> Frame<C> {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
                     run: layout::run::<C, L>,
+                    sizing: |data, id, axis| data.load::<L>(id).sizing(axis),
                     default_item: DataId::NONE,
                 });
                 self.layout_kinds.len() - 1
@@ -330,7 +330,6 @@ impl<C: Context> Frame<C> {
         clip.index()
             .map_or(self.screen, |clip| self.resolved_clips[clip].bounds)
     }
-
 }
 
 #[cfg(debug_assertions)]
@@ -457,6 +456,7 @@ struct AtomKind<C: Context> {
 struct LayoutKind<C: Context> {
     type_id: TypeId,
     run: for<'a> fn(&mut layout::LayoutCx<'a, C>, DataId, Constraints<C::Scalar>) -> Size<C::Scalar>,
+    sizing: fn(&DataArena, DataId, crate::Axis) -> crate::Sizing<C::Scalar>,
     default_item: DataId,
 }
 

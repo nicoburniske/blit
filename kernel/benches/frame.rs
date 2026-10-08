@@ -1,10 +1,10 @@
 use std::{hint::black_box, time::Duration};
 
 use blit::{
-    Atom, AtomCx, Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, Point, Rect, Sense, Size, Transition, Ui,
-    WidgetId, state,
+    Atom, AtomCx, Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, Point, Rect, Sense, Size, Sizing, Transition,
+    Ui, WidgetId, state,
 };
-use blit_layout::{Sizing, flex};
+use blit_layout::flex;
 
 #[global_allocator]
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();

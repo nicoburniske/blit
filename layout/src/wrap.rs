@@ -1,8 +1,6 @@
-use blit::{Axis, Constraints, Context, LayoutCx, Point, Scalar, Sides, Size};
+use blit::{Axis, Constraints, Context, LayoutCx, Point, Scalar, Sides, Size, Sizing};
 
-use super::{
-    Align, Justify, Sizing, allocated_range, flow_constraints, flow_size, justify_offset, resolve_sizing, sizing_range,
-};
+use super::{Align, Justify, allocated_range, flow_constraints, flow_size, justify_offset, sizing_range};
 
 blit::builder! {
     /// wraps children into rows or columns
@@ -21,12 +19,15 @@ blit::builder! {
 }
 
 blit::builder! {
-    /// sizing policy for a wrapping child
+    /// sizing overrides for a wrapping child
+    /// unspecified axes use the child's declared sizing
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Item<T: Scalar> {
         new(),
-        width: Sizing<T> = Sizing::fit(),
-        height: Sizing<T> = Sizing::fit(),
+        #[into]
+        width: Option<Sizing<T>> = None,
+        #[into]
+        height: Option<Sizing<T>> = None,
     }
 }
 
@@ -40,18 +41,18 @@ impl<T: Scalar> Layout<T> {
 
 impl<T: Scalar> Item<T> {
     pub fn fixed(mut self, width: T, height: T) -> Self {
-        self.width = Sizing::fixed(width);
-        self.height = Sizing::fixed(height);
+        self.width = Some(Sizing::fixed(width));
+        self.height = Some(Sizing::fixed(height));
         self
     }
 
     pub fn grow(mut self) -> Self {
-        self.width = Sizing::grow();
-        self.height = Sizing::grow();
+        self.width = Some(Sizing::grow());
+        self.height = Some(Sizing::grow());
         self
     }
 
-    pub fn sizing(&self, axis: Axis) -> Sizing<T> {
+    pub fn sizing(&self, axis: Axis) -> Option<Sizing<T>> {
         match axis {
             Axis::Horizontal => self.width,
             Axis::Vertical => self.height,
@@ -94,17 +95,13 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
         let mut percentages = 0.0;
         let mut target_differs = false;
         for child in cx.children() {
-            let item = cx.item(child);
-            let main = resolve_sizing(cx, child, self.axis, item.sizing(self.axis));
+            let main = resolve_sizing(cx, child, self.axis);
             let size = cx.layout_child(
                 child,
                 flow_constraints(
                     self.axis,
                     allocated_range(main, main_max, &mut percentages),
-                    sizing_range(
-                        resolve_sizing(cx, child, cross_axis, item.sizing(cross_axis)),
-                        cross_max,
-                    ),
+                    sizing_range(resolve_sizing(cx, child, cross_axis), cross_max),
                 ),
             );
             target_differs |= self.axis.extent(size) != self.axis.extent(cx.target_size(child));
@@ -142,7 +139,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
             let mut grows = 0;
             for child in children.take(count) {
                 used += self.axis.extent(cx.size(child));
-                if let Sizing::Grow { .. } = resolve_sizing(cx, child, self.axis, cx.item(child).sizing(self.axis)) {
+                if let Sizing::Grow { .. } = resolve_sizing(cx, child, self.axis) {
                     grows += 1;
                 }
             }
@@ -156,7 +153,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
             let mut cross = T::ZERO;
             for child in children.take(count) {
                 let width = self.axis.extent(cx.size(child));
-                let sizing = resolve_sizing(cx, child, self.axis, cx.item(child).sizing(self.axis));
+                let sizing = resolve_sizing(cx, child, self.axis);
                 if let Sizing::Grow { min, max } = sizing {
                     let capacity = if max == T::UNBOUNDED {
                         f32::INFINITY
@@ -170,10 +167,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                             flow_constraints(
                                 self.axis,
                                 (assigned, assigned),
-                                sizing_range(
-                                    resolve_sizing(cx, child, cross_axis, cx.item(child).sizing(cross_axis)),
-                                    cross_max,
-                                ),
+                                sizing_range(resolve_sizing(cx, child, cross_axis), cross_max),
                             ),
                         );
                     }
@@ -188,11 +182,9 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                 let size = cx.size(child);
                 let child_main = self.axis.extent(size);
                 let child_cross = cross_axis.extent(size);
-                let sizing = cx.item(child).sizing(cross_axis);
+                let sizing = resolve_sizing(cx, child, cross_axis);
                 let assigned = match (sizing, self.align) {
-                    (Sizing::Grow { .. }, _) | (Sizing::Fit { .. }, Align::Stretch) => {
-                        resolve_sizing(cx, child, cross_axis, sizing).clamp(cross)
-                    }
+                    (Sizing::Grow { .. }, _) | (Sizing::Fit { .. }, Align::Stretch) => sizing.clamp(cross),
                     _ => child_cross,
                 };
                 if assigned != child_cross {
@@ -255,4 +247,16 @@ fn longest_run<T: Scalar>(widths: impl Iterator<Item = T>, available: T, gap: T)
         longest = longest.max(next_run(&mut widths, |width| *width, available, gap).1);
     }
     longest
+}
+
+fn resolve_sizing<C: Context>(
+    cx: &LayoutCx<'_, C, Item<C::Scalar>>,
+    child: blit::NodeId,
+    axis: Axis,
+) -> Sizing<C::Scalar> {
+    let sizing = cx
+        .item(child)
+        .sizing(axis)
+        .unwrap_or_else(|| cx.child_sizing(child, axis));
+    super::resolve_sizing(cx, child, axis, sizing)
 }

@@ -70,6 +70,16 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         self.cast::<()>().resolve(child, bounds)
     }
 
+    /// queries a child's declared sizing without running its layout
+    pub fn child_sizing(&self, child: NodeId, axis: crate::Axis) -> crate::Sizing<C::Scalar> {
+        let stored = self.assert_child(child);
+        if stored.layout.offset().is_none() {
+            return crate::Sizing::fit();
+        }
+        let kind = &self.frame.layout_kinds[stored.layout_kind as usize];
+        (kind.sizing)(self.data, stored.layout, axis)
+    }
+
     pub fn target_size(&self, child: NodeId) -> Size<C::Scalar> {
         if self.frame.target_sizes.is_empty() {
             self.size(child)

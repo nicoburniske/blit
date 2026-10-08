@@ -2,9 +2,9 @@ use std::{cell::Cell, rc::Rc, time::Duration};
 
 use blit::{
     Atom, AtomCx, Axis, Clip, Constraints, Easing, Frame, FrameInfo, Input, Interaction, Layout, LayoutCx, Modifiers,
-    NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Transition, Widget, WidgetId,
+    NodeId, NodeTarget, Point, PointerButton, Rect, Sense, Size, Sizing, Transition, Widget, WidgetId,
 };
-use blit_layout::{Sizing, absolute, absolute::Anchor, resolve_sizing};
+use blit_layout::{absolute, absolute::Anchor, resolve_sizing};
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, AsciiContext, S>;
 

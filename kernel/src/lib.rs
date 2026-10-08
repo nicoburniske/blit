@@ -55,7 +55,7 @@ pub use self::{
     },
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
     interact::{Interaction, ScrollInteraction, Sense, WidgetId},
-    layout::{Axis, Layout, LayoutCx, Scratch},
+    layout::{Axis, Layout, LayoutCx, Scratch, Sizing},
 };
 
 pub trait Context {

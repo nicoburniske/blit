@@ -316,7 +316,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
                 |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(flex::column().padding(Sides::all(1)));
                     sidebar.insert(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
-                    sidebar.child().item(flex::item().grow()).build(scroll_area::new(
+                    sidebar.child().build(scroll_area::new(
                         layout_scroll,
                         scroll_area::Config::new().behavior(scroll_behavior()),
                         |ui: Ui<'_>| {
@@ -633,8 +633,8 @@ impl Widget<TuiContext> for &mut TextPage {
                 let mut preview = ui.layout(flex::column().padding(Sides::all(1)).gap(1));
                 {
                     let mut input_preview = preview
-                        .child().item(flex::item().height(Sizing::fixed(3)))
-                        .layout(single::new().width(Sizing::grow()));
+                        .child()
+                        .layout(single::new().width(Sizing::grow()).height(Sizing::fixed(3)));
                     input_preview.insert(panel(colors::SURFACE, " TEXT INPUT "));
                     input_preview
                         .child().widget_id(WidgetId::new("tui text input"))
@@ -651,7 +651,7 @@ impl Widget<TuiContext> for &mut TextPage {
                 }
                 {
                     let mut resizable = preview
-                        .child().item(flex::item().grow())
+                        .child()
                         .layout(single::new().grow().padding(Sides::all(1)));
                     resizable.insert(
                         panel(colors::SURFACE, " RESIZABLE TEXT ").title(
@@ -944,7 +944,7 @@ impl Widget<TuiContext> for &mut ScrollPage {
             Axis::Horizontal => 12,
             Axis::Vertical => 3,
         };
-        body.child().item(flex::item().grow()).build(scroll_list::new(
+        body.child().build(scroll_list::new(
             scroll,
             scroll_list::Config::new(item_extent)
                 .axis(axis)

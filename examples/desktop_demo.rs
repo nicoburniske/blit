@@ -457,30 +457,28 @@ impl Widget<DesktopContext> for &mut InputPage {
                 })
                 .color(colors::ACCENT),
         );
-        body.child()
-            .item(flex::item().width(Sizing::fixed(560.0)).height(Sizing::fixed(sz::XXXL)))
-            .build(|ui: Ui<'_>| {
-                let mut field = ui.layout(single::new().grow());
-                field.insert(
-                    Rectangle::new()
-                        .background(colors::TRACK)
-                        .border(Border::solid(sz::BORDER, colors::BORDER))
-                        .radius(BorderRadius::uniform(sz::XS)),
-                );
-                field.child().widget_id(WidgetId::new("desktop text input")).build(
-                    TextInput::new(&mut self.state, &mut self.value)
-                        .style(TextStyle {
-                            size: sz::LG,
-                            ..TextStyle::default()
-                        })
-                        .padding(Sides::all(sz::SM))
-                        .color(colors::TEXT)
-                        .placeholder("Type here")
-                        .placeholder_color(colors::TEXT_DIM)
-                        .selection_background(colors::ACCENT_DARK)
-                        .cursor_background(colors::ACCENT),
-                )
-            });
+        body.child().build(|ui: Ui<'_>| {
+            let mut field = ui.layout(single::new().fixed(560.0, sz::XXXL));
+            field.insert(
+                Rectangle::new()
+                    .background(colors::TRACK)
+                    .border(Border::solid(sz::BORDER, colors::BORDER))
+                    .radius(BorderRadius::uniform(sz::XS)),
+            );
+            field.child().widget_id(WidgetId::new("desktop text input")).build(
+                TextInput::new(&mut self.state, &mut self.value)
+                    .style(TextStyle {
+                        size: sz::LG,
+                        ..TextStyle::default()
+                    })
+                    .padding(Sides::all(sz::SM))
+                    .color(colors::TEXT)
+                    .placeholder("Type here")
+                    .placeholder_color(colors::TEXT_DIM)
+                    .selection_background(colors::ACCENT_DARK)
+                    .cursor_background(colors::ACCENT),
+            )
+        });
         body.child().insert(
             Text::new("Click to focus. Escape releases focus.")
                 .style(TextStyle {
@@ -533,7 +531,7 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                             })
                             .color(colors::ACCENT),
                     );
-                    sidebar.child().item(flex::item().grow()).build(
+                    sidebar.child().build(
                         scroll_area(
                             controls_scroll,
                             scroll_area::Config::new(),
@@ -770,7 +768,7 @@ impl Widget<DesktopContext> for &mut StylesPage {
                             })
                             .color(colors::ACCENT),
                     );
-                    sidebar.child().item(flex::item().grow()).build(
+                    sidebar.child().build(
                         scroll_area(
                             controls_scroll,
                             scroll_area::Config::new(),
@@ -962,7 +960,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
             Axis::Horizontal => sz::SCROLL_ITEM_WIDTH,
             Axis::Vertical => sz::SCROLL_ITEM_HEIGHT,
         };
-        section.child().item(flex::item().grow()).build(scroll_list::new(
+        section.child().build(scroll_list::new(
             scroll,
             scroll_list::Config::new(item_extent)
                 .axis(axis)

@@ -76,9 +76,9 @@ impl<C: Context<Scalar = T>, L: blit::Layout<C>, T: Scalar> blit::Layout<C> for 
         let available = cx.size(cx.parent());
         let range = |sizing, available| {
             let sizing = match sizing {
-                Sizing::Fit { min, max } => super::Sizing::Fit { min, max },
-                Sizing::Fixed(size) => super::Sizing::Fixed(size),
-                Sizing::Percent(fraction) => super::Sizing::Percent(fraction),
+                Sizing::Fit { min, max } => blit::Sizing::Fit { min, max },
+                Sizing::Fixed(size) => blit::Sizing::Fixed(size),
+                Sizing::Percent(fraction) => blit::Sizing::Percent(fraction),
             };
             sizing_range(sizing, available)
         };

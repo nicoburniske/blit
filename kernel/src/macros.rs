@@ -58,9 +58,8 @@ macro_rules! builder {
     };
     (@setter $(#[$setter:ident])? $visibility:vis $field:ident: $type:ty) => {
         #[doc = concat!("sets [`Self::", stringify!($field), "`]")]
-        $visibility fn $field(mut self, value: $crate::builder!(@type $(#[$setter])? $type)) -> Self {
-            self.$field = value.into();
-            self
+        $visibility fn $field(self, value: $crate::builder!(@type $(#[$setter])? $type)) -> Self {
+            Self { $field: value.into(), ..self }
         }
     };
     (@type #[into] $type:ty) => { impl ::core::convert::Into<$type> };

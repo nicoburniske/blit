@@ -4,7 +4,9 @@ pub mod virtual_list;
 
 use std::time::Duration;
 
-use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, ScrollPhase, Sense, Size, Ui, Widget};
+use blit::{
+    Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, ScrollPhase, Sense, Size, Sizing, Ui, Widget,
+};
 
 /// persistent scroll position and motion
 #[derive(Debug, Default)]
@@ -74,6 +76,10 @@ enum ScrollItem {
 
 impl<C: Context<Scalar = T>, O: Fn(T) -> T + 'static, T: Scalar> Layout<C> for ScrollLayout<O, T> {
     type Item = ScrollItem;
+
+    fn sizing(&self, _axis: Axis) -> Sizing<T> {
+        Sizing::grow()
+    }
 
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints<T>) -> Size<T> {
         let mut content = None;

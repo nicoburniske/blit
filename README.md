@@ -40,7 +40,7 @@ use blit_tui::{
     Ui,
     atom::Border,
     color::Color,
-    layout::{Justify, flex},
+    layout::{Align, Justify, flex},
     text::{HorizontalAlign, TextAttributes, TextOptions},
     widget::{Block, Text},
 };
@@ -51,12 +51,13 @@ fn main() -> std::io::Result<()> {
         let mut root = ui.layout(flex::column().padding(Sides::all(1)).gap(1));
 
         let quit = root
-            // default flex behavior sizes the header to its contents
+            // the header sizes itself to its contents
             .child()
             // the header returns whether its button was clicked
             .build(|ui: Ui<'_>| {
                 let mut header = ui.layout(
                     flex::row()
+                        .align(Align::Start)
                         .padding(Sides::all(1))
                         .justify(Justify::SpaceBetween),
                 );
