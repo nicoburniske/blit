@@ -33,5 +33,6 @@ blit-text = { path = "gui/text" }
 blit-text-cosmic = { path = "gui/text/cosmic" }
 blit-text-fontdue = { path = "gui/text/fontdue" }
 blit-arrayvec = { path = "internal/arrayvec" }
+blit-cache = { path = "internal/cache" }
 blit-raster = { path = "internal/raster" }
 wgpu = { version = "30.0.1", default-features = false }

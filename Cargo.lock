@@ -140,17 +140,24 @@ name = "blit-arrayvec"
 version = "0.1.0"
 
 [[package]]
+name = "blit-cache"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.14.5",
+]
+
+[[package]]
 name = "blit-cpu"
 version = "0.1.0"
 dependencies = [
  "blit",
  "blit-arrayvec",
+ "blit-cache",
  "blit-gui",
  "blit-raster",
  "blit-text",
  "blit-text-cosmic",
  "blit-text-fontdue",
- "blit_cache",
  "divan",
  "slotmap",
 ]
@@ -208,10 +215,10 @@ name = "blit-gui"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-cache",
  "blit-layout",
  "blit-text",
  "blit-widgets",
- "blit_cache",
  "ttf-parser",
 ]
 
@@ -264,9 +271,9 @@ dependencies = [
  "base64",
  "blit",
  "blit-arrayvec",
+ "blit-cache",
  "blit-layout",
  "blit-widgets",
- "blit_cache",
  "divan",
  "rustix 1.1.4",
  "signal-hook",
@@ -281,13 +288,6 @@ dependencies = [
  "blit",
  "blit-layout",
  "unicode-segmentation",
-]
-
-[[package]]
-name = "blit_cache"
-version = "0.1.0"
-dependencies = [
- "hashbrown 0.14.5",
 ]
 
 [[package]]
