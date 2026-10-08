@@ -8,5 +8,6 @@ publish = false
 [dependencies]
 blit.workspace = true
 blit-text.workspace = true
+blit-raster.workspace = true
 fontdue = { version = "0.9.4", default-features = false, features = ["std"] }
 ttf-parser = { version = "0.25.1", default-features = false }

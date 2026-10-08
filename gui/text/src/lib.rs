@@ -2,7 +2,7 @@ use std::{ops::Range, sync::Arc};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 
-/// todo: support variable font instances and expose their coordinates to renderers
+/// todo: support variable font instances
 pub trait TextLayoutEngine: 'static {
     type Shape: 'static;
 
@@ -10,11 +10,13 @@ pub trait TextLayoutEngine: 'static {
         Err(FontError::Unsupported)
     }
 
-    fn register_font(&mut self, data: FontData) -> Result<Vec<FontFaceId>, FontError>;
+    fn register_font(&mut self, data: FontData) -> Result<Vec<FontCandidate>, FontError>;
 
     fn register_font_selection(&mut self, candidates: &[FontCandidate]) -> Result<FontSelectionId, FontError>;
 
-    fn font_face(&self, face: FontFaceId) -> Option<&FontFace>;
+    /// returns tightly packed row major alpha coverage at the requested pixel size
+    /// offset_x is a horizontal pixel phase in the range 0..1
+    fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask;
 
     fn shape(&mut self, text: Text<'_>) -> (Self::Shape, usize);
 
@@ -58,10 +60,20 @@ pub enum FontData {
     Shared(Arc<[u8]>),
 }
 
-#[derive(Clone, Debug)]
-pub struct FontFace {
-    pub data: FontData,
-    pub face_index: u32,
+#[derive(Debug, Default)]
+pub struct GlyphMask {
+    pub metrics: GlyphMetrics,
+    pub alpha: Box<[u8]>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GlyphMetrics {
+    pub width: u16,
+    pub height: u16,
+    /// pixel offset from the glyph origin including the requested horizontal phase
+    pub left: i16,
+    /// pixel offset from the baseline with positive values pointing down
+    pub top: i16,
 }
 
 impl AsRef<[u8]> for FontData {

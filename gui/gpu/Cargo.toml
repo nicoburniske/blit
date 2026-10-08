@@ -8,7 +8,6 @@ publish = false
 [dependencies]
 blit.workspace = true
 blit-gui.workspace = true
-blit-raster.workspace = true
 blit-text.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 wgpu = { workspace = true, features = ["std", "wgsl"] }

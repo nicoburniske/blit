@@ -786,7 +786,6 @@ impl Renderer {
                 }
                 Command::Text(request, colors) => {
                     let phase_count = self.text_phase_count;
-                    let phase_scale = 1.0 / phase_count as f32;
                     let area = request.area.to_physical(Scale2::uniform(scale));
                     let Some(visible_area) = area
                         .intersection(record.bounds)
@@ -794,8 +793,9 @@ impl Renderer {
                     else {
                         continue;
                     };
-                    let resolved = text_system.paint_layout(&request);
-                    for run in &resolved.layout.runs {
+                    let mut resolved = text_system.paint_layout(&request);
+                    let layout = resolved.layout;
+                    for run in &layout.runs {
                         let offset = resolved.line_offset(run.line as usize);
                         let color = colors.get(run.span).copied().flatten().unwrap_or(request.color);
                         if color.alpha == 0 {
@@ -803,14 +803,14 @@ impl Renderer {
                         }
                         let color = u32::from_le_bytes([color.red, color.green, color.blue, color.alpha]);
                         let size = run.size * scale;
-                        for glyph in &resolved.layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
+                        for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
                             let x = (glyph.position.x + offset.x - request.offset_x) * scale;
                             let x_phases = (x * phase_count as f32).round() as i32;
                             let phase = x_phases.rem_euclid(phase_count) as u8;
                             let cached = self.glyphs.glyph(
                                 &self.device,
                                 &self.queue,
-                                &resolved,
+                                &mut resolved,
                                 run.face,
                                 glyph.id,
                                 size,
@@ -819,12 +819,13 @@ impl Renderer {
                             if cached.metrics.width == 0 || cached.metrics.height == 0 {
                                 continue;
                             }
-                            let width = cached.metrics.width as i32;
-                            let height = cached.metrics.height as i32;
-                            let x = (x_phases as f32 * phase_scale + cached.metrics.bounds.xmin).floor() as i32;
-                            let y = ((glyph.position.y + offset.y) * scale
-                                + (-cached.metrics.bounds.height - cached.metrics.bounds.ymin).floor())
-                            .round() as i32;
+                            let width = i32::from(cached.metrics.width);
+                            let height = i32::from(cached.metrics.height);
+                            let x = x_phases
+                                .div_euclid(phase_count)
+                                .saturating_add(i32::from(cached.metrics.left));
+                            let y =
+                                ((glyph.position.y + offset.y) * scale + f32::from(cached.metrics.top)).round() as i32;
                             let shape = PhysicalRect {
                                 x: area.x.saturating_add(x),
                                 y: area.y.saturating_add(y),

@@ -19,8 +19,8 @@ use blit_gui::{
     },
 };
 use blit_text::{
-    Caret, FontCandidate, FontError, FontFace as BackendFontFace, FontFaceId as BackendFontFaceId, FontSelectionId,
-    LayoutLine, LayoutRequest, TextLayout, TextLayoutEngine,
+    Caret, FontCandidate, FontError, FontFaceId as BackendFontFaceId, FontSelectionId, GlyphMask, LayoutLine,
+    LayoutRequest, TextLayout, TextLayoutEngine,
 };
 
 use super::*;
@@ -385,20 +385,21 @@ struct CountingBackend(Arc<TextCounts>);
 impl TextLayoutEngine for CountingBackend {
     type Shape = ();
 
-    fn register_font(&mut self, _data: FontData) -> Result<Vec<BackendFontFaceId>, FontError> {
-        Ok(vec![BackendFontFaceId(1)])
+    fn register_font(&mut self, _data: FontData) -> Result<Vec<FontCandidate>, FontError> {
+        Ok(vec![FontCandidate {
+            face: BackendFontFaceId(1),
+            weight: 400,
+            stretch: 100,
+            style: blit_text::FontStyle::Normal,
+        }])
     }
 
     fn register_font_selection(&mut self, _candidates: &[FontCandidate]) -> Result<FontSelectionId, FontError> {
         Ok(FontSelectionId(1))
     }
 
-    fn font_face(&self, _face: BackendFontFaceId) -> Option<&BackendFontFace> {
-        static FACE: BackendFontFace = BackendFontFace {
-            data: FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))),
-            face_index: 0,
-        };
-        Some(&FACE)
+    fn rasterize_glyph(&mut self, _face: BackendFontFaceId, _glyph: u16, _size: f32, _offset_x: f32) -> GlyphMask {
+        GlyphMask::default()
     }
 
     fn shape(&mut self, _text: blit_text::Text<'_>) -> ((), usize) {
