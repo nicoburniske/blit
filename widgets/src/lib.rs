@@ -5,7 +5,7 @@ pub mod scroll;
 pub mod split;
 pub mod text_input;
 
-pub use blit::{Ui, Widget, WidgetId, state};
+pub use blit::{Context, Ui, Widget, WidgetId, state};
 
 #[macro_export]
 macro_rules! export {
@@ -26,78 +26,81 @@ macro_rules! export {
             pub type Config = $crate::popover::Config<$coord>;
         }
         pub mod scroll_area {
-            use $crate::{Ui, Widget, state};
+            use $crate::{Context, Ui, Widget, state};
 
             pub type Behavior = $crate::scroll::area::Behavior<$coord>;
             pub type Config = $crate::scroll::area::Config<$coord>;
             pub type State = $crate::scroll::area::State<$coord>;
 
-            pub fn new<'a, C, B, T, H>(
+            pub fn new<'a, C, W, B, T, H>(
                 state: &'a mut State,
                 config: Config,
-                content: C,
+                content: W,
                 scrollbar: B,
-            ) -> impl Widget<$context> + 'a
+            ) -> impl Widget<C> + 'a
             where
-                C: Widget<$context> + 'a,
+                C: Context<Scalar = $coord> + AsMut<$context>,
+                W: Widget<C> + 'a,
                 B: FnOnce(bool) -> (Option<T>, Option<H>) + 'a,
-                T: Widget<$context, state::Node>,
-                H: Widget<$context, state::Node>,
+                T: Widget<C, state::Node>,
+                H: Widget<C, state::Node>,
             {
-                move |ui: Ui<'_, $context>| $crate::scroll::area::build(ui, state, config, $clip, content, scrollbar)
+                move |ui: Ui<'_, C>| $crate::scroll::area::build(ui, state, config, $clip, content, scrollbar)
             }
         }
         pub mod scroll_list {
-            use $crate::{Ui, Widget, WidgetId, state};
+            use $crate::{Context, Ui, Widget, WidgetId, state};
 
             pub type Behavior = $crate::scroll::list::Behavior<$coord>;
             pub type Config = $crate::scroll::list::Config<$coord>;
             pub type State = $crate::scroll::list::State<$coord>;
 
-            pub fn new<'a, I, K, F, B, T, H>(
+            pub fn new<'a, C, I, K, F, B, T, H>(
                 state: &'a mut State,
                 config: Config,
                 items: I,
                 widget_id: K,
                 item: F,
                 scrollbar: B,
-            ) -> impl Widget<$context> + 'a
+            ) -> impl Widget<C> + 'a
             where
+                C: Context<Scalar = $coord> + AsMut<$context>,
                 I: ExactSizeIterator + 'a,
                 K: FnMut(&I::Item) -> WidgetId + 'a,
-                F: FnMut(Ui<'_, $context>, I::Item) + 'a,
+                F: FnMut(Ui<'_, C>, I::Item) + 'a,
                 B: FnOnce(bool) -> (Option<T>, Option<H>) + 'a,
-                T: Widget<$context, state::Node>,
-                H: Widget<$context, state::Node>,
+                T: Widget<C, state::Node>,
+                H: Widget<C, state::Node>,
             {
-                move |ui: Ui<'_, $context>| {
+                move |ui: Ui<'_, C>| {
                     $crate::scroll::list::build(ui, state, config, items, widget_id, item, $clip, scrollbar)
                 }
             }
         }
         pub mod virtual_list {
             pub use $crate::scroll::virtual_list::Response;
-            use $crate::{Ui, Widget, WidgetId, state};
+            use $crate::{Context, Ui, Widget, WidgetId, state};
             pub type Behavior = $crate::scroll::virtual_list::Behavior<$coord>;
             pub type Config = $crate::scroll::virtual_list::Config<$coord>;
             pub type State = $crate::scroll::virtual_list::State<$coord>;
 
-            pub fn new<'a, R, K, F, B, T, H>(
+            pub fn new<'a, C, R, K, F, B, T, H>(
                 state: &'a mut State,
                 rows: &'a [R],
                 config: Config,
                 widget_id: K,
                 item: F,
                 scrollbar: B,
-            ) -> impl Widget<$context, Response = Response> + 'a
+            ) -> impl Widget<C, Response = Response> + 'a
             where
+                C: Context<Scalar = $coord> + AsMut<$context>,
                 K: FnMut(&R) -> WidgetId + 'a,
-                F: FnMut(Ui<'_, $context>, &R) + 'a,
+                F: FnMut(Ui<'_, C>, &R) + 'a,
                 B: FnOnce(bool) -> (Option<T>, Option<H>) + 'a,
-                T: Widget<$context, state::Node>,
-                H: Widget<$context, state::Node>,
+                T: Widget<C, state::Node>,
+                H: Widget<C, state::Node>,
             {
-                move |ui: Ui<'_, $context>| {
+                move |ui: Ui<'_, C>| {
                     $crate::scroll::virtual_list::build(ui, state, rows, $clip, config, scrollbar, widget_id, item)
                 }
             }

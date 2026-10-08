@@ -5,6 +5,7 @@ members = [
     "examples",
     "executor",
     "gui",
+    "gui/widgets",
     "gui/cpu",
     "gui/gpu",
     "gui/raster",
@@ -26,6 +27,7 @@ license = "MIT"
 blit = { path = "kernel" }
 blit-executor = { path = "executor" }
 blit-gui = { path = "gui" }
+blit-gui-widgets = { path = "gui/widgets" }
 blit-gpu = { path = "gui/gpu" }
 blit-layout = { path = "layout" }
 blit-widgets = { path = "widgets" }

@@ -1,5 +1,4 @@
 use blit::{Clip, LogicalPoint, LogicalRect, LogicalSize, Scale2};
-use blit_widgets::performance;
 
 use crate::{
     Context, TextSystem,
@@ -16,18 +15,11 @@ pub struct GuiContext {
     display_list: DisplayList,
     clip: ClipId,
     clips: Vec<ClipId>,
-    performance: performance::State,
 }
 
 impl AsMut<GuiContext> for GuiContext {
     fn as_mut(&mut self) -> &mut GuiContext {
         self
-    }
-}
-
-impl AsRef<performance::State> for GuiContext {
-    fn as_ref(&self) -> &performance::State {
-        &self.performance
     }
 }
 
@@ -54,7 +46,6 @@ impl GuiContext {
             display_list: DisplayList::default(),
             clip: ClipId::default(),
             clips: Vec::new(),
-            performance: performance::State::default(),
         }
     }
 
@@ -136,14 +127,6 @@ impl GuiContext {
         self.clip = ClipId::default();
         self.clips.clear();
         self.text.finish_frame();
-    }
-
-    pub fn performance(&self) -> &performance::State {
-        &self.performance
-    }
-
-    pub fn performance_mut(&mut self) -> &mut performance::State {
-        &mut self.performance
     }
 }
 

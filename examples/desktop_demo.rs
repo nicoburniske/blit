@@ -8,22 +8,22 @@ use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_desktop::cpu;
 #[cfg(feature = "gpu")]
 use blit_desktop::gpu;
-use blit_desktop::{Application, Config, EventLoopProxy, Root};
+use blit_desktop::{Application, Config, DesktopContext, EventLoopProxy, Root, Ui};
 use blit_gui::{
-    BoundsClip, FontData, FontFamily, GuiContext, TextConfig, TextLayoutEngine, Ui,
+    BoundsClip, FontData, FontFamily, TextConfig, TextLayoutEngine,
     atom::{Rectangle, Shadow},
     color::Color,
     display_list::{Mesh, MeshVertex},
-    layout::{Align, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
     style::{Border, BorderRadius},
     text::{
         FontId, FontStyle, HorizontalAlign, Span, SpanStyle, TextOptions, TextOverflow, TextStyle, TextWrap,
         VerticalAlign,
     },
-    widget::{
-        Performance, RichText, Text, TextInput, performance, popover, resize, scroll_area, scroll_list, split,
-        text_input,
-    },
+};
+use blit_gui_widgets::{
+    Performance, RichText, Text, TextInput,
+    layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
+    performance, popover, resize, scroll_area, scroll_list, split, text_input,
 };
 
 pub fn run(text: impl TextLayoutEngine) {
@@ -98,8 +98,8 @@ impl Default for App {
 impl Application for App {
     type Input = ();
 
-    fn new(_: EventLoopProxy<Self::Input>, _: Root<Self>, gui: &mut GuiContext) -> Self {
-        gui.performance_mut().set_enabled(true);
+    fn new(_: EventLoopProxy<Self::Input>, _: Root<Self>, context: &mut DesktopContext) -> Self {
+        context.performance.set_enabled(true);
         Self::default()
     }
 
@@ -190,7 +190,7 @@ impl Application for App {
             Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
             Page::Graphics => root.child().item(flex::item().grow()).build(&mut self.graphics),
         };
-        root.context_mut().performance_mut().set_enabled(self.show_performance);
+        root.context_mut().performance.set_enabled(self.show_performance);
         if self.show_performance {
             root.child()
                 .layout(
@@ -276,7 +276,7 @@ impl Default for TextPage {
     }
 }
 
-impl Widget<GuiContext> for &mut TextPage {
+impl Widget<DesktopContext> for &mut TextPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -443,7 +443,7 @@ struct InputPage {
     state: text_input::State,
 }
 
-impl Widget<GuiContext> for &mut InputPage {
+impl Widget<DesktopContext> for &mut InputPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -500,7 +500,7 @@ struct LayoutPage {
     split: split::State,
 }
 
-impl Widget<GuiContext> for &mut LayoutPage {
+impl Widget<DesktopContext> for &mut LayoutPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -565,9 +565,9 @@ impl Widget<GuiContext> for &mut LayoutPage {
                                     "justify",
                                     &mut canvas.justify,
                                     &[
-                                        ("Start", blit_gui::layout::Justify::Start),
-                                        ("Center", blit_gui::layout::Justify::Center),
-                                        ("End", blit_gui::layout::Justify::End),
+                                        ("Start", Justify::Start),
+                                        ("Center", Justify::Center),
+                                        ("End", Justify::End),
                                     ],
                                 );
                             });
@@ -577,9 +577,9 @@ impl Widget<GuiContext> for &mut LayoutPage {
                                     "space",
                                     &mut canvas.justify,
                                     &[
-                                        ("Between", blit_gui::layout::Justify::SpaceBetween),
-                                        ("Around", blit_gui::layout::Justify::SpaceAround),
-                                        ("Evenly", blit_gui::layout::Justify::SpaceEvenly),
+                                        ("Between", Justify::SpaceBetween),
+                                        ("Around", Justify::SpaceAround),
+                                        ("Evenly", Justify::SpaceEvenly),
                                     ],
                                 );
                             });
@@ -732,7 +732,7 @@ impl Default for StylesPage {
     }
 }
 
-impl Widget<GuiContext> for &mut StylesPage {
+impl Widget<DesktopContext> for &mut StylesPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -861,7 +861,7 @@ impl Widget<GuiContext> for &mut StylesPage {
                             flex::row()
                                 .padding(Sides::all(sz::XXXL))
                                 .align(Align::Center)
-                                .justify(blit_gui::layout::Justify::Center),
+                                .justify(Justify::Center),
                         );
                         stage
                             .child().item(flex::item().fixed(sz::CARD_WIDTH, sz::CARD_HEIGHT))
@@ -871,7 +871,7 @@ impl Widget<GuiContext> for &mut StylesPage {
                                         .padding(Sides::all(sz::XXL))
                                         .gap(sz::SM)
                                         .align(Align::Center)
-                                        .justify(blit_gui::layout::Justify::Center),
+                                        .justify(Justify::Center),
                                 );
                                 let border_radius = BorderRadius::uniform(preview_radius);
                                 let shadow = Shadow::new(colors::SHADOW)
@@ -930,7 +930,7 @@ impl Default for ScrollPage {
     }
 }
 
-impl Widget<GuiContext> for &mut ScrollPage {
+impl Widget<DesktopContext> for &mut ScrollPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -973,9 +973,7 @@ impl Widget<GuiContext> for &mut ScrollPage {
             move |ui, index| {
                 let item = ITEMS[index % ITEMS.len()];
                 let layout = match axis {
-                    Axis::Horizontal => flex::column()
-                        .align(Align::Center)
-                        .justify(blit_gui::layout::Justify::Center),
+                    Axis::Horizontal => flex::column().align(Align::Center).justify(Justify::Center),
                     Axis::Vertical => flex::row().padding(Sides::all(sz::XS)).align(Align::Center),
                 };
                 let background = if index.is_multiple_of(2) {
@@ -1019,12 +1017,12 @@ struct TerrainBuffers {
 
 blit::atom_widget!(Terrain);
 
-impl Atom<GuiContext> for Terrain {
-    fn measure(&self, _: &mut AtomCx<'_, GuiContext>, constraints: Constraints<f32>) -> Size<f32> {
+impl Atom<DesktopContext> for Terrain {
+    fn measure(&self, _: &mut AtomCx<'_, DesktopContext>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, cx: &mut AtomCx<'_, GuiContext>, area: LogicalRect) {
+    fn paint(&self, cx: &mut AtomCx<'_, DesktopContext>, area: LogicalRect) {
         let travel = self.phase * std::f32::consts::TAU;
         let mut buffers = self.buffers.borrow_mut();
         let TerrainBuffers {
@@ -1086,7 +1084,7 @@ impl Atom<GuiContext> for Terrain {
                 }
             }
         }
-        cx.context_mut().paint_mesh(Mesh {
+        cx.context_mut().gui.paint_mesh(Mesh {
             vertices: &vertices,
             indices: &indices,
         });
@@ -1096,9 +1094,9 @@ impl Atom<GuiContext> for Terrain {
 fn split<'a>(
     state: &'a mut split::State,
     config: split::Config,
-    leading: impl Widget<GuiContext> + 'a,
-    trailing: impl Widget<GuiContext> + 'a,
-) -> impl Widget<GuiContext> + 'a {
+    leading: impl Widget<DesktopContext> + 'a,
+    trailing: impl Widget<DesktopContext> + 'a,
+) -> impl Widget<DesktopContext> + 'a {
     split::new(
         state,
         config,
@@ -1109,11 +1107,7 @@ fn split<'a>(
                     Axis::Horizontal => Size::new(sz::BORDER_STRONG, sz::XXXL),
                     Axis::Vertical => Size::new(sz::XXXL, sz::BORDER_STRONG),
                 };
-                let mut divider = ui.layout(
-                    flex::row()
-                        .align(Align::Center)
-                        .justify(blit_gui::layout::Justify::Center),
-                );
+                let mut divider = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
                 divider
                     .child()
                     .item(flex::item().fixed(marker.width, marker.height))
@@ -1131,7 +1125,7 @@ fn split<'a>(
 
 struct DesktopGrip(resize::Grip);
 
-impl Widget<GuiContext> for DesktopGrip {
+impl Widget<DesktopContext> for DesktopGrip {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -1148,11 +1142,7 @@ impl Widget<GuiContext> for DesktopGrip {
         } else {
             colors::GRIP
         };
-        let mut grip = ui.layout(
-            flex::row()
-                .align(Align::Center)
-                .justify(blit_gui::layout::Justify::Center),
-        );
+        let mut grip = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
         grip.child()
             .item(flex::item().fixed(marker.width, marker.height))
             .insert(
@@ -1174,7 +1164,7 @@ impl<'a> Button<'a> {
     }
 }
 
-impl Widget<GuiContext> for Button<'_> {
+impl Widget<DesktopContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
@@ -1242,7 +1232,7 @@ struct Canvas {
     unit: Size<f32>,
 }
 
-impl Widget<GuiContext> for Canvas {
+impl Widget<DesktopContext> for Canvas {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
@@ -1325,11 +1315,7 @@ impl Widget<GuiContext> for Canvas {
 }
 
 fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: CanvasConfig) {
-    let mut item = ui.layout(
-        flex::column()
-            .align(Align::Center)
-            .justify(blit_gui::layout::Justify::Center),
-    );
+    let mut item = ui.layout(flex::column().align(Align::Center).justify(Justify::Center));
     item.insert(
         Rectangle::new()
             .background(colors::ITEMS[index])
@@ -1358,15 +1344,11 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .z_index(1)
             .build(|ui: Ui<'_>| {
                 let mut badge = ui.layout(
-                    absolute::place(
-                        flex::row()
-                            .align(Align::Center)
-                            .justify(blit_gui::layout::Justify::Center),
-                    )
-                    .target_anchor(anchor)
-                    .child_anchor(Anchor::Center)
-                    .width(absolute::Sizing::fixed(sz::BADGE_WIDTH * config.zoom))
-                    .height(absolute::Sizing::fixed(sz::LG * config.zoom)),
+                    absolute::place(flex::row().align(Align::Center).justify(Justify::Center))
+                        .target_anchor(anchor)
+                        .child_anchor(Anchor::Center)
+                        .width(absolute::Sizing::fixed(sz::BADGE_WIDTH * config.zoom))
+                        .height(absolute::Sizing::fixed(sz::LG * config.zoom)),
                 );
                 badge.insert(
                     Rectangle::new()
@@ -1390,9 +1372,9 @@ fn scroll_area<'a, C>(
     state: &'a mut scroll_area::State,
     config: scroll_area::Config,
     content: C,
-) -> impl Widget<GuiContext> + 'a
+) -> impl Widget<DesktopContext> + 'a
 where
-    C: Widget<GuiContext> + 'a,
+    C: Widget<DesktopContext> + 'a,
 {
     scroll_area::new(state, config.behavior(scroll_behavior()), content, scrollbar)
 }
@@ -1485,7 +1467,7 @@ mod graphics {
         }
     }
 
-    impl Widget<GuiContext> for &mut View {
+    impl Widget<DesktopContext> for &mut View {
         type Response = ();
 
         fn build(self, mut ui: Ui<'_>) {

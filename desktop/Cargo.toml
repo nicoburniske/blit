@@ -15,6 +15,7 @@ blit-cpu = { path = "../gui/cpu", optional = true }
 blit-gpu = { path = "../gui/gpu", optional = true }
 blit-gui.workspace = true
 blit-executor.workspace = true
+blit-widgets.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 softbuffer = { version = "0.4.8", default-features = false, features = ["wayland", "wayland-dlopen"], optional = true }

@@ -8,11 +8,7 @@ pub mod text;
 mod text_system;
 pub mod widget;
 
-pub mod layout {
-    blit_layout::export!(f32);
-}
 pub use blit_text::{FontData, FontError, TextLayoutEngine};
-pub use blit_widgets::{performance, scroll};
 
 pub use self::{
     context::{BoundsClip, GuiContext, RenderInput},

@@ -1,17 +1,19 @@
 use std::fmt::Write as _;
 
 use blit::{Interaction, Sides, Size, Widget};
-use blit_widgets::performance as shared;
-pub use blit_widgets::performance::Stage;
-
-use crate::{
+use blit_gui::{
     Context,
     atom::Rectangle,
     color::Color,
-    layout::{Align, Sizing, absolute::Anchor, flex, grid},
     style::{Border, BorderRadius},
     text::TextStyle,
-    widget::{Text, popover},
+};
+use blit_widgets::performance::State as PState;
+
+use crate::{
+    Text,
+    layout::{Align, Sizing, absolute::Anchor, flex, grid},
+    popover,
 };
 
 blit::builder! {
@@ -45,7 +47,7 @@ blit::builder! {
 
 impl<C> Widget<C> for Performance<'_>
 where
-    C: Context + AsRef<shared::State>,
+    C: Context + AsRef<PState>,
 {
     type Response = ();
 
@@ -60,7 +62,7 @@ where
         let graph_width = self.graph_size.width.max(1.0);
         let graph_height = self.graph_size.height.max(1.0);
         let columns = graph_width.ceil() as usize;
-        let performance: &shared::State = ui.context().as_ref();
+        let performance: &PState = ui.context().as_ref();
         label.clone_from(&performance.label);
         for (cached, (_, row)) in values.iter_mut().zip(performance.rows()) {
             for (cached, value) in cached.iter_mut().zip(row) {
@@ -97,11 +99,9 @@ where
                     .insert(Text::new(label).style(self.text_style).color(self.color));
             },
             |ui: blit::Ui<'_, C>| {
+                let performance: &PState = ui.context().as_ref();
                 let mut graph_values = ui.scratch(columns, 0.0_f32);
-                for (value, millis) in graph_values
-                    .iter_mut()
-                    .zip(AsRef::<shared::State>::as_ref(ui.context()).graph(columns))
-                {
+                for (value, millis) in graph_values.iter_mut().zip(performance.graph(columns)) {
                     *value = millis;
                 }
                 let scale = graph_values.iter().copied().fold(33.4_f32, f32::max);

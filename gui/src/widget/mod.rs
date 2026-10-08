@@ -1,13 +1,7 @@
-pub mod performance;
-pub mod text_input;
-
-blit_widgets::export!(f32, crate::GuiContext, crate::BoundsClip);
-
 use blit::{Widget, state};
 
-pub use self::{performance::Performance, text_input::TextInput};
 use crate::{
-    GuiContext, Ui, atom,
+    atom,
     color::Color,
     text::{Span, TextOptions, TextStyle},
 };
@@ -49,11 +43,11 @@ blit::builder! {
     }
 }
 
-impl Widget<GuiContext, state::Node> for RichText<'_> {
+impl<C: crate::Context> Widget<C, state::Node> for RichText<'_> {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_, state::Node>) {
-        let (run, palette) = ui.context_mut().rich_text(self.text, self.spans, self.style);
+    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
+        let (run, palette) = ui.context_mut().as_mut().rich_text(self.text, self.spans, self.style);
         ui.insert(
             atom::Text::new(run)
                 .palette(palette)

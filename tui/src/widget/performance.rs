@@ -94,11 +94,9 @@ where
                     .insert(Text::new(label).color(self.color).attributes(self.badge_attributes));
             },
             |ui: blit::Ui<'_, C>| {
+                let performance: &shared::State = ui.context().as_ref();
                 let mut graph_values = ui.scratch(columns, 0.0_f32);
-                for (value, millis) in graph_values
-                    .iter_mut()
-                    .zip(AsRef::<shared::State>::as_ref(ui.context()).graph(columns))
-                {
+                for (value, millis) in graph_values.iter_mut().zip(performance.graph(columns)) {
                     *value = millis;
                 }
                 let scale = graph_values.iter().copied().fold(0.001_f32, f32::max);

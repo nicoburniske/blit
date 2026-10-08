@@ -2,8 +2,8 @@ use blit::{Atom, AtomCx, Constraints, Input, Key, LogicalRect, PointerButton, Se
 pub use blit_widgets::text_input::Response;
 pub type State = blit_widgets::text_input::State<f32>;
 
-use crate::{
-    Context, GuiContext, Ui,
+use blit_gui::{
+    Context,
     color::Color,
     display_list::Rectangle,
     text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
@@ -23,10 +23,10 @@ blit::builder! {
     }
 }
 
-impl Widget<GuiContext> for TextInput<'_> {
+impl<C: Context> Widget<C> for TextInput<'_> {
     type Response = Response;
 
-    fn build(self, mut ui: Ui<'_>) -> Self::Response {
+    fn build(self, mut ui: blit::Ui<'_, C>) -> Self::Response {
         let Self {
             state,
             value,
@@ -53,7 +53,7 @@ impl Widget<GuiContext> for TextInput<'_> {
         }
         let focused = ui.is_focused(id);
         let response = state.update(value, if focused { &input } else { &Input::None });
-        let text = ui.context_mut().text_run(value, style);
+        let text = ui.context_mut().as_mut().text_run(value, style);
         let options = TextOptions {
             max_lines: Some(1),
             ..TextOptions::default()
@@ -81,11 +81,11 @@ impl Widget<GuiContext> for TextInput<'_> {
                 options,
             };
             if let Some((position, extend)) = pointer {
-                let offset = ui.context_mut().text_offset_at_position(&request, position);
+                let offset = ui.context_mut().as_mut().text_offset_at_position(&request, position);
                 state.move_to(value, offset, extend);
             }
             if area.width > 0.0 {
-                let cursor = ui.context_mut().text_cursor_rect(&request, state.cursor);
+                let cursor = ui.context_mut().as_mut().text_cursor_rect(&request, state.cursor);
                 if cursor.x < area.x {
                     state.offset_x = (state.offset_x - area.x + cursor.x).max(0.0);
                 } else if cursor.x + cursor.width > area.x + area.width {
@@ -96,7 +96,7 @@ impl Widget<GuiContext> for TextInput<'_> {
             ui.request_frame();
         }
         let display = if value.is_empty() && !placeholder.is_empty() {
-            ui.context_mut().text_run(placeholder, style)
+            ui.context_mut().as_mut().text_run(placeholder, style)
         } else {
             text
         };

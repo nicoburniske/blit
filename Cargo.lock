@@ -168,6 +168,7 @@ dependencies = [
  "blit",
  "blit-desktop",
  "blit-gui",
+ "blit-gui-widgets",
  "blit-layout",
  "blit-text-cosmic",
  "blit-text-fontdue",
@@ -183,6 +184,7 @@ dependencies = [
  "blit-executor",
  "blit-gpu",
  "blit-gui",
+ "blit-widgets",
  "softbuffer",
  "wgpu",
  "winit",
@@ -214,8 +216,16 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "blit-cache",
- "blit-layout",
  "blit-text",
+]
+
+[[package]]
+name = "blit-gui-widgets"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-gui",
+ "blit-layout",
  "blit-widgets",
 ]
 

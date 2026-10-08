@@ -92,14 +92,16 @@ impl TuiContext {
 #[derive(Clone, Copy)]
 pub struct BoundsClip;
 
-impl Clip<TuiContext> for BoundsClip {
-    fn push(&self, context: &mut TuiContext, area: PhysicalRect) {
+impl<C: crate::Context> Clip<C> for BoundsClip {
+    fn push(&self, context: &mut C, area: PhysicalRect) {
+        let context = context.as_mut();
         let previous = context.clip;
         context.clip = previous.intersection(area).unwrap_or_default();
         context.clips.push(previous);
     }
 
-    fn pop(&self, context: &mut TuiContext) {
+    fn pop(&self, context: &mut C) {
+        let context = context.as_mut();
         context.clip = context.clips.pop().unwrap();
     }
 }
