@@ -215,6 +215,10 @@ impl<T: Scalar> InteractionState<T> {
         }
     }
 
+    pub fn focused(&self) -> Option<WidgetId> {
+        self.focused
+    }
+
     pub fn is_focused(&self, id: WidgetId) -> bool {
         self.focused == Some(id)
     }

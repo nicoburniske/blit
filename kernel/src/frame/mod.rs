@@ -250,15 +250,25 @@ impl<C: Context, S> Ui<'_, C, S> {
         &self.inner.frame.input
     }
 
-    /// accesses context resources during frame construction
-    ///
-    /// drawing remains deferred to [`Atom`] implementations
+    /// access context during frame construction
     pub fn context(&self) -> &C {
         self.inner.context
     }
 
+    /// access mutable context during frame construction
     pub fn context_mut(&mut self) -> &mut C {
         self.inner.context
+    }
+
+    /// returns the focused widget in this node's built subtree including this node
+    ///
+    /// call after building children to include them. follows structural parenting.
+    pub fn focused(&self) -> Option<WidgetId> {
+        let focused = self.inner.frame.interaction.focused()?;
+        self.inner.frame.nodes[self.inner.node.index()..]
+            .iter()
+            .any(|node| node.widget_id == focused)
+            .then_some(focused)
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {
