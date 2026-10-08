@@ -5,7 +5,8 @@ pub mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, ScrollPhase, Sense, Size, Sizing, Ui, Widget,
+    Axis, Clip, Constraints, Context, Easing, Layout, LayoutCx, Point, Scalar, ScrollPhase, Sense, Size, Sizing, Ui,
+    Widget, WidgetId,
 };
 
 /// persistent scroll position and motion
@@ -18,6 +19,7 @@ pub struct State<T> {
     tracking: bool,
     last_frame: Option<Duration>,
     remainder: f32,
+    reveal: Option<(WidgetId, Option<(Duration, Easing)>)>,
 }
 
 blit::builder! {
@@ -51,6 +53,14 @@ impl<T: Scalar> State<T> {
         self.remainder = 0.0;
         self.velocity = 0.0;
         self.tracking = false;
+        self.reveal = None;
+    }
+
+    /// asks a nonvirtual scroll area to reveal a built child
+    /// an animation specifies duration and easing and none jumps immediately
+    pub fn scroll_into_view(&mut self, id: WidgetId, animation: Option<(Duration, Easing)>) {
+        self.scroll_to(self.offset);
+        self.reveal = Some((id, animation));
     }
 
     pub fn is_moving(&self) -> bool {
@@ -187,6 +197,9 @@ fn update<C: Context>(
     }
 
     let interaction = ui.interact(config.sense);
+    if interaction.scroll.is_some() || interaction.drag_delta != Point::ZERO {
+        state.reveal = None;
+    }
     let thumb_interaction = ui.interact_widget(thumb_id, Sense::DRAG);
     let track_id = id.child("scroll track");
     let track_interaction = ui.interact_widget(track_id, Sense::DRAG);
