@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+mod damage;
 mod glyph;
 mod pixel;
 mod render;
@@ -18,18 +19,21 @@ use blit_gui::{
     style::Border,
     text::{TextPhases, TextRequest},
 };
-use render::{image as render_image, image_patch::AlphaRows, rectangle, shadow, triangle};
-use strategy::{
-    clip::ClipStack,
-    command::{CommandList, PreparedText},
+use self::{
+    damage::MAX_DAMAGE,
+    pixel::PixelSpan,
+    render::{image as render_image, image_patch::AlphaRows, rectangle, shadow, triangle},
+    strategy::{
+        clip::ClipStack,
+        command::{CommandList, PreparedText},
+    },
+    text::TextRenderer,
 };
 
 pub use self::{
     pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
     strategy::{Direct, RenderStrategy, Scanline},
 };
-
-const MAX_DAMAGE: usize = 32;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RendererConfig {
@@ -128,37 +132,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         if std::mem::take(&mut self.invalidated) {
             damage.push(self.screen());
         } else {
-            let mut start = 0;
-            let common = self.previous.len().min(display_list.len());
-            while start < common && self.previous.equivalent(start, display_list, start) {
-                start += 1;
-            }
-            let mut old_end = self.previous.len();
-            let mut new_end = display_list.len();
-            while old_end > start && new_end > start && self.previous.equivalent(old_end - 1, display_list, new_end - 1)
-            {
-                old_end -= 1;
-                new_end -= 1;
-            }
-            let paired = (old_end - start).min(new_end - start);
-            for offset in 0..paired {
-                let old = start + offset;
-                let new = start + offset;
-                if !self.previous.equivalent(old, display_list, new) {
-                    let old_bounds = self.previous.get(old).bounds;
-                    push_damage(&mut damage, old_bounds);
-                    let new_bounds = display_list.get(new).bounds;
-                    if new_bounds != old_bounds {
-                        push_damage(&mut damage, new_bounds);
-                    }
-                }
-            }
-            for index in start + paired..old_end {
-                push_damage(&mut damage, self.previous.get(index).bounds);
-            }
-            for index in start + paired..new_end {
-                push_damage(&mut damage, display_list.get(index).bounds);
-            }
+            damage::diff(&self.previous, display_list, &mut damage);
         }
         let current_damage = damage.len();
         damage.extend_from_slice(&self.previous_damage);
@@ -250,9 +224,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     }
 }
 
-use pixel::PixelSpan;
 use slotmap::{Key, KeyData, SlotMap, new_key_type};
-use text::TextRenderer;
 
 new_key_type! {
     struct RendererImageId;
@@ -499,25 +471,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         );
         Some(bounds)
     }
-}
-
-fn push_damage(damage: &mut ArrayVec<PhysicalRect, { MAX_DAMAGE * 2 }>, bounds: PhysicalRect) {
-    if bounds.width <= 0 || bounds.height <= 0 {
-        return;
-    }
-    if damage.len() < MAX_DAMAGE {
-        damage.push(bounds);
-        return;
-    }
-    let len = damage.len();
-    for index in 0..len / 2 {
-        damage[index] = damage[index * 2].union(damage[index * 2 + 1]);
-    }
-    if len % 2 == 1 {
-        damage[len / 2] = damage[len - 1];
-    }
-    damage.truncate(len.div_ceil(2));
-    damage.push(bounds);
 }
 
 #[cfg(test)]
