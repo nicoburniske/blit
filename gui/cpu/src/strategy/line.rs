@@ -209,6 +209,16 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 clips.line_ranges(line, &mut self.clip_ranges);
             }
 
+            let clip_span = |command: CommandId, mut span: Range<i32>| {
+                let clip = commands.clip(command);
+                if clip != 0 {
+                    let clip = self.clip_ranges[clip as usize - 1].as_ref()?;
+                    span.start = span.start.max(clip.full_start);
+                    span.end = span.end.min(clip.full_end);
+                }
+                (span.start < span.end).then_some(span)
+            };
+
             for range in &self.ranges {
                 let first = self
                     .active
@@ -219,6 +229,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         commands.overwrites(**command)
                             && commands
                                 .overwrite_span(**command, line)
+                                .and_then(|span| clip_span(**command, span))
                                 .is_some_and(|span| span.start <= range.start as i32 && span.end >= range.end as i32)
                     })
                     .map(|(index, _)| index)
@@ -261,6 +272,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         } else {
                             None
                         }?;
+                        let span = clip_span(*command, span)?;
                         let start = span.start.max(range.start as i32);
                         let end = span.end.min(range.end as i32);
                         (start < end).then_some((start as usize, end as usize, command_first))
