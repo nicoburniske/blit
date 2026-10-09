@@ -88,7 +88,7 @@ where
     }
     if reveal.is_some() {
         state.scroll.content_extent = table.total;
-        state.scroll.scroll_to(state.scroll.offset);
+        state.scroll.stop();
     }
     let mut visible = 0..0;
     let mut pointer_row = None;

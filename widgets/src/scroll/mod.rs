@@ -19,7 +19,7 @@ pub struct State<T> {
     tracking: bool,
     last_frame: Option<Duration>,
     remainder: f32,
-    reveal: Option<(WidgetId, Option<(Duration, Easing)>)>,
+    request: Request<T>,
 }
 
 blit::builder! {
@@ -44,28 +44,56 @@ impl<T: Scalar> State<T> {
         (self.content_extent - self.viewport_extent).max(T::ZERO)
     }
 
-    pub fn scroll_by(&mut self, amount: T) {
-        self.scroll_to(self.offset.endpoint(amount));
+    pub fn scroll_by(&mut self, amount: T, animation: Option<(Duration, Easing)>) {
+        self.scroll_to(self.offset.endpoint(amount), animation);
     }
 
-    pub fn scroll_to(&mut self, offset: T) {
-        self.offset = offset.clamp(T::ZERO, self.maximum_offset());
+    /// queues an offset resolved against the scroll area's measured limits
+    /// none jumps immediately and an animation specifies duration and easing
+    pub fn scroll_to(&mut self, offset: T, animation: Option<(Duration, Easing)>) {
+        self.stop();
+        self.request = Request {
+            target: Target::Offset(offset),
+            animation: animation.unwrap_or_default(),
+            started: None,
+        };
+    }
+
+    /// queues a built child to reveal within the scroll area's viewport
+    pub fn scroll_to_widget(&mut self, id: WidgetId, animation: Option<(Duration, Easing)>) {
+        self.stop();
+        self.request = Request {
+            target: Target::Widget(id),
+            animation: animation.unwrap_or_default(),
+            started: None,
+        };
+    }
+
+    pub fn stop(&mut self) {
         self.remainder = 0.0;
         self.velocity = 0.0;
         self.tracking = false;
-        self.reveal = None;
-    }
-
-    /// asks a nonvirtual scroll area to reveal a built child
-    /// an animation specifies duration and easing and none jumps immediately
-    pub fn scroll_into_view(&mut self, id: WidgetId, animation: Option<(Duration, Easing)>) {
-        self.scroll_to(self.offset);
-        self.reveal = Some((id, animation));
+        self.request = Request::default();
     }
 
     pub fn is_moving(&self) -> bool {
-        self.velocity != 0.0
+        self.velocity != 0.0 || !matches!(self.request.target, Target::None)
     }
+}
+
+#[derive(Debug, Default)]
+struct Request<T> {
+    target: Target<T>,
+    animation: (Duration, Easing),
+    started: Option<(T, Duration)>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+enum Target<T> {
+    #[default]
+    None,
+    Offset(T),
+    Widget(WidgetId),
 }
 
 #[derive(Clone, Copy)]
@@ -198,7 +226,7 @@ fn update<C: Context>(
 
     let interaction = ui.interact(config.sense);
     if interaction.scroll.is_some() || interaction.drag_delta != Point::ZERO {
-        state.reveal = None;
+        state.request.target = Target::None;
     }
     let thumb_interaction = ui.interact_widget(thumb_id, Sense::DRAG);
     let track_id = id.child("scroll track");
@@ -211,6 +239,7 @@ fn update<C: Context>(
     let maximum = state.maximum_offset();
     let drag = thumb_interaction.dragging.then_some(thumb_interaction);
     if drag.is_some() || track_interaction.activated || track_interaction.dragging {
+        state.request.target = Target::None;
         let thumb = ui
             .geometry(thumb_id)
             .map_or(C::Scalar::ZERO, |area| axis.extent(area.size()));
@@ -229,9 +258,10 @@ fn update<C: Context>(
                     Axis::Horizontal => (pointer.x - track.x).to_f32(),
                     Axis::Vertical => (pointer.y - track.y).to_f32(),
                 };
-                state.scroll_to(C::Scalar::from_f32(
-                    (position - thumb.to_f32() / 2.0) * maximum.to_f32() / travel.to_f32(),
-                ));
+                state.offset =
+                    C::Scalar::from_f32((position - thumb.to_f32() / 2.0) * maximum.to_f32() / travel.to_f32())
+                        .clamp(C::Scalar::ZERO, maximum);
+                state.remainder = 0.0;
             }
             ui.request_frame();
         }
@@ -300,6 +330,54 @@ fn update<C: Context>(
         }
     }
     (thumb_interaction.active || track_interaction.active, viewport_known)
+}
+
+fn animate<C: Context>(state: &mut State<C::Scalar>, ui: &mut Ui<'_, C>, axis: Axis, viewport_known: bool) {
+    let maximum = state.maximum_offset();
+    let request = &mut state.request;
+    let target = match request.target {
+        Target::None => return,
+        _ if !viewport_known => {
+            ui.request_frame();
+            return;
+        }
+        Target::Offset(offset) => offset,
+        Target::Widget(id) => {
+            let Some((widget, content)) = ui
+                .geometry(id)
+                .zip(ui.geometry(ui.current_widget_id().child("content")))
+            else {
+                ui.request_frame();
+                return;
+            };
+            let start = match axis {
+                Axis::Horizontal => widget.x - content.x,
+                Axis::Vertical => widget.y - content.y,
+            };
+            let end = start.endpoint(axis.extent(widget.size()));
+            state.offset.clamp((end - state.viewport_extent).min(start), start)
+        }
+    }
+    .clamp(C::Scalar::ZERO, maximum);
+    request.target = Target::Offset(target);
+    let (duration, easing) = request.animation;
+    let (start, time) = *request.started.get_or_insert((state.offset, ui.time()));
+    let progress = if duration.is_zero() {
+        1.0
+    } else {
+        (ui.time().saturating_sub(time).as_secs_f32() / duration.as_secs_f32()).min(1.0)
+    };
+    state.offset = if progress == 1.0 {
+        target
+    } else {
+        C::Scalar::from_f32(start.to_f32() + (target.to_f32() - start.to_f32()) * easing.apply(progress))
+            .clamp(C::Scalar::ZERO, maximum)
+    };
+    if progress == 1.0 || start == target {
+        request.target = Target::None;
+    } else {
+        ui.request_frame();
+    }
 }
 
 fn move_by<T: Scalar>(state: &mut State<T>, amount: f32) {

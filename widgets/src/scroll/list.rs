@@ -1,7 +1,7 @@
 use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget, WidgetId};
 
 pub use super::{Behavior, State};
-use super::{ScrollLayout, build_scroll, update};
+use super::{ScrollLayout, animate, build_scroll, update};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug)]
@@ -40,6 +40,7 @@ pub fn build<C: Context, I, K, F, X, T, H>(
     let stride = item_extent.endpoint(gap);
     let count = items.len();
     let (thumb_active, viewport_known) = update(state, &mut ui, axis, config);
+    animate(state, &mut ui, axis, viewport_known);
     let viewport_extent = if viewport_known {
         state.viewport_extent
     } else {
@@ -176,7 +177,7 @@ mod tests {
         built.clear();
         state.viewport_extent = 10.0;
         state.content_extent = 200.0;
-        state.scroll_to(8.0);
+        state.scroll_to(8.0, None);
         layout(&mut frame, &mut context, frame_info, &mut state, &mut built);
         assert!(built.iter().map(|row| row.0).eq(3..10));
         assert_eq!(built[3].1, first_id);
