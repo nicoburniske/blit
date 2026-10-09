@@ -232,9 +232,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                     Command::Mesh(mesh) => {
                         for indices in mesh.indices.as_chunks::<3>().0 {
                             let vertices = indices.map(|index| mesh.vertices[index as usize]);
-                            if let Some(triangle) = triangle::Prepared::new(vertices, self.scale)
-                                && let Some(bounds) = triangle.bounds.intersection(record.bounds)
-                                && damage.iter().any(|damage| bounds.intersection(*damage).is_some())
+                            if let Some((triangle, bounds)) =
+                                triangle::Prepared::new(vertices, self.scale, record.bounds, damage)
                             {
                                 self.context.commands.push_triangle(triangle, bounds, record.clip.0);
                             }

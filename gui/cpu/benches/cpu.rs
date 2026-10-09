@@ -7,7 +7,7 @@ use blit_cpu::{
 use blit_gui::{
     FontData, FontFamily, GuiContext, RenderInput, TextConfig, TextSystem,
     color::Color,
-    display_list::{BoxShadow, ClipId, DisplayList, Rectangle},
+    display_list::{BoxShadow, ClipId, DisplayList, Mesh, MeshVertex, Rectangle},
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{FontId, TextOptions, TextPhases, TextRequest, TextStyle, TextWrap},
@@ -24,6 +24,72 @@ static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
 
 fn main() {
     divan::main()
+}
+
+#[divan::bench(consts = [8, 32, 64], args = [0, 1, 2, 3, 4])]
+fn mesh_direct<const SIDE: usize>(bencher: divan::Bencher, kind: u8) {
+    benchmark_mesh::<SIDE, _>(bencher, kind, Direct::default());
+}
+
+#[divan::bench(consts = [8, 32, 64], args = [0, 1, 2, 3, 4])]
+fn mesh_scanline<const SIDE: usize>(bencher: divan::Bencher, kind: u8) {
+    benchmark_mesh::<SIDE, _>(bencher, kind, Scanline::default());
+}
+
+fn benchmark_mesh<const SIDE: usize, S>(bencher: divan::Bencher, kind: u8, strategy: S)
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    let mut vertices = Vec::with_capacity(SIDE * SIDE * 4);
+    let mut indices = Vec::with_capacity(SIDE * SIDE * 6);
+    for row in 0..SIDE {
+        for column in 0..SIDE {
+            let x = column as f32 * WIDTH as f32 / SIDE as f32;
+            let y = row as f32 * HEIGHT as f32 / SIDE as f32;
+            let w = WIDTH as f32 / SIDE as f32;
+            let h = HEIGHT as f32 / SIDE as f32;
+            let alpha = if kind % 2 == 0 { 255 } else { 128 };
+            let color = Color::rgba((column * 31) as u8, (row * 47) as u8, 176, alpha);
+            let first = vertices.len() as u32;
+            for (corner, (px, py)) in [(x, y), (x + w, y), (x, y + h), (x + w, y + h)].into_iter().enumerate() {
+                vertices.push(MeshVertex::new(
+                    px + py * 0.13 - 52.0,
+                    py + px * 0.07 - 17.0,
+                    if kind < 2 {
+                        color
+                    } else {
+                        Color::rgba(
+                            (corner * 73 + column * 31) as u8,
+                            (corner * 53 + row * 47) as u8,
+                            (corner * 97) as u8,
+                            if kind == 4 { (corner * 61 + 32) as u8 } else { alpha },
+                        )
+                    },
+                ));
+            }
+            indices.extend([first, first + 1, first + 2, first + 2, first + 1, first + 3]);
+        }
+    }
+    let mut display_list = DisplayList::default();
+    display_list.push_mesh(
+        Mesh {
+            vertices: &vertices,
+            indices: &indices,
+        },
+        SCALE,
+        ClipId::default(),
+    );
+    let damage = [PhysicalRect {
+        x: 0,
+        y: 0,
+        width: WIDTH as i32,
+        height: HEIGHT as i32,
+    }];
+    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
+    renderer.render(&display_list, &damage);
+    bencher.counter(ItemsCount::new(SIDE * SIDE * 2)).bench_local(|| {
+        renderer.render(black_box(&display_list), black_box(&damage));
+    });
 }
 
 #[divan::bench(args = [255, 128])]
