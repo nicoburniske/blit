@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use blit::geometry::PhysicalRect;
-use slotmap::{KeyData, SlotMap};
+use blit_arena::Arena;
 
 use super::{
     RenderStrategy,
@@ -9,7 +9,7 @@ use super::{
     command::{CommandId, CommandList, Payload},
     raster,
 };
-use crate::{Pixel, PixelBuffer, RenderContext, RendererImageId, StoredImage, TextRenderer};
+use crate::{Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer};
 
 #[derive(Default)]
 pub struct Scanline {
@@ -51,7 +51,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
     commands: &CommandList,
     active: &[CommandId],
     clip_ranges: &[Option<ClipLine>],
-    images: &SlotMap<RendererImageId, StoredImage>,
+    images: &Arena<StoredImage>,
     text: &mut TextRenderer,
     buffer: &mut LineBuffer<'_, P>,
 ) {
@@ -266,8 +266,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             let Payload::Image(image) = commands.get(*command) else {
                                 unreachable!()
                             };
-                            let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
-                            let texture = images.get(image_id)?;
+                            let texture = images.get(image.image.into())?;
                             image.opaque_span(line, commands.bounds(*command), &texture.data, &texture.alpha_rows)
                         } else {
                             None

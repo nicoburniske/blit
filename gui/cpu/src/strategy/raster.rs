@@ -1,8 +1,8 @@
 use blit::geometry::PhysicalRect;
-use slotmap::{KeyData, SlotMap};
+use blit_arena::Arena;
 
 use super::command::Payload;
-use crate::{Pixel, PixelBuffer, PixelSpan, RendererImageId, StoredImage, TextRenderer};
+use crate::{Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer};
 
 #[inline(always)]
 pub fn draw_line<B: PixelBuffer>(
@@ -10,7 +10,7 @@ pub fn draw_line<B: PixelBuffer>(
     line: i32,
     clip: PhysicalRect,
     coverage: u8,
-    images: &SlotMap<RendererImageId, StoredImage>,
+    images: &Arena<StoredImage>,
     text: &mut TextRenderer,
     buffer: &mut B,
 ) {
@@ -69,8 +69,7 @@ pub fn draw_line<B: PixelBuffer>(
             );
         }
         Payload::Image(request) => {
-            let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
-            if let Some(image) = images.get(image) {
+            if let Some(image) = images.get(request.image.into()) {
                 let covered;
                 let request = if coverage == 255 {
                     *request

@@ -11,7 +11,7 @@ blit-gui.workspace = true
 blit-cache.workspace = true
 blit-text = { workspace = true }
 blit-arrayvec.workspace = true
-slotmap = "1"
+blit-arena.workspace = true
 
 [dev-dependencies]
 blit-text-cosmic.workspace = true

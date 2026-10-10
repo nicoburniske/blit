@@ -1,17 +1,28 @@
-use blit_gui::GuiContext;
+use blit_gui::{
+    GuiContext,
+    image::{ImageData, ImageHandle},
+};
 use blit_widgets::performance;
+
+use crate::{GraphicsBackend, GraphicsError};
 
 pub struct DesktopContext {
     pub gui: GuiContext,
     pub performance: performance::State,
+    pub graphics: Box<dyn GraphicsBackend>,
 }
 
 impl DesktopContext {
-    pub fn new(gui: GuiContext) -> Self {
+    pub fn new(gui: GuiContext, graphics: Box<dyn GraphicsBackend>) -> Self {
         Self {
             gui,
             performance: performance::State::default(),
+            graphics,
         }
+    }
+
+    pub fn create_image(&mut self, data: ImageData) -> Result<ImageHandle, GraphicsError> {
+        self.graphics.create_image(data)
     }
 }
 

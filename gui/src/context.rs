@@ -3,14 +3,12 @@ use blit::{Clip, LogicalPoint, LogicalRect, LogicalSize, Scale2};
 use crate::{
     Context, TextSystem,
     display_list::{BoxShadow, ClipId, DisplayList, Mesh, Rectangle, TextPalette},
-    image::{ImageData, ImageHandle, ImageId, ImageRequest},
+    image::ImageRequest,
     text::{Span, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
 };
 
 pub struct GuiContext {
     text: TextSystem,
-    image_uploads: Vec<(ImageHandle, ImageData)>,
-    next_image: u64,
     scale: Scale2,
     display_list: DisplayList,
     clip: ClipId,
@@ -32,7 +30,6 @@ impl blit::Context for GuiContext {
 pub struct RenderInput<'a> {
     pub display_list: &'a mut DisplayList,
     pub text: &'a mut TextSystem,
-    pub image_uploads: &'a mut Vec<(ImageHandle, ImageData)>,
     pub scale: Scale2,
 }
 
@@ -40,21 +37,11 @@ impl GuiContext {
     pub fn new(text: TextSystem) -> Self {
         Self {
             text,
-            image_uploads: Vec::new(),
-            next_image: 0,
             scale: Scale2::IDENTITY,
             display_list: DisplayList::default(),
             clip: ClipId::default(),
             clips: Vec::new(),
         }
-    }
-
-    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        data.validate();
-        self.next_image = self.next_image.checked_add(1).expect("too many images");
-        let image = ImageHandle::new(ImageId(self.next_image), data.size);
-        self.image_uploads.push((image.clone(), data));
-        image
     }
 
     pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
@@ -117,7 +104,6 @@ impl GuiContext {
         RenderInput {
             display_list: &mut self.display_list,
             text: &mut self.text,
-            image_uploads: &mut self.image_uploads,
             scale: self.scale,
         }
     }

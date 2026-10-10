@@ -136,6 +136,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "blit-arena"
+version = "0.1.0"
+
+[[package]]
 name = "blit-arrayvec"
 version = "0.1.0"
 
@@ -151,6 +155,7 @@ name = "blit-cpu"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-arena",
  "blit-arrayvec",
  "blit-cache",
  "blit-gui",
@@ -158,7 +163,6 @@ dependencies = [
  "blit-text-cosmic",
  "blit-text-fontdue",
  "divan",
- "slotmap",
 ]
 
 [[package]]
@@ -194,7 +198,7 @@ dependencies = [
 name = "blit-executor"
 version = "0.1.0"
 dependencies = [
- "slotmap",
+ "blit-arena",
 ]
 
 [[package]]
@@ -202,6 +206,7 @@ name = "blit-gpu"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-arena",
  "blit-executor",
  "blit-gui",
  "blit-text",

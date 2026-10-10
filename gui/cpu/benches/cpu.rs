@@ -409,7 +409,7 @@ where
         ImageFormat::Alpha8(_) => [192].repeat(IMAGE_SIZE * IMAGE_SIZE),
     };
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
-    let image = renderer.gui.create_image(ImageData::new(
+    let image = renderer.render.create_image(ImageData::new(
         ImagePixels::Owned(pixels.into_boxed_slice()),
         format,
         IMAGE_SIZE,
@@ -633,10 +633,8 @@ struct BenchRenderer<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> {
 
 impl<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> BenchRenderer<B, S> {
     fn render(&mut self, display_list: &DisplayList, damage: &[PhysicalRect]) {
-        let RenderInput {
-            text, image_uploads, ..
-        } = self.gui.render_input();
-        self.render.render_damage(text, image_uploads, display_list, damage);
+        let RenderInput { text, .. } = self.gui.render_input();
+        self.render.render_damage(text, display_list, damage);
         self.gui.finish_frame();
     }
 }

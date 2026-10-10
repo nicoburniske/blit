@@ -1,14 +1,13 @@
 mod atlas;
 mod text;
 
-use std::collections::HashMap;
-
 use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit_arena::Arena;
 use blit_gui::{
     RenderInput,
     color::Color,
     display_list::Command,
-    image::{ImageFormat, ImageHandle, ImageId, ImageSampling, ImageTiling, prepare_image_patches},
+    image::{ImageData, ImageFormat, ImageHandle, ImageId, ImageSampling, ImageTiling, prepare_image_patches},
     style::{Border, BorderRadius},
     text::TextPhases,
 };
@@ -57,7 +56,7 @@ pub struct Renderer {
     clips: Vec<Clip>,
     stops: Vec<GradientStop>,
     batches: Vec<Batch>,
-    images: HashMap<ImageId, StoredImage>,
+    images: Arena<StoredImage>,
     glyphs: text::GlyphAtlas,
     text_phase_count: i32,
     empty_texture: wgpu::BindGroup,
@@ -327,12 +326,113 @@ impl Renderer {
             clips: Vec::new(),
             stops: Vec::new(),
             batches: Vec::new(),
-            images: HashMap::new(),
+            images: Arena::new(),
             glyphs,
             text_phase_count,
             empty_texture,
             upload: Vec::new(),
         }
+    }
+
+    /// creates an image for use with this renderer
+    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
+        data.validate();
+        let copy_size = wgpu::Extent3d {
+            width: data.texture_rect.width as u32,
+            height: data.texture_rect.height as u32,
+            depth_or_array_layers: 1,
+        };
+        let source = data.pixels.bytes();
+        let (format, row_bytes, mask_color, pixels): (_, usize, _, &[u8]) = match data.format {
+            ImageFormat::Rgba8Premultiplied => (wgpu::TextureFormat::Rgba8Unorm, data.stride_bytes, None, source),
+            ImageFormat::Alpha8(color) => (wgpu::TextureFormat::R8Unorm, data.stride_bytes, Some(color), source),
+            ImageFormat::Rgb8 | ImageFormat::Luma8 | ImageFormat::Rgba8 => {
+                let pixels = (copy_size.width as usize)
+                    .checked_mul(copy_size.height as usize)
+                    .and_then(|pixels| pixels.checked_mul(4))
+                    .expect("image data is too large");
+                self.upload.clear();
+                self.upload.reserve(pixels);
+                for y in 0..copy_size.height as usize {
+                    let row = &source[y * data.stride_bytes..];
+                    match data.format {
+                        ImageFormat::Rgb8 => {
+                            for pixel in row[..copy_size.width as usize * 3].as_chunks::<3>().0 {
+                                self.upload.extend([pixel[0], pixel[1], pixel[2], 255]);
+                            }
+                        }
+                        ImageFormat::Luma8 => {
+                            for value in &row[..copy_size.width as usize] {
+                                self.upload.extend([*value, *value, *value, 255]);
+                            }
+                        }
+                        ImageFormat::Rgba8 => {
+                            for pixel in row[..copy_size.width as usize * 4].as_chunks::<4>().0 {
+                                let alpha = pixel[3] as u16;
+                                self.upload.extend([
+                                    (pixel[0] as u16 * alpha / 255) as u8,
+                                    (pixel[1] as u16 * alpha / 255) as u8,
+                                    (pixel[2] as u16 * alpha / 255) as u8,
+                                    pixel[3],
+                                ]);
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                debug_assert_eq!(self.upload.len(), pixels);
+                (
+                    wgpu::TextureFormat::Rgba8Unorm,
+                    copy_size.width as usize * 4,
+                    None,
+                    self.upload.as_slice(),
+                )
+            }
+        };
+        let bytes_per_row = (copy_size.height > 1).then(|| u32::try_from(row_bytes).expect("image row is too large"));
+        // todo: handle oversized textures
+        // wgpu currently sends oversized textures to the device error handler (panics)
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("blit gpu image"),
+            size: copy_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row,
+                rows_per_image: None,
+            },
+            copy_size,
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("blit gpu image"),
+            layout: &self.texture_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            }],
+        });
+        let id = self.images.insert_with(|id| StoredImage {
+            handle: ImageHandle::new(id.into(), data.size),
+            bind_group,
+            mask_color,
+            texture_origin: [data.texture_rect.x, data.texture_rect.y],
+        });
+        self.images.get(id).unwrap().handle.clone()
     }
 
     /// renders one frame into `target`
@@ -342,121 +442,12 @@ impl Renderer {
         let RenderInput {
             display_list,
             text: text_system,
-            image_uploads,
             scale,
             ..
         } = input;
         assert_eq!(scale.x, scale.y, "GPU rendering requires uniform scale");
         assert!(scale.x.is_finite() && scale.x > 0.0);
 
-        for (handle, data) in image_uploads.drain(..) {
-            data.validate();
-            let copy_size = wgpu::Extent3d {
-                width: data.texture_rect.width as u32,
-                height: data.texture_rect.height as u32,
-                depth_or_array_layers: 1,
-            };
-            let source = data.pixels.bytes();
-            let (format, row_bytes, mask_color, pixels): (_, usize, _, &[u8]) = match data.format {
-                ImageFormat::Rgba8Premultiplied => (wgpu::TextureFormat::Rgba8Unorm, data.stride_bytes, None, source),
-                ImageFormat::Alpha8(color) => (wgpu::TextureFormat::R8Unorm, data.stride_bytes, Some(color), source),
-                ImageFormat::Rgb8 | ImageFormat::Luma8 | ImageFormat::Rgba8 => {
-                    let pixels = (copy_size.width as usize)
-                        .checked_mul(copy_size.height as usize)
-                        .and_then(|pixels| pixels.checked_mul(4))
-                        .expect("image data is too large");
-                    self.upload.clear();
-                    self.upload.reserve(pixels);
-                    for y in 0..copy_size.height as usize {
-                        let row = &source[y * data.stride_bytes..];
-                        match data.format {
-                            ImageFormat::Rgb8 => {
-                                for pixel in row[..copy_size.width as usize * 3].as_chunks::<3>().0 {
-                                    self.upload.extend([pixel[0], pixel[1], pixel[2], 255]);
-                                }
-                            }
-                            ImageFormat::Luma8 => {
-                                for value in &row[..copy_size.width as usize] {
-                                    self.upload.extend([*value, *value, *value, 255]);
-                                }
-                            }
-                            ImageFormat::Rgba8 => {
-                                for pixel in row[..copy_size.width as usize * 4].as_chunks::<4>().0 {
-                                    let alpha = pixel[3] as u16;
-                                    self.upload.extend([
-                                        (pixel[0] as u16 * alpha / 255) as u8,
-                                        (pixel[1] as u16 * alpha / 255) as u8,
-                                        (pixel[2] as u16 * alpha / 255) as u8,
-                                        pixel[3],
-                                    ]);
-                                }
-                            }
-                            _ => unreachable!(),
-                        }
-                    }
-                    debug_assert_eq!(self.upload.len(), pixels);
-                    (
-                        wgpu::TextureFormat::Rgba8Unorm,
-                        copy_size.width as usize * 4,
-                        None,
-                        self.upload.as_slice(),
-                    )
-                }
-            };
-            let bytes_per_row =
-                (copy_size.height > 1).then(|| u32::try_from(row_bytes).expect("image row is too large"));
-            // todo: handle oversized textures
-            // wgpu currently sends oversized textures to the device error handler (panics)
-            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("blit gpu image"),
-                size: copy_size,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
-            self.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                pixels,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row,
-                    rows_per_image: None,
-                },
-                copy_size,
-            );
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("blit gpu image"),
-                layout: &self.texture_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                }],
-            });
-            let id = handle.id();
-            assert!(
-                self.images
-                    .insert(
-                        id,
-                        StoredImage {
-                            handle,
-                            bind_group,
-                            mask_color,
-                            texture_origin: [data.texture_rect.x, data.texture_rect.y],
-                        },
-                    )
-                    .is_none(),
-                "duplicate image resource"
-            );
-        }
         self.instances.clear();
         self.glyph_instances.clear();
         self.draws.clear();
@@ -698,7 +689,7 @@ impl Renderer {
                     if opacity == 0.0 {
                         continue;
                     }
-                    let Some(image) = self.images.get(&request.image) else {
+                    let Some(image) = self.images.get(request.image.into()) else {
                         continue;
                     };
                     let image_size = image.handle.size();
@@ -1003,7 +994,7 @@ impl Renderer {
                     }
                     Pipeline::Image(image) => {
                         pass.set_pipeline(&self.image_pipeline);
-                        pass.set_bind_group(1, &self.images[&image].bind_group, &[]);
+                        pass.set_bind_group(1, &self.images.get(image.into()).unwrap().bind_group, &[]);
                     }
                 }
                 pass.draw(0..4, batch.start..batch.end);
@@ -1011,7 +1002,7 @@ impl Renderer {
         }
         self.queue.submit([encoder.finish()]);
         self.glyphs.end_frame();
-        self.images.retain(|_, image| !image.handle.is_uniquely_owned());
+        self.images.retain(|image| !image.handle.is_uniquely_owned());
     }
 
     #[doc(hidden)]

@@ -20,7 +20,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{Application, Config, DesktopContext, EventLoopProxy, GraphicsBackend, RunError, Ui};
+use crate::{Application, Config, DesktopContext, EventLoopProxy, RunError, Ui};
 
 pub enum Event<T> {
     Input(T),
@@ -55,7 +55,7 @@ impl<A: Application> Session<A> {
             text,
             graphics,
         } = config;
-        let context = DesktopContext::new(GuiContext::new(TextSystem::new(text_config, text)?));
+        let context = DesktopContext::new(GuiContext::new(TextSystem::new(text_config, text)?), graphics);
         let event_loop = EventLoop::<Event<A::Input>>::with_user_event().build()?;
         let runner = Runner {
             state: Some(State::Pending(Pending {
@@ -63,7 +63,6 @@ impl<A: Application> Session<A> {
                 width,
                 height,
                 context,
-                graphics,
                 input: EventLoopProxy {
                     inner: event_loop.create_proxy(),
                 },
@@ -116,7 +115,6 @@ struct Pending<A: Application> {
     width: u32,
     height: u32,
     context: DesktopContext,
-    graphics: Box<dyn GraphicsBackend>,
     input: EventLoopProxy<A::Input>,
 }
 
@@ -124,7 +122,6 @@ struct Active<A: Application> {
     app: A,
     executor: LocalExecutor<A>,
     context: DesktopContext,
-    graphics: Box<dyn GraphicsBackend>,
     frame: Frame<DesktopContext>,
     window: Arc<Window>,
     ui_scale: f32,
@@ -138,7 +135,7 @@ impl<A: Application> Active<A> {
     }
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), RunError> {
-        self.graphics.resize(size)?;
+        self.context.graphics.resize(size)?;
         self.render_deferred = self.occluded || size.width == 0 || size.height == 0;
         if !self.render_deferred {
             self.frame.request_frame();
@@ -227,7 +224,7 @@ impl<A: Application> Runner<A> {
             active.context.performance.finish_stage(Stage::Layout);
         }
         active.frame.paint(&mut active.context);
-        let presented = match active.graphics.render(active.context.gui.render_input()) {
+        let presented = match active.context.graphics.render(active.context.gui.render_input()) {
             Ok(presented) => presented,
             Err(error) => return self.fail(event_loop, error),
         };
@@ -247,12 +244,11 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             width,
             height,
             mut context,
-            mut graphics,
             input,
         } = match self.state.take() {
             Some(State::Pending(pending)) => pending,
             Some(State::Active(mut active)) => {
-                if let Err(error) = active.graphics.resume(active.window.clone()) {
+                if let Err(error) = active.context.graphics.resume(active.window.clone()) {
                     return self.fail(event_loop, error);
                 }
                 let size = active.window.inner_size();
@@ -272,7 +268,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Err(error) => return self.fail(event_loop, error),
         };
         let size = window.inner_size();
-        if let Err(error) = graphics.resume(window.clone()) {
+        if let Err(error) = context.graphics.resume(window.clone()) {
             return self.fail(event_loop, error);
         }
         context.gui.set_scale(window.scale_factor() as f32);
@@ -287,7 +283,6 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             app,
             executor,
             context,
-            graphics,
             frame,
             window,
             ui_scale: 1.0,
@@ -302,7 +297,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
 
     fn suspended(&mut self, _: &ActiveEventLoop) {
         if let Some(State::Active(active)) = &mut self.state {
-            active.graphics.suspend();
+            active.context.graphics.suspend();
             active.render_deferred = true;
         }
     }

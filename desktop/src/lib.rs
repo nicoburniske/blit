@@ -18,7 +18,10 @@ pub mod gpu;
 
 use std::{error::Error, fmt, sync::Arc};
 
-use blit_gui::{RenderInput, TextConfig};
+use blit_gui::{
+    RenderInput, TextConfig,
+    image::{ImageData, ImageHandle},
+};
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy as WinitEventLoopProxy, window::Window};
 
 pub struct Config<T> {
@@ -35,6 +38,8 @@ pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, DesktopContext, S>;
 pub type GraphicsError = Box<dyn Error>;
 
 pub trait GraphicsBackend: 'static {
+    fn create_image(&mut self, data: ImageData) -> Result<ImageHandle, GraphicsError>;
+
     fn resume(&mut self, window: Arc<Window>) -> Result<(), GraphicsError>;
 
     fn suspend(&mut self);

@@ -1,7 +1,5 @@
 #![feature(portable_simd)]
 
-use std::collections::HashMap;
-
 mod damage;
 mod glyph;
 mod pixel;
@@ -10,12 +8,13 @@ mod strategy;
 mod text;
 
 use blit::{PhysicalRect, Scale2};
+use blit_arena::Arena;
 use blit_arrayvec::ArrayVec;
 use blit_gui::{
     RenderInput, TextSystem,
     color::Color,
     display_list::{BoxShadow, Command, DisplayList, Rectangle},
-    image::{ImageData, ImageFormat, ImageHandle, ImageId, ImageRequest},
+    image::{ImageData, ImageFormat, ImageHandle, ImageRequest},
     style::Border,
     text::{TextPhases, TextRequest},
 };
@@ -74,8 +73,7 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
             context: RenderContext {
                 buffer,
                 scale_factor: 1.0,
-                images: SlotMap::with_key(),
-                image_map: HashMap::new(),
+                images: Arena::new(),
                 shadows: shadow::Cache::new(config.shadow_cache_capacity),
                 text: TextRenderer::new(&config),
                 commands: CommandList::default(),
@@ -113,11 +111,20 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
+    /// creates an image for use with this renderer
+    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
+        data.validate();
+        let id = self
+            .context
+            .images
+            .insert_with(|id| StoredImage::new(ImageHandle::new(id.into(), data.size), data));
+        self.context.images.get(id).unwrap().handle.clone()
+    }
+
     pub fn render(&mut self, input: RenderInput<'_>) {
         let RenderInput {
             display_list,
             text,
-            image_uploads,
             scale,
             ..
         } = input;
@@ -136,7 +143,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         }
         let current_damage = damage.len();
         damage.extend_from_slice(&self.previous_damage);
-        self.render_damage(text, image_uploads, display_list, &damage);
+        self.render_damage(text, display_list, &damage);
         self.previous_damage.clear();
         self.previous_damage.extend_from_slice(&damage[..current_damage]);
         std::mem::swap(&mut self.previous, display_list);
@@ -166,21 +173,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     }
 
     #[doc(hidden)]
-    pub fn render_damage(
-        &mut self,
-        text: &mut TextSystem,
-        image_uploads: &mut Vec<(ImageHandle, ImageData)>,
-        display_list: &DisplayList,
-        damage: &[PhysicalRect],
-    ) {
-        for (handle, data) in image_uploads.drain(..) {
-            let id = handle.id();
-            let image = self.context.images.insert(StoredImage::new(handle, data));
-            assert!(
-                self.context.image_map.insert(id, image).is_none(),
-                "duplicate image resource"
-            );
-        }
+    pub fn render_damage(&mut self, text: &mut TextSystem, display_list: &DisplayList, damage: &[PhysicalRect]) {
         assert!(self.context.commands.is_empty());
         if !damage.is_empty() {
             for clip in display_list.clips() {
@@ -224,18 +217,11 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     }
 }
 
-use slotmap::{Key, KeyData, SlotMap, new_key_type};
-
-new_key_type! {
-    struct RendererImageId;
-}
-
 #[doc(hidden)]
 pub struct RenderContext<B: PixelBuffer> {
     buffer: B,
     scale_factor: f32,
-    images: SlotMap<RendererImageId, StoredImage>,
-    image_map: HashMap<ImageId, RendererImageId>,
+    images: Arena<StoredImage>,
     shadows: shadow::Cache,
     text: TextRenderer,
     commands: CommandList,
@@ -251,15 +237,6 @@ struct StoredImage {
 }
 
 impl StoredImage {
-    fn insert(images: &mut SlotMap<RendererImageId, StoredImage>, data: ImageData) -> ImageHandle {
-        data.validate();
-        let image = images.insert_with_key(|id| {
-            let handle = ImageHandle::new(ImageId(id.data().as_ffi()), data.size);
-            Self::new(handle, data)
-        });
-        images[image].handle.clone()
-    }
-
     fn new(handle: ImageHandle, data: ImageData) -> Self {
         let width = data.texture_rect.width as usize;
         let height = data.texture_rect.height as usize;
@@ -353,14 +330,7 @@ impl<B: PixelBuffer> RenderContext<B> {
     fn finish_frame(&mut self) {
         self.shadows.finish_frame();
         self.text.finish_frame();
-        self.image_map.retain(|_, image| {
-            let remove = self.images[*image].handle.is_uniquely_owned();
-            if remove {
-                self.images.remove(*image);
-            }
-            !remove
-        });
-        self.images.retain(|_, image| !image.handle.is_uniquely_owned());
+        self.images.retain(|image| !image.handle.is_uniquely_owned());
     }
 }
 
@@ -402,8 +372,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         match request {
             shadow::Prepared::Rectangle(rectangle) => self.prepare_rectangle(&rectangle, bounds, clip),
             shadow::Prepared::Image(request) => {
-                let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
-                if let Some(texture) = self.context.images.get(image) {
+                if let Some(texture) = self.context.images.get(request.image.into()) {
                     render_image::prepare(&request, &texture.data, bounds, 1.0, |image, bounds| {
                         self.context.commands.push_image(
                             image,
@@ -419,14 +388,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     }
 
     fn prepare_image(&mut self, request: &ImageRequest, bounds: PhysicalRect, clip: u32) {
-        let Some(&image) = self.context.image_map.get(&request.image) else {
-            return;
-        };
-        if let Some(texture) = self.context.images.get(image) {
-            let mut request = *request;
-            request.image = ImageId(image.data().as_ffi());
+        if let Some(texture) = self.context.images.get(request.image.into()) {
             render_image::prepare(
-                &request,
+                request,
                 &texture.data,
                 bounds,
                 self.context.scale_factor,

@@ -1,7 +1,10 @@
 use std::{io::Error as IoError, sync::Arc};
 
 use blit_gpu::Renderer;
-use blit_gui::RenderInput;
+use blit_gui::{
+    RenderInput,
+    image::{ImageData, ImageHandle},
+};
 use wgpu::{CurrentSurfaceTexture, SurfaceConfiguration};
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -36,6 +39,14 @@ impl Backend {
 }
 
 impl GraphicsBackend for Backend {
+    fn create_image(&mut self, data: ImageData) -> Result<ImageHandle, GraphicsError> {
+        let gpu = self
+            .gpu
+            .as_mut()
+            .ok_or_else(|| IoError::other("GPU renderer is not initialized"))?;
+        Ok(gpu.renderer.create_image(data))
+    }
+
     fn resume(&mut self, window: Arc<Window>) -> Result<(), GraphicsError> {
         let size = window.inner_size();
         let width = size.width.max(1);
