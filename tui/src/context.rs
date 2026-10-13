@@ -1,7 +1,7 @@
 use blit::{Clip, PhysicalRect};
 use blit_widgets::performance;
 
-use crate::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
+use crate::{RendererConfig, TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 
 /// rendering resources independent of terminal io and event loop ownership
 pub struct TuiContext {
@@ -10,6 +10,12 @@ pub struct TuiContext {
     clip: PhysicalRect,
     clips: Vec<PhysicalRect>,
     should_quit: bool,
+}
+
+impl Default for TuiContext {
+    fn default() -> Self {
+        Self::new(TuiRenderer::new(RendererConfig::new()))
+    }
 }
 
 impl blit::Context for TuiContext {
