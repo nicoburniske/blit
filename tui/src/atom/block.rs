@@ -256,12 +256,12 @@ fn paint_title(context: &mut TuiContext, title: Title, origin_x: i32, y: i32, x:
 fn border_edges(sides: BorderSides, x: usize, y: usize, width: usize, height: usize) -> u8 {
     let mut edges = 0;
     if y == 0 && sides.contains(BorderSides::TOP) {
-        edges |= u8::from(x != 0) * 8;
-        edges |= u8::from(x + 1 != width) * 2;
+        edges |= u8::from(x != 0 || !sides.contains(BorderSides::LEFT)) * 8;
+        edges |= u8::from(x + 1 != width || !sides.contains(BorderSides::RIGHT)) * 2;
     }
     if y + 1 == height && sides.contains(BorderSides::BOTTOM) {
-        edges |= u8::from(x != 0) * 8;
-        edges |= u8::from(x + 1 != width) * 2;
+        edges |= u8::from(x != 0 || !sides.contains(BorderSides::LEFT)) * 8;
+        edges |= u8::from(x + 1 != width || !sides.contains(BorderSides::RIGHT)) * 2;
     }
     if x == 0 && sides.contains(BorderSides::LEFT) {
         edges |= u8::from(y != 0);
