@@ -20,6 +20,13 @@ pub enum Input<T> {
         modifiers: Modifiers,
     },
     PointerLeave,
+    Touch {
+        id: u64,
+        position: Point<T>,
+        phase: TouchPhase,
+    },
+    /// cancels all pointer and touch sequences
+    Cancel,
     Scroll {
         position: Point<T>,
         delta_x: f32,
@@ -32,12 +39,22 @@ pub enum Input<T> {
     Key(KeyInput),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TouchPhase {
+    Down,
+    Move,
+    Up,
+    /// aborts this contact and any gesture that depends on it
+    Cancel,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ScrollPhase {
     Started,
     #[default]
     Moved,
     Ended,
+    Cancelled,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

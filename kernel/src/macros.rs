@@ -122,3 +122,62 @@ macro_rules! atom_widget {
         }
     };
 }
+
+macro_rules! flags {
+    ($visibility:vis struct $name:ident($field_visibility:vis $bits:ty) {
+        $($flag:ident = $value:expr),* $(,)?
+    }) => {
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+        $visibility struct $name($field_visibility $bits);
+
+        impl $name {
+            $(pub const $flag: Self = Self($value);)*
+
+            pub const fn contains(self, other: Self) -> bool {
+                self.0 & other.0 == other.0
+            }
+
+            pub const fn intersects(self, other: Self) -> bool {
+                self.0 & other.0 != 0
+            }
+        }
+
+        impl ::core::ops::BitOr for $name {
+            type Output = Self;
+
+            fn bitor(self, other: Self) -> Self {
+                Self(self.0 | other.0)
+            }
+        }
+
+        impl ::core::ops::BitOrAssign for $name {
+            fn bitor_assign(&mut self, other: Self) {
+                self.0 |= other.0;
+            }
+        }
+
+        impl ::core::ops::BitAnd for $name {
+            type Output = Self;
+
+            fn bitand(self, other: Self) -> Self {
+                Self(self.0 & other.0)
+            }
+        }
+
+        impl ::core::ops::BitAndAssign for $name {
+            fn bitand_assign(&mut self, other: Self) {
+                self.0 &= other.0;
+            }
+        }
+
+        impl ::core::ops::Not for $name {
+            type Output = Self;
+
+            fn not(self) -> Self {
+                Self(!self.0)
+            }
+        }
+    };
+}
+
+pub(crate) use flags;

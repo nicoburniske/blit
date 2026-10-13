@@ -90,6 +90,12 @@ impl<C: Context> Default for Frame<C> {
 }
 
 impl<C: Context> Frame<C> {
+    /// updates recognition thresholds including pending long press timers
+    pub fn set_interaction_config(&mut self, config: crate::InteractionConfig) {
+        self.interaction.config = config;
+        self.request_frame();
+    }
+
     /// rebuilds the frame graph for one input
     pub fn build<W: Widget<C>>(
         &mut self,
@@ -131,7 +137,9 @@ impl<C: Context> Frame<C> {
         for timer in &mut self.timers {
             timer.seen = false;
         }
-        self.interaction.begin(&input);
+        if self.interaction.begin(&input, time) {
+            self.frame_requested = true;
+        }
 
         let id = WidgetId::new("blit frame root");
         let root = self.push_node(None, id);
@@ -184,7 +192,11 @@ impl<C: Context> Frame<C> {
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
-        self.timers.iter().filter_map(timer::TimerState::deadline).min()
+        self.timers
+            .iter()
+            .filter_map(timer::TimerState::deadline)
+            .chain(self.interaction.next_deadline())
+            .min()
     }
 
     pub fn request_frame(&mut self) {

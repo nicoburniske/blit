@@ -4,10 +4,14 @@ version = "0.1.0"
 edition = "2024"
 license.workspace = true
 publish = false
+autotests = false
 
 [dev-dependencies]
-blit-layout.workspace = true
 divan = "0.1"
+
+[[test]]
+name = "kernel"
+path = "tests/main.rs"
 
 [[bench]]
 name = "frame"

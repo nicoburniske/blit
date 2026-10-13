@@ -4,7 +4,7 @@ use blit::{
     Atom, AtomCx, Constraints, Context, Frame, FrameInfo, Input, Rect, Scalar, Sides, Size, Sizing, Transition, Ui,
     Widget, WidgetId,
 };
-use blit_layout::{Align, flex, grid, single, wrap};
+use blit_layout::{Align, absolute, absolute::Anchor, flex, grid, single, wrap};
 
 #[derive(Default)]
 struct TestContext;
@@ -69,6 +69,37 @@ impl<C: Context> Atom<C> for ResponsiveAtom {
     fn paint_bounds(&self, _: Rect<C::Scalar>) -> Rect<C::Scalar> {
         Rect::default()
     }
+}
+
+#[test]
+fn absolute_positions_use_the_target_and_sizes_use_the_parent() {
+    let mut frame = Frame::default();
+    let id = WidgetId::new("absolute");
+    layout_frame(
+        &mut frame,
+        &mut TestContext,
+        FrameInfo::new(Size::new(10.0, 4.0)),
+        |ui: Ui<'_, TestContext>| {
+            let mut root = ui.layout(single::new().padding(Sides {
+                left: 2.0,
+                right: 2.0,
+                top: 1.0,
+                bottom: 1.0,
+            }));
+            let target = root.child().build(|mut ui: Ui<'_, TestContext>| {
+                ui.insert(BoxAtom(Size::new(6.0, 2.0)));
+                ui.id()
+            });
+            root.child().widget_id(id).layout(
+                absolute::place(())
+                    .target_anchor(Anchor::BottomRight)
+                    .target(target)
+                    .width(absolute::Sizing::percent(0.5))
+                    .height(absolute::Sizing::full()),
+            );
+        },
+    );
+    assert_eq!(frame.geometry(id), Some(Rect::new(8.0, 3.0, 5.0, 4.0)));
 }
 
 #[test]

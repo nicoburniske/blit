@@ -53,8 +53,8 @@ pub use self::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
         Scalar, Scale2, Sides, Size,
     },
-    input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
-    interact::{Interaction, ScrollInteraction, Sense, WidgetId},
+    input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase, TouchPhase},
+    interact::{Direction, Drag, Interaction, InteractionConfig, Phase, Pinch, Rotation, Scroll, Sense, WidgetId},
     layout::{Axis, Layout, LayoutCx, Scratch, Sizing},
 };
 

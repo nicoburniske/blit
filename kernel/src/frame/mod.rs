@@ -232,10 +232,7 @@ impl<C: Context, S> Ui<'_, C, S> {
             .and_modify(|request| match request {
                 Request::Geometry => *request = Request::Interaction(sense),
                 Request::Interaction(previous) => {
-                    previous.click |= sense.click;
-                    previous.drag |= sense.drag;
-                    previous.focus |= sense.focus;
-                    previous.scroll |= sense.scroll;
+                    *previous |= sense;
                 }
             })
             .or_insert(Request::Interaction(sense));
