@@ -56,9 +56,10 @@ where
         let trailing_id = id.child("trailing pane");
         let interaction = ui.interact_widget(divider_id, config.sense);
         let measured = ui.geometry(leading_id).map(|area| axis.extent(area.size()));
+        let delta = interaction.drag.map_or(Point::ZERO, |drag| drag.delta);
         let delta = match axis {
-            Axis::Horizontal => interaction.drag_delta.x,
-            Axis::Vertical => interaction.drag_delta.y,
+            Axis::Horizontal => delta.x,
+            Axis::Vertical => delta.y,
         };
         if !state.changed
             && let Some(measured) = measured

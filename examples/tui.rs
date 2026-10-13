@@ -996,7 +996,7 @@ impl Widget<TuiContext> for TuiGrip {
             resize::Edge::Bottom => "═══",
             resize::Edge::Corner => "╝",
         };
-        let active = self.0.interaction.hovered || self.0.interaction.active || self.0.interaction.dragging;
+        let active = self.0.interaction.hovered || self.0.interaction.active;
         let color = if active {
             colors::ACCENT
         } else if self.0.edge == resize::Edge::Corner {
@@ -1198,7 +1198,7 @@ fn split<'a>(
         config,
         |_, interaction| {
             move |ui: Ui<'_>| {
-                let active = interaction.hovered || interaction.dragging;
+                let active = interaction.hovered || interaction.active;
                 let mut divider = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
                 divider
                     .child()

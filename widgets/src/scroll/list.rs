@@ -141,8 +141,8 @@ mod tests {
             info: FrameInfo<f32>,
             state: &mut State<f32>,
             built: &mut Vec<(usize, WidgetId)>,
+            swap: bool,
         ) {
-            let swap = state.offset > 0.0;
             let mut rows: [usize; 100] = std::array::from_fn(|index| index);
             if swap {
                 rows.swap(5, 6);
@@ -171,14 +171,14 @@ mod tests {
         let mut state = State::new();
         let mut built = Vec::new();
 
-        layout(&mut frame, &mut context, frame_info, &mut state, &mut built);
+        layout(&mut frame, &mut context, frame_info, &mut state, &mut built, false);
         assert!(built.iter().map(|row| row.0).eq(0..6));
         let (first_id, default_id) = (built[5].1, built[4].1);
         built.clear();
         state.viewport_extent = 10.0;
         state.content_extent = 200.0;
         state.scroll_to(8.0, None);
-        layout(&mut frame, &mut context, frame_info, &mut state, &mut built);
+        layout(&mut frame, &mut context, frame_info, &mut state, &mut built, true);
         assert!(built.iter().map(|row| row.0).eq(3..10));
         assert_eq!(built[3].1, first_id);
         assert_eq!(built[1].1, default_id);

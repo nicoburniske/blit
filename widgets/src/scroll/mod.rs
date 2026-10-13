@@ -5,7 +5,7 @@ pub mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Context, Easing, Layout, LayoutCx, Point, Scalar, ScrollPhase, Sense, Size, Sizing, Ui,
+    Axis, Clip, Constraints, Context, Easing, Layout, LayoutCx, Phase, Point, Scalar, Scroll, Sense, Size, Sizing, Ui,
     Widget, WidgetId,
 };
 
@@ -225,7 +225,14 @@ fn update<C: Context>(
     }
 
     let interaction = ui.interact(config.sense);
-    if interaction.scroll.is_some() || interaction.drag_delta != Point::ZERO {
+    let motion = interaction.scroll.or_else(|| {
+        interaction.drag.map(|drag| Scroll {
+            phase: drag.phase,
+            delta: Point::new(-drag.delta.x.to_f32(), -drag.delta.y.to_f32()),
+            continuous: true,
+        })
+    });
+    if motion.is_some() {
         state.request.target = Target::None;
     }
     let thumb_interaction = ui.interact_widget(thumb_id, Sense::DRAG);
@@ -237,8 +244,9 @@ fn update<C: Context>(
         .replace(now)
         .map_or(0.0, |previous| now.saturating_sub(previous).as_secs_f32());
     let maximum = state.maximum_offset();
-    let drag = thumb_interaction.dragging.then_some(thumb_interaction);
-    if drag.is_some() || track_interaction.activated || track_interaction.dragging {
+    let drag = thumb_interaction.drag.filter(|drag| drag.phase != Phase::Cancelled);
+    let track_drag = track_interaction.drag.filter(|drag| drag.phase != Phase::Cancelled);
+    if drag.is_some() || track_interaction.activated || track_drag.is_some() {
         state.request.target = Target::None;
         let thumb = ui
             .geometry(thumb_id)
@@ -249,11 +257,14 @@ fn update<C: Context>(
             state.tracking = false;
             if let Some(drag) = drag {
                 let delta = match axis {
-                    Axis::Horizontal => drag.drag_delta.x.to_f32(),
-                    Axis::Vertical => drag.drag_delta.y.to_f32(),
+                    Axis::Horizontal => drag.delta.x.to_f32(),
+                    Axis::Vertical => drag.delta.y.to_f32(),
                 };
                 move_by(state, delta * maximum.to_f32() / travel.to_f32());
-            } else if let Some((track, pointer)) = ui.geometry(track_id).zip(ui.pointer_position()) {
+            } else if let Some((track, pointer)) = ui
+                .geometry(track_id)
+                .zip(track_drag.map(|drag| drag.position).or_else(|| ui.pointer_position()))
+            {
                 let position = match axis {
                     Axis::Horizontal => (pointer.x - track.x).to_f32(),
                     Axis::Vertical => (pointer.y - track.y).to_f32(),
@@ -268,20 +279,7 @@ fn update<C: Context>(
     } else {
         let mut direct_delta = 0.0;
         let mut sample_velocity = false;
-        let drag_delta = match axis {
-            Axis::Horizontal => interaction.drag_delta.x.to_f32(),
-            Axis::Vertical => interaction.drag_delta.y.to_f32(),
-        };
-        if drag_delta != 0.0 {
-            direct_delta = -drag_delta * config.scroll_speed;
-            sample_velocity = state.tracking;
-            if !state.tracking {
-                state.velocity = 0.0;
-            }
-            state.tracking = true;
-        } else if interaction.deactivated {
-            state.tracking = false;
-        } else if let Some(scroll) = interaction.scroll {
+        if let Some(scroll) = motion {
             let mut delta = match axis {
                 Axis::Horizontal => scroll.delta.x,
                 Axis::Vertical => scroll.delta.y,
@@ -292,20 +290,29 @@ fn update<C: Context>(
             direct_delta = delta * config.scroll_speed;
             if scroll.continuous {
                 match scroll.phase {
-                    ScrollPhase::Started => {
+                    Phase::Started => {
                         state.velocity = 0.0;
                         state.tracking = true;
                     }
-                    ScrollPhase::Moved => {
+                    Phase::Changed => {
                         sample_velocity = state.tracking;
                         state.tracking = true;
                     }
-                    ScrollPhase::Ended => state.tracking = false,
+                    Phase::Ended => {
+                        sample_velocity = state.tracking;
+                        state.tracking = false;
+                    }
+                    Phase::Cancelled => {
+                        state.velocity = 0.0;
+                        state.tracking = false;
+                    }
                 }
             } else {
                 state.velocity = 0.0;
                 state.tracking = false;
             }
+        } else if interaction.deactivated {
+            state.tracking = false;
         }
 
         if direct_delta != 0.0 {
@@ -316,6 +323,7 @@ fn update<C: Context>(
         }
 
         if !state.tracking && state.velocity != 0.0 {
+            let elapsed = if motion.is_some() { 0.0 } else { elapsed };
             let decay = (-config.inertia_friction * elapsed).exp();
             let delta = state.velocity * (1.0 - decay) / config.inertia_friction;
             state.velocity *= decay;

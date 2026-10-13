@@ -373,6 +373,10 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 self.cursor = None;
                 self.inputs.push(Input::PointerLeave);
             }
+            WindowEvent::Focused(false) => {
+                active.window.request_redraw();
+                self.inputs.push(Input::Cancel);
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(position) = self.cursor {
                     let position = logical_position(position, active.scale());
@@ -422,7 +426,8 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 let phase = match phase {
                     TouchPhase::Started => ScrollPhase::Started,
                     TouchPhase::Moved => ScrollPhase::Moved,
-                    TouchPhase::Ended | TouchPhase::Cancelled => ScrollPhase::Ended,
+                    TouchPhase::Ended => ScrollPhase::Ended,
+                    TouchPhase::Cancelled => ScrollPhase::Cancelled,
                 };
                 active.window.request_redraw();
                 self.push_input(Input::Scroll {
@@ -505,24 +510,16 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             WindowEvent::Touch(touch) => {
                 let position = logical_position(touch.location, active.scale());
                 active.window.request_redraw();
-                let input = match touch.phase {
-                    TouchPhase::Started => Input::PointerDown {
-                        position,
-                        button: PointerButton::Primary,
-                        modifiers: self.modifiers,
+                self.push_input(Input::Touch {
+                    id: touch.id,
+                    position,
+                    phase: match touch.phase {
+                        TouchPhase::Started => blit::TouchPhase::Down,
+                        TouchPhase::Moved => blit::TouchPhase::Move,
+                        TouchPhase::Ended => blit::TouchPhase::Up,
+                        TouchPhase::Cancelled => blit::TouchPhase::Cancel,
                     },
-                    TouchPhase::Moved => Input::PointerMove {
-                        position,
-                        modifiers: self.modifiers,
-                    },
-                    TouchPhase::Ended | TouchPhase::Cancelled => Input::PointerUp {
-                        position,
-                        button: PointerButton::Primary,
-                        modifiers: self.modifiers,
-                        leave: true,
-                    },
-                };
-                self.push_input(input);
+                });
             }
             _ => {}
         }

@@ -48,10 +48,10 @@ where
         let right = ui.interact_widget(right_id, Sense::DRAG);
         let bottom = ui.interact_widget(bottom_id, Sense::DRAG);
         let corner = ui.interact_widget(corner_id, Sense::DRAG);
-        let delta = Size::new(
-            right.drag_delta.x + corner.drag_delta.x,
-            bottom.drag_delta.y + corner.drag_delta.y,
-        );
+        let right_delta = right.drag.map_or(Point::ZERO, |drag| drag.delta);
+        let bottom_delta = bottom.drag.map_or(Point::ZERO, |drag| drag.delta);
+        let corner_delta = corner.drag.map_or(Point::ZERO, |drag| drag.delta);
+        let delta = Size::new(right_delta.x + corner_delta.x, bottom_delta.y + corner_delta.y);
         if delta != Size::ZERO {
             let size = state
                 .size

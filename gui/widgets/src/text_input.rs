@@ -40,10 +40,7 @@ impl<C: Context> Widget<C> for TextInput<'_> {
             cursor_background,
         } = self;
         let id = ui.current_widget_id();
-        let interaction = ui.interact(Sense {
-            drag: true,
-            ..Sense::FOCUS
-        });
+        let interaction = ui.interact(Sense::FOCUS | Sense::DRAG);
         let input = *ui.input();
         match input {
             Input::Key(key) if ui.is_focused(id) && key.key == Key::Escape && key.pressed => {
@@ -66,6 +63,11 @@ impl<C: Context> Widget<C> for TextInput<'_> {
                     modifiers,
                 } if interaction.active => Some((position, modifiers.shift())),
                 Input::PointerMove { position, .. } if interaction.active => Some((position, true)),
+                Input::Touch { position, phase, .. } if interaction.active => match phase {
+                    blit::TouchPhase::Down => Some((position, false)),
+                    blit::TouchPhase::Move => Some((position, true)),
+                    _ => None,
+                },
                 _ => None,
             }
         } else {
