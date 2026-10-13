@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget, WidgetId};
 
 pub use super::Behavior;
-use super::{ScrollLayout, build_scroll, update};
+use super::{ScrollLayout, Target, build_scroll, update};
 
 blit::builder! {
     #[derive(Clone, Copy, Debug)]
@@ -75,8 +75,8 @@ where
         state.dirty = false;
         ui.request_frame();
     }
-    let reveal = state.reveal.take();
-    if let Some(id) = reveal {
+    let reveal = std::mem::take(&mut state.reveal);
+    if let Target::Widget(id) = reveal {
         target = table
             .rows
             .iter()
@@ -86,7 +86,11 @@ where
     if let Some((index, within)) = target {
         state.scroll.offset = table.rows[index].top.endpoint(within.min(table.rows[index].height));
     }
-    if reveal.is_some() {
+    if let Target::Offset(offset) = reveal {
+        state.scroll.offset = offset.max(C::Scalar::ZERO);
+        target = None;
+    }
+    if !matches!(reveal, Target::None) {
         state.scroll.content_extent = table.total;
         state.scroll.stop();
     }
@@ -152,6 +156,8 @@ where
         visible = 0..rows.len();
         ui.request_frame();
         target
+    } else if matches!(reveal, Target::Offset(_)) {
+        None
     } else {
         table
             .rows
@@ -192,10 +198,12 @@ where
         track,
         thumb,
     );
-    Response { pointer_row }
+    Response { pointer_row, visible_range: state.visible.clone() }
 }
 
 pub struct Response {
+    /// row indices intersecting the viewport excluding overscan
+    pub visible_range: Range<usize>,
     /// row at the pointer y position clamped to the viewport edges
     /// none when the pointer or measurements are unavailable or the list is empty
     pub pointer_row: Option<usize>,
@@ -207,13 +215,26 @@ pub struct State<T> {
     table: Rc<RefCell<RowTable<T>>>,
     screen: Option<Size<T>>,
     dirty: bool,
-    reveal: Option<WidgetId>,
+    reveal: Target<T>,
     visible: Range<usize>,
 }
 
 impl<T: Scalar> State<T> {
+    pub fn offset(&self) -> T {
+        self.table.borrow().offset
+    }
+
+    pub fn content_height(&self) -> T {
+        self.table.borrow().total
+    }
+
+    /// queues an absolute offset clamped to the measured content during layout
+    pub fn scroll_to_offset(&mut self, offset: T) {
+        self.reveal = Target::Offset(offset);
+    }
+
     pub fn scroll_to(&mut self, id: WidgetId) {
-        self.reveal = Some(id);
+        self.reveal = Target::Widget(id);
     }
 
     /// rebuilds the row index while retaining heights for existing keys
@@ -382,7 +403,7 @@ mod tests {
 
         state.scroll_to(WidgetId::new(30u32));
         layout(&mut frame, &mut state, &rows);
-        state.table.borrow_mut().offset += 5.0;
+        state.scroll_to_offset(state.offset() + 5.0);
         layout(&mut frame, &mut state, &rows);
         for row in &mut rows {
             if row.0 == 32 || row.0 == 30 {

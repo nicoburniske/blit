@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget, WidgetId};
 
 pub use super::{Behavior, State};
@@ -23,7 +25,8 @@ pub fn build<C: Context, I, K, F, X, T, H>(
     mut item: F,
     clip: X,
     scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
-) where
+) -> Response
+where
     I: ExactSizeIterator,
     K: FnMut(&I::Item) -> WidgetId,
     F: FnMut(Ui<'_, C>, I::Item),
@@ -47,13 +50,18 @@ pub fn build<C: Context, I, K, F, X, T, H>(
         ui.request_frame();
         axis.extent(ui.screen().size())
     };
-    let first = state.offset.index(stride).min(count).saturating_sub(1);
+    let start = state.offset.index(stride).min(count);
     let extent = state.offset.endpoint(viewport_extent);
     let end = extent.index(stride);
     let end = end
         .saturating_add(usize::from(stride.repeat(end) < extent))
-        .saturating_add(1)
         .min(count);
+    let start = start.saturating_add(usize::from(
+        stride.repeat(start).endpoint(item_extent) <= state.offset,
+    )).min(end);
+    let visible_range = if viewport_extent > C::Scalar::ZERO { start..end } else { start..start };
+    let first = start.saturating_sub(1);
+    let end = end.saturating_add(1).min(count);
     let total_extent = item_extent.repeat(count).endpoint(gap.repeat(count.saturating_sub(1)));
     let layout = ListLayout {
         axis,
@@ -87,6 +95,12 @@ pub fn build<C: Context, I, K, F, X, T, H>(
         track,
         thumb,
     );
+    Response { visible_range }
+}
+
+pub struct Response {
+    /// row indices intersecting the viewport excluding overscan
+    pub visible_range: Range<usize>,
 }
 
 #[derive(Clone, Copy)]

@@ -49,6 +49,7 @@ macro_rules! export {
             }
         }
         pub mod scroll_list {
+            pub use $crate::scroll::list::Response;
             use $crate::{Context, Ui, Widget, WidgetId, state};
 
             pub type Behavior = $crate::scroll::list::Behavior<$coord>;
@@ -62,7 +63,7 @@ macro_rules! export {
                 widget_id: K,
                 item: F,
                 scrollbar: B,
-            ) -> impl Widget<C> + 'a
+            ) -> impl Widget<C, Response = Response> + 'a
             where
                 C: Context<Scalar = $coord> + AsMut<$context>,
                 I: ExactSizeIterator + 'a,
