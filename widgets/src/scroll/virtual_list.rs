@@ -1,204 +1,242 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
-use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget, WidgetId};
+use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget, WidgetId};
 
-pub use super::Behavior;
 use super::{ScrollLayout, Target, build_scroll, update};
 
 blit::builder! {
-    #[derive(Clone, Copy, Debug)]
-    pub struct Config<T: Scalar> {
-        new(),
+    /// measures all rows initially then corrects visible heights as layout changes
+    pub struct VirtualList<'a, T: Scalar, R> {
+        new(state: &'a mut State<T>),
+        rows: &'a [R] = &[],
         edge_scroll: bool = false,
-        behavior: Behavior<T> = Behavior::default(),
+        scroll_speed: f32 = 1.0,
+        inertia_friction: f32 = 6.0,
+        sense: Sense = Sense::SCROLL,
+        scrollbar_thickness: T = T::from_f32(1.0),
+        minimum_thumb_extent: T = T::from_f32(1.0),
+        widget_id<K: FnMut(&R) -> WidgetId = ()> = (),
+        item<F: FnMut(Ui<'_, C>, &R) = (), C: Context<Scalar = T>> = (),
+        clip<X = ()> = (),
+        #[into]
+        track<A = ()>: Option<_> = None,
+        #[into]
+        thumb_with<H = fn(bool) -> ()>: Option<_> = None,
     }
 }
 
-/// measures all rows initially then corrects visible heights as layout changes
-pub fn build<C: Context, R, X, K, F, T, H>(
-    mut ui: Ui<'_, C>,
-    state: &mut State<C::Scalar>,
-    rows: &[R],
-    clip: X,
-    list: Config<C::Scalar>,
-    scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
-    mut widget_id: K,
-    mut item: F,
-) -> Response
+impl<'a, T: Scalar, R, K, F, X, A, H> VirtualList<'a, T, R, K, F, X, A, H> {
+    pub fn thumb<B>(self, thumb: B) -> VirtualList<'a, T, R, K, F, X, A, impl FnOnce(bool) -> B> {
+        self.thumb_with(move |_| thumb)
+    }
+}
+
+impl<C: Context<Scalar = T>, T: Scalar, R, K, F, X, A, H, B> Widget<C> for VirtualList<'_, T, R, K, F, X, A, H>
 where
-    X: Clip<C>,
-    T: Widget<C, blit::state::Node>,
-    H: Widget<C, blit::state::Node>,
     K: FnMut(&R) -> WidgetId,
     F: FnMut(Ui<'_, C>, &R),
+    X: Clip<C>,
+    A: Widget<C, blit::state::Node>,
+    H: FnOnce(bool) -> B,
+    B: Widget<C, blit::state::Node>,
 {
-    let config = list.behavior;
-    let id = ui.current_widget_id();
-    let viewport = ui.geometry(id);
-    let screen = ui.screen().size();
-    if state.screen.replace(screen) != Some(screen) {
-        ui.request_frame();
-    }
-    let mut table = state.table.borrow_mut();
-    state.scroll.offset = table.offset;
-    state.scroll.content_extent = table.total;
-    let previous = state.scroll.offset;
-    let elapsed = state
-        .scroll
-        .last_frame
-        .map_or(0.0, |previous| ui.time().saturating_sub(previous).as_secs_f32());
-    let (thumb_active, _) = update(&mut state.scroll, &mut ui, Axis::Vertical, config);
-    let index = table
-        .rows
-        .partition_point(|row| row.top.endpoint(row.height) <= state.scroll.offset);
-    let mut target = table.rows.get(index).map(|row| (index, state.scroll.offset - row.top));
-    let mut full = false;
-    if table.rows.len() != rows.len() || state.dirty {
-        let anchor = target.map(|(index, within)| (table.rows[index].id, within));
-        table.rows.clear();
-        target = None;
-        let mut top = C::Scalar::ZERO;
-        for value in rows {
-            let id = widget_id(value);
-            let height = table.heights.get(&id).copied();
-            full |= height.is_none();
-            let height = height.unwrap_or(C::Scalar::ZERO);
-            if let Some((anchor, within)) = anchor
-                && anchor == id
-            {
-                target = Some((table.rows.len(), within));
-            }
-            table.rows.push(Row { id, top, height });
-            top = top.endpoint(height);
+    type Response = Response;
+
+    fn build(self, mut ui: Ui<'_, C>) -> Response {
+        let Self {
+            state,
+            rows,
+            edge_scroll,
+            scroll_speed,
+            inertia_friction,
+            sense,
+            scrollbar_thickness,
+            minimum_thumb_extent,
+            mut widget_id,
+            mut item,
+            clip,
+            track,
+            thumb_with,
+        } = self;
+        let id = ui.current_widget_id();
+        let viewport = ui.geometry(id);
+        let screen = ui.screen().size();
+        if state.screen.replace(screen) != Some(screen) {
+            ui.request_frame();
         }
-        table.total = top;
-        state.dirty = false;
-        ui.request_frame();
-    }
-    let reveal = std::mem::take(&mut state.reveal);
-    if let Target::Widget(id) = reveal {
-        target = table
-            .rows
-            .iter()
-            .position(|row| row.id == id)
-            .map(|index| (index, C::Scalar::ZERO));
-    }
-    if let Some((index, within)) = target {
-        state.scroll.offset = table.rows[index].top.endpoint(within.min(table.rows[index].height));
-    }
-    if let Target::Offset(offset) = reveal {
-        state.scroll.offset = offset.max(C::Scalar::ZERO);
-        target = None;
-    }
-    if !matches!(reveal, Target::None) {
-        state.scroll.content_extent = table.total;
-        state.scroll.stop();
-    }
-    let mut visible = 0..0;
-    let mut pointer_row = None;
-    if !full && let Some(viewport) = viewport {
-        state.scroll.content_extent = table.total;
-        state.scroll.viewport_extent = viewport.height;
-        state.scroll.offset = state
-            .scroll
-            .offset
-            .clamp(C::Scalar::ZERO, state.scroll.maximum_offset());
-        if list.edge_scroll {
-            state.scroll.velocity = 0.0;
-            state.scroll.tracking = false;
-            if let Some(pointer) = ui.pointer_position() {
-                let y = (pointer.y - viewport.y).to_f32();
-                let edge = 40.0_f32.min(viewport.height.to_f32() / 2.0).max(1.0);
-                let speed = if y < edge {
-                    -((edge - y) / edge).min(1.0)
-                } else {
-                    ((y - viewport.height.to_f32() + edge) / edge).clamp(0.0, 1.0)
-                };
-                if speed != 0.0 {
-                    super::move_by(&mut state.scroll, speed * 600.0 * elapsed.min(0.05));
-                    if (speed < 0.0 && state.scroll.offset > C::Scalar::ZERO)
-                        || (speed > 0.0 && state.scroll.offset < state.scroll.maximum_offset())
+        let (target, visible, pointer_row, thumb_active) = {
+            let mut table = state.table.borrow_mut();
+            state.scroll.offset = table.offset;
+            state.scroll.content_extent = table.total;
+            let previous = state.scroll.offset;
+            let elapsed = state
+                .scroll
+                .last_frame
+                .map_or(0.0, |previous| ui.time().saturating_sub(previous).as_secs_f32());
+            let (thumb_active, _) = update(
+                &mut state.scroll,
+                &mut ui,
+                Axis::Vertical,
+                sense,
+                scroll_speed,
+                inertia_friction,
+            );
+            let index = table
+                .rows
+                .partition_point(|row| row.top.endpoint(row.height) <= state.scroll.offset);
+            let mut target = table.rows.get(index).map(|row| (index, state.scroll.offset - row.top));
+            let mut full = false;
+            if table.rows.len() != rows.len() || state.dirty {
+                let anchor = target.map(|(index, within)| (table.rows[index].id, within));
+                table.rows.clear();
+                target = None;
+                let mut top = C::Scalar::ZERO;
+                for value in rows {
+                    let id = widget_id(value);
+                    let height = table.heights.get(&id).copied();
+                    full |= height.is_none();
+                    let height = height.unwrap_or(C::Scalar::ZERO);
+                    if let Some((anchor, within)) = anchor
+                        && anchor == id
                     {
-                        ui.request_frame();
+                        target = Some((table.rows.len(), within));
+                    }
+                    table.rows.push(Row { id, top, height });
+                    top = top.endpoint(height);
+                }
+                table.total = top;
+                state.dirty = false;
+                ui.request_frame();
+            }
+            let reveal = std::mem::take(&mut state.reveal);
+            if let Target::Widget(id) = reveal {
+                target = table
+                    .rows
+                    .iter()
+                    .position(|row| row.id == id)
+                    .map(|index| (index, C::Scalar::ZERO));
+            }
+            if let Some((index, within)) = target {
+                state.scroll.offset = table.rows[index].top.endpoint(within.min(table.rows[index].height));
+            }
+            if let Target::Offset(offset) = reveal {
+                state.scroll.offset = offset.max(C::Scalar::ZERO);
+                target = None;
+            }
+            if !matches!(reveal, Target::None) {
+                state.scroll.content_extent = table.total;
+                state.scroll.stop();
+            }
+            let mut visible = 0..0;
+            let mut pointer_row = None;
+            if !full && let Some(viewport) = viewport {
+                state.scroll.content_extent = table.total;
+                state.scroll.viewport_extent = viewport.height;
+                state.scroll.offset = state
+                    .scroll
+                    .offset
+                    .clamp(C::Scalar::ZERO, state.scroll.maximum_offset());
+                if edge_scroll {
+                    state.scroll.velocity = 0.0;
+                    state.scroll.tracking = false;
+                    if let Some(pointer) = ui.pointer_position() {
+                        let y = (pointer.y - viewport.y).to_f32();
+                        let edge = 40.0_f32.min(viewport.height.to_f32() / 2.0).max(1.0);
+                        let speed = if y < edge {
+                            -((edge - y) / edge).min(1.0)
+                        } else {
+                            ((y - viewport.height.to_f32() + edge) / edge).clamp(0.0, 1.0)
+                        };
+                        if speed != 0.0 {
+                            super::move_by(&mut state.scroll, speed * 600.0 * elapsed.min(0.05));
+                            if (speed < 0.0 && state.scroll.offset > C::Scalar::ZERO)
+                                || (speed > 0.0 && state.scroll.offset < state.scroll.maximum_offset())
+                            {
+                                ui.request_frame();
+                            }
+                        }
                     }
                 }
+                if let Some(pointer) = ui.pointer_position()
+                    && !rows.is_empty()
+                {
+                    let y = state
+                        .scroll
+                        .offset
+                        .endpoint((pointer.y - viewport.y).clamp(C::Scalar::ZERO, viewport.height));
+                    pointer_row = Some(
+                        table
+                            .rows
+                            .partition_point(|row| row.top.endpoint(row.height) <= y)
+                            .min(rows.len() - 1),
+                    );
+                }
+                let first = table
+                    .rows
+                    .partition_point(|row| row.top.endpoint(row.height) <= state.scroll.offset);
+                let end = table
+                    .rows
+                    .partition_point(|row| row.top < state.scroll.offset.endpoint(viewport.height));
+                state.visible = first..end;
+                visible = first.saturating_sub(1)..(end + 1).min(rows.len());
+            } else {
+                state.visible = 0..0;
             }
-        }
-        if let Some(pointer) = ui.pointer_position()
-            && !rows.is_empty()
-        {
-            let y = state
-                .scroll
-                .offset
-                .endpoint((pointer.y - viewport.y).clamp(C::Scalar::ZERO, viewport.height));
-            pointer_row = Some(
+            if state.scroll.offset != previous {
+                ui.request_frame();
+            }
+            let target = if full {
+                visible = 0..rows.len();
+                ui.request_frame();
+                target
+            } else if matches!(reveal, Target::Offset(_)) {
+                None
+            } else {
                 table
                     .rows
-                    .partition_point(|row| row.top.endpoint(row.height) <= y)
-                    .min(rows.len() - 1),
-            );
-        }
-        let first = table
-            .rows
-            .partition_point(|row| row.top.endpoint(row.height) <= state.scroll.offset);
-        let end = table
-            .rows
-            .partition_point(|row| row.top < state.scroll.offset.endpoint(viewport.height));
-        state.visible = first..end;
-        visible = first.saturating_sub(1)..(end + 1).min(rows.len());
-    } else {
-        state.visible = 0..0;
-    }
-    if state.scroll.offset != previous {
-        ui.request_frame();
-    }
-    let target = if full {
-        visible = 0..rows.len();
-        ui.request_frame();
-        target
-    } else if matches!(reveal, Target::Offset(_)) {
-        None
-    } else {
-        table
-            .rows
-            .get(state.visible.start)
-            .map(|row| (state.visible.start, state.scroll.offset - row.top))
-    };
-    table.offset = state.scroll.offset;
-    drop(table);
-    let table = Rc::clone(&state.table);
-    let (track, thumb) = scrollbar(thumb_active);
-    build_scroll(
-        ui,
-        ScrollLayout {
-            axis: Axis::Vertical,
-            offset: {
-                let table = Rc::clone(&table);
-                move |maximum| {
-                    let mut table = table.borrow_mut();
-                    table.offset = table.offset.clamp(C::Scalar::ZERO, maximum);
-                    table.offset
+                    .get(state.visible.start)
+                    .map(|row| (state.visible.start, state.scroll.offset - row.top))
+            };
+            table.offset = state.scroll.offset;
+            (target, visible, pointer_row, thumb_active)
+        };
+        let table = Rc::clone(&state.table);
+        let thumb = thumb_with.map(|thumb| thumb(thumb_active));
+        build_scroll(
+            ui,
+            ScrollLayout {
+                axis: Axis::Vertical,
+                offset: {
+                    let table = Rc::clone(&table);
+                    move |maximum| {
+                        let mut table = table.borrow_mut();
+                        table.offset = table.offset.clamp(C::Scalar::ZERO, maximum);
+                        table.offset
+                    }
+                },
+                scrollbar_thickness,
+                minimum_thumb_extent,
+            },
+            clip,
+            move |ui: Ui<'_, C>| {
+                let mut list = ui.layout(MeasuredLayout {
+                    first: visible.start,
+                    target,
+                    table: Rc::clone(&table),
+                });
+                for index in visible {
+                    let id = table.borrow().rows[index].id;
+                    list.child().widget_id(id).build(|ui: Ui<'_, C>| item(ui, &rows[index]));
                 }
             },
-            scrollbar_thickness: config.scrollbar_thickness,
-            minimum_thumb_extent: config.minimum_thumb_extent,
-        },
-        clip,
-        move |ui: Ui<'_, C>| {
-            let mut list = ui.layout(MeasuredLayout {
-                first: visible.start,
-                target,
-                table: Rc::clone(&table),
-            });
-            for index in visible {
-                let id = table.borrow().rows[index].id;
-                list.child().widget_id(id).build(|ui: Ui<'_, C>| item(ui, &rows[index]));
-            }
-        },
-        track,
-        thumb,
-    );
-    Response { pointer_row, visible_range: state.visible.clone() }
+            track,
+            thumb,
+        );
+        Response {
+            pointer_row,
+            visible_range: state.visible.clone(),
+        }
+    }
 }
 
 pub struct Response {
@@ -349,17 +387,14 @@ mod tests {
                 Duration::ZERO,
                 Input::None,
                 |ui: Ui<'_, TestContext>| {
-                    build(
-                        ui,
-                        state,
-                        rows,
-                        TestClip,
-                        Config::new(),
-                        |_| (None::<()>, None::<()>),
-                        |row| WidgetId::new(row.0),
-                        |ui, row| {
-                            ui.layout(single::new().fixed(80.0, row.1));
-                        },
+                    ui.build(
+                        VirtualList::new(state)
+                            .rows(rows)
+                            .widget_id(|row| WidgetId::new(row.0))
+                            .item(|ui: Ui<'_, TestContext>, row| {
+                                ui.layout(single::new().fixed(80.0, row.1));
+                            })
+                            .clip(TestClip),
                     )
                 },
             );

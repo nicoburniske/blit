@@ -9,6 +9,8 @@ use blit::{
     Widget, WidgetId,
 };
 
+pub use self::{area::ScrollArea, list::ScrollList, virtual_list::VirtualList};
+
 /// persistent scroll position and motion
 #[derive(Debug, Default)]
 pub struct State<T> {
@@ -20,19 +22,6 @@ pub struct State<T> {
     last_frame: Option<Duration>,
     remainder: f32,
     request: Request<T>,
-}
-
-blit::builder! {
-    /// scrollbar behavior and geometry
-    #[derive(Clone, Copy, Debug)]
-    pub struct Behavior<T: Scalar> {
-        new(),
-        scroll_speed: f32 = 1.0,
-        inertia_friction: f32 = 6.0,
-        sense: Sense = Sense::SCROLL,
-        scrollbar_thickness: T = T::from_f32(1.0),
-        minimum_thumb_extent: T = T::from_f32(1.0),
-    }
 }
 
 impl<T: Scalar> State<T> {
@@ -209,7 +198,9 @@ fn update<C: Context>(
     state: &mut State<C::Scalar>,
     ui: &mut Ui<'_, C>,
     axis: Axis,
-    config: Behavior<C::Scalar>,
+    sense: Sense,
+    scroll_speed: f32,
+    inertia_friction: f32,
 ) -> (bool, bool) {
     let id = ui.current_widget_id();
     let content_id = id.child("content");
@@ -224,7 +215,7 @@ fn update<C: Context>(
         state.content_extent = axis.extent(area.size());
     }
 
-    let interaction = ui.interact(config.sense);
+    let interaction = ui.interact(sense);
     let motion = interaction.scroll.or_else(|| {
         interaction.drag.map(|drag| Scroll {
             phase: drag.phase,
@@ -287,7 +278,7 @@ fn update<C: Context>(
             if axis == Axis::Horizontal && delta == 0.0 {
                 delta = scroll.delta.y;
             }
-            direct_delta = delta * config.scroll_speed;
+            direct_delta = delta * scroll_speed;
             if scroll.continuous {
                 match scroll.phase {
                     Phase::Started => {
@@ -324,8 +315,8 @@ fn update<C: Context>(
 
         if !state.tracking && state.velocity != 0.0 {
             let elapsed = if motion.is_some() { 0.0 } else { elapsed };
-            let decay = (-config.inertia_friction * elapsed).exp();
-            let delta = state.velocity * (1.0 - decay) / config.inertia_friction;
+            let decay = (-inertia_friction * elapsed).exp();
+            let delta = state.velocity * (1.0 - decay) / inertia_friction;
             state.velocity *= decay;
             move_by(state, delta);
             if state.velocity.abs() < MIN_SCROLL_VELOCITY {

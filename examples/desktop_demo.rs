@@ -21,9 +21,9 @@ use blit_gui::{
     },
 };
 use blit_gui_widgets::{
-    Performance, RichText, Text, TextInput,
+    Performance, RichText, ScrollArea, ScrollList, Text, TextInput,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
-    performance, popover, resize, scroll_area, scroll_list, split, text_input,
+    performance, popover, resize, scroll_area, split, text_input,
 };
 
 pub fn run(text: impl TextLayoutEngine) {
@@ -534,7 +534,6 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                     sidebar.child().build(
                         scroll_area(
                             controls_scroll,
-                            scroll_area::Config::new(),
                             |ui: Ui<'_>| {
                             let mut controls = ui.layout(flex::column().gap(sz::XS));
                             controls.child().build(|ui: Ui<'_>| {
@@ -771,7 +770,6 @@ impl Widget<DesktopContext> for &mut StylesPage {
                     sidebar.child().build(
                         scroll_area(
                             controls_scroll,
-                            scroll_area::Config::new(),
                             |ui: Ui<'_>| {
                             let mut controls = ui.layout(flex::column().gap(sz::SM));
                             controls.child().build(|ui: Ui<'_>| {
@@ -960,15 +958,17 @@ impl Widget<DesktopContext> for &mut ScrollPage {
             Axis::Horizontal => sz::SCROLL_ITEM_WIDTH,
             Axis::Vertical => sz::SCROLL_ITEM_HEIGHT,
         };
-        section.child().build(scroll_list::new(
-            scroll,
-            scroll_list::Config::new(item_extent)
+        section.child().build(ScrollList::new(scroll)
+                .items(0_usize..100)
+                .item_extent(item_extent)
                 .axis(axis)
                 .gap(sz::XS)
-                .behavior(scroll_behavior()),
-            0_usize..100,
-            |index| WidgetId::new(("desktop scroll row", *index)),
-            move |ui, index| {
+                .scroll_speed(2.0)
+                .inertia_friction(3.0)
+                .scrollbar_thickness(sz::XS)
+                .minimum_thumb_extent(sz::XXL)
+            .widget_id(|index| WidgetId::new(("desktop scroll row", *index)))
+            .item(move |ui: Ui<'_>, index| {
                 let item = ITEMS[index % ITEMS.len()];
                 let layout = match axis {
                     Axis::Horizontal => flex::column().align(Align::Center).justify(Justify::Center),
@@ -993,9 +993,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                         })
                         .color(colors::TEXT),
                 );
-            },
-            scrollbar,
-        ));
+            }).clip(BoundsClip).track(scroll_track()).thumb_with(scroll_thumb));
     }
 }
 
@@ -1368,36 +1366,26 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
 
 fn scroll_area<'a, C>(
     state: &'a mut scroll_area::State,
-    config: scroll_area::Config,
     content: C,
 ) -> impl Widget<DesktopContext> + 'a
 where
     C: Widget<DesktopContext> + 'a,
 {
-    scroll_area::new(state, config.behavior(scroll_behavior()), content, scrollbar)
-}
-
-fn scroll_behavior() -> scroll_area::Behavior {
-    scroll_area::Behavior::new()
+    ScrollArea::new(state).content(content).clip(BoundsClip)
         .scroll_speed(2.0)
         .inertia_friction(3.0)
         .scrollbar_thickness(sz::XS)
         .minimum_thumb_extent(sz::XXL)
+        .track(scroll_track())
+        .thumb_with(scroll_thumb)
 }
 
-fn scrollbar(active: bool) -> (Option<Rectangle>, Option<Rectangle>) {
-    (
-        Some(
-            Rectangle::new()
-                .background(colors::SCROLL_TRACK)
-                .radius(BorderRadius::uniform(sz::XXS)),
-        ),
-        Some(
-            Rectangle::new()
-                .background(if active { colors::TEXT_DIM } else { colors::BORDER })
-                .radius(BorderRadius::uniform(sz::XXS)),
-        ),
-    )
+fn scroll_track() -> Rectangle {
+    Rectangle::new().background(colors::SCROLL_TRACK).radius(BorderRadius::uniform(sz::XXS))
+}
+
+fn scroll_thumb(active: bool) -> Rectangle {
+    Rectangle::new().background(if active { colors::TEXT_DIM } else { colors::BORDER }).radius(BorderRadius::uniform(sz::XXS))
 }
 
 fn panel(background: Color) -> Rectangle {

@@ -1,5 +1,5 @@
 pub mod performance;
-blit_widgets::export!(i32, crate::TuiContext, crate::BoundsClip);
+blit_widgets::export!(i32);
 
 pub mod block;
 pub mod text;

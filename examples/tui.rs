@@ -9,7 +9,7 @@ use blit_tui::{
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
     text::{HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
     widget::{
-        Block, Performance, Text, TextInput, Title, performance, popover, resize, scroll_area, scroll_list, split,
+        Block, Performance, ScrollArea, ScrollList, Text, TextInput, Title, performance, popover, resize, scroll_area, split,
         text_input,
     },
 };
@@ -316,9 +316,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
                 |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(flex::column().padding(Sides::all(1)));
                     sidebar.insert(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
-                    sidebar.child().build(scroll_area::new(
-                        layout_scroll,
-                        scroll_area::Config::new().behavior(scroll_behavior()),
+                    sidebar.child().build(ScrollArea::new(layout_scroll).content(
                         |ui: Ui<'_>| {
                             let mut controls = ui.layout(flex::column().gap(1));
                             controls.child().insert(
@@ -429,8 +427,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
                                 );
                             });
                         },
-                        scrollbar,
-                    ));
+                    ).clip(BoundsClip).minimum_thumb_extent(4).track(Block::new().background(colors::TRACK)).thumb_with(scroll_thumb));
                 },
                 |ui: Ui<'_>| {
                     let mut preview = ui.layout(flex::column().padding(Sides::all(1)));
@@ -944,14 +941,13 @@ impl Widget<TuiContext> for &mut ScrollPage {
             Axis::Horizontal => 12,
             Axis::Vertical => 3,
         };
-        body.child().build(scroll_list::new(
-            scroll,
-            scroll_list::Config::new(item_extent)
+        body.child().build(ScrollList::new(scroll)
+                .items(items.iter().enumerate())
+                .item_extent(item_extent)
                 .axis(axis)
-                .behavior(scroll_behavior()),
-            items.iter().enumerate(),
-            |row| WidgetId::new(("tui scroll row", row.1)),
-            move |ui: Ui<'_>, (index, item)| {
+                .minimum_thumb_extent(4)
+            .widget_id(|row| WidgetId::new(("tui scroll row", row.1)))
+            .item(move |ui: Ui<'_>, (index, item)| {
                 let layout = match axis {
                     Axis::Horizontal => flex::column().align(Align::Center).justify(Justify::Center),
                     Axis::Vertical => flex::row().padding(Sides::all(1)).align(Align::Center),
@@ -969,9 +965,7 @@ impl Widget<TuiContext> for &mut ScrollPage {
                 );
                 tile.child()
                     .insert(Text::new(item).color(colors::TEXT).attributes(TextAttributes::BOLD));
-            },
-            scrollbar,
-        ));
+            }).clip(BoundsClip).track(Block::new().background(colors::TRACK)).thumb_with(scroll_thumb));
     }
 }
 
@@ -1210,15 +1204,8 @@ fn split<'a>(
     )
 }
 
-fn scroll_behavior() -> scroll_area::Behavior {
-    scroll_area::Behavior::new().minimum_thumb_extent(4)
-}
-
-fn scrollbar(active: bool) -> (Option<Block<'static>>, Option<Block<'static>>) {
-    (
-        Some(Block::new().background(colors::TRACK)),
-        Some(Block::new().background(if active { colors::ACCENT } else { colors::ACCENT_DARK })),
-    )
+fn scroll_thumb(active: bool) -> Block<'static> {
+    Block::new().background(if active { colors::ACCENT } else { colors::ACCENT_DARK })
 }
 
 fn panel<'a>(background: Color, title: &'a str) -> Block<'a> {

@@ -10,4 +10,4 @@ pub mod layout {
     blit_layout::export!(f32);
 }
 
-blit_widgets::export!(f32, blit_gui::GuiContext, blit_gui::BoundsClip);
+blit_widgets::export!(f32);
