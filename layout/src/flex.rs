@@ -284,6 +284,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
 }
 
 impl<T: Scalar> Layout<T> {
+    #[inline(always)]
     fn layout_child<C: Context<Scalar = T>>(
         &self,
         cx: &mut LayoutCx<'_, C, Item<T>>,
@@ -312,6 +313,7 @@ impl<T: Scalar> Layout<T> {
         space.cross = space.cross.max(self.axis.other().extent(size));
     }
 
+    #[inline(always)]
     fn main_bounds(&self, sizing: Sizing<T>, space: &Space<T>, percentages: &mut f32) -> (T, T) {
         let budget = match sizing {
             Sizing::Percent(_) => space.pool,
