@@ -228,10 +228,12 @@ macro_rules! flags {
         impl $name {
             $(pub const $flag: Self = Self($value);)*
 
+            #[inline]
             pub const fn contains(self, other: Self) -> bool {
                 self.0 & other.0 == other.0
             }
 
+            #[inline]
             pub const fn intersects(self, other: Self) -> bool {
                 self.0 & other.0 != 0
             }
@@ -240,12 +242,14 @@ macro_rules! flags {
         impl ::core::ops::BitOr for $name {
             type Output = Self;
 
+            #[inline]
             fn bitor(self, other: Self) -> Self {
                 Self(self.0 | other.0)
             }
         }
 
         impl ::core::ops::BitOrAssign for $name {
+            #[inline]
             fn bitor_assign(&mut self, other: Self) {
                 self.0 |= other.0;
             }
@@ -254,12 +258,14 @@ macro_rules! flags {
         impl ::core::ops::BitAnd for $name {
             type Output = Self;
 
+            #[inline]
             fn bitand(self, other: Self) -> Self {
                 Self(self.0 & other.0)
             }
         }
 
         impl ::core::ops::BitAndAssign for $name {
+            #[inline]
             fn bitand_assign(&mut self, other: Self) {
                 self.0 &= other.0;
             }
@@ -268,6 +274,7 @@ macro_rules! flags {
         impl ::core::ops::Not for $name {
             type Output = Self;
 
+            #[inline]
             fn not(self) -> Self {
                 Self(!self.0)
             }

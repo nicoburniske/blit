@@ -48,7 +48,7 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
             }
         }
     }
-    if frame.interaction.end() {
+    if frame.interaction.end(&frame.input) {
         frame.frame_requested = true;
     }
 }
@@ -59,13 +59,12 @@ pub struct InteractionState<T> {
     focused: Option<WidgetId>,
     hovered: Option<WidgetId>,
     position: Option<Point<T>>,
-    leave: bool,
     mouse: Option<Press<T>>,
     scroll_owner: Option<WidgetId>,
     touches: Vec<Touch<T>>,
     transforms: Vec<Transform>,
     taps: Vec<Tap<T>>,
-    responses: Vec<(WidgetId, StoredInteraction<T>)>,
+    responses: Vec<StoredInteraction<T>>,
     hits: Vec<HitItem<T>>,
 }
 
@@ -80,7 +79,6 @@ impl<T: Scalar> InteractionState<T> {
                 self.emit(owner).state |= Flags::PREVIOUS_ACTIVE;
             }
         }
-        self.leave = false;
         self.taps
             .retain(|tap| time.saturating_sub(tap.time) <= self.config.double_tap_delay);
 
@@ -110,7 +108,6 @@ impl<T: Scalar> InteractionState<T> {
                         self.mouse = Some(press);
                     }
                 }
-                self.leave = matches!(input, Input::PointerUp { leave: true, .. });
             }
             Input::PointerDown { position, .. } | Input::PointerUp { position, .. } => {
                 self.position = Some(position);
@@ -162,11 +159,7 @@ impl<T: Scalar> InteractionState<T> {
                         self.cancel_touch(index);
                     }
                     let press = self.press(position, time, true);
-                    self.touches.push(Touch {
-                        id,
-                        press,
-                        transform: None,
-                    });
+                    self.touches.push(Touch { id, press });
                     let hit = self
                         .hits
                         .iter()
@@ -176,7 +169,8 @@ impl<T: Scalar> InteractionState<T> {
                                 && self.is_target(hit, press.anchor, position)
                                 && self.touches.iter().any(|touch| {
                                     touch.id != id
-                                        && (!touch.press.consumed || touch.transform == Some(hit.id))
+                                        && (!touch.press.consumed
+                                            || touch.press.capture == Some(Capture::Multi(hit.id)))
                                         && self.is_target(hit, touch.press.anchor, touch.press.origin)
                                 })
                         })
@@ -185,17 +179,16 @@ impl<T: Scalar> InteractionState<T> {
                         let owner = hit.id;
                         for index in 0..self.touches.len() {
                             let mut touch = self.touches[index];
-                            if (touch.press.consumed && touch.transform != Some(owner))
+                            if (touch.press.consumed && touch.press.capture != Some(Capture::Multi(owner)))
                                 || !self.is_target(&hit, touch.press.anchor, touch.press.origin)
                             {
                                 continue;
                             }
-                            if touch.press.pan.is_some() {
-                                self.touches[index].press.pan = None;
+                            if matches!(touch.press.capture, Some(Capture::Single(..))) {
+                                self.touches[index].press.capture = None;
                                 self.cancel_press(&mut touch.press);
                             }
-                            touch.press.pan = None;
-                            touch.transform = Some(owner);
+                            touch.press.capture = Some(Capture::Multi(owner));
                             touch.press.consumed = true;
                             touch.press.active = Some(owner);
                             self.touches[index] = touch;
@@ -205,9 +198,8 @@ impl<T: Scalar> InteractionState<T> {
                 }
                 (TouchPhase::Cancel, Some(index)) => self.cancel_touch(index),
                 (TouchPhase::Move | TouchPhase::Up, Some(index)) => {
-                    let mut touch = self.touches[index];
                     let released = phase == TouchPhase::Up;
-                    if let Some(owner) = touch.transform {
+                    if let Some(Capture::Multi(owner)) = self.touches[index].press.capture {
                         self.touches[index].press.position = position;
                         self.update_transform(owner, time, false);
                         if released {
@@ -215,6 +207,7 @@ impl<T: Scalar> InteractionState<T> {
                             self.update_transform(owner, time, true);
                         }
                     } else {
+                        let mut touch = self.touches[index];
                         if released {
                             self.touches.remove(index);
                         }
@@ -258,34 +251,30 @@ impl<T: Scalar> InteractionState<T> {
             }
             self.touches[index] = touch;
         }
-        for (_, response) in &mut self.responses {
+        for response in &mut self.responses {
             let previous = response.state.contains(Flags::PREVIOUS_ACTIVE);
             let active = response.state.contains(Flags::ACTIVE);
-            response.state &= !Flags::PREVIOUS_ACTIVE;
             if active != previous {
                 response.state |= if active { Flags::ACTIVATED } else { Flags::DEACTIVATED };
             }
         }
-        self.responses
-            .iter()
-            .any(|(_, response)| response.state.intersects(Flags::EVENTS))
+        self.responses.iter().any(|response| {
+            response.state.intersects(Flags::EVENTS)
+                || response.motion_phase.is_some()
+                || response.scroll_phase.is_some()
+        })
     }
 
     pub fn response(&self, id: WidgetId) -> Interaction<T> {
         let mut response = self
             .responses
             .iter()
-            .find(|(candidate, _)| *candidate == id)
-            .map_or_else(StoredInteraction::default, |(_, response)| *response);
-        if self.hovered == Some(id) {
-            response.state |= Flags::HOVERED;
-        }
-        if self.mouse.is_none() && self.touches.is_empty() {
-            return response.snapshot();
-        }
-        if response.motion_phase().is_none() {
+            .find(|response| response.id == id)
+            .copied()
+            .unwrap_or_else(|| StoredInteraction::new(id));
+        if (self.mouse.is_some() || !self.touches.is_empty()) && response.motion_phase.is_none() {
             if let Some(transform) = self.transforms.iter().find(|transform| transform.owner == id) {
-                response.set_transform(
+                response.set_motion(
                     Phase::Changed,
                     Motion {
                         center: Point::new(T::from_f32(transform.center.x), T::from_f32(transform.center.y)),
@@ -293,23 +282,19 @@ impl<T: Scalar> InteractionState<T> {
                     },
                     transform.sense,
                 );
-            } else if let Some(press) = self
-                .mouse
-                .iter()
-                .chain(self.touches.iter().map(|touch| &touch.press))
-                .find(|press| press.pan.is_some_and(|(owner, _)| owner == id))
-            {
-                response.set_pan(press, Phase::Changed, Point::ZERO);
+            } else if let Some((press, sense)) = self.presses().find_map(|press| match press.capture {
+                Some(Capture::Single(owner, sense)) if owner == id => Some((press, sense)),
+                _ => None,
+            }) {
+                response.set_pan(press, sense, Phase::Changed, Point::ZERO);
                 response.motion.velocity = Point::ZERO;
             }
         }
-        response.snapshot()
+        response.snapshot(self.hovered == Some(id))
     }
 
     pub fn next_deadline(&self) -> Option<Duration> {
-        self.mouse
-            .iter()
-            .chain(self.touches.iter().map(|touch| &touch.press))
+        self.presses()
             .filter(|press| press.hold.is_some() && !press.moved && !press.held && !press.consumed)
             .filter_map(|press| press.start.checked_add(self.config.long_press_delay))
             .min()
@@ -339,7 +324,7 @@ impl<T: Scalar> InteractionState<T> {
         self.position
     }
 
-    pub fn end(&mut self) -> bool {
+    pub fn end(&mut self, input: &Input<T>) -> bool {
         let exists = |id| self.hits.iter().any(|hit| hit.id == id);
         let valid = |press: &Press<T>| press.active.or(press.anchor).is_none_or(exists);
         if self.focused.is_some_and(|id| !exists(id)) {
@@ -351,14 +336,20 @@ impl<T: Scalar> InteractionState<T> {
         for touch in &mut self.touches {
             if !valid(&touch.press) {
                 touch.press.active = None;
-                touch.press.pan = None;
+                touch.press.capture = None;
                 touch.press.hold = None;
                 touch.press.consumed = true;
-                touch.transform = None;
             }
         }
         self.taps.retain(|tap| exists(tap.id));
-        if self.leave {
+        if matches!(
+            input,
+            Input::PointerUp {
+                button: PointerButton::Primary,
+                leave: true,
+                ..
+            }
+        ) {
             self.position = None;
         }
         self.position.and_then(|position| self.hit(position)).map(|hit| hit.id) != self.hovered
@@ -382,7 +373,7 @@ impl<T: Scalar> InteractionState<T> {
                 .map(|hit| hit.id),
             sense,
             hold: self.target(anchor, position, Sense::LONG_PRESS).map(|hit| hit.id),
-            pan: None,
+            capture: None,
             origin: position,
             position,
             start: time,
@@ -400,10 +391,11 @@ impl<T: Scalar> InteractionState<T> {
                     .intersects(Sense::CLICK | Sense::DOUBLE_TAP | Sense::LONG_PRESS)
             })
         {
-            press.pan = Some((hit.id, hit.sense));
+            press.capture = Some(Capture::Single(hit.id, hit.sense));
             press.moved = true;
             press.active = Some(hit.id);
-            self.emit_pan(&press, Phase::Started, Point::ZERO);
+            self.emit(hit.id)
+                .set_pan(&press, hit.sense, Phase::Started, Point::ZERO);
         }
         press
     }
@@ -421,7 +413,7 @@ impl<T: Scalar> InteractionState<T> {
         if !released {
             press.last = time;
         }
-        if press.consumed && press.pan.is_none() {
+        if press.consumed && press.capture.is_none() {
             return;
         }
         let x = (position.x - press.origin.x).to_f32();
@@ -429,7 +421,7 @@ impl<T: Scalar> InteractionState<T> {
         let horizontal = x.abs() >= y.abs();
         press.moved |= x * x + y * y >= self.config.drag_threshold * self.config.drag_threshold;
         let mut phase = if released { Phase::Ended } else { Phase::Changed };
-        let starting = press.moved && press.pan.is_none();
+        let starting = press.moved && press.capture.is_none();
         if starting {
             let axis = if horizontal {
                 Sense::DRAG_X | Sense::SWIPE_X | if press.touch { Sense::SCROLL_X } else { Sense::NONE }
@@ -441,7 +433,7 @@ impl<T: Scalar> InteractionState<T> {
                 .filter(|hit| !press.held || press.hold == Some(hit.id));
             press.active = target.map(|hit| hit.id);
             if let Some(hit) = target {
-                press.pan = Some((hit.id, hit.sense));
+                press.capture = Some(Capture::Single(hit.id, hit.sense));
                 if !released {
                     phase = Phase::Started;
                 }
@@ -450,22 +442,20 @@ impl<T: Scalar> InteractionState<T> {
         if released {
             self.hold(press, time);
         }
-        if let Some((owner, sense)) = press.pan {
-            let delta = if starting || phase == Phase::Started {
+        if let Some(Capture::Single(owner, sense)) = press.capture {
+            let delta = if starting {
                 Point::new(position.x - press.origin.x, position.y - press.origin.y)
             } else {
                 delta
             };
             if released
                 && self
-                    .mouse
-                    .iter()
-                    .chain(self.touches.iter().map(|touch| &touch.press))
-                    .any(|press| press.pan.is_some_and(|(id, _)| id == owner))
+                    .presses()
+                    .any(|press| matches!(press.capture, Some(Capture::Single(id, _)) if id == owner))
             {
                 phase = Phase::Changed;
             }
-            self.emit_pan(press, phase, delta);
+            self.emit(owner).set_pan(press, sense, phase, delta);
             if !released || phase != Phase::Ended || press.held || press.consumed {
                 return;
             }
@@ -483,9 +473,7 @@ impl<T: Scalar> InteractionState<T> {
                 } else {
                     Direction::Down
                 };
-                let response = self.emit(owner);
-                response.state &= !Flags::SWIPE;
-                response.state.0 |= (direction as u32 + 1) << 17;
+                self.emit(owner).swipe = Some(direction);
             }
             return;
         }
@@ -542,16 +530,11 @@ impl<T: Scalar> InteractionState<T> {
         }
     }
 
-    fn emit_pan(&mut self, press: &Press<T>, phase: Phase, delta: Point<T>) {
-        let owner = press.pan.unwrap().0;
-        self.emit(owner).set_pan(press, phase, delta);
-    }
-
     fn update_transform(&mut self, owner: WidgetId, time: Duration, rebase: bool) {
         let mut points = self
             .touches
             .iter()
-            .filter(|touch| touch.transform == Some(owner))
+            .filter(|touch| touch.press.capture == Some(Capture::Multi(owner)))
             .map(|touch| touch.press.position);
         let first = points.next();
         let second = points.next();
@@ -562,18 +545,18 @@ impl<T: Scalar> InteractionState<T> {
                 let continuing =
                     first.is_some() && transform.sense.intersects(Sense::DRAG | Sense::SCROLL | Sense::SWIPE);
                 let response = self.emit(owner);
-                response.set_transform(Phase::Ended, response.motion, transform.sense);
+                response.set_motion(Phase::Ended, response.motion, transform.sense);
                 if continuing && transform.sense.intersects(Sense::SCROLL) {
                     response.set_scroll(Phase::Started, Point::ZERO, true);
                 }
                 for touch in &mut self.touches {
-                    if touch.transform == Some(owner) {
-                        touch.transform = None;
+                    if touch.press.capture == Some(Capture::Multi(owner)) {
                         if continuing {
-                            touch.press.pan = Some((owner, transform.sense));
+                            touch.press.capture = Some(Capture::Single(owner, transform.sense));
                             touch.press.last = time;
                             touch.press.velocity = transform.velocity;
                         } else {
+                            touch.press.capture = None;
                             touch.press.active = None;
                         }
                     }
@@ -646,7 +629,7 @@ impl<T: Scalar> InteractionState<T> {
             self.transforms.push(transform);
         }
         if previous.is_none() || !rebase {
-            self.emit(owner).set_transform(
+            self.emit(owner).set_motion(
                 if previous.is_none() {
                     Phase::Started
                 } else {
@@ -660,12 +643,13 @@ impl<T: Scalar> InteractionState<T> {
 
     fn cancel_touch(&mut self, index: usize) {
         let mut touch = self.touches.remove(index);
+        let capture = touch.press.capture;
         self.cancel_press(&mut touch.press);
-        if let Some(owner) = touch.transform
+        if let Some(Capture::Multi(owner)) = capture
             && let Some(index) = self.transforms.iter().position(|transform| transform.owner == owner)
         {
             let transform = self.transforms.remove(index);
-            self.emit(owner).set_transform(
+            self.emit(owner).set_motion(
                 Phase::Cancelled,
                 Motion {
                     center: Point::new(T::from_f32(transform.center.x), T::from_f32(transform.center.y)),
@@ -674,30 +658,29 @@ impl<T: Scalar> InteractionState<T> {
                 transform.sense,
             );
             for touch in &mut self.touches {
-                if touch.transform == Some(owner) {
+                if touch.press.capture == Some(Capture::Multi(owner)) {
                     touch.press.active = None;
                     touch.press.consumed = true;
-                    touch.transform = None;
+                    touch.press.capture = None;
                 }
             }
         }
     }
 
     fn cancel_press(&mut self, press: &mut Press<T>) {
-        if let Some((owner, _)) = press.pan {
+        if let Some(Capture::Single(owner, sense)) = press.capture {
             let continuing = self
-                .mouse
-                .iter()
-                .chain(self.touches.iter().map(|touch| &touch.press))
-                .any(|press| press.pan.is_some_and(|(id, _)| id == owner));
-            self.emit_pan(
+                .presses()
+                .any(|press| matches!(press.capture, Some(Capture::Single(id, _)) if id == owner));
+            self.emit(owner).set_pan(
                 press,
+                sense,
                 if continuing { Phase::Changed } else { Phase::Cancelled },
                 Point::ZERO,
             );
         }
         press.active = None;
-        press.pan = None;
+        press.capture = None;
         press.consumed = true;
     }
 
@@ -705,12 +688,16 @@ impl<T: Scalar> InteractionState<T> {
         let index = self
             .responses
             .iter()
-            .position(|(candidate, _)| *candidate == id)
+            .position(|response| response.id == id)
             .unwrap_or_else(|| {
-                self.responses.push((id, StoredInteraction::default()));
+                self.responses.push(StoredInteraction::new(id));
                 self.responses.len() - 1
             });
-        &mut self.responses[index].1
+        &mut self.responses[index]
+    }
+
+    fn presses(&self) -> impl Iterator<Item = &Press<T>> {
+        self.mouse.iter().chain(self.touches.iter().map(|touch| &touch.press))
     }
 
     fn hit(&self, position: Point<T>) -> Option<HitItem<T>> {
@@ -751,7 +738,7 @@ struct Press<T> {
     active: Option<WidgetId>,
     sense: Sense,
     hold: Option<WidgetId>,
-    pan: Option<(WidgetId, Sense)>,
+    capture: Option<Capture>,
     origin: Point<T>,
     position: Point<T>,
     start: Duration,
@@ -767,7 +754,14 @@ struct Press<T> {
 struct Touch<T> {
     id: u64,
     press: Press<T>,
-    transform: Option<WidgetId>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Capture {
+    // drag, scroll or swipe
+    Single(WidgetId, Sense),
+    // grouped touches for pinch or rotation
+    Multi(WidgetId),
 }
 
 #[derive(Clone, Copy)]
@@ -791,49 +785,62 @@ struct Tap<T> {
 
 #[derive(Clone, Copy)]
 struct StoredInteraction<T> {
-    state: Flags,
+    id: WidgetId,
     motion: Motion<T>,
     scroll_delta: Point<f32>,
+    motion_sense: Sense,
+    state: Flags,
+    motion_phase: Option<Phase>,
+    drag_phase: Option<Phase>,
+    scroll_phase: Option<Phase>,
+    swipe: Option<Direction>,
 }
 
 impl<T: Scalar> StoredInteraction<T> {
-    fn snapshot(self) -> Interaction<T> {
-        let motion_phase = self.motion_phase();
+    fn new(id: WidgetId) -> Self {
+        Self {
+            id,
+            motion: Motion::default(),
+            scroll_delta: Point::ZERO,
+            motion_sense: Sense::NONE,
+            state: Flags::default(),
+            motion_phase: None,
+            drag_phase: None,
+            scroll_phase: None,
+            swipe: None,
+        }
+    }
+
+    fn snapshot(self, hovered: bool) -> Interaction<T> {
         Interaction {
             active: self.state.contains(Flags::ACTIVE),
             activated: self.state.contains(Flags::ACTIVATED),
             deactivated: self.state.contains(Flags::DEACTIVATED),
-            hovered: self.state.contains(Flags::HOVERED),
+            hovered,
             clicked: self.state.contains(Flags::CLICKED),
             double_tapped: self.state.contains(Flags::DOUBLE_TAPPED),
             long_pressed: self.state.contains(Flags::LONG_PRESSED),
-            drag: phase((self.state.0 >> 21) & 7).map(|phase| Drag {
+            drag: self.drag_phase.map(|phase| Drag {
                 phase,
                 position: self.motion.center,
                 delta: self.motion.delta,
                 velocity: self.motion.velocity,
             }),
-            scroll: phase((self.state.0 >> 14) & 7).map(|phase| Scroll {
+            scroll: self.scroll_phase.map(|phase| Scroll {
                 phase,
                 delta: self.scroll_delta,
                 continuous: self.state.contains(Flags::CONTINUOUS_SCROLL),
             }),
-            swipe: match (self.state.0 >> 17) & 7 {
-                1 => Some(Direction::Left),
-                2 => Some(Direction::Right),
-                3 => Some(Direction::Up),
-                4 => Some(Direction::Down),
-                _ => None,
-            },
-            pinch: motion_phase.and_then(|phase| {
-                self.state.contains(Flags::PINCH).then_some(Pinch {
+            swipe: self.swipe,
+            pinch: self.motion_phase.and_then(|phase| {
+                self.motion_sense.contains(Sense::PINCH).then_some(Pinch {
                     phase,
                     center: self.motion.center,
                     scale: self.motion.scale,
                 })
             }),
-            rotation: motion_phase.and_then(|phase| {
-                self.state.contains(Flags::ROTATE).then_some(Rotation {
+            rotation: self.motion_phase.and_then(|phase| {
+                self.motion_sense.contains(Sense::ROTATE).then_some(Rotation {
                     phase,
                     center: self.motion.center,
                     radians: self.motion.rotation,
@@ -842,39 +849,24 @@ impl<T: Scalar> StoredInteraction<T> {
         }
     }
 
-    fn motion_phase(&self) -> Option<Phase> {
-        phase((self.state.0 >> 11) & 7)
-    }
-
-    fn set_motion(&mut self, phase: Phase, motion: Motion<T>) {
-        self.state &= !(Flags::MOTION | Flags::SWIPE);
-        self.state.0 |= (phase as u32) << 11;
-        self.motion = motion;
-    }
-
     fn set_scroll(&mut self, phase: Phase, delta: Point<f32>, continuous: bool) {
-        self.state &= !(Flags::SCROLL | Flags::CONTINUOUS_SCROLL);
-        self.state.0 |= (phase as u32) << 14;
+        self.scroll_phase = Some(phase);
+        self.state &= !Flags::CONTINUOUS_SCROLL;
         if continuous {
             self.state |= Flags::CONTINUOUS_SCROLL;
         }
         self.scroll_delta = delta;
     }
 
-    fn set_transform(&mut self, phase: Phase, motion: Motion<T>, sense: Sense) {
-        self.state &= !(Flags::PINCH | Flags::ROTATE);
-        if sense.contains(Sense::PINCH) {
-            self.state |= Flags::PINCH;
-        }
-        if sense.contains(Sense::ROTATE) {
-            self.state |= Flags::ROTATE;
-        }
-        self.set_motion(phase, motion);
+    fn set_motion(&mut self, phase: Phase, motion: Motion<T>, sense: Sense) {
+        self.motion_phase = Some(phase);
+        self.swipe = None;
+        self.motion = motion;
+        self.motion_sense = sense;
     }
 
-    fn set_pan(&mut self, press: &Press<T>, phase: Phase, delta: Point<T>) {
-        let sense = press.pan.unwrap().1;
-        self.state &= !(Flags::DRAG | Flags::PINCH | Flags::ROTATE);
+    fn set_pan(&mut self, press: &Press<T>, sense: Sense, phase: Phase, delta: Point<T>) {
+        self.drag_phase = sense.intersects(Sense::DRAG).then_some(phase);
         self.set_motion(
             phase,
             Motion {
@@ -883,14 +875,9 @@ impl<T: Scalar> StoredInteraction<T> {
                 velocity: press.velocity,
                 ..Motion::default()
             },
+            Sense::NONE,
         );
-        if sense.intersects(Sense::DRAG) {
-            self.state.0 |= (phase as u32) << 21;
-        }
-        if press.touch
-            && sense.intersects(Sense::SCROLL)
-            && (phase != Phase::Changed || !self.state.intersects(Flags::SCROLL))
-        {
+        if press.touch && sense.intersects(Sense::SCROLL) && (phase != Phase::Changed || self.scroll_phase.is_none()) {
             self.set_scroll(
                 phase,
                 Point::new(
@@ -911,48 +898,18 @@ impl<T: Scalar> StoredInteraction<T> {
     }
 }
 
-impl<T: Scalar> Default for StoredInteraction<T> {
-    fn default() -> Self {
-        Self {
-            state: Flags::default(),
-            motion: Motion {
-                scale: 0.0,
-                ..Motion::default()
-            },
-            scroll_delta: Point::ZERO,
-        }
-    }
-}
-
-fn phase(bits: u32) -> Option<Phase> {
-    match bits {
-        1 => Some(Phase::Started),
-        2 => Some(Phase::Changed),
-        3 => Some(Phase::Ended),
-        4 => Some(Phase::Cancelled),
-        _ => None,
-    }
-}
-
 flags! {
-    struct Flags(pub u32) {
+    struct Flags(pub u8) {
         ACTIVE = 1,
         ACTIVATED = 1 << 1,
         DEACTIVATED = 1 << 2,
-        HOVERED = 1 << 3,
-        CLICKED = 1 << 4,
-        DOUBLE_TAPPED = 1 << 5,
-        LONG_PRESSED = 1 << 6,
-        DRAG = 7 << 21,
-        PINCH = 1 << 8,
-        ROTATE = 1 << 9,
-        CONTINUOUS_SCROLL = 1 << 10,
-        MOTION = 7 << 11,
-        PREVIOUS_ACTIVE = 1 << 20,
-        SCROLL = 7 << 14,
-        SWIPE = 7 << 17,
+        CLICKED = 1 << 3,
+        DOUBLE_TAPPED = 1 << 4,
+        LONG_PRESSED = 1 << 5,
+        CONTINUOUS_SCROLL = 1 << 6,
+        PREVIOUS_ACTIVE = 1 << 7,
         EVENTS = Self::ACTIVATED.0 | Self::DEACTIVATED.0 | Self::CLICKED.0
-            | Self::DOUBLE_TAPPED.0 | Self::LONG_PRESSED.0 | Self::MOTION.0 | Self::SCROLL.0,
+            | Self::DOUBLE_TAPPED.0 | Self::LONG_PRESSED.0,
     }
 }
 
