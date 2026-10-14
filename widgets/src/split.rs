@@ -1,10 +1,12 @@
 use blit::{Axis, Constraints, Context, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
 
 blit::builder! {
-    /// split behavior and geometry
-    #[derive(Clone, Copy, Debug)]
-    pub struct Config<T: Scalar> {
-        new(initial_extent: T),
+    pub struct Split<'a, T: Scalar> {
+        new(state: &'a mut SplitState<T>),
+        leading<L = ()>: L = (),
+        trailing<R = ()>: R = (),
+        divider<D: FnOnce(Axis, blit::Interaction<T>) -> W = fn(Axis, blit::Interaction<T>) -> (), W>: D = |_, _| (),
+        initial_extent: T = T::ZERO,
         axis: Axis = Axis::Horizontal,
         divider_extent: T = T::from_f32(1.0),
         minimum_leading: T = T::ZERO,
@@ -14,12 +16,12 @@ blit::builder! {
 }
 
 #[derive(Debug, Default)]
-pub struct State<T> {
+pub struct SplitState<T> {
     extent: Option<T>,
     changed: bool,
 }
 
-impl<T: Scalar> State<T> {
+impl<T: Scalar> SplitState<T> {
     pub fn extent(&self) -> Option<T> {
         self.extent
     }
@@ -35,26 +37,25 @@ impl<T: Scalar> State<T> {
     }
 }
 
-pub fn new<'a, C: Context, L, T, D, W>(
-    state: &'a mut State<C::Scalar>,
-    config: Config<C::Scalar>,
-    divider: D,
-    leading: L,
-    trailing: T,
-) -> impl Widget<C> + 'a
+impl<C: Context<Scalar = T>, T: Scalar, L, R, D, W> Widget<C> for Split<'_, T, L, R, D>
 where
-    L: Widget<C> + 'a,
-    T: Widget<C> + 'a,
-    D: FnOnce(Axis, blit::Interaction<C::Scalar>) -> W + 'a,
+    L: Widget<C>,
+    R: Widget<C>,
+    D: FnOnce(Axis, blit::Interaction<T>) -> W,
     W: Widget<C>,
 {
-    move |mut ui: Ui<'_, C>| {
+    type Response = ();
+    fn build(self, mut ui: Ui<'_, C>) {
+        let state = self.state;
+        let leading = self.leading;
+        let trailing = self.trailing;
+        let divider = self.divider;
         let id = ui.current_widget_id();
-        let axis = config.axis;
+        let axis = self.axis;
         let leading_id = id.child("leading pane");
         let divider_id = id.child("divider");
         let trailing_id = id.child("trailing pane");
-        let interaction = ui.interact_widget(divider_id, config.sense);
+        let interaction = ui.interact_widget(divider_id, self.sense);
         let measured = ui.geometry(leading_id).map(|area| axis.extent(area.size()));
         let delta = interaction.drag.map_or(Point::ZERO, |drag| drag.delta);
         let delta = match axis {
@@ -67,17 +68,17 @@ where
             state.extent = Some(measured);
         }
         if delta != C::Scalar::ZERO {
-            let extent = state.extent.unwrap_or(config.initial_extent);
+            let extent = state.extent.unwrap_or(self.initial_extent);
             state.extent = Some(extent + delta);
         }
-        let extent = state.extent.unwrap_or(config.initial_extent);
+        let extent = state.extent.unwrap_or(self.initial_extent);
         state.changed = false;
         let mut panes = ui.layout(Layout {
             axis,
-            divider_extent: config.divider_extent,
+            divider_extent: self.divider_extent,
             extent,
-            minimum_leading: config.minimum_leading,
-            minimum_trailing: config.minimum_trailing,
+            minimum_leading: self.minimum_leading,
+            minimum_trailing: self.minimum_trailing,
         });
         panes.child().widget_id(leading_id).build(leading);
         panes.child().widget_id(divider_id).build(divider(axis, interaction));
@@ -169,7 +170,7 @@ mod tests {
     #[test]
     fn clamps_the_leading_extent() {
         let mut frame = Frame::default();
-        let mut state = State::default();
+        let mut state = SplitState::default();
         state.set_extent(90.0);
         let id = WidgetId::new("split pane");
         let context = &mut TestContext;
@@ -179,16 +180,16 @@ mod tests {
             Duration::ZERO,
             Input::None,
             |ui: Ui<'_, TestContext>| {
-                ui.layout(single::new().grow()).child().widget_id(id).build(new(
-                    &mut state,
-                    Config::new(30.0)
+                ui.layout(single::new().grow()).child().widget_id(id).build(
+                    Split::new(&mut state)
+                        .initial_extent(30.0)
                         .minimum_leading(20.0)
                         .minimum_trailing(20.0)
-                        .divider_extent(4.0),
-                    |_, _| (),
-                    |mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom),
-                    |mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom),
-                ));
+                        .divider_extent(4.0)
+                        .divider(|_, _| ())
+                        .leading(|mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom))
+                        .trailing(|mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom)),
+                );
             },
         );
         frame.layout(context);

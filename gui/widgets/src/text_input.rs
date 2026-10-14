@@ -1,6 +1,6 @@
 use blit::{Atom, AtomCx, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Widget};
-pub use blit_widgets::text_input::Response;
-pub type State = blit_widgets::text_input::State<f32>;
+pub use blit_widgets::TextInputResponse;
+pub type TextInputState = blit_widgets::TextInputState<f32>;
 
 use blit_gui::{
     Context,
@@ -11,7 +11,7 @@ use blit_gui::{
 
 blit::builder! {
     pub struct TextInput<'a> {
-        new(state: &'a mut State, value: &'a mut String),
+        new(state: &'a mut TextInputState, value: &'a mut String),
         style: TextStyle = TextStyle::new(),
         padding: Sides<f32> = Sides::all(0.0),
         background: Color = Color::TRANSPARENT,
@@ -24,7 +24,7 @@ blit::builder! {
 }
 
 impl<C: Context> Widget<C> for TextInput<'_> {
-    type Response = Response;
+    type Response = TextInputResponse;
 
     fn build(self, mut ui: blit::Ui<'_, C>) -> Self::Response {
         let Self {
@@ -122,7 +122,7 @@ impl<C: Context> Widget<C> for TextInput<'_> {
 struct InputAtom {
     text: TextRunId,
     display: TextRunId,
-    state: State,
+    state: TextInputState,
     options: TextOptions,
     padding: Sides<f32>,
     focused: bool,

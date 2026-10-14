@@ -1,6 +1,6 @@
 use blit::{Atom, AtomCx, Constraints, Input, Key, PhysicalRect, PointerButton, Sense, Sides, Size, Ui, Widget};
-pub use blit_widgets::text_input::Response;
-pub type State = blit_widgets::text_input::State<i32>;
+pub use blit_widgets::TextInputResponse;
+pub type TextInputState = blit_widgets::TextInputState<i32>;
 
 use crate::{
     TuiContext,
@@ -11,7 +11,7 @@ use crate::{
 
 blit::builder! {
     pub struct TextInput<'a> {
-        new(state: &'a mut State, value: &'a mut String),
+        new(state: &'a mut TextInputState, value: &'a mut String),
         #[into]
         background: Option<Color> = None,
         placeholder: &'a str = "",
@@ -25,7 +25,7 @@ blit::builder! {
 }
 
 impl Widget<TuiContext> for TextInput<'_> {
-    type Response = Response;
+    type Response = TextInputResponse;
 
     fn build(self, mut ui: Ui<'_, TuiContext>) -> Self::Response {
         let Self {
@@ -118,7 +118,7 @@ impl Widget<TuiContext> for TextInput<'_> {
 struct InputAtom {
     text: TextRunId,
     display: TextRunId,
-    state: State,
+    state: TextInputState,
     options: TextOptions,
     padding: Sides<i32>,
     background: Option<Color>,

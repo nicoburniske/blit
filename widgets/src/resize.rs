@@ -1,45 +1,46 @@
 use blit::{Constraints, Context, Interaction, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
 
 #[derive(Debug, Default)]
-pub struct State<T> {
+pub struct ResizeState<T> {
     size: Option<Size<T>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Edge {
+pub enum ResizeEdge {
     Right,
     Bottom,
     Corner,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Grip<T> {
-    pub edge: Edge,
+pub struct ResizeGrip<T> {
+    pub edge: ResizeEdge,
     pub interaction: Interaction<T>,
 }
 
 blit::builder! {
-    #[derive(Clone, Copy, Debug)]
-    pub struct Config<T: Scalar> {
-        new(initial: Size<T>),
+    pub struct Resize<'a, T: Scalar> {
+        new(state: &'a mut ResizeState<T>),
+        content<W = ()>: W = (),
+        grip<F: FnMut(ResizeGrip<T>) -> G = fn(ResizeGrip<T>) -> (), G>: F = |_| (),
+        initial: Size<T> = Size::ZERO,
         minimum: Size<T> = Size::ZERO,
         maximum: Size<T> = Size::uniform(T::UNBOUNDED),
         grip_size: Size<T> = Size::uniform(T::from_f32(1.0)),
     }
 }
 
-pub fn new<'a, C: Context, W, F, G>(
-    state: &'a mut State<C::Scalar>,
-    config: Config<C::Scalar>,
-    content: W,
-    mut grip: F,
-) -> impl Widget<C> + 'a
+impl<C: Context<Scalar = T>, T: Scalar, W, F, G> Widget<C> for Resize<'_, T, W, F>
 where
-    W: Widget<C> + 'a,
-    F: FnMut(Grip<C::Scalar>) -> G + 'a,
+    W: Widget<C>,
+    F: FnMut(ResizeGrip<T>) -> G,
     G: Widget<C>,
 {
-    move |mut ui: Ui<'_, C>| {
+    type Response = ();
+    fn build(self, mut ui: Ui<'_, C>) {
+        let state = self.state;
+        let content = self.content;
+        let mut grip = self.grip;
         let id = ui.current_widget_id();
         let right_id = id.child("right grip");
         let bottom_id = id.child("bottom grip");
@@ -56,32 +57,32 @@ where
             let size = state
                 .size
                 .or_else(|| geometry.map(|area| area.size()))
-                .unwrap_or(config.initial);
+                .unwrap_or(self.initial);
             state.size = Some(size + delta);
         }
         let size = Constraints {
-            min: config.minimum,
-            max: config.maximum.max(config.minimum),
+            min: self.minimum,
+            max: self.maximum.max(self.minimum),
         }
-        .constrain(state.size.unwrap_or(config.initial));
+        .constrain(state.size.unwrap_or(self.initial));
         if let Some(stored) = &mut state.size {
             *stored = size;
         }
         let mut shell = ui.layout(Layout {
             size,
-            grip_size: config.grip_size,
+            grip_size: self.grip_size,
         });
         shell.child().item(Item::Content).build(content);
         for (item, edge, grip_id, interaction) in [
-            (Item::Right, Edge::Right, right_id, right),
-            (Item::Bottom, Edge::Bottom, bottom_id, bottom),
-            (Item::Corner, Edge::Corner, corner_id, corner),
+            (Item::Right, ResizeEdge::Right, right_id, right),
+            (Item::Bottom, ResizeEdge::Bottom, bottom_id, bottom),
+            (Item::Corner, ResizeEdge::Corner, corner_id, corner),
         ] {
             shell
                 .child()
                 .item(item)
                 .widget_id(grip_id)
-                .build(grip(Grip { edge, interaction }));
+                .build(grip(ResizeGrip { edge, interaction }));
         }
     }
 }

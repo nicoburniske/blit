@@ -1,13 +1,22 @@
-pub mod performance;
-blit_widgets::export!(i32);
+mod performance;
+pub use blit_widgets::{
+    Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ScrollArea, ScrollList, ScrollListResponse, Split, Stage,
+    VirtualList, VirtualListResponse,
+};
+pub type ResizeState = blit_widgets::ResizeState<i32>;
+pub type ResizeGrip = blit_widgets::ResizeGrip<i32>;
+pub type SplitState = blit_widgets::SplitState<i32>;
+pub type ScrollAreaState = blit_widgets::ScrollAreaState<i32>;
+pub type ScrollListState = blit_widgets::ScrollListState<i32>;
+pub type VirtualListState = blit_widgets::VirtualListState<i32>;
 
-pub mod block;
-pub mod text;
-pub mod text_input;
+mod block;
+mod text;
+mod text_input;
 
 pub use self::{
     block::{Block, Title},
-    performance::Performance,
+    performance::{Performance, PerformanceState},
     text::Text,
-    text_input::TextInput,
+    text_input::{TextInput, TextInputResponse, TextInputState},
 };

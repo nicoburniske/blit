@@ -9,7 +9,7 @@ use blit::{
 };
 use blit_executor::LocalExecutor;
 use blit_gui::{GuiContext, TextLayoutEngine, TextSystem};
-use blit_widgets::performance::Stage;
+use blit_widgets::Stage;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize as WindowSize, PhysicalPosition, PhysicalSize},
@@ -212,23 +212,23 @@ impl<A: Application> Runner<A> {
         let scale = active.scale();
         let info = FrameInfo::new(Size::new(size.width as f32 / scale, size.height as f32 / scale));
         let no_input = self.inputs.is_empty().then_some(Input::None);
-        active.context.performance.begin_frame(time);
+        active.context.profiler.begin_frame(time);
         for input in self.inputs.drain(..).chain(no_input) {
             active
                 .frame
                 .build(&mut active.context, info, time, input, |ui: Ui<'_>| {
                     active.app.render(ui)
                 });
-            active.context.performance.finish_stage(Stage::Build);
+            active.context.profiler.finish_stage(Stage::Build);
             active.frame.layout(&mut active.context);
-            active.context.performance.finish_stage(Stage::Layout);
+            active.context.profiler.finish_stage(Stage::Layout);
         }
         active.frame.paint(&mut active.context);
         let presented = match active.context.graphics.render(active.context.gui.render_input()) {
             Ok(presented) => presented,
             Err(error) => return self.fail(event_loop, error),
         };
-        active.context.performance.finish_frame();
+        active.context.profiler.finish_frame();
         active.render_deferred = !presented;
         if !presented {
             active.frame.request_frame();

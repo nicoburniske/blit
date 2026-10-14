@@ -1,45 +1,21 @@
-pub mod performance;
-pub mod popover;
-pub mod resize;
-pub mod scroll;
-pub mod split;
-pub mod text_input;
+mod performance;
+mod popover;
+mod resize;
+mod scroll;
+mod split;
+mod text_input;
 
 pub use blit::{Clip, Context, Ui, Widget, WidgetId, state};
+pub use performance::{FrameProfiler, Stage};
+pub use popover::{Popover, PopoverClose, PopoverState};
+pub use resize::{Resize, ResizeEdge, ResizeGrip, ResizeState};
+pub use scroll::{
+    ScrollArea, ScrollAreaState, ScrollList, ScrollListResponse, VirtualList, VirtualListResponse, VirtualListState,
+};
+pub use split::{Split, SplitState};
+pub type ScrollListState<T> = ScrollAreaState<T>;
 
-#[macro_export]
-macro_rules! export {
-    ($coord:ty) => {
-        pub use $crate::scroll::{ScrollArea, ScrollList, VirtualList};
-
-        pub mod resize {
-            pub use $crate::resize::{Edge, new};
-            pub type Config = $crate::resize::Config<$coord>;
-            pub type State = $crate::resize::State<$coord>;
-            pub type Grip = $crate::resize::Grip<$coord>;
-        }
-        pub mod split {
-            pub use $crate::split::new;
-            pub type Config = $crate::split::Config<$coord>;
-            pub type State = $crate::split::State<$coord>;
-        }
-        pub mod popover {
-            pub use $crate::popover::{Close, State, new};
-            pub type Config = $crate::popover::Config<$coord>;
-        }
-        pub mod scroll_area {
-            pub type State = $crate::scroll::area::State<$coord>;
-        }
-        pub mod scroll_list {
-            pub use $crate::scroll::list::Response;
-            pub type State = $crate::scroll::list::State<$coord>;
-        }
-        pub mod virtual_list {
-            pub use $crate::scroll::virtual_list::Response;
-            pub type State = $crate::scroll::virtual_list::State<$coord>;
-        }
-    };
-}
+pub use text_input::{Response as TextInputResponse, State as TextInputState};
 
 #[cfg(test)]
 mod test {

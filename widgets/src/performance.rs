@@ -6,7 +6,7 @@ use std::{
 };
 
 #[derive(Debug)]
-pub struct State {
+pub struct FrameProfiler {
     pub label: String,
     enabled: bool,
     active: Option<(FrameSample, Instant)>,
@@ -20,7 +20,7 @@ pub struct State {
     slowest: BinaryHeap<Reverse<Duration>>,
 }
 
-impl State {
+impl FrameProfiler {
     /// retains at most max_samples completed frames with a minimum of one
     pub fn new(max_samples: usize) -> Self {
         Self {
@@ -195,7 +195,7 @@ impl State {
     }
 }
 
-impl Default for State {
+impl Default for FrameProfiler {
     fn default() -> Self {
         Self::new(600)
     }

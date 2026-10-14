@@ -2,13 +2,13 @@ use blit_gui::{
     GuiContext,
     image::{ImageData, ImageHandle},
 };
-use blit_widgets::performance;
+use blit_widgets::FrameProfiler;
 
 use crate::{GraphicsBackend, GraphicsError};
 
 pub struct DesktopContext {
     pub gui: GuiContext,
-    pub performance: performance::State,
+    pub profiler: FrameProfiler,
     pub graphics: Box<dyn GraphicsBackend>,
 }
 
@@ -16,7 +16,7 @@ impl DesktopContext {
     pub fn new(gui: GuiContext, graphics: Box<dyn GraphicsBackend>) -> Self {
         Self {
             gui,
-            performance: performance::State::default(),
+            profiler: FrameProfiler::default(),
             graphics,
         }
     }
@@ -36,8 +36,8 @@ impl AsMut<GuiContext> for DesktopContext {
     }
 }
 
-impl AsRef<performance::State> for DesktopContext {
-    fn as_ref(&self) -> &performance::State {
-        &self.performance
+impl AsRef<FrameProfiler> for DesktopContext {
+    fn as_ref(&self) -> &FrameProfiler {
+        &self.profiler
     }
 }

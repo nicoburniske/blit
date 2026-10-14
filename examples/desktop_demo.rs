@@ -21,9 +21,9 @@ use blit_gui::{
     },
 };
 use blit_gui_widgets::{
-    Performance, RichText, ScrollArea, ScrollList, Text, TextInput,
+    Performance, PerformanceState, Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip, ResizeState,
+    RichText, ScrollArea, ScrollAreaState, ScrollList, Split, SplitState, Text, TextInput, TextInputState,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
-    performance, popover, resize, scroll_area, split, text_input,
 };
 
 pub fn run(text: impl TextLayoutEngine) {
@@ -73,8 +73,8 @@ struct App {
     styles: StylesPage,
     scroll: ScrollPage,
     graphics: graphics::View,
-    settings: popover::State,
-    performance: performance::State,
+    settings: PopoverState,
+    performance: PerformanceState,
     show_performance: bool,
 }
 
@@ -88,8 +88,8 @@ impl Default for App {
             styles: StylesPage::default(),
             scroll: ScrollPage::default(),
             graphics: graphics::View::default(),
-            settings: popover::State::new(),
-            performance: performance::State::default(),
+            settings: PopoverState::new(),
+            performance: PerformanceState::default(),
             show_performance: true,
         }
     }
@@ -99,7 +99,7 @@ impl Application for App {
     type Input = ();
 
     fn new(_: EventLoopProxy<Self::Input>, _: Root<Self>, context: &mut DesktopContext) -> Self {
-        context.performance.set_enabled(true);
+        context.profiler.set_enabled(true);
         Self::default()
     }
 
@@ -150,34 +150,33 @@ impl Application for App {
                 }
             }
             header.child().item(flex::item().grow()).insert(());
-            let reset = header.child().build(popover::new(
-                &mut self.settings,
-                popover::Config::new()
+            let reset = header.child().build(
+                Popover::new(&mut self.settings)
                     .target_anchor(Anchor::BottomRight)
                     .child_anchor(Anchor::TopRight)
                     .y(sz::XXS)
                     .open_on_hover(true)
-                    .close(popover::Close::Exit),
-                |ui, interaction, open| {
-                    draw_button(ui, "settings", open, interaction);
-                },
-                |ui: Ui<'_>| {
-                    let mut popup = ui.layout(flex::column().padding(Sides::all(sz::MD)).gap(sz::SM));
-                    popup.insert(
-                        Rectangle::new()
-                            .background(colors::SURFACE)
-                            .border(Border::solid(sz::BORDER, colors::ACCENT))
-                            .radius(BorderRadius::uniform(sz::XS)),
-                    );
-                    if popup
-                        .child()
-                        .build(Button::new("Show performance", self.show_performance))
-                    {
-                        self.show_performance = !self.show_performance;
-                    }
-                    popup.child().build(Button::new("Reset", false))
-                },
-            ));
+                    .close(PopoverClose::Exit)
+                    .trigger(|ui, interaction, open| {
+                        draw_button(ui, "settings", open, interaction);
+                    })
+                    .content(|ui: Ui<'_>| {
+                        let mut popup = ui.layout(flex::column().padding(Sides::all(sz::MD)).gap(sz::SM));
+                        popup.insert(
+                            Rectangle::new()
+                                .background(colors::SURFACE)
+                                .border(Border::solid(sz::BORDER, colors::ACCENT))
+                                .radius(BorderRadius::uniform(sz::XS)),
+                        );
+                        if popup
+                            .child()
+                            .build(Button::new("Show performance", self.show_performance))
+                        {
+                            self.show_performance = !self.show_performance;
+                        }
+                        popup.child().build(Button::new("Reset", false))
+                    }),
+            );
             if reset.unwrap_or(false) {
                 *self = Self::default();
             }
@@ -190,7 +189,7 @@ impl Application for App {
             Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
             Page::Graphics => root.child().item(flex::item().grow()).build(&mut self.graphics),
         };
-        root.context_mut().performance.set_enabled(self.show_performance);
+        root.context_mut().profiler.set_enabled(self.show_performance);
         if self.show_performance {
             root.child()
                 .layout(
@@ -217,13 +216,13 @@ impl Application for App {
 struct TextPage {
     text: String,
     spans: Vec<Span>,
-    resize: resize::State,
+    resize: ResizeState,
     wrap: TextWrap,
     overflow: TextOverflow,
     horizontal: HorizontalAlign,
     vertical: VerticalAlign,
     max_lines: Option<u16>,
-    split: split::State,
+    split: SplitState,
 }
 
 impl Default for TextPage {
@@ -265,13 +264,13 @@ impl Default for TextPage {
         Self {
             text,
             spans,
-            resize: resize::State::default(),
+            resize: ResizeState::default(),
             wrap: TextWrap::Word,
             overflow: TextOverflow::Clip,
             horizontal: HorizontalAlign::Left,
             vertical: VerticalAlign::Top,
             max_lines: None,
-            split: split::State::default(),
+            split: SplitState::default(),
         }
     }
 }
@@ -305,7 +304,7 @@ impl Widget<DesktopContext> for &mut TextPage {
             .widget_id(WidgetId::new("text page split"))
             .build(split(
                 split_state,
-                split::Config::new(sz::SIDEBAR).divider_extent(sz::LG),
+                sz::SIDEBAR,
                 |ui: Ui<'_>| {
                     let mut controls = ui.layout(flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
                     controls.insert(panel(colors::SURFACE));
@@ -400,16 +399,13 @@ impl Widget<DesktopContext> for &mut TextPage {
                                 .background(colors::TRACK)
                                 .radius(BorderRadius::uniform(sz::XS)),
                         );
-                        viewport
-                            .child()
-                            .widget_id(WidgetId::new("rich text preview"))
-                            .build(resize::new(
-                                resize,
-                                resize::Config::new(Size::new(560.0, 360.0))
-                                    .minimum(Size::new(260.0, 160.0))
-                                    .maximum(screen)
-                                    .grip_size(Size::uniform(sz::MD)),
-                                |ui: Ui<'_>| {
+                        viewport.child().widget_id(WidgetId::new("rich text preview")).build(
+                            Resize::new(resize)
+                                .initial(Size::new(560.0, 360.0))
+                                .minimum(Size::new(260.0, 160.0))
+                                .maximum(screen)
+                                .grip_size(Size::uniform(sz::MD))
+                                .content(|ui: Ui<'_>| {
                                     let mut paragraph = ui
                                         .layout(single::new().grow().padding(Sides::all(sz::LG)))
                                         .clip(BoundsClip);
@@ -428,9 +424,9 @@ impl Widget<DesktopContext> for &mut TextPage {
                                             .color(colors::TEXT_MUTED)
                                             .options(options),
                                     );
-                                },
-                                DesktopGrip,
-                            ));
+                                })
+                                .grip(DesktopGrip),
+                        );
                     });
                 },
             ));
@@ -440,7 +436,7 @@ impl Widget<DesktopContext> for &mut TextPage {
 #[derive(Default)]
 struct InputPage {
     value: String,
-    state: text_input::State,
+    state: TextInputState,
 }
 
 impl Widget<DesktopContext> for &mut InputPage {
@@ -493,9 +489,9 @@ impl Widget<DesktopContext> for &mut InputPage {
 #[derive(Default)]
 struct LayoutPage {
     canvas: CanvasConfig,
-    resize: resize::State,
-    scroll: scroll_area::State,
-    split: split::State,
+    resize: ResizeState,
+    scroll: ScrollAreaState,
+    split: SplitState,
 }
 
 impl Widget<DesktopContext> for &mut LayoutPage {
@@ -515,7 +511,7 @@ impl Widget<DesktopContext> for &mut LayoutPage {
         body.child().item(flex::item().grow()).widget_id(WidgetId::new("layout page split")).build(
             split(
                 split_state,
-                split::Config::new(sz::SIDEBAR).divider_extent(sz::LG),
+                sz::SIDEBAR,
                 |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(
                         flex::column()
@@ -678,17 +674,12 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                             .max(sz::CANVAS_INITIAL_MIN)
                             * sz::CANVAS_INITIAL_SCALE;
                         viewport.child().widget_id(WidgetId::new("layout canvas")).build(
-                            resize::new(
-                                resize,
-                                resize::Config::new(initial)
+                            Resize::new(resize).initial(initial)
                                     .minimum(sz::CANVAS_MIN)
-                                    .grip_size(Size::uniform(sz::MD)),
-                                Canvas {
+                                    .grip_size(Size::uniform(sz::MD)).content(Canvas {
                                     config: preview_config,
                                     unit,
-                                },
-                                DesktopGrip,
-                            ),
+                                }).grip(DesktopGrip),
                         );
                     });
                 },
@@ -711,8 +702,8 @@ struct StylesPage {
     blur: f32,
     spread: f32,
     offset: (f32, f32),
-    scroll: scroll_area::State,
-    split: split::State,
+    scroll: ScrollAreaState,
+    split: SplitState,
 }
 
 impl Default for StylesPage {
@@ -723,8 +714,8 @@ impl Default for StylesPage {
             blur: sz::LG,
             spread: sz::BORDER_STRONG,
             offset: (0.0, sz::SM),
-            scroll: scroll_area::State::default(),
-            split: split::State::default(),
+            scroll: ScrollAreaState::default(),
+            split: SplitState::default(),
         }
     }
 }
@@ -751,7 +742,7 @@ impl Widget<DesktopContext> for &mut StylesPage {
         body.child().item(flex::item().grow()).widget_id(WidgetId::new("styles page split")).build(
             split(
                 split_state,
-                split::Config::new(sz::SIDEBAR).divider_extent(sz::LG),
+                sz::SIDEBAR,
                 |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(
                         flex::column()
@@ -914,14 +905,14 @@ impl Widget<DesktopContext> for &mut StylesPage {
 
 struct ScrollPage {
     axis: Axis,
-    state: scroll_area::State,
+    state: ScrollAreaState,
 }
 
 impl Default for ScrollPage {
     fn default() -> Self {
         Self {
             axis: Axis::Vertical,
-            state: scroll_area::State::default(),
+            state: ScrollAreaState::default(),
         }
     }
 }
@@ -949,7 +940,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
             for (axis, label) in [(Axis::Vertical, "VERTICAL"), (Axis::Horizontal, "HORIZONTAL")] {
                 if header.child().build(Button::new(label, *scroll_axis == axis)) {
                     *scroll_axis = axis;
-                    *scroll = scroll_area::State::default();
+                    *scroll = ScrollAreaState::default();
                 }
             }
         }
@@ -958,7 +949,8 @@ impl Widget<DesktopContext> for &mut ScrollPage {
             Axis::Horizontal => sz::SCROLL_ITEM_WIDTH,
             Axis::Vertical => sz::SCROLL_ITEM_HEIGHT,
         };
-        section.child().build(ScrollList::new(scroll)
+        section.child().build(
+            ScrollList::new(scroll)
                 .items(0_usize..100)
                 .item_extent(item_extent)
                 .axis(axis)
@@ -967,33 +959,37 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                 .inertia_friction(3.0)
                 .scrollbar_thickness(sz::XS)
                 .minimum_thumb_extent(sz::XXL)
-            .widget_id(|index| WidgetId::new(("desktop scroll row", *index)))
-            .item(move |ui: Ui<'_>, index| {
-                let item = ITEMS[index % ITEMS.len()];
-                let layout = match axis {
-                    Axis::Horizontal => flex::column().align(Align::Center).justify(Justify::Center),
-                    Axis::Vertical => flex::row().padding(Sides::all(sz::XS)).align(Align::Center),
-                };
-                let background = if index.is_multiple_of(2) {
-                    colors::CANVAS
-                } else {
-                    colors::SURFACE_HIGH
-                };
-                let mut tile = ui.layout(layout);
-                tile.insert(
-                    Rectangle::new()
-                        .background(background)
-                        .radius(BorderRadius::uniform(sz::XXS)),
-                );
-                tile.child().insert(
-                    Text::new(item.label)
-                        .style(TextStyle {
-                            size: sz::MD,
-                            ..TextStyle::default()
-                        })
-                        .color(colors::TEXT),
-                );
-            }).clip(BoundsClip).track(scroll_track()).thumb_with(scroll_thumb));
+                .widget_id(|index| WidgetId::new(("desktop scroll row", *index)))
+                .item(move |ui, index| {
+                    let item = ITEMS[index % ITEMS.len()];
+                    let layout = match axis {
+                        Axis::Horizontal => flex::column().align(Align::Center).justify(Justify::Center),
+                        Axis::Vertical => flex::row().padding(Sides::all(sz::XS)).align(Align::Center),
+                    };
+                    let background = if index.is_multiple_of(2) {
+                        colors::CANVAS
+                    } else {
+                        colors::SURFACE_HIGH
+                    };
+                    let mut tile = ui.layout(layout);
+                    tile.insert(
+                        Rectangle::new()
+                            .background(background)
+                            .radius(BorderRadius::uniform(sz::XXS)),
+                    );
+                    tile.child().insert(
+                        Text::new(item.label)
+                            .style(TextStyle {
+                                size: sz::MD,
+                                ..TextStyle::default()
+                            })
+                            .color(colors::TEXT),
+                    );
+                })
+                .clip(BoundsClip)
+                .track(scroll_track())
+                .thumb(scroll_thumb),
+        );
     }
 }
 
@@ -1088,15 +1084,15 @@ impl Atom<DesktopContext> for Terrain {
 }
 
 fn split<'a>(
-    state: &'a mut split::State,
-    config: split::Config,
+    state: &'a mut SplitState,
+    initial_extent: f32,
     leading: impl Widget<DesktopContext> + 'a,
     trailing: impl Widget<DesktopContext> + 'a,
 ) -> impl Widget<DesktopContext> + 'a {
-    split::new(
-        state,
-        config,
-        |axis, interaction| {
+    Split::new(state)
+        .initial_extent(initial_extent)
+        .divider_extent(sz::LG)
+        .divider(|axis, interaction| {
             move |ui: Ui<'_>| {
                 let active = interaction.hovered || interaction.active;
                 let marker = match axis {
@@ -1113,27 +1109,26 @@ fn split<'a>(
                             .radius(BorderRadius::uniform(sz::BORDER)),
                     );
             }
-        },
-        leading,
-        trailing,
-    )
+        })
+        .leading(leading)
+        .trailing(trailing)
 }
 
-struct DesktopGrip(resize::Grip);
+struct DesktopGrip(ResizeGrip);
 
 impl Widget<DesktopContext> for DesktopGrip {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
         let marker = match self.0.edge {
-            resize::Edge::Right => Size::new(sz::XXS, sz::XXXXL),
-            resize::Edge::Bottom => Size::new(sz::XXXXL, sz::XXS),
-            resize::Edge::Corner => Size::uniform(sz::XS),
+            ResizeEdge::Right => Size::new(sz::XXS, sz::XXXXL),
+            ResizeEdge::Bottom => Size::new(sz::XXXXL, sz::XXS),
+            ResizeEdge::Corner => Size::uniform(sz::XS),
         };
         let active = self.0.interaction.hovered || self.0.interaction.active;
         let color = if active {
             colors::ACCENT
-        } else if self.0.edge == resize::Edge::Corner {
+        } else if self.0.edge == ResizeEdge::Corner {
             colors::GRIP_CORNER
         } else {
             colors::GRIP
@@ -1364,28 +1359,31 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     }
 }
 
-fn scroll_area<'a, C>(
-    state: &'a mut scroll_area::State,
-    content: C,
-) -> impl Widget<DesktopContext> + 'a
+fn scroll_area<'a, C>(state: &'a mut ScrollAreaState, content: C) -> impl Widget<DesktopContext> + 'a
 where
     C: Widget<DesktopContext> + 'a,
 {
-    ScrollArea::new(state).content(content).clip(BoundsClip)
+    ScrollArea::new(state)
+        .content(content)
+        .clip(BoundsClip)
         .scroll_speed(2.0)
         .inertia_friction(3.0)
         .scrollbar_thickness(sz::XS)
         .minimum_thumb_extent(sz::XXL)
         .track(scroll_track())
-        .thumb_with(scroll_thumb)
+        .thumb(scroll_thumb)
 }
 
 fn scroll_track() -> Rectangle {
-    Rectangle::new().background(colors::SCROLL_TRACK).radius(BorderRadius::uniform(sz::XXS))
+    Rectangle::new()
+        .background(colors::SCROLL_TRACK)
+        .radius(BorderRadius::uniform(sz::XXS))
 }
 
 fn scroll_thumb(active: bool) -> Rectangle {
-    Rectangle::new().background(if active { colors::TEXT_DIM } else { colors::BORDER }).radius(BorderRadius::uniform(sz::XXS))
+    Rectangle::new()
+        .background(if active { colors::TEXT_DIM } else { colors::BORDER })
+        .radius(BorderRadius::uniform(sz::XXS))
 }
 
 fn panel(background: Color) -> Rectangle {

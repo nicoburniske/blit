@@ -2,39 +2,35 @@ use std::ops::Range;
 
 use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget, WidgetId};
 
-pub use super::State;
+use crate::ScrollListState;
 use super::{ScrollLayout, animate, build_scroll, update};
 
 blit::builder! {
     /// scrolls uniform items while building only the visible range
-    pub struct ScrollList<'a, T: Scalar> {
-        new(state: &'a mut State<T>),
-        items<I: ExactSizeIterator = std::iter::Empty<()>> = std::iter::empty(),
+    pub struct ScrollList<'a, C: Context>
+    where I: ExactSizeIterator,
+    {
+        new(state: &'a mut ScrollListState<C::Scalar>),
+        items<I = std::iter::Empty<()>>: I = std::iter::empty(),
         axis: Axis = Axis::Vertical,
-        gap: T = T::ZERO,
-        item_extent: T = T::from_f32(1.0),
+        gap: C::Scalar = C::Scalar::ZERO,
+        item_extent: C::Scalar = C::Scalar::from_f32(1.0),
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 6.0,
         sense: Sense = Sense::SCROLL,
-        scrollbar_thickness: T = T::from_f32(1.0),
-        minimum_thumb_extent: T = T::from_f32(1.0),
-        widget_id<K: FnMut(&I::Item) -> WidgetId = ()> where I: ExactSizeIterator = (),
-        item<F: FnMut(Ui<'_, C>, I::Item) = (), C: Context<Scalar = T>> where I: ExactSizeIterator = (),
-        clip<X = ()> = (),
+        scrollbar_thickness: C::Scalar = C::Scalar::from_f32(1.0),
+        minimum_thumb_extent: C::Scalar = C::Scalar::from_f32(1.0),
+        widget_id<K: FnMut(&I::Item) -> WidgetId = ()>: K = (),
+        item<F: FnMut(Ui<'_, C>, I::Item) = ()>: F = (),
+        clip<X = ()>: X = (),
         #[into]
-        track<A = ()>: Option<_> = None,
+        track<A = ()>: Option<A> = None,
         #[into]
-        thumb_with<H = fn(bool) -> ()>: Option<_> = None,
+        thumb<H = fn(bool) -> ()>: Option<H> = None,
     }
 }
 
-impl<'a, T: Scalar, I, K, F, X, A, H> ScrollList<'a, T, I, K, F, X, A, H> {
-    pub fn thumb<B>(self, thumb: B) -> ScrollList<'a, T, I, K, F, X, A, impl FnOnce(bool) -> B> {
-        self.thumb_with(move |_| thumb)
-    }
-}
-
-impl<C: Context<Scalar = T>, T: Scalar, I, K, F, X, A, H, B> Widget<C> for ScrollList<'_, T, I, K, F, X, A, H>
+impl<C: Context, I, K, F, X, A, H, B> Widget<C> for ScrollList<'_, C, I, K, F, X, A, H>
 where
     I: ExactSizeIterator,
     K: FnMut(&I::Item) -> WidgetId,
@@ -62,7 +58,7 @@ where
             mut item,
             clip,
             track,
-            thumb_with,
+            thumb,
         } = self;
         assert!(item_extent.is_finite() && item_extent > C::Scalar::ZERO);
         assert!(gap.is_finite() && gap >= C::Scalar::ZERO);
@@ -108,7 +104,7 @@ where
                     .build(|ui: Ui<'_, C>| item(ui, value));
             }
         };
-        let thumb = thumb_with.map(|thumb| thumb(thumb_active));
+        let thumb = thumb.map(|thumb| thumb(thumb_active));
         let offset = state.offset;
         build_scroll(
             ui,
@@ -182,7 +178,7 @@ mod tests {
             frame: &mut Frame<TestContext>,
             context: &mut TestContext,
             info: FrameInfo<f32>,
-            state: &mut State<f32>,
+            state: &mut ScrollListState<f32>,
             built: &mut Vec<(usize, WidgetId)>,
             swap: bool,
         ) {
@@ -196,7 +192,7 @@ mod tests {
                         .items(rows.iter().enumerate())
                         .item_extent(2.0)
                         .widget_id(|row| WidgetId::new(("row", row.1)))
-                        .item(|ui: Ui<'_, TestContext>, (index, _)| {
+                        .item(|ui, (index, _)| {
                             built.push((index, ui.current_widget_id()));
                             ui.build(());
                         })
@@ -209,7 +205,7 @@ mod tests {
         let mut frame = Frame::default();
         let mut context = TestContext;
         let frame_info = FrameInfo::new(Size::new(80.0, 10.0));
-        let mut state = State::new();
+        let mut state = ScrollListState::new();
         let mut built = Vec::new();
 
         layout(&mut frame, &mut context, frame_info, &mut state, &mut built, false);

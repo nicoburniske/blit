@@ -46,7 +46,7 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use terminal::{Size, Terminal};
-use widget::performance::Stage;
+use widget::Stage;
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
 
@@ -138,26 +138,26 @@ impl<C: Context> Session<C> {
         context.as_mut().renderer_mut().resize(self.config);
         let info = self.frame_info();
         // the prefilled Input::None runs one pass when no events were collected
-        context.as_mut().performance_mut().begin_frame(now);
+        context.as_mut().profiler_mut().begin_frame(now);
         for &input in &inputs[..input_count.max(1)] {
             self.frame.build(context, info, now, input, |mut ui: blit::Ui<'_, C>| {
                 if !ui.context_mut().as_mut().should_quit() {
                     render(ui);
                 }
             });
-            context.as_mut().performance_mut().finish_stage(Stage::Build);
+            context.as_mut().profiler_mut().finish_stage(Stage::Build);
             self.frame.layout(context);
-            context.as_mut().performance_mut().finish_stage(Stage::Layout);
+            context.as_mut().profiler_mut().finish_stage(Stage::Layout);
         }
         if context.as_mut().should_quit() {
-            context.as_mut().performance_mut().cancel_frame();
+            context.as_mut().profiler_mut().cancel_frame();
             self.finish(context)?;
             return Ok(false);
         }
         context.as_mut().begin_paint();
         self.frame.paint(context);
         context.as_mut().finish_paint();
-        context.as_mut().performance_mut().finish_frame();
+        context.as_mut().profiler_mut().finish_frame();
         self.present(context)?;
         // establish the earliest time for the following frame
         self.next_frame = now + self.frame_interval;

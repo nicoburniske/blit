@@ -1,6 +1,6 @@
-pub mod area;
-pub mod list;
-pub mod virtual_list;
+mod area;
+mod list;
+mod virtual_list;
 
 use std::time::Duration;
 
@@ -9,11 +9,15 @@ use blit::{
     Widget, WidgetId,
 };
 
-pub use self::{area::ScrollArea, list::ScrollList, virtual_list::VirtualList};
+pub use self::{
+    area::ScrollArea,
+    list::{Response as ScrollListResponse, ScrollList},
+    virtual_list::{Response as VirtualListResponse, VirtualList, VirtualListState},
+};
 
 /// persistent scroll position and motion
 #[derive(Debug, Default)]
-pub struct State<T> {
+pub struct ScrollAreaState<T> {
     pub offset: T,
     pub content_extent: T,
     pub viewport_extent: T,
@@ -24,7 +28,7 @@ pub struct State<T> {
     request: Request<T>,
 }
 
-impl<T: Scalar> State<T> {
+impl<T: Scalar> ScrollAreaState<T> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -195,7 +199,7 @@ impl<C: Context<Scalar = T>, O: Fn(T) -> T + 'static, T: Scalar> Layout<C> for S
 /// updates scroll input and motion returning thumb activity and viewport availability
 /// uses children named `content` and `scroll thumb` for geometry when present
 fn update<C: Context>(
-    state: &mut State<C::Scalar>,
+    state: &mut ScrollAreaState<C::Scalar>,
     ui: &mut Ui<'_, C>,
     axis: Axis,
     sense: Sense,
@@ -331,7 +335,7 @@ fn update<C: Context>(
     (thumb_interaction.active || track_interaction.active, viewport_known)
 }
 
-fn animate<C: Context>(state: &mut State<C::Scalar>, ui: &mut Ui<'_, C>, axis: Axis, viewport_known: bool) {
+fn animate<C: Context>(state: &mut ScrollAreaState<C::Scalar>, ui: &mut Ui<'_, C>, axis: Axis, viewport_known: bool) {
     let maximum = state.maximum_offset();
     let request = &mut state.request;
     let target = match request.target {
@@ -379,7 +383,7 @@ fn animate<C: Context>(state: &mut State<C::Scalar>, ui: &mut Ui<'_, C>, axis: A
     }
 }
 
-fn move_by<T: Scalar>(state: &mut State<T>, amount: f32) {
+fn move_by<T: Scalar>(state: &mut ScrollAreaState<T>, amount: f32) {
     let maximum = state.maximum_offset();
     let delta = amount + state.remainder;
     let whole = if amount == 0.0 { T::ZERO } else { T::from_f32(delta) };

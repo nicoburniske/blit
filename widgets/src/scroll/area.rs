@@ -1,29 +1,23 @@
 use blit::{Axis, Clip, Context, Scalar, Sense, Ui, Widget};
 
-pub use super::State;
+pub use super::ScrollAreaState;
 use super::{ScrollLayout, animate, build_scroll, update};
 
 blit::builder! {
     pub struct ScrollArea<'a, T: Scalar> {
-        new(state: &'a mut State<T>),
-        content<W = ()> = (),
+        new(state: &'a mut ScrollAreaState<T>),
+        content<W = ()>: W = (),
         axis: Axis = Axis::Vertical,
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 6.0,
         sense: Sense = Sense::SCROLL,
         scrollbar_thickness: T = T::from_f32(1.0),
         minimum_thumb_extent: T = T::from_f32(1.0),
-        clip<X = ()> = (),
+        clip<X = ()>: X = (),
         #[into]
-        track<A = ()>: Option<_> = None,
+        track<A = ()>: Option<A> = None,
         #[into]
-        thumb_with<H = fn(bool) -> ()>: Option<_> = None,
-    }
-}
-
-impl<'a, T: Scalar, W, X, A, H> ScrollArea<'a, T, W, X, A, H> {
-    pub fn thumb<B>(self, thumb: B) -> ScrollArea<'a, T, W, X, A, impl FnOnce(bool) -> B> {
-        self.thumb_with(move |_| thumb)
+        thumb<H = fn(bool) -> ()>: Option<H> = None,
     }
 }
 
@@ -49,12 +43,12 @@ where
             minimum_thumb_extent,
             clip,
             track,
-            thumb_with,
+            thumb,
         } = self;
         let (thumb_active, viewport_known) = update(state, &mut ui, axis, sense, scroll_speed, inertia_friction);
         animate(state, &mut ui, axis, viewport_known);
         let offset = state.offset;
-        let thumb = thumb_with.map(|thumb| thumb(thumb_active));
+        let thumb = thumb.map(|thumb| thumb(thumb_active));
         build_scroll(
             ui,
             ScrollLayout {

@@ -6,32 +6,26 @@ use super::{ScrollLayout, Target, build_scroll, update};
 
 blit::builder! {
     /// measures all rows initially then corrects visible heights as layout changes
-    pub struct VirtualList<'a, T: Scalar, R> {
-        new(state: &'a mut State<T>),
+    pub struct VirtualList<'a, C: Context, R> {
+        new(state: &'a mut VirtualListState<C::Scalar>),
         rows: &'a [R] = &[],
         edge_scroll: bool = false,
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 6.0,
         sense: Sense = Sense::SCROLL,
-        scrollbar_thickness: T = T::from_f32(1.0),
-        minimum_thumb_extent: T = T::from_f32(1.0),
-        widget_id<K: FnMut(&R) -> WidgetId = ()> = (),
-        item<F: FnMut(Ui<'_, C>, &R) = (), C: Context<Scalar = T>> = (),
-        clip<X = ()> = (),
+        scrollbar_thickness: C::Scalar = C::Scalar::from_f32(1.0),
+        minimum_thumb_extent: C::Scalar = C::Scalar::from_f32(1.0),
+        widget_id<K: FnMut(&R) -> WidgetId = ()>: K = (),
+        item<F: FnMut(Ui<'_, C>, &R) = ()>: F = (),
+        clip<X = ()>: X = (),
         #[into]
-        track<A = ()>: Option<_> = None,
+        track<A = ()>: Option<A> = None,
         #[into]
-        thumb_with<H = fn(bool) -> ()>: Option<_> = None,
+        thumb<H = fn(bool) -> ()>: Option<H> = None,
     }
 }
 
-impl<'a, T: Scalar, R, K, F, X, A, H> VirtualList<'a, T, R, K, F, X, A, H> {
-    pub fn thumb<B>(self, thumb: B) -> VirtualList<'a, T, R, K, F, X, A, impl FnOnce(bool) -> B> {
-        self.thumb_with(move |_| thumb)
-    }
-}
-
-impl<C: Context<Scalar = T>, T: Scalar, R, K, F, X, A, H, B> Widget<C> for VirtualList<'_, T, R, K, F, X, A, H>
+impl<C: Context, R, K, F, X, A, H, B> Widget<C> for VirtualList<'_, C, R, K, F, X, A, H>
 where
     K: FnMut(&R) -> WidgetId,
     F: FnMut(Ui<'_, C>, &R),
@@ -56,7 +50,7 @@ where
             mut item,
             clip,
             track,
-            thumb_with,
+            thumb,
         } = self;
         let id = ui.current_widget_id();
         let viewport = ui.geometry(id);
@@ -201,7 +195,7 @@ where
             (target, visible, pointer_row, thumb_active)
         };
         let table = Rc::clone(&state.table);
-        let thumb = thumb_with.map(|thumb| thumb(thumb_active));
+        let thumb = thumb.map(|thumb| thumb(thumb_active));
         build_scroll(
             ui,
             ScrollLayout {
@@ -248,8 +242,8 @@ pub struct Response {
 }
 
 #[derive(Default)]
-pub struct State<T> {
-    scroll: super::State<T>,
+pub struct VirtualListState<T> {
+    scroll: super::ScrollAreaState<T>,
     table: Rc<RefCell<RowTable<T>>>,
     screen: Option<Size<T>>,
     dirty: bool,
@@ -257,7 +251,7 @@ pub struct State<T> {
     visible: Range<usize>,
 }
 
-impl<T: Scalar> State<T> {
+impl<T: Scalar> VirtualListState<T> {
     pub fn offset(&self) -> T {
         self.table.borrow().offset
     }
@@ -379,7 +373,7 @@ mod tests {
         use blit::WidgetId;
         use blit_layout::single;
 
-        fn layout(frame: &mut Frame<TestContext>, state: &mut State<f32>, rows: &[(u32, f32)]) {
+        fn layout(frame: &mut Frame<TestContext>, state: &mut VirtualListState<f32>, rows: &[(u32, f32)]) {
             let context = &mut TestContext;
             frame.build(
                 context,
@@ -391,7 +385,7 @@ mod tests {
                         VirtualList::new(state)
                             .rows(rows)
                             .widget_id(|row| WidgetId::new(row.0))
-                            .item(|ui: Ui<'_, TestContext>, row| {
+                            .item(|ui, row| {
                                 ui.layout(single::new().fixed(80.0, row.1));
                             })
                             .clip(TestClip),
@@ -402,7 +396,7 @@ mod tests {
         }
 
         let mut frame = Frame::default();
-        let mut state = State::default();
+        let mut state = VirtualListState::default();
         let mut rows: Vec<_> = (0..40u32).map(|id| (id, 10.0 + (id % 3) as f32)).collect();
         state.scroll_to(WidgetId::new(20u32));
         layout(&mut frame, &mut state, &rows);
