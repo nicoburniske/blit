@@ -52,7 +52,7 @@ impl<T: Scalar> ScrollAreaState<T> {
         };
     }
 
-    /// queues a built child to reveal within the scroll area's viewport
+    /// queues a child or list row to reveal within the viewport
     pub fn scroll_to_widget(&mut self, id: WidgetId, animation: Option<(Duration, Easing)>) {
         self.stop();
         self.request = Request {
@@ -406,7 +406,9 @@ fn build_scroll<C: Context, W, X, T, H>(
     content: W,
     track: Option<T>,
     thumb: Option<H>,
-) where
+    reveal: Option<WidgetId>,
+) -> bool
+where
     W: Widget<C>,
     X: Clip<C>,
     T: Widget<C, blit::state::Node>,
@@ -435,6 +437,7 @@ fn build_scroll<C: Context, W, X, T, H>(
             .widget_id(thumb_id)
             .insert(thumb);
     }
+    reveal.is_none_or(|id| viewport.contains_widget(id))
 }
 
 const MIN_SCROLL_VELOCITY: f32 = 5.0;

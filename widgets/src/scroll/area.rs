@@ -1,7 +1,7 @@
 use blit::{Axis, Clip, Context, Scalar, Sense, Ui, Widget};
 
 pub use super::ScrollAreaState;
-use super::{ScrollLayout, animate, build_scroll, update};
+use super::{ScrollLayout, Target, animate, build_scroll, update};
 
 blit::builder! {
     pub struct ScrollArea<'a, T: Scalar> {
@@ -49,7 +49,11 @@ where
         animate(state, &mut ui, axis, viewport_known);
         let offset = state.offset;
         let thumb = thumb.map(|thumb| thumb(thumb_active));
-        build_scroll(
+        let reveal = match state.request.target {
+            Target::Widget(id) => Some(id),
+            _ => None,
+        };
+        if !build_scroll(
             ui,
             ScrollLayout {
                 axis,
@@ -61,6 +65,9 @@ where
             content,
             track,
             thumb,
-        );
+            reveal,
+        ) {
+            state.request.target = Target::None;
+        }
     }
 }

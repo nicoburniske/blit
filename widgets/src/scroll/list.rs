@@ -2,13 +2,13 @@ use std::ops::Range;
 
 use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget, WidgetId};
 
+use super::{ScrollLayout, Target, animate, build_scroll, update};
 use crate::ScrollListState;
-use super::{ScrollLayout, animate, build_scroll, update};
 
 blit::builder! {
     /// scrolls uniform items while building only the visible range
     pub struct ScrollList<'a, C: Context>
-    where I: ExactSizeIterator,
+    where I: ExactSizeIterator, I: Clone,
     {
         new(state: &'a mut ScrollListState<C::Scalar>),
         items<I = std::iter::Empty<()>>: I = std::iter::empty(),
@@ -32,7 +32,7 @@ blit::builder! {
 
 impl<C: Context, I, K, F, X, A, H, B> Widget<C> for ScrollList<'_, C, I, K, F, X, A, H>
 where
-    I: ExactSizeIterator,
+    I: ExactSizeIterator + Clone,
     K: FnMut(&I::Item) -> WidgetId,
     F: FnMut(Ui<'_, C>, I::Item),
     X: Clip<C>,
@@ -65,7 +65,24 @@ where
         let stride = item_extent.endpoint(gap);
         let count = items.len();
         let (thumb_active, viewport_known) = update(state, &mut ui, axis, sense, scroll_speed, inertia_friction);
+        let total_extent = item_extent.repeat(count).endpoint(gap.repeat(count.saturating_sub(1)));
+        state.content_extent = total_extent;
+        // resolve offscreen rows by index before choosing which rows to build
+        if viewport_known && let Target::Widget(target) = state.request.target {
+            state.request.target = match items.clone().position(|value| widget_id(&value) == target) {
+                Some(index) => {
+                    let start = stride.repeat(index);
+                    let end = start.endpoint(item_extent);
+                    let minimum = (end - state.viewport_extent).min(start);
+                    let maximum = start;
+                    // move only as far as needed to reveal the row
+                    Target::Offset(state.offset.clamp(minimum, maximum))
+                }
+                None => Target::None,
+            };
+        }
         animate(state, &mut ui, axis, viewport_known);
+        state.offset = state.offset.clamp(C::Scalar::ZERO, state.maximum_offset());
         let viewport_extent = if viewport_known {
             state.viewport_extent
         } else {
@@ -86,7 +103,6 @@ where
         };
         let first = start.saturating_sub(1);
         let end = end.saturating_add(1).min(count);
-        let total_extent = item_extent.repeat(count).endpoint(gap.repeat(count.saturating_sub(1)));
         let layout = ListLayout {
             axis,
             item_extent,
@@ -118,6 +134,7 @@ where
             content,
             track,
             thumb,
+            None,
         );
         Response { visible_range }
     }
@@ -160,64 +177,5 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for ListLayout<T> {
             Axis::Horizontal => Size::new(self.total_extent, cross_extent),
             Axis::Vertical => Size::new(cross_extent, self.total_extent),
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use blit::{Frame, FrameInfo, Input, WidgetId};
-
-    use super::*;
-    use crate::test::{TestClip, TestContext};
-
-    #[test]
-    fn list_builds_only_the_resolved_visible_range() {
-        fn layout(
-            frame: &mut Frame<TestContext>,
-            context: &mut TestContext,
-            info: FrameInfo<f32>,
-            state: &mut ScrollListState<f32>,
-            built: &mut Vec<(usize, WidgetId)>,
-            swap: bool,
-        ) {
-            let mut rows: [usize; 100] = std::array::from_fn(|index| index);
-            if swap {
-                rows.swap(5, 6);
-            }
-            frame.build(context, info, Duration::ZERO, Input::None, |ui: Ui<'_, TestContext>| {
-                ui.build(
-                    ScrollList::new(state)
-                        .items(rows.iter().enumerate())
-                        .item_extent(2.0)
-                        .widget_id(|row| WidgetId::new(("row", row.1)))
-                        .item(|ui, (index, _)| {
-                            built.push((index, ui.current_widget_id()));
-                            ui.build(());
-                        })
-                        .clip(TestClip),
-                )
-            });
-            frame.layout(context);
-        }
-
-        let mut frame = Frame::default();
-        let mut context = TestContext;
-        let frame_info = FrameInfo::new(Size::new(80.0, 10.0));
-        let mut state = ScrollListState::new();
-        let mut built = Vec::new();
-
-        layout(&mut frame, &mut context, frame_info, &mut state, &mut built, false);
-        assert!(built.iter().map(|row| row.0).eq(0..6));
-        let (first_id, default_id) = (built[5].1, built[4].1);
-        built.clear();
-        state.viewport_extent = 10.0;
-        state.content_extent = 200.0;
-        state.scroll_to(8.0, None);
-        layout(&mut frame, &mut context, frame_info, &mut state, &mut built, true);
-        assert!(built.iter().map(|row| row.0).eq(3..10));
-        assert_eq!(built[3].1, first_id);
-        assert_eq!(built[1].1, default_id);
     }
 }

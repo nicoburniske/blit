@@ -262,10 +262,14 @@ impl<C: Context, S> Ui<'_, C, S> {
     /// call after building children to include them. follows structural parenting.
     pub fn focused(&self) -> Option<WidgetId> {
         let focused = self.inner.frame.interaction.focused()?;
+        self.contains_widget(focused).then_some(focused)
+    }
+
+    /// checks this node and its children already built in the current frame
+    pub fn contains_widget(&self, id: WidgetId) -> bool {
         self.inner.frame.nodes[self.inner.node.index()..]
             .iter()
-            .any(|node| node.widget_id == focused)
-            .then_some(focused)
+            .any(|node| node.widget_id == id)
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {

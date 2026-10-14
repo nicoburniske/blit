@@ -225,6 +225,7 @@ where
             },
             track,
             thumb,
+            None,
         );
         Response {
             pointer_row,
