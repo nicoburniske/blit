@@ -22,7 +22,8 @@ use blit_gui::{
 };
 use blit_gui_widgets::{
     Performance, PerformanceState, Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip, ResizeState,
-    RichText, ScrollArea, ScrollAreaState, ScrollList, Split, SplitState, Text, TextInput, TextInputState,
+    RichText, ScrollArea, ScrollState, Split, SplitState, Text, TextInput, TextInputState, UniformList, VirtualList,
+    VirtualListState,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
 };
 
@@ -490,7 +491,7 @@ impl Widget<DesktopContext> for &mut InputPage {
 struct LayoutPage {
     canvas: CanvasConfig,
     resize: ResizeState,
-    scroll: ScrollAreaState,
+    scroll: ScrollState,
     split: SplitState,
 }
 
@@ -702,7 +703,7 @@ struct StylesPage {
     blur: f32,
     spread: f32,
     offset: (f32, f32),
-    scroll: ScrollAreaState,
+    scroll: ScrollState,
     split: SplitState,
 }
 
@@ -714,7 +715,7 @@ impl Default for StylesPage {
             blur: sz::LG,
             spread: sz::BORDER_STRONG,
             offset: (0.0, sz::SM),
-            scroll: ScrollAreaState::default(),
+            scroll: ScrollState::default(),
             split: SplitState::default(),
         }
     }
@@ -903,18 +904,19 @@ impl Widget<DesktopContext> for &mut StylesPage {
     }
 }
 
+#[derive(Default)]
 struct ScrollPage {
-    axis: Axis,
-    state: ScrollAreaState,
+    mode: ScrollMode,
+    uniform: ScrollState,
+    measured: VirtualListState,
 }
 
-impl Default for ScrollPage {
-    fn default() -> Self {
-        Self {
-            axis: Axis::Vertical,
-            state: ScrollAreaState::default(),
-        }
-    }
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum ScrollMode {
+    Finite,
+    #[default]
+    Infinite,
+    Horizontal,
 }
 
 impl Widget<DesktopContext> for &mut ScrollPage {
@@ -922,74 +924,99 @@ impl Widget<DesktopContext> for &mut ScrollPage {
 
     fn build(self, ui: Ui<'_>) {
         let ScrollPage {
-            axis: scroll_axis,
-            state: scroll,
+            mode,
+            uniform,
+            measured,
         } = self;
         let mut section = ui.layout(flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
         section.insert(panel(colors::SURFACE));
         {
             let mut header = section.child().layout(flex::row().gap(sz::XS).align(Align::Center));
             header.child().item(flex::item().grow()).insert(
-                Text::new("SCROLL AREA")
+                Text::new("VIRTUAL SCROLL")
                     .style(TextStyle {
                         size: sz::MD,
                         ..TextStyle::default()
                     })
                     .color(colors::TEXT_MUTED),
             );
-            for (axis, label) in [(Axis::Vertical, "VERTICAL"), (Axis::Horizontal, "HORIZONTAL")] {
-                if header.child().build(Button::new(label, *scroll_axis == axis)) {
-                    *scroll_axis = axis;
-                    *scroll = ScrollAreaState::default();
+            for (next, label) in [
+                (ScrollMode::Finite, "FINITE"),
+                (ScrollMode::Infinite, "INFINITE"),
+                (ScrollMode::Horizontal, "HORIZONTAL"),
+            ] {
+                if header.child().build(Button::new(label, *mode == next)) {
+                    *mode = next;
+                    *uniform = ScrollState::default();
+                    *measured = VirtualListState::default();
                 }
             }
         }
-        let axis = *scroll_axis;
-        let item_extent = match axis {
-            Axis::Horizontal => sz::SCROLL_ITEM_WIDTH,
-            Axis::Vertical => sz::SCROLL_ITEM_HEIGHT,
+        let horizontal = *mode == ScrollMode::Horizontal;
+        let row = move |ui: Ui<'_>, index: usize| {
+            let item = ITEMS[index % ITEMS.len()];
+            let layout = if horizontal {
+                flex::column().align(Align::Center).justify(Justify::Center)
+            } else {
+                flex::row()
+                    .padding(Sides::all(sz::XS + (index % 5) as f32 * sz::XXS))
+                    .gap(sz::SM)
+                    .align(Align::Center)
+            };
+            let background = if index.is_multiple_of(2) {
+                colors::CANVAS
+            } else {
+                colors::SURFACE_HIGH
+            };
+            let mut tile = ui.layout(layout);
+            tile.insert(
+                Rectangle::new()
+                    .background(background)
+                    .radius(BorderRadius::uniform(sz::XXS)),
+            );
+            tile.child()
+                .insert(Text::new(&index.to_string()).color(colors::TEXT_MUTED));
+            tile.child().insert(
+                Text::new(item.label)
+                    .style(TextStyle {
+                        size: sz::MD,
+                        ..TextStyle::default()
+                    })
+                    .color(colors::TEXT),
+            );
         };
-        section.child().build(
-            ScrollList::new(scroll)
-                .items(0_usize..100)
-                .item_extent(item_extent)
-                .axis(axis)
-                .gap(sz::XS)
-                .scroll_speed(2.0)
-                .inertia_friction(3.0)
-                .scrollbar_thickness(sz::XS)
-                .minimum_thumb_extent(sz::XXL)
-                .widget_id(|index| WidgetId::new(("desktop scroll row", *index)))
-                .item(move |ui, index| {
-                    let item = ITEMS[index % ITEMS.len()];
-                    let layout = match axis {
-                        Axis::Horizontal => flex::column().align(Align::Center).justify(Justify::Center),
-                        Axis::Vertical => flex::row().padding(Sides::all(sz::XS)).align(Align::Center),
-                    };
-                    let background = if index.is_multiple_of(2) {
-                        colors::CANVAS
-                    } else {
-                        colors::SURFACE_HIGH
-                    };
-                    let mut tile = ui.layout(layout);
-                    tile.insert(
-                        Rectangle::new()
-                            .background(background)
-                            .radius(BorderRadius::uniform(sz::XXS)),
-                    );
-                    tile.child().insert(
-                        Text::new(item.label)
-                            .style(TextStyle {
-                                size: sz::MD,
-                                ..TextStyle::default()
-                            })
-                            .color(colors::TEXT),
-                    );
-                })
-                .clip(BoundsClip)
-                .track(scroll_track())
-                .thumb(scroll_thumb),
-        );
+        if horizontal {
+            section.child().item(flex::item().grow()).build(
+                UniformList::new(uniform)
+                    .items(0_usize..100)
+                    .item_extent(sz::SCROLL_ITEM_WIDTH)
+                    .axis(Axis::Horizontal)
+                    .gap(sz::XS)
+                    .scroll_speed(2.0)
+                    .inertia_friction(3.0)
+                    .scrollbar_thickness(sz::XS)
+                    .minimum_thumb_extent(sz::XXL)
+                    .widget_id(|index| WidgetId::new(("desktop scroll row", *index)))
+                    .item(row)
+                    .clip(BoundsClip)
+                    .track(scroll_track())
+                    .thumb(scroll_thumb),
+            );
+        } else {
+            section.child().item(flex::item().grow()).build(
+                VirtualList::new(measured)
+                    .count((*mode == ScrollMode::Finite).then_some(100_000))
+                    .scroll_speed(2.0)
+                    .inertia_friction(3.0)
+                    .scrollbar_thickness(sz::XS)
+                    .minimum_thumb_extent(sz::XS)
+                    .widget_id(|index| WidgetId::new(("desktop scroll row", index)))
+                    .item(row)
+                    .clip(BoundsClip)
+                    .track(scroll_track())
+                    .thumb(scroll_thumb),
+            );
+        }
     }
 }
 
@@ -1359,7 +1386,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     }
 }
 
-fn scroll_area<'a, C>(state: &'a mut ScrollAreaState, content: C) -> impl Widget<DesktopContext> + 'a
+fn scroll_area<'a, C>(state: &'a mut ScrollState, content: C) -> impl Widget<DesktopContext> + 'a
 where
     C: Widget<DesktopContext> + 'a,
 {
@@ -1411,7 +1438,6 @@ mod sz {
 
     pub const SIDEBAR: f32 = 360.0;
     pub const SCROLL_ITEM_WIDTH: f32 = 110.0;
-    pub const SCROLL_ITEM_HEIGHT: f32 = 40.0;
     pub const CARD_WIDTH: f32 = 420.0;
     pub const CARD_HEIGHT: f32 = 240.0;
     pub const BADGE_WIDTH: f32 = 36.0;

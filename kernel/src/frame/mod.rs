@@ -142,6 +142,27 @@ impl<'ui, C: Context> Ui<'ui, C, state::Build> {
         widget.build(self)
     }
 
+    /// builds and measures a flow subtree under supplied constraints
+    pub fn build_measured<W: Widget<C>>(
+        self,
+        bounds: Constraints<C::Scalar>,
+        widget: W,
+    ) -> (W::Response, Size<C::Scalar>) {
+        let mut inner = self.inner;
+        inner.owns_node = false;
+        let node = inner.node;
+        let response = widget.build(Ui::new(inner.frame, inner.context, inner.scratch, node));
+        assert!(
+            !inner.frame.nodes[node.index()].out_of_flow,
+            "measured widgets must stay in flow"
+        );
+        let mut data = std::mem::take(&mut inner.frame.data);
+        data.prepare_scratch();
+        let size = layout::resolve(inner.frame, &data, inner.context, node, bounds);
+        inner.frame.data = data;
+        (response, size)
+    }
+
     /// establishes the current node's layout
     pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
         let Ui { inner, .. } = layout.on_insert(self);
@@ -178,6 +199,18 @@ impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
             inner: self.inner,
             marker: PhantomData,
         })
+    }
+
+    pub fn build_measured<W: Widget<C>>(
+        self,
+        bounds: Constraints<C::Scalar>,
+        widget: W,
+    ) -> (W::Response, Size<C::Scalar>) {
+        Ui {
+            inner: self.inner,
+            marker: PhantomData::<state::Build>,
+        }
+        .build_measured(bounds, widget)
     }
 
     /// establishes the current node's layout

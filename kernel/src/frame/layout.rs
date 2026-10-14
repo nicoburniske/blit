@@ -236,7 +236,13 @@ impl Iterator for Children<'_> {
     }
 }
 
-pub fn resolve<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size<C::Scalar>) {
+pub fn resolve<C: Context>(
+    frame: &mut Frame<C>,
+    data: &DataArena,
+    context: &mut C,
+    node: NodeId,
+    bounds: Constraints<C::Scalar>,
+) -> Size<C::Scalar> {
     let mut geometry = std::mem::take(&mut frame.node_geometry);
     let mut requested = frame.frame_requested;
     let mut cx = LayoutCx {
@@ -245,25 +251,28 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut
         geometry: &mut geometry,
         context,
         frame_requested: &mut requested,
-        node: NodeId::new(0),
+        node,
         default_item: DataId::NONE,
         item: PhantomData::<fn() -> ()>,
     };
-    cx.resolve(NodeId::new(0), Constraints::tight(size));
-    for index in 1..cx.frame.nodes.len() {
-        if !cx.frame.nodes[index].out_of_flow {
-            continue;
+    let size = cx.resolve(node, bounds);
+    if node.value == 0 {
+        for index in 1..cx.frame.nodes.len() {
+            if !cx.frame.nodes[index].out_of_flow {
+                continue;
+            }
+            let area = &mut cx.geometry[index].area;
+            area.x = C::Scalar::ZERO;
+            area.y = C::Scalar::ZERO;
+            cx.resolve(
+                NodeId::new(index),
+                Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)),
+            );
         }
-        let area = &mut cx.geometry[index].area;
-        area.x = C::Scalar::ZERO;
-        area.y = C::Scalar::ZERO;
-        cx.resolve(
-            NodeId::new(index),
-            Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)),
-        );
     }
     frame.node_geometry = geometry;
     frame.frame_requested = requested;
+    size
 }
 
 pub fn run<'a, C: Context, L: Layout<C>>(

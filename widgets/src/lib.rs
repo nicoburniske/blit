@@ -10,11 +10,9 @@ pub use performance::{FrameProfiler, Stage};
 pub use popover::{Popover, PopoverClose, PopoverState};
 pub use resize::{Resize, ResizeEdge, ResizeGrip, ResizeState};
 pub use scroll::{
-    ScrollArea, ScrollAreaState, ScrollList, ScrollListResponse, VirtualList, VirtualListResponse, VirtualListState,
+    ScrollArea, ScrollState, UniformList, UniformListResponse, VirtualList, VirtualListResponse, VirtualListState,
 };
 pub use split::{Split, SplitState};
-pub type ScrollListState<T> = ScrollAreaState<T>;
-
 pub use text_input::{Response as TextInputResponse, State as TextInputState};
 
 #[cfg(test)]

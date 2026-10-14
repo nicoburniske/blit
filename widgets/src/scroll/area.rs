@@ -1,11 +1,13 @@
 use blit::{Axis, Clip, Context, Scalar, Sense, Ui, Widget};
 
-pub use super::ScrollAreaState;
-use super::{ScrollLayout, Target, animate, build_scroll, update};
+pub use super::ScrollState;
+use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 
 blit::builder! {
+    /// use for arbitrary content such as forms and small collections
+    /// builds all content every frame
     pub struct ScrollArea<'a, T: Scalar> {
-        new(state: &'a mut ScrollAreaState<T>),
+        new(state: &'a mut ScrollState<T>),
         content<W = ()>: W = (),
         axis: Axis = Axis::Vertical,
         scroll_speed: f32 = 1.0,
@@ -46,28 +48,40 @@ where
             thumb,
         } = self;
         let (thumb_active, viewport_known) = update(state, &mut ui, axis, sense, scroll_speed, inertia_friction);
-        animate(state, &mut ui, axis, viewport_known);
-        let offset = state.offset;
         let thumb = thumb.map(|thumb| thumb(thumb_active));
         let reveal = match state.request.target {
             Target::Widget(id) => Some(id),
-            _ => None,
+            _ => {
+                animate(state, &mut ui, axis, viewport_known);
+                None
+            }
         };
-        if !build_scroll(
+        let offset = state.offset;
+        let mut viewport = build_scroll(
             ui,
             ScrollLayout {
                 axis,
-                offset: move |_| offset,
-                scrollbar_thickness,
-                minimum_thumb_extent,
+                offset,
+                viewport_extent: state.viewport_extent,
+                scrollbar: Scrollbar {
+                    thickness: scrollbar_thickness,
+                    minimum: minimum_thumb_extent,
+                },
             },
             clip,
             content,
             track,
             thumb,
-            reveal,
-        ) {
-            state.request.target = Target::None;
+        );
+        match reveal {
+            Some(id) if !viewport.contains_widget(id) => state.request.target = Target::None,
+            Some(_) => {
+                animate(state, &mut viewport, axis, viewport_known);
+                if state.offset != offset {
+                    viewport.request_frame();
+                }
+            }
+            None => {}
         }
     }
 }

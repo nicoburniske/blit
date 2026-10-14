@@ -2,15 +2,16 @@ use std::ops::Range;
 
 use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget, WidgetId};
 
-use super::{ScrollLayout, Target, animate, build_scroll, update};
-use crate::ScrollListState;
+use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
+use crate::ScrollState;
 
 blit::builder! {
-    /// scrolls uniform items while building only the visible range
-    pub struct ScrollList<'a, C: Context>
+    /// use for large lists with a known fixed item height or width
+    /// builds only the visible range and a small margin
+    pub struct UniformList<'a, C: Context>
     where I: ExactSizeIterator, I: Clone,
     {
-        new(state: &'a mut ScrollListState<C::Scalar>),
+        new(state: &'a mut ScrollState<C::Scalar>),
         items<I = std::iter::Empty<()>>: I = std::iter::empty(),
         axis: Axis = Axis::Vertical,
         gap: C::Scalar = C::Scalar::ZERO,
@@ -30,7 +31,7 @@ blit::builder! {
     }
 }
 
-impl<C: Context, I, K, F, X, A, H, B> Widget<C> for ScrollList<'_, C, I, K, F, X, A, H>
+impl<C: Context, I, K, F, X, A, H, B> Widget<C> for UniformList<'_, C, I, K, F, X, A, H>
 where
     I: ExactSizeIterator + Clone,
     K: FnMut(&I::Item) -> WidgetId,
@@ -126,15 +127,17 @@ where
             ui,
             ScrollLayout {
                 axis,
-                offset: move |_| offset,
-                scrollbar_thickness,
-                minimum_thumb_extent,
+                offset,
+                viewport_extent: state.viewport_extent,
+                scrollbar: Scrollbar {
+                    thickness: scrollbar_thickness,
+                    minimum: minimum_thumb_extent,
+                },
             },
             clip,
             content,
             track,
             thumb,
-            None,
         );
         Response { visible_range }
     }

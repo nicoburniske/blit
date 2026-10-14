@@ -24,7 +24,15 @@ fn transitions() {
                     if named {
                         child = child.widget_id(WidgetId::new("transition"));
                     }
-                    child.layout(()).child().insert(Fill('X', Size::new(1.0, extent)));
+                    child.build_measured(
+                        Constraints {
+                            min: Size::new(1.0, 0.0),
+                            max: Size::new(1.0, f32::INFINITY),
+                        },
+                        |ui: Ui<'_>| {
+                            ui.layout(()).child().insert(Fill('X', Size::new(1.0, extent)));
+                        },
+                    );
                     column.child().insert(Fill('Y', Size::uniform(1.0)));
                 },
             );

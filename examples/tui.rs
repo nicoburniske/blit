@@ -10,8 +10,7 @@ use blit_tui::{
     text::{HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
     widget::{
         Block, Performance, PerformanceState, Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip,
-        ResizeState, ScrollArea, ScrollAreaState, ScrollList, Split, SplitState, Text, TextInput, TextInputState,
-        Title,
+        ResizeState, ScrollArea, ScrollState, Split, SplitState, Text, TextInput, TextInputState, Title, UniformList,
     },
 };
 
@@ -289,7 +288,7 @@ impl Widget<TuiContext> for &mut Modal {
 struct LayoutPage {
     canvas: CanvasConfig,
     resize: ResizeState,
-    scroll: ScrollAreaState,
+    scroll: ScrollState,
     split: SplitState,
 }
 
@@ -894,7 +893,7 @@ impl Widget<TuiContext> for &mut AtomsPage {
 
 struct ScrollPage {
     axis: Axis,
-    state: ScrollAreaState,
+    state: ScrollState,
     items: Vec<String>,
 }
 
@@ -902,7 +901,7 @@ impl Default for ScrollPage {
     fn default() -> Self {
         Self {
             axis: Axis::default(),
-            state: ScrollAreaState::default(),
+            state: ScrollState::default(),
             items: (1..=100).map(|index| index.to_string()).collect(),
         }
     }
@@ -929,7 +928,7 @@ impl Widget<TuiContext> for &mut ScrollPage {
             for (axis, label) in [(Axis::Vertical, " Vertical "), (Axis::Horizontal, " Horizontal ")] {
                 if controls.child().build(Button::new(label, *scroll_axis == axis)) {
                     *scroll_axis = axis;
-                    *scroll = ScrollAreaState::default();
+                    *scroll = ScrollState::default();
                 }
             }
         }
@@ -939,7 +938,7 @@ impl Widget<TuiContext> for &mut ScrollPage {
             Axis::Vertical => 3,
         };
         body.child().build(
-            ScrollList::new(scroll)
+            UniformList::new(scroll)
                 .items(items.iter().enumerate())
                 .item_extent(item_extent)
                 .axis(axis)
