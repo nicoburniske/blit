@@ -88,7 +88,7 @@ fn movement() {
     }
     // release can contain the first movement including in one frame
     for time in [10, 100] {
-        let mut scene = Scene::new(Sense::CLICK_AND_DRAG | Sense::SWIPE);
+        let mut scene = Scene::new(Sense::CLICK | Sense::DRAG | Sense::SWIPE);
         scene.step(10, pointer(Some(1), Down, [10.0, 10.0]));
         let released = scene.step(time, pointer(Some(1), Up, [60.0, 10.0]));
         let drag = released.drag.unwrap();
@@ -102,7 +102,7 @@ fn movement() {
 #[test]
 fn contacts() {
     // one finger leaving must not end another finger's drag
-    let mut scene = Scene::new(Sense::CLICK_AND_DRAG);
+    let mut scene = Scene::new(Sense::CLICK | Sense::DRAG);
     for (time, id, phase, x, state, drag_phase) in [
         (10, 1, Down, 10.0, (true, true, false), None),
         (20, 1, Move, 20.0, (true, false, false), Some(Started)),
