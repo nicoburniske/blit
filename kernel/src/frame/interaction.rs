@@ -48,6 +48,7 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
             }
         }
     }
+    frame.geometry_previous.sort_unstable_by_key(|(id, _)| *id);
     if frame.interaction.end(&frame.input) {
         frame.frame_requested = true;
     }

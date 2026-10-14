@@ -209,11 +209,11 @@ impl<C: Context, S> Ui<'_, C, S> {
     /// returns previous frame geometry and tracks this id for the next layout
     pub fn geometry(&mut self, id: WidgetId) -> Option<Rect<C::Scalar>> {
         self.inner.frame.requests.entry(id).or_insert(Request::Geometry);
-        self.inner
-            .frame
-            .geometry_previous
-            .iter()
-            .find_map(|(candidate, area)| (*candidate == id).then_some(*area))
+        let geometry = &self.inner.frame.geometry_previous;
+        geometry
+            .binary_search_by_key(&id, |(candidate, _)| *candidate)
+            .ok()
+            .map(|index| geometry[index].1)
     }
 
     /// requests interaction for this node using its widget id
