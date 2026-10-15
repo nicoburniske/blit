@@ -3,7 +3,7 @@ pub use blit_widgets::TextInputResponse;
 pub type TextInputState = blit_widgets::TextInputState<i32>;
 
 use crate::{
-    TuiContext,
+    Context,
     cell::{Cell, CellStyle},
     color::Color,
     text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
@@ -24,10 +24,10 @@ blit::builder! {
     }
 }
 
-impl Widget<TuiContext> for TextInput<'_> {
+impl<C: Context> Widget<C> for TextInput<'_> {
     type Response = TextInputResponse;
 
-    fn build(self, mut ui: Ui<'_, TuiContext>) -> Self::Response {
+    fn build(self, mut ui: Ui<'_, C>) -> Self::Response {
         let Self {
             state,
             value,
@@ -51,7 +51,7 @@ impl Widget<TuiContext> for TextInput<'_> {
         }
         let focused = ui.is_focused(id);
         let response = state.update(value, if focused { &input } else { &Input::None });
-        let text = ui.context_mut().renderer_mut().text_run(value);
+        let text = ui.context_mut().as_mut().renderer_mut().text_run(value);
         let options = TextOptions::new().max_lines(1);
         let pointer = if focused {
             match input {
@@ -77,12 +77,17 @@ impl Widget<TuiContext> for TextInput<'_> {
             if let Some((position, extend)) = pointer {
                 let offset = ui
                     .context_mut()
+                    .as_mut()
                     .renderer_mut()
                     .text_offset_at_position(&request, position);
                 state.move_to(value, offset, extend);
             }
             if area.width > 0 {
-                let cursor = ui.context_mut().renderer_mut().text_cursor_rect(&request, state.cursor);
+                let cursor = ui
+                    .context_mut()
+                    .as_mut()
+                    .renderer_mut()
+                    .text_cursor_rect(&request, state.cursor);
                 if cursor.x < area.x {
                     state.offset_x = (state.offset_x - area.x + cursor.x).max(0);
                 } else if cursor.x + cursor.width > area.x + area.width {
@@ -93,7 +98,7 @@ impl Widget<TuiContext> for TextInput<'_> {
             ui.request_frame();
         }
         let display = if value.is_empty() && !placeholder.is_empty() {
-            ui.context_mut().renderer_mut().text_run(placeholder)
+            ui.context_mut().as_mut().renderer_mut().text_run(placeholder)
         } else {
             text
         };
@@ -132,17 +137,18 @@ struct InputAtom {
 
 blit::atom_widget!(InputAtom);
 
-impl Atom<TuiContext> for InputAtom {
-    fn measure(&self, cx: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
+impl<C: Context> Atom<C> for InputAtom {
+    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         let size = cx
             .context_mut()
+            .as_mut()
             .renderer_mut()
             .measure_text(&TextLayoutRequest::new(self.display).max_lines(1));
         constraints.constrain(size + self.padding.size())
     }
 
-    fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
-        let context = cx.context_mut();
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
+        let context = cx.context_mut().as_mut();
         let area = area.inset(self.padding);
         if let Some(background) = self.background {
             context

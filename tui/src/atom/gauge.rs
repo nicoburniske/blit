@@ -1,7 +1,7 @@
 use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
-    TuiContext,
+    Context,
     cell::{Cell, CellStyle},
     color::Color,
     text::{HorizontalAlign, TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
@@ -49,12 +49,13 @@ impl Gauge {
 
 blit::atom_widget!(Gauge);
 
-impl Atom<TuiContext> for Gauge {
-    fn measure(&self, cx: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
+impl<C: Context> Atom<C> for Gauge {
+    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         let width = self.label.map_or_else(
             || percentage_label(self.ratio).1 as i32,
             |label| {
                 cx.context_mut()
+                    .as_mut()
                     .renderer_mut()
                     .measure_text(&TextLayoutRequest::new(label).max_lines(1))
                     .width
@@ -63,9 +64,9 @@ impl Atom<TuiContext> for Gauge {
         constraints.constrain(Size::new(width.max(1), 1))
     }
 
-    fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
         {
-            let mut cells = cx.context_mut().cells(area);
+            let mut cells = cx.context_mut().as_mut().cells(area);
             let width = cells.columns();
             let rows = cells.rows();
             let filled = (width as f64 * self.ratio.clamp(0.0, 1.0)).round() as usize;
@@ -95,7 +96,7 @@ impl Atom<TuiContext> for Gauge {
             }
         }
         if let Some(label) = self.label {
-            cx.context_mut().paint_text(
+            cx.context_mut().as_mut().paint_text(
                 TextRequest::new(
                     label,
                     PhysicalRect::new(area.x, area.y + area.height / 2, area.width, 1),

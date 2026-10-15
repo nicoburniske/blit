@@ -1,7 +1,7 @@
 use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
-    TuiContext,
+    Context,
     image::{ImageId, ImagePlacement},
 };
 
@@ -14,12 +14,14 @@ blit::builder! {
 
 blit::atom_widget!(Image);
 
-impl Atom<TuiContext> for Image {
-    fn measure(&self, _: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
+impl<C: Context> Atom<C> for Image {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         constraints.constrain(self.intrinsic)
     }
 
-    fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
-        cx.context_mut().place_image(ImagePlacement::new(self.image, area));
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
+        cx.context_mut()
+            .as_mut()
+            .place_image(ImagePlacement::new(self.image, area));
     }
 }
