@@ -54,7 +54,7 @@ impl CommandList {
     }
 
     pub fn push_rectangle(&mut self, rectangle: PreparedRectangle, bounds: PhysicalRect, clip: ClipId) {
-        let overwrites = clip == 0 && rectangle.overwrites();
+        let overwrites = rectangle.overwrites();
         if clip == 0
             && let Some(previous) = self.commands.last_mut()
             && previous.clip == 0
@@ -106,14 +106,8 @@ impl CommandList {
         opaque: bool,
         has_opaque_spans: bool,
     ) {
-        let partial_opaque = clip == 0 && !opaque && self.has_translucent_image && has_opaque_spans;
-        self.push(
-            StoredPayload::Image(image),
-            bounds,
-            clip,
-            clip == 0 && opaque,
-            partial_opaque,
-        );
+        let partial_opaque = !opaque && self.has_translucent_image && has_opaque_spans;
+        self.push(StoredPayload::Image(image), bounds, clip, opaque, partial_opaque);
         self.has_translucent_image |= !opaque;
         self.has_partial_opaque |= partial_opaque;
     }

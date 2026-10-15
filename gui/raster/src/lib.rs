@@ -2,20 +2,19 @@
 
 use std::simd::f32x4;
 
-use blit_text::FontFace;
+use blit_text::{FontData, GlyphMask, GlyphMetrics};
 use ttf_parser::{OutlineBuilder, Rect};
 
 // adapted from femtofont 0.5.0 and fontdue 0.9.3
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Metrics {
-    pub width: usize,
-    pub height: usize,
-    pub bounds: OutlineBounds,
+#[derive(Clone, Debug)]
+pub struct FontFace {
+    pub data: FontData,
+    pub face_index: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct OutlineBounds {
+struct OutlineBounds {
     pub xmin: f32,
     pub ymin: f32,
     pub width: f32,
@@ -45,18 +44,16 @@ impl Default for Rasterizer {
 }
 
 impl Rasterizer {
-    pub fn rasterize(&mut self, font: &FontFace, glyph: u16, size: f32, offset_x: f32) -> (Metrics, Vec<u8>) {
-        debug_assert!((0.0..1.0).contains(&offset_x));
-        let face = match ttf_parser::Face::parse(font.data.as_ref(), font.face_index) {
-            Ok(face) => face,
-            Err(_) => panic!("text backend returned invalid font"),
+    pub fn rasterize(&mut self, font: &FontFace, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
+        let Ok(face) = ttf_parser::Face::parse(font.data.as_ref(), font.face_index) else {
+            return GlyphMask::default();
         };
-        if !size.is_finite() || size <= 0.0 {
-            return (Metrics::default(), Vec::new());
+        if !size.is_finite() || size <= 0.0 || !(0.0..1.0).contains(&offset_x) {
+            return GlyphMask::default();
         }
         let glyph = ttf_parser::GlyphId(glyph);
         let Some(bounds) = face.glyph_bounding_box(glyph) else {
-            return (Metrics::default(), Vec::new());
+            return GlyphMask::default();
         };
         let scale = size / face.units_per_em() as f32;
         let outline_bounds = OutlineBounds {
@@ -65,6 +62,7 @@ impl Rasterizer {
             width: (bounds.x_max - bounds.x_min) as f32 * scale,
             height: (bounds.y_max - bounds.y_min) as f32 * scale,
         };
+        let left = (outline_bounds.xmin + offset_x).floor();
         let mut offset_x = (outline_bounds.xmin + offset_x).fract();
         let mut offset_y = (1.0 - outline_bounds.height.fract() - outline_bounds.ymin.fract()).fract();
         if offset_x < 0.0 {
@@ -73,24 +71,38 @@ impl Rasterizer {
         if offset_y < 0.0 {
             offset_y += 1.0;
         }
-        let mut metrics = Metrics {
-            width: (outline_bounds.width + offset_x).ceil().max(0.0) as usize,
-            height: (outline_bounds.height + offset_y).ceil().max(0.0) as usize,
-            bounds: outline_bounds,
+        let width = (outline_bounds.width + offset_x).ceil().max(0.0);
+        let height = (outline_bounds.height + offset_y).ceil().max(0.0);
+        let top = (-outline_bounds.height - outline_bounds.ymin).floor();
+        if !(0.0..=u16::MAX as f32).contains(&width)
+            || !(0.0..=u16::MAX as f32).contains(&height)
+            || !(i16::MIN as f32..=i16::MAX as f32).contains(&left)
+            || !(i16::MIN as f32..=i16::MAX as f32).contains(&top)
+        {
+            return GlyphMask::default();
+        }
+        let mut metrics = GlyphMetrics {
+            width: width as u16,
+            height: height as u16,
+            left: left as i16,
+            top: top as i16,
         };
-        let pixels = metrics
-            .width
-            .checked_mul(metrics.height)
-            .expect("glyph dimensions overflow");
+        let pixels = usize::from(metrics.width) * usize::from(metrics.height);
         if pixels == 0 {
-            return (metrics, Vec::new());
+            return GlyphMask {
+                metrics,
+                alpha: Box::default(),
+            };
         }
 
         self.outline.reset(size, face.units_per_em() as f32);
         if face.outline_glyph(glyph, &mut self.outline).is_none() {
             metrics.width = 0;
             metrics.height = 0;
-            return (metrics, Vec::new());
+            return GlyphMask {
+                metrics,
+                alpha: Box::default(),
+            };
         }
         self.outline.finish(bounds);
 
@@ -98,7 +110,7 @@ impl Rasterizer {
         let initialized = self.coverage.len().min(coverage_len);
         self.coverage[..initialized].fill(0.0);
         self.coverage.resize(coverage_len, 0.0);
-        self.draw(metrics.width, scale, offset_x, offset_y);
+        self.draw(usize::from(metrics.width), scale, offset_x, offset_y);
 
         let mut alpha = Vec::with_capacity(pixels);
         let mut height = 0.0;
@@ -107,7 +119,10 @@ impl Rasterizer {
             let coverage = (height.abs() * 255.9).clamp(0.0, 255.0) as usize;
             alpha.push(COVERAGE[coverage]);
         }
-        (metrics, alpha)
+        GlyphMask {
+            metrics,
+            alpha: alpha.into_boxed_slice(),
+        }
     }
 }
 

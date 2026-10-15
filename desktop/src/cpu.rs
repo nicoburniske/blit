@@ -2,7 +2,10 @@ use std::{num::NonZeroU32, ptr::NonNull, sync::Arc};
 
 pub use blit_cpu::RendererConfig as Config;
 use blit_cpu::{PixelBuffer, Renderer, Scanline, Xrgb8888};
-use blit_gui::RenderInput;
+use blit_gui::{
+    RenderInput,
+    image::{ImageData, ImageHandle},
+};
 use softbuffer::{Context, Surface};
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -23,6 +26,10 @@ impl Backend {
 }
 
 impl GraphicsBackend for Backend {
+    fn create_image(&mut self, data: ImageData) -> Result<ImageHandle, GraphicsError> {
+        Ok(self.renderer.create_image(data))
+    }
+
     fn resume(&mut self, window: Arc<Window>) -> Result<(), GraphicsError> {
         let context = Context::new(window.clone())?;
         let surface = Surface::new(&context, window.clone())?;

@@ -1,9 +1,9 @@
 use std::{cell::RefCell, rc::Rc};
 
-use blit::{Atom, Constraints, PhysicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
-    TuiContext,
+    Context,
     cell::{Cell, CellStyle},
     color::Color,
 };
@@ -33,8 +33,10 @@ blit::builder! {
     }
 }
 
-impl Atom<TuiContext> for BarChart {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints<i32>) -> Size<i32> {
+blit::atom_widget!(BarChart);
+
+impl<C: Context> Atom<C> for BarChart {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         let width = self
             .bars
             .borrow()
@@ -44,10 +46,10 @@ impl Atom<TuiContext> for BarChart {
         constraints.constrain(Size::new(width as i32, 5))
     }
 
-    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
         const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let bars = self.bars.borrow();
-        let mut cells = context.cells(area);
+        let mut cells = cx.context_mut().as_mut().cells(area);
         let width = cells.columns();
         let rows = cells.rows();
         if let Some(background) = self.background {
@@ -93,9 +95,5 @@ impl Atom<TuiContext> for BarChart {
                 cells.set_cell(label_start + offset, rows - 1, Cell::new(character).style(label_style));
             }
         }
-    }
-
-    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
-        area
     }
 }

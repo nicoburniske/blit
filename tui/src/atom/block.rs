@@ -1,9 +1,9 @@
 use std::ops::{BitOr, BitOrAssign};
 
-use blit::{Atom, Constraints, PhysicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
-    TuiContext,
+    Context, TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
     text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
@@ -28,12 +28,15 @@ impl Block {
     }
 }
 
-impl Atom<TuiContext> for Block {
-    fn measure(&self, _: &mut TuiContext, constraints: Constraints<i32>) -> Size<i32> {
+blit::atom_widget!(Block);
+
+impl<C: Context> Atom<C> for Block {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
+        let context = cx.context_mut().as_mut();
         let (width, height) = {
             let mut cells = context.cells(area);
             let width = cells.columns();
@@ -114,10 +117,6 @@ impl Atom<TuiContext> for Block {
             left,
             right,
         );
-    }
-
-    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
-        area
     }
 }
 
@@ -257,12 +256,12 @@ fn paint_title(context: &mut TuiContext, title: Title, origin_x: i32, y: i32, x:
 fn border_edges(sides: BorderSides, x: usize, y: usize, width: usize, height: usize) -> u8 {
     let mut edges = 0;
     if y == 0 && sides.contains(BorderSides::TOP) {
-        edges |= u8::from(x != 0) * 8;
-        edges |= u8::from(x + 1 != width) * 2;
+        edges |= u8::from(x != 0 || !sides.contains(BorderSides::LEFT)) * 8;
+        edges |= u8::from(x + 1 != width || !sides.contains(BorderSides::RIGHT)) * 2;
     }
     if y + 1 == height && sides.contains(BorderSides::BOTTOM) {
-        edges |= u8::from(x != 0) * 8;
-        edges |= u8::from(x + 1 != width) * 2;
+        edges |= u8::from(x != 0 || !sides.contains(BorderSides::LEFT)) * 8;
+        edges |= u8::from(x + 1 != width || !sides.contains(BorderSides::RIGHT)) * 2;
     }
     if x == 0 && sides.contains(BorderSides::LEFT) {
         edges |= u8::from(y != 0);

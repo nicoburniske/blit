@@ -6,7 +6,7 @@ use blit_layout::{
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Close {
+pub enum PopoverClose {
     #[default]
     Click,
     Exit,
@@ -14,54 +14,54 @@ pub enum Close {
 }
 
 blit::builder! {
-    /// popover placement with x and y offsets from its anchors
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Config<T: Scalar> {
-        new(),
+    pub struct Popover<'a, C: Context> {
+        new(state: &'a mut PopoverState),
+        trigger<F: FnOnce(Ui<'_, C>, Interaction<C::Scalar>, bool) = ()>: F = (),
+        content<W = ()>: W = (),
         #[into]
         parent: NodeTarget = NodeTarget::Root,
         target_anchor: Anchor = Anchor::BottomLeft,
         child_anchor: Anchor = Anchor::TopLeft,
-        x: T = T::ZERO,
-        y: T = T::ZERO,
-        width: Sizing<T> = Sizing::fit(),
-        height: Sizing<T> = Sizing::fit(),
+        x: C::Scalar = C::Scalar::ZERO,
+        y: C::Scalar = C::Scalar::ZERO,
+        width: Sizing<C::Scalar> = Sizing::fit(),
+        height: Sizing<C::Scalar> = Sizing::fit(),
+        hit: Sides<C::Scalar> = Sides::all(C::Scalar::ZERO),
         open_on_hover: bool = false,
-        close: Close = Close::Click,
+        close: PopoverClose = PopoverClose::Click,
     }
 }
 
 blit::builder! {
     /// persistent popover visibility
     #[derive(Debug)]
-    pub struct State {
+    pub struct PopoverState {
         new(),
         open: bool = false,
     }
 }
 
-pub fn new<'a, C: Context, T, W>(
-    state: &'a mut State,
-    config: Config<C::Scalar>,
-    trigger: T,
-    content: W,
-) -> impl Widget<C, Response = Option<W::Response>> + 'a
+impl<C: Context, F, W> Widget<C> for Popover<'_, C, F, W>
 where
-    T: FnOnce(Ui<'_, C>, Interaction<C::Scalar>, bool) + 'a,
-    W: Widget<C> + 'a,
+    F: FnOnce(Ui<'_, C>, Interaction<C::Scalar>, bool),
+    W: Widget<C>,
 {
-    move |mut ui: Ui<'_, C>| {
+    type Response = Option<W::Response>;
+    fn build(self, mut ui: Ui<'_, C>) -> Self::Response {
+        let state = self.state;
+        let trigger = self.trigger;
+        let content = self.content;
         let id = ui.current_widget_id();
         let trigger_id = id.child("popover trigger");
         let interaction = ui.interact_widget(trigger_id, Sense::CLICK);
-        if config.open_on_hover && interaction.hovered {
+        if self.open_on_hover && interaction.hovered {
             state.open = true;
-        } else if !config.open_on_hover && interaction.activated {
+        } else if !self.open_on_hover && interaction.activated {
             state.open = !state.open;
         }
         let mut root = ui.layout(single::new());
         let anchor = {
-            let mut trigger_node = root.child().widget_id(trigger_id).layout(());
+            let mut trigger_node = root.child().widget_id(trigger_id).hit(self.hit).layout(());
             let anchor = trigger_node.id();
             trigger_node
                 .child()
@@ -83,9 +83,9 @@ where
                     .filter_map(|id| root.geometry(id))
                     .any(|area| area.contains(position))
             });
-        if match (config.close, root.input()) {
-            (Close::Click, _) => backdrop.activated,
-            (Close::Exit, Input::PointerMove { .. } | Input::PointerLeave) => !pointer_inside,
+        if match (self.close, root.input()) {
+            (PopoverClose::Click, _) => backdrop.activated,
+            (PopoverClose::Exit, Input::PointerMove { .. } | Input::PointerLeave) => !pointer_inside,
             _ => false,
         } {
             state.open = false;
@@ -94,13 +94,13 @@ where
             return None;
         }
 
-        let mut popup = root.child().parent(config.parent).z_index(1).layout(
+        let mut popup = root.child().parent(self.parent).z_index(1).layout(
             absolute::place(())
-                .target(config.parent)
+                .target(self.parent)
                 .width(Sizing::full())
                 .height(Sizing::full()),
         );
-        if config.close != Close::Manual {
+        if self.close != PopoverClose::Manual {
             popup
                 .child()
                 .layout(absolute::place(()).width(Sizing::full()).height(Sizing::full()))
@@ -112,21 +112,21 @@ where
                 .child()
                 .hit(
                     Sides::new()
-                        .top(config.y.max(C::Scalar::ZERO))
-                        .right((-config.x).max(C::Scalar::ZERO))
-                        .bottom((-config.y).max(C::Scalar::ZERO))
-                        .left(config.x.max(C::Scalar::ZERO)),
+                        .top(self.y.max(C::Scalar::ZERO))
+                        .right((-self.x).max(C::Scalar::ZERO))
+                        .bottom((-self.y).max(C::Scalar::ZERO))
+                        .left(self.x.max(C::Scalar::ZERO)),
                 )
                 .widget_id(content_id)
                 .layout(
                     absolute::place(())
-                        .target_anchor(config.target_anchor)
-                        .child_anchor(config.child_anchor)
+                        .target_anchor(self.target_anchor)
+                        .child_anchor(self.child_anchor)
                         .target(anchor)
-                        .x(config.x)
-                        .y(config.y)
-                        .width(config.width)
-                        .height(config.height),
+                        .x(self.x)
+                        .y(self.y)
+                        .width(self.width)
+                        .height(self.height),
                 )
                 .child()
                 .build(content),
@@ -143,23 +143,22 @@ mod tests {
     use super::*;
     use crate::test::TestContext;
 
-    fn render(ui: Ui<'_, TestContext>, state: &mut State, config: Config<f32>) {
-        ui.widget_id(WidgetId::new("test popover")).build(new(
-            state,
-            config,
-            |ui: Ui<'_, TestContext>, _, _| {
-                ui.widget_id(WidgetId::new("named trigger"))
-                    .layout(single::new().fixed(2.0, 1.0))
-                    .child()
-                    .build(())
-            },
-            |ui: Ui<'_, TestContext>| {
-                ui.widget_id(WidgetId::new("named content"))
-                    .layout(single::new().fixed(4.0, 3.0))
-                    .child()
-                    .build(())
-            },
-        ));
+    fn render(ui: Ui<'_, TestContext>, popover: Popover<'_, TestContext>) {
+        ui.widget_id(WidgetId::new("test popover")).build(
+            popover
+                .trigger(|ui, _, _| {
+                    ui.widget_id(WidgetId::new("named trigger"))
+                        .layout(single::new().fixed(2.0, 1.0))
+                        .child()
+                        .build(())
+                })
+                .content(|ui: Ui<'_, TestContext>| {
+                    ui.widget_id(WidgetId::new("named content"))
+                        .layout(single::new().fixed(4.0, 3.0))
+                        .child()
+                        .build(())
+                }),
+        );
     }
 
     #[test]
@@ -167,7 +166,7 @@ mod tests {
         let mut frame = Frame::default();
         let mut context = TestContext;
         let info = FrameInfo::new(Size::uniform(10.0));
-        let mut state = State::new();
+        let mut state = PopoverState::new();
         let content_id = WidgetId::new("test popover").child("popover content");
 
         frame.build(
@@ -175,10 +174,9 @@ mod tests {
             info,
             Duration::ZERO,
             Input::None,
-            |ui: Ui<'_, TestContext>| render(ui, &mut state, Config::new()),
+            |ui: Ui<'_, TestContext>| render(ui, Popover::new(&mut state)),
         );
         frame.layout(&mut context);
-        let config = Config::new().y(1.0).open_on_hover(true).close(Close::Exit);
         let mut expected = [true, true, false].into_iter();
         for input in [
             Input::PointerMove {
@@ -195,7 +193,13 @@ mod tests {
             },
         ] {
             frame.build(&mut context, info, Duration::ZERO, input, |ui: Ui<'_, TestContext>| {
-                render(ui, &mut state, config);
+                render(
+                    ui,
+                    Popover::new(&mut state)
+                        .y(1.0)
+                        .open_on_hover(true)
+                        .close(PopoverClose::Exit),
+                );
                 assert_eq!(state.open, expected.next().unwrap());
             });
             frame.layout(&mut context);
@@ -232,8 +236,9 @@ mod tests {
                     }
                     render(
                         ui,
-                        &mut state,
-                        Config::new().width(Sizing::fixed(5.0)).height(Sizing::fixed(4.0)),
+                        Popover::new(&mut state)
+                            .width(Sizing::fixed(5.0))
+                            .height(Sizing::fixed(4.0)),
                     );
                     assert_eq!(state.open, expected.next().unwrap());
                 },

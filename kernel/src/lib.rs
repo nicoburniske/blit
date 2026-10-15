@@ -7,10 +7,9 @@
 //!
 //! - a node is the retained unit of geometry and composition. it may hold properties, atoms, an
 //!   optional layout, and child nodes
-//! - [`Widget`] receives a fresh node and builds it. it may insert content or establish a layout
-//!   and build children
-//! - [`Content`] works within an existing node. it may configure the node, use frame and context
-//!   services, and insert further content
+//! - [`Widget`] builds through a [`Ui`] whose mode controls its available operations. the default
+//!   [`state::Build`] mode may establish a layout and build children. [`state::Node`] augments an
+//!   existing node without changing its structure
 //! - [`Atom`] is visual content retained for painting. it measures under constraints, then paints
 //!   using the node's resolved position and size
 //! - [`Layout`] is retained policy for a node's children. it measures them and resolves their
@@ -49,14 +48,14 @@ pub mod layout;
 
 pub use self::{
     animation::{Easing, Transition, TransitionProperties},
-    frame::{Frame, NodeId, NodeTarget, Ui, state},
+    frame::{Frame, NodeId, NodeTarget, Ui, atom::AtomCx, state},
     geometry::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
         Scalar, Scale2, Sides, Size,
     },
-    input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
-    interact::{Interaction, ScrollInteraction, Sense, WidgetId},
-    layout::{Axis, Layout, LayoutCx, Scratch},
+    input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase, TouchPhase},
+    interact::{Direction, Drag, Interaction, InteractionConfig, Phase, Pinch, Rotation, Scroll, Sense, WidgetId},
+    layout::{Axis, Layout, LayoutCx, Scratch, Sizing},
 };
 
 pub trait Context {
@@ -74,36 +73,31 @@ builder! {
     }
 }
 
-/// immediate builder that owns and populates a new frame node
-pub trait Widget<C: Context> {
+/// immediate builder whose ui mode determines its available operations
+pub trait Widget<C: Context, S = state::Build> {
     type Response;
 
-    fn build(self, ui: Ui<'_, C>) -> Self::Response;
-}
-
-/// immediate content that augments an existing node without changing its structure
-pub trait Content<C: Context> {
-    type Response;
-
-    fn append(self, ui: Ui<'_, C, state::Node>) -> Self::Response;
+    fn build(self, ui: Ui<'_, C, S>) -> Self::Response;
 }
 
 /// retained visual content that measures and paints after building
 ///
-/// every atom implements [`Content`]
+/// use [`atom_widget!`] to implement [`Widget<C, state::Node>`] for an atom type
 pub trait Atom<C: Context>: 'static {
     /// returns the size requested by this atom under `constraints`
     ///
     /// measurement may be skipped under tight constraints. painting must not
     /// depend on prior measurement.
-    fn measure(&self, context: &mut C, constraints: Constraints<C::Scalar>) -> Size<C::Scalar>;
+    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar>;
 
-    fn paint(&self, context: &mut C, area: Rect<C::Scalar>);
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: Rect<C::Scalar>);
 
     /// conservative bounds containing everything this atom may paint
     ///
-    /// these bounds may extend beyond the layout `area`
-    fn paint_bounds(&self, area: Rect<C::Scalar>) -> Rect<C::Scalar>;
+    /// override when painting extends beyond the layout `area`
+    fn paint_bounds(&self, area: Rect<C::Scalar>) -> Rect<C::Scalar> {
+        area
+    }
 }
 
 impl<C: Context, F, O> Widget<C> for F
@@ -125,12 +119,14 @@ impl<C: Context> Widget<C> for () {
     }
 }
 
+atom_widget!(());
+
 impl<C: Context> Atom<C> for () {
-    fn measure(&self, _: &mut C, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, _: &mut C, _: Rect<C::Scalar>) {}
+    fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<C::Scalar>) {}
 
     fn paint_bounds(&self, _: Rect<C::Scalar>) -> Rect<C::Scalar> {
         Rect::default()

@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write as _,
     hash::{Hash, Hasher},
     mem::size_of,
 };
@@ -6,13 +7,12 @@ use std::{
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use blit_cache::{DeferredCache, Equivalent, Scale};
 use blit_text::{
-    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle, LayoutRequest,
-    TextLayout, TextLayoutEngine,
+    Caret, FontData, FontError, FontFaceId, FontSelectionId, GlyphMask, LayoutRequest, TextLayout, TextLayoutEngine,
 };
 
 use crate::text::{
-    FontId, HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextOverflow, TextRequest, TextRunId, TextStyle,
-    TextWrap, VerticalAlign,
+    FontId, HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextOverflow, TextRequest, TextRunId, TextSource,
+    TextStyle, TextWrap, VerticalAlign,
 };
 
 pub struct TextConfig {
@@ -31,6 +31,7 @@ pub struct TextSystem {
     fonts: Box<[ConfiguredFont]>,
     texts: DeferredCache<TextKey, CachedText, TextScale>,
     layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
+    formatted_text: String,
     next_text: u32,
     next_layout: u64,
 }
@@ -38,13 +39,17 @@ pub struct TextSystem {
 pub struct ResolvedTextLayout<'a> {
     pub id: TextLayoutId,
     pub layout: &'a TextLayout,
-    engine: &'a dyn ErasedTextEngine,
+    engine: &'a mut dyn ErasedTextEngine,
     placement: Placement,
 }
 
 impl ResolvedTextLayout<'_> {
-    pub fn font_face(&self, face: FontFaceId) -> Option<&FontFace> {
-        self.engine.font_face(face)
+    pub fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
+        let mask = self.engine.rasterize_glyph(face, glyph, size, offset_x);
+        if usize::from(mask.metrics.width) * usize::from(mask.metrics.height) != mask.alpha.len() {
+            return GlyphMask::default();
+        }
+        mask
     }
 
     pub fn line_offset(&self, line: usize) -> LogicalPoint {
@@ -164,7 +169,7 @@ struct Placement {
 }
 
 trait ErasedTextEngine {
-    fn font_face(&self, face: FontFaceId) -> Option<&FontFace>;
+    fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask;
 
     fn shape(&mut self, index: usize, text: blit_text::Text<'_>) -> usize;
 
@@ -186,8 +191,8 @@ struct ErasedEngine<E: TextLayoutEngine> {
 }
 
 impl<E: TextLayoutEngine> ErasedTextEngine for ErasedEngine<E> {
-    fn font_face(&self, face: FontFaceId) -> Option<&FontFace> {
-        self.engine.font_face(face)
+    fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
+        self.engine.rasterize_glyph(face, glyph, size, offset_x)
     }
 
     fn shape(&mut self, index: usize, text: blit_text::Text<'_>) -> usize {
@@ -258,33 +263,7 @@ impl TextSystem {
             }
             candidates.clear();
             for data in configured.fonts {
-                for backend_face in engine.register_font(data)? {
-                    let registered = engine.font_face(backend_face).ok_or(FontError::InvalidData)?;
-                    let face = ttf_parser::Face::parse(registered.data.as_ref(), registered.face_index)
-                        .map_err(|_| FontError::InvalidData)?;
-                    let stretch = match face.width() {
-                        ttf_parser::Width::UltraCondensed => 50,
-                        ttf_parser::Width::ExtraCondensed => 63,
-                        ttf_parser::Width::Condensed => 75,
-                        ttf_parser::Width::SemiCondensed => 88,
-                        ttf_parser::Width::Normal => 100,
-                        ttf_parser::Width::SemiExpanded => 113,
-                        ttf_parser::Width::Expanded => 125,
-                        ttf_parser::Width::ExtraExpanded => 150,
-                        ttf_parser::Width::UltraExpanded => 200,
-                    };
-                    let style = match face.style() {
-                        ttf_parser::Style::Normal => FontStyle::Normal,
-                        ttf_parser::Style::Italic => FontStyle::Italic,
-                        ttf_parser::Style::Oblique => FontStyle::Oblique,
-                    };
-                    candidates.push(FontCandidate {
-                        face: backend_face,
-                        weight: face.weight().to_number(),
-                        stretch,
-                        style,
-                    });
-                }
+                candidates.extend(engine.register_font(data)?);
             }
             let font = engine.register_font_selection(&candidates)?;
             fonts.push(ConfiguredFont {
@@ -300,13 +279,23 @@ impl TextSystem {
             fonts: fonts.into_boxed_slice(),
             texts: DeferredCache::new(TextScale, config.text_cache_capacity),
             layouts: DeferredCache::new(LayoutScale, config.layout_cache_capacity),
+            formatted_text: String::new(),
             next_text: 1,
             next_layout: 1,
         })
     }
 
-    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.rich_text(text, &[Span::new(0..text.len())], style)
+    pub fn text_run(&mut self, source: TextSource<'_>, style: TextStyle) -> TextRunId {
+        let arguments = match source {
+            TextSource::Borrowed(text) => return self.rich_text(text, &[], style),
+            TextSource::Formatted(arguments) => arguments,
+        };
+        let mut text = std::mem::take(&mut self.formatted_text);
+        text.clear();
+        text.write_fmt(arguments).expect("text formatting failed");
+        let run = self.rich_text(&text, &[], style);
+        self.formatted_text = text;
+        run
     }
 
     pub fn rich_text(&mut self, text: &str, spans: &[Span], style: TextStyle) -> TextRunId {
@@ -387,7 +376,7 @@ impl TextSystem {
         ResolvedTextLayout {
             id: cached.id,
             layout: &cached.layout,
-            engine: self.engine.as_ref(),
+            engine: self.engine.as_mut(),
             placement,
         }
     }

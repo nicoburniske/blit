@@ -1,5 +1,5 @@
 use std::{
-    fmt::Write as _,
+    fmt::{self, Write as _},
     hash::{Hash, Hasher},
     io,
     mem::size_of,
@@ -48,6 +48,7 @@ pub struct TuiRenderer {
     text_runs: DeferredCache<RunKey, CachedRun, RunScale>,
     text_layouts: DeferredCache<LayoutKey, TextLayout, LayoutScale>,
     next_text_run: u32,
+    formatted_text: String,
     layout_lines: Vec<Line>,
     layout_graphemes: Vec<LayoutGrapheme>,
     images: Vec<StoredImage>,
@@ -75,6 +76,7 @@ impl TuiRenderer {
             text_runs: DeferredCache::new(RunScale, TEXT_RUN_CACHE_CAPACITY),
             text_layouts: DeferredCache::new(LayoutScale, TEXT_LAYOUT_CACHE_CAPACITY),
             next_text_run: 1,
+            formatted_text: String::new(),
             layout_lines: Vec::new(),
             layout_graphemes: Vec::new(),
             images: Vec::new(),
@@ -184,6 +186,19 @@ impl TuiRenderer {
 
     pub fn text_run(&mut self, text: &str) -> TextRunId {
         self.rich_text(&[Span::new(text)])
+    }
+
+    /// formats into a reusable buffer and interns the resulting text
+    pub fn text_run_fmt(&mut self, arguments: fmt::Arguments<'_>) -> TextRunId {
+        if let Some(text) = arguments.as_str() {
+            return self.text_run(text);
+        }
+        let mut text = std::mem::take(&mut self.formatted_text);
+        text.clear();
+        text.write_fmt(arguments).expect("text formatting failed");
+        let run = self.text_run(&text);
+        self.formatted_text = text;
+        run
     }
 
     pub fn rich_text(&mut self, spans: &[Span<'_>]) -> TextRunId {

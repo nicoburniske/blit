@@ -1,6 +1,6 @@
-use blit::{Atom, Constraints, PhysicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
-use crate::TuiContext;
+use crate::Context;
 
 blit::builder! {
     /// tints previously painted cells without replacing their text
@@ -12,16 +12,14 @@ blit::builder! {
     }
 }
 
-impl Atom<TuiContext> for Tint {
-    fn measure(&self, _: &mut TuiContext, _: Constraints<i32>) -> Size<i32> {
+blit::atom_widget!(Tint);
+
+impl<C: Context> Atom<C> for Tint {
+    fn measure(&self, _: &mut AtomCx<'_, C>, _: Constraints<i32>) -> Size<i32> {
         Size::ZERO
     }
 
-    fn paint(&self, context: &mut TuiContext, area: PhysicalRect) {
-        context.cells(area).tint(self.color, self.opacity);
-    }
-
-    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
-        area
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
+        cx.context_mut().as_mut().cells(area).tint(self.color, self.opacity);
     }
 }

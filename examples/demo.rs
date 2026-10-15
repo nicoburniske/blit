@@ -1,6 +1,6 @@
-use blit::{Axis, Scalar, Sides, Size};
+use blit::{Axis, Scalar, Sides, Size, Sizing};
+use blit_layout::absolute::Anchor;
 pub use blit_layout::{Align, Justify};
-use blit_layout::{Sizing, absolute::Anchor};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CanvasLayout {

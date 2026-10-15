@@ -5,14 +5,16 @@ members = [
     "examples",
     "executor",
     "gui",
+    "gui/widgets",
     "gui/cpu",
     "gui/gpu",
+    "gui/raster",
     "gui/text",
     "gui/text/cosmic",
     "gui/text/fontdue",
     "internal/cache",
     "internal/arrayvec",
-    "internal/raster",
+    "internal/arena",
     "kernel",
     "layout",
     "tui",
@@ -26,6 +28,7 @@ license = "MIT"
 blit = { path = "kernel" }
 blit-executor = { path = "executor" }
 blit-gui = { path = "gui" }
+blit-gui-widgets = { path = "gui/widgets" }
 blit-gpu = { path = "gui/gpu" }
 blit-layout = { path = "layout" }
 blit-widgets = { path = "widgets" }
@@ -33,5 +36,7 @@ blit-text = { path = "gui/text" }
 blit-text-cosmic = { path = "gui/text/cosmic" }
 blit-text-fontdue = { path = "gui/text/fontdue" }
 blit-arrayvec = { path = "internal/arrayvec" }
-blit-raster = { path = "internal/raster" }
+blit-arena = { path = "internal/arena" }
+blit-cache = { path = "internal/cache" }
+blit-raster = { path = "gui/raster" }
 wgpu = { version = "30.0.1", default-features = false }

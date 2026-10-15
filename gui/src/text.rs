@@ -1,9 +1,37 @@
-use std::ops::Range;
+use std::{fmt, ops::Range};
 
 use blit::geometry::LogicalRect;
 pub use blit_text::FontStyle;
 
 use crate::color::Color;
+
+/// text from borrowed strings or formatting arguments
+#[derive(Clone, Copy, Debug)]
+pub enum TextSource<'a> {
+    Borrowed(&'a str),
+    Formatted(fmt::Arguments<'a>),
+}
+
+impl<'a, T: AsRef<str> + ?Sized> From<&'a T> for TextSource<'a> {
+    fn from(text: &'a T) -> Self {
+        Self::Borrowed(T::as_ref(text))
+    }
+}
+
+impl<'a, T: AsRef<str> + ?Sized> From<&'a mut T> for TextSource<'a> {
+    fn from(text: &'a mut T) -> Self {
+        Self::Borrowed(T::as_ref(text))
+    }
+}
+
+impl<'a> From<fmt::Arguments<'a>> for TextSource<'a> {
+    fn from(arguments: fmt::Arguments<'a>) -> Self {
+        match arguments.as_str() {
+            Some(text) => Self::Borrowed(text),
+            None => Self::Formatted(arguments),
+        }
+    }
+}
 
 /// cached horizontal positions for grayscale glyph rasterization
 ///

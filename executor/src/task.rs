@@ -10,15 +10,13 @@ use std::{
     task::{Context, Poll, Wake, Waker},
 };
 
-use slotmap::{SlotMap, new_key_type};
+use blit_arena::{Arena, Index};
 
-new_key_type! {
-    /// identifies a task within a local executor
-    pub struct TaskId;
-}
+/// identifies a task within a local executor
+pub type TaskId = Index<Task>;
 
 pub struct TaskExecutor {
-    tasks: RefCell<SlotMap<TaskId, Task>>,
+    tasks: RefCell<Arena<Task>>,
     ready: Arc<ReadyQueue>,
     batch: RefCell<VecDeque<TaskId>>,
 }
@@ -26,7 +24,7 @@ pub struct TaskExecutor {
 impl TaskExecutor {
     pub fn new(wake: impl Fn() + Send + Sync + 'static) -> Self {
         Self {
-            tasks: RefCell::new(SlotMap::with_key()),
+            tasks: RefCell::new(Arena::new()),
             ready: Arc::new(ReadyQueue {
                 tasks: Mutex::new(VecDeque::new()),
                 wake: Box::new(wake),
@@ -37,7 +35,7 @@ impl TaskExecutor {
 
     pub fn spawn(&self, future: impl Future<Output = ()> + 'static) -> TaskId {
         let mut tasks = self.tasks.borrow_mut();
-        let id = tasks.insert_with_key(|id| Task {
+        let id = tasks.insert_with(|id| Task {
             future: Some(Box::pin(future)),
             wake: Arc::new(TaskWake {
                 id,
@@ -45,7 +43,7 @@ impl TaskExecutor {
                 ready: self.ready.clone(),
             }),
         });
-        let wake = tasks[id].wake.clone();
+        let wake = tasks.get(id).unwrap().wake.clone();
         drop(tasks);
         wake.notify();
         id
@@ -94,11 +92,11 @@ impl TaskExecutor {
     }
 
     pub fn contains(&self, id: TaskId) -> bool {
-        self.tasks.borrow().contains_key(id)
+        self.tasks.borrow().get(id).is_some()
     }
 }
 
-struct Task {
+pub struct Task {
     future: Option<Pin<Box<dyn Future<Output = ()>>>>,
     wake: Arc<TaskWake>,
 }
@@ -192,5 +190,11 @@ mod test {
         assert!(executor.run_ready(|_| {}));
         assert_eq!(polls.load(Ordering::Relaxed), 3);
         executor.cancel(task);
+        let replacement = executor.spawn(pending::<()>());
+        assert_ne!(replacement, task);
+        assert!(executor.run_ready(|id| assert_eq!(id, replacement)));
+        waker.wake_by_ref();
+        assert!(!executor.run_ready(|_| panic!("canceled task woke replacement")));
+        executor.cancel(replacement);
     }
 }

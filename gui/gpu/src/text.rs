@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use blit_gui::ResolvedTextLayout;
-use blit_raster::{Metrics, Rasterizer};
-use blit_text::FontFaceId;
+use blit_text::{FontFaceId, GlyphMask, GlyphMetrics};
 
 use crate::atlas::{AllocId, Allocation, AtlasAllocator};
 
@@ -14,7 +13,6 @@ pub struct GlyphAtlas {
     layout: wgpu::BindGroupLayout,
     pages: Vec<Option<Page>>,
     glyphs: HashMap<GlyphKey, CachedGlyph>,
-    rasterizer: Rasterizer,
     victims: Vec<(u64, GlyphKey)>,
     frame: u64,
     bytes: u64,
@@ -24,7 +22,7 @@ pub struct GlyphAtlas {
 
 #[derive(Clone, Copy)]
 pub struct Glyph {
-    pub metrics: Metrics,
+    pub metrics: GlyphMetrics,
     pub atlas: [u32; 2],
     pub page: usize,
 }
@@ -57,7 +55,6 @@ impl GlyphAtlas {
             layout,
             pages: Vec::new(),
             glyphs: HashMap::new(),
-            rasterizer: Rasterizer::default(),
             victims: Vec::new(),
             frame: 0,
             bytes: 0,
@@ -98,7 +95,7 @@ impl GlyphAtlas {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        text: &ResolvedTextLayout<'_>,
+        text: &mut ResolvedTextLayout<'_>,
         face: FontFaceId,
         glyph: u16,
         size: f32,
@@ -119,11 +116,8 @@ impl GlyphAtlas {
             return cached.glyph;
         }
 
-        let face = text.font_face(face).expect("text backend returned an unknown font");
         let size = size_eighths as f32 / SIZE_QUANTIZATION;
-        let (metrics, alpha) = self
-            .rasterizer
-            .rasterize(face, glyph, size, phase as f32 * self.phase_scale);
+        let GlyphMask { metrics, alpha } = text.rasterize_glyph(face, glyph, size, phase as f32 * self.phase_scale);
         if metrics.width == 0 || metrics.height == 0 {
             let glyph = Glyph {
                 metrics,
@@ -142,11 +136,11 @@ impl GlyphAtlas {
         }
 
         assert!(
-            metrics.width <= self.max_size as usize && metrics.height <= self.max_size as usize,
+            u32::from(metrics.width) <= self.max_size && u32::from(metrics.height) <= self.max_size,
             "glyph exceeds the GPU texture limit"
         );
-        let width = metrics.width as u32;
-        let height = metrics.height as u32;
+        let width = u32::from(metrics.width);
+        let height = u32::from(metrics.height);
         let requested = [width, height];
         let base_size = PAGE_SIZE.min(self.max_size);
         let page_size = [base_size.max(width), base_size.max(height)];
@@ -364,10 +358,10 @@ mod tests {
             },
             CachedGlyph {
                 glyph: Glyph {
-                    metrics: Metrics {
+                    metrics: GlyphMetrics {
                         width: 1,
                         height: 1,
-                        ..Metrics::default()
+                        ..GlyphMetrics::default()
                     },
                     atlas: [0, 0],
                     page: 0,
@@ -385,7 +379,7 @@ mod tests {
             },
             CachedGlyph {
                 glyph: Glyph {
-                    metrics: Metrics::default(),
+                    metrics: GlyphMetrics::default(),
                     atlas: [0, 0],
                     page: 0,
                 },

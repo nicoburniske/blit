@@ -62,13 +62,12 @@ fn main() {
         blit_text_cosmic::Backend::without_system_fonts(),
     )
     .unwrap();
-    let mut image_uploads = Vec::new();
     let baseline = CURRENT.load(Relaxed);
     GROSS.store(0, Relaxed);
-    renderer.render_damage(&mut text, &mut image_uploads, &display_list, &damage);
+    renderer.render_damage(&mut text, &display_list, &damage);
     let warm = GROSS.load(Relaxed);
     GROSS.store(0, Relaxed);
-    renderer.render_damage(&mut text, &mut image_uploads, &display_list, &damage);
+    renderer.render_damage(&mut text, &display_list, &damage);
     let retained = CURRENT.load(Relaxed) - baseline;
     let steady = GROSS.load(Relaxed);
 

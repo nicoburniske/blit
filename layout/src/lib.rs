@@ -5,11 +5,7 @@ pub mod rect;
 pub mod single;
 pub mod wrap;
 
-mod size;
-
-pub use blit::Axis;
-use blit::{Constraints, Context, LayoutCx, NodeId, Scalar, Size};
-pub use size::Sizing;
+use blit::{Axis, Constraints, Context, LayoutCx, NodeId, Scalar, Size, Sizing};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {
@@ -112,7 +108,7 @@ fn justify_offset<T: Scalar>(justify: Justify, remaining: T, count: usize) -> (T
 macro_rules! export {
     ($coord:ty) => {
         pub use $crate::{Align, Justify, rect};
-        pub type Sizing = $crate::Sizing<$coord>;
+        pub type Sizing = ::blit::Sizing<$coord>;
 
         pub mod absolute {
             pub use $crate::absolute::Anchor;
@@ -123,7 +119,7 @@ macro_rules! export {
             }
         }
         $crate::export!(@ $coord, flex, [Layout, Item], [
-            layout(axis: $crate::Axis) -> Layout,
+            layout(axis: ::blit::Axis) -> Layout,
             row() -> Layout,
             column() -> Layout,
             item() -> Item
@@ -134,7 +130,7 @@ macro_rules! export {
         ]);
         $crate::export!(@ $coord, single, [Layout], [new() -> Layout]);
         $crate::export!(@ $coord, wrap, [Layout, Item], [
-            new(axis: $crate::Axis) -> Layout,
+            new(axis: ::blit::Axis) -> Layout,
             horizontal() -> Layout,
             vertical() -> Layout,
             item() -> Item

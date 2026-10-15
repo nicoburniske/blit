@@ -5,7 +5,7 @@ use crate::{
     Context, Scalar,
     animation::{Transition, TransitionProperties},
     arena::DataArena,
-    geometry::{Rect, Size},
+    geometry::{Constraints, Rect, Size},
     interact::WidgetId,
 };
 
@@ -36,7 +36,7 @@ pub fn resolve<C: Context>(
         }
     }
 
-    layout::resolve(frame, data, context, size);
+    layout::resolve(frame, data, context, NodeId::new(0), Constraints::tight(size));
     let mut active = TransitionProperties::NONE;
     for index in 0..frame.transitions.len() {
         if !frame.transitions[index].seen {
@@ -92,7 +92,7 @@ pub fn resolve<C: Context>(
             relayout = true;
         }
         if relayout {
-            layout::resolve(frame, data, context, size);
+            layout::resolve(frame, data, context, NodeId::new(0), Constraints::tight(size));
         }
         frame.target_sizes.clear();
     }

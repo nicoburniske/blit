@@ -29,6 +29,10 @@ pub use self::{
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiContext, S>;
 
+pub trait Context: blit::Context<Scalar = i32> + AsMut<TuiContext> {}
+
+impl<C: blit::Context<Scalar = i32> + AsMut<TuiContext>> Context for C {}
+
 use std::{
     io,
     io::Write as _,
@@ -42,24 +46,26 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use terminal::{Size, Terminal};
+use widget::Stage;
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
 
 /// runs the ui with the built in terminal and event loop at up to 240 frames per second
 pub fn run(mut render: impl FnMut(Ui<'_>)) -> io::Result<()> {
+    let mut context = TuiContext::default();
     let mut session = Session::new()?;
-    while session.pump(&mut render)? {}
+    while session.pump(&mut context, &mut render)? {}
     Ok(())
 }
 
 /// owns terminal setup, input, presentation and frame timing
 ///
 /// call [`Session::pump`] to drive it from an application owned loop
-pub struct Session {
+pub struct Session<C: Context = TuiContext> {
     terminal: Terminal,
-    context: TuiContext,
+    config: RendererConfig,
     wake: WakeHandle,
-    frame: Frame<TuiContext>,
+    frame: Frame<C>,
     started: Instant,
     next_frame: Duration,
     frame_interval: Duration,
@@ -67,17 +73,16 @@ pub struct Session {
     query_colors: bool,
 }
 
-impl Session {
+impl<C: Context> Session<C> {
     pub fn new() -> io::Result<Self> {
         let (wake, wake_writer) = UnixStream::pair()?;
         wake.set_nonblocking(true)?;
         wake_writer.set_nonblocking(true)?;
         let terminal = Terminal::new(wake)?;
-        let renderer = TuiRenderer::new(renderer_config(terminal.size()?)?);
-        let context = TuiContext::new(renderer);
+        let config = renderer_config(terminal.size()?)?;
         Ok(Self {
             terminal,
-            context,
+            config,
             wake: WakeHandle {
                 writer: Arc::new(wake_writer),
             },
@@ -92,7 +97,9 @@ impl Session {
 
     /// waits for and renders one event loop iteration
     /// returns false when quit
-    pub fn pump(&mut self, mut render: impl FnMut(Ui<'_>)) -> io::Result<bool> {
+    ///
+    /// the caller owns the context and its renderer is resized to the terminal before rendering
+    pub fn pump(&mut self, context: &mut C, mut render: impl FnMut(blit::Ui<'_, C>)) -> io::Result<bool> {
         let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
         let mut input_count = 0;
         let mut pending = self.frame.has_pending_redraw();
@@ -109,7 +116,7 @@ impl Session {
                 std::thread::sleep(remaining);
                 break;
             }
-            let events = self.poll(Some(remaining), &mut inputs[input_count..])?;
+            let events = self.poll(context, Some(remaining), &mut inputs[input_count..])?;
             input_count += events.input_count;
             pending |= needs_frame(events);
         }
@@ -121,36 +128,37 @@ impl Session {
             if timer.is_some_and(|deadline| deadline <= now) {
                 break;
             }
-            let events = self.poll(timer.map(|deadline| deadline - now), &mut inputs[input_count..])?;
+            let events = self.poll(context, timer.map(|deadline| deadline - now), &mut inputs[input_count..])?;
             input_count += events.input_count;
             pending |= needs_frame(events);
         }
 
         // replay the collected inputs and draw the final resulting tree
         let now = self.started.elapsed();
+        context.as_mut().renderer_mut().resize(self.config);
         let info = self.frame_info();
         // the prefilled Input::None runs one pass when no events were collected
+        context.as_mut().profiler_mut().begin_frame(now);
         for &input in &inputs[..input_count.max(1)] {
-            self.context.profiler_mut().begin_build();
-            self.frame.build(&mut self.context, info, now, input, |mut ui: Ui<'_>| {
-                if !ui.context().should_quit() {
+            self.frame.build(context, info, now, input, |mut ui: blit::Ui<'_, C>| {
+                if !ui.context_mut().as_mut().should_quit() {
                     render(ui);
                 }
             });
-            self.context.profiler_mut().begin_layout();
-            self.frame.layout(&mut self.context);
+            context.as_mut().profiler_mut().finish_stage(Stage::Build);
+            self.frame.layout(context);
+            context.as_mut().profiler_mut().finish_stage(Stage::Layout);
         }
-        if self.context().should_quit() {
-            self.context.profiler_mut().finish();
-            self.finish()?;
+        if context.as_mut().should_quit() {
+            context.as_mut().profiler_mut().cancel_frame();
+            self.finish(context)?;
             return Ok(false);
         }
-        self.context.profiler_mut().begin_paint();
-        self.context.begin_paint();
-        self.frame.paint(&mut self.context);
-        self.context.finish_paint();
-        self.context.profiler_mut().finish();
-        self.present()?;
+        context.as_mut().begin_paint();
+        self.frame.paint(context);
+        context.as_mut().finish_paint();
+        context.as_mut().profiler_mut().finish_frame();
+        self.present(context)?;
         // establish the earliest time for the following frame
         self.next_frame = now + self.frame_interval;
         Ok(true)
@@ -168,20 +176,16 @@ impl Session {
         self.wake.clone()
     }
 
-    pub fn context(&self) -> &TuiContext {
-        &self.context
-    }
-
-    pub fn context_mut(&mut self) -> &mut TuiContext {
-        &mut self.context
-    }
-
     pub fn frame_info(&self) -> FrameInfo<i32> {
-        let screen = self.context.renderer().screen();
-        FrameInfo::new(screen.size())
+        FrameInfo::new(blit::PhysicalSize::new(i32::from(self.config.columns), i32::from(self.config.rows)))
     }
 
-    pub fn poll(&mut self, mut timeout: Option<Duration>, inputs: &mut [Input<i32>]) -> io::Result<Poll> {
+    pub fn poll(
+        &mut self,
+        context: &mut C,
+        mut timeout: Option<Duration>,
+        inputs: &mut [Input<i32>],
+    ) -> io::Result<Poll> {
         if inputs.is_empty() {
             return Ok(Poll::default());
         }
@@ -198,7 +202,8 @@ impl Session {
                     break;
                 }
                 terminal::Event::Resize(size) => {
-                    self.context.renderer_mut().resize(renderer_config(size)?);
+                    self.config = renderer_config(size)?;
+                    context.as_mut().renderer_mut().resize(self.config);
                     result.resized = true;
                     break;
                 }
@@ -209,7 +214,7 @@ impl Session {
                     self.query_colors = true;
                 }
                 protocol::Event::Color { slot, rgb } => {
-                    result.redraw |= self.context.renderer_mut().set_palette_color(*slot, *rgb);
+                    result.redraw |= context.as_mut().renderer_mut().set_palette_color(*slot, *rgb);
                 }
                 _ => {}
             }
@@ -318,8 +323,8 @@ impl Session {
         Ok(result)
     }
 
-    pub fn present(&mut self) -> io::Result<()> {
-        let output = self.context.renderer().output();
+    pub fn present(&mut self, context: &mut C) -> io::Result<()> {
+        let output = context.as_mut().renderer().output();
         // avoid flushing when rendering produced no terminal changes
         if output.is_empty() {
             return Ok(());
@@ -328,18 +333,17 @@ impl Session {
         self.terminal.flush()
     }
 
-    pub fn finish(&mut self) -> io::Result<()> {
+    /// clears terminal images from the context and restores terminal state
+    pub fn finish(&mut self, context: &mut C) -> io::Result<()> {
         if !self.active {
             return Ok(());
         }
         self.active = false;
-        let clear = self.context.renderer_mut().clear_kitty_graphics(&mut self.terminal);
+        let clear = context.as_mut().renderer_mut().clear_kitty_graphics(&mut self.terminal);
         let finish = self.terminal.finish();
         clear.and(finish)
     }
-}
 
-impl Session {
     fn update_colors(&mut self) -> io::Result<()> {
         if self.query_colors {
             protocol::query_colors(&mut self.terminal)?;
@@ -365,12 +369,6 @@ impl WakeHandle {
                 _ => return,
             }
         }
-    }
-}
-
-impl Drop for Session {
-    fn drop(&mut self) {
-        let _ = self.finish();
     }
 }
 

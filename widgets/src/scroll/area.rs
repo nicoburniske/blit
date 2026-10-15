@@ -1,46 +1,87 @@
-use blit::{Axis, Clip, Content, Context, Scalar, Ui, Widget};
+use blit::{Axis, Clip, Context, Scalar, Sense, Ui, Widget};
 
-pub use super::{Behavior, State};
-use super::{ScrollLayout, build_scroll, update};
+pub use super::ScrollState;
+use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 
 blit::builder! {
-    #[derive(Clone, Copy, Debug)]
-    pub struct Config<T: Scalar> {
-        new(),
+    /// use for arbitrary content such as forms and small collections
+    /// builds all content every frame
+    pub struct ScrollArea<'a, T: Scalar> {
+        new(state: &'a mut ScrollState<T>),
+        content<W = ()>: W = (),
         axis: Axis = Axis::Vertical,
-        behavior: Behavior<T> = Behavior::default(),
+        scroll_speed: f32 = 1.0,
+        inertia_friction: f32 = 6.0,
+        sense: Sense = Sense::SCROLL,
+        scrollbar_thickness: T = T::from_f32(1.0),
+        minimum_thumb_extent: T = T::from_f32(1.0),
+        clip<X = ()>: X = (),
+        #[into]
+        track<A = ()>: Option<A> = None,
+        #[into]
+        thumb<H = fn(bool) -> ()>: Option<H> = None,
     }
 }
 
-pub fn build<C: Context, W, X, T, H>(
-    mut ui: Ui<'_, C>,
-    state: &mut State<C::Scalar>,
-    area: Config<C::Scalar>,
-    clip: X,
-    content: W,
-    scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
-) where
+impl<C: Context<Scalar = T>, T: Scalar, W, X, A, H, B> Widget<C> for ScrollArea<'_, T, W, X, A, H>
+where
     W: Widget<C>,
     X: Clip<C>,
-    T: Content<C>,
-    H: Content<C>,
+    A: Widget<C, blit::state::Node>,
+    H: FnOnce(bool) -> B,
+    B: Widget<C, blit::state::Node>,
 {
-    let config = area.behavior;
-    let axis = area.axis;
-    let (thumb_active, _) = update(state, &mut ui, axis, config);
-    let offset = state.offset;
-    let (track, thumb) = scrollbar(thumb_active);
-    build_scroll(
-        ui,
-        ScrollLayout {
+    type Response = ();
+
+    fn build(self, mut ui: Ui<'_, C>) {
+        let Self {
+            state,
+            content,
             axis,
-            offset: move |_| offset,
-            scrollbar_thickness: config.scrollbar_thickness,
-            minimum_thumb_extent: config.minimum_thumb_extent,
-        },
-        clip,
-        content,
-        track,
-        thumb,
-    );
+            scroll_speed,
+            inertia_friction,
+            sense,
+            scrollbar_thickness,
+            minimum_thumb_extent,
+            clip,
+            track,
+            thumb,
+        } = self;
+        let (thumb_active, viewport_known) = update(state, &mut ui, axis, sense, scroll_speed, inertia_friction);
+        let thumb = thumb.map(|thumb| thumb(thumb_active));
+        let reveal = match state.request.target {
+            Target::Widget(id) => Some(id),
+            _ => {
+                animate(state, &mut ui, axis, viewport_known);
+                None
+            }
+        };
+        let offset = state.offset;
+        let mut viewport = build_scroll(
+            ui,
+            ScrollLayout {
+                axis,
+                offset,
+                viewport_extent: state.viewport_extent,
+                scrollbar: Scrollbar {
+                    thickness: scrollbar_thickness,
+                    minimum: minimum_thumb_extent,
+                },
+            },
+            clip,
+            content,
+            track,
+            thumb,
+        );
+        match reveal {
+            Some(id) if !viewport.contains_widget(id) => state.request.target = Target::None,
+            Some(_) => {
+                animate(state, &mut viewport, axis, viewport_known);
+                if state.offset != offset {
+                    viewport.request_frame();
+                }
+            }
+            None => {}
+        }
+    }
 }

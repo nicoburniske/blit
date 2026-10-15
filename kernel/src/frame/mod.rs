@@ -1,5 +1,6 @@
 use crate::{Context, Scalar};
 pub mod animation;
+pub mod atom;
 pub mod interaction;
 pub mod layout;
 pub mod paint;
@@ -16,7 +17,7 @@ use std::{
 };
 
 use crate::{
-    Atom, Clip, Content, FrameInfo, Widget,
+    Atom, Clip, FrameInfo, Widget,
     animation::{Easing, Transition},
     arena::{DataArena, DataId, Scratch},
     geometry::{Constraints, Point, Rect, Sides, Size},
@@ -109,8 +110,8 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     /// inserts content into the current node
     ///
     /// layouts choose whether their atoms contribute to sizing
-    pub fn insert<X: Content<C>>(&mut self, content: X) -> X::Response {
-        content.append(Ui {
+    pub fn insert<W: Widget<C, state::Node>>(&mut self, widget: W) -> W::Response {
+        widget.build(Ui {
             inner: UiInner {
                 frame: self.inner.frame,
                 context: self.inner.context,
@@ -139,6 +140,27 @@ impl<'ui, C: Context> Ui<'ui, C, state::Build> {
     /// builds a widget in this node
     pub fn build<W: Widget<C>>(self, widget: W) -> W::Response {
         widget.build(self)
+    }
+
+    /// builds and measures a flow subtree under supplied constraints
+    pub fn build_measured<W: Widget<C>>(
+        self,
+        bounds: Constraints<C::Scalar>,
+        widget: W,
+    ) -> (W::Response, Size<C::Scalar>) {
+        let mut inner = self.inner;
+        inner.owns_node = false;
+        let node = inner.node;
+        let response = widget.build(Ui::new(inner.frame, inner.context, inner.scratch, node));
+        assert!(
+            !inner.frame.nodes[node.index()].out_of_flow,
+            "measured widgets must stay in flow"
+        );
+        let mut data = std::mem::take(&mut inner.frame.data);
+        data.prepare_scratch();
+        let size = layout::resolve(inner.frame, &data, inner.context, node, bounds);
+        inner.frame.data = data;
+        (response, size)
     }
 
     /// establishes the current node's layout
@@ -179,6 +201,18 @@ impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
         })
     }
 
+    pub fn build_measured<W: Widget<C>>(
+        self,
+        bounds: Constraints<C::Scalar>,
+        widget: W,
+    ) -> (W::Response, Size<C::Scalar>) {
+        Ui {
+            inner: self.inner,
+            marker: PhantomData::<state::Build>,
+        }
+        .build_measured(bounds, widget)
+    }
+
     /// establishes the current node's layout
     pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
         let ui: Ui<'_, C> = Ui {
@@ -208,11 +242,11 @@ impl<C: Context, S> Ui<'_, C, S> {
     /// returns previous frame geometry and tracks this id for the next layout
     pub fn geometry(&mut self, id: WidgetId) -> Option<Rect<C::Scalar>> {
         self.inner.frame.requests.entry(id).or_insert(Request::Geometry);
-        self.inner
-            .frame
-            .geometry_previous
-            .iter()
-            .find_map(|(candidate, area)| (*candidate == id).then_some(*area))
+        let geometry = &self.inner.frame.geometry_previous;
+        geometry
+            .binary_search_by_key(&id, |(candidate, _)| *candidate)
+            .ok()
+            .map(|index| geometry[index].1)
     }
 
     /// requests interaction for this node using its widget id
@@ -231,10 +265,7 @@ impl<C: Context, S> Ui<'_, C, S> {
             .and_modify(|request| match request {
                 Request::Geometry => *request = Request::Interaction(sense),
                 Request::Interaction(previous) => {
-                    previous.click |= sense.click;
-                    previous.drag |= sense.drag;
-                    previous.focus |= sense.focus;
-                    previous.scroll |= sense.scroll;
+                    *previous |= sense;
                 }
             })
             .or_insert(Request::Interaction(sense));
@@ -249,11 +280,29 @@ impl<C: Context, S> Ui<'_, C, S> {
         &self.inner.frame.input
     }
 
-    /// accesses context resources during frame construction
-    ///
-    /// drawing remains deferred to [`Atom`] implementations
-    pub fn context(&mut self) -> &mut C {
+    /// access context during frame construction
+    pub fn context(&self) -> &C {
         self.inner.context
+    }
+
+    /// access mutable context during frame construction
+    pub fn context_mut(&mut self) -> &mut C {
+        self.inner.context
+    }
+
+    /// returns the focused widget in this node's built subtree including this node
+    ///
+    /// call after building children to include them. follows structural parenting.
+    pub fn focused(&self) -> Option<WidgetId> {
+        let focused = self.inner.frame.interaction.focused()?;
+        self.contains_widget(focused).then_some(focused)
+    }
+
+    /// checks this node and its children already built in the current frame
+    pub fn contains_widget(&self, id: WidgetId) -> bool {
+        self.inner.frame.nodes[self.inner.node.index()..]
+            .iter()
+            .any(|node| node.widget_id == id)
     }
 
     pub fn is_focused(&self, id: WidgetId) -> bool {
@@ -314,12 +363,10 @@ impl<C: Context, S> Ui<'_, C, S> {
     }
 }
 
-// all atoms are content
-impl<C: Context, A: Atom<C>> Content<C> for A {
-    type Response = ();
-
-    fn append(self, ui: Ui<'_, C, state::Node>) {
-        ui.inner.frame.push_atom(ui.inner.node, self);
+impl<C: Context> Ui<'_, C, state::Node> {
+    #[doc(hidden)]
+    pub fn insert_atom<A: Atom<C>>(self, atom: A) {
+        atom::insert(self.inner.frame, self.inner.node, atom);
     }
 }
 

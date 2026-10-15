@@ -8,5 +8,6 @@ publish = false
 [dependencies]
 blit.workspace = true
 blit-text.workspace = true
+blit-raster.workspace = true
 cosmic-text = { version = "0.19", default-features = false, features = ["fontconfig", "std"] }
 unicode-segmentation = "1"

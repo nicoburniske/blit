@@ -330,8 +330,7 @@ pub enum ImageTiling {
     Round,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ImageId(pub u64);
+pub type ImageId = u64;
 
 #[derive(Debug)]
 struct ImageInner {

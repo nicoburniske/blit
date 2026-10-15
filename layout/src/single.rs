@@ -1,6 +1,6 @@
-use blit::{Axis, Constraints, Context, LayoutCx, Point, Scalar, Sides, Size};
+use blit::{Axis, Constraints, Context, LayoutCx, Point, Scalar, Sides, Size, Sizing};
 
-use super::{Sizing, flow_constraints, resolve_sizing, sizing_range};
+use super::{flow_constraints, resolve_sizing, sizing_range};
 
 blit::builder! {
     /// lays out at most one child
@@ -36,6 +36,13 @@ impl<T: Scalar> Layout<T> {
 impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
     type Item = ();
 
+    fn sizing(&self, axis: Axis) -> Sizing<T> {
+        match axis {
+            Axis::Horizontal => self.width,
+            Axis::Vertical => self.height,
+        }
+    }
+
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<T>) -> Size<T> {
         let padding = self.padding;
         let mut children = cx.children();
@@ -45,12 +52,13 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
             let sizing = resolve_sizing(cx, cx.node(), axis, sizing);
             let minimum = axis.extent(bounds.min);
             let maximum = axis.extent(bounds.max);
-            if let Sizing::Grow { .. } = sizing {
+            let (min, max) = if let Sizing::Grow { .. } = sizing {
                 // forwards the budget instead of claiming its maximum
                 (sizing.clamp(minimum), sizing.clamp(maximum).max(sizing.clamp(minimum)))
             } else {
                 sizing_range(sizing, maximum)
-            }
+            };
+            (min.min(maximum), max.min(maximum))
         };
         let sizing = flow_constraints(
             Axis::Horizontal,

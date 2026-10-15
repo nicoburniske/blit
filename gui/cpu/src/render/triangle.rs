@@ -11,7 +11,6 @@ pub struct Prepared {
     color_step_y: [f32; 4],
     color_kind: ColorKind,
     inclusive: [bool; 3],
-    pub bounds: PhysicalRect,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -22,9 +21,30 @@ enum ColorKind {
 }
 
 impl Prepared {
-    pub fn new(vertices: [MeshVertex; 3], scale: Scale2) -> Option<Self> {
+    #[inline(always)]
+    pub fn new(
+        vertices: [MeshVertex; 3],
+        scale: Scale2,
+        clip: PhysicalRect,
+        damage: &[PhysicalRect],
+    ) -> Option<(Self, PhysicalRect)> {
         let mut points = vertices.map(|vertex| [vertex.position.x * scale.x, vertex.position.y * scale.y]);
         if !points.iter().flatten().all(|value| value.is_finite()) {
+            return None;
+        }
+        let [first, second, third] = points;
+        let left = first[0].min(second[0]).min(third[0]).floor() as i32;
+        let top = first[1].min(second[1]).min(third[1]).floor() as i32;
+        let right = first[0].max(second[0]).max(third[0]).ceil() as i32;
+        let bottom = first[1].max(second[1]).max(third[1]).ceil() as i32;
+        let bounds = PhysicalRect {
+            x: left,
+            y: top,
+            width: right.saturating_sub(left),
+            height: bottom.saturating_sub(top),
+        };
+        let bounds = bounds.intersection(clip)?;
+        if !damage.iter().any(|region| bounds.intersection(*region).is_some()) {
             return None;
         }
         let mut colors = vertices.map(|vertex| PremultipliedRgbaColor::new(vertex.color, 255));
@@ -73,26 +93,17 @@ impl Prepared {
             inclusive(points[2], points[0]),
             inclusive(points[0], points[1]),
         ];
-        let [first, second, third] = points;
-        let left = first[0].min(second[0]).min(third[0]).floor() as i32;
-        let top = first[1].min(second[1]).min(third[1]).floor() as i32;
-        let right = first[0].max(second[0]).max(third[0]).ceil() as i32;
-        let bottom = first[1].max(second[1]).max(third[1]).ceil() as i32;
-        let bounds = PhysicalRect {
-            x: left,
-            y: top,
-            width: right.saturating_sub(left),
-            height: bottom.saturating_sub(top),
-        };
-        (bounds.width > 0 && bounds.height > 0).then_some(Self {
-            points,
-            color: colors[0],
-            color_step_x,
-            color_step_y,
-            color_kind,
-            inclusive,
+        (bounds.width > 0 && bounds.height > 0).then_some((
+            Self {
+                points,
+                color: colors[0],
+                color_step_x,
+                color_step_y,
+                color_kind,
+                inclusive,
+            },
             bounds,
-        })
+        ))
     }
 
     pub fn draw_line<P: Pixel>(&self, line: i32, clip: PhysicalRect, coverage: u8, row: PixelSpan<'_, P>) {
@@ -106,9 +117,9 @@ impl Prepared {
         let steps = [second[1] - third[1], third[1] - first[1], first[1] - second[1]];
         let covered = |offset: i32| {
             let offset = offset as f32;
-            (0..3).all(|index| {
+            (0..3).fold(true, |covered, index| {
                 let edge = edges[index] + steps[index] * offset;
-                edge > 0.0 || (edge == 0.0 && self.inclusive[index])
+                covered & ((edge > 0.0) | ((edge == 0.0) & self.inclusive[index]))
             })
         };
         let mut left = 0;
@@ -164,6 +175,31 @@ impl Prepared {
                 [self.color_step_x[0], self.color_step_x[1], self.color_step_x[2]],
             );
             return;
+        }
+        if self.color_step_x[3] == 0.0 && self.color_step_y[3] == 0.0 {
+            let alpha = self.color.coverage(coverage as u32).alpha;
+            if alpha == 0 {
+                return;
+            }
+            if alpha < 255 {
+                for pixel in pixels {
+                    let sample = PremultipliedRgbaColor {
+                        red: (color[0] + 0.5) as u8,
+                        green: (color[1] + 0.5) as u8,
+                        blue: (color[2] + 0.5) as u8,
+                        alpha: self.color.alpha,
+                    };
+                    pixel.blend_translucent(if coverage == 255 {
+                        sample
+                    } else {
+                        sample.coverage(coverage as u32)
+                    });
+                    for channel in 0..3 {
+                        color[channel] += self.color_step_x[channel];
+                    }
+                }
+                return;
+            }
         }
         for pixel in pixels {
             let sample = PremultipliedRgbaColor {

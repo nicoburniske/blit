@@ -1,21 +1,15 @@
-pub mod performance;
-pub mod text_input;
+use blit::{Widget, state};
 
-blit_widgets::export!(f32, crate::GuiContext, crate::BoundsClip);
-
-use blit::{Content, state};
-
-pub use self::{performance::Performance, text_input::TextInput};
 use crate::{
-    GuiContext, Ui, atom,
+    atom,
     color::Color,
-    text::{Span, TextOptions, TextStyle},
+    text::{Span, TextOptions, TextSource, TextStyle},
 };
 
 blit::builder! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Text<'a> {
-        new(text: &'a str),
+        new(#[into] text: TextSource<'a>),
         style: TextStyle = TextStyle::new(),
         color: Color = Color::BLACK,
         offset_x: f32 = 0.0,
@@ -23,11 +17,11 @@ blit::builder! {
     }
 }
 
-impl Content<GuiContext> for Text<'_> {
+impl<C: crate::Context> Widget<C, state::Node> for Text<'_> {
     type Response = ();
 
-    fn append(self, mut ui: Ui<'_, state::Node>) {
-        let run = ui.context().text_run(self.text, self.style);
+    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
+        let run = ui.context_mut().as_mut().text_run(self.text, self.style);
         ui.insert(
             atom::Text::new(run)
                 .color(self.color)
@@ -49,11 +43,11 @@ blit::builder! {
     }
 }
 
-impl Content<GuiContext> for RichText<'_> {
+impl<C: crate::Context> Widget<C, state::Node> for RichText<'_> {
     type Response = ();
 
-    fn append(self, mut ui: Ui<'_, state::Node>) {
-        let (run, palette) = ui.context().rich_text(self.text, self.spans, self.style);
+    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
+        let (run, palette) = ui.context_mut().as_mut().rich_text(self.text, self.spans, self.style);
         ui.insert(
             atom::Text::new(run)
                 .palette(palette)

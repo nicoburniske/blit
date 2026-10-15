@@ -1,4 +1,4 @@
-Portions of internal/raster/src/lib.rs are adapted from:
+Portions of gui/raster/src/lib.rs are adapted from:
 
 fontdue 0.9.3
 https://github.com/mooman219/fontdue/tree/1f1f6ddbe3c9f918952df707763e60d0bb2ce197

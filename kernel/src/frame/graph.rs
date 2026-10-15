@@ -90,6 +90,12 @@ impl<C: Context> Default for Frame<C> {
 }
 
 impl<C: Context> Frame<C> {
+    /// updates recognition thresholds including pending long press timers
+    pub fn set_interaction_config(&mut self, config: crate::InteractionConfig) {
+        self.interaction.config = config;
+        self.request_frame();
+    }
+
     /// rebuilds the frame graph for one input
     pub fn build<W: Widget<C>>(
         &mut self,
@@ -131,7 +137,9 @@ impl<C: Context> Frame<C> {
         for timer in &mut self.timers {
             timer.seen = false;
         }
-        self.interaction.begin(&input);
+        if self.interaction.begin(&input, time) {
+            self.frame_requested = true;
+        }
 
         let id = WidgetId::new("blit frame root");
         let root = self.push_node(None, id);
@@ -184,7 +192,11 @@ impl<C: Context> Frame<C> {
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
-        self.timers.iter().filter_map(timer::TimerState::deadline).min()
+        self.timers
+            .iter()
+            .filter_map(timer::TimerState::deadline)
+            .chain(self.interaction.next_deadline())
+            .min()
     }
 
     pub fn request_frame(&mut self) {
@@ -198,40 +210,9 @@ impl<C: Context> Frame<C> {
             .enumerate()
             .find_map(|(index, node)| (node.widget_id == id).then_some(self.node_geometry[index].area))
     }
-
 }
 
 impl<C: Context> Frame<C> {
-    fn push_atom<A: Atom<C>>(&mut self, node: NodeId, atom: A) {
-        let type_id = TypeId::of::<A>();
-        let kind = self
-            .atom_kinds
-            .iter()
-            .position(|kind| kind.type_id == type_id)
-            .unwrap_or_else(|| {
-                self.atom_kinds.push(AtomKind {
-                    type_id,
-                    measure: |data, id, context, constraints| data.load::<A>(id).measure(context, constraints),
-                    paint_bounds: |data, id, area| data.load::<A>(id).paint_bounds(area),
-                    paint: |data, id, context, area| data.load::<A>(id).paint(context, area),
-                });
-                self.atom_kinds.len() - 1
-            });
-        let id = StoredAtomId::new(self.atoms.len());
-        self.atoms.push(StoredAtom {
-            kind: u16::try_from(kind).expect("too many atom types"),
-            data: self.data.store(atom),
-            next: StoredAtomId::NONE,
-        });
-        let node = &mut self.nodes[node.index()];
-        if let Some(last) = node.last_atom.index() {
-            self.atoms[last].next = id;
-        } else {
-            node.first_atom = id;
-        }
-        node.last_atom = id;
-    }
-
     fn store_layout<L: Layout<C>>(&mut self, node: NodeId, value: L) {
         let type_id = TypeId::of::<L>();
         let kind = self
@@ -242,6 +223,7 @@ impl<C: Context> Frame<C> {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
                     run: layout::run::<C, L>,
+                    sizing: |data, id, axis| data.load::<L>(id).sizing(axis),
                     default_item: DataId::NONE,
                 });
                 self.layout_kinds.len() - 1
@@ -360,7 +342,6 @@ impl<C: Context> Frame<C> {
         clip.index()
             .map_or(self.screen, |clip| self.resolved_clips[clip].bounds)
     }
-
 }
 
 #[cfg(debug_assertions)]
@@ -487,6 +468,7 @@ struct AtomKind<C: Context> {
 struct LayoutKind<C: Context> {
     type_id: TypeId,
     run: for<'a> fn(&mut layout::LayoutCx<'a, C>, DataId, Constraints<C::Scalar>) -> Size<C::Scalar>,
+    sizing: fn(&DataArena, DataId, crate::Axis) -> crate::Sizing<C::Scalar>,
     default_item: DataId,
 }
 

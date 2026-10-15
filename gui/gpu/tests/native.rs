@@ -79,7 +79,7 @@ fn renders_primitives_and_rebuilds_frames() {
             .radius(BorderRadius::uniform(3.0)),
     );
     gui.paint_rectangle(Rectangle::new(LogicalRect::new(2.0, 2.0, 2.0, 2.0)).background(Color::rgba(0, 0, 255, 128)));
-    let image = gui.create_image(ImageData::new(
+    let image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&[255, 255, 0, 255, 0, 255, 255, 255, 255, 0, 255, 255, 255, 255, 255, 255]),
         ImageFormat::Rgba8Premultiplied,
         2,
@@ -113,7 +113,7 @@ fn renders_primitives_and_rebuilds_frames() {
         width: 2,
         height: 1,
     };
-    let sparse = gui.create_image(sparse);
+    let sparse = renderer.create_image(sparse);
     let mut partial = ImageData::new(
         ImagePixels::Static(&[255, 0, 0, 255]),
         ImageFormat::Rgba8Premultiplied,
@@ -122,7 +122,7 @@ fn renders_primitives_and_rebuilds_frames() {
     );
     partial.size.width = 3;
     partial.texture_rect.x = 1;
-    let partial = gui.create_image(partial);
+    let partial = renderer.create_image(partial);
     gui.paint_image(ImageRequest {
         area: LogicalRect::new(8.0, 0.0, 4.0, 4.0),
         sampling: ImageSampling::Bilinear,
