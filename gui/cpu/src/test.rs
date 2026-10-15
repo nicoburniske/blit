@@ -453,7 +453,7 @@ fn text_cache_stages_are_independent() {
     )
     .unwrap();
     let request = TextLayoutRequest {
-        text: text.text_run("cached", TextStyle::default()),
+        text: text.text_run("cached".into(), TextStyle::default()),
         wrap: TextWrap::None,
         max_width: None,
         max_lines: None,

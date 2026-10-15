@@ -975,7 +975,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                     .radius(BorderRadius::uniform(sz::XXS)),
             );
             tile.child()
-                .insert(Text::new(&index.to_string()).color(colors::TEXT_MUTED));
+                .insert(Text::new(format_args!("{index}")).color(colors::TEXT_MUTED));
             tile.child().insert(
                 Text::new(item.label)
                     .style(TextStyle {

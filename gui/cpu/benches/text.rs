@@ -4,10 +4,12 @@ use blit::{LogicalPoint, LogicalRect};
 use blit_gui::{
     FontData, FontFamily, TextConfig, TextSystem,
     color::Color,
-    text::{FontId, HorizontalAlign, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap},
+    text::{FontId, HorizontalAlign, TextLayoutRequest, TextOptions, TextRequest, TextSource, TextStyle, TextWrap},
 };
 
-const TEXT: &str = "Passport keeps your keys offline while making secure approvals clear and deliberate. Every transaction is reviewed on the trusted display before it is signed. Recovery information stays under your control, and the device never needs to expose private keys.";
+const TEXT: TextSource<'static> = TextSource::Borrowed(
+    "Passport keeps your keys offline while making secure approvals clear and deliberate. Every transaction is reviewed on the trusted display before it is signed. Recovery information stays under your control, and the device never needs to expose private keys.",
+);
 
 #[global_allocator]
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();

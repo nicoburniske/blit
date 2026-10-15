@@ -3,13 +3,13 @@ use blit::{Widget, state};
 use crate::{
     atom,
     color::Color,
-    text::{Span, TextOptions, TextStyle},
+    text::{Span, TextOptions, TextSource, TextStyle},
 };
 
 blit::builder! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Text<'a> {
-        new(text: &'a str),
+        new(#[into] text: TextSource<'a>),
         style: TextStyle = TextStyle::new(),
         color: Color = Color::BLACK,
         offset_x: f32 = 0.0,

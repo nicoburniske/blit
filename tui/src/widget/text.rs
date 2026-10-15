@@ -1,3 +1,5 @@
+use std::fmt;
+
 use blit::{Widget, state};
 
 use crate::{
@@ -7,9 +9,10 @@ use crate::{
 };
 
 blit::builder! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
+    /// text from borrowed strings or formatting arguments
+    #[derive(Clone, Copy, Debug)]
     pub struct Text<'a> {
-        new(text: &'a str),
+        new(#[into] text: TextSource<'a>),
         color: Color = Color::Reset,
         attributes: TextAttributes = TextAttributes::NONE,
         options: TextOptions = TextOptions::new(),
@@ -31,7 +34,11 @@ impl<C: Context> Widget<C, state::Node> for Text<'_> {
         let run = if let Some(spans) = self.spans {
             ui.context_mut().as_mut().renderer_mut().rich_text(spans)
         } else {
-            ui.context_mut().as_mut().renderer_mut().text_run(self.text)
+            let renderer = ui.context_mut().as_mut().renderer_mut();
+            match self.text {
+                TextSource::Borrowed(text) => renderer.text_run(text),
+                TextSource::Formatted(arguments) => renderer.text_run_fmt(arguments),
+            }
         };
         ui.insert(
             atom::Text::new(run)
@@ -39,5 +46,33 @@ impl<C: Context> Widget<C, state::Node> for Text<'_> {
                 .attributes(self.attributes)
                 .options(self.options),
         );
+    }
+}
+
+/// text from borrowed strings or formatting arguments
+#[derive(Clone, Copy, Debug)]
+pub enum TextSource<'a> {
+    Borrowed(&'a str),
+    Formatted(fmt::Arguments<'a>),
+}
+
+impl<'a, T: AsRef<str> + ?Sized> From<&'a T> for TextSource<'a> {
+    fn from(text: &'a T) -> Self {
+        Self::Borrowed(T::as_ref(text))
+    }
+}
+
+impl<'a, T: AsRef<str> + ?Sized> From<&'a mut T> for TextSource<'a> {
+    fn from(text: &'a mut T) -> Self {
+        Self::Borrowed(T::as_ref(text))
+    }
+}
+
+impl<'a> From<fmt::Arguments<'a>> for TextSource<'a> {
+    fn from(arguments: fmt::Arguments<'a>) -> Self {
+        match arguments.as_str() {
+            Some(text) => Self::Borrowed(text),
+            None => Self::Formatted(arguments),
+        }
     }
 }

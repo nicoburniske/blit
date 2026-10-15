@@ -50,7 +50,7 @@ impl<C: Context> Widget<C> for TextInput<'_> {
         }
         let focused = ui.is_focused(id);
         let response = state.update(value, if focused { &input } else { &Input::None });
-        let text = ui.context_mut().as_mut().text_run(value, style);
+        let text = ui.context_mut().as_mut().text_run(value.as_str(), style);
         let options = TextOptions {
             max_lines: Some(1),
             ..TextOptions::default()

@@ -16,6 +16,6 @@ mod text_input;
 pub use self::{
     block::{Block, Title},
     performance::{Performance, PerformanceState},
-    text::Text,
+    text::{Text, TextSource},
     text_input::{TextInput, TextInputResponse, TextInputState},
 };

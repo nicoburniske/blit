@@ -501,7 +501,7 @@ where
     let strings = (0..LINES)
         .map(|line| {
             renderer.gui.text_run(
-                &format!(
+                format_args!(
                     "transaction {line:02}: verify recipient 0x7c91…{line:04x}, amount 12.345 ETH, and network fee 0.0042 ETH"
                 ),
                 TextStyle::default(),

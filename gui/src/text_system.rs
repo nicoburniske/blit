@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write as _,
     hash::{Hash, Hasher},
     mem::size_of,
 };
@@ -10,8 +11,8 @@ use blit_text::{
 };
 
 use crate::text::{
-    FontId, HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextOverflow, TextRequest, TextRunId, TextStyle,
-    TextWrap, VerticalAlign,
+    FontId, HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextOverflow, TextRequest, TextRunId, TextSource,
+    TextStyle, TextWrap, VerticalAlign,
 };
 
 pub struct TextConfig {
@@ -30,6 +31,7 @@ pub struct TextSystem {
     fonts: Box<[ConfiguredFont]>,
     texts: DeferredCache<TextKey, CachedText, TextScale>,
     layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
+    formatted_text: String,
     next_text: u32,
     next_layout: u64,
 }
@@ -277,13 +279,23 @@ impl TextSystem {
             fonts: fonts.into_boxed_slice(),
             texts: DeferredCache::new(TextScale, config.text_cache_capacity),
             layouts: DeferredCache::new(LayoutScale, config.layout_cache_capacity),
+            formatted_text: String::new(),
             next_text: 1,
             next_layout: 1,
         })
     }
 
-    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.rich_text(text, &[Span::new(0..text.len())], style)
+    pub fn text_run(&mut self, source: TextSource<'_>, style: TextStyle) -> TextRunId {
+        let arguments = match source {
+            TextSource::Borrowed(text) => return self.rich_text(text, &[], style),
+            TextSource::Formatted(arguments) => arguments,
+        };
+        let mut text = std::mem::take(&mut self.formatted_text);
+        text.clear();
+        text.write_fmt(arguments).expect("text formatting failed");
+        let run = self.rich_text(&text, &[], style);
+        self.formatted_text = text;
+        run
     }
 
     pub fn rich_text(&mut self, text: &str, spans: &[Span], style: TextStyle) -> TextRunId {

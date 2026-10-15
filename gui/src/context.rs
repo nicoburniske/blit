@@ -4,7 +4,7 @@ use crate::{
     Context, TextSystem,
     display_list::{BoxShadow, ClipId, DisplayList, Mesh, Rectangle, TextPalette},
     image::ImageRequest,
-    text::{Span, TextLayoutRequest, TextRequest, TextRunId, TextStyle},
+    text::{Span, TextLayoutRequest, TextRequest, TextRunId, TextSource, TextStyle},
 };
 
 pub struct GuiContext {
@@ -44,8 +44,8 @@ impl GuiContext {
         }
     }
 
-    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.text.text_run(text, style)
+    pub fn text_run<'a>(&mut self, text: impl Into<TextSource<'a>>, style: TextStyle) -> TextRunId {
+        self.text.text_run(text.into(), style)
     }
 
     pub fn rich_text(&mut self, text: &str, spans: &[Span], style: TextStyle) -> (TextRunId, TextPalette) {
