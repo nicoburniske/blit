@@ -867,7 +867,7 @@ impl Widget<TuiContext> for &mut AtomsPage {
         body.insert(panel(colors::SURFACE, " DIRECT CELL ATOMS "));
         body.child()
             .insert(Text::new("ratatui-style atoms paint into the resolved atom area").color(colors::TEXT_MUTED));
-        body.child().item(flex::item().height(Sizing::fixed(1))).insert(
+        body.child().item(flex::item().width(Sizing::grow()).height(Sizing::fixed(1))).insert(
             Gauge::new(ratio as f64)
                 .filled(colors::ACCENT)
                 .unfilled(colors::TRACK)

@@ -1,17 +1,15 @@
-use std::rc::Rc;
-
 use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
     TuiContext,
     cell::{Cell, CellStyle},
     color::Color,
-    text::TextAttributes,
+    text::{HorizontalAlign, TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
 };
 
 pub struct Gauge {
     pub ratio: f64,
-    pub label: Option<Rc<str>>,
+    pub label: Option<TextRunId>,
     pub filled: Color,
     pub unfilled: Color,
     pub label_color: Color,
@@ -28,7 +26,7 @@ impl Gauge {
         }
     }
 
-    pub fn label(mut self, label: Rc<str>) -> Self {
+    pub const fn label(mut self, label: TextRunId) -> Self {
         self.label = Some(label);
         self
     }
@@ -52,49 +50,64 @@ impl Gauge {
 blit::atom_widget!(Gauge);
 
 impl Atom<TuiContext> for Gauge {
-    fn measure(&self, _: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
-        let width = self
-            .label
-            .as_ref()
-            .map_or_else(|| percentage_label(self.ratio).1, |label| label.chars().count());
-        constraints.constrain(Size::new(width.max(1) as i32, 1))
+    fn measure(&self, cx: &mut AtomCx<'_, TuiContext>, constraints: Constraints<i32>) -> Size<i32> {
+        let width = self.label.map_or_else(
+            || percentage_label(self.ratio).1 as i32,
+            |label| {
+                cx.context_mut()
+                    .renderer_mut()
+                    .measure_text(&TextLayoutRequest::new(label).max_lines(1))
+                    .width
+            },
+        );
+        constraints.constrain(Size::new(width.max(1), 1))
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, TuiContext>, area: PhysicalRect) {
-        let mut cells = cx.context_mut().cells(area);
-        let width = cells.columns();
-        let rows = cells.rows();
-        let filled = (width as f64 * self.ratio.clamp(0.0, 1.0)).round() as usize;
-        for y in 0..rows {
-            for x in 0..width {
-                let background = if x < filled { self.filled } else { self.unfilled };
-                cells.set_cell(x, y, Cell::new(' ').style(CellStyle::new().background(background)));
+        {
+            let mut cells = cx.context_mut().cells(area);
+            let width = cells.columns();
+            let rows = cells.rows();
+            let filled = (width as f64 * self.ratio.clamp(0.0, 1.0)).round() as usize;
+            for y in 0..rows {
+                for x in 0..width {
+                    let background = if x < filled { self.filled } else { self.unfilled };
+                    cells.set_cell(x, y, Cell::new(' ').style(CellStyle::new().background(background)));
+                }
+            }
+            if rows == 0 {
+                return;
+            }
+            let style = |x| {
+                CellStyle::new()
+                    .foreground(self.label_color)
+                    .background(if x < filled { self.filled } else { self.unfilled })
+                    .attributes(TextAttributes::BOLD)
+            };
+            if self.label.is_none() {
+                let (label, label_width) = percentage_label(self.ratio);
+                let label_width = label_width.min(width);
+                let start = (width - label_width) / 2;
+                for (offset, character) in label.into_iter().take(label_width).enumerate() {
+                    let x = start + offset;
+                    cells.set_cell(x, rows / 2, Cell::new(character).style(style(x)));
+                }
             }
         }
-        if rows == 0 {
-            return;
-        }
-        let style = |x| {
-            CellStyle::new()
-                .foreground(self.label_color)
-                .background(if x < filled { self.filled } else { self.unfilled })
+        if let Some(label) = self.label {
+            cx.context_mut().paint_text(
+                TextRequest::new(
+                    label,
+                    PhysicalRect::new(area.x, area.y + area.height / 2, area.width, 1),
+                )
+                .color(self.label_color)
                 .attributes(TextAttributes::BOLD)
-        };
-        if let Some(label) = &self.label {
-            let label_width = label.chars().count().min(width);
-            let start = (width - label_width) / 2;
-            for (offset, character) in label.chars().take(label_width).enumerate() {
-                let x = start + offset;
-                cells.set_cell(x, rows / 2, Cell::new(character).style(style(x)));
-            }
-        } else {
-            let (label, label_width) = percentage_label(self.ratio);
-            let label_width = label_width.min(width);
-            let start = (width - label_width) / 2;
-            for (offset, character) in label.into_iter().take(label_width).enumerate() {
-                let x = start + offset;
-                cells.set_cell(x, rows / 2, Cell::new(character).style(style(x)));
-            }
+                .options(
+                    TextOptions::new()
+                        .max_lines(1)
+                        .horizontal_align(HorizontalAlign::Center),
+                ),
+            );
         }
     }
 }
