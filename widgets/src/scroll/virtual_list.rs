@@ -143,7 +143,8 @@ where
             (ScrollKind::Thumb | ScrollKind::Track, _) => {
                 state.motion.remainder = 0.0;
                 let offset = row.map_or(C::Scalar::ZERO, |row| row.top.endpoint(state.within));
-                let (position, visible, total) = metrics(state, count, size.height, offset);
+                let (position, visible) = metrics(state, count, size.height, offset);
+                let total = count.map_or(state.scrollbar.explored, |count| count as f64);
                 let maximum = (total - visible).max(0.0);
                 let previous = if count.is_some() {
                     position
@@ -274,8 +275,8 @@ where
                 state.scrollbar.scale = state.average;
             }
         }
+        let (position, visible) = metrics(state, count, size.height, offset);
         let progress = {
-            let (position, visible, _) = metrics(state, count, size.height, offset);
             let scrollbar = &mut state.scrollbar;
             if position == 0.0 {
                 scrollbar.position = 0.0;
@@ -331,18 +332,39 @@ where
                 .widget_id(id.child("scroll thumb"))
                 .insert(thumb);
         }
+        let visible_range = first + state.visible.start..first + state.visible.end;
+        if viewport.is_none() {
+            // preserve the anchor until the viewport is known
+            state.first = anchor.index;
+            state.within = anchor.within.endpoint(anchor.delta);
+            state.sample.clear();
+            state.visible = 0..0;
+            return Response {
+                visible_range,
+                ..Response::default()
+            };
+        }
         Response {
             pointer_row,
-            visible_range: first + state.visible.start..first + state.visible.end,
+            visible_range,
+            offset: position,
+            visible_extent: visible,
+            content_extent: count.map_or(state.scrollbar.explored, |count| count as f64),
         }
     }
 }
 
+#[derive(Default)]
 pub struct Response {
     /// row indices intersecting the viewport excluding overscan
     pub visible_range: Range<usize>,
     /// row at the pointer y position clamped to the viewport edges
     pub pointer_row: Option<usize>,
+    /// resolved position and visible extent in item coordinates
+    pub offset: f64,
+    pub visible_extent: f64,
+    /// item count for finite lists or explored extent for unbounded lists
+    pub content_extent: f64,
 }
 
 #[derive(Default)]
@@ -550,7 +572,7 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for VirtualLayout<T> {
         size
     }
 }
-fn metrics<T: Scalar>(state: &VirtualListState<T>, count: Option<usize>, height: T, offset: T) -> (f64, f64, f64) {
+fn metrics<T: Scalar>(state: &VirtualListState<T>, count: Option<usize>, height: T, offset: T) -> (f64, f64) {
     let position_at = |index, offset: T| {
         state.sample.get(index).map_or(state.first as f64, |row: &Row<T>| {
             state.first as f64 + index as f64 - state.visible.start as f64
@@ -568,11 +590,7 @@ fn metrics<T: Scalar>(state: &VirtualListState<T>, count: Option<usize>, height:
         };
         height.to_f32() as f64 / scale as f64
     };
-    (
-        position,
-        visible,
-        count.map_or(state.scrollbar.explored, |count| count as f64),
-    )
+    (position, visible)
 }
 
 #[cfg(test)]
