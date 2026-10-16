@@ -165,11 +165,11 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for ScrollLayout<T> {
         let viewport_size = viewport_constraints.constrain(content_size) + gutter_size;
         let content_extent = self.axis.extent(content_size);
         let viewport_extent = self.axis.extent(viewport_size);
-        if viewport_extent != self.viewport_extent {
-            ui.request_frame();
-        }
         let maximum = (content_extent - viewport_extent).max(T::ZERO);
         let offset = self.offset.clamp(T::ZERO, maximum);
+        if viewport_extent != self.viewport_extent || offset != self.offset {
+            ui.request_frame();
+        }
         ui.set_child_position(
             content,
             match self.axis {
@@ -429,7 +429,6 @@ fn content_motion<C: Context>(
 }
 
 fn animate<C: Context, S>(state: &mut ScrollState<C::Scalar>, ui: &mut Ui<'_, C, S>, axis: Axis, viewport_known: bool) {
-    let maximum = state.maximum_offset();
     let request = &mut state.request;
     let target = match request.target {
         Target::None => return,
@@ -454,13 +453,9 @@ fn animate<C: Context, S>(state: &mut ScrollState<C::Scalar>, ui: &mut Ui<'_, C,
             state.offset.clamp((end - state.viewport_extent).min(start), start)
         }
     };
-    let target = if request.started.is_none() {
-        let target = target.clamp(C::Scalar::ZERO, maximum);
+    if request.started.is_none() {
         request.target = Target::Offset(target);
-        target
-    } else {
-        target
-    };
+    }
     let (duration, easing) = request.animation;
     let (start, time) = *request.started.get_or_insert((state.offset, ui.time()));
     let progress = if duration.is_zero() {
@@ -472,8 +467,7 @@ fn animate<C: Context, S>(state: &mut ScrollState<C::Scalar>, ui: &mut Ui<'_, C,
         target
     } else {
         C::Scalar::from_f32(start.to_f32() + (target.to_f32() - start.to_f32()) * easing.apply(progress))
-    }
-    .clamp(C::Scalar::ZERO, maximum);
+    };
     if progress == 1.0 || start == target {
         request.target = Target::None;
     } else {
