@@ -110,6 +110,11 @@ where
             ScrollKind::Content => value,
             _ => 0.0,
         };
+        // treat large offsets into an unmeasured window as movement so the existing seek logic estimates the row
+        if state.sample.is_empty() && state.within.to_f32().abs() > overscan.to_f32() {
+            state.scroll_delta = state.within.endpoint(state.scroll_delta);
+            state.within = C::Scalar::ZERO;
+        }
         let delta = {
             let delta: C::Scalar = state.motion.pixel_delta(movement);
             let delta = delta.endpoint(std::mem::take(&mut state.scroll_delta));
@@ -394,8 +399,10 @@ impl<T: Scalar> VirtualListState<T> {
         self.motion.stop();
     }
 
-    // scrolls immediately to (list index, pixel offset)
-    pub fn scroll_to(&mut self, (index, offset): (usize, T)) {
+    /// scrolls to a list index and pixel offset
+    /// - nearby offsets use exact row measurements
+    /// - large offscreen offsets use estimated row heights
+    pub fn scroll_to(&mut self, index: usize, offset: T) {
         self.first = index;
         self.scrollbar.position = index as f64;
         self.within = offset;
@@ -636,7 +643,7 @@ mod tests {
             });
             let (index, offset) = state.position();
             assert_eq!(offset, 5.0);
-            state.scroll_to((index + 1, offset));
+            state.scroll_to(index + 1, offset);
             let (area, _) = render_frame(
                 &mut frame,
                 &mut state,
@@ -735,7 +742,7 @@ mod tests {
                 let mut frame = Frame::default();
                 let mut state = VirtualListState::default();
                 let row = |index| (WidgetId::new(index), if index < 20 { before } else { after });
-                state.scroll_to((20, 0.0));
+                state.scroll_to(20, 0.0);
                 settle_frame(&mut frame, &mut state, count, row);
                 let key = WidgetId::new(20usize);
                 let y = frame.geometry(key).unwrap().y;
