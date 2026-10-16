@@ -219,21 +219,32 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                     f32::INFINITY
                 };
             }
-            let mut allocation = 0.0;
-            for child in cx.children() {
-                let item = cx.item(child);
-                let Sizing::Grow { min, max } = resolve(cx, child, item, self.axis) else {
-                    continue;
-                };
-                let min = min.max(T::ZERO);
-                let capacity = if max == T::UNBOUNDED {
-                    f32::INFINITY
-                } else {
-                    (max.max(min) - min).to_f32()
-                };
-                let main = min + T::allocate(&mut allocation, (unit * item.weight).min(capacity));
-                let cross = resolve(cx, child, item, cross_axis);
-                self.layout_child(cx, child, (main, main), cross, &mut space);
+            // with a loose cross axis, measure natural sizes first then fill children
+            let passes = if space.dynamic_cross { 2 } else { 1 };
+            for pass in 0..passes {
+                let mut allocation = 0.0;
+                for child in cx.children() {
+                    let item = cx.item(child);
+                    let Sizing::Grow { min, max } = resolve(cx, child, item, self.axis) else {
+                        continue;
+                    };
+                    let min = min.max(T::ZERO);
+                    let capacity = if max == T::UNBOUNDED {
+                        f32::INFINITY
+                    } else {
+                        (max.max(min) - min).to_f32()
+                    };
+                    let main = min + T::allocate(&mut allocation, (unit * item.weight).min(capacity));
+                    let cross = resolve(cx, child, item, cross_axis);
+                    let fills_cross = matches!(
+                        (cross, self.align),
+                        (Sizing::Grow { .. }, _) | (Sizing::Fit { .. }, Align::Stretch)
+                    );
+                    if space.dynamic_cross && fills_cross != (pass == 1) {
+                        continue;
+                    }
+                    self.layout_child(cx, child, (main, main), cross, &mut space);
+                }
             }
         }
         if deferred {
