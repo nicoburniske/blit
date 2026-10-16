@@ -1,10 +1,10 @@
 use std::ops::Range;
 
 use blit::{
-    Axis, Clip, Constraints, Context, Layout, LayoutCx, Phase, Point, Scalar, Sense, Size, Sizing, Ui, Widget, WidgetId,
+    Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Sense, Size, Sizing, Ui, Widget, WidgetId,
 };
 
-use super::{Scrollbar, ThumbProgress, content_motion, thumb_travel};
+use super::{Scrollbar, ScrollbarInput, ThumbProgress, content_motion, scrollbar_input};
 
 blit::builder! {
     /// use for large vertical lists with variable or unknown row heights
@@ -65,51 +65,21 @@ where
         let overscan = size.height.repeat(VIEWPORTS);
         let row = state.sample.get(state.visible.start);
         let interaction = ui.interact(sense);
-        let thumb_input = ui.interact_widget(id.child("scroll thumb"), Sense::DRAG);
-        let track_input = ui.interact_widget(id.child("scroll track"), Sense::DRAG);
-        let thumb_active = thumb_input.active || track_input.active;
-        let (kind, value) = {
-            let thumb_drag = thumb_input.drag.filter(|drag| drag.phase != Phase::Cancelled);
-            let track_drag = track_input.drag.filter(|drag| {
-                drag.phase != Phase::Cancelled && (drag.phase != Phase::Ended || drag.delta.y != C::Scalar::ZERO)
-            });
-            match (thumb_drag, track_input.activated || track_drag.is_some()) {
-                (None, false) => (
-                    ScrollKind::Content,
-                    content_motion(
-                        &mut state.motion,
-                        &mut ui,
-                        Axis::Vertical,
-                        scroll_speed,
-                        inertia_friction,
-                        interaction,
-                    ),
-                ),
-                (drag, _) => match (
-                    drag,
-                    thumb_travel(&mut state.motion, &mut ui, Axis::Vertical, size.height),
-                ) {
-                    (Some(drag), Some((_, travel))) => (ScrollKind::Thumb, drag.delta.y.to_f32() / travel),
-                    (None, Some((extent, travel))) => {
-                        let target = ui
-                            .geometry(id.child("scroll track"))
-                            .zip(track_drag.map(|drag| drag.position).or_else(|| ui.pointer_position()))
-                            .map(|(track, pointer)| {
-                                (((pointer.y - track.y).to_f32() - extent / 2.0) / travel).clamp(0.0, 1.0)
-                            });
-                        target.map_or((ScrollKind::Content, 0.0), |target| (ScrollKind::Track, target))
-                    }
-                    (_, None) => (ScrollKind::Content, 0.0),
-                },
-            }
+        let (thumb_active, scrollbar) = scrollbar_input(&mut state.motion, &mut ui, Axis::Vertical, size.height);
+        let movement = match scrollbar {
+            None => content_motion(
+                &mut state.motion,
+                &mut ui,
+                Axis::Vertical,
+                scroll_speed,
+                inertia_friction,
+                interaction,
+            ),
+            Some(_) => 0.0,
         };
         if viewport.is_none() {
             ui.request_frame();
         }
-        let movement = match kind {
-            ScrollKind::Content => value,
-            _ => 0.0,
-        };
         // treat large offsets into an unmeasured window as movement so the existing seek logic estimates the row
         if state.sample.is_empty() && state.within.to_f32().abs() > overscan.to_f32() {
             state.scroll_delta = state.within.endpoint(state.scroll_delta);
@@ -131,8 +101,8 @@ where
             + row.map_or(0.0, |row| {
                 (state.within.to_f32() / row.height.to_f32()).clamp(0.0, 1.0) as f64
             });
-        let seek = match (kind, value) {
-            (ScrollKind::Thumb, 0.0) | (ScrollKind::Content, _) => {
+        let seek = match scrollbar {
+            None | Some(ScrollbarInput::Idle | ScrollbarInput::Thumb(0.0)) => {
                 if delta.to_f32().abs() > overscan.to_f32()
                     && state.average > 0.0
                     && !row.zip(state.sample.last()).is_some_and(|(row, last)| {
@@ -145,7 +115,7 @@ where
                     None
                 }
             }
-            (ScrollKind::Thumb | ScrollKind::Track, _) => {
+            Some(ScrollbarInput::Thumb(value) | ScrollbarInput::Track(value)) => {
                 state.motion.remainder = 0.0;
                 let offset = row.map_or(C::Scalar::ZERO, |row| row.top.endpoint(state.within));
                 let (position, visible) = metrics(state, count, size.height, offset);
@@ -156,7 +126,7 @@ where
                 } else {
                     state.scrollbar.position
                 };
-                let position = if matches!(kind, ScrollKind::Track) {
+                let position = if matches!(scrollbar, Some(ScrollbarInput::Track(_))) {
                     value as f64 * maximum
                 } else {
                     (previous + value as f64 * maximum).clamp(0.0, maximum)
@@ -420,13 +390,6 @@ impl<T: Scalar> VirtualListState<T> {
     pub fn is_visible(&self, id: WidgetId) -> bool {
         self.sample[self.visible.clone()].iter().any(|row| row.id == id)
     }
-}
-
-#[derive(Clone, Copy)]
-enum ScrollKind {
-    Content,
-    Thumb,
-    Track,
 }
 
 struct Row<T> {

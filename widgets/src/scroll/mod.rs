@@ -274,7 +274,6 @@ fn update<C: Context>(
 ) -> (bool, bool) {
     let id = ui.current_widget_id();
     let content_id = id.child("content");
-    let thumb_id = id.child("scroll thumb");
     let viewport_known = if let Some(area) = ui.geometry(id) {
         state.viewport_extent = axis.extent(area.size());
         true
@@ -296,59 +295,93 @@ fn update<C: Context>(
     if motion.is_some() {
         state.request.target = Target::None;
     }
-    let thumb_interaction = ui.interact_widget(thumb_id, Sense::DRAG);
-    let track_id = id.child("scroll track");
-    let track_interaction = ui.interact_widget(track_id, Sense::DRAG);
     let maximum = state.maximum_offset();
-    let drag = thumb_interaction.drag.filter(|drag| drag.phase != Phase::Cancelled);
-    let track_drag = track_interaction.drag.filter(|drag| drag.phase != Phase::Cancelled);
-    if drag.is_some() || track_interaction.activated || track_drag.is_some() {
+    let (thumb_active, scrollbar) = scrollbar_input(&mut state.motion, ui, axis, state.viewport_extent);
+    if let Some(action) = scrollbar {
         state.request.target = Target::None;
-        if let Some((thumb, travel)) = thumb_travel(&mut state.motion, ui, axis, state.viewport_extent) {
-            if let Some(drag) = drag {
-                let delta = match axis {
-                    Axis::Horizontal => drag.delta.x.to_f32(),
-                    Axis::Vertical => drag.delta.y.to_f32(),
-                };
-                move_by(state, delta * maximum.to_f32() / travel);
-            } else if let Some((track, pointer)) = ui
-                .geometry(track_id)
-                .zip(track_drag.map(|drag| drag.position).or_else(|| ui.pointer_position()))
-            {
-                let position = match axis {
-                    Axis::Horizontal => (pointer.x - track.x).to_f32(),
-                    Axis::Vertical => (pointer.y - track.y).to_f32(),
-                };
-                state.offset = C::Scalar::from_f32((position - thumb / 2.0) * maximum.to_f32() / travel)
-                    .clamp(C::Scalar::ZERO, maximum);
+        match action {
+            ScrollbarInput::Thumb(delta) => move_by(state, delta * maximum.to_f32()),
+            ScrollbarInput::Track(position) => {
+                state.offset = C::Scalar::from_f32(position * maximum.to_f32()).clamp(C::Scalar::ZERO, maximum);
                 state.motion.remainder = 0.0;
             }
-            ui.request_frame();
+            ScrollbarInput::Idle => {}
         }
     } else {
         let delta = content_motion(&mut state.motion, ui, axis, scroll_speed, inertia_friction, interaction);
         move_by(state, delta);
     }
-    (thumb_interaction.active || track_interaction.active, viewport_known)
+    (thumb_active, viewport_known)
 }
 
-fn thumb_travel<C: Context>(
+enum ScrollbarInput {
+    Thumb(f32),
+    Track(f32),
+    Idle,
+}
+
+fn scrollbar_input<C: Context>(
     state: &mut Motion,
     ui: &mut Ui<'_, C>,
     axis: Axis,
     viewport_extent: C::Scalar,
-) -> Option<(f32, f32)> {
+) -> (bool, Option<ScrollbarInput>) {
+    let id = ui.current_widget_id();
+    let thumb_id = id.child("scroll thumb");
+    let track_id = id.child("scroll track");
+    let thumb = ui.interact_widget(thumb_id, Sense::DRAG);
+    let track = ui.interact_widget(track_id, Sense::DRAG);
+    let active = thumb.active || track.active;
+    let thumb_drag = thumb.drag.filter(|drag| drag.phase != Phase::Cancelled);
+    let track_drag = track.drag.filter(|drag| match drag.phase {
+        Phase::Cancelled => false,
+        Phase::Ended => match axis {
+            Axis::Horizontal => drag.delta.x != C::Scalar::ZERO,
+            Axis::Vertical => drag.delta.y != C::Scalar::ZERO,
+        },
+        _ => true,
+    });
+    if thumb_drag.is_none() && !track.activated && track_drag.is_none() {
+        return (active, None);
+    }
     state.last_frame = Some(ui.time());
-    let id = ui.current_widget_id().child("scroll thumb");
-    let extent = ui.geometry(id).map_or(C::Scalar::ZERO, |area| axis.extent(area.size()));
+    let extent = ui
+        .geometry(thumb_id)
+        .map_or(C::Scalar::ZERO, |area| axis.extent(area.size()));
     let travel = viewport_extent - extent;
     state.velocity = 0.0;
     state.tracking = false;
     if travel <= C::Scalar::ZERO {
-        return None;
+        return (active, Some(ScrollbarInput::Idle));
     }
     ui.request_frame();
-    Some((extent.to_f32(), travel.to_f32()))
+    let travel = travel.to_f32();
+    let action = match thumb_drag {
+        Some(drag) => {
+            let delta = match axis {
+                Axis::Horizontal => drag.delta.x,
+                Axis::Vertical => drag.delta.y,
+            };
+            ScrollbarInput::Thumb(delta.to_f32() / travel)
+        }
+        None => {
+            let pointer = match track_drag {
+                Some(drag) => Some(drag.position),
+                None => ui.pointer_position(),
+            };
+            match (ui.geometry(track_id), pointer) {
+                (Some(track), Some(pointer)) => {
+                    let position = match axis {
+                        Axis::Horizontal => pointer.x - track.x,
+                        Axis::Vertical => pointer.y - track.y,
+                    };
+                    ScrollbarInput::Track(((position.to_f32() - extent.to_f32() / 2.0) / travel).clamp(0.0, 1.0))
+                }
+                _ => ScrollbarInput::Idle,
+            }
+        }
+    };
+    (active, Some(action))
 }
 
 fn content_motion<C: Context>(
