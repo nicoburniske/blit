@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use blit::{
-    Atom, AtomCx, Axis, Constraints, Easing, Interaction, LogicalRect, Sense, Sides, Size, Transition, Widget, WidgetId,
+    Atom, AtomCx, Axis, Constraints, Easing, Id, Interaction, LogicalRect, Sense, Sides, Size, Transition, Widget,
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 #[cfg(not(feature = "gpu"))]
@@ -302,7 +302,7 @@ impl Widget<DesktopContext> for &mut TextPage {
         let mut body = ui.layout(flex::row());
         body.child()
             .item(flex::item().grow())
-            .widget_id(WidgetId::new("text page split"))
+            .id(Id::new("text page split"))
             .build(split(
                 split_state,
                 sz::SIDEBAR,
@@ -400,7 +400,7 @@ impl Widget<DesktopContext> for &mut TextPage {
                                 .background(colors::TRACK)
                                 .radius(BorderRadius::uniform(sz::XS)),
                         );
-                        viewport.child().widget_id(WidgetId::new("rich text preview")).build(
+                        viewport.child().id(Id::new("rich text preview")).build(
                             Resize::new(resize)
                                 .initial(Size::new(560.0, 360.0))
                                 .minimum(Size::new(260.0, 160.0))
@@ -462,7 +462,7 @@ impl Widget<DesktopContext> for &mut InputPage {
                     .border(Border::solid(sz::BORDER, colors::BORDER))
                     .radius(BorderRadius::uniform(sz::XS)),
             );
-            field.child().widget_id(WidgetId::new("desktop text input")).build(
+            field.child().id(Id::new("desktop text input")).build(
                 TextInput::new(&mut self.state, &mut self.value)
                     .style(TextStyle {
                         size: sz::LG,
@@ -509,7 +509,7 @@ impl Widget<DesktopContext> for &mut LayoutPage {
         let unit = Size::uniform(sz::SM);
         let preview_config = *canvas;
         let mut body = ui.layout(flex::row());
-        body.child().item(flex::item().grow()).widget_id(WidgetId::new("layout page split")).build(
+        body.child().item(flex::item().grow()).id(Id::new("layout page split")).build(
             split(
                 split_state,
                 sz::SIDEBAR,
@@ -674,7 +674,7 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                         let initial = (screen - sz::CANVAS_INITIAL_OFFSET)
                             .max(sz::CANVAS_INITIAL_MIN)
                             * sz::CANVAS_INITIAL_SCALE;
-                        viewport.child().widget_id(WidgetId::new("layout canvas")).build(
+                        viewport.child().id(Id::new("layout canvas")).build(
                             Resize::new(resize).initial(initial)
                                     .minimum(sz::CANVAS_MIN)
                                     .grip_size(Size::uniform(sz::MD)).content(Canvas {
@@ -740,7 +740,7 @@ impl Widget<DesktopContext> for &mut StylesPage {
         let shadow_spread = *spread;
         let shadow_offset = *offset;
         let mut body = ui.layout(flex::row());
-        body.child().item(flex::item().grow()).widget_id(WidgetId::new("styles page split")).build(
+        body.child().item(flex::item().grow()).id(Id::new("styles page split")).build(
             split(
                 split_state,
                 sz::SIDEBAR,
@@ -996,7 +996,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                     .inertia_friction(3.0)
                     .scrollbar_thickness(sz::XS)
                     .minimum_thumb_extent(sz::XXL)
-                    .widget_id(|index| WidgetId::new(("desktop scroll row", *index)))
+                    .id(|index| Id::new(("desktop scroll row", *index)))
                     .item(row)
                     .clip(BoundsClip)
                     .track(scroll_track())
@@ -1010,7 +1010,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                     .inertia_friction(3.0)
                     .scrollbar_thickness(sz::XS)
                     .minimum_thumb_extent(sz::XS)
-                    .widget_id(|index| WidgetId::new(("desktop scroll row", index)))
+                    .id(|index| Id::new(("desktop scroll row", index)))
                     .item(row)
                     .clip(BoundsClip)
                     .track(scroll_track())
@@ -1235,7 +1235,7 @@ fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, optio
         for (index, &(option, value)) in options.iter().enumerate() {
             let clicked = values
                 .child()
-                .widget_id(WidgetId::new((label, index)))
+                .id(Id::new((label, index)))
                 .build(Button::new(option, *selected == value));
             if clicked {
                 *selected = value;
@@ -1258,7 +1258,7 @@ impl Widget<DesktopContext> for Canvas {
             .background(colors::CANVAS)
             .border(Border::solid(sz::BORDER_STRONG, colors::CANVAS_BORDER))
             .radius(BorderRadius::uniform(sz::XS));
-        let ui = ui.widget_id(WidgetId::new("desktop canvas"));
+        let ui = ui.id(Id::new("desktop canvas"));
         match self.config.layout {
             CanvasLayout::Flex => {
                 let mut canvas = ui
@@ -1340,7 +1340,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .radius(BorderRadius::uniform(sz::XXS)),
     );
     let mut item = if config.transitions {
-        item.widget_id(WidgetId::new(("canvas item", index))).transition(
+        item.id(Id::new(("canvas item", index))).transition(
             Transition::new(Duration::from_millis(320))
                 .easing(Easing::EaseOutQuad)
                 .layout(),
@@ -1358,7 +1358,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     );
     if let Some(anchor) = spec.badge {
         item.child()
-            .parent(WidgetId::new("desktop canvas"))
+            .parent(Id::new("desktop canvas"))
             .z_index(1)
             .build(|ui: Ui<'_>| {
                 let mut badge = ui.layout(
@@ -1482,11 +1482,7 @@ mod graphics {
 
         fn build(self, mut ui: Ui<'_>) {
             if self.running {
-                self.phase = ui.animate_loop(
-                    WidgetId::new("terrain flyover"),
-                    Duration::from_secs(12),
-                    Easing::Linear,
-                );
+                self.phase = ui.animate_loop(Id::new("terrain flyover"), Duration::from_secs(12), Easing::Linear);
             }
             let (columns, rows) = match self.detail {
                 Detail::Low => (64, 36),
@@ -1494,10 +1490,7 @@ mod graphics {
                 Detail::High => (256, 144),
             };
 
-            let mut stage = ui
-                .layout(single::new())
-                .widget_id(WidgetId::new("terrain stage"))
-                .clip(BoundsClip);
+            let mut stage = ui.layout(single::new()).id(Id::new("terrain stage")).clip(BoundsClip);
             stage.insert(Rectangle::new().background(SKY));
             stage.insert(Terrain {
                 columns,

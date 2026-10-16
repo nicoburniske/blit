@@ -7,12 +7,12 @@ use std::{
 };
 
 use blit::{
-    Atom, AtomCx, Clip, Constraints, Context, Direction, Easing, Frame, FrameInfo, Input, Interaction, Layout,
+    Atom, AtomCx, Clip, Constraints, Context, Direction, Easing, Frame, FrameInfo, Id, Input, Interaction, Layout,
     LayoutCx, Modifiers, NodeTarget,
     Phase::{Cancelled, Changed, Ended, Started},
     Point, PointerButton, Rect, Scalar, ScrollPhase, Sense, Size, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
-    Transition, Widget, WidgetId,
+    Transition, Widget,
 };
 
 mod animation;

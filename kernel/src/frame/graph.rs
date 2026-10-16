@@ -15,8 +15,8 @@ pub struct Frame<C: Context> {
     resolved_clips: Vec<ResolvedClip<C::Scalar>>,
     active_clips: Vec<ResolvedClipId>,
     interaction: interaction::InteractionState<C::Scalar>,
-    geometry_previous: Vec<(WidgetId, Rect<C::Scalar>)>,
-    requests: HashMap<WidgetId, Request, BuildHasherDefault<WidgetIdHasher>>,
+    geometry_previous: Vec<(Id, Rect<C::Scalar>)>,
+    requests: HashMap<Id, Request, BuildHasherDefault<IdHasher>>,
     animations: Vec<animation::AnimationState>,
     transitions: Vec<transition::TransitionState<C::Scalar>>,
     target_sizes: Vec<TargetSize<C::Scalar>>,
@@ -27,7 +27,7 @@ pub struct Frame<C: Context> {
     resized: bool,
     frame_requested: bool,
     #[cfg(debug_assertions)]
-    widget_ids: std::collections::HashSet<WidgetId>,
+    widget_ids: std::collections::HashSet<Id>,
 }
 
 #[derive(Clone, Copy)]
@@ -37,9 +37,9 @@ enum Request {
 }
 
 #[derive(Default)]
-struct WidgetIdHasher(u64);
+struct IdHasher(u64);
 
-impl Hasher for WidgetIdHasher {
+impl Hasher for IdHasher {
     fn finish(&self) -> u64 {
         self.0
     }
@@ -49,7 +49,7 @@ impl Hasher for WidgetIdHasher {
     }
 
     fn write(&mut self, _: &[u8]) {
-        unreachable!("WidgetId hashes one u64")
+        unreachable!("Id hashes one u64")
     }
 }
 
@@ -141,7 +141,7 @@ impl<C: Context> Frame<C> {
             self.frame_requested = true;
         }
 
-        let id = WidgetId::new("blit frame root");
+        let id = Id::new("blit frame root");
         let root = self.push_node(None, id);
         let mut scratch = std::mem::take(&mut self.scratch);
         scratch.prepare_scratch();
@@ -204,7 +204,7 @@ impl<C: Context> Frame<C> {
     }
 
     /// returns geometry from the current frame after layout
-    pub fn geometry(&self, id: WidgetId) -> Option<Rect<C::Scalar>> {
+    pub fn geometry(&self, id: Id) -> Option<Rect<C::Scalar>> {
         self.nodes
             .iter()
             .enumerate()
@@ -260,7 +260,7 @@ impl<C: Context> Frame<C> {
         id
     }
 
-    fn push_node(&mut self, parent: Option<NodeId>, widget_id: WidgetId) -> NodeId {
+    fn push_node(&mut self, parent: Option<NodeId>, widget_id: Id) -> NodeId {
         let id = NodeId::new(self.nodes.len());
         self.nodes.push(StoredNode {
             widget_id,
@@ -372,7 +372,7 @@ mod generation {
 }
 
 struct StoredNode {
-    widget_id: WidgetId,
+    widget_id: Id,
     parent: NodeId,
     visual_parent: NodeId,
     subtree_end: u32,

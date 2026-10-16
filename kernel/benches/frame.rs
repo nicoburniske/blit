@@ -1,8 +1,6 @@
 use std::{hint::black_box, time::Duration};
 
-use blit::{
-    Constraints, Frame, FrameInfo, Input, Layout, LayoutCx, Point, Sense, Size, Transition, Ui, WidgetId, state,
-};
+use blit::{Constraints, Frame, FrameInfo, Id, Input, Layout, LayoutCx, Point, Sense, Size, Transition, Ui, state};
 
 #[global_allocator]
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
@@ -26,7 +24,7 @@ fn build_explicit_ids(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
         build(&mut frame, count, |ui, index| {
-            ui.widget_id(WidgetId::new(index)).insert(());
+            ui.id(Id::new(index)).insert(());
         })
     });
 }
@@ -54,7 +52,7 @@ fn build_transitions(bencher: divan::Bencher, count: usize) {
 #[divan::bench(args = [100, 1000])]
 fn build_named_parent(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
-    let id = WidgetId::new("bench root");
+    let id = Id::new("bench root");
     bencher.bench_local(|| {
         build(&mut frame, count, |ui, _| {
             ui.parent(id).insert(());
@@ -97,11 +95,11 @@ fn build_geometry_and_layout(bencher: divan::Bencher, count: usize) {
             Input::None,
             |mut ui: Ui<'_, ()>| {
                 for index in 0..10 {
-                    black_box(ui.geometry(WidgetId::new(index)));
+                    black_box(ui.geometry(Id::new(index)));
                 }
                 let mut root = ui.layout(Stack);
                 for index in 0..count {
-                    root.child().widget_id(WidgetId::new(index)).insert(());
+                    root.child().id(Id::new(index)).insert(());
                 }
             },
         );
@@ -117,7 +115,7 @@ fn build(frame: &mut Frame<()>, count: usize, mut child: impl for<'a> FnMut(Ui<'
         Duration::ZERO,
         Input::None,
         |ui: Ui<'_, ()>| {
-            let mut root = ui.widget_id(WidgetId::new("bench root")).layout(Stack);
+            let mut root = ui.id(Id::new("bench root")).layout(Stack);
             for index in 0..count {
                 child(root.child(), index);
             }

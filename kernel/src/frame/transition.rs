@@ -6,7 +6,7 @@ use crate::{
     animation::{Transition, TransitionProperties},
     arena::DataArena,
     geometry::{Constraints, Rect, Size},
-    interact::WidgetId,
+    interact::Id,
 };
 
 /// resolves transitions against the frame's target layout
@@ -111,7 +111,7 @@ pub fn resolve<C: Context>(
 }
 
 pub struct TransitionState<T> {
-    pub id: WidgetId,
+    pub id: Id,
     pub current: Rect<T>,
     pub initial: Rect<T>,
     pub target: Rect<T>,
@@ -124,7 +124,7 @@ pub struct TransitionState<T> {
 }
 
 impl<T: Scalar> TransitionState<T> {
-    pub fn new(id: WidgetId, node: NodeId, config: Transition) -> Self {
+    pub fn new(id: Id, node: NodeId, config: Transition) -> Self {
         Self {
             id,
             current: Rect::default(),

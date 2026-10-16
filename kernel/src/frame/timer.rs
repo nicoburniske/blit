@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use crate::interact::WidgetId;
+use crate::interact::Id;
 
 pub struct TimerState {
-    pub id: WidgetId,
+    pub id: Id,
     pub deadline: Duration,
     pub interval: Option<Duration>,
     pub seen: bool,
@@ -13,7 +13,7 @@ pub struct TimerState {
 impl TimerState {
     pub fn update(
         timers: &mut Vec<Self>,
-        id: WidgetId,
+        id: Id,
         duration: Duration,
         interval: Option<Duration>,
         now: Duration,
@@ -24,7 +24,7 @@ impl TimerState {
             timers.push(Self::new(id, duration, interval, now));
             timers.last_mut().unwrap()
         };
-        assert!(!timer.seen, "duplicate timer WidgetId {id:?}");
+        assert!(!timer.seen, "duplicate timer Id {id:?}");
         timer.advance(duration, interval, now)
     }
 
@@ -34,7 +34,7 @@ impl TimerState {
 }
 
 impl TimerState {
-    fn new(id: WidgetId, duration: Duration, interval: Option<Duration>, now: Duration) -> Self {
+    fn new(id: Id, duration: Duration, interval: Option<Duration>, now: Duration) -> Self {
         Self {
             id,
             deadline: now.saturating_add(duration),

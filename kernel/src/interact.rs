@@ -10,10 +10,10 @@ use crate::{geometry::Point, hash::FxHasher, macros::flags};
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WidgetId(NonZeroU64);
+pub struct Id(NonZeroU64);
 
-impl WidgetId {
-    /// creates an absolute widget id from a stable value
+impl Id {
+    /// creates an absolute id from a stable value
     pub fn new(source: impl Hash) -> Self {
         let mut hasher = FxHasher::default();
         source.hash(&mut hasher);

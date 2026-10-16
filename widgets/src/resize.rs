@@ -41,7 +41,7 @@ where
         let state = self.state;
         let content = self.content;
         let mut grip = self.grip;
-        let id = ui.current_widget_id();
+        let id = ui.current_id();
         let right_id = id.child("right grip");
         let bottom_id = id.child("bottom grip");
         let corner_id = id.child("corner grip");
@@ -81,7 +81,7 @@ where
             shell
                 .child()
                 .item(item)
-                .widget_id(grip_id)
+                .id(grip_id)
                 .build(grip(ResizeGrip { edge, interaction }));
         }
     }

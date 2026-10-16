@@ -180,15 +180,15 @@ fn contacts() {
 
 #[test]
 fn routing() {
-    let ids = ["back", "scroll", "button"].map(WidgetId::new);
+    let ids = ["back", "scroll", "button"].map(Id::new);
     let scene = |ui: Ui<'_>| {
-        let mut back = ui.widget_id(ids[0]);
+        let mut back = ui.id(ids[0]);
         let back_response = back.interact(Sense::SWIPE_X);
         let mut back = back.layout(Rects);
-        let mut scroll = back.child().item(Rect::new(0.0, 0.0, 200.0, 200.0)).widget_id(ids[1]);
+        let mut scroll = back.child().item(Rect::new(0.0, 0.0, 200.0, 200.0)).id(ids[1]);
         let scroll_response = scroll.interact(Sense::SCROLL_Y | Sense::DRAG_Y);
         let mut scroll = scroll.layout(Rects);
-        let mut button = scroll.child().item(Rect::new(0.0, 0.0, 200.0, 200.0)).widget_id(ids[2]);
+        let mut button = scroll.child().item(Rect::new(0.0, 0.0, 200.0, 200.0)).id(ids[2]);
         [back_response, scroll_response, button.interact(Sense::CLICK)]
     };
     // movement chooses the interested ancestor

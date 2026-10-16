@@ -1,6 +1,6 @@
 use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
-use blit::{Axis, Easing, Input, Interaction, Key, Scalar, Sense, Sides, Size, Transition, Widget, WidgetId};
+use blit::{Axis, Easing, Id, Input, Interaction, Key, Scalar, Sense, Sides, Size, Transition, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiContext, Ui,
@@ -53,7 +53,7 @@ impl Demo {
     fn show(&mut self, mut ui: Ui<'_>) {
         let escape = matches!(ui.input(), Input::Key(key)
             if key.key == Key::Escape && key.pressed && !key.repeat);
-        let input_focused = ui.is_focused(WidgetId::new("tui text input"));
+        let input_focused = ui.is_focused(Id::new("tui text input"));
         if !self.modal.open && !input_focused && (escape || matches!(ui.input(), Input::Text('q'))) {
             ui.context_mut().quit();
             return;
@@ -191,7 +191,7 @@ impl Widget<TuiContext> for &mut Modal {
             self.open = true;
             self.palette.open = false;
         }
-        let backdrop_id = WidgetId::new("tui modal backdrop");
+        let backdrop_id = Id::new("tui modal backdrop");
         if self.open && root.interact_widget(backdrop_id, Sense::ALL).clicked {
             self.open = false;
         }
@@ -204,13 +204,13 @@ impl Widget<TuiContext> for &mut Modal {
             (" orchid ", Color::Rgb(205, 155, 255)),
         ];
         let (_, accent) = palettes[self.accent];
-        let panel_id = WidgetId::new("tui modal panel");
+        let panel_id = Id::new("tui modal panel");
         root.interact_widget(panel_id, Sense::ALL);
         let mut modal = root
             .child()
             .parent(blit::NodeTarget::Root)
             .z_index(1)
-            .widget_id(backdrop_id)
+            .id(backdrop_id)
             .layout(
                 absolute::place(())
                     .target(blit::NodeTarget::Root)
@@ -218,7 +218,7 @@ impl Widget<TuiContext> for &mut Modal {
                     .height(absolute::Sizing::full()),
             );
         modal.insert(Tint::new([0, 0, 0], if self.dim { 180 } else { 80 }));
-        let mut panel = modal.child().widget_id(panel_id).layout(
+        let mut panel = modal.child().id(panel_id).layout(
             absolute::place(flex::column().padding(Sides::all(1)).gap(1))
                 .target_anchor(Anchor::Center)
                 .child_anchor(Anchor::Center),
@@ -259,7 +259,7 @@ impl Widget<TuiContext> for &mut Modal {
                     for (index, (name, _)) in palettes.into_iter().enumerate() {
                         if menu
                             .child()
-                            .widget_id(WidgetId::new(("tui modal palette", index)))
+                            .id(Id::new(("tui modal palette", index)))
                             .build(Button::new(name, self.accent == index))
                         {
                             selected = Some(index);
@@ -308,7 +308,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
         let mut body = ui.layout(flex::row());
         body.child()
             .item(flex::item().grow())
-            .widget_id(WidgetId::new("tui layout page split"))
+            .id(Id::new("tui layout page split"))
             .build(split(
                 split_state,
                 40,
@@ -456,7 +456,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
                             .layout(single::new().padding(Sides::all(1)))
                             .clip(BoundsClip);
                         viewport.insert(Block::new().background(colors::TRACK));
-                        viewport.child().widget_id(WidgetId::new("tui layout canvas")).build(
+                        viewport.child().id(Id::new("tui layout canvas")).build(
                             Resize::new(resize)
                                 .initial(Size::new(64, 16))
                                 .minimum(Size::new(18, 9))
@@ -525,7 +525,7 @@ impl Widget<TuiContext> for &mut TextPage {
         let preview_vertical = *text_vertical;
         let preview_max_lines = *text_max_lines;
         let mut body = ui.layout(flex::row());
-        body.child().item(flex::item().grow()).widget_id(WidgetId::new("tui text page split")).build(split(
+        body.child().item(flex::item().grow()).id(Id::new("tui text page split")).build(split(
             split_state,
             40,
             |ui: Ui<'_>| {
@@ -559,7 +559,7 @@ impl Widget<TuiContext> for &mut TextPage {
                         let selected = text_attributes.contains(attribute);
                         if toggles
                             .child()
-                            .widget_id(WidgetId::new(("tui text attribute", index)))
+                            .id(Id::new(("tui text attribute", index)))
                             .build(Button::new(label, selected))
                         {
                             text_attributes.set(attribute, !selected);
@@ -635,7 +635,7 @@ impl Widget<TuiContext> for &mut TextPage {
                         .layout(single::new().width(Sizing::grow()).height(Sizing::fixed(3)));
                     input_preview.insert(panel(colors::SURFACE, " TEXT INPUT "));
                     input_preview
-                        .child().widget_id(WidgetId::new("tui text input"))
+                        .child().id(Id::new("tui text input"))
                         .build(
                             TextInput::new(input_state, input)
                                 .placeholder("type here")
@@ -671,7 +671,7 @@ impl Widget<TuiContext> for &mut TextPage {
                     if let Some(max_lines) = preview_max_lines {
                         options = options.max_lines(max_lines);
                     }
-                    viewport.child().widget_id(WidgetId::new("tui text preview")).build(
+                    viewport.child().id(Id::new("tui text preview")).build(
                         Resize::new(text_resize).initial(Size::new(64, 16))
                                 .minimum(Size::new(12, 6))
                                 .maximum(screen_size).content(|ui: Ui<'_>| {
@@ -750,7 +750,7 @@ impl Widget<TuiContext> for &mut BlocksPage {
         let mut body = ui.layout(flex::row());
         body.child()
             .item(flex::item().grow())
-            .widget_id(WidgetId::new("tui blocks page split"))
+            .id(Id::new("tui blocks page split"))
             .build(split(
                 split_state,
                 40,
@@ -853,11 +853,7 @@ impl Widget<TuiContext> for &mut AtomsPage {
     type Response = ();
 
     fn build(self, mut ui: Ui<'_>) {
-        let phase = ui.animate_loop(
-            WidgetId::new("tui atom animation"),
-            Duration::from_secs(3),
-            Easing::Linear,
-        );
+        let phase = ui.animate_loop(Id::new("tui atom animation"), Duration::from_secs(3), Easing::Linear);
         let ratio = (phase * std::f32::consts::TAU).sin() * 0.25 + 0.5;
         for (x, value) in self.sparkline.borrow_mut().iter_mut().enumerate() {
             *value = (((x as f32 * 0.24 + phase * std::f32::consts::TAU).sin() + 1.0) * 50.0) as u64;
@@ -867,12 +863,14 @@ impl Widget<TuiContext> for &mut AtomsPage {
         body.insert(panel(colors::SURFACE, " DIRECT CELL ATOMS "));
         body.child()
             .insert(Text::new("ratatui-style atoms paint into the resolved atom area").color(colors::TEXT_MUTED));
-        body.child().item(flex::item().width(Sizing::grow()).height(Sizing::fixed(1))).insert(
-            Gauge::new(ratio as f64)
-                .filled(colors::ACCENT)
-                .unfilled(colors::TRACK)
-                .label_color(colors::SURFACE),
-        );
+        body.child()
+            .item(flex::item().width(Sizing::grow()).height(Sizing::fixed(1)))
+            .insert(
+                Gauge::new(ratio as f64)
+                    .filled(colors::ACCENT)
+                    .unfilled(colors::TRACK)
+                    .label_color(colors::SURFACE),
+            );
         body.child().item(flex::item().height(Sizing::fixed(5))).insert(
             Sparkline::new(self.sparkline.clone())
                 .maximum(100)
@@ -943,7 +941,7 @@ impl Widget<TuiContext> for &mut ScrollPage {
                 .item_extent(item_extent)
                 .axis(axis)
                 .minimum_thumb_extent(4)
-                .widget_id(|row| WidgetId::new(("tui scroll row", row.1)))
+                .id(|row| Id::new(("tui scroll row", row.1)))
                 .item(move |ui, (index, item)| {
                     let layout = match axis {
                         Axis::Horizontal => flex::column().align(Align::Center).justify(Justify::Center),
@@ -1048,7 +1046,7 @@ fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, optio
         for (index, &(option, value)) in options.iter().enumerate() {
             let clicked = values
                 .child()
-                .widget_id(WidgetId::new((label, index)))
+                .id(Id::new((label, index)))
                 .build(Button::new(option, *selected == value));
             if clicked {
                 *selected = value;
@@ -1073,7 +1071,7 @@ impl Widget<TuiContext> for Canvas {
         let padding = self.config.padding(unit);
         let gap = |axis| self.config.gap(axis, unit);
         let item_sizing = |index| self.config.item_sizing(index, unit);
-        let ui = ui.widget_id(WidgetId::new("tui canvas"));
+        let ui = ui.id(Id::new("tui canvas"));
         match self.config.layout {
             CanvasLayout::Flex => {
                 let mut canvas = ui
@@ -1151,7 +1149,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     let mut item = ui.layout(flex::column().align(Align::Center).justify(Justify::Center));
     item.insert(Block::new().background(colors::ITEMS[index]));
     let mut item = if config.transitions {
-        item.widget_id(WidgetId::new(("tui canvas item", index))).transition(
+        item.id(Id::new(("tui canvas item", index))).transition(
             Transition::new(Duration::from_millis(320))
                 .easing(Easing::EaseOutQuad)
                 .layout(),
@@ -1166,7 +1164,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     );
     if let Some(anchor) = spec.badge {
         item.child()
-            .parent(WidgetId::new("tui canvas"))
+            .parent(Id::new("tui canvas"))
             .z_index(1)
             .build(|ui: Ui<'_>| {
                 let mut badge = ui.layout(

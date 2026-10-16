@@ -22,7 +22,7 @@ fn transitions() {
                         .item(gap)
                         .transition(Transition::new(Duration::from_secs(1)).height().y());
                     if named {
-                        child = child.widget_id(WidgetId::new("transition"));
+                        child = child.id(Id::new("transition"));
                     }
                     child.build_measured(
                         Constraints {
@@ -52,8 +52,8 @@ fn transitions() {
 #[test]
 fn animation_and_timers() {
     let (mut frame, mut context) = frame(Size::uniform(1.0));
-    let animation = WidgetId::new("animation");
-    let timer = WidgetId::new("timer");
+    let animation = Id::new("animation");
+    let timer = Id::new("timer");
     for (target, millis, expected, fired) in [(0.0, 0, 0.0, false), (1.0, 0, 0.0, false), (1.0, 500, 0.5, true)] {
         let result = render_inputs(
             &mut frame,

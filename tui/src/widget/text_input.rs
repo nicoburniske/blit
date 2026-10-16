@@ -40,7 +40,7 @@ impl<C: Context> Widget<C> for TextInput<'_> {
             cursor_background,
             attributes,
         } = self;
-        let id = ui.current_widget_id();
+        let id = ui.current_id();
         let interaction = ui.interact(Sense::FOCUS | Sense::DRAG);
         let input = *ui.input();
         match input {

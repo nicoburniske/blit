@@ -5,7 +5,7 @@ mod scroll;
 mod split;
 mod text_input;
 
-pub use blit::{Clip, Context, Ui, Widget, WidgetId, state};
+pub use blit::{Clip, Context, Id, Ui, Widget, state};
 pub use performance::{FrameProfiler, Stage};
 pub use popover::{Popover, PopoverClose, PopoverState};
 pub use resize::{Resize, ResizeEdge, ResizeGrip, ResizeState};

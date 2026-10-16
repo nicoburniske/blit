@@ -5,7 +5,7 @@ use crate::{
     Context, Direction, Drag, Interaction, InteractionConfig, Phase, Pinch, Rotation, Scalar, Scroll, TouchPhase,
     geometry::{Point, Rect, Sides},
     input::{Input, PointerButton, ScrollPhase},
-    interact::{Sense, WidgetId},
+    interact::{Id, Sense},
     macros::flags,
 };
 
@@ -57,11 +57,11 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
 #[derive(Default)]
 pub struct InteractionState<T> {
     pub config: InteractionConfig,
-    focused: Option<WidgetId>,
-    hovered: Option<WidgetId>,
+    focused: Option<Id>,
+    hovered: Option<Id>,
     position: Option<Point<T>>,
     mouse: Option<Press<T>>,
-    scroll_owner: Option<WidgetId>,
+    scroll_owner: Option<Id>,
     touches: Vec<Touch<T>>,
     transforms: Vec<Transform>,
     taps: Vec<Tap<T>>,
@@ -266,7 +266,7 @@ impl<T: Scalar> InteractionState<T> {
         })
     }
 
-    pub fn response(&self, id: WidgetId) -> Interaction<T> {
+    pub fn response(&self, id: Id) -> Interaction<T> {
         let mut response = self
             .responses
             .iter()
@@ -301,15 +301,15 @@ impl<T: Scalar> InteractionState<T> {
             .min()
     }
 
-    pub fn focused(&self) -> Option<WidgetId> {
+    pub fn focused(&self) -> Option<Id> {
         self.focused
     }
 
-    pub fn is_focused(&self, id: WidgetId) -> bool {
+    pub fn is_focused(&self, id: Id) -> bool {
         self.focused == Some(id)
     }
 
-    pub fn focus(&mut self, id: WidgetId) -> bool {
+    pub fn focus(&mut self, id: Id) -> bool {
         if self.focused == Some(id) {
             return false;
         }
@@ -531,7 +531,7 @@ impl<T: Scalar> InteractionState<T> {
         }
     }
 
-    fn update_transform(&mut self, owner: WidgetId, time: Duration, rebase: bool) {
+    fn update_transform(&mut self, owner: Id, time: Duration, rebase: bool) {
         let mut points = self
             .touches
             .iter()
@@ -685,7 +685,7 @@ impl<T: Scalar> InteractionState<T> {
         press.consumed = true;
     }
 
-    fn emit(&mut self, id: WidgetId) -> &mut StoredInteraction<T> {
+    fn emit(&mut self, id: Id) -> &mut StoredInteraction<T> {
         let index = self
             .responses
             .iter()
@@ -705,7 +705,7 @@ impl<T: Scalar> InteractionState<T> {
         self.hits.iter().rev().find(|hit| hit.area.contains(position)).copied()
     }
 
-    fn target(&self, anchor: Option<WidgetId>, position: Point<T>, sense: Sense) -> Option<HitItem<T>> {
+    fn target(&self, anchor: Option<Id>, position: Point<T>, sense: Sense) -> Option<HitItem<T>> {
         let node = anchor.and_then(|id| self.hits.iter().find(|hit| hit.id == id))?.node;
         self.hits
             .iter()
@@ -716,7 +716,7 @@ impl<T: Scalar> InteractionState<T> {
             .copied()
     }
 
-    fn is_target(&self, hit: &HitItem<T>, anchor: Option<WidgetId>, position: Point<T>) -> bool {
+    fn is_target(&self, hit: &HitItem<T>, anchor: Option<Id>, position: Point<T>) -> bool {
         hit.area.contains(position)
             && anchor
                 .and_then(|id| self.hits.iter().find(|hit| hit.id == id))
@@ -726,7 +726,7 @@ impl<T: Scalar> InteractionState<T> {
 
 #[derive(Clone, Copy)]
 struct HitItem<T> {
-    id: WidgetId,
+    id: Id,
     area: Rect<T>,
     sense: Sense,
     node: usize,
@@ -735,10 +735,10 @@ struct HitItem<T> {
 
 #[derive(Clone, Copy)]
 struct Press<T> {
-    anchor: Option<WidgetId>,
-    active: Option<WidgetId>,
+    anchor: Option<Id>,
+    active: Option<Id>,
     sense: Sense,
-    hold: Option<WidgetId>,
+    hold: Option<Id>,
     capture: Option<Capture>,
     origin: Point<T>,
     position: Point<T>,
@@ -760,14 +760,14 @@ struct Touch<T> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Capture {
     // drag, scroll or swipe
-    Single(WidgetId, Sense),
+    Single(Id, Sense),
     // grouped touches for pinch or rotation
-    Multi(WidgetId),
+    Multi(Id),
 }
 
 #[derive(Clone, Copy)]
 struct Transform {
-    owner: WidgetId,
+    owner: Id,
     sense: Sense,
     center: Point<f32>,
     span: f32,
@@ -778,7 +778,7 @@ struct Transform {
 
 #[derive(Clone, Copy)]
 struct Tap<T> {
-    id: WidgetId,
+    id: Id,
     time: Duration,
     position: Point<T>,
     touch: bool,
@@ -786,7 +786,7 @@ struct Tap<T> {
 
 #[derive(Clone, Copy)]
 struct StoredInteraction<T> {
-    id: WidgetId,
+    id: Id,
     motion: Motion<T>,
     scroll_delta: Point<f32>,
     motion_sense: Sense,
@@ -798,7 +798,7 @@ struct StoredInteraction<T> {
 }
 
 impl<T: Scalar> StoredInteraction<T> {
-    fn new(id: WidgetId) -> Self {
+    fn new(id: Id) -> Self {
         Self {
             id,
             motion: Motion::default(),

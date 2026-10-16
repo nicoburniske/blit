@@ -1,8 +1,6 @@
 use std::ops::Range;
 
-use blit::{
-    Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Sense, Size, Sizing, Ui, Widget, WidgetId,
-};
+use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Sense, Size, Sizing, Ui, Widget};
 
 use super::{Scrollbar, ScrollbarInput, ThumbProgress, content_motion, scrollbar_input};
 
@@ -21,7 +19,7 @@ blit::builder! {
         sense: Sense = Sense::SCROLL,
         scrollbar_thickness: C::Scalar = C::Scalar::from_f32(1.0),
         minimum_thumb_extent: C::Scalar = C::Scalar::from_f32(1.0),
-        widget_id<K: FnMut(usize) -> WidgetId = ()>: K = (),
+        id<K: FnMut(usize) -> Id = ()>: K = (),
         item<F: FnMut(Ui<'_, C>, usize) = ()>: F = (),
         clip<X = ()>: X = (),
         #[into]
@@ -33,7 +31,7 @@ blit::builder! {
 
 impl<C: Context, K, F, X, A, H, B> Widget<C> for VirtualList<'_, C, K, F, X, A, H>
 where
-    K: FnMut(usize) -> WidgetId,
+    K: FnMut(usize) -> Id,
     F: FnMut(Ui<'_, C>, usize),
     X: Clip<C>,
     A: Widget<C, blit::state::Node>,
@@ -53,13 +51,13 @@ where
             sense,
             scrollbar_thickness,
             minimum_thumb_extent,
-            widget_id,
+            id: mut item_id,
             item,
             clip,
             track,
             thumb,
         } = self;
-        let id = ui.current_widget_id();
+        let id = ui.current_id();
         let viewport = ui.geometry(id);
         let size = viewport.map_or(ui.screen().size(), |area| area.size());
         let overscan = size.height.repeat(VIEWPORTS);
@@ -185,14 +183,13 @@ where
                 within: anchor.within,
                 ..Window::default()
             };
-            let mut widget_id = widget_id;
             let mut item = item;
             let mut read_row = |index, window: &mut Window<C::Scalar>| {
-                let id = widget_id(index);
+                let id = item_id(index);
                 let (_, size) = content
                     .child()
                     .item(Item::Row(index))
-                    .widget_id(id)
+                    .id(id)
                     .build_measured(bounds, |ui: Ui<'_, C>| item(ui, index));
                 assert!(size.height.is_finite() && size.height > C::Scalar::ZERO);
                 state.sample.push(Row {
@@ -297,14 +294,14 @@ where
             content
                 .child()
                 .item(Item::Track(progress))
-                .widget_id(id.child("scroll track"))
+                .id(id.child("scroll track"))
                 .insert(track);
         }
         if let Some(thumb) = thumb {
             content
                 .child()
                 .item(Item::Thumb(progress))
-                .widget_id(id.child("scroll thumb"))
+                .id(id.child("scroll thumb"))
                 .insert(thumb);
         }
         let visible_range = first + state.visible.start..first + state.visible.end;
@@ -387,13 +384,13 @@ impl<T: Scalar> VirtualListState<T> {
         (self.first, self.within)
     }
 
-    pub fn is_visible(&self, id: WidgetId) -> bool {
+    pub fn is_visible(&self, id: Id) -> bool {
         self.sample[self.visible.clone()].iter().any(|row| row.id == id)
     }
 }
 
 struct Row<T> {
-    id: WidgetId,
+    id: Id,
     top: T,
     height: T,
 }
@@ -577,16 +574,16 @@ mod tests {
         for count in [Some(1_000_000), None] {
             let mut frame = Frame::default();
             let mut state = VirtualListState::default();
-            let tall = |index| (WidgetId::new(index), 10_000.0);
+            let tall = |index| (Id::new(index), 10_000.0);
             settle_frame(&mut frame, &mut state, count, tall);
             state.scroll_by(5_000.0);
             settle_frame(&mut frame, &mut state, count, tall);
             render_frame(&mut frame, &mut state, count, Input::None, |index| {
-                (WidgetId::new(index), 1.0)
+                (Id::new(index), 1.0)
             });
             assert!(state.sample.len() <= 101);
             assert_eq!(state.position().0, 1);
-            assert_eq!(frame.geometry(WidgetId::new(1usize)).unwrap().y, 0.0);
+            assert_eq!(frame.geometry(Id::new(1usize)).unwrap().y, 0.0);
             assert!(!frame.has_pending_redraw());
         }
     }
@@ -597,12 +594,12 @@ mod tests {
             let mut frame = Frame::default();
             let mut state = VirtualListState::default();
             state.scroll_by(5_000_000.0);
-            settle_frame(&mut frame, &mut state, count, |index| (WidgetId::new(index), 10.0));
+            settle_frame(&mut frame, &mut state, count, |index| (Id::new(index), 10.0));
             assert_eq!(state.position().0, 500_000);
             state.scroll_by(1.0);
             state.scroll_by(5.0);
             render_frame(&mut frame, &mut state, count, Input::None, |index| {
-                (WidgetId::new(index), 10.0)
+                (Id::new(index), 10.0)
             });
             let (index, offset) = state.position();
             assert_eq!(offset, 5.0);
@@ -614,15 +611,15 @@ mod tests {
                 Input::None,
                 |index| {
                     let id = if index == 0 {
-                        WidgetId::new("head")
+                        Id::new("head")
                     } else {
-                        WidgetId::new(index - 1)
+                        Id::new(index - 1)
                     };
                     (id, 10.0)
                 },
             );
             assert_eq!(state.position(), (500_001, 5.0));
-            assert!(state.is_visible(WidgetId::new(500_000usize)));
+            assert!(state.is_visible(Id::new(500_000usize)));
             assert_eq!(area.unwrap().y, -5.0);
         }
     }
@@ -640,7 +637,7 @@ mod tests {
             let mut frame = Frame::default();
             let mut state = VirtualListState::default();
             settle_frame(&mut frame, &mut state, count, |index| {
-                (WidgetId::new(index), heights[index % heights.len()])
+                (Id::new(index), heights[index % heights.len()])
             });
             for input in [
                 Input::PointerDown {
@@ -656,16 +653,16 @@ mod tests {
                 },
             ] {
                 render_frame(&mut frame, &mut state, count, input, |index| {
-                    (WidgetId::new(index), heights[index % heights.len()])
+                    (Id::new(index), heights[index % heights.len()])
                 });
             }
             if frame.has_pending_redraw() {
                 settle_frame(&mut frame, &mut state, count, |index| {
-                    (WidgetId::new(index), heights[index % heights.len()])
+                    (Id::new(index), heights[index % heights.len()])
                 });
             }
             if let Some(count) = count {
-                let area = frame.geometry(WidgetId::new(count - 1)).unwrap();
+                let area = frame.geometry(Id::new(count - 1)).unwrap();
                 assert_eq!(area.y + area.height, heights.iter().sum::<f32>().min(50.0));
             } else {
                 assert_eq!(state.position().0, 5);
@@ -678,7 +675,7 @@ mod tests {
     fn variable_rows_keep_the_thumb_moving_with_the_scroll() {
         let mut frame = Frame::default();
         let mut state = VirtualListState::default();
-        let row = |index| (WidgetId::new(index), [1.0, 1024.0, 16.0, 512.0][index % 4]);
+        let row = |index| (Id::new(index), [1.0, 1024.0, 16.0, 512.0][index % 4]);
         let mut previous = settle_frame(&mut frame, &mut state, None, row).1;
         for delta in [16.0, -16.0] {
             for _ in 0..400 {
@@ -704,10 +701,10 @@ mod tests {
             for (before, after) in [(1024.0, 16.0), (16.0, 1024.0)] {
                 let mut frame = Frame::default();
                 let mut state = VirtualListState::default();
-                let row = |index| (WidgetId::new(index), if index < 20 { before } else { after });
+                let row = |index| (Id::new(index), if index < 20 { before } else { after });
                 state.scroll_to(20, 0.0);
                 settle_frame(&mut frame, &mut state, count, row);
-                let key = WidgetId::new(20usize);
+                let key = Id::new(20usize);
                 let y = frame.geometry(key).unwrap().y;
                 state.scroll_by(-20.0);
                 render_frame(&mut frame, &mut state, count, Input::None, row);
@@ -725,7 +722,7 @@ mod tests {
         frame: &mut Frame<TestContext>,
         state: &mut VirtualListState<f32>,
         count: Option<usize>,
-        row: impl Fn(usize) -> (WidgetId, f32),
+        row: impl Fn(usize) -> (Id, f32),
     ) -> (Option<Rect<f32>>, Rect<f32>) {
         for _ in 0..8 {
             let result = render_frame(frame, state, count, Input::None, &row);
@@ -741,7 +738,7 @@ mod tests {
         state: &mut VirtualListState<f32>,
         count: Option<usize>,
         input: Input<f32>,
-        row: impl Fn(usize) -> (WidgetId, f32),
+        row: impl Fn(usize) -> (Id, f32),
     ) -> (Option<Rect<f32>>, Rect<f32>) {
         let thumb_id = frame.build(
             &mut TestContext,
@@ -749,14 +746,14 @@ mod tests {
             Duration::ZERO,
             input,
             |ui: Ui<'_, TestContext>| {
-                let thumb_id = ui.current_widget_id().child("scroll thumb");
+                let thumb_id = ui.current_id().child("scroll thumb");
                 ui.build(
                     VirtualList::new(state)
                         .count(count)
                         .clip(TestClip)
                         .track(())
                         .thumb(|_| ())
-                        .widget_id(|index| row(index).0)
+                        .id(|index| row(index).0)
                         .item(|ui, index| {
                             ui.layout(blit_layout::single::new().fixed(79.0, row(index).1));
                         }),

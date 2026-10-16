@@ -22,7 +22,7 @@ use crate::{
     arena::{DataArena, DataId, Scratch},
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::Input,
-    interact::{Interaction, Sense, WidgetId},
+    interact::{Id, Interaction, Sense},
     layout::Layout,
 };
 
@@ -55,7 +55,7 @@ pub struct Ui<'ui, C: Context, S = state::Build> {
 
 impl<'ui, C: Context, S> Ui<'ui, C, S> {
     /// identifies this node for references within the current render
-    pub fn id(&self) -> NodeId {
+    pub fn node_id(&self) -> NodeId {
         self.inner.node
     }
 
@@ -65,10 +65,10 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         self
     }
 
-    /// returns this node's widget id
+    /// returns this node's stable id
     ///
     /// without an explicit id, it derives from the parent's id and child position
-    pub fn current_widget_id(&self) -> WidgetId {
+    pub fn current_id(&self) -> Id {
         self.inner.frame.nodes[self.inner.node.index()].widget_id
     }
 
@@ -131,8 +131,8 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
 }
 
 impl<'ui, C: Context> Ui<'ui, C, state::Build> {
-    /// assigns an absolute widget id before this node is given children
-    pub fn widget_id(mut self, id: WidgetId) -> Self {
+    /// assigns an absolute id before this node is given children
+    pub fn id(mut self, id: Id) -> Self {
         self.inner.set_widget_id(id);
         self
     }
@@ -175,8 +175,8 @@ impl<'ui, C: Context> Ui<'ui, C, state::Build> {
 }
 
 impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
-    /// assigns an absolute widget id before this node is given children
-    pub fn widget_id(mut self, id: WidgetId) -> Self {
+    /// assigns an absolute id before this node is given children
+    pub fn id(mut self, id: Id) -> Self {
         self.inner.set_widget_id(id);
         self
     }
@@ -224,8 +224,8 @@ impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
 }
 
 impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
-    /// assigns an absolute widget id before this node is given children
-    pub fn widget_id(mut self, id: WidgetId) -> Self {
+    /// assigns an absolute id before this node is given children
+    pub fn id(mut self, id: Id) -> Self {
         self.inner.set_widget_id(id);
         self
     }
@@ -240,7 +240,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 
 impl<C: Context, S> Ui<'_, C, S> {
     /// returns previous frame geometry and tracks this id for the next layout
-    pub fn geometry(&mut self, id: WidgetId) -> Option<Rect<C::Scalar>> {
+    pub fn geometry(&mut self, id: Id) -> Option<Rect<C::Scalar>> {
         self.inner.frame.requests.entry(id).or_insert(Request::Geometry);
         let geometry = &self.inner.frame.geometry_previous;
         geometry
@@ -251,13 +251,13 @@ impl<C: Context, S> Ui<'_, C, S> {
 
     /// requests interaction for this node using its widget id
     pub fn interact(&mut self, sense: Sense) -> Interaction<C::Scalar> {
-        self.interact_widget(self.current_widget_id(), sense)
+        self.interact_widget(self.current_id(), sense)
     }
 
     /// requests interaction for a node assigned this exact widget id
     ///
     /// the node may be built later
-    pub fn interact_widget(&mut self, id: WidgetId, sense: Sense) -> Interaction<C::Scalar> {
+    pub fn interact_widget(&mut self, id: Id, sense: Sense) -> Interaction<C::Scalar> {
         let frame = &mut *self.inner.frame;
         frame
             .requests
@@ -293,23 +293,23 @@ impl<C: Context, S> Ui<'_, C, S> {
     /// returns the focused widget in this node's built subtree including this node
     ///
     /// call after building children to include them. follows structural parenting.
-    pub fn focused(&self) -> Option<WidgetId> {
+    pub fn focused(&self) -> Option<Id> {
         let focused = self.inner.frame.interaction.focused()?;
         self.contains_widget(focused).then_some(focused)
     }
 
     /// checks this node and its children already built in the current frame
-    pub fn contains_widget(&self, id: WidgetId) -> bool {
+    pub fn contains_widget(&self, id: Id) -> bool {
         self.inner.frame.nodes[self.inner.node.index()..]
             .iter()
             .any(|node| node.widget_id == id)
     }
 
-    pub fn is_focused(&self, id: WidgetId) -> bool {
+    pub fn is_focused(&self, id: Id) -> bool {
         self.inner.frame.interaction.is_focused(id)
     }
 
-    pub fn focus(&mut self, id: WidgetId) {
+    pub fn focus(&mut self, id: Id) {
         if self.inner.frame.interaction.focus(id) {
             self.inner.frame.request_frame();
         }
@@ -333,26 +333,26 @@ impl<C: Context, S> Ui<'_, C, S> {
         self.inner.frame.time
     }
 
-    pub fn animate(&mut self, id: WidgetId, target: f32, duration: Duration, easing: Easing) -> f32 {
+    pub fn animate(&mut self, id: Id, target: f32, duration: Duration, easing: Easing) -> f32 {
         let frame = &mut *self.inner.frame;
         animation::AnimationState::update(&mut frame.animations, id, target, |animation| {
             animation.advance(target, duration, easing, frame.time)
         })
     }
 
-    pub fn animate_loop(&mut self, id: WidgetId, duration: Duration, easing: Easing) -> f32 {
+    pub fn animate_loop(&mut self, id: Id, duration: Duration, easing: Easing) -> f32 {
         let frame = &mut *self.inner.frame;
         animation::AnimationState::update(&mut frame.animations, id, 0.0, |animation| {
             animation.advance_loop(duration, easing, frame.time)
         })
     }
 
-    pub fn timer(&mut self, id: WidgetId, duration: Duration) -> bool {
+    pub fn timer(&mut self, id: Id, duration: Duration) -> bool {
         let frame = &mut *self.inner.frame;
         timer::TimerState::update(&mut frame.timers, id, duration, None, frame.time)
     }
 
-    pub fn timer_loop(&mut self, id: WidgetId, duration: Duration) -> bool {
+    pub fn timer_loop(&mut self, id: Id, duration: Duration) -> bool {
         assert!(!duration.is_zero(), "looping timer duration must be nonzero");
         let frame = &mut *self.inner.frame;
         timer::TimerState::update(&mut frame.timers, id, duration, Some(duration), frame.time)
@@ -390,13 +390,13 @@ pub enum NodeTarget {
     /// an earlier node in the current render
     Node(NodeId),
     /// an earlier node whose unique widget id is already assigned
-    Widget(WidgetId),
+    Widget(Id),
     /// the frame root
     Root,
 }
 
-impl From<WidgetId> for NodeTarget {
-    fn from(id: WidgetId) -> Self {
+impl From<Id> for NodeTarget {
+    fn from(id: Id) -> Self {
         Self::Widget(id)
     }
 }
@@ -423,7 +423,7 @@ struct UiInner<'ui, C: Context> {
 }
 
 impl<C: Context> UiInner<'_, C> {
-    fn set_widget_id(&mut self, id: WidgetId) {
+    fn set_widget_id(&mut self, id: Id) {
         assert_eq!(
             self.next_child, 0,
             "a widget id must be assigned before children are built"

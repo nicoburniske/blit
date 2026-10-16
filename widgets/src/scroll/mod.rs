@@ -5,8 +5,8 @@ mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Context, Easing, Interaction, Layout, LayoutCx, NodeId, Phase, Point, Scalar, Scroll,
-    Sense, Size, Sizing, Ui, Widget, WidgetId,
+    Axis, Clip, Constraints, Context, Easing, Id, Interaction, Layout, LayoutCx, NodeId, Phase, Point, Scalar, Scroll,
+    Sense, Size, Sizing, Ui, Widget,
 };
 
 pub use self::{
@@ -58,7 +58,7 @@ impl<T: Scalar> ScrollState<T> {
     }
 
     /// queues a child or list row to reveal within the viewport
-    pub fn scroll_to_widget(&mut self, id: WidgetId, animation: Option<(Duration, Easing)>) {
+    pub fn scroll_to_widget(&mut self, id: Id, animation: Option<(Duration, Easing)>) {
         self.stop();
         self.request = Request {
             target: Target::Widget(id),
@@ -104,7 +104,7 @@ enum Target<T> {
     #[default]
     None,
     Offset(T),
-    Widget(WidgetId),
+    Widget(Id),
 }
 
 #[derive(Clone, Copy)]
@@ -272,7 +272,7 @@ fn update<C: Context>(
     scroll_speed: f32,
     inertia_friction: f32,
 ) -> (bool, bool) {
-    let id = ui.current_widget_id();
+    let id = ui.current_id();
     let content_id = id.child("content");
     let viewport_known = if let Some(area) = ui.geometry(id) {
         state.viewport_extent = axis.extent(area.size());
@@ -326,7 +326,7 @@ fn scrollbar_input<C: Context>(
     axis: Axis,
     viewport_extent: C::Scalar,
 ) -> (bool, Option<ScrollbarInput>) {
-    let id = ui.current_widget_id();
+    let id = ui.current_id();
     let thumb_id = id.child("scroll thumb");
     let track_id = id.child("scroll track");
     let thumb = ui.interact_widget(thumb_id, Sense::DRAG);
@@ -471,10 +471,7 @@ fn animate<C: Context, S>(state: &mut ScrollState<C::Scalar>, ui: &mut Ui<'_, C,
         }
         Target::Offset(offset) => offset,
         Target::Widget(id) => {
-            let Some((widget, content)) = ui
-                .geometry(id)
-                .zip(ui.geometry(ui.current_widget_id().child("content")))
-            else {
+            let Some((widget, content)) = ui.geometry(id).zip(ui.geometry(ui.current_id().child("content"))) else {
                 ui.request_frame();
                 return;
             };
@@ -537,28 +534,20 @@ where
     T: Widget<C, blit::state::Node>,
     H: Widget<C, blit::state::Node>,
 {
-    let id = ui.current_widget_id();
+    let id = ui.current_id();
     let content_id = id.child("content");
     let thumb_id = id.child("scroll thumb");
     let mut viewport = ui.layout(layout).clip(clip);
-    viewport
-        .child()
-        .item(ScrollItem::Content)
-        .widget_id(content_id)
-        .build(content);
+    viewport.child().item(ScrollItem::Content).id(content_id).build(content);
     if let Some(track) = track {
         viewport
             .child()
             .item(ScrollItem::Track)
-            .widget_id(id.child("scroll track"))
+            .id(id.child("scroll track"))
             .insert(track);
     }
     if let Some(thumb) = thumb {
-        viewport
-            .child()
-            .item(ScrollItem::Thumb)
-            .widget_id(thumb_id)
-            .insert(thumb);
+        viewport.child().item(ScrollItem::Thumb).id(thumb_id).insert(thumb);
     }
     viewport
 }

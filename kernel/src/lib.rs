@@ -54,7 +54,7 @@ pub use self::{
         Scalar, Scale2, Sides, Size,
     },
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase, TouchPhase},
-    interact::{Direction, Drag, Interaction, InteractionConfig, Phase, Pinch, Rotation, Scroll, Sense, WidgetId},
+    interact::{Direction, Drag, Id, Interaction, InteractionConfig, Phase, Pinch, Rotation, Scroll, Sense},
     layout::{Axis, Layout, LayoutCx, Scratch, Sizing},
 };
 

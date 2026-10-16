@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Clip, Constraints, Context, Layout, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget, WidgetId};
+use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
 
 use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 use crate::ScrollState;
@@ -21,7 +21,7 @@ blit::builder! {
         sense: Sense = Sense::SCROLL,
         scrollbar_thickness: C::Scalar = C::Scalar::from_f32(1.0),
         minimum_thumb_extent: C::Scalar = C::Scalar::from_f32(1.0),
-        widget_id<K: FnMut(&I::Item) -> WidgetId = ()>: K = (),
+        id<K: FnMut(&I::Item) -> Id = ()>: K = (),
         item<F: FnMut(Ui<'_, C>, I::Item) = ()>: F = (),
         clip<X = ()>: X = (),
         #[into]
@@ -34,7 +34,7 @@ blit::builder! {
 impl<C: Context, I, K, F, X, A, H, B> Widget<C> for UniformList<'_, C, I, K, F, X, A, H>
 where
     I: ExactSizeIterator + Clone,
-    K: FnMut(&I::Item) -> WidgetId,
+    K: FnMut(&I::Item) -> Id,
     F: FnMut(Ui<'_, C>, I::Item),
     X: Clip<C>,
     A: Widget<C, blit::state::Node>,
@@ -55,7 +55,7 @@ where
             sense,
             scrollbar_thickness,
             minimum_thumb_extent,
-            mut widget_id,
+            id: mut item_id,
             mut item,
             clip,
             track,
@@ -70,7 +70,7 @@ where
         state.content_extent = total_extent;
         // resolve offscreen rows by index before choosing which rows to build
         if viewport_known && let Target::Widget(target) = state.request.target {
-            state.request.target = match items.clone().position(|value| widget_id(&value) == target) {
+            state.request.target = match items.clone().position(|value| item_id(&value) == target) {
                 Some(index) => {
                     let start = stride.repeat(index);
                     let end = start.endpoint(item_extent);
@@ -114,10 +114,10 @@ where
         let content = move |ui: Ui<'_, C>| {
             let mut list = ui.layout(layout);
             for (offset, value) in items.enumerate() {
-                let id = widget_id(&value);
+                let id = item_id(&value);
                 list.child()
                     .item(first + offset)
-                    .widget_id(id)
+                    .id(id)
                     .build(|ui: Ui<'_, C>| item(ui, value));
             }
         };

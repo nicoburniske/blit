@@ -50,7 +50,7 @@ where
         let leading = self.leading;
         let trailing = self.trailing;
         let divider = self.divider;
-        let id = ui.current_widget_id();
+        let id = ui.current_id();
         let axis = self.axis;
         let leading_id = id.child("leading pane");
         let divider_id = id.child("divider");
@@ -80,9 +80,9 @@ where
             minimum_leading: self.minimum_leading,
             minimum_trailing: self.minimum_trailing,
         });
-        panes.child().widget_id(leading_id).build(leading);
-        panes.child().widget_id(divider_id).build(divider(axis, interaction));
-        panes.child().widget_id(trailing_id).build(trailing);
+        panes.child().id(leading_id).build(leading);
+        panes.child().id(divider_id).build(divider(axis, interaction));
+        panes.child().id(trailing_id).build(trailing);
     }
 }
 
@@ -149,7 +149,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Atom, AtomCx, Constraints, Frame, FrameInfo, Input, Rect, Size, WidgetId};
+    use blit::{Atom, AtomCx, Constraints, Frame, FrameInfo, Id, Input, Rect, Size};
     use blit_layout::single;
 
     use super::*;
@@ -172,7 +172,7 @@ mod tests {
         let mut frame = Frame::default();
         let mut state = SplitState::default();
         state.set_extent(90.0);
-        let id = WidgetId::new("split pane");
+        let id = Id::new("split pane");
         let context = &mut TestContext;
         frame.build(
             context,
@@ -180,7 +180,7 @@ mod tests {
             Duration::ZERO,
             Input::None,
             |ui: Ui<'_, TestContext>| {
-                ui.layout(single::new().grow()).child().widget_id(id).build(
+                ui.layout(single::new().grow()).child().id(id).build(
                     Split::new(&mut state)
                         .initial_extent(30.0)
                         .minimum_leading(20.0)

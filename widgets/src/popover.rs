@@ -51,7 +51,7 @@ where
         let state = self.state;
         let trigger = self.trigger;
         let content = self.content;
-        let id = ui.current_widget_id();
+        let id = ui.current_id();
         let trigger_id = id.child("popover trigger");
         let interaction = ui.interact_widget(trigger_id, Sense::CLICK);
         if self.open_on_hover && interaction.hovered {
@@ -61,8 +61,8 @@ where
         }
         let mut root = ui.layout(single::new());
         let anchor = {
-            let mut trigger_node = root.child().widget_id(trigger_id).hit(self.hit).layout(());
-            let anchor = trigger_node.id();
+            let mut trigger_node = root.child().id(trigger_id).hit(self.hit).layout(());
+            let anchor = trigger_node.node_id();
             trigger_node
                 .child()
                 .build(|ui: Ui<'_, C>| trigger(ui, interaction, state.open));
@@ -104,7 +104,7 @@ where
             popup
                 .child()
                 .layout(absolute::place(()).width(Sizing::full()).height(Sizing::full()))
-                .widget_id(backdrop_id)
+                .id(backdrop_id)
                 .insert(());
         }
         Some(
@@ -117,7 +117,7 @@ where
                         .bottom((-self.y).max(C::Scalar::ZERO))
                         .left(self.x.max(C::Scalar::ZERO)),
                 )
-                .widget_id(content_id)
+                .id(content_id)
                 .layout(
                     absolute::place(())
                         .target_anchor(self.target_anchor)
@@ -138,22 +138,22 @@ where
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Modifiers, Point as InputPoint, PointerButton, Rect, Size, WidgetId};
+    use blit::{Frame, FrameInfo, Id, Modifiers, Point as InputPoint, PointerButton, Rect, Size};
 
     use super::*;
     use crate::test::TestContext;
 
     fn render(ui: Ui<'_, TestContext>, popover: Popover<'_, TestContext>) {
-        ui.widget_id(WidgetId::new("test popover")).build(
+        ui.id(Id::new("test popover")).build(
             popover
                 .trigger(|ui, _, _| {
-                    ui.widget_id(WidgetId::new("named trigger"))
+                    ui.id(Id::new("named trigger"))
                         .layout(single::new().fixed(2.0, 1.0))
                         .child()
                         .build(())
                 })
                 .content(|ui: Ui<'_, TestContext>| {
-                    ui.widget_id(WidgetId::new("named content"))
+                    ui.id(Id::new("named content"))
                         .layout(single::new().fixed(4.0, 3.0))
                         .child()
                         .build(())
@@ -167,7 +167,7 @@ mod tests {
         let mut context = TestContext;
         let info = FrameInfo::new(Size::uniform(10.0));
         let mut state = PopoverState::new();
-        let content_id = WidgetId::new("test popover").child("popover content");
+        let content_id = Id::new("test popover").child("popover content");
 
         frame.build(
             &mut context,
@@ -245,9 +245,9 @@ mod tests {
             );
             frame.layout(&mut context);
             if let Input::PointerUp { .. } = input {
-                assert_eq!(frame.geometry(WidgetId::new("named content")), content_geometry);
+                assert_eq!(frame.geometry(Id::new("named content")), content_geometry);
                 assert_eq!(
-                    frame.geometry(WidgetId::new("named trigger")),
+                    frame.geometry(Id::new("named trigger")),
                     Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
                 );
             }
