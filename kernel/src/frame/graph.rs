@@ -165,7 +165,7 @@ impl<C: Context> Frame<C> {
     pub fn layout(&mut self, context: &mut C) {
         let mut data = std::mem::take(&mut self.data);
         data.prepare_scratch();
-        transition::resolve(self, &data, context, self.screen.size(), self.resized);
+        transition::resolve(self, &data, context, NodeId::new(0), Constraints::tight(self.screen.size()), true);
         position::resolve(self);
         paint::resolve_order(self);
         paint::resolve_clips(self);

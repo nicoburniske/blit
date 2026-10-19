@@ -24,7 +24,7 @@ fn transitions() {
                     if named {
                         child = child.id(Id::new("transition"));
                     }
-                    child.build_measured(
+                    let (_, measured) = child.build_measured(
                         Constraints {
                             min: Size::new(1.0, 0.0),
                             max: Size::new(1.0, f32::INFINITY),
@@ -33,6 +33,7 @@ fn transitions() {
                             ui.layout(()).child().insert(Fill('X', Size::new(1.0, extent)));
                         },
                     );
+                    assert_eq!(measured, area.size());
                     column.child().insert(Fill('Y', Size::uniform(1.0)));
                 },
             );

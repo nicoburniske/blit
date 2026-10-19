@@ -15,6 +15,7 @@ pub struct LayoutCx<'a, C: Context, I = ()> {
     geometry: &'a mut [NodeGeometry<C::Scalar>],
     context: &'a mut C,
     frame_requested: &'a mut bool,
+    target_start: usize,
     node: NodeId,
     default_item: DataId,
     item: PhantomData<fn() -> I>,
@@ -81,11 +82,11 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     pub fn target_size(&self, child: NodeId) -> Size<C::Scalar> {
-        if self.frame.target_sizes.is_empty() {
-            self.size(child)
-        } else {
-            self.frame.target_sizes[child.index()].size
-        }
+        child
+            .index()
+            .checked_sub(self.target_start)
+            .and_then(|index| self.frame.target_sizes.get(index))
+            .map_or_else(|| self.size(child), |target| target.size)
     }
 
     pub fn set_child_position(&mut self, child: NodeId, position: Point<C::Scalar>) {
@@ -119,11 +120,14 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     pub fn size_overrides(&self, child: NodeId) -> (Option<C::Scalar>, Option<C::Scalar>) {
-        if self.frame.target_sizes.is_empty() {
+        let Some(target) = child
+            .index()
+            .checked_sub(self.target_start)
+            .and_then(|index| self.frame.target_sizes.get(index))
+        else {
             return (None, None);
-        }
+        };
         let current = self.size(child);
-        let target = self.frame.target_sizes[child.index()];
         (
             target
                 .properties
@@ -192,6 +196,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
                 geometry: self.geometry,
                 context: self.context,
                 frame_requested: self.frame_requested,
+                target_start: self.target_start,
                 node,
                 default_item: kind.default_item,
                 item: PhantomData,
@@ -251,6 +256,7 @@ pub fn resolve<C: Context>(
         geometry: &mut geometry,
         context,
         frame_requested: &mut requested,
+        target_start: node.index(),
         node,
         default_item: DataId::NONE,
         item: PhantomData::<fn() -> ()>,

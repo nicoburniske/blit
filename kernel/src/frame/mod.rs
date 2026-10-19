@@ -142,7 +142,7 @@ impl<'ui, C: Context> Ui<'ui, C, state::Build> {
         widget.build(self)
     }
 
-    /// builds and measures a flow subtree under supplied constraints
+    /// builds a flow subtree and measures its current animated size under `bounds`
     pub fn build_measured<W: Widget<C>>(
         self,
         bounds: Constraints<C::Scalar>,
@@ -158,7 +158,7 @@ impl<'ui, C: Context> Ui<'ui, C, state::Build> {
         );
         let mut data = std::mem::take(&mut inner.frame.data);
         data.prepare_scratch();
-        let size = layout::resolve(inner.frame, &data, inner.context, node, bounds);
+        let size = transition::resolve(inner.frame, &data, inner.context, node, bounds, false);
         inner.frame.data = data;
         (response, size)
     }
