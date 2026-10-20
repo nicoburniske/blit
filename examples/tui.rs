@@ -315,9 +315,12 @@ impl Widget<TuiContext> for &mut LayoutPage {
                 |ui: Ui<'_>| {
                     let mut sidebar = ui.layout(flex::column().padding(Sides::all(1)));
                     sidebar.insert(panel(colors::SURFACE, " LAYOUT PARAMETERS "));
-                    sidebar.child().build(
-                        ScrollArea::new(layout_scroll)
-                            .content(|ui: Ui<'_>| {
+                    ScrollArea::new(layout_scroll)
+                        .clip(BoundsClip)
+                        .minimum_thumb_extent(4)
+                        .build_scrollbar(
+                            sidebar.child(),
+                            |ui| {
                                 let mut controls = ui.layout(flex::column().gap(1));
                                 controls.child().insert(
                                     Text::new("FLOW")
@@ -426,14 +429,12 @@ impl Widget<TuiContext> for &mut LayoutPage {
                                         &[(" On ", true), (" Off ", false)],
                                     );
                                 });
-                            })
-                            .clip(BoundsClip)
-                            .minimum_thumb_extent(4)
-                            .track(|mut ui: Ui<'_>| {
+                            },
+                            |mut ui| {
                                 ui.insert(Block::new().background(colors::TRACK));
-                            })
-                            .thumb(scroll_thumb),
-                    );
+                            },
+                            scroll_thumb,
+                        );
                 },
                 |ui: Ui<'_>| {
                     let mut preview = ui.layout(flex::column().padding(Sides::all(1)));
@@ -937,12 +938,14 @@ impl Widget<TuiContext> for &mut ScrollPage {
             Axis::Horizontal => 12,
             Axis::Vertical => 3,
         };
-        body.child().build(
-            UniformList::new(scroll, items.iter().enumerate())
-                .item_extent(item_extent)
-                .axis(axis)
-                .minimum_thumb_extent(4)
-                .item(move |ui, (index, item)| {
+        UniformList::new(scroll, items.iter().enumerate())
+            .item_extent(item_extent)
+            .axis(axis)
+            .minimum_thumb_extent(4)
+            .clip(BoundsClip)
+            .build_scrollbar(
+                body.child(),
+                move |ui, (index, item)| {
                     let layout = match axis {
                         Axis::Horizontal => flex::column().align(Align::Center).justify(Justify::Center),
                         Axis::Vertical => flex::row().padding(Sides::all(1)).align(Align::Center),
@@ -960,13 +963,12 @@ impl Widget<TuiContext> for &mut ScrollPage {
                     );
                     tile.child()
                         .insert(Text::new(item).color(colors::TEXT).attributes(TextAttributes::BOLD));
-                })
-                .clip(BoundsClip)
-                .track(|mut ui: Ui<'_>| {
+                },
+                |mut ui| {
                     ui.insert(Block::new().background(colors::TRACK));
-                })
-                .thumb(scroll_thumb),
-        );
+                },
+                scroll_thumb,
+            );
     }
 }
 

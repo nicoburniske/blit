@@ -199,10 +199,7 @@ impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
 
     /// builds a widget in this node
     pub fn build<W: Widget<C>>(self, widget: W) -> W::Response {
-        widget.build(Ui {
-            inner: self.inner,
-            marker: PhantomData,
-        })
+        widget.build(self.into())
     }
 
     pub fn build_measured<W: Widget<C>>(
@@ -210,20 +207,12 @@ impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
         bounds: Constraints<C::Scalar>,
         widget: W,
     ) -> (W::Response, Size<C::Scalar>) {
-        Ui {
-            inner: self.inner,
-            marker: PhantomData::<state::Build>,
-        }
-        .build_measured(bounds, widget)
+        Ui::<C>::from(self).build_measured(bounds, widget)
     }
 
     /// establishes the current node's layout
     pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
-        let ui: Ui<'_, C> = Ui {
-            inner: self.inner,
-            marker: PhantomData,
-        };
-        ui.layout(layout)
+        Ui::<C>::from(self).layout(layout)
     }
 }
 
@@ -364,6 +353,15 @@ impl<C: Context, S> Ui<'_, C, S> {
 
     pub fn request_frame(&mut self) {
         self.inner.frame.request_frame();
+    }
+}
+
+impl<'ui, C: Context, I: 'static> From<Ui<'ui, C, state::Child<I>>> for Ui<'ui, C> {
+    fn from(ui: Ui<'ui, C, state::Child<I>>) -> Self {
+        Self {
+            inner: ui.inner,
+            marker: PhantomData,
+        }
     }
 }
 

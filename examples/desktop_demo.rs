@@ -986,33 +986,35 @@ impl Widget<DesktopContext> for &mut ScrollPage {
             );
         };
         if horizontal {
-            section.child().item(flex::item().grow()).build(
-                UniformList::new(uniform, 0_usize..100)
-                    .item_extent(sz::SCROLL_ITEM_WIDTH)
-                    .axis(Axis::Horizontal)
-                    .gap(sz::XS)
-                    .scroll_speed(2.0)
-                    .inertia_friction(3.0)
-                    .scrollbar_thickness(sz::XS)
-                    .minimum_thumb_extent(sz::XXL)
-                    .item(row)
-                    .clip(BoundsClip)
-                    .track(scroll_track)
-                    .thumb(scroll_thumb),
-            );
+            UniformList::new(uniform, 0_usize..100)
+                .item_extent(sz::SCROLL_ITEM_WIDTH)
+                .axis(Axis::Horizontal)
+                .gap(sz::XS)
+                .scroll_speed(2.0)
+                .inertia_friction(3.0)
+                .scrollbar_thickness(sz::XS)
+                .minimum_thumb_extent(sz::XXL)
+                .clip(BoundsClip)
+                .build_scrollbar(
+                    section.child().item(flex::item().grow()),
+                    row,
+                    scroll_track,
+                    scroll_thumb,
+                );
         } else {
-            section.child().item(flex::item().grow()).build(
-                VirtualList::new(measured)
-                    .count((*mode == ScrollMode::Finite).then_some(100_000))
-                    .scroll_speed(2.0)
-                    .inertia_friction(3.0)
-                    .scrollbar_thickness(sz::XS)
-                    .minimum_thumb_extent(sz::XS)
-                    .item(row)
-                    .clip(BoundsClip)
-                    .track(scroll_track)
-                    .thumb(scroll_thumb),
-            );
+            VirtualList::new(measured)
+                .count((*mode == ScrollMode::Finite).then_some(100_000))
+                .scroll_speed(2.0)
+                .inertia_friction(3.0)
+                .scrollbar_thickness(sz::XS)
+                .minimum_thumb_extent(sz::XS)
+                .clip(BoundsClip)
+                .build_scrollbar(
+                    section.child().item(flex::item().grow()),
+                    row,
+                    scroll_track,
+                    scroll_thumb,
+                );
         }
     }
 }
@@ -1373,16 +1375,16 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     }
 }
 
-fn scroll_area(state: &mut ScrollState, content: impl Widget<DesktopContext>) -> impl Widget<DesktopContext> {
-    ScrollArea::new(state)
-        .content(content)
-        .clip(BoundsClip)
-        .scroll_speed(2.0)
-        .inertia_friction(3.0)
-        .scrollbar_thickness(sz::XS)
-        .minimum_thumb_extent(sz::XXL)
-        .track(scroll_track)
-        .thumb(scroll_thumb)
+fn scroll_area(state: &mut ScrollState, content: impl FnOnce(Ui<'_>)) -> impl Widget<DesktopContext> {
+    move |ui: Ui<'_>| {
+        ScrollArea::new(state)
+            .clip(BoundsClip)
+            .scroll_speed(2.0)
+            .inertia_friction(3.0)
+            .scrollbar_thickness(sz::XS)
+            .minimum_thumb_extent(sz::XXL)
+            .build_scrollbar(ui, content, scroll_track, scroll_thumb);
+    }
 }
 
 fn scroll_track(mut ui: Ui<'_>) {

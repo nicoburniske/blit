@@ -1,4 +1,4 @@
-use blit::{Axis, Clip, Context, Scalar, Sense, Ui, Widget};
+use blit::{Axis, Clip, Context, Scalar, Sense, Ui};
 
 pub use super::ScrollState;
 use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
@@ -6,36 +6,51 @@ use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 blit::builder! {
     /// use for arbitrary content such as forms and small collections
     /// builds all content every frame
-    pub struct ScrollArea<'a, C: Context> {
-        new(state: &'a mut ScrollState<C::Scalar>),
-        content<W = fn(Ui<'_, C>)>: W = |_| (),
+    pub struct ScrollArea<'a, T: Scalar> {
+        new(state: &'a mut ScrollState<T>),
         axis: Axis = Axis::Vertical,
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 6.0,
         sense: Sense = Sense::SCROLL,
-        scrollbar_thickness: C::Scalar = C::Scalar::from_f32(1.0),
-        minimum_thumb_extent: C::Scalar = C::Scalar::from_f32(1.0),
+        scrollbar_thickness: T = T::from_f32(1.0),
+        minimum_thumb_extent: T = T::from_f32(1.0),
         clip<X = ()>: X = (),
-        #[into]
-        track<A = fn(Ui<'_, C>)>: Option<A> = None,
-        #[into]
-        thumb<H = fn(Ui<'_, C>, bool)>: Option<H> = None,
     }
 }
 
-impl<C: Context, W, X, A, H> Widget<C> for ScrollArea<'_, C, W, X, A, H>
-where
-    W: Widget<C>,
-    X: Clip<C>,
-    A: FnOnce(Ui<'_, C>),
-    H: FnOnce(Ui<'_, C>, bool),
-{
-    type Response = ();
+impl<T: Scalar, X> ScrollArea<'_, T, X> {
+    /// builds content without a scrollbar
+    pub fn build<'ui, C: Context<Scalar = T> + 'ui>(self, ui: impl Into<Ui<'ui, C>>, content: impl FnOnce(Ui<'_, C>))
+    where
+        X: Clip<C>,
+    {
+        self.build_inner(ui.into(), content, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>);
+    }
 
-    fn build(self, mut ui: Ui<'_, C>) {
+    /// builds content with a track and thumb
+    pub fn build_scrollbar<'ui, C: Context<Scalar = T> + 'ui>(
+        self,
+        ui: impl Into<Ui<'ui, C>>,
+        content: impl FnOnce(Ui<'_, C>),
+        track: impl FnOnce(Ui<'_, C>),
+        thumb: impl FnOnce(Ui<'_, C>, bool),
+    ) where
+        X: Clip<C>,
+    {
+        self.build_inner(ui.into(), content, Some(track), Some(thumb));
+    }
+
+    fn build_inner<C: Context<Scalar = T>>(
+        self,
+        mut ui: Ui<'_, C>,
+        content: impl FnOnce(Ui<'_, C>),
+        track: Option<impl FnOnce(Ui<'_, C>)>,
+        thumb: Option<impl FnOnce(Ui<'_, C>, bool)>,
+    ) where
+        X: Clip<C>,
+    {
         let Self {
             state,
-            content,
             axis,
             scroll_speed,
             inertia_friction,
@@ -43,8 +58,6 @@ where
             scrollbar_thickness,
             minimum_thumb_extent,
             clip,
-            track,
-            thumb,
         } = self;
         let (thumb_active, viewport_known) = update(state, &mut ui, axis, sense, scroll_speed, inertia_friction);
         let reveal = match state.request.target {
