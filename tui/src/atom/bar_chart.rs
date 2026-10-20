@@ -33,8 +33,6 @@ blit::builder! {
     }
 }
 
-blit::atom_widget!(BarChart);
-
 impl<C: Context> Atom<C> for BarChart {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         let width = self

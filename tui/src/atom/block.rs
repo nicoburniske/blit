@@ -28,8 +28,6 @@ impl Block {
     }
 }
 
-blit::atom_widget!(Block);
-
 impl<C: Context> Atom<C> for Block {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         constraints.constrain(Size::ZERO)

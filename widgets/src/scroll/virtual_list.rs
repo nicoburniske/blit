@@ -23,20 +23,19 @@ blit::builder! {
         item<F: FnMut(Ui<'_, C>, usize) = ()>: F = (),
         clip<X = ()>: X = (),
         #[into]
-        track<A = ()>: Option<A> = None,
+        track<A: FnOnce(Ui<'_, C>) = fn(Ui<'_, C>)>: Option<A> = None,
         #[into]
-        thumb<H = fn(bool) -> ()>: Option<H> = None,
+        thumb<H: FnOnce(Ui<'_, C>, bool) = fn(Ui<'_, C>, bool)>: Option<H> = None,
     }
 }
 
-impl<C: Context, K, F, X, A, H, B> Widget<C> for VirtualList<'_, C, K, F, X, A, H>
+impl<C: Context, K, F, X, A, H> Widget<C> for VirtualList<'_, C, K, F, X, A, H>
 where
     K: FnMut(usize) -> Id,
     F: FnMut(Ui<'_, C>, usize),
     X: Clip<C>,
-    A: Widget<C, blit::state::Node>,
-    H: FnOnce(bool) -> B,
-    B: Widget<C, blit::state::Node>,
+    A: FnOnce(Ui<'_, C>),
+    H: FnOnce(Ui<'_, C>, bool),
 {
     type Response = Response;
 
@@ -151,7 +150,6 @@ where
             delta,
             fraction: seek.map(|position| (position - state.first as f64).clamp(0.0, 1.0) as f32),
         };
-        let thumb = thumb.map(|thumb| thumb(thumb_active));
         let gutter = if track.is_some() {
             scrollbar_thickness.max(C::Scalar::ZERO).min(size.width)
         } else {
@@ -295,14 +293,14 @@ where
                 .child()
                 .item(Item::Track(progress))
                 .id(id.child("scroll track"))
-                .insert(track);
+                .build(track);
         }
         if let Some(thumb) = thumb {
             content
                 .child()
                 .item(Item::Thumb(progress))
                 .id(id.child("scroll thumb"))
-                .insert(thumb);
+                .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
         }
         let visible_range = first + state.visible.start..first + state.visible.end;
         if viewport.is_none() {
@@ -751,8 +749,8 @@ mod tests {
                     VirtualList::new(state)
                         .count(count)
                         .clip(TestClip)
-                        .track(())
-                        .thumb(|_| ())
+                        .track(|_: Ui<'_, TestContext>| {})
+                        .thumb(|_: Ui<'_, TestContext>, _: bool| {})
                         .id(|index| row(index).0)
                         .item(|ui, index| {
                             ui.layout(blit_layout::single::new().fixed(79.0, row(index).1));

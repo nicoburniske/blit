@@ -16,8 +16,6 @@ blit::builder! {
     }
 }
 
-blit::atom_widget!(Text);
-
 impl<C: Context> Atom<C> for Text {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         let mut request = TextLayoutRequest::new(self.text).wrap(self.options.wrap);

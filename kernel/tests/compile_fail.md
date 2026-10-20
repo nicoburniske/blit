@@ -62,7 +62,7 @@ where
 }
 ```
 
-insertion requires a node widget
+insertion rejects build widgets
 
 ```compile_fail
 use blit::*;

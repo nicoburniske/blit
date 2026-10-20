@@ -6,30 +6,29 @@ use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 blit::builder! {
     /// use for arbitrary content such as forms and small collections
     /// builds all content every frame
-    pub struct ScrollArea<'a, T: Scalar> {
-        new(state: &'a mut ScrollState<T>),
+    pub struct ScrollArea<'a, C: Context> {
+        new(state: &'a mut ScrollState<C::Scalar>),
         content<W = ()>: W = (),
         axis: Axis = Axis::Vertical,
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 6.0,
         sense: Sense = Sense::SCROLL,
-        scrollbar_thickness: T = T::from_f32(1.0),
-        minimum_thumb_extent: T = T::from_f32(1.0),
+        scrollbar_thickness: C::Scalar = C::Scalar::from_f32(1.0),
+        minimum_thumb_extent: C::Scalar = C::Scalar::from_f32(1.0),
         clip<X = ()>: X = (),
         #[into]
-        track<A = ()>: Option<A> = None,
+        track<A: FnOnce(Ui<'_, C>) = fn(Ui<'_, C>)>: Option<A> = None,
         #[into]
-        thumb<H = fn(bool) -> ()>: Option<H> = None,
+        thumb<H: FnOnce(Ui<'_, C>, bool) = fn(Ui<'_, C>, bool)>: Option<H> = None,
     }
 }
 
-impl<C: Context<Scalar = T>, T: Scalar, W, X, A, H, B> Widget<C> for ScrollArea<'_, T, W, X, A, H>
+impl<C: Context, W, X, A, H> Widget<C> for ScrollArea<'_, C, W, X, A, H>
 where
     W: Widget<C>,
     X: Clip<C>,
-    A: Widget<C, blit::state::Node>,
-    H: FnOnce(bool) -> B,
-    B: Widget<C, blit::state::Node>,
+    A: FnOnce(Ui<'_, C>),
+    H: FnOnce(Ui<'_, C>, bool),
 {
     type Response = ();
 
@@ -48,7 +47,6 @@ where
             thumb,
         } = self;
         let (thumb_active, viewport_known) = update(state, &mut ui, axis, sense, scroll_speed, inertia_friction);
-        let thumb = thumb.map(|thumb| thumb(thumb_active));
         let reveal = match state.request.target {
             Target::Widget(id) => Some(id),
             _ => {
@@ -72,6 +70,7 @@ where
             content,
             track,
             thumb,
+            thumb_active,
         );
         match reveal {
             Some(id) if !viewport.contains_widget(id) => state.request.target = Target::None,

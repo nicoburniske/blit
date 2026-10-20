@@ -1,16 +1,16 @@
 use blit::{Axis, Constraints, Context, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
 
 blit::builder! {
-    pub struct Split<'a, T: Scalar> {
-        new(state: &'a mut SplitState<T>),
+    pub struct Split<'a, C: Context> {
+        new(state: &'a mut SplitState<C::Scalar>),
         leading<L = ()>: L = (),
         trailing<R = ()>: R = (),
-        divider<D: FnOnce(Axis, blit::Interaction<T>) -> W = fn(Axis, blit::Interaction<T>) -> (), W>: D = |_, _| (),
-        initial_extent: T = T::ZERO,
+        divider<D: FnOnce(Ui<'_, C>, Axis, blit::Interaction<C::Scalar>) = fn(Ui<'_, C>, Axis, blit::Interaction<<C as Context>::Scalar>)>: D = |_, _, _| (),
+        initial_extent: C::Scalar = C::Scalar::ZERO,
         axis: Axis = Axis::Horizontal,
-        divider_extent: T = T::from_f32(1.0),
-        minimum_leading: T = T::ZERO,
-        minimum_trailing: T = T::ZERO,
+        divider_extent: C::Scalar = C::Scalar::from_f32(1.0),
+        minimum_leading: C::Scalar = C::Scalar::ZERO,
+        minimum_trailing: C::Scalar = C::Scalar::ZERO,
         sense: Sense = Sense::DRAG,
     }
 }
@@ -37,12 +37,11 @@ impl<T: Scalar> SplitState<T> {
     }
 }
 
-impl<C: Context<Scalar = T>, T: Scalar, L, R, D, W> Widget<C> for Split<'_, T, L, R, D>
+impl<C: Context, L, R, D> Widget<C> for Split<'_, C, L, R, D>
 where
     L: Widget<C>,
     R: Widget<C>,
-    D: FnOnce(Axis, blit::Interaction<T>) -> W,
-    W: Widget<C>,
+    D: FnOnce(Ui<'_, C>, Axis, blit::Interaction<C::Scalar>),
 {
     type Response = ();
     fn build(self, mut ui: Ui<'_, C>) {
@@ -81,7 +80,10 @@ where
             minimum_trailing: self.minimum_trailing,
         });
         panes.child().id(leading_id).build(leading);
-        panes.child().id(divider_id).build(divider(axis, interaction));
+        panes
+            .child()
+            .id(divider_id)
+            .build(|ui: Ui<'_, C>| divider(ui, axis, interaction));
         panes.child().id(trailing_id).build(trailing);
     }
 }
@@ -157,8 +159,6 @@ mod tests {
 
     struct BoxAtom;
 
-    blit::atom_widget!(BoxAtom);
-
     impl Atom<TestContext> for BoxAtom {
         fn measure(&self, _: &mut AtomCx<'_, TestContext>, constraints: Constraints<f32>) -> Size<f32> {
             constraints.min
@@ -186,7 +186,6 @@ mod tests {
                         .minimum_leading(20.0)
                         .minimum_trailing(20.0)
                         .divider_extent(4.0)
-                        .divider(|_, _| ())
                         .leading(|mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom))
                         .trailing(|mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom)),
                 );

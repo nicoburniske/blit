@@ -426,7 +426,7 @@ impl Widget<DesktopContext> for &mut TextPage {
                                             .options(options),
                                     );
                                 })
-                                .grip(DesktopGrip),
+                                .grip(draw_grip),
                         );
                     });
                 },
@@ -680,7 +680,7 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                                     .grip_size(Size::uniform(sz::MD)).content(Canvas {
                                     config: preview_config,
                                     unit,
-                                }).grip(DesktopGrip),
+                                }).grip(draw_grip),
                         );
                     });
                 },
@@ -999,7 +999,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                     .id(|index| Id::new(("desktop scroll row", *index)))
                     .item(row)
                     .clip(BoundsClip)
-                    .track(scroll_track())
+                    .track(scroll_track)
                     .thumb(scroll_thumb),
             );
         } else {
@@ -1013,7 +1013,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                     .id(|index| Id::new(("desktop scroll row", index)))
                     .item(row)
                     .clip(BoundsClip)
-                    .track(scroll_track())
+                    .track(scroll_track)
                     .thumb(scroll_thumb),
             );
         }
@@ -1033,8 +1033,6 @@ struct TerrainBuffers {
     vertices: Vec<MeshVertex>,
     indices: Vec<u32>,
 }
-
-blit::atom_widget!(Terrain);
 
 impl Atom<DesktopContext> for Terrain {
     fn measure(&self, _: &mut AtomCx<'_, DesktopContext>, constraints: Constraints<f32>) -> Size<f32> {
@@ -1110,65 +1108,57 @@ impl Atom<DesktopContext> for Terrain {
     }
 }
 
-fn split<'a>(
-    state: &'a mut SplitState,
+fn split(
+    state: &mut SplitState,
     initial_extent: f32,
-    leading: impl Widget<DesktopContext> + 'a,
-    trailing: impl Widget<DesktopContext> + 'a,
-) -> impl Widget<DesktopContext> + 'a {
+    leading: impl Widget<DesktopContext>,
+    trailing: impl Widget<DesktopContext>,
+) -> impl Widget<DesktopContext> {
     Split::new(state)
         .initial_extent(initial_extent)
         .divider_extent(sz::LG)
-        .divider(|axis, interaction| {
-            move |ui: Ui<'_>| {
-                let active = interaction.hovered || interaction.active;
-                let marker = match axis {
-                    Axis::Horizontal => Size::new(sz::BORDER_STRONG, sz::XXXL),
-                    Axis::Vertical => Size::new(sz::XXXL, sz::BORDER_STRONG),
-                };
-                let mut divider = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
-                divider
-                    .child()
-                    .item(flex::item().fixed(marker.width, marker.height))
-                    .insert(
-                        Rectangle::new()
-                            .background(if active { colors::ACCENT } else { colors::BORDER })
-                            .radius(BorderRadius::uniform(sz::BORDER)),
-                    );
-            }
+        .divider(|ui, axis, interaction| {
+            let active = interaction.hovered || interaction.active;
+            let marker = match axis {
+                Axis::Horizontal => Size::new(sz::BORDER_STRONG, sz::XXXL),
+                Axis::Vertical => Size::new(sz::XXXL, sz::BORDER_STRONG),
+            };
+            let mut divider = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
+            divider
+                .child()
+                .item(flex::item().fixed(marker.width, marker.height))
+                .insert(
+                    Rectangle::new()
+                        .background(if active { colors::ACCENT } else { colors::BORDER })
+                        .radius(BorderRadius::uniform(sz::BORDER)),
+                );
         })
         .leading(leading)
         .trailing(trailing)
 }
 
-struct DesktopGrip(ResizeGrip);
-
-impl Widget<DesktopContext> for DesktopGrip {
-    type Response = ();
-
-    fn build(self, ui: Ui<'_>) {
-        let marker = match self.0.edge {
-            ResizeEdge::Right => Size::new(sz::XXS, sz::XXXXL),
-            ResizeEdge::Bottom => Size::new(sz::XXXXL, sz::XXS),
-            ResizeEdge::Corner => Size::uniform(sz::XS),
-        };
-        let active = self.0.interaction.hovered || self.0.interaction.active;
-        let color = if active {
-            colors::ACCENT
-        } else if self.0.edge == ResizeEdge::Corner {
-            colors::GRIP_CORNER
-        } else {
-            colors::GRIP
-        };
-        let mut grip = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
-        grip.child()
-            .item(flex::item().fixed(marker.width, marker.height))
-            .insert(
-                Rectangle::new()
-                    .background(color)
-                    .radius(BorderRadius::uniform(marker.width.min(marker.height) / 2.0)),
-            );
-    }
+fn draw_grip(ui: Ui<'_>, grip: ResizeGrip) {
+    let marker = match grip.edge {
+        ResizeEdge::Right => Size::new(sz::XXS, sz::XXXXL),
+        ResizeEdge::Bottom => Size::new(sz::XXXXL, sz::XXS),
+        ResizeEdge::Corner => Size::uniform(sz::XS),
+    };
+    let active = grip.interaction.hovered || grip.interaction.active;
+    let color = if active {
+        colors::ACCENT
+    } else if grip.edge == ResizeEdge::Corner {
+        colors::GRIP_CORNER
+    } else {
+        colors::GRIP
+    };
+    let mut grip = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
+    grip.child()
+        .item(flex::item().fixed(marker.width, marker.height))
+        .insert(
+            Rectangle::new()
+                .background(color)
+                .radius(BorderRadius::uniform(marker.width.min(marker.height) / 2.0)),
+        );
 }
 
 struct Button<'a> {
@@ -1386,10 +1376,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     }
 }
 
-fn scroll_area<'a, C>(state: &'a mut ScrollState, content: C) -> impl Widget<DesktopContext> + 'a
-where
-    C: Widget<DesktopContext> + 'a,
-{
+fn scroll_area(state: &mut ScrollState, content: impl Widget<DesktopContext>) -> impl Widget<DesktopContext> {
     ScrollArea::new(state)
         .content(content)
         .clip(BoundsClip)
@@ -1397,20 +1384,24 @@ where
         .inertia_friction(3.0)
         .scrollbar_thickness(sz::XS)
         .minimum_thumb_extent(sz::XXL)
-        .track(scroll_track())
+        .track(scroll_track)
         .thumb(scroll_thumb)
 }
 
-fn scroll_track() -> Rectangle {
-    Rectangle::new()
-        .background(colors::SCROLL_TRACK)
-        .radius(BorderRadius::uniform(sz::XXS))
+fn scroll_track(mut ui: Ui<'_>) {
+    ui.insert(
+        Rectangle::new()
+            .background(colors::SCROLL_TRACK)
+            .radius(BorderRadius::uniform(sz::XXS)),
+    );
 }
 
-fn scroll_thumb(active: bool) -> Rectangle {
-    Rectangle::new()
-        .background(if active { colors::TEXT_DIM } else { colors::BORDER })
-        .radius(BorderRadius::uniform(sz::XXS))
+fn scroll_thumb(mut ui: Ui<'_>, active: bool) {
+    ui.insert(
+        Rectangle::new()
+            .background(if active { colors::TEXT_DIM } else { colors::BORDER })
+            .radius(BorderRadius::uniform(sz::XXS)),
+    );
 }
 
 fn panel(background: Color) -> Rectangle {

@@ -47,8 +47,6 @@ impl Gauge {
     }
 }
 
-blit::atom_widget!(Gauge);
-
 impl<C: Context> Atom<C> for Gauge {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         let width = self.label.map_or_else(

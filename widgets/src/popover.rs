@@ -150,13 +150,13 @@ mod tests {
                     ui.id(Id::new("named trigger"))
                         .layout(single::new().fixed(2.0, 1.0))
                         .child()
-                        .build(())
+                        .insert(())
                 })
                 .content(|ui: Ui<'_, TestContext>| {
                     ui.id(Id::new("named content"))
                         .layout(single::new().fixed(4.0, 3.0))
                         .child()
-                        .build(())
+                        .insert(())
                 }),
         );
     }

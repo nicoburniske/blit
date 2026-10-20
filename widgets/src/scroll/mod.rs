@@ -526,13 +526,14 @@ fn build_scroll<'a, C: Context, W, X, T, H, L>(
     content: W,
     track: Option<T>,
     thumb: Option<H>,
+    thumb_active: bool,
 ) -> Ui<'a, C, blit::state::Open<L>>
 where
     L: Layout<C, Item = ScrollItem>,
     W: Widget<C>,
     X: Clip<C>,
-    T: Widget<C, blit::state::Node>,
-    H: Widget<C, blit::state::Node>,
+    T: FnOnce(Ui<'_, C>),
+    H: FnOnce(Ui<'_, C>, bool),
 {
     let id = ui.current_id();
     let content_id = id.child("content");
@@ -544,10 +545,14 @@ where
             .child()
             .item(ScrollItem::Track)
             .id(id.child("scroll track"))
-            .insert(track);
+            .build(track);
     }
     if let Some(thumb) = thumb {
-        viewport.child().item(ScrollItem::Thumb).id(thumb_id).insert(thumb);
+        viewport
+            .child()
+            .item(ScrollItem::Thumb)
+            .id(thumb_id)
+            .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
     }
     viewport
 }

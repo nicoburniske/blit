@@ -33,8 +33,6 @@ fn layout_frame<C: Context, W: Widget<C>>(
 #[derive(Clone, Copy)]
 struct BoxAtom<T>(Size<T>);
 
-blit::atom_widget!(BoxAtom<T>, [T: Scalar]);
-
 impl<C: Context<Scalar = T>, T: Scalar> Atom<C> for BoxAtom<T> {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<T>) -> Size<T> {
         constraints.constrain(self.0)
@@ -49,8 +47,6 @@ impl<C: Context<Scalar = T>, T: Scalar> Atom<C> for BoxAtom<T> {
 
 #[derive(Clone, Copy)]
 struct ResponsiveAtom;
-
-blit::atom_widget!(ResponsiveAtom);
 
 impl<C: Context> Atom<C> for ResponsiveAtom {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {

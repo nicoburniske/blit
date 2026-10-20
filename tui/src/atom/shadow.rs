@@ -23,8 +23,6 @@ impl Shadow {
     }
 }
 
-blit::atom_widget!(Shadow);
-
 impl<C: Context> Atom<C> for Shadow {
     fn measure(&self, _: &mut AtomCx<'_, C>, _: Constraints<i32>) -> Size<i32> {
         Size::ZERO

@@ -19,8 +19,6 @@ blit::builder! {
     }
 }
 
-blit::atom_widget!(Sparkline);
-
 impl<C: Context> Atom<C> for Sparkline {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         constraints.constrain(Size::new(self.data.borrow().len() as i32, 1))

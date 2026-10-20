@@ -429,7 +429,9 @@ impl Widget<TuiContext> for &mut LayoutPage {
                             })
                             .clip(BoundsClip)
                             .minimum_thumb_extent(4)
-                            .track(Block::new().background(colors::TRACK))
+                            .track(|mut ui: Ui<'_>| {
+                                ui.insert(Block::new().background(colors::TRACK));
+                            })
                             .thumb(scroll_thumb),
                     );
                 },
@@ -462,7 +464,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
                                 .minimum(Size::new(18, 9))
                                 .maximum(screen_size)
                                 .content(Canvas { config: preview_config })
-                                .grip(TuiGrip),
+                                .grip(draw_grip),
                         );
                     }
                 },
@@ -704,7 +706,7 @@ impl Widget<TuiContext> for &mut TextPage {
                                         .attributes(preview_attributes)
                                         .options(options),
                                 );
-                            }).grip(TuiGrip),
+                            }).grip(draw_grip),
                     );
                 }
             },
@@ -962,7 +964,9 @@ impl Widget<TuiContext> for &mut ScrollPage {
                         .insert(Text::new(item).color(colors::TEXT).attributes(TextAttributes::BOLD));
                 })
                 .clip(BoundsClip)
-                .track(Block::new().background(colors::TRACK))
+                .track(|mut ui: Ui<'_>| {
+                    ui.insert(Block::new().background(colors::TRACK));
+                })
                 .thumb(scroll_thumb),
         );
     }
@@ -978,28 +982,22 @@ enum Page {
     Scroll,
 }
 
-struct TuiGrip(ResizeGrip);
-
-impl Widget<TuiContext> for TuiGrip {
-    type Response = ();
-
-    fn build(self, ui: Ui<'_>) {
-        let marker = match self.0.edge {
-            ResizeEdge::Right => "║",
-            ResizeEdge::Bottom => "═══",
-            ResizeEdge::Corner => "╝",
-        };
-        let active = self.0.interaction.hovered || self.0.interaction.active;
-        let color = if active {
-            colors::ACCENT
-        } else if self.0.edge == ResizeEdge::Corner {
-            colors::GRIP_CORNER
-        } else {
-            colors::GRIP
-        };
-        let mut grip = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
-        grip.child().insert(Text::new(marker).color(color));
-    }
+fn draw_grip(ui: Ui<'_>, grip: ResizeGrip) {
+    let marker = match grip.edge {
+        ResizeEdge::Right => "║",
+        ResizeEdge::Bottom => "═══",
+        ResizeEdge::Corner => "╝",
+    };
+    let active = grip.interaction.hovered || grip.interaction.active;
+    let color = if active {
+        colors::ACCENT
+    } else if grip.edge == ResizeEdge::Corner {
+        colors::GRIP_CORNER
+    } else {
+        colors::GRIP
+    };
+    let mut grip = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
+    grip.child().insert(Text::new(marker).color(color));
 }
 
 struct Button<'a> {
@@ -1180,29 +1178,27 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     }
 }
 
-fn split<'a>(
-    state: &'a mut SplitState,
+fn split(
+    state: &mut SplitState,
     initial_extent: i32,
-    leading: impl Widget<TuiContext> + 'a,
-    trailing: impl Widget<TuiContext> + 'a,
-) -> impl Widget<TuiContext> + 'a {
+    leading: impl Widget<TuiContext>,
+    trailing: impl Widget<TuiContext>,
+) -> impl Widget<TuiContext> {
     Split::new(state)
         .initial_extent(initial_extent)
-        .divider(|_, interaction| {
-            move |ui: Ui<'_>| {
-                let active = interaction.hovered || interaction.active;
-                let mut divider = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
-                divider
-                    .child()
-                    .insert(Text::new("⠿").color(if active { colors::ACCENT } else { colors::TEXT_DIM }));
-            }
+        .divider(|ui, _, interaction| {
+            let active = interaction.hovered || interaction.active;
+            let mut divider = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
+            divider
+                .child()
+                .insert(Text::new("⠿").color(if active { colors::ACCENT } else { colors::TEXT_DIM }));
         })
         .leading(leading)
         .trailing(trailing)
 }
 
-fn scroll_thumb(active: bool) -> Block<'static> {
-    Block::new().background(if active { colors::ACCENT } else { colors::ACCENT_DARK })
+fn scroll_thumb(mut ui: Ui<'_>, active: bool) {
+    ui.insert(Block::new().background(if active { colors::ACCENT } else { colors::ACCENT_DARK }));
 }
 
 fn panel<'a>(background: Color, title: &'a str) -> Block<'a> {

@@ -12,8 +12,6 @@ blit::builder! {
     }
 }
 
-blit::atom_widget!(Image);
-
 impl<C: Context> Atom<C> for Image {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         constraints.constrain(self.intrinsic)

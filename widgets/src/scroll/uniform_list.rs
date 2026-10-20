@@ -25,21 +25,20 @@ blit::builder! {
         item<F: FnMut(Ui<'_, C>, I::Item) = ()>: F = (),
         clip<X = ()>: X = (),
         #[into]
-        track<A = ()>: Option<A> = None,
+        track<A: FnOnce(Ui<'_, C>) = fn(Ui<'_, C>)>: Option<A> = None,
         #[into]
-        thumb<H = fn(bool) -> ()>: Option<H> = None,
+        thumb<H: FnOnce(Ui<'_, C>, bool) = fn(Ui<'_, C>, bool)>: Option<H> = None,
     }
 }
 
-impl<C: Context, I, K, F, X, A, H, B> Widget<C> for UniformList<'_, C, I, K, F, X, A, H>
+impl<C: Context, I, K, F, X, A, H> Widget<C> for UniformList<'_, C, I, K, F, X, A, H>
 where
     I: ExactSizeIterator + Clone,
     K: FnMut(&I::Item) -> Id,
     F: FnMut(Ui<'_, C>, I::Item),
     X: Clip<C>,
-    A: Widget<C, blit::state::Node>,
-    H: FnOnce(bool) -> B,
-    B: Widget<C, blit::state::Node>,
+    A: FnOnce(Ui<'_, C>),
+    H: FnOnce(Ui<'_, C>, bool),
 {
     type Response = Response;
 
@@ -121,7 +120,6 @@ where
                     .build(|ui: Ui<'_, C>| item(ui, value));
             }
         };
-        let thumb = thumb.map(|thumb| thumb(thumb_active));
         let offset = state.offset;
         build_scroll(
             ui,
@@ -138,6 +136,7 @@ where
             content,
             track,
             thumb,
+            thumb_active,
         );
         Response { visible_range }
     }

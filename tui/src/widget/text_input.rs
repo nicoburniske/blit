@@ -135,8 +135,6 @@ struct InputAtom {
     focused: bool,
 }
 
-blit::atom_widget!(InputAtom);
-
 impl<C: Context> Atom<C> for InputAtom {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         let size = cx

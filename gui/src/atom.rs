@@ -20,8 +20,6 @@ blit::builder! {
     }
 }
 
-blit::atom_widget!(Rectangle);
-
 impl<C: Context> Atom<C> for Rectangle {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
@@ -50,8 +48,6 @@ blit::builder! {
         options: TextOptions = TextOptions::new(),
     }
 }
-
-blit::atom_widget!(Text);
 
 impl<C: Context> Atom<C> for Text {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
@@ -89,8 +85,6 @@ pub struct Image {
     pub horizontal_tiling: ImageTiling,
     pub vertical_tiling: ImageTiling,
 }
-
-blit::atom_widget!(Image);
 
 impl<C: Context> Atom<C> for Image {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
@@ -145,8 +139,6 @@ impl Shadow {
     }
 }
 
-blit::atom_widget!(Shadow);
-
 impl<C: Context> Atom<C> for Shadow {
     fn measure(&self, _: &mut AtomCx<'_, C>, _: Constraints<f32>) -> Size<f32> {
         Size::ZERO
@@ -163,8 +155,6 @@ impl<C: Context> Atom<C> for Shadow {
 
 #[derive(Clone, Copy, Default)]
 pub struct Clear;
-
-blit::atom_widget!(Clear);
 
 impl<C: Context> Atom<C> for Clear {
     fn measure(&self, _: &mut AtomCx<'_, C>, bounds: Constraints<f32>) -> Size<f32> {

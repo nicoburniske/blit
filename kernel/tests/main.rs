@@ -80,8 +80,6 @@ fn render_inputs<O>(
 
 struct Fill(char, Size<f32>);
 
-blit::atom_widget!(Fill);
-
 impl Atom<TestContext> for Fill {
     fn measure(&self, _: &mut AtomCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
         bounds.constrain(self.1)
@@ -220,8 +218,6 @@ struct ProbeResult {
     drops: usize,
     area: Rect<f32>,
 }
-
-blit::atom_widget!(Probe);
 
 impl Layout<TestContext> for Probe {
     type Item = ();

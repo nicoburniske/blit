@@ -19,22 +19,21 @@ pub struct ResizeGrip<T> {
 }
 
 blit::builder! {
-    pub struct Resize<'a, T: Scalar> {
-        new(state: &'a mut ResizeState<T>),
+    pub struct Resize<'a, C: Context> {
+        new(state: &'a mut ResizeState<C::Scalar>),
         content<W = ()>: W = (),
-        grip<F: FnMut(ResizeGrip<T>) -> G = fn(ResizeGrip<T>) -> (), G>: F = |_| (),
-        initial: Size<T> = Size::ZERO,
-        minimum: Size<T> = Size::ZERO,
-        maximum: Size<T> = Size::uniform(T::UNBOUNDED),
-        grip_size: Size<T> = Size::uniform(T::from_f32(1.0)),
+        grip<F: FnMut(Ui<'_, C>, ResizeGrip<C::Scalar>) = fn(Ui<'_, C>, ResizeGrip<<C as Context>::Scalar>)>: F = |_, _| (),
+        initial: Size<C::Scalar> = Size::ZERO,
+        minimum: Size<C::Scalar> = Size::ZERO,
+        maximum: Size<C::Scalar> = Size::uniform(C::Scalar::UNBOUNDED),
+        grip_size: Size<C::Scalar> = Size::uniform(C::Scalar::from_f32(1.0)),
     }
 }
 
-impl<C: Context<Scalar = T>, T: Scalar, W, F, G> Widget<C> for Resize<'_, T, W, F>
+impl<C: Context, W, F> Widget<C> for Resize<'_, C, W, F>
 where
     W: Widget<C>,
-    F: FnMut(ResizeGrip<T>) -> G,
-    G: Widget<C>,
+    F: FnMut(Ui<'_, C>, ResizeGrip<C::Scalar>),
 {
     type Response = ();
     fn build(self, mut ui: Ui<'_, C>) {
@@ -82,7 +81,7 @@ where
                 .child()
                 .item(item)
                 .id(grip_id)
-                .build(grip(ResizeGrip { edge, interaction }));
+                .build(|ui: Ui<'_, C>| grip(ui, ResizeGrip { edge, interaction }));
         }
     }
 }

@@ -17,7 +17,7 @@ use std::{
 };
 
 use crate::{
-    Atom, Clip, FrameInfo, Widget,
+    Atom, AtomWidget, Clip, FrameInfo, IntoWidget, Widget,
     animation::{Easing, Transition},
     arena::{DataArena, DataId, Scratch},
     geometry::{Constraints, Point, Rect, Sides, Size},
@@ -110,8 +110,12 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     /// inserts content into the current node
     ///
     /// layouts choose whether their atoms contribute to sizing
-    pub fn insert<W: Widget<C, state::Node>>(&mut self, widget: W) -> W::Response {
-        widget.build(Ui {
+    pub fn insert<T, W>(&mut self, widget: T) -> W::Response
+    where
+        T: IntoWidget<C, W>,
+        W: Widget<C, state::Node>,
+    {
+        widget.into_widget().build(Ui {
             inner: UiInner {
                 frame: self.inner.frame,
                 context: self.inner.context,
@@ -363,10 +367,11 @@ impl<C: Context, S> Ui<'_, C, S> {
     }
 }
 
-impl<C: Context> Ui<'_, C, state::Node> {
-    #[doc(hidden)]
-    pub fn insert_atom<A: Atom<C>>(self, atom: A) {
-        atom::insert(self.inner.frame, self.inner.node, atom);
+impl<C: Context, A: Atom<C>> Widget<C, state::Node> for AtomWidget<A> {
+    type Response = ();
+
+    fn build(self, ui: Ui<'_, C, state::Node>) {
+        atom::insert(ui.inner.frame, ui.inner.node, self.0);
     }
 }
 

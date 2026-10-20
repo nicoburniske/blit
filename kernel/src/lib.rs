@@ -82,7 +82,7 @@ pub trait Widget<C: Context, S = state::Build> {
 
 /// retained visual content that measures and paints after building
 ///
-/// use [`atom_widget!`] to implement [`Widget<C, state::Node>`] for an atom type
+/// atoms can be passed directly to [`Ui::insert`]
 pub trait Atom<C: Context>: 'static {
     /// returns the size requested by this atom under `constraints`
     ///
@@ -100,6 +100,29 @@ pub trait Atom<C: Context>: 'static {
     }
 }
 
+/// converts atoms and node widgets for insertion
+///
+/// implemented automatically for atoms and node widgets. [`Ui::insert`] infers the output type.
+/// types implementing both require an explicit output widget type.
+pub trait IntoWidget<C: Context, W> {
+    fn into_widget(self) -> W;
+}
+
+/// adapts an atom to a node widget
+pub struct AtomWidget<A>(A);
+
+impl<C: Context, W: Widget<C, state::Node>> IntoWidget<C, W> for W {
+    fn into_widget(self) -> W {
+        self
+    }
+}
+
+impl<C: Context, A: Atom<C>> IntoWidget<C, AtomWidget<A>> for A {
+    fn into_widget(self) -> AtomWidget<A> {
+        AtomWidget(self)
+    }
+}
+
 impl<C: Context, F, O> Widget<C> for F
 where
     F: FnOnce(Ui<'_, C>) -> O,
@@ -110,16 +133,6 @@ where
         self(ui)
     }
 }
-
-impl<C: Context> Widget<C> for () {
-    type Response = ();
-
-    fn build(self, mut ui: Ui<'_, C>) {
-        ui.insert(self);
-    }
-}
-
-atom_widget!(());
 
 impl<C: Context> Atom<C> for () {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
