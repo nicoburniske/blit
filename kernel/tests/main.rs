@@ -7,8 +7,8 @@ use std::{
 };
 
 use blit::{
-    Atom, AtomCx, Clip, Constraints, Context, Direction, Easing, Frame, FrameInfo, Id, Input, Interaction, Layout,
-    LayoutCx, Modifiers, NodeTarget,
+    Atom, AtomCx, Clip, ClipShape, Constraints, Context, Direction, Easing, Frame, FrameInfo, Id, Input, Interaction,
+    Layout, LayoutCx, Modifiers, NodeTarget,
     Phase::{Cancelled, Changed, Ended, Started},
     Point, PointerButton, Rect, Scalar, ScrollPhase, Sense, Size, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
@@ -93,6 +93,10 @@ impl Atom<TestContext> for Fill {
 struct TestClip;
 
 impl Clip<TestContext> for TestClip {
+    fn shape(&self, area: Rect<f32>) -> ClipShape<f32> {
+        ClipShape::Rect(area)
+    }
+
     fn push(&self, context: &mut TestContext, area: Rect<f32>) {
         context.commands.push(Command::PushClip(area));
     }

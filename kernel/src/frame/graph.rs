@@ -12,7 +12,6 @@ pub struct Frame<C: Context> {
     paint_links: Vec<PaintLinks>,
     paint_order: Vec<NodeId>,
     order_stack: Vec<NodeId>,
-    resolved_clips: Vec<ResolvedClip<C::Scalar>>,
     active_clips: Vec<ResolvedClipId>,
     interaction: interaction::InteractionState<C::Scalar>,
     geometry_previous: Vec<(Id, Rect<C::Scalar>)>,
@@ -69,7 +68,6 @@ impl<C: Context> Default for Frame<C> {
             paint_links: Vec::new(),
             paint_order: Vec::new(),
             order_stack: Vec::new(),
-            resolved_clips: Vec::new(),
             active_clips: Vec::new(),
             interaction: interaction::InteractionState::default(),
             geometry_previous: Vec::new(),
@@ -121,7 +119,6 @@ impl<C: Context> Frame<C> {
         #[cfg(debug_assertions)]
         self.widget_ids.clear();
         self.paint_order.clear();
-        self.resolved_clips.clear();
         self.active_clips.clear();
         self.input = input;
         self.time = time;
@@ -168,7 +165,7 @@ impl<C: Context> Frame<C> {
         transition::resolve(self, &data, context, NodeId::new(0), Constraints::tight(self.screen.size()), true);
         position::resolve(self);
         paint::resolve_order(self);
-        paint::resolve_clips(self);
+        paint::resolve_clips(self, &data);
         interaction::resolve(self);
         self.animations.retain(|animation| animation.seen);
         self.transitions.retain(|state| state.seen);
@@ -247,6 +244,7 @@ impl<C: Context> Frame<C> {
             .unwrap_or_else(|| {
                 self.clip_kinds.push(ClipKind {
                     type_id,
+                    shape: |data, id, area| data.load::<X>(id).shape(area),
                     push: |data, id, context, area| data.load::<X>(id).push(context, area),
                     pop: |data, id, context| data.load::<X>(id).pop(context),
                 });
@@ -340,7 +338,7 @@ impl<C: Context> Frame<C> {
 
     fn clip_bounds(&self, clip: ResolvedClipId) -> Rect<C::Scalar> {
         clip.index()
-            .map_or(self.screen, |clip| self.resolved_clips[clip].bounds)
+            .map_or(self.screen, |clip| self.interaction.clips[clip].bounds)
     }
 }
 
@@ -414,12 +412,13 @@ struct PaintLinks {
 }
 
 #[derive(Clone, Copy)]
-struct ResolvedClip<T> {
+pub struct ResolvedClip<T> {
     parent: ResolvedClipId,
     depth: u32,
     clip: StoredClipId,
     area: Rect<T>,
     bounds: Rect<T>,
+    shape: ClipShape<T>,
 }
 
 #[derive(Clone, Copy)]
@@ -474,6 +473,7 @@ struct LayoutKind<C: Context> {
 
 struct ClipKind<C: Context> {
     type_id: TypeId,
+    shape: fn(&DataArena, DataId, Rect<C::Scalar>) -> ClipShape<C::Scalar>,
     push: fn(&DataArena, DataId, &mut C, Rect<C::Scalar>),
     pop: fn(&DataArena, DataId, &mut C),
 }

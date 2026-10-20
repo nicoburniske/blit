@@ -17,7 +17,7 @@ use std::{
 };
 
 use crate::{
-    Atom, AtomWidget, Clip, FrameInfo, IntoWidget, Widget,
+    Atom, AtomWidget, Clip, ClipShape, FrameInfo, IntoWidget, Widget,
     animation::{Easing, Transition},
     arena::{DataArena, DataId, Scratch},
     geometry::{Constraints, Point, Rect, Sides, Size},

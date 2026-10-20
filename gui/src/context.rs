@@ -1,4 +1,4 @@
-use blit::{Clip, LogicalPoint, LogicalRect, LogicalSize, Scale2};
+use blit::{Clip, ClipShape, LogicalPoint, LogicalRect, LogicalSize, Scale2};
 
 use crate::{
     Context, TextSystem,
@@ -120,6 +120,10 @@ impl GuiContext {
 pub struct BoundsClip;
 
 impl<C: Context> Clip<C> for BoundsClip {
+    fn shape(&self, area: LogicalRect) -> ClipShape<f32> {
+        ClipShape::Rect(area)
+    }
+
     fn push(&self, context: &mut C, area: LogicalRect) {
         let gui = context.as_mut();
         let previous = gui.clip;

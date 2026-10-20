@@ -36,6 +36,7 @@
 //! the graph is rebuilt every frame
 
 mod arena;
+mod clip;
 mod frame;
 mod hash;
 mod macros;
@@ -48,6 +49,7 @@ pub mod layout;
 
 pub use self::{
     animation::{Easing, Transition, TransitionProperties},
+    clip::{Clip, ClipShape},
     frame::{Frame, NodeId, NodeTarget, Ui, atom::AtomCx, state},
     geometry::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
@@ -144,18 +146,6 @@ impl<C: Context> Atom<C> for () {
     fn paint_bounds(&self, _: Rect<C::Scalar>) -> Rect<C::Scalar> {
         Rect::default()
     }
-}
-
-pub trait Clip<C: Context>: 'static {
-    fn push(&self, context: &mut C, area: Rect<C::Scalar>);
-
-    fn pop(&self, context: &mut C);
-}
-
-impl<C: Context> Clip<C> for () {
-    fn push(&self, _: &mut C, _: Rect<C::Scalar>) {}
-
-    fn pop(&self, _: &mut C) {}
 }
 
 #[cfg(doctest)]

@@ -1,5 +1,5 @@
 use super::{Frame, NodeId, ResolvedClip, ResolvedClipId};
-use crate::{Context, arena::DataArena};
+use crate::{ClipShape, Context, Rect, Scalar, arena::DataArena};
 
 pub fn resolve_order<C: Context>(frame: &mut Frame<C>) {
     frame.paint_order.clear();
@@ -42,34 +42,51 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>) {
     debug_assert_eq!(frame.paint_order.len(), frame.nodes.len());
 }
 
-pub fn resolve_clips<C: Context>(frame: &mut Frame<C>) {
-    frame.resolved_clips.clear();
+pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, data: &DataArena) {
+    frame.interaction.clips.clear();
     for index in 0..frame.nodes.len() {
         let parent = if index == 0 {
             ResolvedClipId::NONE
         } else {
             frame.nodes[frame.nodes[index].visual_parent.index()].resolved_clip
         };
-        if frame.nodes[index].clip.index().is_some() {
-            let bounds = frame
-                .clip_bounds(parent)
-                .intersection(frame.node_geometry[index].area)
-                .unwrap_or_default();
-            let id = ResolvedClipId::new(frame.resolved_clips.len());
-            let depth = parent
-                .index()
-                .map_or(1, |parent| frame.resolved_clips[parent].depth + 1);
-            frame.resolved_clips.push(ResolvedClip {
-                parent,
-                depth,
-                clip: frame.nodes[index].clip,
-                area: frame.node_geometry[index].area,
-                bounds,
-            });
-            frame.nodes[index].resolved_clip = id;
-        } else {
-            frame.nodes[index].resolved_clip = parent;
-        }
+        frame.nodes[index].resolved_clip = parent;
+        let Some(clip) = frame.nodes[index].clip.index() else {
+            continue;
+        };
+        let stored = frame.clips[clip];
+        let area = frame.node_geometry[index].area;
+        let shape = (frame.clip_kinds[stored.kind as usize].shape)(data, stored.data, area);
+        let parent_bounds = frame.clip_bounds(parent);
+        let bounds = match shape {
+            ClipShape::Unbounded => continue,
+            ClipShape::Rect(rect) | ClipShape::RoundedRect { rect, .. } => {
+                parent_bounds.intersection(rect).unwrap_or_default()
+            }
+            ClipShape::Circle { center, radius } => {
+                let radius = radius.max(C::Scalar::ZERO);
+                let right = parent_bounds.x.endpoint(parent_bounds.width);
+                let bottom = parent_bounds.y.endpoint(parent_bounds.height);
+                let x = center.x.endpoint(-radius).clamp(parent_bounds.x, right);
+                let y = center.y.endpoint(-radius).clamp(parent_bounds.y, bottom);
+                let right = center.x.endpoint(radius).clamp(x, right);
+                let bottom = center.y.endpoint(radius).clamp(y, bottom);
+                Rect::new(x, y, right - x, bottom - y)
+            }
+        };
+        let id = ResolvedClipId::new(frame.interaction.clips.len());
+        let depth = parent
+            .index()
+            .map_or(1, |parent| frame.interaction.clips[parent].depth + 1);
+        frame.interaction.clips.push(ResolvedClip {
+            parent,
+            depth,
+            clip: frame.nodes[index].clip,
+            area,
+            bounds,
+            shape,
+        });
+        frame.nodes[index].resolved_clip = id;
     }
 }
 
@@ -91,15 +108,15 @@ pub fn render<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut 
 fn set<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, target: ResolvedClipId) {
     let mut common = target;
     while let Some(index) = common.index() {
-        let depth = frame.resolved_clips[index].depth as usize;
+        let depth = frame.interaction.clips[index].depth as usize;
         if depth <= frame.active_clips.len() && frame.active_clips[depth - 1].0 == common.0 {
             break;
         }
-        common = frame.resolved_clips[index].parent;
+        common = frame.interaction.clips[index].parent;
     }
     while frame.active_clips.last().map_or(u32::MAX, |clip| clip.0) != common.0 {
         let clip = frame.active_clips.pop().unwrap();
-        let stored = frame.resolved_clips[clip.index().unwrap()];
+        let stored = frame.interaction.clips[clip.index().unwrap()];
         let clip_data = frame.clips[stored.clip.index().unwrap()];
         (frame.clip_kinds[clip_data.kind as usize].pop)(data, clip_data.data, context);
     }
@@ -109,7 +126,7 @@ fn set<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, targ
         if clip.0 == common {
             return;
         }
-        let stored = frame.resolved_clips[clip.index().unwrap()];
+        let stored = frame.interaction.clips[clip.index().unwrap()];
         push(frame, data, context, stored.parent, common);
         let clip_data = frame.clips[stored.clip.index().unwrap()];
         (frame.clip_kinds[clip_data.kind as usize].push)(data, clip_data.data, context, stored.area);

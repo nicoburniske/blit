@@ -1,4 +1,4 @@
-use blit::{Clip, PhysicalRect};
+use blit::{Clip, ClipShape, PhysicalRect};
 use blit_widgets::FrameProfiler;
 
 use crate::{RendererConfig, TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
@@ -99,6 +99,10 @@ impl TuiContext {
 pub struct BoundsClip;
 
 impl<C: crate::Context> Clip<C> for BoundsClip {
+    fn shape(&self, area: PhysicalRect) -> ClipShape<i32> {
+        ClipShape::Rect(area)
+    }
+
     fn push(&self, context: &mut C, area: PhysicalRect) {
         let context = context.as_mut();
         let previous = context.clip;

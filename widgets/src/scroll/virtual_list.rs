@@ -26,8 +26,7 @@ blit::builder! {
         #[into]
         #[bounds(FnMut(Ui<'_, C>, usize))]
         item<F = fn(Ui<'_, C>, usize)>: Option<F> = None,
-        #[into]
-        clip<X = ()>: Option<X> = None,
+        clip<X = ()>: X = (),
         #[into]
         track<A = fn(Ui<'_, C>)>: Option<A> = None,
         #[into]
@@ -171,7 +170,7 @@ where
             min: Size::new(width, C::Scalar::ZERO),
             max: Size::new(width, C::Scalar::UNBOUNDED),
         };
-        let mut content = ui.layout(VirtualLayout {
+        let mut content = ui.clip(clip).layout(VirtualLayout {
             anchor,
             count,
             size,
@@ -181,9 +180,6 @@ where
                 minimum: minimum_thumb_extent,
             },
         });
-        if let Some(clip) = clip {
-            content = content.clip(clip);
-        }
         state.sample.clear();
         // measure rows while extending the window around the anchor
         let window = {

@@ -25,8 +25,7 @@ blit::builder! {
         id<K = fn(usize, &<I as Iterator>::Item) -> Id>: K = |index, _| Id::new(index),
         #[bounds(FnMut(Ui<'_, C>, I::Item))]
         item<F = fn(Ui<'_, C>, <I as Iterator>::Item)>: F = |_, _| (),
-        #[into]
-        clip<X = ()>: Option<X> = None,
+        clip<X = ()>: X = (),
         #[into]
         track<A = fn(Ui<'_, C>)>: Option<A> = None,
         #[into]

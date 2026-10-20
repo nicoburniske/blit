@@ -1,6 +1,6 @@
 use std::{f32::consts::PI, time::Duration};
 
-use super::{Frame, Request};
+use super::{Frame, Request, ResolvedClip, ResolvedClipId};
 use crate::{
     Context, Direction, Drag, Interaction, InteractionConfig, Phase, Pinch, Rotation, Scalar, Scroll, TouchPhase,
     geometry::{Point, Rect, Sides},
@@ -36,11 +36,11 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
                 area.height + hit.top + hit.bottom,
             );
             let clip_bounds = frame.clip_bounds(stored.resolved_clip);
-            // todo: test interaction against the actual custom clip chain
             if let Some(area) = area.intersection(clip_bounds) {
                 frame.interaction.hits.push(HitItem {
                     id,
                     area,
+                    clip: stored.resolved_clip,
                     sense,
                     node,
                     end: stored.subtree_end as usize,
@@ -57,6 +57,7 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
 #[derive(Default)]
 pub struct InteractionState<T> {
     pub config: InteractionConfig,
+    pub clips: Vec<ResolvedClip<T>>,
     focused: Option<Id>,
     hovered: Option<Id>,
     position: Option<Point<T>>,
@@ -702,7 +703,7 @@ impl<T: Scalar> InteractionState<T> {
     }
 
     fn hit(&self, position: Point<T>) -> Option<HitItem<T>> {
-        self.hits.iter().rev().find(|hit| hit.area.contains(position)).copied()
+        self.hits.iter().rev().find(|hit| self.contains(hit, position)).copied()
     }
 
     fn target(&self, anchor: Option<Id>, position: Point<T>, sense: Sense) -> Option<HitItem<T>> {
@@ -711,16 +712,31 @@ impl<T: Scalar> InteractionState<T> {
             .iter()
             .rev()
             .find(|hit| {
-                hit.sense.intersects(sense) && hit.area.contains(position) && hit.node <= node && node <= hit.end
+                hit.sense.intersects(sense) && hit.node <= node && node <= hit.end && self.contains(hit, position)
             })
             .copied()
     }
 
     fn is_target(&self, hit: &HitItem<T>, anchor: Option<Id>, position: Point<T>) -> bool {
-        hit.area.contains(position)
+        self.contains(hit, position)
             && anchor
                 .and_then(|id| self.hits.iter().find(|hit| hit.id == id))
                 .is_some_and(|anchor| hit.node <= anchor.node && anchor.node <= hit.end)
+    }
+
+    fn contains(&self, hit: &HitItem<T>, position: Point<T>) -> bool {
+        if !hit.area.contains(position) {
+            return false;
+        }
+        let mut clip = hit.clip;
+        while let Some(index) = clip.index() {
+            let stored = &self.clips[index];
+            if !stored.shape.contains(position) {
+                return false;
+            }
+            clip = stored.parent;
+        }
+        true
     }
 }
 
@@ -728,6 +744,7 @@ impl<T: Scalar> InteractionState<T> {
 struct HitItem<T> {
     id: Id,
     area: Rect<T>,
+    clip: ResolvedClipId,
     sense: Sense,
     node: usize,
     end: usize,

@@ -15,8 +15,7 @@ blit::builder! {
         sense: Sense = Sense::SCROLL,
         scrollbar_thickness: C::Scalar = C::Scalar::from_f32(1.0),
         minimum_thumb_extent: C::Scalar = C::Scalar::from_f32(1.0),
-        #[into]
-        clip<X = ()>: Option<X> = None,
+        clip<X = ()>: X = (),
         #[into]
         track<A = fn(Ui<'_, C>)>: Option<A> = None,
         #[into]

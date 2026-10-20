@@ -353,3 +353,46 @@ fn clipping() {
     );
     assert!(response.active && response.scroll.is_some());
 }
+
+#[test]
+fn clip_shapes() {
+    struct ShapeClip(ClipShape<f32>);
+    impl Clip<TestContext> for ShapeClip {
+        fn shape(&self, _: Rect<f32>) -> ClipShape<f32> {
+            self.0
+        }
+        fn push(&self, _: &mut TestContext, _: Rect<f32>) {}
+        fn pop(&self, _: &mut TestContext) {}
+    }
+
+    let (mut frame, mut context) = frame(Size::uniform(4.0));
+    let rect = Rect::new(0.0, 0.0, 4.0, 4.0);
+    for shape in [
+        ClipShape::Unbounded,
+        ClipShape::RoundedRect { rect, radius: 2.0 },
+        ClipShape::Circle {
+            center: Point::new(2.0, 2.0),
+            radius: 2.0,
+        },
+    ] {
+        let build = |ui: Ui<'_>| {
+            let mut root = ui.clip(ShapeClip(shape)).layout(Rects);
+            let mut panel = root.child().item(Rect::new(0.0, 0.0, 1.0, 1.0)).clip(()).layout(Rects);
+            let mut child = panel.child().item(Rect::new(3.0, 3.0, 1.0, 1.0)).clip(TestClip);
+            child.insert(Fill('C', Size::uniform(1.0)));
+            child.interact(Sense::CLICK)
+        };
+        render(&mut frame, &mut context, &build);
+        assert!(context.commands.contains(&Paint('C', Rect::new(3.0, 3.0, 1.0, 1.0))));
+        for (position, inside) in [([3.1, 3.1], true), ([3.9, 3.9], shape == ClipShape::Unbounded)] {
+            let response = render_inputs(
+                &mut frame,
+                &mut context,
+                Duration::ZERO,
+                [pointer(None, Down, position), pointer(None, Up, position)],
+                &build,
+            );
+            assert_eq!(response.clicked, inside);
+        }
+    }
+}
