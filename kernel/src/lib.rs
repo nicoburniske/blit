@@ -152,11 +152,7 @@ pub trait Clip<C: Context>: 'static {
     fn pop(&self, context: &mut C);
 }
 
-/// leaves painting unclipped
-#[derive(Clone, Copy, Debug, Default)]
-pub struct NoClip;
-
-impl<C: Context> Clip<C> for NoClip {
+impl<C: Context> Clip<C> for () {
     fn push(&self, _: &mut C, _: Rect<C::Scalar>) {}
 
     fn pop(&self, _: &mut C) {}

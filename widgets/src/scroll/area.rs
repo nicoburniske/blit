@@ -1,4 +1,4 @@
-use blit::{Axis, Clip, Context, NoClip, Scalar, Sense, Ui, Widget};
+use blit::{Axis, Clip, Context, Scalar, Sense, Ui, Widget};
 
 pub use super::ScrollState;
 use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
@@ -15,7 +15,8 @@ blit::builder! {
         sense: Sense = Sense::SCROLL,
         scrollbar_thickness: C::Scalar = C::Scalar::from_f32(1.0),
         minimum_thumb_extent: C::Scalar = C::Scalar::from_f32(1.0),
-        clip<X = NoClip>: X = NoClip,
+        #[into]
+        clip<X = ()>: Option<X> = None,
         #[into]
         track<A = fn(Ui<'_, C>)>: Option<A> = None,
         #[into]

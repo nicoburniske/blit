@@ -1,8 +1,6 @@
 use std::ops::Range;
 
-use blit::{
-    Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, NoClip, Point, Scalar, Sense, Size, Sizing, Ui, Widget,
-};
+use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Sense, Size, Sizing, Ui, Widget};
 
 use super::{Scrollbar, ScrollbarInput, ThumbProgress, content_motion, scrollbar_input};
 
@@ -28,7 +26,8 @@ blit::builder! {
         #[into]
         #[bounds(FnMut(Ui<'_, C>, usize))]
         item<F = fn(Ui<'_, C>, usize)>: Option<F> = None,
-        clip<X = NoClip>: X = NoClip,
+        #[into]
+        clip<X = ()>: Option<X> = None,
         #[into]
         track<A = fn(Ui<'_, C>)>: Option<A> = None,
         #[into]
@@ -172,18 +171,19 @@ where
             min: Size::new(width, C::Scalar::ZERO),
             max: Size::new(width, C::Scalar::UNBOUNDED),
         };
-        let mut content = ui
-            .layout(VirtualLayout {
-                anchor,
-                count,
-                size,
-                row_bounds: bounds,
-                scrollbar: Scrollbar {
-                    thickness: scrollbar_thickness,
-                    minimum: minimum_thumb_extent,
-                },
-            })
-            .clip(clip);
+        let mut content = ui.layout(VirtualLayout {
+            anchor,
+            count,
+            size,
+            row_bounds: bounds,
+            scrollbar: Scrollbar {
+                thickness: scrollbar_thickness,
+                minimum: minimum_thumb_extent,
+            },
+        });
+        if let Some(clip) = clip {
+            content = content.clip(clip);
+        }
         state.sample.clear();
         // measure rows while extending the window around the anchor
         let window = {

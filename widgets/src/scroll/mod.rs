@@ -522,7 +522,7 @@ fn move_by<T: Scalar>(state: &mut ScrollState<T>, amount: f32) {
 fn build_scroll<'a, C: Context, W, X, T, H, L>(
     ui: Ui<'a, C>,
     layout: L,
-    clip: X,
+    clip: Option<X>,
     content: W,
     track: Option<T>,
     thumb: Option<H>,
@@ -538,7 +538,10 @@ where
     let id = ui.current_id();
     let content_id = id.child("content");
     let thumb_id = id.child("scroll thumb");
-    let mut viewport = ui.layout(layout).clip(clip);
+    let mut viewport = ui.layout(layout);
+    if let Some(clip) = clip {
+        viewport = viewport.clip(clip);
+    }
     viewport.child().item(ScrollItem::Content).id(content_id).build(content);
     if let Some(track) = track {
         viewport

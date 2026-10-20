@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, NoClip, Point, Scalar, Sense, Size, Ui, Widget};
+use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
 
 use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 use crate::ScrollState;
@@ -25,7 +25,8 @@ blit::builder! {
         id<K = fn(usize, &<I as Iterator>::Item) -> Id>: K = |index, _| Id::new(index),
         #[bounds(FnMut(Ui<'_, C>, I::Item))]
         item<F = fn(Ui<'_, C>, <I as Iterator>::Item)>: F = |_, _| (),
-        clip<X = NoClip>: X = NoClip,
+        #[into]
+        clip<X = ()>: Option<X> = None,
         #[into]
         track<A = fn(Ui<'_, C>)>: Option<A> = None,
         #[into]
