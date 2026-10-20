@@ -16,8 +16,9 @@ pub enum PopoverClose {
 blit::builder! {
     pub struct Popover<'a, C: Context> {
         new(state: &'a mut PopoverState),
-        trigger<F: FnOnce(Ui<'_, C>, Interaction<C::Scalar>, bool) = ()>: F = (),
-        content<W = ()>: W = (),
+        #[bounds(FnOnce(Ui<'_, C>, Interaction<C::Scalar>, bool))]
+        trigger<F = fn(Ui<'_, C>, Interaction<<C as Context>::Scalar>, bool)>: F = |_, _, _| (),
+        content<W = fn(Ui<'_, C>)>: W = |_| (),
         #[into]
         parent: NodeTarget = NodeTarget::Root,
         target_anchor: Anchor = Anchor::BottomLeft,

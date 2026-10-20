@@ -22,13 +22,4 @@ mod test {
     impl blit::Context for TestContext {
         type Scalar = f32;
     }
-
-    #[derive(Clone, Copy)]
-    pub struct TestClip;
-
-    impl blit::Clip<TestContext> for TestClip {
-        fn push(&self, _: &mut TestContext, _: blit::Rect<f32>) {}
-
-        fn pop(&self, _: &mut TestContext) {}
-    }
 }

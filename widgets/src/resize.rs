@@ -21,8 +21,9 @@ pub struct ResizeGrip<T> {
 blit::builder! {
     pub struct Resize<'a, C: Context> {
         new(state: &'a mut ResizeState<C::Scalar>),
-        content<W = ()>: W = (),
-        grip<F: FnMut(Ui<'_, C>, ResizeGrip<C::Scalar>) = fn(Ui<'_, C>, ResizeGrip<<C as Context>::Scalar>)>: F = |_, _| (),
+        content<W = fn(Ui<'_, C>)>: W = |_| (),
+        #[bounds(FnMut(Ui<'_, C>, ResizeGrip<C::Scalar>))]
+        grip<F = fn(Ui<'_, C>, ResizeGrip<<C as Context>::Scalar>)>: F = |_, _| (),
         initial: Size<C::Scalar> = Size::ZERO,
         minimum: Size<C::Scalar> = Size::ZERO,
         maximum: Size<C::Scalar> = Size::uniform(C::Scalar::UNBOUNDED),

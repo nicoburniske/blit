@@ -1,4 +1,4 @@
-use blit::{Axis, Clip, Context, Scalar, Sense, Ui, Widget};
+use blit::{Axis, Clip, Context, NoClip, Scalar, Sense, Ui, Widget};
 
 pub use super::ScrollState;
 use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
@@ -8,18 +8,18 @@ blit::builder! {
     /// builds all content every frame
     pub struct ScrollArea<'a, C: Context> {
         new(state: &'a mut ScrollState<C::Scalar>),
-        content<W = ()>: W = (),
+        content<W = fn(Ui<'_, C>)>: W = |_| (),
         axis: Axis = Axis::Vertical,
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 6.0,
         sense: Sense = Sense::SCROLL,
         scrollbar_thickness: C::Scalar = C::Scalar::from_f32(1.0),
         minimum_thumb_extent: C::Scalar = C::Scalar::from_f32(1.0),
-        clip<X = ()>: X = (),
+        clip<X = NoClip>: X = NoClip,
         #[into]
-        track<A: FnOnce(Ui<'_, C>) = fn(Ui<'_, C>)>: Option<A> = None,
+        track<A = fn(Ui<'_, C>)>: Option<A> = None,
         #[into]
-        thumb<H: FnOnce(Ui<'_, C>, bool) = fn(Ui<'_, C>, bool)>: Option<H> = None,
+        thumb<H = fn(Ui<'_, C>, bool)>: Option<H> = None,
     }
 }
 

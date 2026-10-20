@@ -987,8 +987,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
         };
         if horizontal {
             section.child().item(flex::item().grow()).build(
-                UniformList::new(uniform)
-                    .items(0_usize..100)
+                UniformList::new(uniform, 0_usize..100)
                     .item_extent(sz::SCROLL_ITEM_WIDTH)
                     .axis(Axis::Horizontal)
                     .gap(sz::XS)
@@ -996,7 +995,6 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                     .inertia_friction(3.0)
                     .scrollbar_thickness(sz::XS)
                     .minimum_thumb_extent(sz::XXL)
-                    .id(|index| Id::new(("desktop scroll row", *index)))
                     .item(row)
                     .clip(BoundsClip)
                     .track(scroll_track)
@@ -1010,7 +1008,6 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                     .inertia_friction(3.0)
                     .scrollbar_thickness(sz::XS)
                     .minimum_thumb_extent(sz::XS)
-                    .id(|index| Id::new(("desktop scroll row", index)))
                     .item(row)
                     .clip(BoundsClip)
                     .track(scroll_track)

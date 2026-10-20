@@ -3,9 +3,10 @@ use blit::{Axis, Constraints, Context, LayoutCx, Point, Scalar, Sense, Size, Ui,
 blit::builder! {
     pub struct Split<'a, C: Context> {
         new(state: &'a mut SplitState<C::Scalar>),
-        leading<L = ()>: L = (),
-        trailing<R = ()>: R = (),
-        divider<D: FnOnce(Ui<'_, C>, Axis, blit::Interaction<C::Scalar>) = fn(Ui<'_, C>, Axis, blit::Interaction<<C as Context>::Scalar>)>: D = |_, _, _| (),
+        leading<L = fn(Ui<'_, C>)>: L = |_| (),
+        trailing<R = fn(Ui<'_, C>)>: R = |_| (),
+        #[bounds(FnOnce(Ui<'_, C>, Axis, blit::Interaction<C::Scalar>))]
+        divider<D = fn(Ui<'_, C>, Axis, blit::Interaction<<C as Context>::Scalar>)>: D = |_, _, _| (),
         initial_extent: C::Scalar = C::Scalar::ZERO,
         axis: Axis = Axis::Horizontal,
         divider_extent: C::Scalar = C::Scalar::from_f32(1.0),

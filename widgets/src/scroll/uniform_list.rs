@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
+use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, NoClip, Point, Scalar, Sense, Size, Ui, Widget};
 
 use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 use crate::ScrollState;
@@ -8,11 +8,11 @@ use crate::ScrollState;
 blit::builder! {
     /// use for large lists with a known fixed item height or width
     /// builds only the visible range and a small margin
-    pub struct UniformList<'a, C: Context>
+    /// row keys default to hashed indices and are scoped to the list
+    pub struct UniformList<'a, C: Context, I>
     where I: ExactSizeIterator, I: Clone,
     {
-        new(state: &'a mut ScrollState<C::Scalar>),
-        items<I = std::iter::Empty<()>>: I = std::iter::empty(),
+        new(state: &'a mut ScrollState<C::Scalar>, items: I),
         axis: Axis = Axis::Vertical,
         gap: C::Scalar = C::Scalar::ZERO,
         item_extent: C::Scalar = C::Scalar::from_f32(1.0),
@@ -21,20 +21,22 @@ blit::builder! {
         sense: Sense = Sense::SCROLL,
         scrollbar_thickness: C::Scalar = C::Scalar::from_f32(1.0),
         minimum_thumb_extent: C::Scalar = C::Scalar::from_f32(1.0),
-        id<K: FnMut(&I::Item) -> Id = ()>: K = (),
-        item<F: FnMut(Ui<'_, C>, I::Item) = ()>: F = (),
-        clip<X = ()>: X = (),
+        #[bounds(FnMut(usize, &I::Item) -> Id)]
+        id<K = fn(usize, &<I as Iterator>::Item) -> Id>: K = |index, _| Id::new(index),
+        #[bounds(FnMut(Ui<'_, C>, I::Item))]
+        item<F = fn(Ui<'_, C>, <I as Iterator>::Item)>: F = |_, _| (),
+        clip<X = NoClip>: X = NoClip,
         #[into]
-        track<A: FnOnce(Ui<'_, C>) = fn(Ui<'_, C>)>: Option<A> = None,
+        track<A = fn(Ui<'_, C>)>: Option<A> = None,
         #[into]
-        thumb<H: FnOnce(Ui<'_, C>, bool) = fn(Ui<'_, C>, bool)>: Option<H> = None,
+        thumb<H = fn(Ui<'_, C>, bool)>: Option<H> = None,
     }
 }
 
 impl<C: Context, I, K, F, X, A, H> Widget<C> for UniformList<'_, C, I, K, F, X, A, H>
 where
     I: ExactSizeIterator + Clone,
-    K: FnMut(&I::Item) -> Id,
+    K: FnMut(usize, &I::Item) -> Id,
     F: FnMut(Ui<'_, C>, I::Item),
     X: Clip<C>,
     A: FnOnce(Ui<'_, C>),
@@ -62,6 +64,7 @@ where
         } = self;
         assert!(item_extent.is_finite() && item_extent > C::Scalar::ZERO);
         assert!(gap.is_finite() && gap >= C::Scalar::ZERO);
+        let id = ui.current_id();
         let stride = item_extent.endpoint(gap);
         let count = items.len();
         let (thumb_active, viewport_known) = update(state, &mut ui, axis, sense, scroll_speed, inertia_friction);
@@ -69,7 +72,11 @@ where
         state.content_extent = total_extent;
         // resolve offscreen rows by index before choosing which rows to build
         if viewport_known && let Target::Widget(target) = state.request.target {
-            state.request.target = match items.clone().position(|value| item_id(&value) == target) {
+            state.request.target = match items
+                .clone()
+                .enumerate()
+                .position(|(index, value)| id.child(item_id(index, &value)) == target)
+            {
                 Some(index) => {
                     let start = stride.repeat(index);
                     let end = start.endpoint(item_extent);
@@ -113,10 +120,10 @@ where
         let content = move |ui: Ui<'_, C>| {
             let mut list = ui.layout(layout);
             for (offset, value) in items.enumerate() {
-                let id = item_id(&value);
+                let row_id = id.child(item_id(first + offset, &value));
                 list.child()
                     .item(first + offset)
-                    .id(id)
+                    .id(row_id)
                     .build(|ui: Ui<'_, C>| item(ui, value));
             }
         };

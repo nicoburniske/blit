@@ -938,12 +938,10 @@ impl Widget<TuiContext> for &mut ScrollPage {
             Axis::Vertical => 3,
         };
         body.child().build(
-            UniformList::new(scroll)
-                .items(items.iter().enumerate())
+            UniformList::new(scroll, items.iter().enumerate())
                 .item_extent(item_extent)
                 .axis(axis)
                 .minimum_thumb_extent(4)
-                .id(|row| Id::new(("tui scroll row", row.1)))
                 .item(move |ui, (index, item)| {
                     let layout = match axis {
                         Axis::Horizontal => flex::column().align(Align::Center).justify(Justify::Center),
