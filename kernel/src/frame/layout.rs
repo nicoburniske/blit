@@ -52,9 +52,8 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     #[inline]
     pub fn children(&self) -> Children<'a> {
         Children {
-            nodes: &self.frame.nodes,
+            nodes: &self.frame.nodes[..=self.frame.nodes[self.node.index()].subtree_end as usize],
             next: NodeId::new(self.node.index() + 1),
-            end: self.frame.nodes[self.node.index()].subtree_end,
         }
     }
 
@@ -221,7 +220,6 @@ impl<'a, C: Context> LayoutCx<'a, C> {
 pub struct Children<'a> {
     nodes: &'a [StoredNode],
     next: NodeId,
-    end: u32,
 }
 
 impl Iterator for Children<'_> {
@@ -229,7 +227,7 @@ impl Iterator for Children<'_> {
 
     #[inline]
     fn next(&mut self) -> Option<NodeId> {
-        while self.next.value <= self.end {
+        while (self.next.value as usize) < self.nodes.len() {
             let node = self.next;
             let stored = &self.nodes[node.index()];
             self.next.value = stored.subtree_end + 1;

@@ -30,9 +30,10 @@ pub fn resolve<C: Context>(
     let mut active = TransitionProperties::NONE;
     let start = root.index();
     let end = frame.nodes[start].subtree_end as usize + 1;
+    let nodes = &frame.nodes[..end];
     let mut index = start;
     while index < end {
-        let stored = &frame.nodes[index];
+        let stored = &nodes[index];
         if !commit && start != 0 && stored.out_of_flow {
             index = stored.subtree_end as usize + 1;
             continue;
@@ -58,7 +59,7 @@ pub fn resolve<C: Context>(
         state.seen = true;
         state.advance(frame.node_geometry[node.index()].area, frame.time, frame.resized);
         let properties = state.active.intersection(TransitionProperties::SIZE);
-        if frame.nodes[node.index()].parent == node {
+        if nodes[node.index()].parent == node {
             if properties.intersects(TransitionProperties::WIDTH) {
                 state.current.width = state.target.width;
                 state.initial.width = state.target.width;

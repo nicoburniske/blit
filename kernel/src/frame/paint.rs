@@ -4,17 +4,18 @@ use crate::{ClipShape, Context, Rect, Scalar, bump::BumpArena};
 pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
     frame.paint_order.clear();
     let count = frame.nodes.len();
+    let geometry = &frame.node_geometry[..count];
     if !frame
         .nodes
         .iter()
-        .enumerate()
-        .any(|(index, node)| frame.node_geometry[index].z_index != 0 || node.visual_parent != node.parent)
+        .zip(geometry)
+        .any(|(node, geometry)| geometry.z_index != 0 || node.visual_parent != node.parent)
     {
         return;
     }
 
     let mut scratch = bump.scratch(count, PaintLinks::default());
-    let links = &mut *scratch;
+    let links = &mut scratch[..count];
     // zero marks the end of a child list since the root has no parent
     for index in 1..count {
         let parent = frame.nodes[index].visual_parent.index();
@@ -24,7 +25,7 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
 
     // completed nodes fill the front while pending nodes form a stack at the back
     frame.paint_order.resize(count, NodeId::new(0));
-    let order = &mut frame.paint_order;
+    let order = &mut frame.paint_order[..count];
     let mut pending = count - 1;
     for output in 0..count {
         debug_assert!(pending >= output && pending < count);
@@ -37,14 +38,14 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
         while child != 0 {
             let index = child as usize;
             child = links[index].next_sibling;
-            needs_sort = needs_sort || frame.node_geometry[index].z_index != 0;
+            needs_sort = needs_sort || geometry[index].z_index != 0;
             pending -= 1;
             debug_assert!(pending > output);
             order[pending] = NodeId::new(index);
         }
         let children = &mut order[pending..start];
         if needs_sort {
-            children.sort_unstable_by_key(|id| (frame.node_geometry[id.index()].z_index, id.index()));
+            children.sort_unstable_by_key(|id| (geometry[id.index()].z_index, id.index()));
         }
     }
     debug_assert_eq!(pending, count);
@@ -52,20 +53,25 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
 
 pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
     frame.interaction.clips.clear();
-    for index in 0..frame.nodes.len() {
+    let count = frame.nodes.len();
+    let nodes = &mut frame.nodes[..count];
+    let geometry = &frame.node_geometry[..count];
+    for index in 0..count {
         let parent = if index == 0 {
             ResolvedClipId::NONE
         } else {
-            frame.nodes[frame.nodes[index].visual_parent.index()].resolved_clip
+            nodes[nodes[index].visual_parent.index()].resolved_clip
         };
-        frame.nodes[index].resolved_clip = parent;
-        let Some(clip) = frame.nodes[index].clip.index() else {
+        nodes[index].resolved_clip = parent;
+        let Some(clip) = nodes[index].clip.index() else {
             continue;
         };
         let stored = frame.clips[clip];
-        let area = frame.node_geometry[index].area;
+        let area = geometry[index].area;
         let shape = (frame.clip_kinds[stored.kind as usize].shape)(bump, stored.bump_id, area);
-        let parent_bounds = frame.clip_bounds(parent);
+        let parent_bounds = parent
+            .index()
+            .map_or(frame.screen, |clip| frame.interaction.clips[clip].bounds);
         let bounds = match shape {
             ClipShape::Unbounded => continue,
             ClipShape::Rect(rect) | ClipShape::RoundedRect { rect, .. } => {
@@ -89,12 +95,12 @@ pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
         frame.interaction.clips.push(ResolvedClip {
             parent,
             depth,
-            clip: frame.nodes[index].clip,
+            clip: nodes[index].clip,
             area,
             bounds,
             shape,
         });
-        frame.nodes[index].resolved_clip = id;
+        nodes[index].resolved_clip = id;
     }
 }
 

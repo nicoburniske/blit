@@ -13,38 +13,54 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     frame.geometry_previous.clear();
     frame.interaction.hits.clear();
     if !frame.requests.is_empty() {
-        for index in 0..frame.nodes.len() {
-            let node = frame.paint_order.get(index).map_or(index, |id| id.index());
-            let stored = &frame.nodes[node];
-            let id = stored.widget_id;
-            let Some(request) = frame.requests.get(&id).copied() else {
-                continue;
-            };
-            let area = frame.node_geometry[node].area;
-            frame.geometry_previous.push((id, area));
-            let Request::Interaction(sense) = request else {
-                continue;
-            };
-            let hit = stored
-                .geometry
-                .index()
-                .map_or(Sides::all(C::Scalar::ZERO), |index| frame.geometry[index].hit);
-            let area = Rect::new(
-                area.x - hit.left,
-                area.y - hit.top,
-                area.width + hit.left + hit.right,
-                area.height + hit.top + hit.bottom,
-            );
-            let clip_bounds = frame.clip_bounds(stored.resolved_clip);
-            if let Some(area) = area.intersection(clip_bounds) {
-                frame.interaction.hits.push(HitItem {
-                    id,
-                    area,
-                    clip: stored.resolved_clip,
-                    sense,
-                    node,
-                    end: stored.subtree_end as usize,
-                });
+        let count = frame.nodes.len();
+        let nodes = &frame.nodes[..count];
+        let geometry = &frame.node_geometry[..count];
+        let mut collect = {
+            #[inline(always)]
+            |node: usize, stored: &super::StoredNode, area: Rect<C::Scalar>| {
+                let id = stored.widget_id;
+                let Some(request) = frame.requests.get(&id).copied() else {
+                    return;
+                };
+                frame.geometry_previous.push((id, area));
+                let Request::Interaction(sense) = request else {
+                    return;
+                };
+                let hit = stored
+                    .geometry
+                    .index()
+                    .map_or(Sides::all(C::Scalar::ZERO), |index| frame.geometry[index].hit);
+                let area = Rect::new(
+                    area.x - hit.left,
+                    area.y - hit.top,
+                    area.width + hit.left + hit.right,
+                    area.height + hit.top + hit.bottom,
+                );
+                let clip_bounds = stored
+                    .resolved_clip
+                    .index()
+                    .map_or(frame.screen, |clip| frame.interaction.clips[clip].bounds);
+                if let Some(area) = area.intersection(clip_bounds) {
+                    frame.interaction.hits.push(HitItem {
+                        id,
+                        area,
+                        clip: stored.resolved_clip,
+                        sense,
+                        node,
+                        end: stored.subtree_end as usize,
+                    });
+                }
+            }
+        };
+        if frame.paint_order.is_empty() {
+            for (node, (stored, geometry)) in nodes.iter().zip(geometry).enumerate() {
+                collect(node, stored, geometry.area);
+            }
+        } else {
+            for id in &frame.paint_order[..count] {
+                let node = id.index();
+                collect(node, &nodes[node], geometry[node].area);
             }
         }
     }
