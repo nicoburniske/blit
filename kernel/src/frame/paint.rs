@@ -90,7 +90,7 @@ pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, data: &DataArena) {
     }
 }
 
-pub fn render<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C) {
+pub fn paint<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C) {
     frame.active_clips.clear();
     if frame.paint_order.is_empty() {
         for node in 0..frame.nodes.len() {

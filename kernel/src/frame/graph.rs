@@ -177,7 +177,7 @@ impl<C: Context> Frame<C> {
     /// paints the resolved graph and releases its retained values
     pub fn paint(&mut self, context: &mut C) {
         let mut data = std::mem::take(&mut self.data);
-        paint::render(self, &data, context);
+        paint::paint(self, &data, context);
         data.clear();
         self.data = data;
     }
