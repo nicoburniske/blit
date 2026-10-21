@@ -4,7 +4,7 @@ use super::{Frame, NodeId, layout};
 use crate::{
     Context, Scalar,
     animation::{Transition, TransitionProperties},
-    arena::DataArena,
+    bump::BumpArena,
     geometry::{Constraints, Rect, Size},
     interact::Id,
 };
@@ -17,13 +17,13 @@ use crate::{
 /// - position transitions apply after layout without replay
 pub fn resolve<C: Context>(
     frame: &mut Frame<C>,
-    data: &DataArena,
+    bump: &BumpArena,
     context: &mut C,
     root: NodeId,
     bounds: Constraints<C::Scalar>,
     commit: bool,
 ) -> Size<C::Scalar> {
-    let mut size = layout::resolve(frame, data, context, root, bounds);
+    let mut size = layout::resolve(frame, bump, context, root, bounds);
     if frame.geometry.is_empty() {
         return size;
     }
@@ -97,7 +97,7 @@ pub fn resolve<C: Context>(
         }
     }
     if !frame.target_sizes.is_empty() {
-        size = layout::resolve(frame, data, context, root, bounds);
+        size = layout::resolve(frame, bump, context, root, bounds);
         frame.target_sizes.clear();
     }
     if commit && active.intersects(TransitionProperties::POSITION) {

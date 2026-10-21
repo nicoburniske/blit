@@ -35,7 +35,7 @@
 //!
 //! the graph is rebuilt every frame
 
-mod arena;
+mod bump;
 mod clip;
 mod frame;
 mod hash;

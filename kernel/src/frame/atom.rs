@@ -3,13 +3,13 @@ use std::any::TypeId;
 use super::{AtomKind, Frame, NodeId, StoredAtom, StoredAtomId};
 use crate::{
     Atom, Context,
-    arena::{DataArena, DataId, Scratch},
+    bump::{BumpArena, BumpId, Scratch},
     geometry::{Constraints, Rect, Size},
 };
 
 /// context resources and temporary storage for measuring and painting atoms
 pub struct AtomCx<'a, C: Context> {
-    data: &'a DataArena,
+    bump: &'a BumpArena,
     context: &'a mut C,
 }
 
@@ -23,7 +23,7 @@ impl<'a, C: Context> AtomCx<'a, C> {
     }
 
     pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'a, T> {
-        self.data.scratch(len, value)
+        self.bump.scratch(len, value)
     }
 }
 
@@ -37,7 +37,7 @@ pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: 
             frame.atom_kinds.push(AtomKind {
                 type_id,
                 measure: measure::<C, A>,
-                paint_bounds: |data, id, area| data.load::<A>(id).paint_bounds(area),
+                paint_bounds: |bump, id, area| bump.load::<A>(id).paint_bounds(area),
                 paint: paint::<C, A>,
             });
             frame.atom_kinds.len() - 1
@@ -45,7 +45,7 @@ pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: 
     let id = StoredAtomId::new(frame.atoms.len());
     frame.atoms.push(StoredAtom {
         kind: u16::try_from(kind).expect("too many atom types"),
-        data: frame.data.store(atom),
+        bump_id: frame.bump.store(atom),
         next: StoredAtomId::NONE,
     });
     let node = &mut frame.nodes[node.index()];
@@ -58,14 +58,14 @@ pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: 
 }
 
 pub fn measure<C: Context, A: Atom<C>>(
-    data: &DataArena,
-    id: DataId,
+    bump: &BumpArena,
+    id: BumpId,
     context: &mut C,
     bounds: Constraints<C::Scalar>,
 ) -> Size<C::Scalar> {
-    data.load::<A>(id).measure(&mut AtomCx { data, context }, bounds)
+    bump.load::<A>(id).measure(&mut AtomCx { bump, context }, bounds)
 }
 
-pub fn paint<C: Context, A: Atom<C>>(data: &DataArena, id: DataId, context: &mut C, area: Rect<C::Scalar>) {
-    data.load::<A>(id).paint(&mut AtomCx { data, context }, area);
+pub fn paint<C: Context, A: Atom<C>>(bump: &BumpArena, id: BumpId, context: &mut C, area: Rect<C::Scalar>) {
+    bump.load::<A>(id).paint(&mut AtomCx { bump, context }, area);
 }

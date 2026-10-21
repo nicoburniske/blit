@@ -1,7 +1,7 @@
 use super::{Frame, NodeId, ResolvedClip, ResolvedClipId};
-use crate::{ClipShape, Context, Rect, Scalar, arena::DataArena};
+use crate::{ClipShape, Context, Rect, Scalar, bump::BumpArena};
 
-pub fn resolve_order<C: Context>(frame: &mut Frame<C>, data: &DataArena) {
+pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
     frame.paint_order.clear();
     let count = frame.nodes.len();
     if !frame
@@ -13,7 +13,7 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>, data: &DataArena) {
         return;
     }
 
-    let mut scratch = data.scratch(count, PaintLinks::default());
+    let mut scratch = bump.scratch(count, PaintLinks::default());
     let links = &mut *scratch;
     // zero marks the end of a child list since the root has no parent
     for index in 1..count {
@@ -50,7 +50,7 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>, data: &DataArena) {
     debug_assert_eq!(pending, count);
 }
 
-pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, data: &DataArena) {
+pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
     frame.interaction.clips.clear();
     for index in 0..frame.nodes.len() {
         let parent = if index == 0 {
@@ -64,7 +64,7 @@ pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, data: &DataArena) {
         };
         let stored = frame.clips[clip];
         let area = frame.node_geometry[index].area;
-        let shape = (frame.clip_kinds[stored.kind as usize].shape)(data, stored.data, area);
+        let shape = (frame.clip_kinds[stored.kind as usize].shape)(bump, stored.bump_id, area);
         let parent_bounds = frame.clip_bounds(parent);
         let bounds = match shape {
             ClipShape::Unbounded => continue,
@@ -98,22 +98,22 @@ pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, data: &DataArena) {
     }
 }
 
-pub fn paint<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C) {
+pub fn paint<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut C) {
     frame.active_clips.clear();
     if frame.paint_order.is_empty() {
         for node in 0..frame.nodes.len() {
-            paint_node(frame, data, context, node);
+            paint_node(frame, bump, context, node);
         }
     } else {
         for index in 0..frame.paint_order.len() {
             let node = frame.paint_order[index].index();
-            paint_node(frame, data, context, node);
+            paint_node(frame, bump, context, node);
         }
     }
-    set(frame, data, context, ResolvedClipId::NONE);
+    set(frame, bump, context, ResolvedClipId::NONE);
 }
 
-fn set<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, target: ResolvedClipId) {
+fn set<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut C, target: ResolvedClipId) {
     let mut common = target;
     while let Some(index) = common.index() {
         let depth = frame.interaction.clips[index].depth as usize;
@@ -126,23 +126,23 @@ fn set<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, targ
         let clip = frame.active_clips.pop().unwrap();
         let stored = frame.interaction.clips[clip.index().unwrap()];
         let clip_data = frame.clips[stored.clip.index().unwrap()];
-        (frame.clip_kinds[clip_data.kind as usize].pop)(data, clip_data.data, context);
+        (frame.clip_kinds[clip_data.kind as usize].pop)(bump, clip_data.bump_id, context);
     }
-    push(frame, data, context, target, common.0);
+    push(frame, bump, context, target, common.0);
 
-    fn push<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, clip: ResolvedClipId, common: u32) {
+    fn push<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut C, clip: ResolvedClipId, common: u32) {
         if clip.0 == common {
             return;
         }
         let stored = frame.interaction.clips[clip.index().unwrap()];
-        push(frame, data, context, stored.parent, common);
+        push(frame, bump, context, stored.parent, common);
         let clip_data = frame.clips[stored.clip.index().unwrap()];
-        (frame.clip_kinds[clip_data.kind as usize].push)(data, clip_data.data, context, stored.area);
+        (frame.clip_kinds[clip_data.kind as usize].push)(bump, clip_data.bump_id, context, stored.area);
         frame.active_clips.push(clip);
     }
 }
 
-fn paint_node<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, node: usize) {
+fn paint_node<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut C, node: usize) {
     if frame.nodes[node].first_atom.index().is_none() {
         return;
     }
@@ -154,7 +154,7 @@ fn paint_node<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut 
     while let Some(atom_index) = atom.index() {
         let stored = frame.atoms[atom_index];
         let kind = &frame.atom_kinds[stored.kind as usize];
-        if (kind.paint_bounds)(data, stored.data, area)
+        if (kind.paint_bounds)(bump, stored.bump_id, area)
             .intersection(clip_bounds)
             .is_none()
         {
@@ -163,10 +163,10 @@ fn paint_node<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut 
         }
         let paint = kind.paint;
         if !clip_set {
-            set(frame, data, context, resolved_clip);
+            set(frame, bump, context, resolved_clip);
             clip_set = true;
         }
-        paint(data, stored.data, context, area);
+        paint(bump, stored.bump_id, context, area);
         atom = stored.next;
     }
 }

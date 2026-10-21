@@ -3,7 +3,7 @@ use crate::{
     geometry::{Constraints, Point, Size},
 };
 pub use crate::{
-    arena::Scratch,
+    bump::Scratch,
     frame::layout::{Children, LayoutCx},
 };
 

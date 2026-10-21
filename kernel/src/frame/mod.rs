@@ -19,7 +19,7 @@ use std::{
 use crate::{
     Atom, AtomWidget, Clip, ClipShape, FrameInfo, IntoWidget, Widget,
     animation::{Easing, Transition},
-    arena::{DataArena, DataId, Scratch},
+    bump::{BumpArena, BumpId, Scratch},
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::Input,
     interact::{Id, Interaction, Sense},
@@ -160,10 +160,10 @@ impl<'ui, C: Context> Ui<'ui, C, state::Build> {
             !inner.frame.nodes[node.index()].out_of_flow,
             "measured widgets must stay in flow"
         );
-        let mut data = std::mem::take(&mut inner.frame.data);
-        data.prepare_scratch();
-        let size = transition::resolve(inner.frame, &data, inner.context, node, bounds, false);
-        inner.frame.data = data;
+        let mut bump = std::mem::take(&mut inner.frame.bump);
+        bump.prepare_scratch();
+        let size = transition::resolve(inner.frame, &bump, inner.context, node, bounds, false);
+        inner.frame.bump = bump;
         (response, size)
     }
 
@@ -190,9 +190,9 @@ impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
     pub fn item(self, item: I) -> Self {
         let node = &mut self.inner.frame.nodes[self.inner.node.index()];
         if node.item.offset().is_some() {
-            *self.inner.frame.data.load_mut(node.item) = item;
+            *self.inner.frame.bump.load_mut(node.item) = item;
         } else {
-            node.item = self.inner.frame.data.store(item);
+            node.item = self.inner.frame.bump.store(item);
         }
         self
     }
@@ -419,7 +419,7 @@ include!("graph.rs");
 struct UiInner<'ui, C: Context> {
     frame: &'ui mut Frame<C>,
     context: &'ui mut C,
-    scratch: &'ui DataArena,
+    scratch: &'ui BumpArena,
     node: NodeId,
     next_child: u32,
     owns_node: bool,
@@ -444,7 +444,7 @@ impl<C: Context> UiInner<'_, C> {
 }
 
 impl<'ui, C: Context, S> Ui<'ui, C, S> {
-    fn new(frame: &'ui mut Frame<C>, context: &'ui mut C, scratch: &'ui DataArena, node: NodeId) -> Self {
+    fn new(frame: &'ui mut Frame<C>, context: &'ui mut C, scratch: &'ui BumpArena, node: NodeId) -> Self {
         Self {
             inner: UiInner {
                 frame,

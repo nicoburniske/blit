@@ -6,9 +6,9 @@ use std::{
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct DataId(u32);
+pub struct BumpId(u32);
 
-impl DataId {
+impl BumpId {
     pub const NONE: Self = Self(u32::MAX);
 
     pub fn offset(self) -> Option<usize> {
@@ -17,7 +17,7 @@ impl DataId {
 }
 
 #[derive(Default)]
-pub struct DataArena {
+pub struct BumpArena {
     words: Vec<Word>,
     drops: Vec<DropEntry>,
     len: usize,
@@ -26,8 +26,8 @@ pub struct DataArena {
     scratch_live: Cell<usize>,
 }
 
-impl DataArena {
-    pub fn store<T: 'static>(&mut self, value: T) -> DataId {
+impl BumpArena {
+    pub fn store<T: 'static>(&mut self, value: T) -> BumpId {
         const {
             assert!(
                 align_of::<T>() <= align_of::<Word>(),
@@ -37,7 +37,7 @@ impl DataArena {
         let offset = self.len.next_multiple_of(align_of::<T>());
         let end = offset + size_of::<T>();
         assert!(offset < u32::MAX as usize, "too much frame data");
-        let id = DataId(offset as u32);
+        let id = BumpId(offset as u32);
         assert!(end <= isize::MAX as usize, "too much frame data");
         self.words.resize_with(end.div_ceil(size_of::<Word>()), || {
             Word(UnsafeCell::new(MaybeUninit::uninit()))
@@ -97,7 +97,7 @@ impl DataArena {
         self.scratch_live.set(live);
         Scratch {
             inner,
-            arena: self,
+            bump: self,
             start,
             end,
         }
@@ -112,28 +112,28 @@ impl DataArena {
         self.scratch_live.set(0);
     }
 
-    pub fn load<T: 'static>(&self, id: DataId) -> &T {
+    pub fn load<T: 'static>(&self, id: BumpId) -> &T {
         // safety: store wrote T at this checked address
         unsafe { &*self.pointer::<T>(id) }
     }
 
-    pub fn load_mut<T: 'static>(&mut self, id: DataId) -> &mut T {
+    pub fn load_mut<T: 'static>(&mut self, id: BumpId) -> &mut T {
         // safety: the mutable arena borrow makes this checked address exclusive
         unsafe { &mut *self.pointer::<T>(id) }
     }
 
     pub fn clear(&mut self) {
-        let data = self.words.as_mut_ptr().cast::<u8>();
+        let pointer = self.words.as_mut_ptr().cast::<u8>();
         while let Some(entry) = self.drops.pop() {
             // safety: entries point to initialized values in the arena
-            (entry.drop)(unsafe { data.add(entry.offset as usize) });
+            (entry.drop)(unsafe { pointer.add(entry.offset as usize) });
         }
         self.len = 0;
     }
 }
 
-impl DataArena {
-    fn pointer<T>(&self, id: DataId) -> *mut T {
+impl BumpArena {
+    fn pointer<T>(&self, id: BumpId) -> *mut T {
         let offset = id.offset().expect("frame data is missing");
         assert!(offset.checked_add(size_of::<T>()).is_some_and(|end| end <= self.len));
         if size_of::<T>() == 0 {
@@ -149,7 +149,7 @@ impl DataArena {
     }
 }
 
-impl Drop for DataArena {
+impl Drop for BumpArena {
     fn drop(&mut self) {
         self.clear();
     }
@@ -158,7 +158,7 @@ impl Drop for DataArena {
 /// temporary slice reclaimed when its guard drops
 pub struct Scratch<'a, T> {
     inner: ScratchInner<'a, T>,
-    arena: &'a DataArena,
+    bump: &'a BumpArena,
     start: usize,
     end: usize,
 }
@@ -185,13 +185,13 @@ impl<T> DerefMut for Scratch<'_, T> {
 
 impl<T> Drop for Scratch<'_, T> {
     fn drop(&mut self) {
-        let live = self.arena.scratch_live.get() - 1;
-        self.arena.scratch_live.set(live);
+        let live = self.bump.scratch_live.get() - 1;
+        self.bump.scratch_live.set(live);
         // gaps from guards dropped out of order remain until the last guard drops
         if live == 0 {
-            self.arena.scratch_used.set(self.arena.len);
-        } else if self.arena.scratch_used.get() == self.end {
-            self.arena.scratch_used.set(self.start);
+            self.bump.scratch_used.set(self.bump.len);
+        } else if self.bump.scratch_used.get() == self.end {
+            self.bump.scratch_used.set(self.start);
         }
     }
 }
@@ -223,15 +223,15 @@ mod tests {
     #[test]
     #[should_panic(expected = "too much scratch data")]
     fn rejects_scratch_size_overflow() {
-        DataArena::default().scratch(usize::MAX, 0_u64);
+        BumpArena::default().scratch(usize::MAX, 0_u64);
     }
 
     #[test]
     #[should_panic(expected = "too much scratch data")]
     fn rejects_scratch_beyond_address_limit() {
-        let mut arena = DataArena::default();
-        arena.store(0_u8);
-        arena.scratch(isize::MAX as usize, 0_u8);
+        let mut bump = BumpArena::default();
+        bump.store(0_u8);
+        bump.scratch(isize::MAX as usize, 0_u8);
     }
 
     #[test]
@@ -248,16 +248,16 @@ mod tests {
         }
 
         let dropped = Rc::new(Cell::new(false));
-        let mut arena = DataArena::default();
-        arena.store(1_u32);
-        let aligned = arena.store(Aligned(7));
-        assert_eq!(arena.load::<Aligned>(aligned).0, 7);
-        assert!(arena.drops.is_empty());
-        arena.store(Dropped(dropped.clone()));
-        assert_eq!(arena.drops.len(), 1);
+        let mut bump = BumpArena::default();
+        bump.store(1_u32);
+        let aligned = bump.store(Aligned(7));
+        assert_eq!(bump.load::<Aligned>(aligned).0, 7);
+        assert!(bump.drops.is_empty());
+        bump.store(Dropped(dropped.clone()));
+        assert_eq!(bump.drops.len(), 1);
 
-        arena.clear();
+        bump.clear();
         assert!(dropped.get());
-        assert!(arena.drops.is_empty());
+        assert!(bump.drops.is_empty());
     }
 }
