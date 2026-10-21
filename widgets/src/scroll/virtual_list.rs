@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Sense, Size, Sizing, Ui};
+use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Sense, Size, Sizing, Ui, Widget};
 
 use super::{Scrollbar, ScrollbarInput, ThumbProgress, content_motion, scrollbar_input};
 
@@ -31,30 +31,28 @@ impl<T: Scalar, K, X> VirtualList<'_, T, K, X>
 where
     K: FnMut(Id, usize) -> Id,
 {
-    /// builds visible rows without a scrollbar
-    pub fn build<'ui, C: Context<Scalar = T> + 'ui>(
+    /// creates a widget without a scrollbar
+    pub fn build<C: Context<Scalar = T>>(
         self,
-        ui: impl Into<Ui<'ui, C>>,
         item: impl FnMut(Ui<'_, C>, usize),
-    ) -> Response
+    ) -> impl Widget<C, Response = Response>
     where
         X: Clip<C>,
     {
-        self.build_inner(ui.into(), item, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>)
+        move |ui: Ui<'_, C>| self.build_inner(ui, item, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>)
     }
 
-    /// builds visible rows with a track and thumb
-    pub fn build_scrollbar<'ui, C: Context<Scalar = T> + 'ui>(
+    /// creates a widget with a track and thumb
+    pub fn build_scrollbar<C: Context<Scalar = T>>(
         self,
-        ui: impl Into<Ui<'ui, C>>,
         item: impl FnMut(Ui<'_, C>, usize),
         track: impl FnOnce(Ui<'_, C>),
         thumb: impl FnOnce(Ui<'_, C>, bool),
-    ) -> Response
+    ) -> impl Widget<C, Response = Response>
     where
         X: Clip<C>,
     {
-        self.build_inner(ui.into(), item, Some(track), Some(thumb))
+        move |ui: Ui<'_, C>| self.build_inner(ui, item, Some(track), Some(thumb))
     }
 
     fn build_inner<C: Context<Scalar = T>>(
@@ -767,17 +765,18 @@ mod tests {
             |ui: Ui<'_, TestContext>| {
                 let ui = ui.id(Id::new("test virtual list"));
                 let thumb_id = ui.current_id().child("scroll thumb");
-                VirtualList::new(state)
-                    .count(count)
-                    .id(|_, index| row(index).0)
-                    .build_scrollbar(
-                        ui,
-                        |ui, index| {
-                            ui.layout(blit_layout::single::new().fixed(79.0, row(index).1));
-                        },
-                        |_| {},
-                        |_, _| {},
-                    );
+                ui.build(
+                    VirtualList::new(state)
+                        .count(count)
+                        .id(|_, index| row(index).0)
+                        .build_scrollbar(
+                            |ui: Ui<'_, TestContext>, index| {
+                                ui.layout(blit_layout::single::new().fixed(79.0, row(index).1));
+                            },
+                            |_| {},
+                            |_, _| {},
+                        ),
+                );
                 thumb_id
             },
         );

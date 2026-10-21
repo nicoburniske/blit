@@ -1,4 +1,4 @@
-use blit::{Axis, Clip, Context, Scalar, Sense, Ui};
+use blit::{Axis, Clip, Context, Scalar, Sense, Ui, Widget};
 
 pub use super::ScrollState;
 use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
@@ -19,25 +19,25 @@ blit::builder! {
 }
 
 impl<T: Scalar, X> ScrollArea<'_, T, X> {
-    /// builds content without a scrollbar
-    pub fn build<'ui, C: Context<Scalar = T> + 'ui>(self, ui: impl Into<Ui<'ui, C>>, content: impl FnOnce(Ui<'_, C>))
+    /// creates a widget without a scrollbar
+    pub fn build<C: Context<Scalar = T>>(self, content: impl FnOnce(Ui<'_, C>)) -> impl Widget<C, Response = ()>
     where
         X: Clip<C>,
     {
-        self.build_inner(ui.into(), content, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>);
+        move |ui: Ui<'_, C>| self.build_inner(ui, content, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>)
     }
 
-    /// builds content with a track and thumb
-    pub fn build_scrollbar<'ui, C: Context<Scalar = T> + 'ui>(
+    /// creates a widget with a track and thumb
+    pub fn build_scrollbar<C: Context<Scalar = T>>(
         self,
-        ui: impl Into<Ui<'ui, C>>,
         content: impl FnOnce(Ui<'_, C>),
         track: impl FnOnce(Ui<'_, C>),
         thumb: impl FnOnce(Ui<'_, C>, bool),
-    ) where
+    ) -> impl Widget<C, Response = ()>
+    where
         X: Clip<C>,
     {
-        self.build_inner(ui.into(), content, Some(track), Some(thumb));
+        move |ui: Ui<'_, C>| self.build_inner(ui, content, Some(track), Some(thumb))
     }
 
     fn build_inner<C: Context<Scalar = T>>(

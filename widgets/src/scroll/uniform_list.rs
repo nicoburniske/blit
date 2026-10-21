@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Sense, Size, Ui};
+use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
 
 use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 use crate::ScrollState;
@@ -33,30 +33,28 @@ where
     I: ExactSizeIterator + Clone,
     K: FnMut(Id, usize, &I::Item) -> Id,
 {
-    /// builds visible rows without a scrollbar
-    pub fn build<'ui, C: Context<Scalar = T> + 'ui>(
+    /// creates a widget without a scrollbar
+    pub fn build<C: Context<Scalar = T>>(
         self,
-        ui: impl Into<Ui<'ui, C>>,
         item: impl FnMut(Ui<'_, C>, I::Item),
-    ) -> Response
+    ) -> impl Widget<C, Response = Response>
     where
         X: Clip<C>,
     {
-        self.build_inner(ui.into(), item, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>)
+        move |ui: Ui<'_, C>| self.build_inner(ui, item, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>)
     }
 
-    /// builds visible rows with a track and thumb
-    pub fn build_scrollbar<'ui, C: Context<Scalar = T> + 'ui>(
+    /// creates a widget with a track and thumb
+    pub fn build_scrollbar<C: Context<Scalar = T>>(
         self,
-        ui: impl Into<Ui<'ui, C>>,
         item: impl FnMut(Ui<'_, C>, I::Item),
         track: impl FnOnce(Ui<'_, C>),
         thumb: impl FnOnce(Ui<'_, C>, bool),
-    ) -> Response
+    ) -> impl Widget<C, Response = Response>
     where
         X: Clip<C>,
     {
-        self.build_inner(ui.into(), item, Some(track), Some(thumb))
+        move |ui: Ui<'_, C>| self.build_inner(ui, item, Some(track), Some(thumb))
     }
 
     fn build_inner<C: Context<Scalar = T>>(
