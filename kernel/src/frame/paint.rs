@@ -1,8 +1,9 @@
 use super::{Frame, NodeId, ResolvedClip, ResolvedClipId};
 use crate::{ClipShape, Context, Rect, Scalar, arena::DataArena};
 
-pub fn resolve_order<C: Context>(frame: &mut Frame<C>) {
+pub fn resolve_order<C: Context>(frame: &mut Frame<C>, data: &DataArena) {
     frame.paint_order.clear();
+    let count = frame.nodes.len();
     if !frame
         .nodes
         .iter()
@@ -12,34 +13,41 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>) {
         return;
     }
 
-    frame.paint_links.clear();
-    frame
-        .paint_links
-        .resize(frame.nodes.len(), super::PaintLinks::default());
+    let mut scratch = data.scratch(count, PaintLinks::default());
+    let links = &mut *scratch;
     // zero marks the end of a child list since the root has no parent
-    for index in 1..frame.nodes.len() {
+    for index in 1..count {
         let parent = frame.nodes[index].visual_parent.index();
-        frame.paint_links[index].next_sibling = frame.paint_links[parent].first_child;
-        frame.paint_links[parent].first_child = index as u32;
+        links[index].next_sibling = links[parent].first_child;
+        links[parent].first_child = index as u32;
     }
 
-    frame.order_stack.clear();
-    frame.order_stack.push(NodeId::new(0));
-    while let Some(parent) = frame.order_stack.pop() {
-        frame.paint_order.push(parent);
-        let start = frame.order_stack.len();
-        let mut child = frame.paint_links[parent.index()].first_child;
+    // completed nodes fill the front while pending nodes form a stack at the back
+    frame.paint_order.resize(count, NodeId::new(0));
+    let order = &mut frame.paint_order;
+    let mut pending = count - 1;
+    for output in 0..count {
+        debug_assert!(pending >= output && pending < count);
+        let parent = order[pending];
+        pending += 1;
+        order[output] = parent;
+        let start = pending;
+        let mut child = links[parent.index()].first_child;
+        let mut needs_sort = false;
         while child != 0 {
-            frame.order_stack.push(NodeId::new(child as usize));
-            child = frame.paint_links[child as usize].next_sibling;
+            let index = child as usize;
+            child = links[index].next_sibling;
+            needs_sort = needs_sort || frame.node_geometry[index].z_index != 0;
+            pending -= 1;
+            debug_assert!(pending > output);
+            order[pending] = NodeId::new(index);
         }
-        let children = &mut frame.order_stack[start..];
-        if children.iter().any(|id| frame.node_geometry[id.index()].z_index != 0) {
-            children
-                .sort_unstable_by_key(|id| std::cmp::Reverse((frame.node_geometry[id.index()].z_index, id.index())));
+        let children = &mut order[pending..start];
+        if needs_sort {
+            children.sort_unstable_by_key(|id| (frame.node_geometry[id.index()].z_index, id.index()));
         }
     }
-    debug_assert_eq!(frame.paint_order.len(), frame.nodes.len());
+    debug_assert_eq!(pending, count);
 }
 
 pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, data: &DataArena) {
@@ -161,4 +169,10 @@ fn paint_node<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut 
         paint(data, stored.data, context, area);
         atom = stored.next;
     }
+}
+
+#[derive(Clone, Copy, Default)]
+struct PaintLinks {
+    first_child: u32,
+    next_sibling: u32,
 }

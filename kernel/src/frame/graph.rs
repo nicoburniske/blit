@@ -9,9 +9,7 @@ pub struct Frame<C: Context> {
     clip_kinds: Vec<ClipKind<C>>,
     data: DataArena,
     scratch: DataArena,
-    paint_links: Vec<PaintLinks>,
     paint_order: Vec<NodeId>,
-    order_stack: Vec<NodeId>,
     active_clips: Vec<ResolvedClipId>,
     interaction: interaction::InteractionState<C::Scalar>,
     geometry_previous: Vec<(Id, Rect<C::Scalar>)>,
@@ -65,9 +63,7 @@ impl<C: Context> Default for Frame<C> {
             clip_kinds: Vec::new(),
             data: DataArena::default(),
             scratch: DataArena::default(),
-            paint_links: Vec::new(),
             paint_order: Vec::new(),
-            order_stack: Vec::new(),
             active_clips: Vec::new(),
             interaction: interaction::InteractionState::default(),
             geometry_previous: Vec::new(),
@@ -164,7 +160,7 @@ impl<C: Context> Frame<C> {
         data.prepare_scratch();
         transition::resolve(self, &data, context, NodeId::new(0), Constraints::tight(self.screen.size()), true);
         position::resolve(self);
-        paint::resolve_order(self);
+        paint::resolve_order(self, &data);
         paint::resolve_clips(self, &data);
         interaction::resolve(self);
         self.animations.retain(|animation| animation.seen);
@@ -403,12 +399,6 @@ struct GeometryRecord<T> {
     node: NodeId,
     hit: Sides<T>,
     transition: Option<Transition>,
-}
-
-#[derive(Clone, Copy, Default)]
-struct PaintLinks {
-    first_child: u32,
-    next_sibling: u32,
 }
 
 #[derive(Clone, Copy)]
