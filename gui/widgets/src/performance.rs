@@ -99,7 +99,7 @@ where
                         .insert(Rectangle::new().background(self.accent).radius(self.marker_radius));
                     badge
                         .child()
-                        .insert(Text::new(label).style(self.text_style).color(self.color));
+                        .insert(Text::new(label).style(self.text_style.color(self.color)));
                 })
                 .content(|ui: blit::Ui<'_, C>| {
                     let profiler: &FrameProfiler = ui.context().as_ref();
@@ -127,13 +127,13 @@ where
                         {
                             table
                                 .child()
-                                .insert(Text::new(label).style(self.text_style).color(self.muted_color));
+                                .insert(Text::new(label).style(self.text_style.color(self.muted_color)));
                             for value in values {
                                 table
                                     .child()
                                     .layout(flex::row().justify(crate::layout::Justify::End))
                                     .child()
-                                    .insert(Text::new(value).style(self.text_style).color(self.color));
+                                    .insert(Text::new(value).style(self.text_style.color(self.color)));
                             }
                         }
                     }
@@ -151,7 +151,7 @@ where
                             label.clear();
                             let _ = write!(label, "{value:.1} ms");
                             axis.child()
-                                .insert(Text::new(label).style(self.text_style).color(self.muted_color));
+                                .insert(Text::new(label).style(self.text_style.color(self.muted_color)));
                         }
                     }
                     let mut graph = chart

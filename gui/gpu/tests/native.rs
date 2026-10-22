@@ -168,12 +168,12 @@ fn renders_primitives_and_rebuilds_frames() {
         ..partial_request
     });
     gui.paint_shadow(BoxShadow::new(LogicalRect::new(14.0, 9.0, 1.0, 1.0), Color::rgb(255, 0, 0)).blur(1.0));
-    let text = gui.text_run("M", TextStyle::default());
+    let text = gui.text_run("M", TextStyle::new());
     gui.paint_text(TextRequest {
         text,
+        colors: &[Color::rgb(255, 0, 0)],
         area: LogicalRect::new(1.0, 20.0, 12.0, 20.0),
         offset_x: 0.0,
-        color: Color::rgb(255, 0, 0),
         options: TextOptions::default(),
     });
     gui.paint_rectangle(

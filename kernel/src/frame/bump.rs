@@ -4,7 +4,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::internal::bump::Bump;
+use crate::internal::bump::{Bump, Slice};
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -18,6 +18,13 @@ impl BumpId {
     }
 }
 
+/// values stored until the frame that created them is rebuilt
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameSlice<T> {
+    slice: Slice<T>,
+    epoch: u32,
+}
+
 #[derive(Default)]
 pub struct BumpArena {
     storage: Bump,
@@ -25,9 +32,27 @@ pub struct BumpArena {
     scratch_used: Cell<usize>,
     scratch_peak: Cell<usize>,
     scratch_live: Cell<usize>,
+    // rejects slices from previous frames
+    epoch: u32,
 }
 
 impl BumpArena {
+    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
+        FrameSlice {
+            slice: self.storage.extend(values),
+            epoch: self.epoch,
+        }
+    }
+
+    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T] {
+        if slice.slice.len == 0 {
+            return &[];
+        }
+        assert_eq!(slice.epoch, self.epoch, "frame slice belongs to a previous frame");
+        // safety: the epoch proves store_slice wrote these values since the last clear
+        unsafe { self.storage.slice(slice.slice) }
+    }
+
     pub fn store<T: 'static>(&mut self, value: T) -> BumpId {
         // reserve before moving value so registering its destructor cannot allocate
         if const { needs_drop::<T>() } {
@@ -111,6 +136,7 @@ impl BumpArena {
             (entry.drop)(unsafe { pointer.add(entry.offset as usize) });
         }
         self.storage.clear();
+        self.epoch = self.epoch.wrapping_add(1);
     }
 }
 

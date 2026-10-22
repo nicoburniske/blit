@@ -1,10 +1,4 @@
-use std::{
-    ops::Range,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering::Relaxed},
-    },
-};
+use std::ops::Range;
 
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_gui::{
@@ -14,7 +8,7 @@ use blit_gui::{
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
     style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
     text::{
-        FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextPhases, TextRequest, TextRunId,
+        FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextPhases, TextRequest, TextRun,
         TextStyle, TextWrap, VerticalAlign,
     },
 };
@@ -160,7 +154,8 @@ fn paint_changes_invalidate_tiles_without_changing_bounds() {
     let area = screen.to_logical(SCALE);
     let mut damage = Damage::new(8);
     let mut list = DisplayList::default();
-    for case in ["fill", "border", "text palette", "image", "shadow", "mesh", "clip"] {
+    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).gui;
+    for case in ["fill", "border", "text color", "image", "shadow", "mesh", "clip"] {
         for (frame, color) in [Color::BLACK, Color::WHITE, Color::WHITE].into_iter().enumerate() {
             list.clear();
             match case {
@@ -174,18 +169,16 @@ fn paint_changes_invalidate_tiles_without_changing_bounds() {
                     };
                     list.push_rectangle(rectangle, screen, ClipId::default());
                 }
-                "text palette" => {
-                    let spans = [Span::new(0..1).style(SpanStyle::new().color(color))];
-                    let palette = list.text_palette(&spans);
-                    list.push_text_palette(
+                "text color" => {
+                    let text = gui.rich_text("xy", &[Span::new(0..1), Span::new(1..2)], TextStyle::new());
+                    list.push_text(
                         TextRequest {
-                            text: TextRunId(1),
+                            text,
+                            colors: &[Color::rgb(255, 0, 0), color],
                             area,
                             offset_x: 0.0,
-                            color: Color::WHITE,
                             options: TextOptions::default(),
                         },
-                        palette,
                         screen,
                         ClipId::default(),
                     );
@@ -364,11 +357,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> TestRenderer<B, S> {
         self.render.render(input, 0);
         self.gui.finish_frame();
     }
-
-    fn set_scale(&mut self, scale: Scale2) {
-        self.gui.set_scale(scale.x);
-        self.render.set_scale(scale);
-    }
 }
 
 impl<B: PixelBuffer> TestRenderer<B> {
@@ -410,22 +398,11 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
 
 #[test]
 fn renderer_supports_custom_pixel_layouts() {
-    let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(32, 24), renderer_config());
-    let clip = PhysicalRect {
-        x: 0,
-        y: 0,
-        width: 32,
-        height: 24,
-    };
+    let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(96, 24), renderer_config());
+    let clip = renderer.render.screen();
     let mut paint = DisplayList::default();
     paint.push_rectangle(
-        Rectangle::new(LogicalRect {
-            x: 0.0,
-            y: 0.0,
-            width: 32.0,
-            height: 24.0,
-        })
-        .background(Color::rgb(12, 34, 56)),
+        Rectangle::new(clip.to_logical(SCALE)).background(Color::rgb(12, 34, 56)),
         clip,
         ClipId::default(),
     );
@@ -439,82 +416,39 @@ fn renderer_supports_custom_pixel_layouts() {
         }
     );
 
-    paint.clear();
-    let spans = [Span::new(0..1).style(SpanStyle::new().size(20.0).color(Color::WHITE))];
-    let m = renderer.gui.rich_text("M", &spans, TextStyle::default()).0;
-    let palette = paint.text_palette(&spans);
-    paint.push_text_palette(
-        TextRequest {
-            text: m,
-            area: LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 32.0,
-                height: 24.0,
-            },
+    let text = renderer
+        .gui
+        .rich_text("M M", &[Span::new(0..2), Span::new(2..3)], TextStyle::new().size(20.0));
+    for (x, mut colors) in [
+        (0.0, [Color::WHITE, Color::rgb(255, 0, 0)]),
+        (32.0, [Color::rgb(255, 0, 0), Color::WHITE]),
+    ] {
+        renderer.gui.paint_text(TextRequest {
+            text,
+            colors: &colors,
+            area: LogicalRect::new(x, 0.0, 32.0, 24.0),
             offset_x: 0.0,
-            color: Color::TRANSPARENT,
             options: TextOptions::default(),
-        },
-        palette,
-        clip,
-        ClipId::default(),
-    );
-    renderer.render(&mut paint);
-    assert!(renderer.render.buffer().pixels().iter().any(|pixel| pixel.red > 12));
-
-    renderer.set_scale(Scale2::uniform(2.0));
-    let mut request = TextRequest {
-        text: renderer.gui.text_run("abc", TextStyle::default()),
-        area: LogicalRect {
-            x: 0.0,
-            y: 0.0,
-            width: 32.0,
-            height: 24.0,
-        },
+        });
+        colors.fill(Color::TRANSPARENT);
+    }
+    renderer.gui.paint_text(TextRequest {
+        text,
+        colors: &[Color::WHITE],
+        area: LogicalRect::new(64.0, 0.0, 32.0, 24.0),
         offset_x: 0.0,
-        color: Color::WHITE,
         options: TextOptions::default(),
-    };
-    assert_eq!(
-        renderer
-            .gui
-            .text_offset_at_position(&request, LogicalPoint { x: 100.0, y: 12.0 },),
-        "abc".len()
-    );
-    let start = renderer.gui.text_cursor_rect(&request, 0);
-    let end = renderer.gui.text_cursor_rect(&request, "abc".len());
-    assert_eq!(start.width, 0.5);
-    assert!(end.x > start.x);
-    let shifted = TextRequest {
-        offset_x: 4.0,
-        ..request
-    };
-    assert_eq!(renderer.gui.text_cursor_rect(&shifted, 0).x, start.x - 4.0);
-    assert_eq!(
-        renderer.gui.text_offset_at_position(
-            &shifted,
-            LogicalPoint {
-                x: end.x - 4.0,
-                y: end.y,
-            },
-        ),
-        renderer
-            .gui
-            .text_offset_at_position(&request, LogicalPoint { x: end.x, y: end.y }),
-    );
-    request.area.width = 64.0;
-    request.area.height = 48.0;
-    request.options.horizontal_align = HorizontalAlign::Center;
-    request.options.vertical_align = VerticalAlign::Bottom;
-    let placed_start = renderer.gui.text_cursor_rect(&request, 0);
-    assert!(placed_start.x > start.x);
-    assert!(placed_start.y > start.y);
-    request.area.width += 0.5;
-    request.area.height += 0.25;
-    let fractional_start = renderer.gui.text_cursor_rect(&request, 0);
-    assert!((fractional_start.x - placed_start.x - 0.25).abs() < 0.001);
-    assert!((fractional_start.y - placed_start.y - 0.25).abs() < 0.001);
+    });
+    renderer.render.render(renderer.gui.render_input(), 0);
+    renderer.gui.finish_frame();
+    let pixels = renderer.render.buffer().pixels();
+    for (column, white) in [true, false, false, true, true, true].into_iter().enumerate() {
+        assert!(pixels.chunks_exact(96).any(|row| {
+            row[column * 16..(column + 1) * 16]
+                .iter()
+                .any(|pixel| pixel.red > 12 && (pixel.green > 34) == white)
+        }));
+    }
 }
 
 #[test]
@@ -618,202 +552,224 @@ fn render_input_tracks_damage_and_invalidation() {
 }
 
 #[test]
-fn fontdue_layout_renders_with_cpu_rasterization() {
+fn text_paint_cache_tracks_physical_clip_size() {
+    let config = renderer_config();
     let mut renderer = new_renderer_with_backend(
-        VecBuffer::<Xrgb8888>::new(32, 24),
-        renderer_config(),
+        VecBuffer::<Xrgb8888>::new(16, 24),
+        config,
         blit_text_fontdue::Backend::new(),
     );
-    let area = LogicalRect {
-        x: 0.0,
-        y: 0.0,
-        width: 32.0,
-        height: 24.0,
-    };
-    let mut display_list = DisplayList::default();
     let text = renderer
         .gui
-        .rich_text(
-            "M",
-            &[Span::new(0..1).style(SpanStyle::new().size(20.0))],
-            TextStyle::default(),
-        )
-        .0;
-    display_list.push_text(
-        TextRequest {
+        .rich_text("MM", &[Span::new(0..1), Span::new(1..2)], TextStyle::new().size(20.0));
+    for (x, y) in [(0.0, 0.0), (0.5, 0.0), (0.0, 0.5)] {
+        let screen = renderer.render.screen();
+        renderer.gui.render_input().display_list.push_clear(screen);
+        renderer.gui.paint_text(TextRequest {
             text,
-            area,
-            offset_x: 0.0,
-            color: Color::WHITE,
+            colors: &[Color::rgb(255, 0, 0), Color::WHITE],
+            area: LogicalRect::new(x, y, 8.0, 8.0),
+            offset_x: 12.0,
             options: TextOptions::default(),
-        },
-        area.to_physical(SCALE),
-        ClipId::default(),
-    );
-    renderer.render(&mut display_list);
-
-    assert!(renderer.render.buffer().pixels().iter().any(|pixel| pixel.raw() != 0));
-}
-
-#[derive(Default)]
-struct TextCounts {
-    shapes: AtomicUsize,
-    layouts: AtomicUsize,
-    carets: AtomicUsize,
-}
-
-struct CountingBackend(Arc<TextCounts>);
-
-impl TextLayoutEngine for CountingBackend {
-    type Shape = ();
-
-    fn register_font(&mut self, _data: FontData) -> Result<Vec<FontCandidate>, FontError> {
-        Ok(vec![FontCandidate {
-            face: BackendFontFaceId(1),
-            weight: 400,
-            stretch: 100,
-            style: blit_text::FontStyle::Normal,
-        }])
-    }
-
-    fn register_font_selection(&mut self, _candidates: &[FontCandidate]) -> Result<FontSelectionId, FontError> {
-        Ok(FontSelectionId(1))
-    }
-
-    fn rasterize_glyph(&mut self, _face: BackendFontFaceId, _glyph: u16, _size: f32, _offset_x: f32) -> GlyphMask {
-        GlyphMask::default()
-    }
-
-    fn shape(&mut self, _text: blit_text::Text<'_>) -> ((), usize) {
-        self.0.shapes.fetch_add(1, Relaxed);
-        ((), 0)
-    }
-
-    fn layout(&mut self, _shape: &mut (), _text: &str, _request: LayoutRequest) -> TextLayout {
-        self.0.layouts.fetch_add(1, Relaxed);
-        TextLayout {
-            lines: Box::new([LayoutLine {
-                bounds: LogicalRect::default(),
-                text: 0..0,
-            }]),
-            ..TextLayout::default()
-        }
-    }
-
-    fn carets(&mut self, _shape: &mut (), _text: &str, _request: LayoutRequest, _line: usize) -> Box<[Caret]> {
-        self.0.carets.fetch_add(1, Relaxed);
-        Box::new([Caret {
-            byte_offset: 0,
-            position: LogicalPoint::default(),
-            height: 0.0,
-        }])
+        });
+        let mut fresh = Renderer::new(VecBuffer::<Xrgb8888>::new(16, 24), config);
+        renderer.render.render(renderer.gui.render_input(), 0);
+        fresh.render(renderer.gui.render_input(), 0);
+        assert_eq!(renderer.render.buffer().pixels(), fresh.buffer().pixels());
+        assert!(fresh.buffer().pixels().iter().any(|pixel| pixel.raw() & 0xff00 != 0));
+        renderer.gui.finish_frame();
     }
 }
 
 #[test]
 fn text_cache_stages_are_independent() {
-    let counts = Arc::new(TextCounts::default());
-    let mut text = TextSystem::new(
-        TextConfig {
-            fonts: vec![FontFamily {
-                id: FontId::default(),
-                fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
-            }],
-            text_cache_capacity: 1024,
-            layout_cache_capacity: 0,
-        },
-        CountingBackend(counts.clone()),
-    )
-    .unwrap();
-    let request = TextLayoutRequest {
-        text: text.text_run("cached".into(), TextStyle::default()),
-        wrap: TextWrap::None,
-        max_width: None,
-        max_lines: None,
-    };
+    use std::{cell::Cell, rc::Rc};
 
-    text.measure(&request);
-    text.measure(&request);
-    assert_eq!(counts.shapes.load(Relaxed), 1);
-    assert_eq!(counts.layouts.load(Relaxed), 1);
+    for (text_cache_capacity, layout_cache_capacity) in [(0, 0), (0, 1024), (1024, 0), (1024, 1024)] {
+        let source_evicted = text_cache_capacity == 0;
+        let counts = Rc::new(TextCounts::default());
+        let mut text = TextSystem::new(
+            TextConfig {
+                fonts: vec![FontFamily {
+                    id: FontId::default(),
+                    fonts: Vec::new(),
+                }],
+                text_cache_capacity,
+                layout_cache_capacity,
+            },
+            CountingBackend(counts.clone()),
+        )
+        .unwrap();
+        let mut request = TextLayoutRequest {
+            text: text.text_run("cached".into(), TextStyle::default()),
+            wrap: TextWrap::None,
+            max_width: None,
+            max_lines: None,
+        };
 
-    let mut paint = TextRequest {
-        text: request.text,
-        area: LogicalRect {
-            width: 1.0,
-            height: 1.0,
-            ..LogicalRect::default()
-        },
-        offset_x: 0.0,
-        color: Color::WHITE,
-        options: TextOptions::default(),
-    };
-    text.cursor_rect(&paint, 0, 0.0);
-    paint.offset_x = 10.0;
-    paint.area.width = 10.0;
-    paint.area.height = 10.0;
-    paint.options.horizontal_align = HorizontalAlign::Center;
-    paint.options.vertical_align = VerticalAlign::Bottom;
-    text.cursor_rect(&paint, 0, 0.0);
-    assert_eq!(counts.layouts.load(Relaxed), 1);
-    assert_eq!(counts.carets.load(Relaxed), 1);
+        text.measure(&request);
+        let white = text.text_run("cached".into(), TextStyle::new().color(Color::WHITE));
+        text.measure(&TextLayoutRequest { text: white, ..request });
 
-    text.finish_frame();
-    text.measure(&request);
-    assert_eq!(counts.shapes.load(Relaxed), 1);
-    assert_eq!(counts.layouts.load(Relaxed), 2);
+        let mut paint = TextRequest {
+            text: request.text,
+            colors: &[Color::BLACK],
+            area: LogicalRect::new(0.0, 0.0, 1.0, 1.0),
+            offset_x: 0.0,
+            options: TextOptions::default(),
+        };
+        text.cursor_rect(&paint, 0, 0.0);
+        paint.offset_x = 10.0;
+        paint.area.width = 10.0;
+        paint.area.height = 10.0;
+        paint.options.horizontal_align = HorizontalAlign::Center;
+        paint.options.vertical_align = VerticalAlign::Bottom;
+        text.cursor_rect(&paint, 0, 0.0);
+        assert_eq!(counts.shapes.get(), 1);
+        assert_eq!(counts.layouts.get(), 1);
+        assert_eq!(counts.carets.get(), 1);
 
-    let mut wrapped = TextLayoutRequest {
-        wrap: TextWrap::Word,
-        max_width: Some(10.0),
-        ..request
-    };
-    text.measure(&wrapped);
-    wrapped.max_width = Some(20.0);
-    text.measure(&wrapped);
-    assert_eq!(counts.shapes.load(Relaxed), 1);
-    assert_eq!(counts.layouts.load(Relaxed), 4);
+        let old_layout = text.paint_layout(&paint).id;
+        text.finish_frame();
+        request.text = text.text_run("cached".into(), TextStyle::default());
+        assert_eq!(request.text == paint.text, !source_evicted);
+        paint.text = request.text;
+        text.measure(&request);
+        let shapes = if source_evicted { 2 } else { 1 };
+        let layouts = if source_evicted || layout_cache_capacity == 0 {
+            2
+        } else {
+            1
+        };
+        assert_eq!(counts.shapes.get(), shapes);
+        assert_eq!(counts.layouts.get(), layouts);
+        assert_eq!(text.paint_layout(&paint).id == old_layout, layouts == 1);
+
+        for width in [10.0, 20.0] {
+            text.measure(&TextLayoutRequest {
+                wrap: TextWrap::Word,
+                max_width: Some(width),
+                ..request
+            });
+        }
+        assert_eq!(counts.shapes.get(), shapes);
+        assert_eq!(counts.layouts.get(), layouts + 2);
+    }
+
+    #[derive(Default)]
+    struct TextCounts {
+        shapes: Cell<usize>,
+        layouts: Cell<usize>,
+        carets: Cell<usize>,
+    }
+
+    struct CountingBackend(Rc<TextCounts>);
+
+    impl TextLayoutEngine for CountingBackend {
+        type Shape = ();
+
+        fn register_font(&mut self, _data: FontData) -> Result<Vec<FontCandidate>, FontError> {
+            Ok(Vec::new())
+        }
+
+        fn register_font_selection(&mut self, _candidates: &[FontCandidate]) -> Result<FontSelectionId, FontError> {
+            Ok(FontSelectionId(1))
+        }
+
+        fn rasterize_glyph(&mut self, _face: BackendFontFaceId, _glyph: u16, _size: f32, _offset_x: f32) -> GlyphMask {
+            GlyphMask::default()
+        }
+
+        fn shape(&mut self, _text: blit_text::Text<'_>) -> ((), usize) {
+            self.0.shapes.set(self.0.shapes.get() + 1);
+            ((), 0)
+        }
+
+        fn layout(&mut self, _shape: &mut (), _text: &str, _request: LayoutRequest) -> TextLayout {
+            self.0.layouts.set(self.0.layouts.get() + 1);
+            TextLayout {
+                lines: Box::new([LayoutLine {
+                    bounds: LogicalRect::default(),
+                    text: 0..0,
+                }]),
+                ..TextLayout::default()
+            }
+        }
+
+        fn carets(&mut self, _shape: &mut (), _text: &str, _request: LayoutRequest, _line: usize) -> Box<[Caret]> {
+            self.0.carets.set(self.0.carets.get() + 1);
+            Box::new([Caret {
+                byte_offset: 0,
+                position: LogicalPoint::default(),
+                height: 0.0,
+            }])
+        }
+    }
 }
 
 #[test]
-fn text_measurement_reports_wrapped_layout_size() {
-    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(32, 24), renderer_config());
+fn text_measurement_and_carets_follow_layout() {
+    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).gui;
     let request = TextLayoutRequest {
-        text: renderer.gui.text_run("hello world", TextStyle::default()),
+        text: gui.text_run("hello world", TextStyle::default()),
         wrap: TextWrap::None,
         max_width: None,
         max_lines: None,
     };
-    let unwrapped = renderer.gui.measure_text(&request);
-    let mixed = renderer
-        .gui
-        .rich_text(
-            "hello\nworld",
-            &[Span::new(0..6), Span::new(6..11).style(SpanStyle::new().size(32.0))],
-            TextStyle::default(),
-        )
-        .0;
-    let mixed_size = renderer.gui.measure_text(&TextLayoutRequest { text: mixed, ..request });
-    assert!(mixed_size.height > unwrapped.height);
-    assert_eq!(
-        renderer
-            .gui
-            .measure_text(&TextLayoutRequest {
-                text: mixed,
-                max_lines: Some(1),
-                ..request
-            })
-            .height,
-        unwrapped.height
+    let unwrapped = gui.measure_text(&request);
+    let mixed = gui.rich_text(
+        "hello world",
+        &[Span::new(0..6), Span::new(6..11).style(SpanStyle::new().size(32.0))],
+        TextStyle::default(),
     );
-    let wrapped = renderer.gui.measure_text(&TextLayoutRequest {
+    let mixed_size = gui.measure_text(&TextLayoutRequest { text: mixed, ..request });
+    assert!(mixed_size.height > unwrapped.height);
+
+    let wrapped_request = TextLayoutRequest {
         wrap: TextWrap::Word,
         max_width: Some(unwrapped.width / 2.0),
         ..request
-    });
-
+    };
+    let wrapped = gui.measure_text(&wrapped_request);
     assert!(wrapped.width < unwrapped.width);
     assert!(wrapped.height > unwrapped.height);
+    assert_eq!(
+        gui.measure_text(&TextLayoutRequest {
+            max_lines: Some(1),
+            ..wrapped_request
+        })
+        .height,
+        unwrapped.height
+    );
+
+    gui.set_scale(2.0);
+    let mut paint = TextRequest {
+        text: request.text,
+        colors: &[Color::BLACK],
+        area: LogicalRect::new(10.0, 20.0, 120.0, 48.0),
+        offset_x: 0.0,
+        options: TextOptions::default(),
+    };
+    let start = gui.text_cursor_rect(&paint, 0);
+    assert_eq!(start.width, 0.5);
+    assert_eq!(
+        gui.text_offset_at_position(&paint, LogicalPoint::new(1000.0, 20.0)),
+        "hello world".len()
+    );
+    paint.offset_x = 4.0;
+    assert_eq!(gui.text_cursor_rect(&paint, 0).x, start.x - 4.0);
+    paint.area.width += 0.5;
+    paint.area.height += 0.25;
+    paint.options.horizontal_align = HorizontalAlign::Center;
+    paint.options.vertical_align = VerticalAlign::Bottom;
+    let placed = gui.text_cursor_rect(&paint, 0);
+    assert!((placed.x - (start.x - 4.0 + (paint.area.width - unwrapped.width) / 2.0)).abs() < 0.001);
+    assert!((placed.y - (start.y + paint.area.height - unwrapped.height)).abs() < 0.001);
+    let end = gui.text_cursor_rect(&paint, "hello world".len());
+    assert_eq!(
+        gui.text_offset_at_position(&paint, LogicalPoint::new(end.x, end.y)),
+        "hello world".len()
+    );
 }
 
 #[test]
@@ -890,10 +846,10 @@ fn commands_outside_damage_are_not_prepared() {
     let mut paint = DisplayList::default();
     paint.push_text(
         TextRequest {
-            text: TextRunId(u64::MAX),
+            text: TextRun::default(),
+            colors: &[Color::BLACK],
             area: outside,
             offset_x: 0.0,
-            color: Color::WHITE,
             options: TextOptions::default(),
         },
         outside.to_physical(SCALE),
@@ -1377,7 +1333,7 @@ fn scanline_skips_commands_behind_opaque_content() {
 fn box_shadows_match_between_strategies_and_cache_sizes() {
     fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(strategy: S) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(128, 96), renderer_config()).strategy(strategy);
-        renderer.set_scale(Scale2::uniform(2.0));
+        renderer.gui.set_scale(2.0);
         let screen = renderer.render.screen();
         let image = renderer.render.create_image(ImageData::new(
             ImagePixels::Static(&[255, 0, 0, 255]),
@@ -1541,7 +1497,7 @@ fn rounded_clips_match_between_strategies() {
         let image = renderer
             .render
             .create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgb8, 1, 1));
-        let string = renderer.gui.text_run("M", TextStyle::default());
+        let string = renderer.gui.text_run("M", TextStyle::new());
         let screen = renderer.render.screen();
         let area = LogicalRect {
             width: 16.0,
@@ -1562,9 +1518,9 @@ fn rounded_clips_match_between_strategies() {
         };
         let text = TextRequest {
             text: string,
+            colors: &[Color::WHITE],
             area,
             offset_x: 0.0,
-            color: Color::WHITE,
             options: TextOptions::default(),
         };
 
@@ -1672,8 +1628,16 @@ fn text_runs_are_keyed_by_content_and_style() {
     let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).gui;
     let style = TextStyle::default();
     let text = gui.text_run("same", style);
-    let spans = [Span::new(0..4).style(SpanStyle::new().color(Color::WHITE))];
-    assert_eq!(gui.rich_text("same", &spans, style).0, text,);
+    let white = gui.text_run("same", style.color(Color::WHITE));
+    assert_eq!(
+        gui.rich_text(
+            "same",
+            &[Span::new(0..4).style(SpanStyle::new().color(Color::WHITE))],
+            style.color(Color::TRANSPARENT),
+        ),
+        white
+    );
+    assert_eq!(white, text);
     assert_ne!(gui.text_run("changed", style), text);
     assert_ne!(gui.text_run("same", TextStyle { weight: 500, ..style }), text);
 }

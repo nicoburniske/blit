@@ -129,14 +129,11 @@ impl Application for App {
                         .background(colors::ACCENT)
                         .radius(BorderRadius::uniform(sz::XXS)),
                 );
-                logo.child().insert(
-                    Text::new("blit")
-                        .style(TextStyle {
-                            size: sz::LG,
-                            ..TextStyle::default()
-                        })
-                        .color(colors::BACKGROUND),
-                );
+                logo.child().insert(Text::new("blit").style(TextStyle {
+                    size: sz::LG,
+                    color: colors::BACKGROUND,
+                    ..TextStyle::default()
+                }));
             });
             for (page, label) in [
                 (Page::Layout, "layout"),
@@ -309,14 +306,11 @@ impl Widget<DesktopContext> for &mut TextPage {
                 |ui: Ui<'_>| {
                     let mut controls = ui.layout(flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
                     controls.insert(panel(colors::SURFACE));
-                    controls.child().insert(
-                        Text::new("TEXT OPTIONS")
-                            .style(TextStyle {
-                                size: sz::LG,
-                                ..TextStyle::default()
-                            })
-                            .color(colors::ACCENT),
-                    );
+                    controls.child().insert(Text::new("TEXT OPTIONS").style(TextStyle {
+                        size: sz::LG,
+                        color: colors::ACCENT,
+                        ..TextStyle::default()
+                    }));
                     controls.child().build(|ui: Ui<'_>| {
                         choices(
                             ui,
@@ -373,9 +367,9 @@ impl Widget<DesktopContext> for &mut TextPage {
                         Text::new("Drag the right edge, bottom edge, or corner of the paragraph to reflow it.")
                             .style(TextStyle {
                                 size: sz::MD,
+                                color: colors::TEXT_DIM,
                                 ..TextStyle::default()
                             })
-                            .color(colors::TEXT_DIM)
                             .options(TextOptions {
                                 wrap: TextWrap::Word,
                                 ..TextOptions::default()
@@ -385,14 +379,13 @@ impl Widget<DesktopContext> for &mut TextPage {
                 |ui: Ui<'_>| {
                     let mut preview = ui.layout(flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
                     preview.insert(panel(colors::SURFACE));
-                    preview.child().insert(
-                        Text::new("RESIZABLE RICH TEXT")
-                            .style(TextStyle {
-                                size: sz::MD,
-                                ..TextStyle::default()
-                            })
-                            .color(colors::ACCENT),
-                    );
+                    preview
+                        .child()
+                        .insert(Text::new("RESIZABLE RICH TEXT").style(TextStyle {
+                            size: sz::MD,
+                            color: colors::ACCENT,
+                            ..TextStyle::default()
+                        }));
                     preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
                         let mut viewport = ui.layout(single::new().padding(Sides::all(sz::SM))).clip(BoundsClip);
                         viewport.insert(
@@ -420,9 +413,9 @@ impl Widget<DesktopContext> for &mut TextPage {
                                         RichText::new(text, spans)
                                             .style(TextStyle {
                                                 size: sz::LG,
+                                                color: colors::TEXT_MUTED,
                                                 ..TextStyle::default()
                                             })
-                                            .color(colors::TEXT_MUTED)
                                             .options(options),
                                     );
                                 })
@@ -446,14 +439,11 @@ impl Widget<DesktopContext> for &mut InputPage {
     fn build(self, ui: Ui<'_>) {
         let mut body = ui.layout(flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
         body.insert(panel(colors::SURFACE));
-        body.child().insert(
-            Text::new("TEXT INPUT")
-                .style(TextStyle {
-                    size: sz::LG,
-                    ..TextStyle::default()
-                })
-                .color(colors::ACCENT),
-        );
+        body.child().insert(Text::new("TEXT INPUT").style(TextStyle {
+            size: sz::LG,
+            color: colors::ACCENT,
+            ..TextStyle::default()
+        }));
         body.child().build(|ui: Ui<'_>| {
             let mut field = ui.layout(single::new().fixed(560.0, sz::XXXL));
             field.insert(
@@ -466,24 +456,22 @@ impl Widget<DesktopContext> for &mut InputPage {
                 TextInput::new(&mut self.state, &mut self.value)
                     .style(TextStyle {
                         size: sz::LG,
+                        color: colors::TEXT,
                         ..TextStyle::default()
                     })
                     .padding(Sides::all(sz::SM))
-                    .color(colors::TEXT)
                     .placeholder("Type here")
                     .placeholder_color(colors::TEXT_DIM)
                     .selection_background(colors::ACCENT_DARK)
                     .cursor_background(colors::ACCENT),
             )
         });
-        body.child().insert(
-            Text::new("Click to focus. Escape releases focus.")
-                .style(TextStyle {
-                    size: sz::MD,
-                    ..TextStyle::default()
-                })
-                .color(colors::TEXT_MUTED),
-        );
+        body.child()
+            .insert(Text::new("Click to focus. Escape releases focus.").style(TextStyle {
+                size: sz::MD,
+                color: colors::TEXT_MUTED,
+                ..TextStyle::default()
+            }));
     }
 }
 
@@ -524,9 +512,9 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                         Text::new("LAYOUT PARAMETERS")
                             .style(TextStyle {
                                 size: sz::LG,
+                                color: colors::ACCENT,
                                 ..TextStyle::default()
-                            })
-                            .color(colors::ACCENT),
+                            }),
                     );
                     sidebar.child().build(
                         scroll_area(
@@ -638,9 +626,9 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                                 Text::new("Drag the highlighted right edge, bottom edge, or corner. Layout changes preserve item identity and animate geometry.")
                                     .style(TextStyle {
                                         size: sz::MD,
+                                        color: colors::TEXT_DIM,
                                         ..TextStyle::default()
                                     })
-                                    .color(colors::TEXT_DIM)
                                     .options(blit_gui::text::TextOptions {
                                         wrap: blit_gui::text::TextWrap::Word,
                                         ..Default::default()
@@ -658,9 +646,9 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                             Text::new("LIVE PREVIEW")
                                 .style(TextStyle {
                                     size: sz::MD,
+                                    color: colors::ACCENT,
                                     ..TextStyle::default()
-                                })
-                                .color(colors::ACCENT),
+                                }),
                         );
                     preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
                         let mut viewport = ui
@@ -755,9 +743,9 @@ impl Widget<DesktopContext> for &mut StylesPage {
                         Text::new("SHADOW ATOM")
                             .style(TextStyle {
                                 size: sz::LG,
+                                color: colors::ACCENT,
                                 ..TextStyle::default()
-                            })
-                            .color(colors::ACCENT),
+                            }),
                     );
                     sidebar.child().build(
                         scroll_area(
@@ -820,9 +808,9 @@ impl Widget<DesktopContext> for &mut StylesPage {
                                 Text::new("Shadow is an independent atom inserted on the card node. Insert it before the rectangle for an outer shadow or after it for an inset shadow.")
                                     .style(TextStyle {
                                         size: sz::MD,
+                                        color: colors::TEXT_DIM,
                                         ..TextStyle::default()
                                     })
-                                    .color(colors::TEXT_DIM)
                                     .options(blit_gui::text::TextOptions {
                                         wrap: blit_gui::text::TextWrap::Word,
                                         ..Default::default()
@@ -840,9 +828,9 @@ impl Widget<DesktopContext> for &mut StylesPage {
                             Text::new("LIVE STYLE PREVIEW")
                                 .style(TextStyle {
                                     size: sz::MD,
+                                    color: colors::ACCENT,
                                     ..TextStyle::default()
-                                })
-                                .color(colors::ACCENT),
+                                }),
                         );
                     preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
                         let mut stage = ui.layout(
@@ -884,17 +872,17 @@ impl Widget<DesktopContext> for &mut StylesPage {
                                     Text::new("SHADOW / ANY NODE")
                                         .style(TextStyle {
                                             size: sz::XL,
+                                            color: colors::TEXT,
                                             ..TextStyle::default()
-                                        })
-                                        .color(colors::TEXT),
+                                        }),
                                 );
                                 card.child().insert(
                                     Text::new("outer and inset shadows share the node's resolved bounds")
                                         .style(TextStyle {
                                             size: sz::MD,
+                                            color: colors::TEXT_MUTED,
                                             ..TextStyle::default()
-                                        })
-                                        .color(colors::TEXT_MUTED),
+                                        }),
                                 );
                             });
                     });
@@ -932,14 +920,14 @@ impl Widget<DesktopContext> for &mut ScrollPage {
         section.insert(panel(colors::SURFACE));
         {
             let mut header = section.child().layout(flex::row().gap(sz::XS).align(Align::Center));
-            header.child().item(flex::item().grow()).insert(
-                Text::new("VIRTUAL SCROLL")
-                    .style(TextStyle {
-                        size: sz::MD,
-                        ..TextStyle::default()
-                    })
-                    .color(colors::TEXT_MUTED),
-            );
+            header
+                .child()
+                .item(flex::item().grow())
+                .insert(Text::new("VIRTUAL SCROLL").style(TextStyle {
+                    size: sz::MD,
+                    color: colors::TEXT_MUTED,
+                    ..TextStyle::default()
+                }));
             for (next, label) in [
                 (ScrollMode::Finite, "FINITE"),
                 (ScrollMode::Infinite, "INFINITE"),
@@ -975,15 +963,12 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                     .radius(BorderRadius::uniform(sz::XXS)),
             );
             tile.child()
-                .insert(Text::new(format_args!("{index}")).color(colors::TEXT_MUTED));
-            tile.child().insert(
-                Text::new(item.label)
-                    .style(TextStyle {
-                        size: sz::MD,
-                        ..TextStyle::default()
-                    })
-                    .color(colors::TEXT),
-            );
+                .insert(Text::new(format_args!("{index}")).style(TextStyle::new().color(colors::TEXT_MUTED)));
+            tile.child().insert(Text::new(item.label).style(TextStyle {
+                size: sz::MD,
+                color: colors::TEXT,
+                ..TextStyle::default()
+            }));
         };
         if horizontal {
             section.child().item(flex::item().grow()).build(
@@ -1193,26 +1178,20 @@ fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction
             .border(Border::solid(sz::BORDER, border))
             .radius(BorderRadius::uniform(sz::XXS)),
     );
-    button.child().insert(
-        Text::new(label)
-            .style(TextStyle {
-                size: sz::MD,
-                ..TextStyle::default()
-            })
-            .color(colors::TEXT),
-    );
+    button.child().insert(Text::new(label).style(TextStyle {
+        size: sz::MD,
+        color: colors::TEXT,
+        ..TextStyle::default()
+    }));
 }
 
 fn choices<T: Copy + PartialEq>(ui: Ui<'_>, label: &str, selected: &mut T, options: &[(&str, T)]) {
     let mut group = ui.layout(flex::column().gap(sz::XXS));
-    group.child().insert(
-        Text::new(label)
-            .style(TextStyle {
-                size: sz::MD,
-                ..TextStyle::default()
-            })
-            .color(colors::TEXT_MUTED),
-    );
+    group.child().insert(Text::new(label).style(TextStyle {
+        size: sz::MD,
+        color: colors::TEXT_MUTED,
+        ..TextStyle::default()
+    }));
     group.child().build(|ui: Ui<'_>| {
         let mut values = ui.layout(wrap::horizontal().item_gap(sz::XXS).run_gap(sz::XXS));
         for (index, &(option, value)) in options.iter().enumerate() {
@@ -1331,14 +1310,11 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     } else {
         item
     };
-    item.child().insert(
-        Text::new(spec.label)
-            .style(TextStyle {
-                size: sz::MD * config.zoom,
-                ..TextStyle::default()
-            })
-            .color(Color::WHITE),
-    );
+    item.child().insert(Text::new(spec.label).style(TextStyle {
+        size: sz::MD * config.zoom,
+        color: Color::WHITE,
+        ..TextStyle::default()
+    }));
     if let Some(anchor) = spec.badge {
         item.child()
             .parent(Id::new("desktop canvas"))
@@ -1357,14 +1333,11 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
                         .border(Border::solid(sz::BORDER, Color::WHITE))
                         .radius(BorderRadius::uniform(sz::XXS)),
                 );
-                badge.child().insert(
-                    Text::new("ABS")
-                        .style(TextStyle {
-                            size: (sz::XS * config.zoom).max(sz::XS),
-                            ..TextStyle::default()
-                        })
-                        .color(Color::WHITE),
-                );
+                badge.child().insert(Text::new("ABS").style(TextStyle {
+                    size: (sz::XS * config.zoom).max(sz::XS),
+                    color: Color::WHITE,
+                    ..TextStyle::default()
+                }));
             });
     }
 }

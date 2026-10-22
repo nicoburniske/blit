@@ -11,7 +11,6 @@ use blit::{PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
     RenderInput, TextSystem,
-    color::Color,
     display_list::{BoxShadow, Command, Rectangle},
     image::{ImageData, ImageFormat, ImageHandle, ImageRequest},
     text::{TextPhases, TextRequest},
@@ -25,10 +24,7 @@ pub use self::{
 use self::{
     pixel::PixelSpan,
     render::{image as render_image, image_patch::AlphaRows, rectangle, shadow, triangle},
-    strategy::{
-        clip::ClipStack,
-        command::{CommandList, PreparedText},
-    },
+    strategy::{clip::ClipStack, command::CommandList},
     text::TextRenderer,
 };
 
@@ -128,8 +124,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
                         context.prepare_rectangle(&rectangle, record.bounds, record.clip.0)
                     }
                     Command::Image(image) => context.prepare_image(&image, record.bounds, record.clip.0),
-                    Command::Text(request, colors) => {
-                        context.prepare_text(input.text, &request, colors, record.bounds, record.clip.0);
+                    Command::Text(request) => {
+                        context.prepare_text(input.text, &request, record.bounds, record.clip.0);
                     }
                     Command::BoxShadow(shadow) => context.prepare_box_shadow(&shadow, record.bounds, record.clip.0),
                     Command::Mesh(mesh) => {
@@ -346,27 +342,15 @@ impl<B: PixelBuffer> RenderContext<B> {
     fn prepare_text(
         &mut self,
         text: &mut TextSystem,
-        request: &TextRequest,
-        colors: &[Option<Color>],
+        request: &TextRequest<'_>,
         bounds: PhysicalRect,
         clip: u32,
     ) -> Option<PhysicalRect> {
         let area = request.area.to_physical(Scale2::uniform(self.scale_factor));
         let visible_area = area.intersection(bounds)?;
-        let (glyph_start, glyph_end, runs, paragraph_bounds) =
-            self.text.prepare(text, request, colors, self.scale_factor);
+        let (prepared, paragraph_bounds) = self.text.prepare(text, request, self.scale_factor);
         let bounds = paragraph_bounds.intersection(visible_area)?;
-        self.commands.push_text(
-            PreparedText {
-                glyph_start,
-                glyph_end,
-                runs,
-                area,
-                color: request.color,
-            },
-            bounds,
-            clip,
-        );
+        self.commands.push_text(prepared, bounds, clip);
         Some(bounds)
     }
 }

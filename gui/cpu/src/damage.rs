@@ -164,8 +164,9 @@ impl Damage {
                         }
                     }
                 }
-                Command::Text(text, colors) => {
+                Command::Text(text) => {
                     text.text.hash(&mut hash);
+                    text.colors.hash(&mut hash);
                     [
                         text.area.x,
                         text.area.y,
@@ -175,13 +176,11 @@ impl Damage {
                     ]
                     .map(f32::to_bits)
                     .hash(&mut hash);
-                    text.color.hash(&mut hash);
                     text.options.wrap.hash(&mut hash);
                     text.options.overflow.hash(&mut hash);
                     text.options.horizontal_align.hash(&mut hash);
                     text.options.vertical_align.hash(&mut hash);
                     text.options.max_lines.hash(&mut hash);
-                    colors.hash(&mut hash);
                 }
                 Command::Image(image) => {
                     hash.write_u64(image.image);

@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use self::bump::{BumpArena, BumpId, Scratch};
+use self::bump::{BumpArena, BumpId, FrameSlice, Scratch};
 use crate::{
     Atom, AtomWidget, Clip, ClipShape, FrameInfo, IntoWidget, Widget,
     animation::{Easing, Transition},
@@ -58,6 +58,11 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     /// identifies this node for references within the current render
     pub fn node_id(&self) -> NodeId {
         self.inner.node
+    }
+
+    /// stores values that atoms can read until the next build
+    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
+        self.inner.frame.bump.store_slice(values)
     }
 
     pub fn clip<X: Clip<C>>(self, clip: X) -> Self {

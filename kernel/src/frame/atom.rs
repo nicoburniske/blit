@@ -2,7 +2,7 @@ use std::any::TypeId;
 
 use super::{
     AtomKind, Frame, NodeId, StoredAtom, StoredAtomId,
-    bump::{BumpArena, BumpId, Scratch},
+    bump::{BumpArena, BumpId, FrameSlice, Scratch},
 };
 use crate::{
     Atom, Context,
@@ -26,6 +26,10 @@ impl<'a, C: Context> AtomCx<'a, C> {
 
     pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'a, T> {
         self.bump.scratch(len, value)
+    }
+
+    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &'a [T] {
+        self.bump.slice(slice)
     }
 }
 

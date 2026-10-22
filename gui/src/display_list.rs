@@ -9,7 +9,7 @@ use crate::{
     color::Color,
     image::ImageRequest,
     style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
-    text::{Span, TextRequest},
+    text::{TextOptions, TextRequest, TextRun},
 };
 
 #[derive(Default)]
@@ -17,7 +17,6 @@ pub struct DisplayList {
     commands: Vec<StoredCommand>,
     data: Bump,
     clips: Vec<ClipNode>,
-    epoch: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -34,7 +33,7 @@ pub enum Command<'a> {
     Clear,
     Rectangle(Rectangle<'a>),
     Image(ImageRequest),
-    Text(TextRequest, &'a [Option<Color>]),
+    Text(TextRequest<'a>),
     BoxShadow(BoxShadow),
     Mesh(Mesh<'a>),
 }
@@ -157,28 +156,14 @@ impl DisplayList {
         self.push(bounds, clip, CommandKind::Image(image))
     }
 
-    pub fn push_text(&mut self, text: TextRequest, bounds: PhysicalRect, clip: ClipId) {
-        self.push_text_palette(text, TextPalette::NONE, bounds, clip)
-    }
-
-    pub fn text_palette(&mut self, spans: &[Span]) -> TextPalette {
-        if spans.iter().all(|span| span.style.color.is_none()) {
-            return TextPalette::NONE;
-        }
-        TextPalette {
-            epoch: self.epoch,
-            colors: self.data.extend(spans.iter().map(|span| span.style.color)),
-        }
-    }
-
-    pub fn push_text_palette(&mut self, text: TextRequest, palette: TextPalette, bounds: PhysicalRect, clip: ClipId) {
-        assert!(
-            palette.colors.len == 0 || palette.epoch == self.epoch,
-            "text palette belongs to a different display list frame"
-        );
+    pub fn push_text(&mut self, text: TextRequest<'_>, bounds: PhysicalRect, clip: ClipId) {
+        let colors = self.data.extend(text.colors.iter().copied());
         let text = self.data.push(StoredText {
-            request: text,
-            colors: palette.colors,
+            text: text.text,
+            colors,
+            area: text.area,
+            offset_x: text.offset_x,
+            options: text.options,
         });
         self.push(bounds, clip, CommandKind::Text(text))
     }
@@ -238,7 +223,13 @@ impl DisplayList {
                 CommandKind::Image(image) => Command::Image(*self.data.get(image)),
                 CommandKind::Text(text) => {
                     let text = self.data.get(text);
-                    Command::Text(text.request, self.data.slice(text.colors))
+                    Command::Text(TextRequest {
+                        text: text.text,
+                        colors: self.data.slice(text.colors),
+                        area: text.area,
+                        offset_x: text.offset_x,
+                        options: text.options,
+                    })
                 }
                 CommandKind::BoxShadow(shadow) => Command::BoxShadow(*self.data.get(shadow)),
                 CommandKind::Mesh(mesh) => {
@@ -265,7 +256,6 @@ impl DisplayList {
         self.commands.clear();
         self.data.clear();
         self.clips.clear();
-        self.epoch = self.epoch.wrapping_add(1);
     }
 }
 
@@ -319,25 +309,6 @@ impl DisplayList {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TextPalette {
-    epoch: usize,
-    colors: Slice<Option<Color>>,
-}
-
-impl TextPalette {
-    pub const NONE: Self = Self {
-        epoch: 0,
-        colors: Slice::EMPTY,
-    };
-}
-
-impl Default for TextPalette {
-    fn default() -> Self {
-        Self::NONE
-    }
-}
-
 struct StoredCommand {
     bounds: PhysicalRect,
     clip: ClipId,
@@ -357,8 +328,11 @@ enum CommandKind {
 
 #[derive(Clone, Copy)]
 struct StoredText {
-    request: TextRequest,
-    colors: Slice<Option<Color>>,
+    text: TextRun,
+    colors: Slice<Color>,
+    area: LogicalRect,
+    offset_x: f32,
+    options: TextOptions,
 }
 
 #[derive(Clone, Copy)]
@@ -387,27 +361,4 @@ enum StoredFill {
 struct StoredGradient {
     angle: f32,
     stops: Slice<GradientStop>,
-}
-
-#[test]
-#[should_panic(expected = "text palette belongs to a different display list frame")]
-fn rejects_stale_text_palette() {
-    use crate::text::{SpanStyle, TextOptions, TextRunId};
-
-    let mut list = DisplayList::default();
-    let palette = list.text_palette(&[Span::new(0..1).style(SpanStyle::new().color(Color::BLACK))]);
-    list.clear();
-    let area = LogicalRect::new(0.0, 0.0, 10.0, 10.0);
-    list.push_text_palette(
-        TextRequest {
-            text: TextRunId(1),
-            area,
-            offset_x: 0.0,
-            color: Color::WHITE,
-            options: TextOptions::default(),
-        },
-        palette,
-        area.to_physical(Scale2::IDENTITY),
-        ClipId::default(),
-    );
 }

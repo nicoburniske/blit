@@ -6,7 +6,7 @@ use blit_gui::{
     Context,
     color::Color,
     display_list::Rectangle,
-    text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextStyle, TextWrap},
+    text::{TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle, TextWrap},
 };
 
 blit::builder! {
@@ -15,7 +15,6 @@ blit::builder! {
         style: TextStyle = TextStyle::new(),
         padding: Sides<f32> = Sides::all(0.0),
         background: Color = Color::TRANSPARENT,
-        color: Color = Color::BLACK,
         placeholder: &'a str = "",
         placeholder_color: Color = Color::GRAY,
         selection_background: Color = Color::rgba(64, 128, 255, 128),
@@ -33,7 +32,6 @@ impl<C: Context> Widget<C> for TextInput<'_> {
             style,
             padding,
             background,
-            color,
             placeholder,
             placeholder_color,
             selection_background,
@@ -77,9 +75,9 @@ impl<C: Context> Widget<C> for TextInput<'_> {
             let area = area.inset(padding);
             let request = TextRequest {
                 text,
+                colors: &[style.color],
                 area,
                 offset_x: state.offset_x,
-                color,
                 options,
             };
             if let Some((position, extend)) = pointer {
@@ -97,21 +95,23 @@ impl<C: Context> Widget<C> for TextInput<'_> {
         } else {
             ui.request_frame();
         }
-        let display = if value.is_empty() && !placeholder.is_empty() {
-            ui.context_mut().as_mut().text_run(placeholder, style)
+        let (display, color) = if value.is_empty() && !placeholder.is_empty() {
+            (
+                ui.context_mut().as_mut().text_run(placeholder, style),
+                placeholder_color,
+            )
         } else {
-            text
+            (text, style.color)
         };
         ui.insert(InputAtom {
             text,
             display,
+            color,
             state: *state,
             options,
             padding,
             focused,
             background,
-            color,
-            placeholder_color,
             selection_background,
             cursor_background,
         });
@@ -120,15 +120,14 @@ impl<C: Context> Widget<C> for TextInput<'_> {
 }
 
 struct InputAtom {
-    text: TextRunId,
-    display: TextRunId,
+    text: TextRun,
+    display: TextRun,
+    color: Color,
     state: TextInputState,
     options: TextOptions,
     padding: Sides<f32>,
     focused: bool,
     background: Color,
-    color: Color,
-    placeholder_color: Color,
     selection_background: Color,
     cursor_background: Color,
 }
@@ -152,9 +151,9 @@ impl<C: Context> Atom<C> for InputAtom {
         }
         let request = TextRequest {
             text: self.text,
+            colors: std::slice::from_ref(&self.color),
             area,
             offset_x: self.state.offset_x,
-            color: self.color,
             options: self.options,
         };
         let start_offset = self.state.cursor.min(self.state.anchor);
@@ -175,11 +174,6 @@ impl<C: Context> Atom<C> for InputAtom {
         }
         let request = TextRequest {
             text: self.display,
-            color: if self.display != self.text {
-                self.placeholder_color
-            } else {
-                self.color
-            },
             ..request
         };
         context.paint_text(request);

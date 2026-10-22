@@ -437,7 +437,7 @@ where
 {
     const COMMANDS: usize = 48;
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
-    let text = renderer.gui.text_run("secure approval", TextStyle::default());
+    let text = renderer.gui.text_run("secure approval", TextStyle::new());
     let mut display_list = DisplayList::default();
     for index in 0..COMMANDS {
         let area = LogicalRect {
@@ -449,9 +449,9 @@ where
         display_list.push_text(
             TextRequest {
                 text,
+                colors: &[Color::rgb(224, 232, 240)],
                 area,
                 offset_x: 0.0,
-                color: Color::rgb(224, 232, 240),
                 options: TextOptions::default(),
             },
             area.to_physical(SCALE),
@@ -477,7 +477,7 @@ where
                 format_args!(
                     "transaction {line:02}: verify recipient 0x7c91…{line:04x}, amount 12.345 ETH, and network fee 0.0042 ETH"
                 ),
-                TextStyle::default(),
+                TextStyle::new(),
             )
         })
         .collect::<Vec<_>>();
@@ -492,9 +492,9 @@ where
         display_list.push_text(
             TextRequest {
                 text,
+                colors: &[Color::rgb(224, 232, 240)],
                 area,
                 offset_x: 0.0,
-                color: Color::rgb(224, 232, 240),
                 options: TextOptions::default(),
             },
             area.to_physical(SCALE),
@@ -520,6 +520,7 @@ where
     };
     let style = TextStyle {
         size: 20.0,
+        color: Color::rgb(224, 232, 240),
         ..TextStyle::default()
     };
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
@@ -531,9 +532,9 @@ where
     display_list.push_text(
         TextRequest {
             text,
+            colors: &[style.color],
             area,
             offset_x: 0.0,
-            color: Color::rgb(224, 232, 240),
             options: TextOptions {
                 wrap: TextWrap::Word,
                 ..TextOptions::default()

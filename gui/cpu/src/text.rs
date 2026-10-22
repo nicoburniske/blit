@@ -7,7 +7,6 @@ use blit_gui::{
     color::Color,
     text::{HorizontalAlign, TextRequest, VerticalAlign},
 };
-use blit_text::FontFaceId;
 
 use crate::{Pixel, PixelSpan, RendererConfig, glyph::GlyphCache, strategy::command::PreparedText};
 
@@ -33,15 +32,15 @@ struct PaintKey {
     offset_x: u32,
     width: u32,
     height: u32,
+    clip_width: i32,
+    clip_height: i32,
     horizontal_align: HorizontalAlign,
     vertical_align: VerticalAlign,
 }
 
 #[derive(Clone, Copy)]
 struct PaintGlyph {
-    face: FontFaceId,
     glyph: u16,
-    size: u32,
     phase: u8,
     x: i32,
     y: i32,
@@ -71,7 +70,7 @@ struct PaintRun {
     glyph_end: u32,
     top: i32,
     bottom: i32,
-    span: u32,
+    layout_run: u32,
 }
 
 struct PreparedRun {
@@ -111,10 +110,9 @@ impl TextRenderer {
     pub fn prepare(
         &mut self,
         text: &mut TextSystem,
-        request: &TextRequest,
-        colors: &[Option<Color>],
+        request: &TextRequest<'_>,
         scale_factor: f32,
-    ) -> (u32, u32, PreparedRuns, PhysicalRect) {
+    ) -> (PreparedText, PhysicalRect) {
         let area = request.area.to_physical(Scale2::uniform(scale_factor));
         let mut resolved = text.paint_layout(request);
         let layout = resolved.layout;
@@ -124,6 +122,8 @@ impl TextRenderer {
             offset_x: request.offset_x.to_bits(),
             width: request.area.width.to_bits(),
             height: request.area.height.to_bits(),
+            clip_width: area.width,
+            clip_height: area.height,
             horizontal_align: request.options.horizontal_align,
             vertical_align: request.options.vertical_align,
         };
@@ -137,7 +137,7 @@ impl TextRenderer {
             let mut has_bounds = false;
             let width = area.width.max(0);
             let height = area.height.max(0);
-            for run in &layout.runs {
+            for (run_index, run) in layout.runs.iter().enumerate() {
                 let offset = resolved.line_offset(run.line as usize);
                 let start = paint.glyphs.len() as u32;
                 let mut top = i32::MAX;
@@ -168,9 +168,7 @@ impl TextRenderer {
                         continue;
                     }
                     paint.glyphs.push(PaintGlyph {
-                        face: run.face,
                         glyph: glyph.id,
-                        size,
                         phase,
                         x,
                         y,
@@ -197,7 +195,7 @@ impl TextRenderer {
                         glyph_end: end,
                         top,
                         bottom,
-                        span: u32::try_from(run.span).expect("too many text spans"),
+                        layout_run: u32::try_from(run_index).expect("too many layout runs"),
                     });
                 }
             }
@@ -206,22 +204,25 @@ impl TextRenderer {
 
         let paint = self.paints.get_index(paint_index);
         let glyph_start = self.prepared.len() as u32;
-        for glyph in &paint.glyphs {
-            let cached = self
-                .glyphs
-                .glyph(&mut resolved, glyph.face, glyph.glyph, glyph.size, glyph.phase);
-            let cached = self.glyphs.get(cached);
-            self.prepared.push(PreparedGlyph {
-                alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),
-                x: glyph.x,
-                y: glyph.y,
-                width: u32::from(cached.metrics.width),
-                height: u32::from(cached.metrics.height),
-            });
+        for run in &paint.runs {
+            let source = &layout.runs[run.layout_run as usize];
+            let size = (source.size * scale_factor).to_bits();
+            for glyph in &paint.glyphs[run.glyph_start as usize..run.glyph_end as usize] {
+                let cached = self
+                    .glyphs
+                    .glyph(&mut resolved, source.face, glyph.glyph, size, glyph.phase);
+                let cached = self.glyphs.get(cached);
+                self.prepared.push(PreparedGlyph {
+                    alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),
+                    x: glyph.x,
+                    y: glyph.y,
+                    width: u32::from(cached.metrics.width),
+                    height: u32::from(cached.metrics.height),
+                });
+            }
         }
         let glyph_end = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
-        let color = |run: &PaintRun| colors.get(run.span as usize).copied().flatten();
-        let runs = if paint.runs.len() > 1 || paint.runs.first().is_some_and(|run| color(run).is_some()) {
+        let runs = if paint.runs.len() > 1 {
             let start = self.runs.len() as u32;
             for run in &paint.runs {
                 self.runs.push(PreparedRun {
@@ -229,7 +230,7 @@ impl TextRenderer {
                     glyph_end: glyph_start + run.glyph_end,
                     top: run.top,
                     bottom: run.bottom,
-                    color: color(run).unwrap_or(request.color),
+                    color: request.span_color(layout.runs[run.layout_run as usize].span),
                 });
             }
             PreparedRuns {
@@ -245,7 +246,21 @@ impl TextRenderer {
             width: paint.bounds.width,
             height: paint.bounds.height,
         };
-        (glyph_start, glyph_end, runs, bounds)
+        (
+            PreparedText {
+                glyph_start,
+                glyph_end,
+                runs,
+                area,
+                color: paint
+                    .runs
+                    .first()
+                    .map_or(Color::TRANSPARENT, |run| {
+                        request.span_color(layout.runs[run.layout_run as usize].span)
+                    }),
+            },
+            bounds,
+        )
     }
 
     pub fn draw_line<P: Pixel>(

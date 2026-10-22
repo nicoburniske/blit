@@ -1,12 +1,12 @@
-use blit::{Atom, AtomCx, Constraints, LogicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Size};
 
 use crate::{
     Context,
     color::Color,
-    display_list::{BoxShadow, Rectangle as DrawRectangle, TextPalette},
+    display_list::{BoxShadow, Rectangle as DrawRectangle},
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
     style::{Border, BorderRadius, Fill},
-    text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextWrap},
+    text::{TextLayoutRequest, TextOptions, TextRequest, TextRun, TextWrap},
 };
 
 blit::builder! {
@@ -42,9 +42,8 @@ impl<C: Context> Atom<C> for Rectangle {
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Text {
-        new(text: TextRunId),
-        palette: TextPalette = TextPalette::NONE,
-        color: Color = Color::BLACK,
+        // one color per span
+        new(text: TextRun, colors: FrameSlice<Color>),
         offset_x: f32 = 0.0,
         options: TextOptions = TextOptions::new(),
     }
@@ -63,14 +62,14 @@ impl<C: Context> Atom<C> for Text {
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        let request = TextRequest {
+        let colors = cx.slice(self.colors);
+        cx.context_mut().as_mut().paint_text(TextRequest {
             text: self.text,
+            colors,
             area,
             offset_x: self.offset_x,
-            color: self.color,
             options: self.options,
-        };
-        cx.context_mut().as_mut().paint_text_palette(request, self.palette);
+        });
     }
 }
 

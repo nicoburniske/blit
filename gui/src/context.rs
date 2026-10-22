@@ -2,9 +2,9 @@ use blit::{Clip, ClipShape, LogicalPoint, LogicalRect, LogicalSize, Scale2};
 
 use crate::{
     Context, TextSystem,
-    display_list::{BoxShadow, ClipId, DisplayList, Mesh, Rectangle, TextPalette},
+    display_list::{BoxShadow, ClipId, DisplayList, Mesh, Rectangle},
     image::ImageRequest,
-    text::{Span, TextLayoutRequest, TextRequest, TextRunId, TextSource, TextStyle},
+    text::{Span, TextLayoutRequest, TextRequest, TextRun, TextSource, TextStyle},
 };
 
 pub struct GuiContext {
@@ -47,26 +47,23 @@ impl GuiContext {
         }
     }
 
-    pub fn text_run<'a>(&mut self, text: impl Into<TextSource<'a>>, style: TextStyle) -> TextRunId {
+    pub fn text_run<'a>(&mut self, text: impl Into<TextSource<'a>>, style: TextStyle) -> TextRun {
         self.text.text_run(text.into(), style)
     }
 
-    pub fn rich_text(&mut self, text: &str, spans: &[Span], style: TextStyle) -> (TextRunId, TextPalette) {
-        (
-            self.text.rich_text(text, spans, style),
-            self.display_list.text_palette(spans),
-        )
+    pub fn rich_text(&mut self, text: &str, spans: &[Span], style: TextStyle) -> TextRun {
+        self.text.rich_text(text, spans, style)
     }
 
     pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
         self.text.measure(request)
     }
 
-    pub fn text_offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
+    pub fn text_offset_at_position(&mut self, request: &TextRequest<'_>, position: LogicalPoint) -> usize {
         self.text.offset_at_position(request, position)
     }
 
-    pub fn text_cursor_rect(&mut self, request: &TextRequest, offset: usize) -> LogicalRect {
+    pub fn text_cursor_rect(&mut self, request: &TextRequest<'_>, offset: usize) -> LogicalRect {
         self.text.cursor_rect(request, offset, self.scale.x.recip())
     }
 
@@ -75,13 +72,9 @@ impl GuiContext {
         self.display_list.push_rectangle(rectangle, bounds, self.clip);
     }
 
-    pub fn paint_text(&mut self, text: TextRequest) {
-        self.paint_text_palette(text, TextPalette::NONE);
-    }
-
-    pub fn paint_text_palette(&mut self, text: TextRequest, palette: TextPalette) {
+    pub fn paint_text(&mut self, text: TextRequest<'_>) {
         let bounds = text.area.to_physical(self.scale);
-        self.display_list.push_text_palette(text, palette, bounds, self.clip);
+        self.display_list.push_text(text, bounds, self.clip);
     }
 
     pub fn paint_image(&mut self, image: ImageRequest) {

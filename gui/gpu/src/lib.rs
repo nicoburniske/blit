@@ -704,7 +704,7 @@ impl Renderer {
                     });
                     Pipeline::Image(request.image)
                 }
-                Command::Text(request, colors) => {
+                Command::Text(request) => {
                     let phase_count = self.text_phase_count;
                     let area = request.area.to_physical(Scale2::uniform(scale));
                     let Some(visible_area) = area
@@ -717,7 +717,7 @@ impl Renderer {
                     let layout = resolved.layout;
                     for run in &layout.runs {
                         let offset = resolved.line_offset(run.line as usize);
-                        let color = colors.get(run.span).copied().flatten().unwrap_or(request.color);
+                        let color = request.span_color(run.span);
                         if color.alpha == 0 {
                             continue;
                         }
