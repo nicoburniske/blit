@@ -498,14 +498,18 @@ impl Renderer {
                     if opacity == 0.0 {
                         continue;
                     }
+                    let area = rectangle.area.to_physical(Scale2::uniform(scale));
+                    let Some(draw) = area
+                        .intersection(record.bounds)
+                        .and_then(|area| area.intersection(screen))
+                    else {
+                        continue;
+                    };
                     if opacity == 1.0
                         && rectangle.background.alpha > 0
                         && rectangle.radius == BorderRadius::default()
                         && matches!(rectangle.border, Border::None)
                     {
-                        let Some(draw) = record.bounds.intersection(screen) else {
-                            continue;
-                        };
                         assert!(
                             self.mesh_data.len() <= u32::MAX as usize - 3,
                             "too many GPU mesh vertices"
@@ -530,13 +534,6 @@ impl Renderer {
                         self.push_mesh_primitive([vertex, vertex + 1, vertex + 2, vertex + 3]);
                         continue;
                     }
-                    let area = rectangle.area.to_physical(Scale2::uniform(scale));
-                    let Some(draw) = area
-                        .intersection(record.bounds)
-                        .and_then(|area| area.intersection(screen))
-                    else {
-                        continue;
-                    };
                     let inner_color = premultiplied(rectangle.background, opacity);
                     let mut border_width = 0.0;
                     let mut border_color = [0.0; 4];

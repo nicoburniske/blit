@@ -45,10 +45,10 @@ impl Prepared {
         }
         let radii = Radii::new(rectangle.radius, scale_factor, geometry.width, geometry.height);
         let inner = PhysicalRect {
-            x: geometry.x + border_width,
-            y: geometry.y + border_width,
-            width: (geometry.width - border_width * 2).max(0),
-            height: (geometry.height - border_width * 2).max(0),
+            x: geometry.x.saturating_add(border_width),
+            y: geometry.y.saturating_add(border_width),
+            width: (geometry.width - border_width.saturating_mul(2)).max(0),
+            height: (geometry.height - border_width.saturating_mul(2)).max(0),
         };
         Some(Self {
             geometry,
@@ -237,10 +237,10 @@ impl Gradient {
         let pixels = &mut row.pixels[(clipped.x - row.x) as usize..][..clipped.width as usize];
         if self.radii.is_zero() {
             let inner = PhysicalRect {
-                x: self.geometry.x + self.border_width,
-                y: self.geometry.y + self.border_width,
-                width: (self.geometry.width - self.border_width * 2).max(0),
-                height: (self.geometry.height - self.border_width * 2).max(0),
+                x: self.geometry.x.saturating_add(self.border_width),
+                y: self.geometry.y.saturating_add(self.border_width),
+                width: (self.geometry.width - self.border_width.saturating_mul(2)).max(0),
+                height: (self.geometry.height - self.border_width.saturating_mul(2)).max(0),
             };
             if line < inner.y || line >= inner.y + inner.height {
                 self.draw_span(stops, line, clipped.x, coverage, pixels);

@@ -27,6 +27,23 @@ use super::*;
 
 const SCALE: Scale2 = Scale2::IDENTITY;
 
+#[test]
+fn oversized_borders_fill_rectangle() {
+    let area = LogicalRect::new(0.0, 0.0, 8.0, 8.0);
+    let bounds = area.to_physical(SCALE);
+    let stops = [GradientStop::new(0.0, Color::WHITE), GradientStop::new(1.0, Color::WHITE)];
+    for border in [
+        Border::solid(f32::MAX, Color::WHITE),
+        Border::gradient(f32::MAX, LinearGradient::new(&stops)),
+    ] {
+        let mut list = DisplayList::default();
+        list.push_rectangle(Rectangle::new(area).border(border), bounds, ClipId::default());
+        let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
+        renderer.render(&list, &[bounds]);
+        assert!(renderer.render.buffer().pixels().iter().all(|pixel| pixel.raw() == 0xffffff));
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
 struct BgrPixel {

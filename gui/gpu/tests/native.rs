@@ -78,7 +78,16 @@ fn renders_primitives_and_rebuilds_frames() {
             .background(Color::rgb(255, 0, 0))
             .radius(BorderRadius::uniform(3.0)),
     );
-    gui.paint_rectangle(Rectangle::new(LogicalRect::new(2.0, 2.0, 2.0, 2.0)).background(Color::rgba(0, 0, 255, 128)));
+    gui.render_input().display_list.push_rectangle(
+        Rectangle::new(LogicalRect::new(2.0, 2.0, 2.0, 2.0)).background(Color::rgba(0, 0, 255, 128)),
+        PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 14,
+            height: 14,
+        },
+        ClipId::default(),
+    );
     let image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&[255, 255, 0, 255, 0, 255, 255, 255, 255, 0, 255, 255, 255, 255, 255, 255]),
         ImageFormat::Rgba8Premultiplied,
