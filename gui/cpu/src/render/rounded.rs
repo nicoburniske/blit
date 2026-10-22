@@ -1,5 +1,3 @@
-use std::simd::{Simd, StdFloat, num::SimdFloat};
-
 use blit::PhysicalRect;
 use blit_gui::style::BorderRadius;
 
@@ -118,12 +116,14 @@ impl RoundedLine {
             (true, false) => self.left.coverage(x),
             (false, true) => self.right.coverage(right_x),
             (true, true) => {
-                let zero = Simd::splat(0.0);
-                let one = Simd::splat(1.0);
-                let left = (Simd::splat((x + 1) as f32) - Simd::from_array(self.left.edges)).simd_clamp(zero, one);
-                let right =
-                    (Simd::splat((right_x + 1) as f32) - Simd::from_array(self.right.edges)).simd_clamp(zero, one);
-                (left + right - one).simd_max(zero).reduce_sum()
+                let left = (x + 1) as f32;
+                let right = (right_x + 1) as f32;
+                self.left
+                    .edges
+                    .iter()
+                    .zip(&self.right.edges)
+                    .map(|(l, r)| ((left - l).clamp(0.0, 1.0) + (right - r).clamp(0.0, 1.0) - 1.0).max(0.0))
+                    .sum()
             }
         };
         (coverage * (255.0 / 8.0)).round() as u8
@@ -144,18 +144,13 @@ impl Corner {
     fn new(radius: i32, y: i32) -> Self {
         let radius = radius as f32;
         let y = y as f32;
-        let endpoints = Simd::from_array([y, y + 1.0]);
-        let [first, second] = (Simd::splat(radius)
-            - (Simd::splat(radius * radius) - endpoints * endpoints)
-                .simd_max(Simd::splat(0.0))
-                .sqrt())
-        .to_array();
+        let [first, second] = [y, y + 1.0].map(|y| radius - (radius * radius - y * y).max(0.0).sqrt());
         Self {
             radius,
             row: radius - (y + 0.5).abs() - 0.5,
             start: first.min(second),
             end: first.max(second),
-            edges: outer_edges(radius, y).to_array(),
+            edges: outer_edges(radius, y),
         }
     }
 
@@ -165,19 +160,20 @@ impl Corner {
         let (x, edges) = if x > self.row {
             (self.row, outer_edges(self.radius, x - self.radius))
         } else {
-            (x, Simd::from_array(self.edges))
+            (x, self.edges)
         };
-        (Simd::splat(x + 1.0) - edges)
-            .simd_clamp(Simd::splat(0.0), Simd::splat(1.0))
-            .reduce_sum()
+        edges.iter().map(|edge| (x + 1.0 - edge).clamp(0.0, 1.0)).sum()
     }
 }
 
 #[inline]
-fn outer_edges(radius: f32, y: f32) -> Simd<f32, 8> {
-    let samples = Simd::from_array([0.0625, 0.1875, 0.3125, 0.4375, 0.5625, 0.6875, 0.8125, 0.9375]);
-    let y = Simd::splat(y) + samples;
-    Simd::splat(radius) - (Simd::splat(radius * radius) - y * y).simd_max(Simd::splat(0.0)).sqrt()
+fn outer_edges(radius: f32, y: f32) -> [f32; 8] {
+    let mut edges = [0.0625, 0.1875, 0.3125, 0.4375, 0.5625, 0.6875, 0.8125, 0.9375];
+    for edge in &mut edges {
+        let y = y + *edge;
+        *edge = radius - (radius * radius - y * y).max(0.0).sqrt();
+    }
+    edges
 }
 
 #[cfg(test)]

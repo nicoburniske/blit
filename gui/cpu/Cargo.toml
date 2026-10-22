@@ -11,6 +11,7 @@ blit-gui.workspace = true
 blit-cache.workspace = true
 blit-text = { workspace = true }
 blit-arena.workspace = true
+fearless_simd = "1.1.0"
 
 [dev-dependencies]
 blit-text-cosmic.workspace = true

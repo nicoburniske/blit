@@ -1,17 +1,7 @@
-use std::{
-    ops::Range,
-    simd::{
-        Simd,
-        cmp::SimdOrd,
-        num::{SimdInt, SimdUint},
-    },
-};
+use std::ops::Range;
 
 use blit_gui::color::Color;
-
-type U16x8 = Simd<u16, 8>;
-type U32x8 = Simd<u32, 8>;
-type I32x8 = Simd<i32, 8>;
+use fearless_simd::{Level, dispatch, i32x8, prelude::*, u32x8};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
@@ -199,26 +189,23 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         };
         let mut color = color.map(fixed);
         let step = step.map(fixed);
-        let lanes = I32x8::from_array([0, 1, 2, 3, 4, 5, 6, 7]);
-        let zero = I32x8::splat(0);
-        let maximum = I32x8::splat(255 << FRACTION_BITS);
         let (chunks, tail) = pixels.as_chunks_mut::<8>();
-        for pixels in chunks {
-            let channel = |index| {
-                ((I32x8::splat(color[index]) + I32x8::splat(step[index]) * lanes + I32x8::splat(HALF))
-                    .simd_clamp(zero, maximum)
-                    >> I32x8::splat(FRACTION_BITS as i32))
-                .cast::<u32>()
-            };
-            let packed = channel(0) << U32x8::splat(RED as u32)
-                | channel(1) << U32x8::splat(GREEN as u32)
-                | channel(2) << U32x8::splat(BLUE as u32)
-                | U32x8::splat(ALPHA);
-            *pixels = packed.to_array().map(Self);
-            for index in 0..3 {
-                color[index] = color[index].wrapping_add(step[index].wrapping_mul(8));
+        dispatch!(Level::new(), simd => {
+            let lanes = i32x8::simd_from(simd, [0, 1, 2, 3, 4, 5, 6, 7]);
+            let zero = i32x8::splat(simd, 0);
+            let maximum = i32x8::splat(simd, 255 << FRACTION_BITS);
+            for pixels in chunks.iter_mut() {
+                let channel = |index: usize| {
+                    ((lanes * step[index] + color[index].wrapping_add(HALF)).max(zero).min(maximum) >> FRACTION_BITS)
+                        .bitcast::<u32x8<_>>()
+                };
+                let packed = channel(0) << RED as u32 | channel(1) << GREEN as u32 | channel(2) << BLUE as u32 | ALPHA;
+                *pixels = <[u32; 8]>::from(packed).map(Self);
+                for index in 0..3 {
+                    color[index] = color[index].wrapping_add(step[index].wrapping_mul(8));
+                }
             }
-        }
+        });
         for pixel in tail {
             let channel = |index: usize| ((color[index] + HALF) >> FRACTION_BITS).clamp(0, 255) as u8;
             *pixel = Self::from_rgb(channel(0), channel(1), channel(2));
@@ -239,16 +226,17 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         }
 
         let (chunks, tail) = pixels.as_chunks_mut::<8>();
-        let alpha = U16x8::splat(color.alpha as u16);
-        let red = U16x8::splat(color.red as u16);
-        let green = U16x8::splat(color.green as u16);
-        let blue = U16x8::splat(color.blue as u16);
-        for pixels in chunks {
-            let destination = U32x8::from_array((*pixels).map(|pixel| pixel.0));
-            *pixels = blend::<RED, GREEN, BLUE, ALPHA>(destination, alpha, red, green, blue)
-                .to_array()
-                .map(Self);
-        }
+        dispatch!(Level::new(), simd => {
+            let alpha = u32x8::splat(simd, color.alpha as u32);
+            let red = u32x8::splat(simd, color.red as u32);
+            let green = u32x8::splat(simd, color.green as u32);
+            let blue = u32x8::splat(simd, color.blue as u32);
+            for pixels in chunks.iter_mut() {
+                let destination = u32x8::simd_from(simd, (*pixels).map(|pixel| pixel.0));
+                *pixels = <[u32; 8]>::from(blend::<_, RED, GREEN, BLUE, ALPHA>(destination, alpha, red, green, blue))
+                    .map(Self);
+            }
+        });
         for pixel in tail {
             pixel.blend(color);
         }
@@ -261,25 +249,23 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         let len = pixels.len().min(alpha.len());
         let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
         let (alpha_chunks, alpha_tail) = alpha[..len].as_chunks::<8>();
-        let color_alpha = U16x8::splat(color.alpha as u16);
-        let color_red = U16x8::splat(color.red as u16);
-        let color_green = U16x8::splat(color.green as u16);
-        let color_blue = U16x8::splat(color.blue as u16);
-        for (pixels, alpha) in pixel_chunks.iter_mut().zip(alpha_chunks) {
-            let coverage = Simd::<u8, 8>::from_array(*alpha).cast::<u16>();
-            let source_alpha = if color.alpha == 255 {
-                coverage
-            } else {
-                divide_by_255(color_alpha * coverage)
-            };
-            let red = divide_by_255(color_red * source_alpha);
-            let green = divide_by_255(color_green * source_alpha);
-            let blue = divide_by_255(color_blue * source_alpha);
-            let destination = U32x8::from_array((*pixels).map(|pixel| pixel.0));
-            *pixels = blend::<RED, GREEN, BLUE, ALPHA>(destination, source_alpha, red, green, blue)
-                .to_array()
-                .map(Self);
-        }
+        dispatch!(Level::new(), simd => {
+            for (pixels, alpha) in pixel_chunks.iter_mut().zip(alpha_chunks) {
+                let coverage = u32x8::simd_from(simd, alpha.map(u32::from));
+                let source_alpha = if color.alpha == 255 {
+                    coverage
+                } else {
+                    divide_by_255(coverage * color.alpha as u32)
+                };
+                let red = divide_by_255(source_alpha * color.red as u32);
+                let green = divide_by_255(source_alpha * color.green as u32);
+                let blue = divide_by_255(source_alpha * color.blue as u32);
+                let destination = u32x8::simd_from(simd, (*pixels).map(|pixel| pixel.0));
+                *pixels =
+                    <[u32; 8]>::from(blend::<_, RED, GREEN, BLUE, ALPHA>(destination, source_alpha, red, green, blue))
+                        .map(Self);
+            }
+        });
         for (pixel, alpha) in pixel_tail.iter_mut().zip(alpha_tail) {
             pixel.blend(PremultipliedRgbaColor::new(color, *alpha));
         }
@@ -292,23 +278,23 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         let len = pixels.len().min(source.len());
         let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
         let (source_chunks, source_tail) = source[..len].as_chunks::<8>();
-        let opacity_vector = U16x8::splat(opacity as u16);
-        for (pixels, source) in pixel_chunks.iter_mut().zip(source_chunks) {
-            let mut alpha = U16x8::from_array(source.map(|pixel| pixel.alpha as u16));
-            let mut red = U16x8::from_array(source.map(|pixel| pixel.red as u16));
-            let mut green = U16x8::from_array(source.map(|pixel| pixel.green as u16));
-            let mut blue = U16x8::from_array(source.map(|pixel| pixel.blue as u16));
-            if opacity != 255 {
-                alpha = divide_by_255(alpha * opacity_vector);
-                red = divide_by_255(red * opacity_vector);
-                green = divide_by_255(green * opacity_vector);
-                blue = divide_by_255(blue * opacity_vector);
+        dispatch!(Level::new(), simd => {
+            for (pixels, source) in pixel_chunks.iter_mut().zip(source_chunks) {
+                let mut alpha = u32x8::simd_from(simd, source.map(|pixel| pixel.alpha as u32));
+                let mut red = u32x8::simd_from(simd, source.map(|pixel| pixel.red as u32));
+                let mut green = u32x8::simd_from(simd, source.map(|pixel| pixel.green as u32));
+                let mut blue = u32x8::simd_from(simd, source.map(|pixel| pixel.blue as u32));
+                if opacity != 255 {
+                    alpha = divide_by_255(alpha * opacity as u32);
+                    red = divide_by_255(red * opacity as u32);
+                    green = divide_by_255(green * opacity as u32);
+                    blue = divide_by_255(blue * opacity as u32);
+                }
+                let destination = u32x8::simd_from(simd, (*pixels).map(|pixel| pixel.0));
+                *pixels = <[u32; 8]>::from(blend::<_, RED, GREEN, BLUE, ALPHA>(destination, alpha, red, green, blue))
+                    .map(Self);
             }
-            let destination = U32x8::from_array((*pixels).map(|pixel| pixel.0));
-            *pixels = blend::<RED, GREEN, BLUE, ALPHA>(destination, alpha, red, green, blue)
-                .to_array()
-                .map(Self);
-        }
+        });
         for (pixel, source) in pixel_tail.iter_mut().zip(source_tail) {
             pixel.blend(if opacity == 255 {
                 *source
@@ -319,8 +305,9 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
     }
 }
 
-fn divide_by_255(value: U16x8) -> U16x8 {
-    (value + U16x8::splat(1) + (value >> U16x8::splat(8))) >> U16x8::splat(8)
+#[inline(always)]
+fn divide_by_255<S: Simd>(value: u32x8<S>) -> u32x8<S> {
+    (value + 1 + (value >> 8)) >> 8
 }
 
 #[inline(always)]
@@ -333,30 +320,25 @@ fn write_opaque_gradient_scalar<P: Pixel>(pixels: &mut [P], mut color: [f32; 3],
     }
 }
 
-fn blend<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32>(
-    destination: U32x8,
-    alpha: U16x8,
-    red: U16x8,
-    green: U16x8,
-    blue: U16x8,
-) -> U32x8 {
-    let inverse = U16x8::splat(255) - alpha;
-    let red =
-        divide_by_255(((destination >> U32x8::splat(RED as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse) + red;
-    let green =
-        divide_by_255(((destination >> U32x8::splat(GREEN as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse)
-            + green;
-    let blue =
-        divide_by_255(((destination >> U32x8::splat(BLUE as u32)) & U32x8::splat(0xff)).cast::<u16>() * inverse) + blue;
-    let output = red.cast::<u32>() << U32x8::splat(RED as u32)
-        | green.cast::<u32>() << U32x8::splat(GREEN as u32)
-        | blue.cast::<u32>() << U32x8::splat(BLUE as u32);
+#[inline(always)]
+fn blend<S: Simd, const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32>(
+    destination: u32x8<S>,
+    alpha: u32x8<S>,
+    red: u32x8<S>,
+    green: u32x8<S>,
+    blue: u32x8<S>,
+) -> u32x8<S> {
+    let inverse = alpha.simd.splat_u32x8(255) - alpha;
+    let red = divide_by_255(((destination >> RED as u32) & 0xff) * inverse) + red;
+    let green = divide_by_255(((destination >> GREEN as u32) & 0xff) * inverse) + green;
+    let blue = divide_by_255(((destination >> BLUE as u32) & 0xff) * inverse) + blue;
+    let output = red << RED as u32 | green << GREEN as u32 | blue << BLUE as u32;
     if ALPHA == 0 {
         output
     } else {
-        let shift = U32x8::splat(ALPHA.trailing_zeros());
-        let destination_alpha = ((destination & U32x8::splat(ALPHA)) >> shift).cast::<u16>();
-        output | (divide_by_255(destination_alpha * inverse) + alpha).cast::<u32>() << shift
+        let shift = ALPHA.trailing_zeros();
+        let destination_alpha = (destination & ALPHA) >> shift;
+        output | (divide_by_255(destination_alpha * inverse) + alpha) << shift
     }
 }
 

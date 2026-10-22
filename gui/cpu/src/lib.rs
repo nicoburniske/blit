@@ -1,5 +1,3 @@
-#![feature(portable_simd)]
-
 mod damage;
 mod glyph;
 mod pixel;

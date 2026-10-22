@@ -1,7 +1,3 @@
-#![feature(portable_simd)]
-
-use std::simd::f32x4;
-
 use blit_text::{FontData, GlyphMask, GlyphMetrics};
 use ttf_parser::{OutlineBuilder, Rect};
 
@@ -112,53 +108,57 @@ impl Rasterizer {
         self.coverage.resize(coverage_len, 0.0);
         self.draw(usize::from(metrics.width), scale, offset_x, offset_y);
 
-        let mut alpha = Vec::with_capacity(pixels);
         let mut height = 0.0;
-        for coverage in &self.coverage[..pixels] {
-            height += coverage;
-            let coverage = (height.abs() * 255.9).clamp(0.0, 255.0) as usize;
-            alpha.push(COVERAGE[coverage]);
-        }
-        GlyphMask {
-            metrics,
-            alpha: alpha.into_boxed_slice(),
-        }
+        let alpha = self.coverage[..pixels]
+            .iter()
+            .map(|coverage| {
+                height += coverage;
+                // saturating u8 cast keeps the table lookup in bounds
+                COVERAGE[(height.abs() * 255.9) as u8 as usize]
+            })
+            .collect();
+        GlyphMask { metrics, alpha }
     }
 }
 
 impl Rasterizer {
     fn draw(&mut self, width: usize, scale: f32, offset_x: f32, offset_y: f32) {
-        let params = f32x4::from_array([1.0 / scale, 1.0 / scale, scale, scale]);
-        let scale = f32x4::splat(scale);
-        let offset = f32x4::from_array([offset_x, offset_y, offset_x, offset_y]);
+        let params = [1.0 / scale, 1.0 / scale, scale, scale];
+        let offset = [offset_x, offset_y, offset_x, offset_y];
         for index in 0..self.outline.vertical.len() {
             let line = self.outline.vertical[index];
-            self.vertical_line(width, line, line.coords * scale + offset);
+            self.vertical_line(width, line, std::array::from_fn(|i| line.coords[i] * scale + offset[i]));
         }
         for index in 0..self.outline.mixed.len() {
             let line = self.outline.mixed[index];
-            self.mixed_line(width, line, line.coords * scale + offset, line.params * params);
+            self.mixed_line(
+                width,
+                line,
+                std::array::from_fn(|i| line.coords[i] * scale + offset[i]),
+                std::array::from_fn(|i| line.params[i] * params[i]),
+            );
         }
     }
 
-    fn add(&mut self, index: usize, height: f32, middle_x: f32) {
+    fn add(&mut self, index: usize, height: f32, x: f32) {
         let coverage = &mut self.coverage[index..][..2];
-        let middle = height * middle_x;
+        // integer cast fract avoids a libm trunc call on sse2
+        let middle = height * (x - x as i32 as f32);
         coverage[0] += height - middle;
         coverage[1] += middle;
     }
 
-    fn vertical_line(&mut self, width: usize, line: Line, coordinates: f32x4) {
-        let [x0, y0, _, y1] = coordinates.to_array();
+    fn vertical_line(&mut self, width: usize, line: Line, coordinates: [f32; 4]) {
+        let [x0, y0, _, y1] = coordinates;
         let rounded = truncate(sub_integer(coordinates, line.nudge));
-        let [start_x, start_y, end_x, end_y] = rounded.to_array();
-        let [_, mut target_y, _, _] = (rounded + line.adjustment).to_array();
+        let [start_x, start_y, end_x, end_y] = rounded;
+        let mut target_y = start_y + line.adjustment[1];
         let direction_y = 1.0f32.copysign(y1 - y0);
         let mut previous_y = y0;
         let mut index = (start_x + start_y * width as f32) as i64;
         let increment_y = (width as f32).copysign(direction_y) as i64;
         let mut distance = (start_y - end_y).abs() as usize;
-        let middle_x = x0.fract();
+        let middle_x = x0;
         while distance != 0 {
             distance -= 1;
             self.add(
@@ -173,12 +173,13 @@ impl Rasterizer {
         self.add(checked_index(end_x, end_y, width), previous_y - y1, middle_x);
     }
 
-    fn mixed_line(&mut self, width: usize, line: Line, coordinates: f32x4, parameters: f32x4) {
-        let [x0, y0, x1, y1] = coordinates.to_array();
+    fn mixed_line(&mut self, width: usize, line: Line, coordinates: [f32; 4], parameters: [f32; 4]) {
+        let [x0, y0, x1, y1] = coordinates;
         let rounded = truncate(sub_integer(coordinates, line.nudge));
-        let [start_x, start_y, end_x, end_y] = rounded.to_array();
-        let [inverse_x, inverse_y, delta_x, delta_y] = parameters.to_array();
-        let [mut target_x, mut target_y, _, _] = (rounded + line.adjustment).to_array();
+        let [start_x, start_y, end_x, end_y] = rounded;
+        let [inverse_x, inverse_y, delta_x, delta_y] = parameters;
+        let mut target_x = start_x + line.adjustment[0];
+        let mut target_y = start_y + line.adjustment[1];
         let direction_x = 1.0f32.copysign(inverse_x);
         let direction_y = 1.0f32.copysign(inverse_y);
         let mut time_x = inverse_x * (target_x - x0);
@@ -210,7 +211,7 @@ impl Rasterizer {
             self.add(
                 usize::try_from(previous_index).expect("raster index outside glyph"),
                 previous_y - next_y,
-                ((previous_x + next_x) / 2.0).fract(),
+                (previous_x + next_x) / 2.0,
             );
             previous_x = next_x;
             previous_y = next_y;
@@ -218,7 +219,7 @@ impl Rasterizer {
         self.add(
             checked_index(end_x, end_y, width),
             previous_y - y1,
-            ((previous_x + x1) / 2.0).fract(),
+            (previous_x + x1) / 2.0,
         );
     }
 }
@@ -236,20 +237,13 @@ fn checked_index_i64(x: f32, y: f32, width: usize) -> i64 {
         .expect("raster index overflow")
 }
 
-fn sub_integer(value: f32x4, other: f32x4) -> f32x4 {
-    let value = value.to_array();
-    let other = other.to_array();
-    f32x4::from_array([
-        f32::from_bits(value[0].to_bits().wrapping_sub(other[0].to_bits())),
-        f32::from_bits(value[1].to_bits().wrapping_sub(other[1].to_bits())),
-        f32::from_bits(value[2].to_bits().wrapping_sub(other[2].to_bits())),
-        f32::from_bits(value[3].to_bits().wrapping_sub(other[3].to_bits())),
-    ])
+fn sub_integer(value: [f32; 4], other: [f32; 4]) -> [f32; 4] {
+    std::array::from_fn(|i| f32::from_bits(value[i].to_bits().wrapping_sub(other[i].to_bits())))
 }
 
-fn truncate(value: f32x4) -> f32x4 {
-    let value = value.to_array();
-    f32x4::from_array([value[0].trunc(), value[1].trunc(), value[2].trunc(), value[3].trunc()])
+fn truncate(value: [f32; 4]) -> [f32; 4] {
+    // coordinates fit in i32 so this avoids a libm trunc call on sse2
+    value.map(|value| value as i32 as f32)
 }
 
 struct Outline {
@@ -375,10 +369,10 @@ impl OutlineBuilder for Outline {
 
 #[derive(Clone, Copy)]
 struct Line {
-    coords: f32x4,
-    nudge: f32x4,
-    adjustment: f32x4,
-    params: f32x4,
+    coords: [f32; 4],
+    nudge: [f32; 4],
+    adjustment: [f32; 4],
+    params: [f32; 4],
 }
 
 impl Line {
@@ -393,20 +387,20 @@ impl Line {
         let delta_y = end.y - start.y;
         let inverse_x = if delta_x == 0.0 { f32::MAX } else { 1.0 / delta_x };
         Self {
-            coords: f32x4::from_array([start.x, start.y, end.x, end.y]),
-            nudge: f32x4::from_array([
+            coords: [start.x, start.y, end.x, end.y],
+            nudge: [
                 f32::from_bits(start_x_nudge),
                 f32::from_bits(start_y_nudge),
                 f32::from_bits(end_x_nudge),
                 f32::from_bits(end_y_nudge),
-            ]),
-            adjustment: f32x4::from_array([first_x, first_y, 0.0, 0.0]),
-            params: f32x4::from_array([inverse_x, 1.0 / delta_y, delta_x, delta_y]),
+            ],
+            adjustment: [first_x, first_y, 0.0, 0.0],
+            params: [inverse_x, 1.0 / delta_y, delta_x, delta_y],
         }
     }
 
     fn reposition(&mut self, bounds: Aabb, reverse: bool) {
-        let [x0, y0, x1, y1] = self.coords.to_array();
+        let [x0, y0, x1, y1] = self.coords;
         let (mut x0, mut y0, mut x1, mut y1) = if reverse { (x1, y1, x0, y0) } else { (x0, y0, x1, y1) };
         x0 -= bounds.left;
         y0 = (y0 - bounds.top).abs();
