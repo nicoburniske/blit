@@ -283,12 +283,8 @@ impl DisplayList {
         }
     }
 
-    pub fn iter(&self) -> Iter<'_> {
-        Iter {
-            list: self,
-            front: 0,
-            back: self.len(),
-        }
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = Record<'_>> + ExactSizeIterator {
+        (0..self.len()).map(|index| self.get(index))
     }
 
     pub fn clear(&mut self) {
@@ -306,66 +302,7 @@ impl DisplayList {
         if left.bounds != right.bounds || !self.clips_equal(left.clip, other, right.clip) {
             return false;
         }
-        match (&left.kind, &right.kind) {
-            (CommandKind::Clear, CommandKind::Clear) => true,
-            (CommandKind::Rectangle(left), CommandKind::Rectangle(right)) => {
-                left.area == right.area
-                    && left.background == right.background
-                    && left.radius == right.radius
-                    && left.opacity == right.opacity
-                    && match (left.border, right.border) {
-                        (StoredBorder::None, StoredBorder::None) => true,
-                        (
-                            StoredBorder::Solid {
-                                width: left_width,
-                                color: left_color,
-                            },
-                            StoredBorder::Solid {
-                                width: right_width,
-                                color: right_color,
-                            },
-                        ) => left_width == right_width && left_color == right_color,
-                        (
-                            StoredBorder::Gradient {
-                                width: left_width,
-                                angle_degrees: left_angle,
-                                start: left_start,
-                                len: left_len,
-                            },
-                            StoredBorder::Gradient {
-                                width: right_width,
-                                angle_degrees: right_angle,
-                                start: right_start,
-                                len: right_len,
-                            },
-                        ) => {
-                            let left_start = left_start as usize;
-                            let right_start = right_start as usize;
-                            left_width == right_width
-                                && left_angle == right_angle
-                                && self.gradient_stops[left_start..left_start + left_len as usize]
-                                    == other.gradient_stops[right_start..right_start + right_len as usize]
-                        }
-                        _ => false,
-                    }
-            }
-            (CommandKind::Image(left), CommandKind::Image(right)) => left == right,
-            (CommandKind::Text(left), CommandKind::Text(right)) => {
-                left.request == right.request && self.text_colors(left.palette) == other.text_colors(right.palette)
-            }
-            (CommandKind::BoxShadow(left), CommandKind::BoxShadow(right)) => left == right,
-            (CommandKind::Mesh(left), CommandKind::Mesh(right)) => {
-                let left_vertex = left.vertex_start as usize;
-                let right_vertex = right.vertex_start as usize;
-                let left_index = left.index_start as usize;
-                let right_index = right.index_start as usize;
-                self.mesh_vertices[left_vertex..left_vertex + left.vertex_len as usize]
-                    == other.mesh_vertices[right_vertex..right_vertex + right.vertex_len as usize]
-                    && self.mesh_indices[left_index..left_index + left.index_len as usize]
-                        == other.mesh_indices[right_index..right_index + right.index_len as usize]
-            }
-            _ => false,
-        }
+        self.get(index).command == other.get(other_index).command
     }
 }
 
@@ -464,46 +401,6 @@ enum StoredBorder {
         start: u32,
         len: u32,
     },
-}
-
-pub struct Iter<'a> {
-    list: &'a DisplayList,
-    front: usize,
-    back: usize,
-}
-
-impl<'a> Iterator for Iter<'a> {
-    type Item = Record<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.front == self.back {
-            return None;
-        }
-        let record = self.list.get(self.front);
-        self.front += 1;
-        Some(record)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.len();
-        (len, Some(len))
-    }
-}
-
-impl DoubleEndedIterator for Iter<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.front == self.back {
-            return None;
-        }
-        self.back -= 1;
-        Some(self.list.get(self.back))
-    }
-}
-
-impl ExactSizeIterator for Iter<'_> {
-    fn len(&self) -> usize {
-        self.back - self.front
-    }
 }
 
 fn store<T>(storage: &mut Vec<T>, values: impl IntoIterator<Item = T>) -> (u32, u32) {
