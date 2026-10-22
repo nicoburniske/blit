@@ -5,8 +5,19 @@ use ttf_parser::{OutlineBuilder, Rect};
 
 #[derive(Clone, Debug)]
 pub struct FontFace {
-    pub data: FontData,
-    pub face_index: u32,
+    // borrows `_data`, parsed once so rasterizing skips table parsing
+    face: ttf_parser::Face<'static>,
+    _data: FontData,
+}
+
+impl FontFace {
+    pub fn new(data: FontData, face_index: u32) -> Option<Self> {
+        // SAFETY: font bytes are static or behind an arc, so they never move or change while `data` is alive, and
+        // `face` is private and only lent out with the lifetime of `self`
+        let bytes = unsafe { &*(data.as_ref() as *const [u8]) };
+        let face = ttf_parser::Face::parse(bytes, face_index).ok()?;
+        Some(Self { face, _data: data })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -41,9 +52,7 @@ impl Default for Rasterizer {
 
 impl Rasterizer {
     pub fn rasterize(&mut self, font: &FontFace, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
-        let Ok(face) = ttf_parser::Face::parse(font.data.as_ref(), font.face_index) else {
-            return GlyphMask::default();
-        };
+        let face = &font.face;
         if !size.is_finite() || size <= 0.0 || !(0.0..1.0).contains(&offset_x) {
             return GlyphMask::default();
         }

@@ -101,10 +101,7 @@ impl blit_text::TextLayoutEngine for Backend {
             let id = FontFaceId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
             self.faces.push(CosmicFace {
                 cosmic,
-                data: FontFace {
-                    data: data.clone(),
-                    face_index,
-                },
+                data: FontFace::new(data.clone(), face_index).ok_or(FontError::InvalidData)?,
             });
             registered.push(FontCandidate {
                 face: id,
@@ -393,10 +390,9 @@ fn face(
     if let Some(alias) = aliases.iter().find(|alias| alias.cosmic == cosmic) {
         return Some(alias.face);
     }
-    let data = db.with_face_data(cosmic, |data, face_index| FontFace {
-        data: FontData::Shared(Arc::from(data)),
-        face_index,
-    })?;
+    let data = db.with_face_data(cosmic, |data, face_index| {
+        FontFace::new(FontData::Shared(Arc::from(data)), face_index)
+    })??;
     let id = FontFaceId(u64::try_from(faces.len() + 1).ok()?);
     faces.push(CosmicFace { cosmic, data });
     Some(id)

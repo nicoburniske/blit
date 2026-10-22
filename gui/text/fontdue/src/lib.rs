@@ -93,10 +93,7 @@ impl TextLayoutEngine for Backend {
             .map_err(|_| FontError::InvalidData)?;
             let id = FontFaceId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
             self.faces.push(Face {
-                data: FontFace {
-                    data: data.clone(),
-                    face_index,
-                },
+                data: FontFace::new(data.clone(), face_index).ok_or(FontError::InvalidData)?,
                 font,
             });
             let face = ttf_parser::Face::parse(data.as_ref(), face_index).map_err(|_| FontError::InvalidData)?;
