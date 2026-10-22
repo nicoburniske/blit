@@ -69,7 +69,7 @@ impl PreparedFill {
                     .min(stops.len() - 2);
                 let amount = ((position - stops[index].position) / (stops[index + 1].position - stops[index].position))
                     .clamp(0.0, 1.0);
-                super::rounded::interpolate(
+                interpolate(
                     (amount * 255.0).round() as u32,
                     stops[index].color,
                     stops[index + 1].color,
@@ -109,10 +109,20 @@ impl PreparedFill {
                     }
                     let amount =
                         (((position - stops[index].position) * inverse).clamp(0.0, 1.0) * 255.0).round() as u32;
-                    let color = super::rounded::interpolate(amount, stops[index].color, stops[index + 1].color);
+                    let color = interpolate(amount, stops[index].color, stops[index + 1].color);
                     pixel.blend(color.coverage(coverage as u32));
                 }
             }
         }
+    }
+}
+
+fn interpolate(amount: u32, first: PremultipliedRgbaColor, second: PremultipliedRgbaColor) -> PremultipliedRgbaColor {
+    let inverse = 255 - amount;
+    PremultipliedRgbaColor {
+        alpha: ((inverse * first.alpha as u32 + amount * second.alpha as u32) / 255) as u8,
+        red: ((inverse * first.red as u32 + amount * second.red as u32) / 255) as u8,
+        green: ((inverse * first.green as u32 + amount * second.green as u32) / 255) as u8,
+        blue: ((inverse * first.blue as u32 + amount * second.blue as u32) / 255) as u8,
     }
 }

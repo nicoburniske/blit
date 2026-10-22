@@ -5,7 +5,7 @@ use blit_gui::display_list::Rectangle;
 
 use super::{
     fill::{Gradients, PreparedFill},
-    rounded::{Radii, RoundedGradient, RoundedLine, RoundedRectangle, draw_gradient_line, draw_line},
+    rounded::{Radii, RoundedLine},
 };
 use crate::{Pixel, PixelSpan, PremultipliedRgbaColor};
 
@@ -75,9 +75,20 @@ impl Prepared {
         if !self.overwrites() || line < self.geometry.y || line >= self.geometry.y + self.geometry.height {
             return None;
         }
-        let rounded = RoundedLine::new(self.geometry, self.radii, line)?;
-        let start = rounded.full_start();
-        let end = rounded.full_end();
+        let top = line - self.geometry.y;
+        let bottom = self.geometry.height - top - 1;
+        let inset = |top_radius: i32, bottom_radius: i32| {
+            let (radius, y) = if top < top_radius {
+                (top_radius as f32, top as f32)
+            } else if bottom < bottom_radius {
+                (bottom_radius as f32, bottom as f32)
+            } else {
+                return 0;
+            };
+            (radius - (radius * radius - (radius - y).powi(2)).max(0.0).sqrt()).ceil() as i32
+        };
+        let start = self.geometry.x + inset(self.radii.top_left, self.radii.bottom_left);
+        let end = self.geometry.x + self.geometry.width - inset(self.radii.top_right, self.radii.bottom_right);
         (start < end).then_some(start..end)
     }
 
@@ -146,55 +157,75 @@ impl Prepared {
             }
             return;
         }
-        let clipped = PhysicalRect {
-            x: start,
-            y: line,
-            width: end - start,
-            height: 1,
+        let Some(outer) = RoundedLine::new(self.geometry, self.radii, line) else {
+            return;
         };
-        let pixels = &mut row.pixels[(start - row.x) as usize..(end - row.x) as usize];
-        if let (PreparedFill::Solid(background), PreparedFill::Solid(border)) = (self.background, self.border) {
-            draw_line(
-                clipped,
-                line,
-                &RoundedRectangle {
-                    radii: self.radii,
-                    border_width: self.border_width,
-                    border_color: border.coverage(coverage as u32),
-                    inner_color: background.coverage(coverage as u32),
-                    top_clip: line - self.geometry.y,
-                    bottom_clip: self.geometry.y + self.geometry.height - line - 1,
-                    left_clip: start - self.geometry.x,
-                    right_clip: self.geometry.x + self.geometry.width - end,
-                },
-                pixels,
-            );
+        let inner = if self.border_width == 0 {
+            Some(outer)
         } else {
-            draw_gradient_line(
-                clipped,
-                line,
-                &RoundedGradient {
-                    radii: self.radii,
-                    border_width: self.border_width,
-                    background: self.background,
-                    top_clip: line - self.geometry.y,
-                    bottom_clip: self.geometry.y + self.geometry.height - line - 1,
-                    left_clip: start - self.geometry.x,
-                    right_clip: self.geometry.x + self.geometry.width - end,
-                },
-                gradients,
-                coverage,
-                pixels,
-                |x| {
-                    if self.border_width == 0 {
-                        return self.background.sample(gradients, x, line).coverage(coverage as u32);
-                    }
-                    let mut color = self.border.sample(gradients, x, line);
-                    if !matches!(self.background, PreparedFill::Solid(_)) {
-                        color = color.over(self.background.sample(gradients, x, line));
-                    }
-                    color.coverage(coverage as u32)
-                },
+            let radii = Radii {
+                top_left: (self.radii.top_left - self.border_width).max(0),
+                top_right: (self.radii.top_right - self.border_width).max(0),
+                bottom_left: (self.radii.bottom_left - self.border_width).max(0),
+                bottom_right: (self.radii.bottom_right - self.border_width).max(0),
+            };
+            RoundedLine::new(self.inner, radii, line)
+        };
+        let mut draw = |left: i32, right: i32, full_start: i32, full_end: i32| {
+            let left = left.max(start);
+            let right = right.min(end);
+            if left >= right {
+                return;
+            }
+            let full_start = full_start.clamp(left, right);
+            let full_end = full_end.clamp(full_start, right);
+            for x in (left..full_start).chain(full_end..right) {
+                let background = self.background.sample(gradients, x, line);
+                let mut border = self.border.sample(gradients, x, line);
+                if !matches!(self.background, PreparedFill::Solid(_)) {
+                    border = border.over(background);
+                }
+                let outside = outer.coverage(x) as u32;
+                let inside = inner.as_ref().map_or(0, |inner| inner.coverage(x)) as u32;
+                let border_coverage = outside.saturating_sub(inside);
+                let channel = |a: u8, b: u8| ((a as u32 * border_coverage + b as u32 * inside + 127) / 255) as u8;
+                let color = PremultipliedRgbaColor {
+                    red: channel(border.red, background.red),
+                    green: channel(border.green, background.green),
+                    blue: channel(border.blue, background.blue),
+                    alpha: channel(border.alpha, background.alpha),
+                };
+                row.pixels[(x - row.x) as usize].blend(color.coverage(coverage as u32));
+            }
+            let pixels = &mut row.pixels[(full_start - row.x) as usize..(full_end - row.x) as usize];
+            draw_border(full_start, pixels);
+        };
+        if let Some(inner) = inner {
+            let split = inner.full_start().min(inner.full_end());
+            draw(outer.visible_start(), split, outer.full_start(), inner.visible_start());
+            draw(
+                split.max(inner.full_end()),
+                outer.visible_end(),
+                inner.visible_end(),
+                outer.full_end(),
+            );
+            let left = inner.full_start().max(start);
+            let right = inner.full_end().min(end);
+            if left < right {
+                self.background.draw_span(
+                    gradients,
+                    left,
+                    line,
+                    coverage,
+                    &mut row.pixels[(left - row.x) as usize..(right - row.x) as usize],
+                );
+            }
+        } else {
+            draw(
+                outer.visible_start(),
+                outer.visible_end(),
+                outer.full_start(),
+                outer.full_end(),
             );
         }
     }
