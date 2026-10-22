@@ -12,7 +12,7 @@ use blit_gui::{
     color::Color,
     display_list::{BoxShadow, ClipId, Command, DisplayList, Mesh, MeshVertex, Rectangle},
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
-    style::{Border, BorderRadius, GradientStop, LinearGradient},
+    style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
     text::{
         FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextPhases, TextRequest, TextRunId,
         TextStyle, TextWrap, VerticalAlign,
@@ -31,7 +31,10 @@ const SCALE: Scale2 = Scale2::IDENTITY;
 fn oversized_borders_fill_rectangle() {
     let area = LogicalRect::new(0.0, 0.0, 8.0, 8.0);
     let bounds = area.to_physical(SCALE);
-    let stops = [GradientStop::new(0.0, Color::WHITE), GradientStop::new(1.0, Color::WHITE)];
+    let stops = [
+        GradientStop::new(0.0, Color::WHITE),
+        GradientStop::new(1.0, Color::WHITE),
+    ];
     for border in [
         Border::solid(f32::MAX, Color::WHITE),
         Border::gradient(f32::MAX, LinearGradient::new(&stops)),
@@ -40,7 +43,14 @@ fn oversized_borders_fill_rectangle() {
         list.push_rectangle(Rectangle::new(area).border(border), bounds, ClipId::default());
         let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
         renderer.render(&list, &[bounds]);
-        assert!(renderer.render.buffer().pixels().iter().all(|pixel| pixel.raw() == 0xffffff));
+        assert!(
+            renderer
+                .render
+                .buffer()
+                .pixels()
+                .iter()
+                .all(|pixel| pixel.raw() == 0xffffff)
+        );
     }
 }
 
@@ -1516,8 +1526,11 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
 }
 
 #[test]
-fn gradient_borders_match_between_strategies_and_rounded_clips() {
-    fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(strategy: S) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
+fn gradients_match_between_strategies_and_rounded_clips() {
+    fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(
+        strategy: S,
+        gradient_background: bool,
+    ) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(48, 36), renderer_config()).strategy(strategy);
         let screen = renderer.render.screen();
         let mut paint = DisplayList::default();
@@ -1549,7 +1562,11 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
                     width: 40.0,
                     height: 30.0,
                 })
-                .background(Color::rgba(20, 24, 32, 210))
+                .background(if gradient_background {
+                    Fill::LinearGradient(LinearGradient::new(&stops))
+                } else {
+                    Color::rgba(20, 24, 32, 210).into()
+                })
                 .border(Border::gradient(3.0, LinearGradient::new(&stops).angle(135.0)))
                 .radius(BorderRadius::uniform(9.0)),
                 screen,
@@ -1560,10 +1577,15 @@ fn gradient_borders_match_between_strategies_and_rounded_clips() {
         renderer
     }
 
-    let direct = render(Direct::default());
-    let scanline = render(Scanline::default());
-    assert_eq!(scanline.render.buffer().pixels(), direct.render.buffer().pixels());
-    assert_eq!(direct.render.buffer().pixels()[18 * 48 + 24].raw(), 0x0010_131a);
+    for gradient_background in [false, true] {
+        let direct = render(Direct::default(), gradient_background);
+        let scanline = render(Scanline::default(), gradient_background);
+        assert_eq!(scanline.render.buffer().pixels(), direct.render.buffer().pixels());
+        assert_eq!(
+            direct.render.buffer().pixels()[18 * 48 + 24].raw(),
+            if gradient_background { 0x001c_945a } else { 0x0010_131a }
+        );
+    }
 }
 
 #[test]

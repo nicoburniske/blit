@@ -5,7 +5,7 @@ use crate::{
     color::Color,
     display_list::{BoxShadow, Rectangle as DrawRectangle, TextPalette},
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
-    style::{Border, BorderRadius},
+    style::{Border, BorderRadius, Fill},
     text::{TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextWrap},
 };
 
@@ -13,8 +13,9 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Rectangle {
         new(),
-        background: Color = Color::TRANSPARENT,
-        border: Border<'static> = Border::None,
+        #[into]
+        background: Fill<'static> = Fill::Solid(Color::TRANSPARENT),
+        border: Border<'static> = Border::default(),
         radius: BorderRadius = BorderRadius::new(),
         opacity: f32 = 1.0,
     }
@@ -26,7 +27,7 @@ impl<C: Context> Atom<C> for Rectangle {
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        if self.background != Color::TRANSPARENT || !matches!(self.border, Border::None) {
+        if self.background != Fill::Solid(Color::TRANSPARENT) || self.border.width > 0.0 {
             cx.context_mut().as_mut().paint_rectangle(DrawRectangle {
                 area,
                 background: self.background,

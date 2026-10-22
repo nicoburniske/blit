@@ -1,4 +1,5 @@
 mod blur;
+pub mod fill;
 pub mod image;
 pub mod image_patch;
 pub mod rectangle;

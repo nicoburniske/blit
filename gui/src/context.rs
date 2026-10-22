@@ -26,10 +26,13 @@ impl blit::Context for GuiContext {
 }
 
 /// data needed to render one frame
+///
+/// renderers may assume drawing data and scale have been validated by the producer
 #[non_exhaustive]
 pub struct RenderInput<'a> {
     pub display_list: &'a mut DisplayList,
     pub text: &'a mut TextSystem,
+    /// finite positive uniform scale
     pub scale: Scale2,
 }
 

@@ -1,11 +1,11 @@
-//! fully resolved display list
+//! retained backend independent drawing commands
 
 use blit::geometry::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 
 use crate::{
     color::Color,
     image::ImageRequest,
-    style::{Border, BorderRadius, GradientStop, LinearGradient},
+    style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
     text::{Span, TextRequest},
 };
 
@@ -13,6 +13,7 @@ use crate::{
 pub struct DisplayList {
     commands: Vec<StoredCommand>,
     clips: Vec<ClipNode>,
+    gradients: Vec<StoredGradient>,
     gradient_stops: Vec<GradientStop>,
     mesh_vertices: Vec<MeshVertex>,
     mesh_indices: Vec<u32>,
@@ -63,8 +64,9 @@ blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Rectangle<'a> {
         new(area: LogicalRect),
-        background: Color = Color::TRANSPARENT,
-        border: Border<'a> = Border::None,
+        #[into]
+        background: Fill<'a> = Fill::Solid(Color::TRANSPARENT),
+        border: Border<'a> = Border::default(),
         radius: BorderRadius = BorderRadius::new(),
         opacity: f32 = 1.0,
     }
@@ -138,26 +140,16 @@ impl DisplayList {
 
     pub fn push_rectangle(&mut self, rectangle: Rectangle<'_>, bounds: PhysicalRect, clip: ClipId) {
         self.assert_clip(clip);
-        let border = match rectangle.border {
-            Border::None => StoredBorder::None,
-            Border::Solid { width, color } => StoredBorder::Solid { width, color },
-            Border::Gradient { width, gradient } => {
-                let (start, len) = store(&mut self.gradient_stops, gradient.stops.iter().copied());
-                StoredBorder::Gradient {
-                    width,
-                    angle_degrees: gradient.angle_degrees,
-                    start,
-                    len,
-                }
-            }
-        };
+        let background = self.store_fill(rectangle.background);
+        let border = self.store_fill(rectangle.border.fill);
         self.commands.push(StoredCommand {
             bounds,
             clip,
             kind: CommandKind::Rectangle(StoredRectangle {
                 area: rectangle.area,
-                background: rectangle.background,
+                background,
                 border,
+                border_width: rectangle.border.width,
                 radius: rectangle.radius,
                 opacity: rectangle.opacity,
             }),
@@ -234,36 +226,21 @@ impl DisplayList {
         });
     }
 
+    #[inline]
     pub fn get(&self, index: usize) -> Record<'_> {
         let stored = &self.commands[index];
         let command = match &stored.kind {
             CommandKind::Clear => Command::Clear,
-            CommandKind::Rectangle(rectangle) => {
-                let border = match rectangle.border {
-                    StoredBorder::None => Border::None,
-                    StoredBorder::Solid { width, color } => Border::Solid { width, color },
-                    StoredBorder::Gradient {
-                        width,
-                        angle_degrees,
-                        start,
-                        len,
-                    } => {
-                        let start = start as usize;
-                        let stops = &self.gradient_stops[start..start + len as usize];
-                        Border::Gradient {
-                            width,
-                            gradient: LinearGradient::new(stops).angle(angle_degrees),
-                        }
-                    }
-                };
-                Command::Rectangle(Rectangle {
-                    area: rectangle.area,
-                    background: rectangle.background,
-                    border,
-                    radius: rectangle.radius,
-                    opacity: rectangle.opacity,
-                })
-            }
+            CommandKind::Rectangle(rectangle) => Command::Rectangle(Rectangle {
+                area: rectangle.area,
+                background: self.fill(rectangle.background),
+                border: Border {
+                    width: rectangle.border_width,
+                    fill: self.fill(rectangle.border),
+                },
+                radius: rectangle.radius,
+                opacity: rectangle.opacity,
+            }),
             CommandKind::Image(image) => Command::Image(*image),
             CommandKind::Text(text) => Command::Text(text.request, self.text_colors(text.palette)),
             CommandKind::BoxShadow(shadow) => Command::BoxShadow(*shadow),
@@ -290,6 +267,7 @@ impl DisplayList {
     pub fn clear(&mut self) {
         self.commands.clear();
         self.clips.clear();
+        self.gradients.clear();
         self.gradient_stops.clear();
         self.mesh_vertices.clear();
         self.mesh_indices.clear();
@@ -307,6 +285,50 @@ impl DisplayList {
 }
 
 impl DisplayList {
+    fn store_fill(&mut self, fill: Fill<'_>) -> StoredFill {
+        match fill {
+            Fill::Solid(color) => StoredFill::Solid(color),
+            Fill::LinearGradient(gradient) => {
+                assert!(
+                    gradient.stops.len() >= 2
+                        && gradient.angle_degrees.is_finite()
+                        && gradient
+                            .stops
+                            .iter()
+                            .all(|stop| stop.position.is_finite() && (0.0..=1.0).contains(&stop.position))
+                        && gradient
+                            .stops
+                            .windows(2)
+                            .all(|stops| stops[0].position < stops[1].position),
+                    "invalid linear gradient"
+                );
+                let (start, len) = store(&mut self.gradient_stops, gradient.stops.iter().copied());
+                let index = u32::try_from(self.gradients.len()).expect("too many gradients");
+                self.gradients.push(StoredGradient {
+                    start,
+                    len,
+                    angle: gradient.angle_degrees,
+                });
+                StoredFill::Gradient(index)
+            }
+        }
+    }
+
+    fn fill(&self, fill: StoredFill) -> Fill<'_> {
+        match fill {
+            StoredFill::Solid(color) => Fill::Solid(color),
+            StoredFill::Gradient(index) => {
+                let gradient = &self.gradients[index as usize];
+                Fill::LinearGradient(
+                    LinearGradient::new(
+                        &self.gradient_stops[gradient.start as usize..(gradient.start + gradient.len) as usize],
+                    )
+                    .angle(gradient.angle),
+                )
+            }
+        }
+    }
+
     fn clip(&self, id: ClipId) -> Option<&ClipNode> {
         id.0.checked_sub(1).and_then(|index| self.clips.get(index as usize))
     }
@@ -382,25 +404,23 @@ struct StoredMesh {
 
 struct StoredRectangle {
     area: LogicalRect,
-    background: Color,
-    border: StoredBorder,
+    background: StoredFill,
+    border: StoredFill,
+    border_width: f32,
     radius: BorderRadius,
     opacity: f32,
 }
 
 #[derive(Clone, Copy)]
-enum StoredBorder {
-    None,
-    Solid {
-        width: f32,
-        color: Color,
-    },
-    Gradient {
-        width: f32,
-        angle_degrees: f32,
-        start: u32,
-        len: u32,
-    },
+enum StoredFill {
+    Solid(Color),
+    Gradient(u32),
+}
+
+struct StoredGradient {
+    angle: f32,
+    start: u32,
+    len: u32,
 }
 
 fn store<T>(storage: &mut Vec<T>, values: impl IntoIterator<Item = T>) -> (u32, u32) {

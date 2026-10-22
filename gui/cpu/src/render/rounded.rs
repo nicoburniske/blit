@@ -3,6 +3,7 @@ use std::ops::{Add, Mul, Sub};
 use blit::PhysicalRect;
 use blit_gui::style::BorderRadius;
 
+use super::fill::{Gradients, PreparedFill};
 use crate::{Pixel, PremultipliedRgbaColor};
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -132,7 +133,7 @@ pub struct RoundedRectangle {
 pub struct RoundedGradient {
     pub radii: Radii,
     pub border_width: i32,
-    pub inner_color: PremultipliedRgbaColor,
+    pub background: PreparedFill,
     pub left_clip: i32,
     pub right_clip: i32,
     pub top_clip: i32,
@@ -231,6 +232,8 @@ pub fn draw_gradient_line<P: Pixel>(
     span: PhysicalRect,
     line: i32,
     rounded: &RoundedGradient,
+    gradients: &Gradients,
+    coverage: u8,
     row: &mut [P],
     mut border_color: impl FnMut(i32) -> PremultipliedRgbaColor,
 ) {
@@ -268,7 +271,10 @@ pub fn draw_gradient_line<P: Pixel>(
                     let color = interpolate(
                         edge_coverage(x3, x4, x as i32),
                         border_color(span.x + x as i32),
-                        rounded.inner_color,
+                        rounded
+                            .background
+                            .sample(gradients, span.x + x as i32, line)
+                            .coverage(coverage as u32),
                     );
                     row[x].blend(color);
                 }
@@ -277,7 +283,9 @@ pub fn draw_gradient_line<P: Pixel>(
         let left = x4.ceil().min(width as u32) as usize;
         let right = x5.floor().min(width as u32) as usize;
         if left < right {
-            P::blend_slice(&mut row[left..right], rounded.inner_color);
+            rounded
+                .background
+                .draw_span(gradients, span.x + left as i32, line, coverage, &mut row[left..right]);
         }
         if border > Shifted::ZERO {
             for x in x5.floor()..x6.ceil() {
@@ -285,7 +293,10 @@ pub fn draw_gradient_line<P: Pixel>(
                 if x < width {
                     let color = interpolate(
                         edge_coverage(x5, x6, x as i32),
-                        rounded.inner_color,
+                        rounded
+                            .background
+                            .sample(gradients, span.x + x as i32, line)
+                            .coverage(coverage as u32),
                         border_color(span.x + x as i32),
                     );
                     row[x].blend(color);

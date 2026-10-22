@@ -8,7 +8,7 @@ use blit_gui::{
     color::Color,
     display_list::Command,
     image::{ImageData, ImageFormat, ImageHandle, ImageId, ImageSampling, ImageTiling, prepare_image_patches},
-    style::{Border, BorderRadius},
+    style::{BorderRadius, Fill},
     text::TextPhases,
 };
 use bytemuck::{Pod, Zeroable};
@@ -402,9 +402,6 @@ impl Renderer {
             scale,
             ..
         } = input;
-        assert_eq!(scale.x, scale.y, "GPU rendering requires uniform scale");
-        assert!(scale.x.is_finite() && scale.x > 0.0);
-
         self.instances.clear();
         self.glyph_instances.clear();
         self.draws.clear();
@@ -462,22 +459,19 @@ impl Renderer {
                     else {
                         continue;
                     };
-                    if opacity == 1.0
-                        && rectangle.background.alpha > 0
+                    if let Fill::Solid(background) = rectangle.background
+                        && opacity == 1.0
+                        && background.alpha > 0
                         && rectangle.radius == BorderRadius::default()
-                        && matches!(rectangle.border, Border::None)
+                        && rectangle.border.width <= 0.0
                     {
                         assert!(
                             self.mesh_data.len() <= u32::MAX as usize - 3,
                             "too many GPU mesh vertices"
                         );
                         let vertex = self.mesh_data.len() as u32;
-                        let color = u32::from_le_bytes([
-                            rectangle.background.red,
-                            rectangle.background.green,
-                            rectangle.background.blue,
-                            rectangle.background.alpha,
-                        ]);
+                        let color =
+                            u32::from_le_bytes([background.red, background.green, background.blue, background.alpha]);
                         let left = draw.x as f32;
                         let top = draw.y as f32;
                         let right = draw.x.saturating_add(draw.width) as f32;
@@ -491,64 +485,45 @@ impl Renderer {
                         self.push_mesh_primitive([vertex, vertex + 1, vertex + 2, vertex + 3]);
                         continue;
                     }
-                    let inner_color = premultiplied(rectangle.background, opacity);
-                    let mut border_width = 0.0;
-                    let mut border_color = [0.0; 4];
-                    let mut params = [0.0; 4];
+                    let mut colors = [[0.0; 4]; 2];
+                    let mut border_width = (rectangle.border.width * scale).round().max(0.0) as i32 as f32;
                     let mut data = [record.clip.0, 0, 0, 0];
-                    match rectangle.border {
-                        Border::None => {}
-                        Border::Solid { width, color } => {
-                            border_color = premultiplied(color, opacity);
-                            if border_color[3] > 0.0 {
-                                border_width = (width * scale).round().max(0.0) as i32 as f32;
-                                border_color = over(border_color, inner_color);
-                            }
+                    for (index, fill) in [rectangle.background, rectangle.border.fill].into_iter().enumerate() {
+                        if index == 1 && border_width == 0.0 {
+                            continue;
                         }
-                        Border::Gradient { width, gradient }
-                            if gradient.stops.len() >= 2
-                                && gradient.angle_degrees.is_finite()
-                                && gradient.stops.iter().all(|stop| {
-                                    stop.position.is_finite() && stop.position >= 0.0 && stop.position <= 1.0
-                                })
-                                && gradient
-                                    .stops
-                                    .windows(2)
-                                    .all(|stops| stops[0].position < stops[1].position) =>
-                        {
-                            border_width = (width * scale).round().max(0.0) as i32 as f32;
-                            if border_width > 0.0 {
-                                let angle = gradient.angle_degrees.to_radians();
-                                let direction_x = angle.cos();
-                                let direction_y = angle.sin();
+                        match fill {
+                            Fill::Solid(color) => colors[index] = premultiplied(color, opacity),
+                            Fill::LinearGradient(gradient) => {
+                                let (direction_y, direction_x) = gradient.angle_degrees.to_radians().sin_cos();
                                 let extent =
                                     direction_x.abs() * area.width as f32 + direction_y.abs() * area.height as f32;
-                                let minimum = direction_x.min(0.0) * area.width as f32
-                                    + direction_y.min(0.0) * area.height as f32;
-                                params[1] = direction_x / extent;
-                                params[2] = direction_y / extent;
-                                params[3] = (0.5 * direction_x + 0.5 * direction_y - minimum) / extent;
-                                data[1] = self.stops.len() as u32;
-                                data[2] = gradient.stops.len() as u32;
+                                let end = u32::try_from(self.stops.len() + gradient.stops.len())
+                                    .expect("too many GPU gradient stops");
+                                data[index + 1] = self.stops.len() as u32 + 1;
                                 self.stops.extend(gradient.stops.iter().map(|stop| GradientStop {
-                                    color: over(premultiplied(stop.color, opacity), inner_color),
-                                    data: [stop.position, 0.0, 0.0, 0.0],
+                                    color: premultiplied(stop.color, opacity),
+                                    position: stop.position,
+                                    x_step: direction_x / extent,
+                                    y_step: direction_y / extent,
+                                    end,
                                 }));
                             }
                         }
-                        Border::Gradient { .. } => {}
                     }
-                    if inner_color[3] <= 0.0 && (border_width <= 0.0 || (data[2] == 0 && border_color[3] <= 0.0)) {
+                    if data[2] == 0 && colors[1][3] == 0.0 {
+                        border_width = 0.0;
+                    }
+                    if data[1] == 0 && colors[0][3] == 0.0 && border_width == 0.0 {
                         continue;
                     }
-                    params[0] = border_width;
                     self.instances.push(Instance {
                         shape: physical_rect(area),
                         draw: physical_rect(draw),
                         radii: physical_radii(rectangle.radius, scale, area.width, area.height),
-                        inner_color,
-                        border_color,
-                        params,
+                        inner_color: colors[0],
+                        border_color: colors[1],
+                        params: [border_width, 0.0, 0.0, 0.0],
                         data,
                     });
                     Pipeline::Content(None)
@@ -1034,7 +1009,10 @@ struct Clip {
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct GradientStop {
     color: [f32; 4],
-    data: [f32; 4],
+    position: f32,
+    x_step: f32,
+    y_step: f32,
+    end: u32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1201,16 +1179,6 @@ fn premultiplied(color: Color, opacity: f32) -> [f32; 4] {
         color.green as f32 / 255.0 * alpha,
         color.blue as f32 / 255.0 * alpha,
         alpha,
-    ]
-}
-
-fn over(source: [f32; 4], destination: [f32; 4]) -> [f32; 4] {
-    let inverse = 1.0 - source[3];
-    [
-        source[0] + destination[0] * inverse,
-        source[1] + destination[1] * inverse,
-        source[2] + destination[2] * inverse,
-        source[3] + destination[3] * inverse,
     ]
 }
 

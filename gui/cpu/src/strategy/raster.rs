@@ -21,23 +21,13 @@ pub fn draw_line<B: PixelBuffer>(
             let end = start + clip.width as usize;
             buffer.line_mut(line as usize)[start..end].fill(B::Pixel::background());
         }
-        Payload::Rectangle(rectangle) => {
-            let covered;
-            let rectangle = if coverage == 255 {
-                *rectangle
-            } else {
-                covered = {
-                    let mut rectangle = **rectangle;
-                    rectangle.border_color = rectangle.border_color.coverage(coverage as u32);
-                    rectangle.inner_color = rectangle.inner_color.coverage(coverage as u32);
-                    rectangle
-                };
-                &covered
-            };
+        Payload::Rectangle(rectangle, gradients) => {
             let x = buffer.x_offset() as i32;
             rectangle.draw_line(
+                gradients,
                 line,
                 clip,
+                coverage,
                 PixelSpan {
                     x,
                     pixels: buffer.line_mut(line as usize),
@@ -49,19 +39,6 @@ pub fn draw_line<B: PixelBuffer>(
             pair.draw_line(
                 line,
                 clip,
-                PixelSpan {
-                    x,
-                    pixels: buffer.line_mut(line as usize),
-                },
-            );
-        }
-        Payload::GradientRectangle(rectangle, stops) => {
-            let x = buffer.x_offset() as i32;
-            rectangle.draw_line(
-                stops,
-                line,
-                clip,
-                coverage,
                 PixelSpan {
                     x,
                     pixels: buffer.line_mut(line as usize),

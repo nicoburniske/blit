@@ -201,6 +201,35 @@ fn renders_primitives_and_rebuilds_frames() {
         GradientStop::new(0.0, Color::rgb(255, 0, 0)),
         GradientStop::new(1.0, Color::rgb(0, 0, 255)),
     ];
+    gui.paint_rectangle(Rectangle::new(LogicalRect::new(24.0, 1.0, 8.0, 8.0)).background(LinearGradient::new(&stops)));
+    gui.paint_rectangle(
+        Rectangle::new(LogicalRect::new(32.0, 1.0, 8.0, 8.0))
+            .background(LinearGradient::new(&stops))
+            .border(Border::solid(1.0, Color::rgba(0, 255, 0, 128))),
+    );
+    let border_stops = [
+        GradientStop::new(0.0, Color::rgba(0, 255, 0, 128)),
+        GradientStop::new(1.0, Color::rgba(255, 255, 255, 128)),
+    ];
+    gui.paint_rectangle(
+        Rectangle::new(LogicalRect::new(40.0, 1.0, 8.0, 8.0))
+            .background(LinearGradient::new(&stops))
+            .border(Border::gradient(1.0, LinearGradient::new(&border_stops).angle(90.0)))
+            .radius(BorderRadius::uniform(2.0)),
+    );
+    let translucent_stops = [
+        GradientStop::new(0.0, Color::rgba(255, 0, 0, 64)),
+        GradientStop::new(0.5, Color::rgba(0, 255, 0, 128)),
+        GradientStop::new(1.0, Color::rgba(0, 0, 255, 192)),
+    ];
+    gui.paint_rectangle(
+        Rectangle::new(LogicalRect::new(48.0, 1.0, 8.0, 8.0))
+            .background(LinearGradient::new(&translucent_stops).angle(-45.0))
+            .opacity(0.5),
+    );
+    BoundsClip.push(&mut gui, LogicalRect::new(58.0, 1.0, 6.0, 8.0));
+    gui.paint_rectangle(Rectangle::new(LogicalRect::new(56.0, 1.0, 8.0, 8.0)).background(LinearGradient::new(&stops)));
+    BoundsClip.pop(&mut gui);
     let input = gui.render_input();
     let outer = input.display_list.push_clip(
         ClipId::default(),
@@ -305,4 +334,24 @@ fn renders_primitives_and_rebuilds_frames() {
     assert_eq!(pixel(90, 90), [255, 0, 0, 255]);
     assert_eq!(pixel(108, 90), [0, 255, 0, 255]);
     assert_eq!(pixel(118, 118), [0, 255, 0, 255]);
+    assert_eq!(pixel(48, 10), [247, 0, 8, 255]);
+    assert_eq!(pixel(63, 10), [8, 0, 247, 255]);
+    assert_eq!(pixel(64, 10), [123, 128, 4, 255]);
+    assert_eq!(pixel(72, 10), [120, 0, 135, 255]);
+    assert_eq!(pixel(80, 2), [0, 0, 0, 0]);
+    assert_eq!(pixel(88, 10), [120, 0, 135, 255]);
+    let top_border = pixel(80, 6);
+    let bottom_border = pixel(80, 13);
+    assert_eq!(top_border[1], 128);
+    assert_eq!(bottom_border[1], 128);
+    assert!(bottom_border[2] > top_border[2]);
+    assert_eq!(bottom_border[3], 255);
+    assert_eq!(pixel(104, 10), [0, 64, 0, 64]);
+    let bottom_left = pixel(96, 17);
+    let top_right = pixel(111, 2);
+    assert!(bottom_left[0] > bottom_left[2]);
+    assert!(top_right[2] > top_right[0]);
+    assert!(top_right[3] > bottom_left[3]);
+    assert_eq!(pixel(114, 10), [0, 0, 0, 0]);
+    assert_eq!(pixel(116, 10), [183, 0, 72, 255]);
 }

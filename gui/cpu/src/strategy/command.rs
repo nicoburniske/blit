@@ -1,13 +1,14 @@
 use std::ops::Range;
 
 use blit::PhysicalRect;
-use blit_gui::{color::Color, style::GradientStop};
+use blit_gui::color::Color;
 
 use super::clip::ClipId;
 use crate::{
     render::{
+        fill::Gradients,
         image_patch::Prepared as PreparedImage,
-        rectangle::{Gradient as PreparedGradient, Prepared as PreparedRectangle, SolidPair as PreparedSolidPair},
+        rectangle::{Prepared as PreparedRectangle, SolidPair as PreparedSolidPair},
         triangle::Prepared as PreparedTriangle,
     },
     text::PreparedRuns,
@@ -18,7 +19,7 @@ pub type CommandId = u32;
 #[derive(Default)]
 pub struct CommandList {
     commands: Vec<StoredCommand>,
-    gradient_stops: Vec<GradientStop>,
+    pub gradients: Gradients,
     has_translucent_image: bool,
     has_partial_opaque: bool,
     pub has_clips: bool,
@@ -26,9 +27,8 @@ pub struct CommandList {
 
 pub enum Payload<'a> {
     Clear,
-    Rectangle(&'a PreparedRectangle),
+    Rectangle(&'a PreparedRectangle, &'a Gradients),
     SolidPair(&'a PreparedSolidPair),
-    GradientRectangle(&'a PreparedGradient, &'a [GradientStop]),
     Image(&'a PreparedImage),
     Text(&'a PreparedText),
     Triangle(&'a PreparedTriangle),
@@ -68,36 +68,6 @@ impl CommandList {
         self.push(StoredPayload::Rectangle(rectangle), bounds, clip, overwrites, false);
     }
 
-    pub fn push_gradient_rectangle(
-        &mut self,
-        rectangle: PreparedGradient,
-        stops: &[GradientStop],
-        bounds: PhysicalRect,
-        clip: ClipId,
-    ) -> bool {
-        let Ok(start) = u32::try_from(self.gradient_stops.len()) else {
-            return false;
-        };
-        let Ok(len) = u32::try_from(stops.len()) else {
-            return false;
-        };
-        let Some(end) = start.checked_add(len) else {
-            return false;
-        };
-        self.gradient_stops.extend_from_slice(stops);
-        self.push(
-            StoredPayload::GradientRectangle {
-                rectangle,
-                stops: start..end,
-            },
-            bounds,
-            clip,
-            false,
-            false,
-        );
-        true
-    }
-
     pub fn push_image(
         &mut self,
         image: PreparedImage,
@@ -124,12 +94,8 @@ impl CommandList {
     pub fn get(&self, id: CommandId) -> Payload<'_> {
         match &self.commands[id as usize].payload {
             StoredPayload::Clear => Payload::Clear,
-            StoredPayload::Rectangle(rectangle) => Payload::Rectangle(rectangle),
+            StoredPayload::Rectangle(rectangle) => Payload::Rectangle(rectangle, &self.gradients),
             StoredPayload::SolidPair(pair) => Payload::SolidPair(pair),
-            StoredPayload::GradientRectangle { rectangle, stops } => Payload::GradientRectangle(
-                rectangle,
-                &self.gradient_stops[stops.start as usize..stops.end as usize],
-            ),
             StoredPayload::Image(image) => Payload::Image(image),
             StoredPayload::Text(text) => Payload::Text(text),
             StoredPayload::Triangle(triangle) => Payload::Triangle(triangle),
@@ -170,10 +136,10 @@ impl CommandList {
         let bounds = self.horizontal_bounds(id);
         let span = match self.get(id) {
             Payload::Clear => bounds.clone(),
-            Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
+            Payload::Rectangle(rectangle, _) => rectangle.overwrite_span(line)?,
             Payload::SolidPair(_) => bounds.clone(),
             Payload::Image(_) => bounds.clone(),
-            Payload::GradientRectangle(_, _) | Payload::Text(_) | Payload::Triangle(_) => {
+            Payload::Text(_) | Payload::Triangle(_) => {
                 return None;
             }
         };
@@ -188,7 +154,8 @@ impl CommandList {
 
     pub fn clear(&mut self) {
         self.commands.clear();
-        self.gradient_stops.clear();
+        self.gradients.entries.clear();
+        self.gradients.stops.clear();
         self.has_translucent_image = false;
         self.has_partial_opaque = false;
         self.has_clips = false;
@@ -227,10 +194,6 @@ enum StoredPayload {
     Clear,
     Rectangle(PreparedRectangle),
     SolidPair(PreparedSolidPair),
-    GradientRectangle {
-        rectangle: PreparedGradient,
-        stops: Range<u32>,
-    },
     Image(PreparedImage),
     Text(PreparedText),
     Triangle(PreparedTriangle),

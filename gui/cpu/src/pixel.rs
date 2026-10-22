@@ -23,6 +23,17 @@ pub struct PremultipliedRgbaColor {
 }
 
 impl PremultipliedRgbaColor {
+    pub fn over(self, background: Self) -> Self {
+        let inverse = 255 - self.alpha as u16;
+        let channel = |front: u8, back: u8| front + (back as u16 * inverse / 255) as u8;
+        Self {
+            red: channel(self.red, background.red),
+            green: channel(self.green, background.green),
+            blue: channel(self.blue, background.blue),
+            alpha: channel(self.alpha, background.alpha),
+        }
+    }
+
     pub fn new(color: Color, coverage: u8) -> Self {
         let alpha = color.alpha as u16 * coverage as u16 / 255;
         Self {

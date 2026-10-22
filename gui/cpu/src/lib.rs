@@ -15,9 +15,9 @@ use blit_gui::{
     color::Color,
     display_list::{BoxShadow, Command, DisplayList, Rectangle},
     image::{ImageData, ImageFormat, ImageHandle, ImageRequest},
-    style::Border,
     text::{TextPhases, TextRequest},
 };
+
 use self::{
     damage::MAX_DAMAGE,
     pixel::PixelSpan,
@@ -28,7 +28,6 @@ use self::{
     },
     text::TextRenderer,
 };
-
 pub use self::{
     pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
     strategy::{Direct, RenderStrategy, Scanline},
@@ -336,25 +335,12 @@ impl<B: PixelBuffer> RenderContext<B> {
 
 impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     fn set_scale(&mut self, scale: Scale2) {
-        assert_eq!(scale.x, scale.y, "CPU rendering requires uniform scale");
-        assert!(scale.x.is_finite() && scale.x > 0.0);
         self.context.scale_factor = scale.x;
     }
 
     fn prepare_rectangle(&mut self, request: &Rectangle<'_>, bounds: PhysicalRect, clip: u32) {
-        if let Border::Gradient { width, gradient } = request.border
-            && let Some(prepared) = rectangle::Gradient::new(request, width, gradient, self.context.scale_factor)
-            && let Some(bounds) = prepared.geometry.intersection(bounds)
-        {
-            if self
-                .context
-                .commands
-                .push_gradient_rectangle(prepared, gradient.stops, bounds, clip)
-            {
-                return;
-            }
-        }
-        if let Some(rectangle) = rectangle::Prepared::new(request, self.context.scale_factor)
+        if let Some(rectangle) =
+            rectangle::Prepared::new(request, self.context.scale_factor, &mut self.context.commands.gradients)
             && let Some(bounds) = rectangle.geometry.intersection(bounds)
         {
             self.context.commands.push_rectangle(rectangle, bounds, clip);

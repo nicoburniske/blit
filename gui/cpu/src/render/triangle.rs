@@ -29,9 +29,6 @@ impl Prepared {
         damage: &[PhysicalRect],
     ) -> Option<(Self, PhysicalRect)> {
         let mut points = vertices.map(|vertex| [vertex.position.x * scale.x, vertex.position.y * scale.y]);
-        if !points.iter().flatten().all(|value| value.is_finite()) {
-            return None;
-        }
         let [first, second, third] = points;
         let left = first[0].min(second[0]).min(third[0]).floor() as i32;
         let top = first[1].min(second[1]).min(third[1]).floor() as i32;
