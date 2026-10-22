@@ -273,15 +273,6 @@ impl DisplayList {
         self.mesh_indices.clear();
         self.text_colors.clear();
     }
-
-    pub fn equivalent(&self, index: usize, other: &Self, other_index: usize) -> bool {
-        let left = &self.commands[index];
-        let right = &other.commands[other_index];
-        if left.bounds != right.bounds || !self.clips_equal(left.clip, other, right.clip) {
-            return false;
-        }
-        self.get(index).command == other.get(other_index).command
-    }
 }
 
 impl DisplayList {
@@ -329,30 +320,9 @@ impl DisplayList {
         }
     }
 
-    fn clip(&self, id: ClipId) -> Option<&ClipNode> {
-        id.0.checked_sub(1).and_then(|index| self.clips.get(index as usize))
-    }
-
     fn push(&mut self, bounds: PhysicalRect, clip: ClipId, kind: CommandKind) {
         self.assert_clip(clip);
         self.commands.push(StoredCommand { bounds, clip, kind });
-    }
-
-    fn clips_equal(&self, mut clip: ClipId, other: &Self, mut other_clip: ClipId) -> bool {
-        loop {
-            match (clip.0, other_clip.0) {
-                (0, 0) => return true,
-                (0, _) | (_, 0) => return false,
-                _ => {}
-            }
-            let left = self.clip(clip).unwrap();
-            let right = other.clip(other_clip).unwrap();
-            if left.area != right.area || left.radius != right.radius {
-                return false;
-            }
-            clip = left.parent;
-            other_clip = right.parent;
-        }
     }
 
     fn assert_clip(&self, clip: ClipId) {

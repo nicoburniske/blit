@@ -9,17 +9,20 @@ mod text;
 
 use blit::{PhysicalRect, Scale2};
 use blit_arena::Arena;
-use blit_arrayvec::ArrayVec;
 use blit_gui::{
     RenderInput, TextSystem,
     color::Color,
-    display_list::{BoxShadow, Command, DisplayList, Rectangle},
+    display_list::{BoxShadow, Command, Rectangle},
     image::{ImageData, ImageFormat, ImageHandle, ImageRequest},
     text::{TextPhases, TextRequest},
 };
 
+pub use self::{
+    damage::Damage,
+    pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
+    strategy::{Direct, RenderStrategy, Scanline},
+};
 use self::{
-    damage::MAX_DAMAGE,
     pixel::PixelSpan,
     render::{image as render_image, image_patch::AlphaRows, rectangle, shadow, triangle},
     strategy::{
@@ -28,13 +31,11 @@ use self::{
     },
     text::TextRenderer,
 };
-pub use self::{
-    pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
-    strategy::{Direct, RenderStrategy, Scanline},
-};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RendererConfig {
+    /// width and height of a damage tile in physical pixels as a nonzero power of two
+    pub damage_tile_size: u16,
     /// maximum retained text paint data in bytes
     pub paint_cache_capacity: usize,
     /// maximum retained rasterized glyph data in bytes
@@ -48,6 +49,7 @@ pub struct RendererConfig {
 impl Default for RendererConfig {
     fn default() -> Self {
         Self {
+            damage_tile_size: 32,
             paint_cache_capacity: 2 * 1024 * 1024,
             glyph_cache_capacity: 1024 * 1024,
             shadow_cache_capacity: 512 * 1024,
@@ -59,11 +61,7 @@ impl Default for RendererConfig {
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
     context: RenderContext<B>,
     strategy: S,
-    previous: DisplayList,
-    damage: ArrayVec<PhysicalRect, { MAX_DAMAGE * 2 }>,
-    previous_damage: ArrayVec<PhysicalRect, MAX_DAMAGE>,
-    invalidated: bool,
-    scale: Scale2,
+    damage: Damage,
 }
 
 impl<B: PixelBuffer> Renderer<B, Direct> {
@@ -79,32 +77,16 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 clips: ClipStack::default(),
             },
             strategy: Direct::default(),
-            previous: DisplayList::default(),
-            damage: ArrayVec::new(),
-            previous_damage: ArrayVec::new(),
-            invalidated: true,
-            scale: Scale2::IDENTITY,
+            damage: Damage::new(config.damage_tile_size),
         }
     }
 
     pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T> {
-        let Self {
-            context,
-            previous,
-            damage,
-            previous_damage,
-            invalidated,
-            scale,
-            ..
-        } = self;
+        let Self { context, damage, .. } = self;
         Renderer {
             context,
             strategy,
-            previous,
             damage,
-            previous_damage,
-            invalidated,
-            scale,
         }
     }
 }
@@ -120,41 +102,68 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         self.context.images.get(id).unwrap().handle.clone()
     }
 
-    pub fn render(&mut self, input: RenderInput<'_>) {
-        let RenderInput {
-            display_list,
-            text,
-            scale,
-            ..
-        } = input;
-        if self.scale != scale {
-            self.scale = scale;
-            self.set_scale(scale);
-            self.invalidate_all();
+    /// renders into a reused presentation buffer
+    ///
+    /// buffer age is the number of presentations since this buffer was last used
+    /// zero means its contents are unknown and forces a full repaint
+    pub fn render(&mut self, input: RenderInput<'_>, buffer_age: u8) {
+        self.set_scale(input.scale);
+        self.damage
+            .update(input.display_list, self.screen(), input.scale.x, buffer_age);
+        let context = &mut self.context;
+        assert!(context.commands.is_empty());
+        if !self.damage.is_empty() {
+            for clip in input.display_list.clips() {
+                context
+                    .clips
+                    .push_node(clip.parent.0, clip.area, clip.radius, context.scale_factor);
+            }
+            for record in input.display_list.iter() {
+                if !self.damage.intersects(record.bounds, record.clip.0) {
+                    continue;
+                }
+                match record.command {
+                    Command::Clear => context.commands.push_clear(record.bounds),
+                    Command::Rectangle(rectangle) => {
+                        context.prepare_rectangle(&rectangle, record.bounds, record.clip.0)
+                    }
+                    Command::Image(image) => context.prepare_image(&image, record.bounds, record.clip.0),
+                    Command::Text(request, colors) => {
+                        context.prepare_text(input.text, &request, colors, record.bounds, record.clip.0);
+                    }
+                    Command::BoxShadow(shadow) => context.prepare_box_shadow(&shadow, record.bounds, record.clip.0),
+                    Command::Mesh(mesh) => {
+                        for indices in mesh.indices.as_chunks::<3>().0 {
+                            let vertices = indices.map(|index| mesh.vertices[index as usize]);
+                            if let Some((triangle, bounds)) = triangle::Prepared::new(
+                                vertices,
+                                Scale2::uniform(context.scale_factor),
+                                record.bounds,
+                                record.clip.0,
+                                &self.damage,
+                            ) {
+                                context.commands.push_triangle(triangle, bounds, record.clip.0);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            self.strategy.render(context, &self.damage);
         }
-
-        let mut damage = std::mem::take(&mut self.damage);
-        damage.clear();
-        if std::mem::take(&mut self.invalidated) {
-            damage.push(self.screen());
-        } else {
-            damage::diff(&self.previous, display_list, &mut damage);
-        }
-        let current_damage = damage.len();
-        damage.extend_from_slice(&self.previous_damage);
-        self.render_damage(text, display_list, &damage);
-        self.previous_damage.clear();
-        self.previous_damage.extend_from_slice(&damage[..current_damage]);
-        std::mem::swap(&mut self.previous, display_list);
-        self.damage = damage;
+        context.commands.clear();
+        context.clips.clear();
+        context.shadows.finish_frame();
+        context.text.finish_frame();
+        context.images.retain(|image| !image.handle.is_uniquely_owned());
     }
 
     pub fn screen(&self) -> PhysicalRect {
         PhysicalRect {
             x: 0,
             y: 0,
-            width: self.context.buffer.width() as i32,
-            height: self.context.buffer.height() as i32,
+            width: i32::try_from(self.context.buffer.width()).expect("buffer width exceeds physical coordinates"),
+            height: i32::try_from(self.context.buffer.height()).expect("buffer height exceeds physical coordinates"),
         }
     }
 
@@ -167,52 +176,16 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     }
 
     pub fn invalidate_all(&mut self) {
-        self.invalidated = true;
-        self.previous_damage.clear();
+        self.damage.invalidate();
     }
 
-    #[doc(hidden)]
-    pub fn render_damage(&mut self, text: &mut TextSystem, display_list: &DisplayList, damage: &[PhysicalRect]) {
-        assert!(self.context.commands.is_empty());
-        if !damage.is_empty() {
-            for clip in display_list.clips() {
-                self.context
-                    .clips
-                    .push_node(clip.parent.0, clip.area, clip.radius, self.context.scale_factor);
-            }
-            for record in display_list.iter() {
-                if !damage
-                    .iter()
-                    .any(|damage| record.bounds.intersection(*damage).is_some())
-                {
-                    continue;
-                }
-                match record.command {
-                    Command::Clear => self.context.commands.push_clear(record.bounds),
-                    Command::Rectangle(rectangle) => self.prepare_rectangle(&rectangle, record.bounds, record.clip.0),
-                    Command::Image(image) => self.prepare_image(&image, record.bounds, record.clip.0),
-                    Command::Text(request, colors) => {
-                        self.prepare_text(text, &request, colors, record.bounds, record.clip.0);
-                    }
-                    Command::BoxShadow(shadow) => self.prepare_box_shadow(&shadow, record.bounds, record.clip.0),
-                    Command::Mesh(mesh) => {
-                        for indices in mesh.indices.as_chunks::<3>().0 {
-                            let vertices = indices.map(|index| mesh.vertices[index as usize]);
-                            if let Some((triangle, bounds)) =
-                                triangle::Prepared::new(vertices, self.scale, record.bounds, damage)
-                            {
-                                self.context.commands.push_triangle(triangle, bounds, record.clip.0);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            self.strategy.render(&mut self.context, damage);
+    fn set_scale(&mut self, scale: Scale2) {
+        assert_eq!(scale.x, scale.y, "CPU rendering requires uniform scale");
+        assert!(scale.x.is_finite() && scale.x > 0.0);
+        if self.context.scale_factor != scale.x {
+            self.context.scale_factor = scale.x;
+            self.invalidate_all();
         }
-        self.context.commands.clear();
-        self.context.clips.clear();
-        self.context.finish_frame();
     }
 }
 
@@ -326,41 +299,24 @@ impl StoredImage {
 }
 
 impl<B: PixelBuffer> RenderContext<B> {
-    fn finish_frame(&mut self) {
-        self.shadows.finish_frame();
-        self.text.finish_frame();
-        self.images.retain(|image| !image.handle.is_uniquely_owned());
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
-    fn set_scale(&mut self, scale: Scale2) {
-        self.context.scale_factor = scale.x;
-    }
-
     fn prepare_rectangle(&mut self, request: &Rectangle<'_>, bounds: PhysicalRect, clip: u32) {
-        if let Some(rectangle) =
-            rectangle::Prepared::new(request, self.context.scale_factor, &mut self.context.commands.gradients)
+        if let Some(rectangle) = rectangle::Prepared::new(request, self.scale_factor, &mut self.commands.gradients)
             && let Some(bounds) = rectangle.geometry.intersection(bounds)
         {
-            self.context.commands.push_rectangle(rectangle, bounds, clip);
+            self.commands.push_rectangle(rectangle, bounds, clip);
         }
     }
 
     fn prepare_box_shadow(&mut self, shadow: &BoxShadow, bounds: PhysicalRect, clip: u32) {
-        let Some(request) = self
-            .context
-            .shadows
-            .prepare(&mut self.context.images, shadow, self.context.scale_factor)
-        else {
+        let Some(request) = self.shadows.prepare(&mut self.images, shadow, self.scale_factor) else {
             return;
         };
         match request {
             shadow::Prepared::Rectangle(rectangle) => self.prepare_rectangle(&rectangle, bounds, clip),
             shadow::Prepared::Image(request) => {
-                if let Some(texture) = self.context.images.get(request.image.into()) {
+                if let Some(texture) = self.images.get(request.image.into()) {
                     render_image::prepare(&request, &texture.data, bounds, 1.0, |image, bounds| {
-                        self.context.commands.push_image(
+                        self.commands.push_image(
                             image,
                             bounds,
                             clip,
@@ -374,22 +330,16 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
     }
 
     fn prepare_image(&mut self, request: &ImageRequest, bounds: PhysicalRect, clip: u32) {
-        if let Some(texture) = self.context.images.get(request.image.into()) {
-            render_image::prepare(
-                request,
-                &texture.data,
-                bounds,
-                self.context.scale_factor,
-                |image, bounds| {
-                    self.context.commands.push_image(
-                        image,
-                        bounds,
-                        clip,
-                        image.is_opaque(&texture.data, texture.opaque),
-                        image.has_opaque_spans(&texture.data, texture.has_opaque_spans),
-                    )
-                },
-            );
+        if let Some(texture) = self.images.get(request.image.into()) {
+            render_image::prepare(request, &texture.data, bounds, self.scale_factor, |image, bounds| {
+                self.commands.push_image(
+                    image,
+                    bounds,
+                    clip,
+                    image.is_opaque(&texture.data, texture.opaque),
+                    image.has_opaque_spans(&texture.data, texture.has_opaque_spans),
+                )
+            });
         }
     }
 
@@ -401,14 +351,12 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         bounds: PhysicalRect,
         clip: u32,
     ) -> Option<PhysicalRect> {
-        let area = request.area.to_physical(Scale2::uniform(self.context.scale_factor));
+        let area = request.area.to_physical(Scale2::uniform(self.scale_factor));
         let visible_area = area.intersection(bounds)?;
         let (glyph_start, glyph_end, runs, paragraph_bounds) =
-            self.context
-                .text
-                .prepare(text, request, colors, self.context.scale_factor);
+            self.text.prepare(text, request, colors, self.scale_factor);
         let bounds = paragraph_bounds.intersection(visible_area)?;
-        self.context.commands.push_text(
+        self.commands.push_text(
             PreparedText {
                 glyph_start,
                 glyph_end,

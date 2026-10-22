@@ -4,13 +4,10 @@ mod direct;
 mod line;
 mod raster;
 
-use blit::geometry::PhysicalRect;
-
 pub use self::{direct::Direct, line::Scanline};
-use crate::{PixelBuffer, RenderContext};
+use crate::{Damage, PixelBuffer, RenderContext};
 
 pub trait RenderStrategy<B: PixelBuffer> {
-    /// damage may overlap.
-    /// render every covered pixel once, with conservative overdraw allowed
-    fn render(&mut self, context: &mut RenderContext<B>, damage: &[PhysicalRect]);
+    /// render each dirty pixel once in drawing order
+    fn render(&mut self, context: &mut RenderContext<B>, damage: &Damage);
 }

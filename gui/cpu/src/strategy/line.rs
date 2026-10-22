@@ -9,7 +9,7 @@ use super::{
     command::{CommandId, CommandList, Payload},
     raster,
 };
-use crate::{Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer};
+use crate::{Damage, Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer};
 
 #[derive(Default)]
 pub struct Scanline {
@@ -121,9 +121,10 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
-    fn render(&mut self, context: &mut RenderContext<B>, damage: &[PhysicalRect]) {
+    fn render(&mut self, context: &mut RenderContext<B>, damage: &Damage) {
         let width = context.buffer.width();
         let height = context.buffer.height();
+        let screen = PhysicalRect::new(0, 0, width as i32, height as i32);
         let commands = &context.commands;
         let clips = &context.clips;
         let images = &context.images;
@@ -144,44 +145,11 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let mut ranges_valid_until = 0;
         while line < height as i32 {
             if line >= ranges_valid_until {
-                self.ranges.clear();
-                let mut next_boundary = height as i32;
-                for region in damage {
-                    let top = region.y.max(0).min(height as i32);
-                    let bottom = region.y.saturating_add(region.height).max(0).min(height as i32);
-                    if bottom <= line {
-                        continue;
-                    }
-                    if top > line {
-                        next_boundary = next_boundary.min(top);
-                        continue;
-                    }
-                    next_boundary = next_boundary.min(bottom);
-                    let start = region.x.max(0).min(width as i32) as usize;
-                    let end = region.x.saturating_add(region.width).max(0).min(width as i32) as usize;
-                    if start < end {
-                        self.ranges.push(start..end);
-                    }
-                }
+                ranges_valid_until = damage.line_ranges(line, screen, &mut self.ranges);
                 if self.ranges.is_empty() {
-                    line = next_boundary;
-                    ranges_valid_until = line;
+                    line = ranges_valid_until;
                     continue;
                 }
-                self.ranges.sort_unstable_by_key(|range| range.start);
-                let mut merged = 0;
-                for index in 0..self.ranges.len() {
-                    let start = self.ranges[index].start;
-                    let end = self.ranges[index].end;
-                    if merged != 0 && start <= self.ranges[merged - 1].end {
-                        self.ranges[merged - 1].end = self.ranges[merged - 1].end.max(end);
-                    } else {
-                        self.ranges[merged] = start..end;
-                        merged += 1;
-                    }
-                }
-                self.ranges.truncate(merged);
-                ranges_valid_until = next_boundary;
             }
 
             self.active

@@ -155,7 +155,6 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "blit-arena",
- "blit-arrayvec",
  "blit-cache",
  "blit-gui",
  "blit-text",

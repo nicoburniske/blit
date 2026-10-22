@@ -61,11 +61,9 @@ impl GraphicsBackend for Backend {
             return Ok(false);
         };
         let mut buffer = active.surface.buffer_mut()?;
-        if buffer.age() == 0 {
-            self.renderer.invalidate_all();
-        }
+        let age = buffer.age();
         self.renderer.buffer_mut().set(&mut buffer);
-        self.renderer.render(input);
+        self.renderer.render(input, age);
         active.window.pre_present_notify();
         buffer.present()?;
         Ok(true)

@@ -1,7 +1,7 @@
 use blit::{PhysicalRect, Scale2};
 use blit_gui::display_list::MeshVertex;
 
-use crate::{Pixel, PixelSpan, PremultipliedRgbaColor};
+use crate::{Damage, Pixel, PixelSpan, PremultipliedRgbaColor};
 
 #[derive(Clone, Copy)]
 pub struct Prepared {
@@ -26,7 +26,8 @@ impl Prepared {
         vertices: [MeshVertex; 3],
         scale: Scale2,
         clip: PhysicalRect,
-        damage: &[PhysicalRect],
+        clip_id: u32,
+        damage: &Damage,
     ) -> Option<(Self, PhysicalRect)> {
         let mut points = vertices.map(|vertex| [vertex.position.x * scale.x, vertex.position.y * scale.y]);
         let [first, second, third] = points;
@@ -41,7 +42,7 @@ impl Prepared {
             height: bottom.saturating_sub(top),
         };
         let bounds = bounds.intersection(clip)?;
-        if !damage.iter().any(|region| bounds.intersection(*region).is_some()) {
+        if !damage.intersects(bounds, clip_id) {
             return None;
         }
         let mut colors = vertices.map(|vertex| PremultipliedRgbaColor::new(vertex.color, 255));

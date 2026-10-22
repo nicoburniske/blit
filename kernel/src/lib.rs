@@ -38,11 +38,12 @@
 mod bump;
 mod clip;
 mod frame;
-mod hash;
 mod macros;
 
 pub mod animation;
 pub mod geometry;
+#[doc(hidden)]
+pub mod hash;
 pub mod input;
 pub mod interact;
 pub mod layout;
