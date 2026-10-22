@@ -49,6 +49,9 @@ impl PremultipliedRgbaColor {
     }
 
     pub fn coverage(self, coverage: u32) -> Self {
+        if coverage == 255 {
+            return self;
+        }
         Self {
             alpha: (self.alpha as u32 * coverage / 255) as u8,
             red: (self.red as u32 * coverage / 255) as u8,

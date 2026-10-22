@@ -59,11 +59,19 @@ impl CommandList {
             && let Some(previous) = self.commands.last_mut()
             && previous.clip == 0
             && previous.bounds == bounds
-            && let StoredPayload::Rectangle(first) = &previous.payload
-            && let Some(pair) = first.fuse(&rectangle)
         {
-            previous.payload = StoredPayload::SolidPair(pair);
-            return;
+            if overwrites && rectangle.radii.is_zero() {
+                previous.payload = StoredPayload::Rectangle(rectangle);
+                previous.overwrites = true;
+                previous.partial_opaque = false;
+                return;
+            }
+            if let StoredPayload::Rectangle(first) = &previous.payload
+                && let Some(pair) = first.fuse(&rectangle)
+            {
+                previous.payload = StoredPayload::SolidPair(pair);
+                return;
+            }
         }
         self.push(StoredPayload::Rectangle(rectangle), bounds, clip, overwrites, false);
     }

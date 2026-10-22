@@ -12,7 +12,7 @@ use crate::{Pixel, PixelSpan, PremultipliedRgbaColor};
 #[derive(Clone, Copy)]
 pub struct Prepared {
     pub geometry: PhysicalRect,
-    radii: Radii,
+    pub radii: Radii,
     inner: PhysicalRect,
     pub background: PreparedFill,
     border: PreparedFill,
