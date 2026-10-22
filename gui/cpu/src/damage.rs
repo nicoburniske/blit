@@ -15,7 +15,7 @@ use std::{
     ops::Range,
 };
 
-use blit::{PhysicalRect, Scale2, hash::FxHasher};
+use blit::{PhysicalRect, Scale2, internal::hash::FxHasher};
 use blit_gui::{
     display_list::{Command, DisplayList},
     style::Fill,

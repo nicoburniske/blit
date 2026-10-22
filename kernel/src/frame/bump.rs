@@ -1,8 +1,10 @@
 use std::{
-    cell::{Cell, UnsafeCell},
+    cell::Cell,
     mem::{MaybeUninit, align_of, needs_drop, size_of},
     ops::{Deref, DerefMut},
 };
+
+use crate::internal::bump::Bump;
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -18,9 +20,8 @@ impl BumpId {
 
 #[derive(Default)]
 pub struct BumpArena {
-    words: Vec<Word>,
+    storage: Bump,
     drops: Vec<DropEntry>,
-    len: usize,
     scratch_used: Cell<usize>,
     scratch_peak: Cell<usize>,
     scratch_live: Cell<usize>,
@@ -28,43 +29,32 @@ pub struct BumpArena {
 
 impl BumpArena {
     pub fn store<T: 'static>(&mut self, value: T) -> BumpId {
-        const {
-            assert!(
-                align_of::<T>() <= align_of::<Word>(),
-                "frame data alignment exceeds arena alignment"
-            );
+        // reserve before moving value so registering its destructor cannot allocate
+        if const { needs_drop::<T>() } {
+            self.drops.reserve(1);
         }
-        let offset = self.len.next_multiple_of(align_of::<T>());
-        let end = offset + size_of::<T>();
-        assert!(offset < u32::MAX as usize, "too much frame data");
-        let id = BumpId(offset as u32);
-        assert!(end <= isize::MAX as usize, "too much frame data");
-        self.words.resize_with(end.div_ceil(size_of::<Word>()), || {
-            Word(UnsafeCell::new(MaybeUninit::uninit()))
-        });
-        self.len = end;
-        let pointer = self.pointer::<T>(id);
-        // record the destructor while rust owns value so a panic in push still drops it
-        // the pointer is checked above and the following write cannot panic
+        let id = BumpId(self.storage.push(value).byte());
         if const { needs_drop::<T>() } {
             self.drops.push(DropEntry {
                 offset: id.0,
-                drop: drop_value::<T>,
+                drop: |value| {
+                    // safety: the drop entry was created for T at this address
+                    unsafe { value.cast::<T>().drop_in_place() };
+                },
             });
         }
-        // safety: the backing words are aligned and sized for T
-        unsafe { pointer.write(value) };
+        assert!(id.0 < u32::MAX, "too much frame data");
         id
     }
 
     pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'_, T> {
         const {
             assert!(
-                align_of::<T>() <= align_of::<Word>(),
+                align_of::<T>() <= Bump::ALIGNMENT,
                 "scratch alignment exceeds arena alignment"
             );
         }
-        let start = self.scratch_used.get().max(self.len);
+        let start = self.scratch_used.get().max(self.storage.used());
         let offset = start.next_multiple_of(align_of::<T>());
         let end = size_of::<T>()
             .checked_mul(len)
@@ -72,23 +62,18 @@ impl BumpArena {
             .filter(|&end| end <= isize::MAX as usize)
             .expect("too much scratch data");
         let live = self.scratch_live.get().checked_add(1).expect("too many scratch guards");
-        let inner = if end <= self.words.len() * size_of::<Word>() {
+        let inner = if end <= self.storage.capacity() {
             let pointer = if len == 0 || size_of::<T>() == 0 {
                 std::ptr::NonNull::<T>::dangling().as_ptr()
             } else {
                 // safety: this range is disjoint from retained data and all live scratch guards
-                unsafe {
-                    UnsafeCell::raw_get(self.words.as_ptr().cast::<UnsafeCell<MaybeUninit<[u8; 64]>>>())
-                        .cast::<u8>()
-                        .add(offset)
-                        .cast::<T>()
-                }
+                unsafe { self.storage.as_ptr().add(offset).cast::<T>() }
             };
             // safety: the storage is aligned and sized for this slice
             let values = unsafe { std::slice::from_raw_parts_mut(pointer.cast::<MaybeUninit<T>>(), len) };
             values.fill(MaybeUninit::new(value));
             // safety: every element has been initialized
-            ScratchInner::Ref(unsafe { std::slice::from_raw_parts_mut(pointer, len) })
+            ScratchInner::Ref(unsafe { values.assume_init_mut() })
         } else {
             ScratchInner::Owned(vec![value; len])
         };
@@ -104,11 +89,8 @@ impl BumpArena {
     }
 
     pub fn prepare_scratch(&mut self) {
-        let needed = self.scratch_peak.get().div_ceil(size_of::<Word>());
-        self.words.reserve(needed.saturating_sub(self.words.len()));
-        self.words
-            .resize_with(self.words.capacity(), || Word(UnsafeCell::new(MaybeUninit::uninit())));
-        self.scratch_used.set(self.len);
+        self.storage.reserve(self.scratch_peak.get());
+        self.scratch_used.set(self.storage.used());
         self.scratch_live.set(0);
     }
 
@@ -123,29 +105,28 @@ impl BumpArena {
     }
 
     pub fn clear(&mut self) {
-        let pointer = self.words.as_mut_ptr().cast::<u8>();
+        let pointer = self.storage.as_ptr();
         while let Some(entry) = self.drops.pop() {
             // safety: entries point to initialized values in the arena
             (entry.drop)(unsafe { pointer.add(entry.offset as usize) });
         }
-        self.len = 0;
+        self.storage.clear();
     }
 }
 
 impl BumpArena {
     fn pointer<T>(&self, id: BumpId) -> *mut T {
         let offset = id.offset().expect("frame data is missing");
-        assert!(offset.checked_add(size_of::<T>()).is_some_and(|end| end <= self.len));
+        assert!(
+            offset
+                .checked_add(size_of::<T>())
+                .is_some_and(|end| end <= self.storage.used())
+        );
         if size_of::<T>() == 0 {
             return std::ptr::NonNull::<T>::dangling().as_ptr();
         }
         // safety: the offset is within the arena and shared writes use disjoint reserved ranges
-        unsafe {
-            UnsafeCell::raw_get(self.words.as_ptr().cast::<UnsafeCell<MaybeUninit<[u8; 64]>>>())
-                .cast::<u8>()
-                .add(offset)
-                .cast::<T>()
-        }
+        unsafe { self.storage.as_ptr().add(offset).cast::<T>() }
     }
 }
 
@@ -189,7 +170,7 @@ impl<T> Drop for Scratch<'_, T> {
         self.bump.scratch_live.set(live);
         // gaps from guards dropped out of order remain until the last guard drops
         if live == 0 {
-            self.bump.scratch_used.set(self.bump.len);
+            self.bump.scratch_used.set(self.bump.storage.used());
         } else if self.bump.scratch_used.get() == self.end {
             self.bump.scratch_used.set(self.start);
         }
@@ -205,14 +186,6 @@ struct DropEntry {
     offset: u32,
     drop: fn(*mut u8),
 }
-
-fn drop_value<T>(value: *mut u8) {
-    // safety: the drop entry was created for T at this address
-    unsafe { value.cast::<T>().drop_in_place() };
-}
-
-#[repr(C, align(64))]
-struct Word(UnsafeCell<MaybeUninit<[u8; 64]>>);
 
 #[cfg(test)]
 mod tests {

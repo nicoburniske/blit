@@ -1,6 +1,7 @@
 use crate::{Context, Scalar};
 pub mod animation;
 pub mod atom;
+pub mod bump;
 pub mod interaction;
 pub mod layout;
 pub mod paint;
@@ -16,10 +17,10 @@ use std::{
     time::Duration,
 };
 
+use self::bump::{BumpArena, BumpId, Scratch};
 use crate::{
     Atom, AtomWidget, Clip, ClipShape, FrameInfo, IntoWidget, Widget,
     animation::{Easing, Transition},
-    bump::{BumpArena, BumpId, Scratch},
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::Input,
     interact::{Id, Interaction, Sense},

@@ -1,10 +1,10 @@
+pub use crate::frame::{
+    bump::Scratch,
+    layout::{Children, LayoutCx},
+};
 use crate::{
     Context, Scalar, Ui,
     geometry::{Constraints, Point, Size},
-};
-pub use crate::{
-    bump::Scratch,
-    frame::layout::{Children, LayoutCx},
 };
 
 pub trait Layout<C: Context>: 'static {

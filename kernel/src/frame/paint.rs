@@ -1,5 +1,5 @@
-use super::{Frame, NodeId, ResolvedClip, ResolvedClipId};
-use crate::{ClipShape, Context, Rect, Scalar, bump::BumpArena};
+use super::{Frame, NodeId, ResolvedClip, ResolvedClipId, bump::BumpArena};
+use crate::{ClipShape, Context, Rect, Scalar};
 
 pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
     frame.paint_order.clear();

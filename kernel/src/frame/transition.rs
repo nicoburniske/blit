@@ -1,10 +1,9 @@
 use std::time::Duration;
 
-use super::{Frame, NodeId, layout};
+use super::{Frame, NodeId, bump::BumpArena, layout};
 use crate::{
     Context, Scalar,
     animation::{Transition, TransitionProperties},
-    bump::BumpArena,
     geometry::{Constraints, Rect, Size},
     interact::Id,
 };

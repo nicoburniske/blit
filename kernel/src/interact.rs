@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{geometry::Point, hash::FxHasher, macros::flags};
+use crate::{geometry::Point, internal::hash::FxHasher, macros::flags};
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 

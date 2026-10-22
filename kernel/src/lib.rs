@@ -35,17 +35,16 @@
 //!
 //! the graph is rebuilt every frame
 
-mod bump;
 mod clip;
 mod frame;
 mod macros;
 
 pub mod animation;
 pub mod geometry;
-#[doc(hidden)]
-pub mod hash;
 pub mod input;
 pub mod interact;
+#[doc(hidden)]
+pub mod internal;
 pub mod layout;
 
 pub use self::{

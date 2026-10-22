@@ -1,9 +1,11 @@
 use std::marker::PhantomData;
 
-use super::{Frame, NodeGeometry, NodeId, StoredNode};
+use super::{
+    Frame, NodeGeometry, NodeId, StoredNode,
+    bump::{BumpArena, BumpId, Scratch},
+};
 use crate::{
     Context, Scalar, TransitionProperties,
-    bump::{BumpArena, BumpId, Scratch},
     geometry::{Constraints, Point, Size},
     layout::Layout,
 };

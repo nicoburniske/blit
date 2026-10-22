@@ -1,9 +1,11 @@
 use std::any::TypeId;
 
-use super::{AtomKind, Frame, NodeId, StoredAtom, StoredAtomId};
+use super::{
+    AtomKind, Frame, NodeId, StoredAtom, StoredAtomId,
+    bump::{BumpArena, BumpId, Scratch},
+};
 use crate::{
     Atom, Context,
-    bump::{BumpArena, BumpId, Scratch},
     geometry::{Constraints, Rect, Size},
 };
 
