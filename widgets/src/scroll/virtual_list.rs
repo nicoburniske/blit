@@ -1,8 +1,8 @@
 use std::ops::Range;
 
-use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Sense, Size, Sizing, Ui, Widget};
+use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Size, Sizing, Ui, Widget};
 
-use super::{Scrollbar, ScrollbarInput, ThumbProgress, content_motion, scrollbar_input};
+use super::{Scrollbar, ScrollbarInput, ThumbProgress, content_input, content_motion, scrollbar_input};
 
 blit::builder! {
     /// use for large vertical lists with variable or unknown row heights
@@ -18,7 +18,6 @@ blit::builder! {
         count: Option<usize> = None,
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 6.0,
-        sense: Sense = Sense::SCROLL,
         scrollbar_thickness: T = T::from_f32(1.0),
         minimum_thumb_extent: T = T::from_f32(1.0),
         #[bounds(FnMut(Id, usize) -> Id)]
@@ -72,7 +71,6 @@ where
             count,
             scroll_speed,
             inertia_friction,
-            sense,
             scrollbar_thickness,
             minimum_thumb_extent,
             id: mut item_id,
@@ -83,7 +81,7 @@ where
         let size = viewport.map_or(ui.screen().size(), |area| area.size());
         let overscan = size.height.repeat(VIEWPORTS);
         let row = state.sample.get(state.visible.start);
-        let interaction = ui.interact(sense);
+        let (motion, deactivated) = content_input(&mut ui, Axis::Vertical);
         let (thumb_active, scrollbar) = scrollbar_input(&mut state.motion, &mut ui, Axis::Vertical, size.height);
         let movement = match scrollbar {
             None => content_motion(
@@ -92,7 +90,8 @@ where
                 Axis::Vertical,
                 scroll_speed,
                 inertia_friction,
-                interaction,
+                motion,
+                deactivated,
             ),
             Some(_) => 0.0,
         };

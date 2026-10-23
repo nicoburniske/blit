@@ -128,7 +128,11 @@ impl<C: Context> Session<C> {
             if timer.is_some_and(|deadline| deadline <= now) {
                 break;
             }
-            let events = self.poll(context, timer.map(|deadline| deadline - now), &mut inputs[input_count..])?;
+            let events = self.poll(
+                context,
+                timer.map(|deadline| deadline - now),
+                &mut inputs[input_count..],
+            )?;
             input_count += events.input_count;
             pending |= needs_frame(events);
         }
@@ -177,7 +181,10 @@ impl<C: Context> Session<C> {
     }
 
     pub fn frame_info(&self) -> FrameInfo<i32> {
-        FrameInfo::new(blit::PhysicalSize::new(i32::from(self.config.columns), i32::from(self.config.rows)))
+        FrameInfo::new(blit::PhysicalSize::new(
+            i32::from(self.config.columns),
+            i32::from(self.config.rows),
+        ))
     }
 
     pub fn poll(

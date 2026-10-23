@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
+use blit::{Axis, Clip, Constraints, Context, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
 
 use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 use crate::ScrollState;
@@ -19,7 +19,6 @@ blit::builder! {
         item_extent: T = T::from_f32(1.0),
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 6.0,
-        sense: Sense = Sense::SCROLL,
         scrollbar_thickness: T = T::from_f32(1.0),
         minimum_thumb_extent: T = T::from_f32(1.0),
         #[bounds(FnMut(Id, usize, &I::Item) -> Id)]
@@ -75,7 +74,6 @@ where
             item_extent,
             scroll_speed,
             inertia_friction,
-            sense,
             scrollbar_thickness,
             minimum_thumb_extent,
             id: mut item_id,
@@ -86,7 +84,7 @@ where
         let id = ui.current_id();
         let stride = item_extent.endpoint(gap);
         let count = items.len();
-        let (thumb_active, viewport_known) = update(state, &mut ui, axis, sense, scroll_speed, inertia_friction);
+        let (thumb_active, viewport_known) = update(state, &mut ui, axis, scroll_speed, inertia_friction);
         let total_extent = item_extent.repeat(count).endpoint(gap.repeat(count.saturating_sub(1)));
         state.content_extent = total_extent;
         // resolve offscreen rows by index before choosing which rows to build

@@ -1,4 +1,8 @@
-use blit::{Atom, AtomCx, Constraints, Input, Key, PhysicalRect, PointerButton, Sense, Sides, Size, Ui, Widget};
+use blit::{
+    Atom, AtomCx, Axis, Constraints, Input, Key, PhysicalRect, PointerButton, Sense, Sides, Size, TouchPhase, Ui,
+    Widget,
+};
+use blit_widgets::Drag;
 pub use blit_widgets::TextInputResponse;
 pub type TextInputState = blit_widgets::TextInputState<i32>;
 
@@ -41,8 +45,9 @@ impl<C: Context> Widget<C> for TextInput<'_> {
             attributes,
         } = self;
         let id = ui.current_id();
-        let interaction = ui.interact(Sense::FOCUS | Sense::DRAG);
-        let input = *ui.input();
+        let interaction = ui.interact().sense(Sense::FOCUS);
+        let dragged = ui.interact().gesture(Drag::new().axis(Axis::Horizontal)).is_some();
+        let input = ui.interact().input();
         match input {
             Input::Key(key) if ui.is_focused(id) && key.key == Key::Escape && key.pressed => {
                 ui.clear_focus();
@@ -56,16 +61,42 @@ impl<C: Context> Widget<C> for TextInput<'_> {
         let pointer = if focused {
             match input {
                 Input::PointerDown {
-                    position,
                     button: PointerButton::Primary,
+                    position,
                     modifiers,
                 } if interaction.active => Some((position, modifiers.shift())),
-                Input::PointerMove { position, .. } if interaction.active => Some((position, true)),
-                Input::Touch { position, phase, .. } if interaction.active => match phase {
-                    blit::TouchPhase::Down => Some((position, false)),
-                    blit::TouchPhase::Move => Some((position, true)),
-                    _ => None,
-                },
+                Input::Touch {
+                    position,
+                    phase: TouchPhase::Down,
+                    ..
+                } if interaction.active => Some((position, false)),
+                Input::PointerMove { position, .. }
+                | Input::Touch {
+                    position,
+                    phase: TouchPhase::Move,
+                    ..
+                } if interaction.active => Some((position, true)),
+                Input::PointerUp {
+                    button: PointerButton::Primary,
+                    position,
+                    modifiers,
+                    ..
+                } if interaction.clicked => Some((position, modifiers.shift())),
+                Input::Touch {
+                    position,
+                    phase: TouchPhase::Up,
+                    ..
+                } if interaction.clicked => Some((position, false)),
+                Input::PointerUp {
+                    button: PointerButton::Primary,
+                    position,
+                    ..
+                }
+                | Input::Touch {
+                    position,
+                    phase: TouchPhase::Up,
+                    ..
+                } if dragged => Some((position, true)),
                 _ => None,
             }
         } else {

@@ -51,10 +51,10 @@ impl Default for Demo {
 
 impl Demo {
     fn show(&mut self, mut ui: Ui<'_>) {
-        let escape = matches!(ui.input(), Input::Key(key)
+        let escape = matches!(ui.interact().input(), Input::Key(key)
             if key.key == Key::Escape && key.pressed && !key.repeat);
         let input_focused = ui.is_focused(Id::new("tui text input"));
-        if !self.modal.open && !input_focused && (escape || matches!(ui.input(), Input::Text('q'))) {
+        if !self.modal.open && !input_focused && (escape || matches!(ui.interact().input(), Input::Text('q'))) {
             ui.context_mut().quit();
             return;
         }
@@ -175,8 +175,8 @@ impl Default for Modal {
 impl Widget<TuiContext> for &mut Modal {
     type Response = bool;
 
-    fn build(self, ui: Ui<'_>) -> bool {
-        if matches!(ui.input(), Input::Key(key)
+    fn build(self, mut ui: Ui<'_>) -> bool {
+        if matches!(ui.interact().input(), Input::Key(key)
             if key.key == Key::Escape && key.pressed && !key.repeat)
         {
             if self.palette.open {
@@ -192,7 +192,7 @@ impl Widget<TuiContext> for &mut Modal {
             self.palette.open = false;
         }
         let backdrop_id = Id::new("tui modal backdrop");
-        if self.open && root.interact_widget(backdrop_id, Sense::ALL).clicked {
+        if self.open && root.interact_widget(backdrop_id).sense(Sense::ALL).clicked {
             self.open = false;
         }
         if !self.open {
@@ -205,7 +205,7 @@ impl Widget<TuiContext> for &mut Modal {
         ];
         let (_, accent) = palettes[self.accent];
         let panel_id = Id::new("tui modal panel");
-        root.interact_widget(panel_id, Sense::ALL);
+        root.interact_widget(panel_id).sense(Sense::ALL);
         let mut modal = root
             .child()
             .parent(blit::NodeTarget::Root)
@@ -1017,13 +1017,13 @@ impl Widget<TuiContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        let interaction = ui.interact(Sense::CLICK);
+        let interaction = ui.interact().sense(Sense::CLICK);
         draw_button(ui, self.label, self.selected, interaction);
         interaction.clicked
     }
 }
 
-fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction<i32>) {
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction) {
     let block = if interaction.active {
         Block::new().background(colors::ACCENT_DARK)
     } else if selected {

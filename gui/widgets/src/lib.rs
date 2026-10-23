@@ -7,7 +7,7 @@ pub use blit_widgets::{
     VirtualList, VirtualListResponse,
 };
 pub type ResizeState = blit_widgets::ResizeState<f32>;
-pub type ResizeGrip = blit_widgets::ResizeGrip<f32>;
+pub use blit_widgets::ResizeGrip;
 pub type SplitState = blit_widgets::SplitState<f32>;
 pub type ScrollState = blit_widgets::ScrollState<f32>;
 pub type VirtualListState = blit_widgets::VirtualListState<f32>;

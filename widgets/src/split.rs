@@ -1,18 +1,19 @@
-use blit::{Axis, Constraints, Context, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
+use blit::{Axis, Constraints, Context, Interaction, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
+
+use crate::Drag;
 
 blit::builder! {
     pub struct Split<'a, C: Context> {
         new(state: &'a mut SplitState<C::Scalar>),
         leading<L = fn(Ui<'_, C>)>: L = |_| (),
         trailing<R = fn(Ui<'_, C>)>: R = |_| (),
-        #[bounds(FnOnce(Ui<'_, C>, Axis, blit::Interaction<C::Scalar>))]
-        divider<D = fn(Ui<'_, C>, Axis, blit::Interaction<<C as Context>::Scalar>)>: D = |_, _, _| (),
+        #[bounds(FnOnce(Ui<'_, C>, Axis, Interaction))]
+        divider<D = fn(Ui<'_, C>, Axis, Interaction)>: D = |_, _, _| (),
         initial_extent: C::Scalar = C::Scalar::ZERO,
         axis: Axis = Axis::Horizontal,
         divider_extent: C::Scalar = C::Scalar::from_f32(1.0),
         minimum_leading: C::Scalar = C::Scalar::ZERO,
         minimum_trailing: C::Scalar = C::Scalar::ZERO,
-        sense: Sense = Sense::DRAG,
     }
 }
 
@@ -42,7 +43,7 @@ impl<C: Context, L, R, D> Widget<C> for Split<'_, C, L, R, D>
 where
     L: Widget<C>,
     R: Widget<C>,
-    D: FnOnce(Ui<'_, C>, Axis, blit::Interaction<C::Scalar>),
+    D: FnOnce(Ui<'_, C>, Axis, Interaction),
 {
     type Response = ();
     fn build(self, mut ui: Ui<'_, C>) {
@@ -55,9 +56,10 @@ where
         let leading_id = id.child("leading pane");
         let divider_id = id.child("divider");
         let trailing_id = id.child("trailing pane");
-        let interaction = ui.interact_widget(divider_id, self.sense);
+        let interaction = ui.interact_widget(divider_id).sense(Sense::CLICK);
         let measured = ui.geometry(leading_id).map(|area| axis.extent(area.size()));
-        let delta = interaction.drag.map_or(Point::ZERO, |drag| drag.delta);
+        let drag = ui.interact_widget(divider_id).gesture(Drag::new());
+        let delta = drag.map_or(Point::ZERO, |drag| drag.delta);
         let delta = match axis {
             Axis::Horizontal => delta.x,
             Axis::Vertical => delta.y,

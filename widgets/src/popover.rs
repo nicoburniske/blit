@@ -16,8 +16,8 @@ pub enum PopoverClose {
 blit::builder! {
     pub struct Popover<'a, C: Context> {
         new(state: &'a mut PopoverState),
-        #[bounds(FnOnce(Ui<'_, C>, Interaction<C::Scalar>, bool))]
-        trigger<F = fn(Ui<'_, C>, Interaction<<C as Context>::Scalar>, bool)>: F = |_, _, _| (),
+        #[bounds(FnOnce(Ui<'_, C>, Interaction, bool))]
+        trigger<F = fn(Ui<'_, C>, Interaction, bool)>: F = |_, _, _| (),
         content<W = fn(Ui<'_, C>)>: W = |_| (),
         #[into]
         parent: NodeTarget = NodeTarget::Root,
@@ -44,7 +44,7 @@ blit::builder! {
 
 impl<C: Context, F, W> Widget<C> for Popover<'_, C, F, W>
 where
-    F: FnOnce(Ui<'_, C>, Interaction<C::Scalar>, bool),
+    F: FnOnce(Ui<'_, C>, Interaction, bool),
     W: Widget<C>,
 {
     type Response = Option<W::Response>;
@@ -54,7 +54,7 @@ where
         let content = self.content;
         let id = ui.current_id();
         let trigger_id = id.child("popover trigger");
-        let interaction = ui.interact_widget(trigger_id, Sense::CLICK);
+        let interaction = ui.interact_widget(trigger_id).sense(Sense::CLICK);
         if self.open_on_hover && interaction.hovered {
             state.open = true;
         } else if !self.open_on_hover && interaction.activated {
@@ -75,8 +75,8 @@ where
 
         let backdrop_id = id.child("popover backdrop");
         let content_id = id.child("popover content");
-        let backdrop = root.interact_widget(backdrop_id, Sense::ALL);
-        let content_interaction = root.interact_widget(content_id, Sense::ALL);
+        let backdrop = root.interact_widget(backdrop_id).sense(Sense::ALL);
+        let content_interaction = root.interact_widget(content_id).sense(Sense::ALL);
         let pointer_inside = content_interaction.hovered
             || root.pointer_position().is_some_and(|position| {
                 [trigger_id, content_id]
@@ -84,7 +84,7 @@ where
                     .filter_map(|id| root.geometry(id))
                     .any(|area| area.contains(position))
             });
-        if match (self.close, root.input()) {
+        if match (self.close, root.interact().input()) {
             (PopoverClose::Click, _) => backdrop.activated,
             (PopoverClose::Exit, Input::PointerMove { .. } | Input::PointerLeave) => !pointer_inside,
             _ => false,

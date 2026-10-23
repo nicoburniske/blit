@@ -30,7 +30,10 @@ pub struct Frame<C: Context> {
 #[derive(Clone, Copy)]
 enum Request {
     Geometry,
-    Interaction(Sense),
+    Interaction {
+        sense: Sense,
+        response: bool,
+    },
 }
 
 #[derive(Default)]
@@ -84,12 +87,6 @@ impl<C: Context> Default for Frame<C> {
 }
 
 impl<C: Context> Frame<C> {
-    /// updates recognition thresholds including pending long press timers
-    pub fn set_interaction_config(&mut self, config: crate::InteractionConfig) {
-        self.interaction.config = config;
-        self.request_frame();
-    }
-
     /// rebuilds the frame graph for one input
     pub fn build<W: Widget<C>>(
         &mut self,
@@ -130,9 +127,7 @@ impl<C: Context> Frame<C> {
         for timer in &mut self.timers {
             timer.seen = false;
         }
-        if self.interaction.begin(&input, time) {
-            self.frame_requested = true;
-        }
+        self.interaction.begin(&input, time);
 
         let id = Id::new("blit frame root");
         let root = self.push_node(None, id);
@@ -158,7 +153,14 @@ impl<C: Context> Frame<C> {
     pub fn layout(&mut self, context: &mut C) {
         let mut bump = std::mem::take(&mut self.bump);
         bump.prepare_scratch();
-        transition::resolve(self, &bump, context, NodeId::new(0), Constraints::tight(self.screen.size()), true);
+        transition::resolve(
+            self,
+            &bump,
+            context,
+            NodeId::new(0),
+            Constraints::tight(self.screen.size()),
+            true,
+        );
         position::resolve(self);
         paint::resolve_order(self, &bump);
         paint::resolve_clips(self, &bump);
@@ -188,7 +190,7 @@ impl<C: Context> Frame<C> {
         self.timers
             .iter()
             .filter_map(timer::TimerState::deadline)
-            .chain(self.interaction.next_deadline())
+            .chain(self.interaction.deadline)
             .min()
     }
 

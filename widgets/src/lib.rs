@@ -1,3 +1,4 @@
+mod drag;
 mod performance;
 mod popover;
 mod resize;
@@ -6,6 +7,7 @@ mod split;
 mod text_input;
 
 pub use blit::{Clip, Context, Id, Ui, Widget, state};
+pub use drag::{Drag, DragMotion};
 pub use performance::{FrameProfiler, Stage};
 pub use popover::{Popover, PopoverClose, PopoverState};
 pub use resize::{Resize, ResizeEdge, ResizeGrip, ResizeState};

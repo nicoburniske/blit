@@ -252,12 +252,9 @@ impl TextRenderer {
                 glyph_end,
                 runs,
                 area,
-                color: paint
-                    .runs
-                    .first()
-                    .map_or(Color::TRANSPARENT, |run| {
-                        request.span_color(layout.runs[run.layout_run as usize].span)
-                    }),
+                color: paint.runs.first().map_or(Color::TRANSPARENT, |run| {
+                    request.span_color(layout.runs[run.layout_run as usize].span)
+                }),
             },
             bounds,
         )

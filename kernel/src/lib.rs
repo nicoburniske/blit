@@ -50,13 +50,19 @@ pub mod layout;
 pub use self::{
     animation::{Easing, Transition, TransitionProperties},
     clip::{Clip, ClipShape},
-    frame::{Frame, NodeId, NodeTarget, Ui, atom::AtomCx, bump::FrameSlice, state},
+    frame::{
+        Frame, InteractionScope, NodeId, NodeTarget, Ui,
+        atom::AtomCx,
+        bump::FrameSlice,
+        interaction::{Contacts, GestureCx},
+        state,
+    },
     geometry::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
         Scalar, Scale2, Sides, Size,
     },
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase, TouchPhase},
-    interact::{Direction, Drag, Id, Interaction, InteractionConfig, Phase, Pinch, Rotation, Scroll, Sense},
+    interact::{Contact, ContactId, ContactSource, Gesture, Id, Interaction, Phase, Scroll, Sense},
     layout::{Axis, Layout, LayoutCx, Scratch, Sizing},
 };
 

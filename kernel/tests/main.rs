@@ -1,15 +1,14 @@
 use std::{
     cell::Cell,
-    f32::consts::FRAC_PI_4,
     panic::{AssertUnwindSafe, catch_unwind},
     rc::Rc,
     time::Duration,
 };
 
 use blit::{
-    Atom, AtomCx, Clip, ClipShape, Constraints, Context, Direction, Easing, Frame, FrameInfo, Id, Input, Interaction,
-    Layout, LayoutCx, Modifiers, NodeTarget,
-    Phase::{Cancelled, Changed, Ended, Started},
+    Atom, AtomCx, Clip, ClipShape, Constraints, Contact, ContactSource, Context, Easing, Frame, FrameInfo, Gesture,
+    GestureCx, Id, Input, Interaction, Layout, LayoutCx, Modifiers, NodeTarget,
+    Phase::{Cancelled, Changed, Ended, Held, Started},
     Point, PointerButton, Rect, Scalar, ScrollPhase, Sense, Size, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
     Transition, Widget,
@@ -17,6 +16,7 @@ use blit::{
 
 mod animation;
 mod frame;
+mod gesture;
 mod interaction;
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TestContext, S>;
@@ -308,13 +308,13 @@ impl<C: Context + Default> InputScene<C> {
         scene.step(0, Input::None);
         scene
     }
-    fn step(&mut self, time: u64, input: Input<C::Scalar>) -> Interaction<C::Scalar> {
+    fn step(&mut self, time: u64, input: Input<C::Scalar>) -> Interaction {
         let output = self.frame.build(
             &mut self.context,
             FrameInfo::new(Size::uniform(C::Scalar::from_f32(200.0))),
             Duration::from_millis(time),
             input,
-            |mut ui: blit::Ui<'_, C>| ui.interact(self.sense),
+            |mut ui: blit::Ui<'_, C>| ui.interact().sense(self.sense),
         );
         self.frame.layout(&mut self.context);
         output

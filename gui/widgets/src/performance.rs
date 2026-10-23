@@ -76,7 +76,7 @@ where
                 .x(self.popover_x)
                 .y(self.popover_y)
                 .close(PopoverClose::Manual)
-                .trigger(|ui: blit::Ui<'_, C>, interaction: Interaction<f32>, open| {
+                .trigger(|ui: blit::Ui<'_, C>, interaction: Interaction, open| {
                     let mut badge = ui.layout(
                         flex::row()
                             .padding(self.badge_padding)

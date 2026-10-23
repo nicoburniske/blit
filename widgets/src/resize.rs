@@ -1,5 +1,7 @@
 use blit::{Constraints, Context, Interaction, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
 
+use crate::Drag;
+
 #[derive(Debug, Default)]
 pub struct ResizeState<T> {
     size: Option<Size<T>>,
@@ -13,17 +15,17 @@ pub enum ResizeEdge {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ResizeGrip<T> {
+pub struct ResizeGrip {
     pub edge: ResizeEdge,
-    pub interaction: Interaction<T>,
+    pub interaction: Interaction,
 }
 
 blit::builder! {
     pub struct Resize<'a, C: Context> {
         new(state: &'a mut ResizeState<C::Scalar>),
         content<W = fn(Ui<'_, C>)>: W = |_| (),
-        #[bounds(FnMut(Ui<'_, C>, ResizeGrip<C::Scalar>))]
-        grip<F = fn(Ui<'_, C>, ResizeGrip<<C as Context>::Scalar>)>: F = |_, _| (),
+        #[bounds(FnMut(Ui<'_, C>, ResizeGrip))]
+        grip<F = fn(Ui<'_, C>, ResizeGrip)>: F = |_, _| (),
         initial: Size<C::Scalar> = Size::ZERO,
         minimum: Size<C::Scalar> = Size::ZERO,
         maximum: Size<C::Scalar> = Size::uniform(C::Scalar::UNBOUNDED),
@@ -34,7 +36,7 @@ blit::builder! {
 impl<C: Context, W, F> Widget<C> for Resize<'_, C, W, F>
 where
     W: Widget<C>,
-    F: FnMut(Ui<'_, C>, ResizeGrip<C::Scalar>),
+    F: FnMut(Ui<'_, C>, ResizeGrip),
 {
     type Response = ();
     fn build(self, mut ui: Ui<'_, C>) {
@@ -46,12 +48,14 @@ where
         let bottom_id = id.child("bottom grip");
         let corner_id = id.child("corner grip");
         let geometry = ui.geometry(id);
-        let right = ui.interact_widget(right_id, Sense::DRAG);
-        let bottom = ui.interact_widget(bottom_id, Sense::DRAG);
-        let corner = ui.interact_widget(corner_id, Sense::DRAG);
-        let right_delta = right.drag.map_or(Point::ZERO, |drag| drag.delta);
-        let bottom_delta = bottom.drag.map_or(Point::ZERO, |drag| drag.delta);
-        let corner_delta = corner.drag.map_or(Point::ZERO, |drag| drag.delta);
+        let right = ui.interact_widget(right_id).sense(Sense::CLICK);
+        let bottom = ui.interact_widget(bottom_id).sense(Sense::CLICK);
+        let corner = ui.interact_widget(corner_id).sense(Sense::CLICK);
+        let mut drag = |id| {
+            let drag = ui.interact_widget(id).gesture(Drag::new());
+            drag.map_or(Point::ZERO, |drag| drag.delta)
+        };
+        let (right_delta, bottom_delta, corner_delta) = (drag(right_id), drag(bottom_id), drag(corner_id));
         let delta = Size::new(right_delta.x + corner_delta.x, bottom_delta.y + corner_delta.y);
         if delta != Size::ZERO {
             let size = state

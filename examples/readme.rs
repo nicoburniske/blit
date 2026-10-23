@@ -21,7 +21,7 @@ fn main() -> std::io::Result<()> {
             });
 
             header.child().item(flex::item().fixed(8, 1)).build(|mut ui: Ui<'_>| {
-                let interaction = ui.interact(Sense::CLICK);
+                let interaction = ui.interact().sense(Sense::CLICK);
 
                 ui.insert(Block::new().background(Color::BLUE));
                 ui.insert(Text::new("quit").options(TextOptions::new().horizontal_align(HorizontalAlign::Center)));
@@ -29,7 +29,7 @@ fn main() -> std::io::Result<()> {
                 interaction.clicked
             })
         });
-        if quit || matches!(root.input(), Input::Text('q')) {
+        if quit || matches!(root.interact().input(), Input::Text('q')) {
             root.context_mut().quit();
         }
     })

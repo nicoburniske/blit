@@ -1154,13 +1154,13 @@ impl Widget<DesktopContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        let interaction = ui.interact(Sense::CLICK);
+        let interaction = ui.interact().sense(Sense::CLICK);
         draw_button(ui, self.label, self.selected, interaction);
         interaction.clicked
     }
 }
 
-fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction<f32>) {
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction) {
     let background = if interaction.active {
         colors::ACCENT_DARK
     } else if selected {

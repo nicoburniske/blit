@@ -34,7 +34,7 @@ fn build_interactive(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
         build(&mut frame, count, |mut ui, _| {
-            black_box(ui.interact(Sense::CLICK));
+            black_box(ui.interact().sense(Sense::CLICK));
         })
     });
 }
@@ -77,7 +77,7 @@ fn build_interactive_and_layout(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
         build(&mut frame, count, |mut ui, _| {
-            black_box(ui.interact(Sense::CLICK));
+            black_box(ui.interact().sense(Sense::CLICK));
         });
         frame.layout(&mut ());
         black_box(&frame);

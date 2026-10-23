@@ -1,4 +1,4 @@
-use blit::{Axis, Clip, Context, Scalar, Sense, Ui, Widget};
+use blit::{Axis, Clip, Context, Scalar, Ui, Widget};
 
 pub use super::ScrollState;
 use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
@@ -11,7 +11,6 @@ blit::builder! {
         axis: Axis = Axis::Vertical,
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 6.0,
-        sense: Sense = Sense::SCROLL,
         scrollbar_thickness: T = T::from_f32(1.0),
         minimum_thumb_extent: T = T::from_f32(1.0),
         clip<X = ()>: X = (),
@@ -54,12 +53,11 @@ impl<T: Scalar, X> ScrollArea<'_, T, X> {
             axis,
             scroll_speed,
             inertia_friction,
-            sense,
             scrollbar_thickness,
             minimum_thumb_extent,
             clip,
         } = self;
-        let (thumb_active, viewport_known) = update(state, &mut ui, axis, sense, scroll_speed, inertia_friction);
+        let (thumb_active, viewport_known) = update(state, &mut ui, axis, scroll_speed, inertia_friction);
         let reveal = match state.request.target {
             Target::Widget(id) => Some(id),
             _ => {
