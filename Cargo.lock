@@ -131,28 +131,37 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 name = "blit"
 version = "0.1.0"
 dependencies = [
- "blit-layout",
  "divan",
 ]
+
+[[package]]
+name = "blit-arena"
+version = "0.1.0"
 
 [[package]]
 name = "blit-arrayvec"
 version = "0.1.0"
 
 [[package]]
+name = "blit-cache"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.14.5",
+]
+
+[[package]]
 name = "blit-cpu"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-arrayvec",
+ "blit-arena",
+ "blit-cache",
  "blit-gui",
- "blit-raster",
  "blit-text",
  "blit-text-cosmic",
  "blit-text-fontdue",
- "blit_cache",
  "divan",
- "slotmap",
+ "fearless_simd",
 ]
 
 [[package]]
@@ -162,6 +171,7 @@ dependencies = [
  "blit",
  "blit-desktop",
  "blit-gui",
+ "blit-gui-widgets",
  "blit-layout",
  "blit-text-cosmic",
  "blit-text-fontdue",
@@ -177,6 +187,7 @@ dependencies = [
  "blit-executor",
  "blit-gpu",
  "blit-gui",
+ "blit-widgets",
  "softbuffer",
  "wgpu",
  "winit",
@@ -186,7 +197,7 @@ dependencies = [
 name = "blit-executor"
 version = "0.1.0"
 dependencies = [
- "slotmap",
+ "blit-arena",
 ]
 
 [[package]]
@@ -194,9 +205,9 @@ name = "blit-gpu"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-arena",
  "blit-executor",
  "blit-gui",
- "blit-raster",
  "blit-text",
  "blit-text-fontdue",
  "bytemuck",
@@ -208,11 +219,18 @@ name = "blit-gui"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-layout",
+ "blit-cache",
  "blit-text",
+]
+
+[[package]]
+name = "blit-gui-widgets"
+version = "0.1.0"
+dependencies = [
+ "blit",
+ "blit-gui",
+ "blit-layout",
  "blit-widgets",
- "blit_cache",
- "ttf-parser",
 ]
 
 [[package]]
@@ -220,6 +238,7 @@ name = "blit-layout"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "divan",
 ]
 
 [[package]]
@@ -242,6 +261,7 @@ name = "blit-text-cosmic"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-raster",
  "blit-text",
  "cosmic-text",
  "unicode-segmentation",
@@ -252,6 +272,7 @@ name = "blit-text-fontdue"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-raster",
  "blit-text",
  "fontdue",
  "ttf-parser",
@@ -264,9 +285,9 @@ dependencies = [
  "base64",
  "blit",
  "blit-arrayvec",
+ "blit-cache",
  "blit-layout",
  "blit-widgets",
- "blit_cache",
  "divan",
  "rustix 1.1.4",
  "signal-hook",
@@ -281,13 +302,6 @@ dependencies = [
  "blit",
  "blit-layout",
  "unicode-segmentation",
-]
-
-[[package]]
-name = "blit_cache"
-version = "0.1.0"
-dependencies = [
- "hashbrown 0.14.5",
 ]
 
 [[package]]
@@ -633,6 +647,12 @@ name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
+
+[[package]]
+name = "fearless_simd"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3296eb97d869113eaf148a6bdf01884e90b3828ad7ae2340b0f93362fc158611"
 
 [[package]]
 name = "find-msvc-tools"

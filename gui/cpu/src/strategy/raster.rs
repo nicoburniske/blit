@@ -1,8 +1,8 @@
 use blit::geometry::PhysicalRect;
-use slotmap::{KeyData, SlotMap};
+use blit_arena::Arena;
 
 use super::command::Payload;
-use crate::{Pixel, PixelBuffer, PixelSpan, RendererImageId, StoredImage, TextRenderer};
+use crate::{Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer};
 
 #[inline(always)]
 pub fn draw_line<B: PixelBuffer>(
@@ -10,7 +10,7 @@ pub fn draw_line<B: PixelBuffer>(
     line: i32,
     clip: PhysicalRect,
     coverage: u8,
-    images: &SlotMap<RendererImageId, StoredImage>,
+    images: &Arena<StoredImage>,
     text: &mut TextRenderer,
     buffer: &mut B,
 ) {
@@ -21,23 +21,13 @@ pub fn draw_line<B: PixelBuffer>(
             let end = start + clip.width as usize;
             buffer.line_mut(line as usize)[start..end].fill(B::Pixel::background());
         }
-        Payload::Rectangle(rectangle) => {
-            let covered;
-            let rectangle = if coverage == 255 {
-                *rectangle
-            } else {
-                covered = {
-                    let mut rectangle = **rectangle;
-                    rectangle.border_color = rectangle.border_color.coverage(coverage as u32);
-                    rectangle.inner_color = rectangle.inner_color.coverage(coverage as u32);
-                    rectangle
-                };
-                &covered
-            };
+        Payload::Rectangle(rectangle, gradients) => {
             let x = buffer.x_offset() as i32;
             rectangle.draw_line(
+                gradients,
                 line,
                 clip,
+                coverage,
                 PixelSpan {
                     x,
                     pixels: buffer.line_mut(line as usize),
@@ -55,22 +45,8 @@ pub fn draw_line<B: PixelBuffer>(
                 },
             );
         }
-        Payload::GradientRectangle(rectangle, stops) => {
-            let x = buffer.x_offset() as i32;
-            rectangle.draw_line(
-                stops,
-                line,
-                clip,
-                coverage,
-                PixelSpan {
-                    x,
-                    pixels: buffer.line_mut(line as usize),
-                },
-            );
-        }
         Payload::Image(request) => {
-            let image = RendererImageId::from(KeyData::from_ffi(request.image.0));
-            if let Some(image) = images.get(image) {
+            if let Some(image) = images.get(request.image.into()) {
                 let covered;
                 let request = if coverage == 255 {
                     *request

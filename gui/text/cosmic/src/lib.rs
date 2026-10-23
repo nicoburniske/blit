@@ -1,8 +1,9 @@
 use std::{iter, mem::size_of, sync::Arc};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
+use blit_raster::{FontFace, Rasterizer};
 use blit_text::{
-    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle, Glyph, LayoutLine,
+    Caret, FontCandidate, FontData, FontError, FontFaceId, FontSelectionId, FontStyle, Glyph, GlyphMask, LayoutLine,
     LayoutRequest, LayoutRun, SystemFontRequest, TextLayout, TextOverflow, TextStyle, TextWrap,
 };
 use cosmic_text::{
@@ -12,6 +13,7 @@ use cosmic_text::{
 use unicode_segmentation::UnicodeSegmentation;
 
 pub struct Backend {
+    rasterizer: Rasterizer,
     fonts: FontSystem,
     faces: Vec<CosmicFace>,
     aliases: Vec<CosmicAlias>,
@@ -51,6 +53,7 @@ impl Backend {
 impl Backend {
     fn with_font_system(fonts: FontSystem) -> Self {
         Self {
+            rasterizer: Rasterizer::default(),
             fonts,
             faces: Vec::new(),
             aliases: Vec::new(),
@@ -83,7 +86,7 @@ impl blit_text::TextLayoutEngine for Backend {
         face(self.fonts.db(), &mut self.faces, &self.aliases, cosmic).ok_or(FontError::InvalidData)
     }
 
-    fn register_font(&mut self, data: FontData) -> Result<Vec<FontFaceId>, FontError> {
+    fn register_font(&mut self, data: FontData) -> Result<Vec<FontCandidate>, FontError> {
         let faces = self
             .fonts
             .db_mut()
@@ -93,16 +96,33 @@ impl blit_text::TextLayoutEngine for Backend {
         }
         let mut registered = Vec::new();
         for cosmic in faces {
-            let face_index = self.fonts.db().face(cosmic).ok_or(FontError::InvalidData)?.index;
+            let info = self.fonts.db().face(cosmic).ok_or(FontError::InvalidData)?;
+            let face_index = info.index;
             let id = FontFaceId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
             self.faces.push(CosmicFace {
                 cosmic,
-                data: FontFace {
-                    data: data.clone(),
-                    face_index,
+                data: FontFace::new(data.clone(), face_index).ok_or(FontError::InvalidData)?,
+            });
+            registered.push(FontCandidate {
+                face: id,
+                weight: info.weight.0,
+                stretch: match info.stretch {
+                    fontdb::Stretch::UltraCondensed => 50,
+                    fontdb::Stretch::ExtraCondensed => 63,
+                    fontdb::Stretch::Condensed => 75,
+                    fontdb::Stretch::SemiCondensed => 88,
+                    fontdb::Stretch::Normal => 100,
+                    fontdb::Stretch::SemiExpanded => 113,
+                    fontdb::Stretch::Expanded => 125,
+                    fontdb::Stretch::ExtraExpanded => 150,
+                    fontdb::Stretch::UltraExpanded => 200,
+                },
+                style: match info.style {
+                    fontdb::Style::Normal => FontStyle::Normal,
+                    fontdb::Style::Italic => FontStyle::Italic,
+                    fontdb::Style::Oblique => FontStyle::Oblique,
                 },
             });
-            registered.push(id);
         }
         Ok(registered)
     }
@@ -149,9 +169,15 @@ impl blit_text::TextLayoutEngine for Backend {
         Ok(id)
     }
 
-    fn font_face(&self, face: FontFaceId) -> Option<&FontFace> {
-        let index = usize::try_from(face.0).ok()?.checked_sub(1)?;
-        self.faces.get(index).map(|face| &face.data)
+    fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
+        let Some(face) = usize::try_from(face.0)
+            .ok()
+            .and_then(|index| index.checked_sub(1))
+            .and_then(|index| self.faces.get(index))
+        else {
+            return GlyphMask::default();
+        };
+        self.rasterizer.rasterize(&face.data, glyph, size, offset_x)
     }
 
     fn shape(&mut self, text: blit_text::Text<'_>) -> (Shape, usize) {
@@ -364,10 +390,9 @@ fn face(
     if let Some(alias) = aliases.iter().find(|alias| alias.cosmic == cosmic) {
         return Some(alias.face);
     }
-    let data = db.with_face_data(cosmic, |data, face_index| FontFace {
-        data: FontData::Shared(Arc::from(data)),
-        face_index,
-    })?;
+    let data = db.with_face_data(cosmic, |data, face_index| {
+        FontFace::new(FontData::Shared(Arc::from(data)), face_index)
+    })??;
     let id = FontFaceId(u64::try_from(faces.len() + 1).ok()?);
     faces.push(CosmicFace { cosmic, data });
     Some(id)
@@ -405,8 +430,8 @@ mod tests {
     fn selection_and_size_resolve_per_span() {
         let mut backend = Backend::without_system_fonts();
         let data = FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")));
-        let regular = backend.register_font(data.clone()).unwrap()[0];
-        let bold = backend.register_font(data).unwrap()[0];
+        let regular = backend.register_font(data.clone()).unwrap()[0].face;
+        let bold = backend.register_font(data).unwrap()[0].face;
         let font = backend
             .register_font_selection(&[
                 FontCandidate {

@@ -58,7 +58,7 @@ mod tests {
         static PIXELS: [u8; 16] = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8, 2, 2);
         let request = ImageRequest {
-            image: ImageId(0),
+            image: ImageId::default(),
             area: LogicalRect {
                 x: 0.0,
                 y: 0.0,
@@ -101,7 +101,7 @@ mod tests {
         static PIXELS: [u8; 4] = [16, 8, 4, 128];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8Premultiplied, 1, 1);
         let request = ImageRequest {
-            image: ImageId(0),
+            image: ImageId::default(),
             area: LogicalRect {
                 x: 0.0,
                 y: 0.0,
@@ -168,7 +168,7 @@ mod tests {
         static PIXELS: [u8; 8] = [255, 0, 0, 255, 0, 0, 255, 255];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8, 2, 1);
         let request = ImageRequest {
-            image: ImageId(0),
+            image: ImageId::default(),
             area: LogicalRect {
                 x: 0.0,
                 y: 0.0,
@@ -206,7 +206,7 @@ mod tests {
         static PIXELS: [u8; 8] = [255, 0, 0, 255, 0, 128, 0, 128];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8Premultiplied, 2, 1);
         let request = ImageRequest {
-            image: ImageId(0),
+            image: ImageId::default(),
             area: LogicalRect {
                 x: 0.0,
                 y: 0.0,
@@ -244,7 +244,7 @@ mod tests {
         static PIXELS: [u8; 6] = [255, 0, 0, 0, 0, 255];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgb8, 2, 1);
         let request = ImageRequest {
-            image: ImageId(0),
+            image: ImageId::default(),
             area: LogicalRect {
                 x: 0.0,
                 y: 0.0,
@@ -285,7 +285,7 @@ mod tests {
         static PIXELS: [u8; 9] = [255, 0, 0, 0, 255, 0, 0, 0, 255];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgb8, 3, 1);
         let request = ImageRequest {
-            image: ImageId(0),
+            image: ImageId::default(),
             area: LogicalRect {
                 x: 0.0,
                 y: 0.0,
@@ -331,7 +331,7 @@ mod tests {
         ];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgb8, 3, 3);
         let request = ImageRequest {
-            image: ImageId(0),
+            image: ImageId::default(),
             area: LogicalRect {
                 x: 0.0,
                 y: 0.0,

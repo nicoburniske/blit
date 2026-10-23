@@ -1,21 +1,27 @@
-#![feature(portable_simd)]
-
-use std::simd::f32x4;
-
-use blit_text::FontFace;
+use blit_text::{FontData, GlyphMask, GlyphMetrics};
 use ttf_parser::{OutlineBuilder, Rect};
 
 // adapted from femtofont 0.5.0 and fontdue 0.9.3
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Metrics {
-    pub width: usize,
-    pub height: usize,
-    pub bounds: OutlineBounds,
+#[derive(Clone, Debug)]
+pub struct FontFace {
+    // borrows `_data`, parsed once so rasterizing skips table parsing
+    face: ttf_parser::Face<'static>,
+    _data: FontData,
+}
+
+impl FontFace {
+    pub fn new(data: FontData, face_index: u32) -> Option<Self> {
+        // SAFETY: font bytes are static or behind an arc, so they never move or change while `data` is alive, and
+        // `face` is private and only lent out with the lifetime of `self`
+        let bytes = unsafe { &*(data.as_ref() as *const [u8]) };
+        let face = ttf_parser::Face::parse(bytes, face_index).ok()?;
+        Some(Self { face, _data: data })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct OutlineBounds {
+struct OutlineBounds {
     pub xmin: f32,
     pub ymin: f32,
     pub width: f32,
@@ -45,18 +51,14 @@ impl Default for Rasterizer {
 }
 
 impl Rasterizer {
-    pub fn rasterize(&mut self, font: &FontFace, glyph: u16, size: f32, offset_x: f32) -> (Metrics, Vec<u8>) {
-        debug_assert!((0.0..1.0).contains(&offset_x));
-        let face = match ttf_parser::Face::parse(font.data.as_ref(), font.face_index) {
-            Ok(face) => face,
-            Err(_) => panic!("text backend returned invalid font"),
-        };
-        if !size.is_finite() || size <= 0.0 {
-            return (Metrics::default(), Vec::new());
+    pub fn rasterize(&mut self, font: &FontFace, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
+        let face = &font.face;
+        if !size.is_finite() || size <= 0.0 || !(0.0..1.0).contains(&offset_x) {
+            return GlyphMask::default();
         }
         let glyph = ttf_parser::GlyphId(glyph);
         let Some(bounds) = face.glyph_bounding_box(glyph) else {
-            return (Metrics::default(), Vec::new());
+            return GlyphMask::default();
         };
         let scale = size / face.units_per_em() as f32;
         let outline_bounds = OutlineBounds {
@@ -65,6 +67,7 @@ impl Rasterizer {
             width: (bounds.x_max - bounds.x_min) as f32 * scale,
             height: (bounds.y_max - bounds.y_min) as f32 * scale,
         };
+        let left = (outline_bounds.xmin + offset_x).floor();
         let mut offset_x = (outline_bounds.xmin + offset_x).fract();
         let mut offset_y = (1.0 - outline_bounds.height.fract() - outline_bounds.ymin.fract()).fract();
         if offset_x < 0.0 {
@@ -73,24 +76,38 @@ impl Rasterizer {
         if offset_y < 0.0 {
             offset_y += 1.0;
         }
-        let mut metrics = Metrics {
-            width: (outline_bounds.width + offset_x).ceil().max(0.0) as usize,
-            height: (outline_bounds.height + offset_y).ceil().max(0.0) as usize,
-            bounds: outline_bounds,
+        let width = (outline_bounds.width + offset_x).ceil().max(0.0);
+        let height = (outline_bounds.height + offset_y).ceil().max(0.0);
+        let top = (-outline_bounds.height - outline_bounds.ymin).floor();
+        if !(0.0..=u16::MAX as f32).contains(&width)
+            || !(0.0..=u16::MAX as f32).contains(&height)
+            || !(i16::MIN as f32..=i16::MAX as f32).contains(&left)
+            || !(i16::MIN as f32..=i16::MAX as f32).contains(&top)
+        {
+            return GlyphMask::default();
+        }
+        let mut metrics = GlyphMetrics {
+            width: width as u16,
+            height: height as u16,
+            left: left as i16,
+            top: top as i16,
         };
-        let pixels = metrics
-            .width
-            .checked_mul(metrics.height)
-            .expect("glyph dimensions overflow");
+        let pixels = usize::from(metrics.width) * usize::from(metrics.height);
         if pixels == 0 {
-            return (metrics, Vec::new());
+            return GlyphMask {
+                metrics,
+                alpha: Box::default(),
+            };
         }
 
         self.outline.reset(size, face.units_per_em() as f32);
         if face.outline_glyph(glyph, &mut self.outline).is_none() {
             metrics.width = 0;
             metrics.height = 0;
-            return (metrics, Vec::new());
+            return GlyphMask {
+                metrics,
+                alpha: Box::default(),
+            };
         }
         self.outline.finish(bounds);
 
@@ -98,52 +115,59 @@ impl Rasterizer {
         let initialized = self.coverage.len().min(coverage_len);
         self.coverage[..initialized].fill(0.0);
         self.coverage.resize(coverage_len, 0.0);
-        self.draw(metrics.width, scale, offset_x, offset_y);
+        self.draw(usize::from(metrics.width), scale, offset_x, offset_y);
 
-        let mut alpha = Vec::with_capacity(pixels);
         let mut height = 0.0;
-        for coverage in &self.coverage[..pixels] {
-            height += coverage;
-            let coverage = (height.abs() * 255.9).clamp(0.0, 255.0) as usize;
-            alpha.push(COVERAGE[coverage]);
-        }
-        (metrics, alpha)
+        let alpha = self.coverage[..pixels]
+            .iter()
+            .map(|coverage| {
+                height += coverage;
+                // saturating u8 cast keeps the table lookup in bounds
+                COVERAGE[(height.abs() * 255.9) as u8 as usize]
+            })
+            .collect();
+        GlyphMask { metrics, alpha }
     }
 }
 
 impl Rasterizer {
     fn draw(&mut self, width: usize, scale: f32, offset_x: f32, offset_y: f32) {
-        let params = f32x4::from_array([1.0 / scale, 1.0 / scale, scale, scale]);
-        let scale = f32x4::splat(scale);
-        let offset = f32x4::from_array([offset_x, offset_y, offset_x, offset_y]);
+        let params = [1.0 / scale, 1.0 / scale, scale, scale];
+        let offset = [offset_x, offset_y, offset_x, offset_y];
         for index in 0..self.outline.vertical.len() {
             let line = self.outline.vertical[index];
-            self.vertical_line(width, line, line.coords * scale + offset);
+            self.vertical_line(width, line, std::array::from_fn(|i| line.coords[i] * scale + offset[i]));
         }
         for index in 0..self.outline.mixed.len() {
             let line = self.outline.mixed[index];
-            self.mixed_line(width, line, line.coords * scale + offset, line.params * params);
+            self.mixed_line(
+                width,
+                line,
+                std::array::from_fn(|i| line.coords[i] * scale + offset[i]),
+                std::array::from_fn(|i| line.params[i] * params[i]),
+            );
         }
     }
 
-    fn add(&mut self, index: usize, height: f32, middle_x: f32) {
+    fn add(&mut self, index: usize, height: f32, x: f32) {
         let coverage = &mut self.coverage[index..][..2];
-        let middle = height * middle_x;
+        // integer cast fract avoids a libm trunc call on sse2
+        let middle = height * (x - x as i32 as f32);
         coverage[0] += height - middle;
         coverage[1] += middle;
     }
 
-    fn vertical_line(&mut self, width: usize, line: Line, coordinates: f32x4) {
-        let [x0, y0, _, y1] = coordinates.to_array();
+    fn vertical_line(&mut self, width: usize, line: Line, coordinates: [f32; 4]) {
+        let [x0, y0, _, y1] = coordinates;
         let rounded = truncate(sub_integer(coordinates, line.nudge));
-        let [start_x, start_y, end_x, end_y] = rounded.to_array();
-        let [_, mut target_y, _, _] = (rounded + line.adjustment).to_array();
+        let [start_x, start_y, end_x, end_y] = rounded;
+        let mut target_y = start_y + line.adjustment[1];
         let direction_y = 1.0f32.copysign(y1 - y0);
         let mut previous_y = y0;
         let mut index = (start_x + start_y * width as f32) as i64;
         let increment_y = (width as f32).copysign(direction_y) as i64;
         let mut distance = (start_y - end_y).abs() as usize;
-        let middle_x = x0.fract();
+        let middle_x = x0;
         while distance != 0 {
             distance -= 1;
             self.add(
@@ -158,12 +182,13 @@ impl Rasterizer {
         self.add(checked_index(end_x, end_y, width), previous_y - y1, middle_x);
     }
 
-    fn mixed_line(&mut self, width: usize, line: Line, coordinates: f32x4, parameters: f32x4) {
-        let [x0, y0, x1, y1] = coordinates.to_array();
+    fn mixed_line(&mut self, width: usize, line: Line, coordinates: [f32; 4], parameters: [f32; 4]) {
+        let [x0, y0, x1, y1] = coordinates;
         let rounded = truncate(sub_integer(coordinates, line.nudge));
-        let [start_x, start_y, end_x, end_y] = rounded.to_array();
-        let [inverse_x, inverse_y, delta_x, delta_y] = parameters.to_array();
-        let [mut target_x, mut target_y, _, _] = (rounded + line.adjustment).to_array();
+        let [start_x, start_y, end_x, end_y] = rounded;
+        let [inverse_x, inverse_y, delta_x, delta_y] = parameters;
+        let mut target_x = start_x + line.adjustment[0];
+        let mut target_y = start_y + line.adjustment[1];
         let direction_x = 1.0f32.copysign(inverse_x);
         let direction_y = 1.0f32.copysign(inverse_y);
         let mut time_x = inverse_x * (target_x - x0);
@@ -195,7 +220,7 @@ impl Rasterizer {
             self.add(
                 usize::try_from(previous_index).expect("raster index outside glyph"),
                 previous_y - next_y,
-                ((previous_x + next_x) / 2.0).fract(),
+                (previous_x + next_x) / 2.0,
             );
             previous_x = next_x;
             previous_y = next_y;
@@ -203,7 +228,7 @@ impl Rasterizer {
         self.add(
             checked_index(end_x, end_y, width),
             previous_y - y1,
-            ((previous_x + x1) / 2.0).fract(),
+            (previous_x + x1) / 2.0,
         );
     }
 }
@@ -221,20 +246,13 @@ fn checked_index_i64(x: f32, y: f32, width: usize) -> i64 {
         .expect("raster index overflow")
 }
 
-fn sub_integer(value: f32x4, other: f32x4) -> f32x4 {
-    let value = value.to_array();
-    let other = other.to_array();
-    f32x4::from_array([
-        f32::from_bits(value[0].to_bits().wrapping_sub(other[0].to_bits())),
-        f32::from_bits(value[1].to_bits().wrapping_sub(other[1].to_bits())),
-        f32::from_bits(value[2].to_bits().wrapping_sub(other[2].to_bits())),
-        f32::from_bits(value[3].to_bits().wrapping_sub(other[3].to_bits())),
-    ])
+fn sub_integer(value: [f32; 4], other: [f32; 4]) -> [f32; 4] {
+    std::array::from_fn(|i| f32::from_bits(value[i].to_bits().wrapping_sub(other[i].to_bits())))
 }
 
-fn truncate(value: f32x4) -> f32x4 {
-    let value = value.to_array();
-    f32x4::from_array([value[0].trunc(), value[1].trunc(), value[2].trunc(), value[3].trunc()])
+fn truncate(value: [f32; 4]) -> [f32; 4] {
+    // coordinates fit in i32 so this avoids a libm trunc call on sse2
+    value.map(|value| value as i32 as f32)
 }
 
 struct Outline {
@@ -360,10 +378,10 @@ impl OutlineBuilder for Outline {
 
 #[derive(Clone, Copy)]
 struct Line {
-    coords: f32x4,
-    nudge: f32x4,
-    adjustment: f32x4,
-    params: f32x4,
+    coords: [f32; 4],
+    nudge: [f32; 4],
+    adjustment: [f32; 4],
+    params: [f32; 4],
 }
 
 impl Line {
@@ -378,20 +396,20 @@ impl Line {
         let delta_y = end.y - start.y;
         let inverse_x = if delta_x == 0.0 { f32::MAX } else { 1.0 / delta_x };
         Self {
-            coords: f32x4::from_array([start.x, start.y, end.x, end.y]),
-            nudge: f32x4::from_array([
+            coords: [start.x, start.y, end.x, end.y],
+            nudge: [
                 f32::from_bits(start_x_nudge),
                 f32::from_bits(start_y_nudge),
                 f32::from_bits(end_x_nudge),
                 f32::from_bits(end_y_nudge),
-            ]),
-            adjustment: f32x4::from_array([first_x, first_y, 0.0, 0.0]),
-            params: f32x4::from_array([inverse_x, 1.0 / delta_y, delta_x, delta_y]),
+            ],
+            adjustment: [first_x, first_y, 0.0, 0.0],
+            params: [inverse_x, 1.0 / delta_y, delta_x, delta_y],
         }
     }
 
     fn reposition(&mut self, bounds: Aabb, reverse: bool) {
-        let [x0, y0, x1, y1] = self.coords.to_array();
+        let [x0, y0, x1, y1] = self.coords;
         let (mut x0, mut y0, mut x1, mut y1) = if reverse { (x1, y1, x0, y0) } else { (x0, y0, x1, y1) };
         x0 -= bounds.left;
         y0 = (y0 - bounds.top).abs();

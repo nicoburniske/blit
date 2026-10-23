@@ -5,4 +5,4 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
-slotmap = "1"
+blit-arena.workspace = true

@@ -3,10 +3,10 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering::Relaxed},
 };
 
-use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit::{LogicalRect, Scale2};
 use blit_cpu::{Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888};
 use blit_gui::{
-    FontData, FontFamily, TextConfig, TextSystem,
+    FontData, FontFamily, GuiContext, TextConfig, TextSystem,
     color::Color,
     display_list::{ClipId, DisplayList, Rectangle},
     text::{FontId, TextPhases},
@@ -34,15 +34,10 @@ fn main() {
             ClipId::default(),
         );
     }
-    let damage = [PhysicalRect {
-        x: 0,
-        y: 0,
-        width: SIDE as i32,
-        height: SIDE as i32,
-    }];
     let mut renderer = Renderer::new(
         VecBuffer::<Xrgb8888>::new(SIDE, SIDE),
         RendererConfig {
+            damage_tile_size: 32,
             paint_cache_capacity: 1,
             glyph_cache_capacity: 1,
             shadow_cache_capacity: 0,
@@ -50,7 +45,7 @@ fn main() {
         },
     )
     .strategy(Scanline::default());
-    let mut text = TextSystem::new(
+    let text = TextSystem::new(
         TextConfig {
             fonts: vec![FontFamily {
                 id: FontId::default(),
@@ -62,13 +57,14 @@ fn main() {
         blit_text_cosmic::Backend::without_system_fonts(),
     )
     .unwrap();
-    let mut image_uploads = Vec::new();
+    let mut gui = GuiContext::new(text);
+    *gui.render_input().display_list = display_list;
     let baseline = CURRENT.load(Relaxed);
     GROSS.store(0, Relaxed);
-    renderer.render_damage(&mut text, &mut image_uploads, &display_list, &damage);
+    renderer.render(gui.render_input(), 0);
     let warm = GROSS.load(Relaxed);
     GROSS.store(0, Relaxed);
-    renderer.render_damage(&mut text, &mut image_uploads, &display_list, &damage);
+    renderer.render(gui.render_input(), 0);
     let retained = CURRENT.load(Relaxed) - baseline;
     let steady = GROSS.load(Relaxed);
 

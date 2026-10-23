@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use blit::geometry::PhysicalRect;
-use slotmap::{KeyData, SlotMap};
+use blit_arena::Arena;
 
 use super::{
     RenderStrategy,
@@ -9,7 +9,7 @@ use super::{
     command::{CommandId, CommandList, Payload},
     raster,
 };
-use crate::{Pixel, PixelBuffer, RenderContext, RendererImageId, StoredImage, TextRenderer};
+use crate::{Damage, Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer};
 
 #[derive(Default)]
 pub struct Scanline {
@@ -51,7 +51,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
     commands: &CommandList,
     active: &[CommandId],
     clip_ranges: &[Option<ClipLine>],
-    images: &SlotMap<RendererImageId, StoredImage>,
+    images: &Arena<StoredImage>,
     text: &mut TextRenderer,
     buffer: &mut LineBuffer<'_, P>,
 ) {
@@ -121,9 +121,10 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
-    fn render(&mut self, context: &mut RenderContext<B>, damage: &[PhysicalRect]) {
+    fn render(&mut self, context: &mut RenderContext<B>, damage: &Damage) {
         let width = context.buffer.width();
         let height = context.buffer.height();
+        let screen = PhysicalRect::new(0, 0, width as i32, height as i32);
         let commands = &context.commands;
         let clips = &context.clips;
         let images = &context.images;
@@ -144,44 +145,11 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let mut ranges_valid_until = 0;
         while line < height as i32 {
             if line >= ranges_valid_until {
-                self.ranges.clear();
-                let mut next_boundary = height as i32;
-                for region in damage {
-                    let top = region.y.max(0).min(height as i32);
-                    let bottom = region.y.saturating_add(region.height).max(0).min(height as i32);
-                    if bottom <= line {
-                        continue;
-                    }
-                    if top > line {
-                        next_boundary = next_boundary.min(top);
-                        continue;
-                    }
-                    next_boundary = next_boundary.min(bottom);
-                    let start = region.x.max(0).min(width as i32) as usize;
-                    let end = region.x.saturating_add(region.width).max(0).min(width as i32) as usize;
-                    if start < end {
-                        self.ranges.push(start..end);
-                    }
-                }
+                ranges_valid_until = damage.line_ranges(line, screen, &mut self.ranges);
                 if self.ranges.is_empty() {
-                    line = next_boundary;
-                    ranges_valid_until = line;
+                    line = ranges_valid_until;
                     continue;
                 }
-                self.ranges.sort_unstable_by_key(|range| range.start);
-                let mut merged = 0;
-                for index in 0..self.ranges.len() {
-                    let start = self.ranges[index].start;
-                    let end = self.ranges[index].end;
-                    if merged != 0 && start <= self.ranges[merged - 1].end {
-                        self.ranges[merged - 1].end = self.ranges[merged - 1].end.max(end);
-                    } else {
-                        self.ranges[merged] = start..end;
-                        merged += 1;
-                    }
-                }
-                self.ranges.truncate(merged);
-                ranges_valid_until = next_boundary;
             }
 
             self.active
@@ -209,6 +177,16 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 clips.line_ranges(line, &mut self.clip_ranges);
             }
 
+            let clip_span = |command: CommandId, mut span: Range<i32>| {
+                let clip = commands.clip(command);
+                if clip != 0 {
+                    let clip = self.clip_ranges[clip as usize - 1].as_ref()?;
+                    span.start = span.start.max(clip.full_start);
+                    span.end = span.end.min(clip.full_end);
+                }
+                (span.start < span.end).then_some(span)
+            };
+
             for range in &self.ranges {
                 let first = self
                     .active
@@ -219,6 +197,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         commands.overwrites(**command)
                             && commands
                                 .overwrite_span(**command, line)
+                                .and_then(|span| clip_span(**command, span))
                                 .is_some_and(|span| span.start <= range.start as i32 && span.end >= range.end as i32)
                     })
                     .map(|(index, _)| index)
@@ -255,12 +234,12 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             let Payload::Image(image) = commands.get(*command) else {
                                 unreachable!()
                             };
-                            let image_id = RendererImageId::from(KeyData::from_ffi(image.image.0));
-                            let texture = images.get(image_id)?;
+                            let texture = images.get(image.image.into())?;
                             image.opaque_span(line, commands.bounds(*command), &texture.data, &texture.alpha_rows)
                         } else {
                             None
                         }?;
+                        let span = clip_span(*command, span)?;
                         let start = span.start.max(range.start as i32);
                         let end = span.end.min(range.end as i32);
                         (start < end).then_some((start as usize, end as usize, command_first))

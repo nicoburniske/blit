@@ -1,9 +1,41 @@
-use std::ops::Range;
+use std::{fmt, ops::Range};
 
 use blit::geometry::LogicalRect;
 pub use blit_text::FontStyle;
 
 use crate::color::Color;
+
+/// cached text geometry
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TextRun(pub(crate) u64);
+
+/// text from borrowed strings or formatting arguments
+#[derive(Clone, Copy, Debug)]
+pub enum TextSource<'a> {
+    Borrowed(&'a str),
+    Formatted(fmt::Arguments<'a>),
+}
+
+impl<'a, T: AsRef<str> + ?Sized> From<&'a T> for TextSource<'a> {
+    fn from(text: &'a T) -> Self {
+        Self::Borrowed(T::as_ref(text))
+    }
+}
+
+impl<'a, T: AsRef<str> + ?Sized> From<&'a mut T> for TextSource<'a> {
+    fn from(text: &'a mut T) -> Self {
+        Self::Borrowed(T::as_ref(text))
+    }
+}
+
+impl<'a> From<fmt::Arguments<'a>> for TextSource<'a> {
+    fn from(arguments: fmt::Arguments<'a>) -> Self {
+        match arguments.as_str() {
+            Some(text) => Self::Borrowed(text),
+            None => Self::Formatted(arguments),
+        }
+    }
+}
 
 /// cached horizontal positions for grayscale glyph rasterization
 ///
@@ -74,17 +106,28 @@ pub enum VerticalAlign {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextRequest {
-    pub text: TextRunId,
+pub struct TextRequest<'a> {
+    pub text: TextRun,
+    /// one color per span, missing spans repeat the last color
+    pub colors: &'a [Color],
     pub area: LogicalRect,
     pub offset_x: f32,
-    pub color: Color,
     pub options: TextOptions,
+}
+
+impl TextRequest<'_> {
+    pub fn span_color(&self, span: usize) -> Color {
+        self.colors
+            .get(span)
+            .or(self.colors.last())
+            .copied()
+            .unwrap_or(Color::TRANSPARENT)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextLayoutRequest {
-    pub text: TextRunId,
+    pub text: TextRun,
     pub wrap: TextWrap,
     pub max_width: Option<f32>,
     pub max_lines: Option<u16>,
@@ -99,6 +142,7 @@ blit::builder! {
         weight: u16 = 400,
         stretch: u16 = 100,
         style: FontStyle = FontStyle::Normal,
+        color: Color = Color::BLACK,
     }
 }
 
@@ -124,6 +168,3 @@ pub enum TextOverflow {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FontId(pub u16);
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct TextRunId(#[doc(hidden)] pub u64);

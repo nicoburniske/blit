@@ -1,28 +1,50 @@
-//! CPU rectangle styling
+//! drawing fills and rectangle styling
 
 use crate::color::Color;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Fill<'a> {
+    Solid(Color),
+    LinearGradient(LinearGradient<'a>),
+}
+
+impl Default for Fill<'_> {
+    fn default() -> Self {
+        Self::Solid(Color::TRANSPARENT)
+    }
+}
+
+impl From<Color> for Fill<'_> {
+    fn from(color: Color) -> Self {
+        Self::Solid(color)
+    }
+}
+
+impl<'a> From<LinearGradient<'a>> for Fill<'a> {
+    fn from(gradient: LinearGradient<'a>) -> Self {
+        Self::LinearGradient(gradient)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum Border<'a> {
-    #[default]
-    None,
-    Solid {
-        width: f32,
-        color: Color,
-    },
-    Gradient {
-        width: f32,
-        gradient: LinearGradient<'a>,
-    },
+pub struct Border<'a> {
+    pub width: f32,
+    pub fill: Fill<'a>,
 }
 
 impl<'a> Border<'a> {
     pub const fn solid(width: f32, color: Color) -> Self {
-        Self::Solid { width, color }
+        Self {
+            width,
+            fill: Fill::Solid(color),
+        }
     }
 
     pub const fn gradient(width: f32, gradient: LinearGradient<'a>) -> Self {
-        Self::Gradient { width, gradient }
+        Self {
+            width,
+            fill: Fill::LinearGradient(gradient),
+        }
     }
 }
 

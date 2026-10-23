@@ -1,13 +1,13 @@
 use std::hint::black_box;
 
-use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit::{LogicalRect, Scale2};
 use blit_cpu::{
     Direct, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888,
 };
 use blit_gui::{
-    FontData, FontFamily, GuiContext, RenderInput, TextConfig, TextSystem,
+    FontData, FontFamily, GuiContext, TextConfig, TextSystem,
     color::Color,
-    display_list::{BoxShadow, ClipId, DisplayList, Rectangle},
+    display_list::{BoxShadow, ClipId, DisplayList, Mesh, MeshVertex, Rectangle},
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{FontId, TextOptions, TextPhases, TextRequest, TextStyle, TextWrap},
@@ -24,6 +24,66 @@ static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
 
 fn main() {
     divan::main()
+}
+
+#[divan::bench(consts = [8, 32, 64], args = [0, 1, 2, 3, 4])]
+fn mesh_direct<const SIDE: usize>(bencher: divan::Bencher, kind: u8) {
+    benchmark_mesh::<SIDE, _>(bencher, kind, Direct::default());
+}
+
+#[divan::bench(consts = [8, 32, 64], args = [0, 1, 2, 3, 4])]
+fn mesh_scanline<const SIDE: usize>(bencher: divan::Bencher, kind: u8) {
+    benchmark_mesh::<SIDE, _>(bencher, kind, Scanline::default());
+}
+
+fn benchmark_mesh<const SIDE: usize, S>(bencher: divan::Bencher, kind: u8, strategy: S)
+where
+    S: RenderStrategy<VecBuffer<Xrgb8888>>,
+{
+    let mut vertices = Vec::with_capacity(SIDE * SIDE * 4);
+    let mut indices = Vec::with_capacity(SIDE * SIDE * 6);
+    for row in 0..SIDE {
+        for column in 0..SIDE {
+            let x = column as f32 * WIDTH as f32 / SIDE as f32;
+            let y = row as f32 * HEIGHT as f32 / SIDE as f32;
+            let w = WIDTH as f32 / SIDE as f32;
+            let h = HEIGHT as f32 / SIDE as f32;
+            let alpha = if kind % 2 == 0 { 255 } else { 128 };
+            let color = Color::rgba((column * 31) as u8, (row * 47) as u8, 176, alpha);
+            let first = vertices.len() as u32;
+            for (corner, (px, py)) in [(x, y), (x + w, y), (x, y + h), (x + w, y + h)].into_iter().enumerate() {
+                vertices.push(MeshVertex::new(
+                    px + py * 0.13 - 52.0,
+                    py + px * 0.07 - 17.0,
+                    if kind < 2 {
+                        color
+                    } else {
+                        Color::rgba(
+                            (corner * 73 + column * 31) as u8,
+                            (corner * 53 + row * 47) as u8,
+                            (corner * 97) as u8,
+                            if kind == 4 { (corner * 61 + 32) as u8 } else { alpha },
+                        )
+                    },
+                ));
+            }
+            indices.extend([first, first + 1, first + 2, first + 2, first + 1, first + 3]);
+        }
+    }
+    let mut display_list = DisplayList::default();
+    display_list.push_mesh(
+        Mesh {
+            vertices: &vertices,
+            indices: &indices,
+        },
+        SCALE,
+        ClipId::default(),
+    );
+    let mut renderer = renderer(WIDTH, HEIGHT, strategy);
+    renderer.render(&mut display_list);
+    bencher.counter(ItemsCount::new(SIDE * SIDE * 2)).bench_local(|| {
+        renderer.render(black_box(&mut display_list));
+    });
 }
 
 #[divan::bench(args = [255, 128])]
@@ -62,18 +122,12 @@ fn render_rectangles(bencher: divan::Bencher) {
             ClipId::default(),
         );
     }
-    let damage = [PhysicalRect {
-        x: 0,
-        y: 0,
-        width: WIDTH as i32,
-        height: HEIGHT as i32,
-    }];
     let mut renderer = renderer(WIDTH, HEIGHT, Scanline::default());
-    renderer.render(&display_list, &damage);
+    renderer.render(&mut display_list);
 
     bencher
         .counter(ItemsCount::new(PIXELS))
-        .bench_local(|| renderer.render(black_box(&display_list), black_box(&damage)));
+        .bench_local(|| renderer.render(black_box(&mut display_list)));
 }
 
 #[divan::bench]
@@ -198,13 +252,12 @@ fn gradient_border(bencher: divan::Bencher) {
         area.to_physical(SCALE),
         ClipId::default(),
     );
-    let damage = [area.to_physical(SCALE)];
     let mut renderer = renderer(WIDTH, HEIGHT, Scanline::default());
-    renderer.render(&display_list, &damage);
+    renderer.render(&mut display_list);
 
     bencher
         .counter(ItemsCount::new(area.to_physical(SCALE).height as usize))
-        .bench_local(|| renderer.render(black_box(&display_list), black_box(&damage)));
+        .bench_local(|| renderer.render(black_box(&mut display_list)));
 }
 
 #[divan::bench(args = [true, false])]
@@ -220,14 +273,13 @@ fn shadow(bencher: divan::Bencher, cached: bool) {
         .blur(16.0);
     let mut display_list = DisplayList::default();
     display_list.push_box_shadow(shadow, shadow.bounds().to_physical(SCALE), ClipId::default());
-    let damage = [shadow.bounds().to_physical(SCALE)];
     let mut renderer =
         renderer_with_shadow_cache(WIDTH, HEIGHT, Scanline::default(), if cached { 512 * 1024 } else { 0 });
-    renderer.render(&display_list, &damage);
+    renderer.render(&mut display_list);
 
     bencher
-        .counter(ItemsCount::new(damage[0].height as usize))
-        .bench_local(|| renderer.render(black_box(&display_list), black_box(&damage)));
+        .counter(ItemsCount::new(shadow.bounds().to_physical(SCALE).height as usize))
+        .bench_local(|| renderer.render(black_box(&mut display_list)));
 }
 
 fn benchmark_tiny_rectangles<S>(bencher: divan::Bencher, strategy: S)
@@ -249,18 +301,12 @@ where
             ClipId::default(),
         );
     }
-    let damage = [PhysicalRect {
-        x: 0,
-        y: 0,
-        width: SIDE as i32,
-        height: SIDE as i32,
-    }];
     let mut renderer = renderer(SIDE, SIDE, strategy);
-    renderer.render(&display_list, &damage);
+    renderer.render(&mut display_list);
 
     bencher
         .counter(ItemsCount::new(SIDE * SIDE))
-        .bench_local(|| renderer.render(black_box(&display_list), black_box(&damage)));
+        .bench_local(|| renderer.render(black_box(&mut display_list)));
 }
 
 fn benchmark_sparse_tiles<S>(bencher: divan::Bencher, strategy: S)
@@ -268,32 +314,38 @@ where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
     const DAMAGED: [usize; 16] = [0, 2, 5, 7, 9, 12, 18, 23, 24, 31, 33, 38, 45, 50, 56, 63];
-    let mut display_list = DisplayList::default();
-    let mut damage = Vec::with_capacity(DAMAGED.len());
-    for index in 0..64 {
-        let area = LogicalRect {
-            x: 36.0 + (index % 8) as f32 * 52.0,
-            y: 144.0 + (index / 8) as f32 * 64.0,
-            width: 44.0,
-            height: 44.0,
-        };
-        display_list.push_rectangle(
-            Rectangle::new(area)
-                .background(Color::rgb(40, 72, 112))
-                .radius(BorderRadius::uniform(8.0)),
-            area.to_physical(SCALE),
-            ClipId::default(),
-        );
-        if DAMAGED.contains(&index) {
-            damage.push(area.to_physical(SCALE));
-        }
-    }
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
-    renderer.render(&display_list, &damage);
+    let screen = renderer.render.screen();
+    let mut changed = false;
+    let mut render = || {
+        let list = renderer.gui.render_input().display_list;
+        list.push_clear(screen);
+        for index in 0..64 {
+            let area = LogicalRect {
+                x: 36.0 + (index % 8) as f32 * 52.0,
+                y: 144.0 + (index / 8) as f32 * 64.0,
+                width: 44.0,
+                height: 44.0,
+            };
+            list.push_rectangle(
+                Rectangle::new(area)
+                    .background(if changed && DAMAGED.contains(&index) {
+                        Color::rgb(48, 80, 120)
+                    } else {
+                        Color::rgb(40, 72, 112)
+                    })
+                    .radius(BorderRadius::uniform(8.0)),
+                area.to_physical(SCALE),
+                ClipId::default(),
+            );
+        }
+        renderer.render.render(renderer.gui.render_input(), 1);
+        renderer.gui.finish_frame();
+        changed = !changed;
+    };
+    render();
 
-    bencher
-        .counter(ItemsCount::new(DAMAGED.len()))
-        .bench_local(|| renderer.render(black_box(&display_list), black_box(&damage)));
+    bencher.counter(ItemsCount::new(DAMAGED.len())).bench_local(render);
 }
 
 fn benchmark_overlapping_rectangles<S>(bencher: divan::Bencher, strategy: S)
@@ -320,13 +372,12 @@ where
             ClipId::default(),
         );
     }
-    let damage = [area.to_physical(SCALE)];
     let mut renderer = renderer(SIZE, SIZE, strategy);
-    renderer.render(&display_list, &damage);
+    renderer.render(&mut display_list);
 
     bencher
         .counter(ItemsCount::new(COMMANDS))
-        .bench_local(|| renderer.render(black_box(&display_list), black_box(&damage)));
+        .bench_local(|| renderer.render(black_box(&mut display_list)));
 }
 
 fn benchmark_small_images<S>(bencher: divan::Bencher, strategy: S, format: ImageFormat)
@@ -343,7 +394,7 @@ where
         ImageFormat::Alpha8(_) => [192].repeat(IMAGE_SIZE * IMAGE_SIZE),
     };
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
-    let image = renderer.gui.create_image(ImageData::new(
+    let image = renderer.render.create_image(ImageData::new(
         ImagePixels::Owned(pixels.into_boxed_slice()),
         format,
         IMAGE_SIZE,
@@ -373,17 +424,11 @@ where
             ClipId::default(),
         );
     }
-    let damage = [PhysicalRect {
-        x: 0,
-        y: 0,
-        width: WIDTH as i32,
-        height: HEIGHT as i32,
-    }];
-    renderer.render(&display_list, &damage);
+    renderer.render(&mut display_list);
 
     bencher
         .counter(ItemsCount::new(COMMANDS))
-        .bench_local(|| renderer.render(black_box(&display_list), black_box(&damage)));
+        .bench_local(|| renderer.render(black_box(&mut display_list)));
 }
 
 fn benchmark_text_labels<S>(bencher: divan::Bencher, strategy: S)
@@ -392,7 +437,7 @@ where
 {
     const COMMANDS: usize = 48;
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
-    let text = renderer.gui.text_run("secure approval", TextStyle::default());
+    let text = renderer.gui.text_run("secure approval", TextStyle::new());
     let mut display_list = DisplayList::default();
     for index in 0..COMMANDS {
         let area = LogicalRect {
@@ -404,26 +449,20 @@ where
         display_list.push_text(
             TextRequest {
                 text,
+                colors: &[Color::rgb(224, 232, 240)],
                 area,
                 offset_x: 0.0,
-                color: Color::rgb(224, 232, 240),
                 options: TextOptions::default(),
             },
             area.to_physical(SCALE),
             ClipId::default(),
         );
     }
-    let damage = [PhysicalRect {
-        x: 0,
-        y: 0,
-        width: WIDTH as i32,
-        height: HEIGHT as i32,
-    }];
-    renderer.render(&display_list, &damage);
+    renderer.render(&mut display_list);
 
     bencher
         .counter(ItemsCount::new(COMMANDS))
-        .bench_local(|| renderer.render(black_box(&display_list), black_box(&damage)));
+        .bench_local(|| renderer.render(black_box(&mut display_list)));
 }
 
 fn benchmark_text_heavy<S>(bencher: divan::Bencher, strategy: S)
@@ -435,10 +474,10 @@ where
     let strings = (0..LINES)
         .map(|line| {
             renderer.gui.text_run(
-                &format!(
+                format_args!(
                     "transaction {line:02}: verify recipient 0x7c91…{line:04x}, amount 12.345 ETH, and network fee 0.0042 ETH"
                 ),
-                TextStyle::default(),
+                TextStyle::new(),
             )
         })
         .collect::<Vec<_>>();
@@ -453,26 +492,20 @@ where
         display_list.push_text(
             TextRequest {
                 text,
+                colors: &[Color::rgb(224, 232, 240)],
                 area,
                 offset_x: 0.0,
-                color: Color::rgb(224, 232, 240),
                 options: TextOptions::default(),
             },
             area.to_physical(SCALE),
             ClipId::default(),
         );
     }
-    let damage = [PhysicalRect {
-        x: 0,
-        y: 0,
-        width: WIDTH as i32,
-        height: HEIGHT as i32,
-    }];
-    renderer.render(&display_list, &damage);
+    renderer.render(&mut display_list);
 
     bencher
         .counter(ItemsCount::new(LINES))
-        .bench_local(|| renderer.render(black_box(&display_list), black_box(&damage)));
+        .bench_local(|| renderer.render(black_box(&mut display_list)));
 }
 
 fn benchmark_wrapped_paragraph<S>(bencher: divan::Bencher, strategy: S)
@@ -487,6 +520,7 @@ where
     };
     let style = TextStyle {
         size: 20.0,
+        color: Color::rgb(224, 232, 240),
         ..TextStyle::default()
     };
     let mut renderer = renderer(WIDTH, HEIGHT, strategy);
@@ -498,9 +532,9 @@ where
     display_list.push_text(
         TextRequest {
             text,
+            colors: &[style.color],
             area,
             offset_x: 0.0,
-            color: Color::rgb(224, 232, 240),
             options: TextOptions {
                 wrap: TextWrap::Word,
                 ..TextOptions::default()
@@ -509,12 +543,11 @@ where
         area.to_physical(SCALE),
         ClipId::default(),
     );
-    let damage = [area.to_physical(SCALE)];
-    renderer.render(&display_list, &damage);
+    renderer.render(&mut display_list);
 
     bencher
         .counter(ItemsCount::new(1usize))
-        .bench_local(|| renderer.render(black_box(&display_list), black_box(&damage)));
+        .bench_local(|| renderer.render(black_box(&mut display_list)));
 }
 
 fn benchmark_rounded_clip<S>(bencher: divan::Bencher, strategy: S)
@@ -551,13 +584,12 @@ where
             clip,
         );
     }
-    let damage = [area.to_physical(SCALE)];
     let mut renderer = renderer(SIZE, SIZE, strategy);
-    renderer.render(&display_list, &damage);
+    renderer.render(&mut display_list);
 
     bencher
         .counter(ItemsCount::new(COMMANDS))
-        .bench_local(|| renderer.render(black_box(&display_list), black_box(&damage)));
+        .bench_local(|| renderer.render(black_box(&mut display_list)));
 }
 
 struct BenchRenderer<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> {
@@ -566,11 +598,10 @@ struct BenchRenderer<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> {
 }
 
 impl<B: blit_cpu::PixelBuffer, S: RenderStrategy<B>> BenchRenderer<B, S> {
-    fn render(&mut self, display_list: &DisplayList, damage: &[PhysicalRect]) {
-        let RenderInput {
-            text, image_uploads, ..
-        } = self.gui.render_input();
-        self.render.render_damage(text, image_uploads, display_list, damage);
+    fn render(&mut self, display_list: &mut DisplayList) {
+        let mut input = self.gui.render_input();
+        input.display_list = display_list;
+        self.render.render(input, 0);
         self.gui.finish_frame();
     }
 }
@@ -594,6 +625,7 @@ where
     let render = Renderer::new(
         VecBuffer::new(width, height),
         RendererConfig {
+            damage_tile_size: 32,
             paint_cache_capacity: 512 * 1024,
             glyph_cache_capacity: 512 * 1024,
             shadow_cache_capacity,

@@ -8,7 +8,8 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
 };
 use blit_executor::LocalExecutor;
-use blit_gui::{GuiContext, TextLayoutEngine, TextSystem, Ui};
+use blit_gui::{GuiContext, TextLayoutEngine, TextSystem};
+use blit_widgets::Stage;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize as WindowSize, PhysicalPosition, PhysicalSize},
@@ -19,7 +20,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{Application, Config, EventLoopProxy, GraphicsBackend, RunError};
+use crate::{Application, Config, DesktopContext, EventLoopProxy, RunError, Ui};
 
 pub enum Event<T> {
     Input(T),
@@ -54,15 +55,14 @@ impl<A: Application> Session<A> {
             text,
             graphics,
         } = config;
-        let gui = GuiContext::new(TextSystem::new(text_config, text)?);
+        let context = DesktopContext::new(GuiContext::new(TextSystem::new(text_config, text)?), graphics);
         let event_loop = EventLoop::<Event<A::Input>>::with_user_event().build()?;
         let runner = Runner {
             state: Some(State::Pending(Pending {
                 title,
                 width,
                 height,
-                gui,
-                graphics,
+                context,
                 input: EventLoopProxy {
                     inner: event_loop.create_proxy(),
                 },
@@ -114,17 +114,15 @@ struct Pending<A: Application> {
     title: String,
     width: u32,
     height: u32,
-    gui: GuiContext,
-    graphics: Box<dyn GraphicsBackend>,
+    context: DesktopContext,
     input: EventLoopProxy<A::Input>,
 }
 
 struct Active<A: Application> {
     app: A,
     executor: LocalExecutor<A>,
-    gui: GuiContext,
-    graphics: Box<dyn GraphicsBackend>,
-    frame: Frame<GuiContext>,
+    context: DesktopContext,
+    frame: Frame<DesktopContext>,
     window: Arc<Window>,
     ui_scale: f32,
     render_deferred: bool,
@@ -137,7 +135,7 @@ impl<A: Application> Active<A> {
     }
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), RunError> {
-        self.graphics.resize(size)?;
+        self.context.graphics.resize(size)?;
         self.render_deferred = self.occluded || size.width == 0 || size.height == 0;
         if !self.render_deferred {
             self.frame.request_frame();
@@ -214,26 +212,28 @@ impl<A: Application> Runner<A> {
         let scale = active.scale();
         let info = FrameInfo::new(Size::new(size.width as f32 / scale, size.height as f32 / scale));
         let no_input = self.inputs.is_empty().then_some(Input::None);
+        active.context.profiler.begin_frame(time);
         for input in self.inputs.drain(..).chain(no_input) {
-            active.gui.profiler_mut().begin_build();
             active
                 .frame
-                .build(&mut active.gui, info, time, input, |ui: Ui<'_>| active.app.render(ui));
-            active.gui.profiler_mut().begin_layout();
-            active.frame.layout(&mut active.gui);
+                .build(&mut active.context, info, time, input, |ui: Ui<'_>| {
+                    active.app.render(ui)
+                });
+            active.context.profiler.finish_stage(Stage::Build);
+            active.frame.layout(&mut active.context);
+            active.context.profiler.finish_stage(Stage::Layout);
         }
-        active.gui.profiler_mut().begin_paint();
-        active.frame.paint(&mut active.gui);
-        let presented = match active.graphics.render(active.gui.render_input()) {
+        active.frame.paint(&mut active.context);
+        let presented = match active.context.graphics.render(active.context.gui.render_input()) {
             Ok(presented) => presented,
             Err(error) => return self.fail(event_loop, error),
         };
-        active.gui.profiler_mut().finish();
+        active.context.profiler.finish_frame();
         active.render_deferred = !presented;
         if !presented {
             active.frame.request_frame();
         }
-        active.gui.finish_frame();
+        active.context.gui.finish_frame();
     }
 }
 
@@ -243,13 +243,12 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             title,
             width,
             height,
-            mut gui,
-            mut graphics,
+            mut context,
             input,
         } = match self.state.take() {
             Some(State::Pending(pending)) => pending,
             Some(State::Active(mut active)) => {
-                if let Err(error) = active.graphics.resume(active.window.clone()) {
+                if let Err(error) = active.context.graphics.resume(active.window.clone()) {
                     return self.fail(event_loop, error);
                 }
                 let size = active.window.inner_size();
@@ -269,22 +268,21 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Err(error) => return self.fail(event_loop, error),
         };
         let size = window.inner_size();
-        if let Err(error) = graphics.resume(window.clone()) {
+        if let Err(error) = context.graphics.resume(window.clone()) {
             return self.fail(event_loop, error);
         }
-        gui.set_scale(window.scale_factor() as f32);
+        context.gui.set_scale(window.scale_factor() as f32);
         let frame = Frame::default();
         let wake = input.inner.clone();
         let executor = LocalExecutor::new(move || {
             let _ = wake.send_event(Event::TasksReady);
         });
         let root = executor.root();
-        let app = A::new(input, root, &mut gui);
+        let app = A::new(input, root, &mut context);
         let mut active = Box::new(Active {
             app,
             executor,
-            gui,
-            graphics,
+            context,
             frame,
             window,
             ui_scale: 1.0,
@@ -299,7 +297,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
 
     fn suspended(&mut self, _: &ActiveEventLoop) {
         if let Some(State::Active(active)) = &mut self.state {
-            active.graphics.suspend();
+            active.context.graphics.suspend();
             active.render_deferred = true;
         }
     }
@@ -336,7 +334,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                active.gui.set_scale(scale_factor as f32 * active.ui_scale);
+                active.context.gui.set_scale(scale_factor as f32 * active.ui_scale);
                 if let Err(error) = active.resize(active.window.inner_size()) {
                     self.fail(event_loop, error);
                 }
@@ -374,6 +372,10 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 active.window.request_redraw();
                 self.cursor = None;
                 self.inputs.push(Input::PointerLeave);
+            }
+            WindowEvent::Focused(false) => {
+                active.window.request_redraw();
+                self.inputs.push(Input::Cancel);
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(position) = self.cursor {
@@ -424,7 +426,8 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 let phase = match phase {
                     TouchPhase::Started => ScrollPhase::Started,
                     TouchPhase::Moved => ScrollPhase::Moved,
-                    TouchPhase::Ended | TouchPhase::Cancelled => ScrollPhase::Ended,
+                    TouchPhase::Ended => ScrollPhase::Ended,
+                    TouchPhase::Cancelled => ScrollPhase::Cancelled,
                 };
                 active.window.request_redraw();
                 self.push_input(Input::Scroll {
@@ -481,7 +484,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                         if let Some(scale) = scale {
                             active.ui_scale = scale.clamp(0.5, 4.0);
                             let scale = active.scale();
-                            active.gui.set_scale(scale);
+                            active.context.gui.set_scale(scale);
                         }
                     }
                     self.push_input(Input::Key(KeyInput {
@@ -507,24 +510,16 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             WindowEvent::Touch(touch) => {
                 let position = logical_position(touch.location, active.scale());
                 active.window.request_redraw();
-                let input = match touch.phase {
-                    TouchPhase::Started => Input::PointerDown {
-                        position,
-                        button: PointerButton::Primary,
-                        modifiers: self.modifiers,
+                self.push_input(Input::Touch {
+                    id: touch.id,
+                    position,
+                    phase: match touch.phase {
+                        TouchPhase::Started => blit::TouchPhase::Down,
+                        TouchPhase::Moved => blit::TouchPhase::Move,
+                        TouchPhase::Ended => blit::TouchPhase::Up,
+                        TouchPhase::Cancelled => blit::TouchPhase::Cancel,
                     },
-                    TouchPhase::Moved => Input::PointerMove {
-                        position,
-                        modifiers: self.modifiers,
-                    },
-                    TouchPhase::Ended | TouchPhase::Cancelled => Input::PointerUp {
-                        position,
-                        button: PointerButton::Primary,
-                        modifiers: self.modifiers,
-                        leave: true,
-                    },
-                };
-                self.push_input(input);
+                });
             }
             _ => {}
         }

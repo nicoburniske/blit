@@ -8,9 +8,9 @@ publish = false
 [dependencies]
 blit.workspace = true
 blit-gui.workspace = true
-blit-raster.workspace = true
 blit-text.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
+blit-arena.workspace = true
 wgpu = { workspace = true, features = ["std", "wgsl"] }
 
 [dev-dependencies]

@@ -4,8 +4,12 @@ compile_error!("blit-desktop currently supports Linux and macOS only");
 pub use blit_executor::{AppMut, Project, Root, Scope, ScopeRef, TaskId};
 pub use winit::event_loop::EventLoopClosed;
 
-pub use self::event_loop::{Session, run};
+pub use self::{
+    context::DesktopContext,
+    event_loop::{Session, run},
+};
 
+mod context;
 #[cfg(feature = "cpu")]
 pub mod cpu;
 mod event_loop;
@@ -14,7 +18,10 @@ pub mod gpu;
 
 use std::{error::Error, fmt, sync::Arc};
 
-use blit_gui::{GuiContext, RenderInput, TextConfig, Ui};
+use blit_gui::{
+    RenderInput, TextConfig,
+    image::{ImageData, ImageHandle},
+};
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy as WinitEventLoopProxy, window::Window};
 
 pub struct Config<T> {
@@ -26,9 +33,13 @@ pub struct Config<T> {
     pub graphics: Box<dyn GraphicsBackend>,
 }
 
+pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, DesktopContext, S>;
+
 pub type GraphicsError = Box<dyn Error>;
 
 pub trait GraphicsBackend: 'static {
+    fn create_image(&mut self, data: ImageData) -> Result<ImageHandle, GraphicsError>;
+
     fn resume(&mut self, window: Arc<Window>) -> Result<(), GraphicsError>;
 
     fn suspend(&mut self);
@@ -68,7 +79,7 @@ impl<T> EventLoopProxy<T> {
 pub trait Application: Sized + 'static {
     type Input: Send + 'static;
 
-    fn new(input: EventLoopProxy<Self::Input>, root: Root<Self>, gui: &mut GuiContext) -> Self;
+    fn new(input: EventLoopProxy<Self::Input>, root: Root<Self>, context: &mut DesktopContext) -> Self;
 
     fn input(&mut self, input: Self::Input);
 

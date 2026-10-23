@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use crate::{animation::Easing, interact::WidgetId};
+use crate::{animation::Easing, interact::Id};
 
 pub struct AnimationState {
-    pub id: WidgetId,
+    pub id: Id,
     pub value: f32,
     pub start: f32,
     pub target: f32,
@@ -15,7 +15,7 @@ pub struct AnimationState {
 }
 
 impl AnimationState {
-    pub fn update(animations: &mut Vec<Self>, id: WidgetId, initial: f32, advance: impl FnOnce(&mut Self)) -> f32 {
+    pub fn update(animations: &mut Vec<Self>, id: Id, initial: f32, advance: impl FnOnce(&mut Self)) -> f32 {
         let index = match animations.binary_search_by_key(&id, |animation| animation.id) {
             Ok(index) => index,
             Err(index) => {
@@ -23,7 +23,7 @@ impl AnimationState {
                 index
             }
         };
-        assert!(!animations[index].seen, "duplicate animation WidgetId {id:?}");
+        assert!(!animations[index].seen, "duplicate animation Id {id:?}");
         advance(&mut animations[index]);
         animations[index].value
     }
@@ -83,7 +83,7 @@ impl AnimationState {
 }
 
 impl AnimationState {
-    fn new(id: WidgetId, target: f32) -> Self {
+    fn new(id: Id, target: f32) -> Self {
         Self {
             id,
             value: target,

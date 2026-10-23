@@ -1,14 +1,16 @@
 use std::{
-    cell::{Cell, UnsafeCell},
+    cell::Cell,
     mem::{MaybeUninit, align_of, needs_drop, size_of},
     ops::{Deref, DerefMut},
 };
 
+use crate::internal::bump::{Bump, Slice};
+
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct DataId(u32);
+pub struct BumpId(u32);
 
-impl DataId {
+impl BumpId {
     pub const NONE: Self = Self(u32::MAX);
 
     pub fn offset(self) -> Option<usize> {
@@ -16,55 +18,68 @@ impl DataId {
     }
 }
 
+/// values stored until the frame that created them is rebuilt
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameSlice<T> {
+    slice: Slice<T>,
+    epoch: u32,
+}
+
 #[derive(Default)]
-pub struct DataArena {
-    words: Vec<Word>,
+pub struct BumpArena {
+    storage: Bump,
     drops: Vec<DropEntry>,
-    len: usize,
     scratch_used: Cell<usize>,
     scratch_peak: Cell<usize>,
     scratch_live: Cell<usize>,
+    // rejects slices from previous frames
+    epoch: u32,
 }
 
-impl DataArena {
-    pub fn store<T: 'static>(&mut self, value: T) -> DataId {
-        const {
-            assert!(
-                align_of::<T>() <= align_of::<Word>(),
-                "frame data alignment exceeds arena alignment"
-            );
+impl BumpArena {
+    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
+        FrameSlice {
+            slice: self.storage.extend(values),
+            epoch: self.epoch,
         }
-        let offset = self.len.next_multiple_of(align_of::<T>());
-        let end = offset + size_of::<T>();
-        assert!(offset < u32::MAX as usize, "too much frame data");
-        let id = DataId(offset as u32);
-        assert!(end <= isize::MAX as usize, "too much frame data");
-        self.words.resize_with(end.div_ceil(size_of::<Word>()), || {
-            Word(UnsafeCell::new(MaybeUninit::uninit()))
-        });
-        self.len = end;
-        let pointer = self.pointer::<T>(id);
-        // record the destructor while rust owns value so a panic in push still drops it
-        // the pointer is checked above and the following write cannot panic
+    }
+
+    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T] {
+        if slice.slice.len == 0 {
+            return &[];
+        }
+        assert_eq!(slice.epoch, self.epoch, "frame slice belongs to a previous frame");
+        // safety: the epoch proves store_slice wrote these values since the last clear
+        unsafe { self.storage.slice(slice.slice) }
+    }
+
+    pub fn store<T: 'static>(&mut self, value: T) -> BumpId {
+        // reserve before moving value so registering its destructor cannot allocate
+        if const { needs_drop::<T>() } {
+            self.drops.reserve(1);
+        }
+        let id = BumpId(self.storage.push(value).byte());
         if const { needs_drop::<T>() } {
             self.drops.push(DropEntry {
                 offset: id.0,
-                drop: drop_value::<T>,
+                drop: |value| {
+                    // safety: the drop entry was created for T at this address
+                    unsafe { value.cast::<T>().drop_in_place() };
+                },
             });
         }
-        // safety: the backing words are aligned and sized for T
-        unsafe { pointer.write(value) };
+        assert!(id.0 < u32::MAX, "too much frame data");
         id
     }
 
     pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'_, T> {
         const {
             assert!(
-                align_of::<T>() <= align_of::<Word>(),
+                align_of::<T>() <= Bump::ALIGNMENT,
                 "scratch alignment exceeds arena alignment"
             );
         }
-        let start = self.scratch_used.get().max(self.len);
+        let start = self.scratch_used.get().max(self.storage.used());
         let offset = start.next_multiple_of(align_of::<T>());
         let end = size_of::<T>()
             .checked_mul(len)
@@ -72,23 +87,18 @@ impl DataArena {
             .filter(|&end| end <= isize::MAX as usize)
             .expect("too much scratch data");
         let live = self.scratch_live.get().checked_add(1).expect("too many scratch guards");
-        let inner = if end <= self.words.len() * size_of::<Word>() {
+        let inner = if end <= self.storage.capacity() {
             let pointer = if len == 0 || size_of::<T>() == 0 {
                 std::ptr::NonNull::<T>::dangling().as_ptr()
             } else {
                 // safety: this range is disjoint from retained data and all live scratch guards
-                unsafe {
-                    UnsafeCell::raw_get(self.words.as_ptr().cast::<UnsafeCell<MaybeUninit<[u8; 64]>>>())
-                        .cast::<u8>()
-                        .add(offset)
-                        .cast::<T>()
-                }
+                unsafe { self.storage.as_ptr().add(offset).cast::<T>() }
             };
             // safety: the storage is aligned and sized for this slice
             let values = unsafe { std::slice::from_raw_parts_mut(pointer.cast::<MaybeUninit<T>>(), len) };
             values.fill(MaybeUninit::new(value));
             // safety: every element has been initialized
-            ScratchInner::Ref(unsafe { std::slice::from_raw_parts_mut(pointer, len) })
+            ScratchInner::Ref(unsafe { values.assume_init_mut() })
         } else {
             ScratchInner::Owned(vec![value; len])
         };
@@ -97,59 +107,56 @@ impl DataArena {
         self.scratch_live.set(live);
         Scratch {
             inner,
-            arena: self,
+            bump: self,
             start,
             end,
         }
     }
 
     pub fn prepare_scratch(&mut self) {
-        let needed = self.scratch_peak.get().div_ceil(size_of::<Word>());
-        self.words.reserve(needed.saturating_sub(self.words.len()));
-        self.words
-            .resize_with(self.words.capacity(), || Word(UnsafeCell::new(MaybeUninit::uninit())));
-        self.scratch_used.set(self.len);
+        self.storage.reserve(self.scratch_peak.get());
+        self.scratch_used.set(self.storage.used());
         self.scratch_live.set(0);
     }
 
-    pub fn load<T: 'static>(&self, id: DataId) -> &T {
+    pub fn load<T: 'static>(&self, id: BumpId) -> &T {
         // safety: store wrote T at this checked address
         unsafe { &*self.pointer::<T>(id) }
     }
 
-    pub fn load_mut<T: 'static>(&mut self, id: DataId) -> &mut T {
+    pub fn load_mut<T: 'static>(&mut self, id: BumpId) -> &mut T {
         // safety: the mutable arena borrow makes this checked address exclusive
         unsafe { &mut *self.pointer::<T>(id) }
     }
 
     pub fn clear(&mut self) {
-        let data = self.words.as_mut_ptr().cast::<u8>();
+        let pointer = self.storage.as_ptr();
         while let Some(entry) = self.drops.pop() {
             // safety: entries point to initialized values in the arena
-            (entry.drop)(unsafe { data.add(entry.offset as usize) });
+            (entry.drop)(unsafe { pointer.add(entry.offset as usize) });
         }
-        self.len = 0;
+        self.storage.clear();
+        self.epoch = self.epoch.wrapping_add(1);
     }
 }
 
-impl DataArena {
-    fn pointer<T>(&self, id: DataId) -> *mut T {
+impl BumpArena {
+    fn pointer<T>(&self, id: BumpId) -> *mut T {
         let offset = id.offset().expect("frame data is missing");
-        assert!(offset.checked_add(size_of::<T>()).is_some_and(|end| end <= self.len));
+        assert!(
+            offset
+                .checked_add(size_of::<T>())
+                .is_some_and(|end| end <= self.storage.used())
+        );
         if size_of::<T>() == 0 {
             return std::ptr::NonNull::<T>::dangling().as_ptr();
         }
         // safety: the offset is within the arena and shared writes use disjoint reserved ranges
-        unsafe {
-            UnsafeCell::raw_get(self.words.as_ptr().cast::<UnsafeCell<MaybeUninit<[u8; 64]>>>())
-                .cast::<u8>()
-                .add(offset)
-                .cast::<T>()
-        }
+        unsafe { self.storage.as_ptr().add(offset).cast::<T>() }
     }
 }
 
-impl Drop for DataArena {
+impl Drop for BumpArena {
     fn drop(&mut self) {
         self.clear();
     }
@@ -158,7 +165,7 @@ impl Drop for DataArena {
 /// temporary slice reclaimed when its guard drops
 pub struct Scratch<'a, T> {
     inner: ScratchInner<'a, T>,
-    arena: &'a DataArena,
+    bump: &'a BumpArena,
     start: usize,
     end: usize,
 }
@@ -185,13 +192,13 @@ impl<T> DerefMut for Scratch<'_, T> {
 
 impl<T> Drop for Scratch<'_, T> {
     fn drop(&mut self) {
-        let live = self.arena.scratch_live.get() - 1;
-        self.arena.scratch_live.set(live);
+        let live = self.bump.scratch_live.get() - 1;
+        self.bump.scratch_live.set(live);
         // gaps from guards dropped out of order remain until the last guard drops
         if live == 0 {
-            self.arena.scratch_used.set(self.arena.len);
-        } else if self.arena.scratch_used.get() == self.end {
-            self.arena.scratch_used.set(self.start);
+            self.bump.scratch_used.set(self.bump.storage.used());
+        } else if self.bump.scratch_used.get() == self.end {
+            self.bump.scratch_used.set(self.start);
         }
     }
 }
@@ -206,14 +213,6 @@ struct DropEntry {
     drop: fn(*mut u8),
 }
 
-fn drop_value<T>(value: *mut u8) {
-    // safety: the drop entry was created for T at this address
-    unsafe { value.cast::<T>().drop_in_place() };
-}
-
-#[repr(C, align(64))]
-struct Word(UnsafeCell<MaybeUninit<[u8; 64]>>);
-
 #[cfg(test)]
 mod tests {
     use std::{cell::Cell, rc::Rc};
@@ -223,15 +222,15 @@ mod tests {
     #[test]
     #[should_panic(expected = "too much scratch data")]
     fn rejects_scratch_size_overflow() {
-        DataArena::default().scratch(usize::MAX, 0_u64);
+        BumpArena::default().scratch(usize::MAX, 0_u64);
     }
 
     #[test]
     #[should_panic(expected = "too much scratch data")]
     fn rejects_scratch_beyond_address_limit() {
-        let mut arena = DataArena::default();
-        arena.store(0_u8);
-        arena.scratch(isize::MAX as usize, 0_u8);
+        let mut bump = BumpArena::default();
+        bump.store(0_u8);
+        bump.scratch(isize::MAX as usize, 0_u8);
     }
 
     #[test]
@@ -248,16 +247,16 @@ mod tests {
         }
 
         let dropped = Rc::new(Cell::new(false));
-        let mut arena = DataArena::default();
-        arena.store(1_u32);
-        let aligned = arena.store(Aligned(7));
-        assert_eq!(arena.load::<Aligned>(aligned).0, 7);
-        assert!(arena.drops.is_empty());
-        arena.store(Dropped(dropped.clone()));
-        assert_eq!(arena.drops.len(), 1);
+        let mut bump = BumpArena::default();
+        bump.store(1_u32);
+        let aligned = bump.store(Aligned(7));
+        assert_eq!(bump.load::<Aligned>(aligned).0, 7);
+        assert!(bump.drops.is_empty());
+        bump.store(Dropped(dropped.clone()));
+        assert_eq!(bump.drops.len(), 1);
 
-        arena.clear();
+        bump.clear();
         assert!(dropped.get());
-        assert!(arena.drops.is_empty());
+        assert!(bump.drops.is_empty());
     }
 }

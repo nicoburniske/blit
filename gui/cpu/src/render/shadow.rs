@@ -1,4 +1,5 @@
 use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit_arena::Arena;
 use blit_cache::{DeferredCache, Scale};
 use blit_gui::{
     color::Color,
@@ -8,13 +9,12 @@ use blit_gui::{
     },
     style::BorderRadius,
 };
-use slotmap::SlotMap;
 
 use super::{
     blur,
     rounded::{Radii, RoundedLine},
 };
-use crate::{RendererImageId, StoredImage};
+use crate::StoredImage;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct KeyData {
@@ -60,7 +60,7 @@ impl Cache {
 
     pub fn prepare(
         &mut self,
-        images: &mut SlotMap<RendererImageId, StoredImage>,
+        images: &mut Arena<StoredImage>,
         shadow: &BoxShadow,
         scale_factor: f32,
     ) -> Option<Prepared> {
@@ -249,8 +249,9 @@ impl Cache {
                 image_width,
                 image_height,
             );
+            let image = images.insert_with(|id| StoredImage::new(ImageHandle::new(id.into(), data.size), data));
             let cached = CachedShadow {
-                image: StoredImage::insert(images, data),
+                image: images.get(image).unwrap().handle.clone(),
                 bytes,
                 nine_slice,
             };

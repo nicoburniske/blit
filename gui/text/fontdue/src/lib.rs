@@ -1,8 +1,9 @@
 use std::{borrow::Borrow, cmp::Reverse, mem::size_of, ops::Range};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
+use blit_raster::{FontFace, Rasterizer};
 use blit_text::{
-    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle, Glyph, LayoutLine,
+    Caret, FontCandidate, FontData, FontError, FontFaceId, FontSelectionId, FontStyle, Glyph, GlyphMask, LayoutLine,
     LayoutRequest, LayoutRun, TextLayout, TextLayoutEngine, TextOverflow, TextStyle, TextWrap,
 };
 use fontdue::{
@@ -14,6 +15,7 @@ use fontdue::{
 };
 
 pub struct Backend {
+    rasterizer: Rasterizer,
     faces: Vec<Face>,
     selections: Vec<Box<[FontCandidate]>>,
     layout: Layout<(usize, usize)>,
@@ -59,6 +61,7 @@ impl Borrow<Font> for Face {
 impl Backend {
     pub fn new() -> Self {
         Self {
+            rasterizer: Rasterizer::default(),
             faces: Vec::new(),
             selections: Vec::new(),
             layout: Layout::new(CoordinateSystem::PositiveYDown),
@@ -75,7 +78,7 @@ impl Default for Backend {
 impl TextLayoutEngine for Backend {
     type Shape = Shape;
 
-    fn register_font(&mut self, data: FontData) -> Result<Vec<FontFaceId>, FontError> {
+    fn register_font(&mut self, data: FontData) -> Result<Vec<FontCandidate>, FontError> {
         let face_count = ttf_parser::fonts_in_collection(data.as_ref()).unwrap_or(1);
         let mut registered = Vec::new();
         for face_index in 0..face_count {
@@ -90,13 +93,30 @@ impl TextLayoutEngine for Backend {
             .map_err(|_| FontError::InvalidData)?;
             let id = FontFaceId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
             self.faces.push(Face {
-                data: FontFace {
-                    data: data.clone(),
-                    face_index,
-                },
+                data: FontFace::new(data.clone(), face_index).ok_or(FontError::InvalidData)?,
                 font,
             });
-            registered.push(id);
+            let face = ttf_parser::Face::parse(data.as_ref(), face_index).map_err(|_| FontError::InvalidData)?;
+            registered.push(FontCandidate {
+                face: id,
+                weight: face.weight().to_number(),
+                stretch: match face.width() {
+                    ttf_parser::Width::UltraCondensed => 50,
+                    ttf_parser::Width::ExtraCondensed => 63,
+                    ttf_parser::Width::Condensed => 75,
+                    ttf_parser::Width::SemiCondensed => 88,
+                    ttf_parser::Width::Normal => 100,
+                    ttf_parser::Width::SemiExpanded => 113,
+                    ttf_parser::Width::Expanded => 125,
+                    ttf_parser::Width::ExtraExpanded => 150,
+                    ttf_parser::Width::UltraExpanded => 200,
+                },
+                style: match face.style() {
+                    ttf_parser::Style::Normal => FontStyle::Normal,
+                    ttf_parser::Style::Italic => FontStyle::Italic,
+                    ttf_parser::Style::Oblique => FontStyle::Oblique,
+                },
+            });
         }
         if registered.is_empty() {
             return Err(FontError::InvalidData);
@@ -108,7 +128,7 @@ impl TextLayoutEngine for Backend {
         if candidates.is_empty()
             || candidates
                 .iter()
-                .any(|candidate| self.font_face(candidate.face).is_none())
+                .any(|candidate| candidate.face.0 == 0 || candidate.face.0 > self.faces.len() as u64)
         {
             return Err(FontError::NotFound);
         }
@@ -117,9 +137,15 @@ impl TextLayoutEngine for Backend {
         Ok(id)
     }
 
-    fn font_face(&self, face: FontFaceId) -> Option<&FontFace> {
-        let index = usize::try_from(face.0).ok()?.checked_sub(1)?;
-        self.faces.get(index).map(|face| &face.data)
+    fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
+        let Some(face) = usize::try_from(face.0)
+            .ok()
+            .and_then(|index| index.checked_sub(1))
+            .and_then(|index| self.faces.get(index))
+        else {
+            return GlyphMask::default();
+        };
+        self.rasterizer.rasterize(&face.data, glyph, size, offset_x)
     }
 
     fn shape(&mut self, text: blit_text::Text<'_>) -> (Shape, usize) {
@@ -511,10 +537,12 @@ mod tests {
         let mut backend = Backend::new();
         let face = backend
             .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
-            .unwrap()[0];
+            .unwrap()[0]
+            .face;
         let bold = backend
             .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
-            .unwrap()[0];
+            .unwrap()[0]
+            .face;
         let font = backend
             .register_font_selection(&[
                 FontCandidate {
@@ -574,7 +602,6 @@ mod tests {
                 .iter()
                 .any(|run| run.span == 1 && run.face == bold && run.size == 24.0)
         );
-        assert_eq!(backend.font_face(bold).unwrap().face_index, 0);
         let carets = backend.carets(&mut shape, text, request, 0);
         assert_eq!(
             carets
@@ -591,7 +618,8 @@ mod tests {
         let mut backend = Backend::new();
         let face = backend
             .register_font(FontData::Static(include_bytes!(env!("BLIT_TEST_FONT"))))
-            .unwrap()[0];
+            .unwrap()[0]
+            .face;
         let font = backend
             .register_font_selection(&[FontCandidate {
                 face,

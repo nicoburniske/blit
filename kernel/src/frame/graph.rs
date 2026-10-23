@@ -7,16 +7,13 @@ pub struct Frame<C: Context> {
     atom_kinds: Vec<AtomKind<C>>,
     layout_kinds: Vec<LayoutKind<C>>,
     clip_kinds: Vec<ClipKind<C>>,
-    data: DataArena,
-    scratch: DataArena,
-    paint_links: Vec<PaintLinks>,
+    bump: BumpArena,
+    scratch: BumpArena,
     paint_order: Vec<NodeId>,
-    order_stack: Vec<NodeId>,
-    resolved_clips: Vec<ResolvedClip<C::Scalar>>,
     active_clips: Vec<ResolvedClipId>,
     interaction: interaction::InteractionState<C::Scalar>,
-    geometry_previous: Vec<(WidgetId, Rect<C::Scalar>)>,
-    requests: HashMap<WidgetId, Request, BuildHasherDefault<WidgetIdHasher>>,
+    geometry_previous: Vec<(Id, Rect<C::Scalar>)>,
+    requests: HashMap<Id, Request, BuildHasherDefault<IdHasher>>,
     animations: Vec<animation::AnimationState>,
     transitions: Vec<transition::TransitionState<C::Scalar>>,
     target_sizes: Vec<TargetSize<C::Scalar>>,
@@ -27,7 +24,7 @@ pub struct Frame<C: Context> {
     resized: bool,
     frame_requested: bool,
     #[cfg(debug_assertions)]
-    widget_ids: std::collections::HashSet<WidgetId>,
+    widget_ids: std::collections::HashSet<Id>,
 }
 
 #[derive(Clone, Copy)]
@@ -37,9 +34,9 @@ enum Request {
 }
 
 #[derive(Default)]
-struct WidgetIdHasher(u64);
+struct IdHasher(u64);
 
-impl Hasher for WidgetIdHasher {
+impl Hasher for IdHasher {
     fn finish(&self) -> u64 {
         self.0
     }
@@ -49,7 +46,7 @@ impl Hasher for WidgetIdHasher {
     }
 
     fn write(&mut self, _: &[u8]) {
-        unreachable!("WidgetId hashes one u64")
+        unreachable!("Id hashes one u64")
     }
 }
 
@@ -64,12 +61,9 @@ impl<C: Context> Default for Frame<C> {
             atom_kinds: Vec::new(),
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
-            data: DataArena::default(),
-            scratch: DataArena::default(),
-            paint_links: Vec::new(),
+            bump: BumpArena::default(),
+            scratch: BumpArena::default(),
             paint_order: Vec::new(),
-            order_stack: Vec::new(),
-            resolved_clips: Vec::new(),
             active_clips: Vec::new(),
             interaction: interaction::InteractionState::default(),
             geometry_previous: Vec::new(),
@@ -90,6 +84,12 @@ impl<C: Context> Default for Frame<C> {
 }
 
 impl<C: Context> Frame<C> {
+    /// updates recognition thresholds including pending long press timers
+    pub fn set_interaction_config(&mut self, config: crate::InteractionConfig) {
+        self.interaction.config = config;
+        self.request_frame();
+    }
+
     /// rebuilds the frame graph for one input
     pub fn build<W: Widget<C>>(
         &mut self,
@@ -108,14 +108,13 @@ impl<C: Context> Frame<C> {
         self.clips.clear();
         self.geometry.clear();
         self.requests.clear();
-        self.data.clear();
+        self.bump.clear();
         for kind in &mut self.layout_kinds {
-            kind.default_item = DataId::NONE;
+            kind.default_item = BumpId::NONE;
         }
         #[cfg(debug_assertions)]
         self.widget_ids.clear();
         self.paint_order.clear();
-        self.resolved_clips.clear();
         self.active_clips.clear();
         self.input = input;
         self.time = time;
@@ -131,9 +130,11 @@ impl<C: Context> Frame<C> {
         for timer in &mut self.timers {
             timer.seen = false;
         }
-        self.interaction.begin(&input);
+        if self.interaction.begin(&input, time) {
+            self.frame_requested = true;
+        }
 
-        let id = WidgetId::new("blit frame root");
+        let id = Id::new("blit frame root");
         let root = self.push_node(None, id);
         let mut scratch = std::mem::take(&mut self.scratch);
         scratch.prepare_scratch();
@@ -155,26 +156,26 @@ impl<C: Context> Frame<C> {
 
     /// resolves layout, positioning, clipping and interaction for the built graph
     pub fn layout(&mut self, context: &mut C) {
-        let mut data = std::mem::take(&mut self.data);
-        data.prepare_scratch();
-        transition::resolve(self, &data, context, self.screen.size(), self.resized);
+        let mut bump = std::mem::take(&mut self.bump);
+        bump.prepare_scratch();
+        transition::resolve(self, &bump, context, NodeId::new(0), Constraints::tight(self.screen.size()), true);
         position::resolve(self);
-        paint::resolve_order(self);
-        paint::resolve_clips(self);
+        paint::resolve_order(self, &bump);
+        paint::resolve_clips(self, &bump);
         interaction::resolve(self);
         self.animations.retain(|animation| animation.seen);
         self.transitions.retain(|state| state.seen);
         self.timers.retain(|timer| timer.seen);
-        data.prepare_scratch();
-        self.data = data;
+        bump.prepare_scratch();
+        self.bump = bump;
     }
 
     /// paints the resolved graph and releases its retained values
     pub fn paint(&mut self, context: &mut C) {
-        let mut data = std::mem::take(&mut self.data);
-        paint::render(self, &data, context);
-        data.clear();
-        self.data = data;
+        let mut bump = std::mem::take(&mut self.bump);
+        paint::paint(self, &bump, context);
+        bump.clear();
+        self.bump = bump;
     }
 
     pub fn has_pending_redraw(&self) -> bool {
@@ -184,7 +185,11 @@ impl<C: Context> Frame<C> {
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
-        self.timers.iter().filter_map(timer::TimerState::deadline).min()
+        self.timers
+            .iter()
+            .filter_map(timer::TimerState::deadline)
+            .chain(self.interaction.next_deadline())
+            .min()
     }
 
     pub fn request_frame(&mut self) {
@@ -192,46 +197,15 @@ impl<C: Context> Frame<C> {
     }
 
     /// returns geometry from the current frame after layout
-    pub fn geometry(&self, id: WidgetId) -> Option<Rect<C::Scalar>> {
+    pub fn geometry(&self, id: Id) -> Option<Rect<C::Scalar>> {
         self.nodes
             .iter()
             .enumerate()
             .find_map(|(index, node)| (node.widget_id == id).then_some(self.node_geometry[index].area))
     }
-
 }
 
 impl<C: Context> Frame<C> {
-    fn push_atom<A: Atom<C>>(&mut self, node: NodeId, atom: A) {
-        let type_id = TypeId::of::<A>();
-        let kind = self
-            .atom_kinds
-            .iter()
-            .position(|kind| kind.type_id == type_id)
-            .unwrap_or_else(|| {
-                self.atom_kinds.push(AtomKind {
-                    type_id,
-                    measure: |data, id, context, constraints| data.load::<A>(id).measure(context, constraints),
-                    paint_bounds: |data, id, area| data.load::<A>(id).paint_bounds(area),
-                    paint: |data, id, context, area| data.load::<A>(id).paint(context, area),
-                });
-                self.atom_kinds.len() - 1
-            });
-        let id = StoredAtomId::new(self.atoms.len());
-        self.atoms.push(StoredAtom {
-            kind: u16::try_from(kind).expect("too many atom types"),
-            data: self.data.store(atom),
-            next: StoredAtomId::NONE,
-        });
-        let node = &mut self.nodes[node.index()];
-        if let Some(last) = node.last_atom.index() {
-            self.atoms[last].next = id;
-        } else {
-            node.first_atom = id;
-        }
-        node.last_atom = id;
-    }
-
     fn store_layout<L: Layout<C>>(&mut self, node: NodeId, value: L) {
         let type_id = TypeId::of::<L>();
         let kind = self
@@ -242,17 +216,18 @@ impl<C: Context> Frame<C> {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
                     run: layout::run::<C, L>,
-                    default_item: DataId::NONE,
+                    sizing: |bump, id, axis| bump.load::<L>(id).sizing(axis),
+                    default_item: BumpId::NONE,
                 });
                 self.layout_kinds.len() - 1
             });
         if self.layout_kinds[kind].default_item.offset().is_none() {
-            self.layout_kinds[kind].default_item = self.data.store(L::Item::default());
+            self.layout_kinds[kind].default_item = self.bump.store(L::Item::default());
         }
         let kind = u16::try_from(kind).expect("too many layout kinds");
-        let data = self.data.store(value);
+        let bump_id = self.bump.store(value);
         let node = &mut self.nodes[node.index()];
-        node.layout = data;
+        node.layout = bump_id;
         node.layout_kind = kind;
     }
 
@@ -265,20 +240,21 @@ impl<C: Context> Frame<C> {
             .unwrap_or_else(|| {
                 self.clip_kinds.push(ClipKind {
                     type_id,
-                    push: |data, id, context, area| data.load::<X>(id).push(context, area),
-                    pop: |data, id, context| data.load::<X>(id).pop(context),
+                    shape: |bump, id, area| bump.load::<X>(id).shape(area),
+                    push: |bump, id, context, area| bump.load::<X>(id).push(context, area),
+                    pop: |bump, id, context| bump.load::<X>(id).pop(context),
                 });
                 self.clip_kinds.len() - 1
             });
         let id = StoredClipId::new(self.clips.len());
         self.clips.push(StoredClip {
             kind: u16::try_from(kind).expect("too many clip types"),
-            data: self.data.store(clip),
+            bump_id: self.bump.store(clip),
         });
         id
     }
 
-    fn push_node(&mut self, parent: Option<NodeId>, widget_id: WidgetId) -> NodeId {
+    fn push_node(&mut self, parent: Option<NodeId>, widget_id: Id) -> NodeId {
         let id = NodeId::new(self.nodes.len());
         self.nodes.push(StoredNode {
             widget_id,
@@ -287,10 +263,10 @@ impl<C: Context> Frame<C> {
             subtree_end: id.value,
             first_atom: StoredAtomId::NONE,
             last_atom: StoredAtomId::NONE,
-            layout: DataId::NONE,
+            layout: BumpId::NONE,
             layout_kind: 0,
             clip: StoredClipId::NONE,
-            item: DataId::NONE,
+            item: BumpId::NONE,
             relative: parent.unwrap_or(id),
             out_of_flow: false,
             geometry: GeometryId::NONE,
@@ -358,9 +334,8 @@ impl<C: Context> Frame<C> {
 
     fn clip_bounds(&self, clip: ResolvedClipId) -> Rect<C::Scalar> {
         clip.index()
-            .map_or(self.screen, |clip| self.resolved_clips[clip].bounds)
+            .map_or(self.screen, |clip| self.interaction.clips[clip].bounds)
     }
-
 }
 
 #[cfg(debug_assertions)]
@@ -391,16 +366,16 @@ mod generation {
 }
 
 struct StoredNode {
-    widget_id: WidgetId,
+    widget_id: Id,
     parent: NodeId,
     visual_parent: NodeId,
     subtree_end: u32,
     first_atom: StoredAtomId,
     last_atom: StoredAtomId,
-    layout: DataId,
+    layout: BumpId,
     layout_kind: u16,
     clip: StoredClipId,
-    item: DataId,
+    item: BumpId,
     relative: NodeId,
     out_of_flow: bool,
     geometry: GeometryId,
@@ -426,32 +401,27 @@ struct GeometryRecord<T> {
     transition: Option<Transition>,
 }
 
-#[derive(Clone, Copy, Default)]
-struct PaintLinks {
-    first_child: u32,
-    next_sibling: u32,
-}
-
 #[derive(Clone, Copy)]
-struct ResolvedClip<T> {
+pub struct ResolvedClip<T> {
     parent: ResolvedClipId,
     depth: u32,
     clip: StoredClipId,
     area: Rect<T>,
     bounds: Rect<T>,
+    shape: ClipShape<T>,
 }
 
 #[derive(Clone, Copy)]
 struct StoredAtom {
     kind: u16,
-    data: DataId,
+    bump_id: BumpId,
     next: StoredAtomId,
 }
 
 #[derive(Clone, Copy)]
 struct StoredClip {
     kind: u16,
-    data: DataId,
+    bump_id: BumpId,
 }
 
 #[derive(Clone, Copy)]
@@ -479,19 +449,21 @@ type ResolvedClipId = Index<ResolvedClip<()>>;
 
 struct AtomKind<C: Context> {
     type_id: TypeId,
-    measure: fn(&DataArena, DataId, &mut C, Constraints<C::Scalar>) -> Size<C::Scalar>,
-    paint_bounds: fn(&DataArena, DataId, Rect<C::Scalar>) -> Rect<C::Scalar>,
-    paint: fn(&DataArena, DataId, &mut C, Rect<C::Scalar>),
+    measure: fn(&BumpArena, BumpId, &mut C, Constraints<C::Scalar>) -> Size<C::Scalar>,
+    paint_bounds: fn(&BumpArena, BumpId, Rect<C::Scalar>) -> Rect<C::Scalar>,
+    paint: fn(&BumpArena, BumpId, &mut C, Rect<C::Scalar>),
 }
 
 struct LayoutKind<C: Context> {
     type_id: TypeId,
-    run: for<'a> fn(&mut layout::LayoutCx<'a, C>, DataId, Constraints<C::Scalar>) -> Size<C::Scalar>,
-    default_item: DataId,
+    run: for<'a> fn(&mut layout::LayoutCx<'a, C>, BumpId, Constraints<C::Scalar>) -> Size<C::Scalar>,
+    sizing: fn(&BumpArena, BumpId, crate::Axis) -> crate::Sizing<C::Scalar>,
+    default_item: BumpId,
 }
 
 struct ClipKind<C: Context> {
     type_id: TypeId,
-    push: fn(&DataArena, DataId, &mut C, Rect<C::Scalar>),
-    pop: fn(&DataArena, DataId, &mut C),
+    shape: fn(&BumpArena, BumpId, Rect<C::Scalar>) -> ClipShape<C::Scalar>,
+    push: fn(&BumpArena, BumpId, &mut C, Rect<C::Scalar>),
+    pop: fn(&BumpArena, BumpId, &mut C),
 }

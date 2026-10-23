@@ -1,25 +1,28 @@
 use blit::{Axis, Constraints, Context, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
 
 blit::builder! {
-    /// split behavior and geometry
-    #[derive(Clone, Copy, Debug)]
-    pub struct Config<T: Scalar> {
-        new(initial_extent: T),
+    pub struct Split<'a, C: Context> {
+        new(state: &'a mut SplitState<C::Scalar>),
+        leading<L = fn(Ui<'_, C>)>: L = |_| (),
+        trailing<R = fn(Ui<'_, C>)>: R = |_| (),
+        #[bounds(FnOnce(Ui<'_, C>, Axis, blit::Interaction<C::Scalar>))]
+        divider<D = fn(Ui<'_, C>, Axis, blit::Interaction<<C as Context>::Scalar>)>: D = |_, _, _| (),
+        initial_extent: C::Scalar = C::Scalar::ZERO,
         axis: Axis = Axis::Horizontal,
-        divider_extent: T = T::from_f32(1.0),
-        minimum_leading: T = T::ZERO,
-        minimum_trailing: T = T::ZERO,
+        divider_extent: C::Scalar = C::Scalar::from_f32(1.0),
+        minimum_leading: C::Scalar = C::Scalar::ZERO,
+        minimum_trailing: C::Scalar = C::Scalar::ZERO,
         sense: Sense = Sense::DRAG,
     }
 }
 
 #[derive(Debug, Default)]
-pub struct State<T> {
+pub struct SplitState<T> {
     extent: Option<T>,
     changed: bool,
 }
 
-impl<T: Scalar> State<T> {
+impl<T: Scalar> SplitState<T> {
     pub fn extent(&self) -> Option<T> {
         self.extent
     }
@@ -35,30 +38,29 @@ impl<T: Scalar> State<T> {
     }
 }
 
-pub fn new<'a, C: Context, L, T, D, W>(
-    state: &'a mut State<C::Scalar>,
-    config: Config<C::Scalar>,
-    divider: D,
-    leading: L,
-    trailing: T,
-) -> impl Widget<C> + 'a
+impl<C: Context, L, R, D> Widget<C> for Split<'_, C, L, R, D>
 where
-    L: Widget<C> + 'a,
-    T: Widget<C> + 'a,
-    D: FnOnce(Axis, blit::Interaction<C::Scalar>) -> W + 'a,
-    W: Widget<C>,
+    L: Widget<C>,
+    R: Widget<C>,
+    D: FnOnce(Ui<'_, C>, Axis, blit::Interaction<C::Scalar>),
 {
-    move |mut ui: Ui<'_, C>| {
-        let id = ui.current_widget_id();
-        let axis = config.axis;
+    type Response = ();
+    fn build(self, mut ui: Ui<'_, C>) {
+        let state = self.state;
+        let leading = self.leading;
+        let trailing = self.trailing;
+        let divider = self.divider;
+        let id = ui.current_id();
+        let axis = self.axis;
         let leading_id = id.child("leading pane");
         let divider_id = id.child("divider");
         let trailing_id = id.child("trailing pane");
-        let interaction = ui.interact_widget(divider_id, config.sense);
+        let interaction = ui.interact_widget(divider_id, self.sense);
         let measured = ui.geometry(leading_id).map(|area| axis.extent(area.size()));
+        let delta = interaction.drag.map_or(Point::ZERO, |drag| drag.delta);
         let delta = match axis {
-            Axis::Horizontal => interaction.drag_delta.x,
-            Axis::Vertical => interaction.drag_delta.y,
+            Axis::Horizontal => delta.x,
+            Axis::Vertical => delta.y,
         };
         if !state.changed
             && let Some(measured) = measured
@@ -66,21 +68,24 @@ where
             state.extent = Some(measured);
         }
         if delta != C::Scalar::ZERO {
-            let extent = state.extent.unwrap_or(config.initial_extent);
+            let extent = state.extent.unwrap_or(self.initial_extent);
             state.extent = Some(extent + delta);
         }
-        let extent = state.extent.unwrap_or(config.initial_extent);
+        let extent = state.extent.unwrap_or(self.initial_extent);
         state.changed = false;
         let mut panes = ui.layout(Layout {
             axis,
-            divider_extent: config.divider_extent,
+            divider_extent: self.divider_extent,
             extent,
-            minimum_leading: config.minimum_leading,
-            minimum_trailing: config.minimum_trailing,
+            minimum_leading: self.minimum_leading,
+            minimum_trailing: self.minimum_trailing,
         });
-        panes.child().widget_id(leading_id).build(leading);
-        panes.child().widget_id(divider_id).build(divider(axis, interaction));
-        panes.child().widget_id(trailing_id).build(trailing);
+        panes.child().id(leading_id).build(leading);
+        panes
+            .child()
+            .id(divider_id)
+            .build(|ui: Ui<'_, C>| divider(ui, axis, interaction));
+        panes.child().id(trailing_id).build(trailing);
     }
 }
 
@@ -147,7 +152,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Atom, Constraints, Frame, FrameInfo, Input, Rect, Size, WidgetId};
+    use blit::{Atom, AtomCx, Constraints, Frame, FrameInfo, Id, Input, Rect, Size};
     use blit_layout::single;
 
     use super::*;
@@ -156,23 +161,19 @@ mod tests {
     struct BoxAtom;
 
     impl Atom<TestContext> for BoxAtom {
-        fn measure(&self, _: &mut TestContext, constraints: Constraints<f32>) -> Size<f32> {
+        fn measure(&self, _: &mut AtomCx<'_, TestContext>, constraints: Constraints<f32>) -> Size<f32> {
             constraints.min
         }
 
-        fn paint(&self, _: &mut TestContext, _: Rect<f32>) {}
-
-        fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
-            area
-        }
+        fn paint(&self, _: &mut AtomCx<'_, TestContext>, _: Rect<f32>) {}
     }
 
     #[test]
     fn clamps_the_leading_extent() {
         let mut frame = Frame::default();
-        let mut state = State::default();
+        let mut state = SplitState::default();
         state.set_extent(90.0);
-        let id = WidgetId::new("split pane");
+        let id = Id::new("split pane");
         let context = &mut TestContext;
         frame.build(
             context,
@@ -180,16 +181,15 @@ mod tests {
             Duration::ZERO,
             Input::None,
             |ui: Ui<'_, TestContext>| {
-                ui.layout(single::new().grow()).child().widget_id(id).build(new(
-                    &mut state,
-                    Config::new(30.0)
+                ui.layout(single::new().grow()).child().id(id).build(
+                    Split::new(&mut state)
+                        .initial_extent(30.0)
                         .minimum_leading(20.0)
                         .minimum_trailing(20.0)
-                        .divider_extent(4.0),
-                    |_, _| (),
-                    |mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom),
-                    |mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom),
-                ));
+                        .divider_extent(4.0)
+                        .leading(|mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom))
+                        .trailing(|mut ui: Ui<'_, TestContext>| ui.insert(BoxAtom)),
+                );
             },
         );
         frame.layout(context);

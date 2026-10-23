@@ -7,10 +7,9 @@
 //!
 //! - a node is the retained unit of geometry and composition. it may hold properties, atoms, an
 //!   optional layout, and child nodes
-//! - [`Widget`] receives a fresh node and builds it. it may insert content or establish a layout
-//!   and build children
-//! - [`Content`] works within an existing node. it may configure the node, use frame and context
-//!   services, and insert further content
+//! - [`Widget`] builds through a [`Ui`] whose mode controls its available operations. the default
+//!   [`state::Build`] mode may establish a layout and build children. [`state::Node`] augments an
+//!   existing node without changing its structure
 //! - [`Atom`] is visual content retained for painting. it measures under constraints, then paints
 //!   using the node's resolved position and size
 //! - [`Layout`] is retained policy for a node's children. it measures them and resolves their
@@ -36,27 +35,29 @@
 //!
 //! the graph is rebuilt every frame
 
-mod arena;
+mod clip;
 mod frame;
-mod hash;
 mod macros;
 
 pub mod animation;
 pub mod geometry;
 pub mod input;
 pub mod interact;
+#[doc(hidden)]
+pub mod internal;
 pub mod layout;
 
 pub use self::{
     animation::{Easing, Transition, TransitionProperties},
-    frame::{Frame, NodeId, NodeTarget, Ui, state},
+    clip::{Clip, ClipShape},
+    frame::{Frame, NodeId, NodeTarget, Ui, atom::AtomCx, bump::FrameSlice, state},
     geometry::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
         Scalar, Scale2, Sides, Size,
     },
-    input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
-    interact::{Interaction, ScrollInteraction, Sense, WidgetId},
-    layout::{Axis, Layout, LayoutCx, Scratch},
+    input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase, TouchPhase},
+    interact::{Direction, Drag, Id, Interaction, InteractionConfig, Phase, Pinch, Rotation, Scroll, Sense},
+    layout::{Axis, Layout, LayoutCx, Scratch, Sizing},
 };
 
 pub trait Context {
@@ -74,36 +75,54 @@ builder! {
     }
 }
 
-/// immediate builder that owns and populates a new frame node
-pub trait Widget<C: Context> {
+/// immediate builder whose ui mode determines its available operations
+pub trait Widget<C: Context, S = state::Build> {
     type Response;
 
-    fn build(self, ui: Ui<'_, C>) -> Self::Response;
-}
-
-/// immediate content that augments an existing node without changing its structure
-pub trait Content<C: Context> {
-    type Response;
-
-    fn append(self, ui: Ui<'_, C, state::Node>) -> Self::Response;
+    fn build(self, ui: Ui<'_, C, S>) -> Self::Response;
 }
 
 /// retained visual content that measures and paints after building
 ///
-/// every atom implements [`Content`]
+/// atoms can be passed directly to [`Ui::insert`]
 pub trait Atom<C: Context>: 'static {
     /// returns the size requested by this atom under `constraints`
     ///
     /// measurement may be skipped under tight constraints. painting must not
     /// depend on prior measurement.
-    fn measure(&self, context: &mut C, constraints: Constraints<C::Scalar>) -> Size<C::Scalar>;
+    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar>;
 
-    fn paint(&self, context: &mut C, area: Rect<C::Scalar>);
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: Rect<C::Scalar>);
 
     /// conservative bounds containing everything this atom may paint
     ///
-    /// these bounds may extend beyond the layout `area`
-    fn paint_bounds(&self, area: Rect<C::Scalar>) -> Rect<C::Scalar>;
+    /// override when painting extends beyond the layout `area`
+    fn paint_bounds(&self, area: Rect<C::Scalar>) -> Rect<C::Scalar> {
+        area
+    }
+}
+
+/// converts atoms and node widgets for insertion
+///
+/// implemented automatically for atoms and node widgets. [`Ui::insert`] infers the output type.
+/// types implementing both require an explicit output widget type.
+pub trait IntoWidget<C: Context, W> {
+    fn into_widget(self) -> W;
+}
+
+/// adapts an atom to a node widget
+pub struct AtomWidget<A>(A);
+
+impl<C: Context, W: Widget<C, state::Node>> IntoWidget<C, W> for W {
+    fn into_widget(self) -> W {
+        self
+    }
+}
+
+impl<C: Context, A: Atom<C>> IntoWidget<C, AtomWidget<A>> for A {
+    fn into_widget(self) -> AtomWidget<A> {
+        AtomWidget(self)
+    }
 }
 
 impl<C: Context, F, O> Widget<C> for F
@@ -117,30 +136,16 @@ where
     }
 }
 
-impl<C: Context> Widget<C> for () {
-    type Response = ();
-
-    fn build(self, mut ui: Ui<'_, C>) {
-        ui.insert(self);
-    }
-}
-
 impl<C: Context> Atom<C> for () {
-    fn measure(&self, _: &mut C, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
         constraints.constrain(Size::ZERO)
     }
 
-    fn paint(&self, _: &mut C, _: Rect<C::Scalar>) {}
+    fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<C::Scalar>) {}
 
     fn paint_bounds(&self, _: Rect<C::Scalar>) -> Rect<C::Scalar> {
         Rect::default()
     }
-}
-
-pub trait Clip<C: Context>: 'static {
-    fn push(&self, context: &mut C, area: Rect<C::Scalar>);
-
-    fn pop(&self, context: &mut C);
 }
 
 #[cfg(doctest)]

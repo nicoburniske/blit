@@ -20,7 +20,10 @@ struct Clip {
 
 struct GradientStop {
     color: vec4<f32>,
-    data: vec4<f32>,
+    position: f32,
+    x_step: f32,
+    y_step: f32,
+    end: u32,
 }
 
 struct GlyphInstance {
@@ -308,6 +311,24 @@ fn clear(input: VertexOutput) -> @location(0) vec4<f32> {
     return instances[input.instance].inner_color;
 }
 
+fn fill_color(color: vec4<f32>, gradient: u32, position: vec2<f32>, shape: vec4<f32>) -> vec4<f32> {
+    if gradient == 0u {
+        return color;
+    }
+    let start = stops[gradient - 1u];
+    let direction = vec2(start.x_step, start.y_step);
+    let minimum = dot(min(direction, vec2(0.0)), shape.zw);
+    let value = dot(direction, position - shape.xy) - minimum;
+    var index = gradient - 1u;
+    while index + 2u < start.end && value >= stops[index + 1u].position {
+        index += 1u;
+    }
+    let first = stops[index];
+    let second = stops[index + 1u];
+    let amount = clamp((value - first.position) / (second.position - first.position), 0.0, 1.0);
+    return mix(first.color, second.color, amount);
+}
+
 @fragment
 fn content(input: ContentOutput) -> @location(0) vec4<f32> {
     let position = input.position.xy;
@@ -372,30 +393,12 @@ fn content(input: ContentOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    var color = instance.inner_color;
+    let background = fill_color(instance.inner_color, instance.data.y, position, instance.shape);
+    var color = background;
     let border_width = instance.params.x;
     if border_width > 0.0 {
-        var border = instance.border_color;
-        if instance.data.z >= 2u {
-            let pixel = position - vec2(0.5);
-            let gradient_position = instance.params.w
-                + instance.params.y * (pixel.x - instance.shape.x)
-                + instance.params.z * (pixel.y - instance.shape.y);
-            var index = 0u;
-            while index + 1u < instance.data.z - 1u
-                && gradient_position >= stops[instance.data.y + index + 1u].data.x
-            {
-                index += 1u;
-            }
-            let first = stops[instance.data.y + index];
-            let second = stops[instance.data.y + index + 1u];
-            let amount = clamp(
-                (gradient_position - first.data.x) / (second.data.x - first.data.x),
-                0.0,
-                1.0,
-            );
-            border = mix(first.color, second.color, amount);
-        }
+        let border_fill = fill_color(instance.border_color, instance.data.z, position, instance.shape);
+        let border = border_fill + background * (1.0 - border_fill.a);
 
         let inner_size = instance.shape.zw - vec2(border_width * 2.0);
         var inner_coverage = 0.0;
@@ -410,7 +413,7 @@ fn content(input: ContentOutput) -> @location(0) vec4<f32> {
                 max(instance.radii - vec4(border_width), vec4(0.0)),
             );
         }
-        color = mix(border, instance.inner_color, inner_coverage);
+        color = mix(border, background, inner_coverage);
     }
     return color * coverage;
 }

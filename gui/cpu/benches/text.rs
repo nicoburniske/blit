@@ -4,10 +4,12 @@ use blit::{LogicalPoint, LogicalRect};
 use blit_gui::{
     FontData, FontFamily, TextConfig, TextSystem,
     color::Color,
-    text::{FontId, HorizontalAlign, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap},
+    text::{FontId, HorizontalAlign, TextLayoutRequest, TextOptions, TextRequest, TextSource, TextStyle, TextWrap},
 };
 
-const TEXT: &str = "Passport keeps your keys offline while making secure approvals clear and deliberate. Every transaction is reviewed on the trusted display before it is signed. Recovery information stays under your control, and the device never needs to expose private keys.";
+const TEXT: TextSource<'static> = TextSource::Borrowed(
+    "Passport keeps your keys offline while making secure approvals clear and deliberate. Every transaction is reviewed on the trusted display before it is signed. Recovery information stays under your control, and the device never needs to expose private keys.",
+);
 
 #[global_allocator]
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
@@ -69,9 +71,9 @@ fn measure_then_paint_uncached(bencher: divan::Bencher) {
     };
     let paint = TextRequest {
         text: run,
+        colors: &[Color::BLACK],
         area: LogicalRect::new(0.0, 0.0, 320.0, 240.0),
         offset_x: 0.0,
-        color: Color::BLACK,
         options: TextOptions {
             wrap: TextWrap::Word,
             ..TextOptions::default()
@@ -96,9 +98,9 @@ fn placement_changed(bencher: divan::Bencher) {
         height = if height < 360.0 { height + 0.125 } else { 200.0 };
         let request = TextRequest {
             text: run,
+            colors: &[Color::BLACK],
             area: LogicalRect::new(0.0, 0.0, 320.0, black_box(height)),
             offset_x: 0.0,
-            color: Color::BLACK,
             options: TextOptions {
                 wrap: TextWrap::Word,
                 horizontal_align: HorizontalAlign::Center,
@@ -133,9 +135,9 @@ fn layout_with_caret_query(bencher: divan::Bencher) {
     let mut text = text_system(0);
     let request = TextRequest {
         text: text.text_run(TEXT, TextStyle::default()),
+        colors: &[Color::BLACK],
         area: LogicalRect::new(0.0, 0.0, 320.0, 240.0),
         offset_x: 0.0,
-        color: Color::BLACK,
         options: TextOptions {
             wrap: TextWrap::Word,
             ..TextOptions::default()

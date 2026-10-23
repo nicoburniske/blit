@@ -49,16 +49,26 @@ where
 }
 ```
 
-content cannot change node structure
+node widgets cannot change node structure
 
 ```compile_fail
 use blit::*;
 
-fn layout_from_content<C: Context, L>(ui: Ui<'_, C, state::Node>, layout: L)
+fn layout_from_node<C: Context, L>(ui: Ui<'_, C, state::Node>, layout: L)
 where
     L: Layout<C>,
 {
     ui.layout(layout);
+}
+```
+
+insertion rejects build widgets
+
+```compile_fail
+use blit::*;
+
+fn insert_build_widget<C: Context, W: Widget<C>>(mut ui: Ui<'_, C>, widget: W) {
+    ui.insert(widget);
 }
 ```
 

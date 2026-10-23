@@ -1,138 +1,233 @@
 use std::ops::Range;
 
 use blit::{PhysicalRect, Scale2};
-use blit_gui::{
-    color::Color,
-    display_list::Rectangle,
-    style::{Border, GradientStop, LinearGradient},
-};
+use blit_gui::display_list::Rectangle;
 
-use super::rounded::{
-    Radii, RoundedGradient, RoundedLine, RoundedRectangle, draw_gradient_line, draw_line, interpolate,
+use super::{
+    fill::{Gradients, PreparedFill},
+    rounded::{Radii, RoundedLine},
 };
 use crate::{Pixel, PixelSpan, PremultipliedRgbaColor};
 
 #[derive(Clone, Copy)]
 pub struct Prepared {
     pub geometry: PhysicalRect,
+    pub radii: Radii,
     inner: PhysicalRect,
-    radii: Radii,
+    pub background: PreparedFill,
+    border: PreparedFill,
     border_width: i32,
-    pub border_color: PremultipliedRgbaColor,
-    pub inner_color: PremultipliedRgbaColor,
 }
 
 impl Prepared {
-    pub fn new(rectangle: &Rectangle<'_>, scale_factor: f32) -> Option<Self> {
-        let geometry = rectangle.area.to_physical(Scale2::uniform(scale_factor));
+    #[inline]
+    pub fn new(rectangle: &Rectangle<'_>, scale: f32, gradients: &mut Gradients) -> Option<Self> {
+        let geometry = rectangle.area.to_physical(Scale2::uniform(scale));
         if geometry.width <= 0 || geometry.height <= 0 || rectangle.opacity <= 0.0 {
             return None;
         }
-        let (width, color) = match rectangle.border {
-            Border::Solid { width, color } => (width, color),
-            Border::None | Border::Gradient { .. } => (0.0, Color::TRANSPARENT),
+        let transparent = PreparedFill::Solid(PremultipliedRgbaColor::default());
+        let background = PreparedFill::new(rectangle.background, geometry, rectangle.opacity, gradients);
+        let mut border_width = (rectangle.border.width * scale).round().max(0.0) as i32;
+        let mut border = if border_width > 0 {
+            PreparedFill::new(rectangle.border.fill, geometry, rectangle.opacity, gradients)
+        } else {
+            transparent
         };
-        let mut border_width = (width * scale_factor).round().max(0.0) as i32;
-        let opacity = (rectangle.opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
-        let inner_color = PremultipliedRgbaColor::new(rectangle.background, opacity);
-        let border = PremultipliedRgbaColor::new(color, opacity);
-        if border.alpha == 0 {
+        if matches!(border, PreparedFill::Solid(color) if color.alpha == 0) {
             border_width = 0;
         }
-        let border_color = prepare_border_color(color, opacity, inner_color);
-        if inner_color.alpha == 0 && border_width == 0 {
+        if border_width == 0 && matches!(background, PreparedFill::Solid(color) if color.alpha == 0) {
             return None;
         }
-        let radii = Radii::new(rectangle.radius, scale_factor, geometry.width, geometry.height);
-        let inner = PhysicalRect {
-            x: geometry.x + border_width,
-            y: geometry.y + border_width,
-            width: (geometry.width - border_width * 2).max(0),
-            height: (geometry.height - border_width * 2).max(0),
-        };
+        if let PreparedFill::Solid(background) = background {
+            match &mut border {
+                PreparedFill::Solid(color) => *color = color.over(background),
+                PreparedFill::Gradient(index) => {
+                    let range = gradients.entries[*index as usize].stops.clone();
+                    for stop in &mut gradients.stops[range.start as usize..range.end as usize] {
+                        stop.color = stop.color.over(background);
+                    }
+                }
+            }
+        }
+        let radii = Radii::new(rectangle.radius, scale, geometry.width, geometry.height);
         Some(Self {
             geometry,
-            inner,
             radii,
+            background,
+            border,
             border_width,
-            border_color,
-            inner_color,
+            inner: PhysicalRect {
+                x: geometry.x.saturating_add(border_width),
+                y: geometry.y.saturating_add(border_width),
+                width: (geometry.width - border_width.saturating_mul(2)).max(0),
+                height: (geometry.height - border_width.saturating_mul(2)).max(0),
+            },
         })
     }
 
     pub fn overwrites(&self) -> bool {
-        self.inner_color.alpha == 255 && (self.border_width == 0 || self.border_color.alpha == 255)
+        matches!(self.background, PreparedFill::Solid(color) if color.alpha == 255)
     }
 
     pub fn overwrite_span(&self, line: i32) -> Option<Range<i32>> {
         if !self.overwrites() || line < self.geometry.y || line >= self.geometry.y + self.geometry.height {
             return None;
         }
-        let rounded = RoundedLine::new(self.geometry, self.radii, line)?;
-        let start = rounded.full_start();
-        let end = rounded.full_end();
+        let top = line - self.geometry.y;
+        let bottom = self.geometry.height - top - 1;
+        let inset = |top_radius: i32, bottom_radius: i32| {
+            let (radius, y) = if top < top_radius {
+                (top_radius as f32, top as f32)
+            } else if bottom < bottom_radius {
+                (bottom_radius as f32, bottom as f32)
+            } else {
+                return 0;
+            };
+            (radius - (radius * radius - (radius - y).powi(2)).max(0.0).sqrt()).ceil() as i32
+        };
+        let start = self.geometry.x + inset(self.radii.top_left, self.radii.bottom_left);
+        let end = self.geometry.x + self.geometry.width - inset(self.radii.top_right, self.radii.bottom_right);
         (start < end).then_some(start..end)
     }
 
     pub fn fuse(&self, second: &Self) -> Option<SolidPair> {
+        let (PreparedFill::Solid(first), PreparedFill::Solid(second_color)) = (self.background, second.background)
+        else {
+            return None;
+        };
         (self.geometry == second.geometry
-            && self.overwrites()
+            && first.alpha == 255
+            && second_color.alpha < 255
             && self.radii.is_zero()
             && second.radii.is_zero()
             && self.border_width == 0
-            && second.border_width == 0
-            && second.inner_color.alpha < 255)
+            && second.border_width == 0)
             .then_some(SolidPair {
                 geometry: self.geometry,
-                first: self.inner_color,
-                second: second.inner_color,
+                first,
+                second: second_color,
             })
     }
 
-    pub fn draw_line<P: Pixel>(&self, line: i32, clip: PhysicalRect, row: PixelSpan<'_, P>) {
-        let Some(clipped) = self.geometry.intersection(clip).and_then(|area| {
-            area.intersection(PhysicalRect {
-                x: row.x,
-                y: line,
-                width: row.pixels.len() as i32,
-                height: 1,
-            })
-        }) else {
-            return;
-        };
-        let pixels = &mut row.pixels[(clipped.x - row.x) as usize..][..clipped.width as usize];
-        if self.radii.is_zero() {
-            if self.border_width == 0 || line < self.inner.y || line >= self.inner.y + self.inner.height {
-                let color = if self.border_width == 0 {
-                    self.inner_color
-                } else {
-                    self.border_color
-                };
-                P::blend_slice(pixels, color);
-                return;
-            }
-            let left = (self.inner.x - clipped.x).clamp(0, clipped.width) as usize;
-            let right = (self.inner.x + self.inner.width - clipped.x).clamp(0, clipped.width) as usize;
-            P::blend_slice(&mut pixels[..left], self.border_color);
-            P::blend_slice(&mut pixels[left..right], self.inner_color);
-            P::blend_slice(&mut pixels[right..], self.border_color);
+    pub fn draw_line<P: Pixel>(
+        &self,
+        gradients: &Gradients,
+        line: i32,
+        clip: PhysicalRect,
+        coverage: u8,
+        row: PixelSpan<'_, P>,
+    ) {
+        let start = clip.x.max(row.x).max(self.geometry.x);
+        let end = (clip.x + clip.width)
+            .min(row.x + row.pixels.len() as i32)
+            .min(self.geometry.x + self.geometry.width);
+        if start >= end || line < self.geometry.y || line >= self.geometry.y + self.geometry.height {
             return;
         }
-        draw_line(
-            clipped,
-            line,
-            &RoundedRectangle {
-                radii: self.radii,
-                border_width: self.border_width,
-                border_color: self.border_color,
-                inner_color: self.inner_color,
-                top_clip: clipped.y - self.geometry.y,
-                bottom_clip: self.geometry.y + self.geometry.height - clipped.y - clipped.height,
-                left_clip: clipped.x - self.geometry.x,
-                right_clip: self.geometry.x + self.geometry.width - clipped.x - clipped.width,
-            },
-            pixels,
-        );
+        let draw_border = |x: i32, pixels: &mut [P]| {
+            if matches!(self.background, PreparedFill::Solid(_)) {
+                self.border.draw_span(gradients, x, line, coverage, pixels);
+            } else {
+                for (index, pixel) in pixels.iter_mut().enumerate() {
+                    let x = x + index as i32;
+                    pixel.blend(
+                        self.border
+                            .sample(gradients, x, line)
+                            .over(self.background.sample(gradients, x, line))
+                            .coverage(coverage as u32),
+                    );
+                }
+            }
+        };
+        if self.radii.is_zero() {
+            let pixels = &mut row.pixels[(start - row.x) as usize..(end - row.x) as usize];
+            if self.border_width == 0 {
+                self.background.draw_span(gradients, start, line, coverage, pixels);
+            } else if line < self.inner.y || line >= self.inner.y + self.inner.height {
+                draw_border(start, pixels);
+            } else {
+                let left = (self.inner.x - start).clamp(0, end - start) as usize;
+                let right = (self.inner.x + self.inner.width - start).clamp(left as i32, end - start) as usize;
+                draw_border(start, &mut pixels[..left]);
+                self.background
+                    .draw_span(gradients, start + left as i32, line, coverage, &mut pixels[left..right]);
+                draw_border(start + right as i32, &mut pixels[right..]);
+            }
+            return;
+        }
+        let Some(outer) = RoundedLine::new(self.geometry, self.radii, line) else {
+            return;
+        };
+        let inner = if self.border_width == 0 {
+            Some(outer)
+        } else {
+            let radii = Radii {
+                top_left: (self.radii.top_left - self.border_width).max(0),
+                top_right: (self.radii.top_right - self.border_width).max(0),
+                bottom_left: (self.radii.bottom_left - self.border_width).max(0),
+                bottom_right: (self.radii.bottom_right - self.border_width).max(0),
+            };
+            RoundedLine::new(self.inner, radii, line)
+        };
+        let mut draw = |left: i32, right: i32, full_start: i32, full_end: i32| {
+            let left = left.max(start);
+            let right = right.min(end);
+            if left >= right {
+                return;
+            }
+            let full_start = full_start.clamp(left, right);
+            let full_end = full_end.clamp(full_start, right);
+            for x in (left..full_start).chain(full_end..right) {
+                let background = self.background.sample(gradients, x, line);
+                let mut border = self.border.sample(gradients, x, line);
+                if !matches!(self.background, PreparedFill::Solid(_)) {
+                    border = border.over(background);
+                }
+                let outside = outer.coverage(x) as u32;
+                let inside = inner.as_ref().map_or(0, |inner| inner.coverage(x)) as u32;
+                let border_coverage = outside.saturating_sub(inside);
+                let channel = |a: u8, b: u8| ((a as u32 * border_coverage + b as u32 * inside + 127) / 255) as u8;
+                let color = PremultipliedRgbaColor {
+                    red: channel(border.red, background.red),
+                    green: channel(border.green, background.green),
+                    blue: channel(border.blue, background.blue),
+                    alpha: channel(border.alpha, background.alpha),
+                };
+                row.pixels[(x - row.x) as usize].blend(color.coverage(coverage as u32));
+            }
+            let pixels = &mut row.pixels[(full_start - row.x) as usize..(full_end - row.x) as usize];
+            draw_border(full_start, pixels);
+        };
+        if let Some(inner) = inner {
+            let split = inner.full_start().min(inner.full_end());
+            draw(outer.visible_start(), split, outer.full_start(), inner.visible_start());
+            draw(
+                split.max(inner.full_end()),
+                outer.visible_end(),
+                inner.visible_end(),
+                outer.full_end(),
+            );
+            let left = inner.full_start().max(start);
+            let right = inner.full_end().min(end);
+            if left < right {
+                self.background.draw_span(
+                    gradients,
+                    left,
+                    line,
+                    coverage,
+                    &mut row.pixels[(left - row.x) as usize..(right - row.x) as usize],
+                );
+            }
+        } else {
+            draw(
+                outer.visible_start(),
+                outer.visible_end(),
+                outer.full_start(),
+                outer.full_end(),
+            );
+        }
     }
 }
 
@@ -160,198 +255,5 @@ impl SolidPair {
             self.first,
             self.second,
         );
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct Gradient {
-    pub geometry: PhysicalRect,
-    radii: Radii,
-    border_width: i32,
-    inner_color: PremultipliedRgbaColor,
-    opacity: u8,
-    x_step: f32,
-    y_step: f32,
-    offset: f32,
-}
-
-impl Gradient {
-    pub fn new(rectangle: &Rectangle<'_>, width: f32, gradient: LinearGradient<'_>, scale_factor: f32) -> Option<Self> {
-        if gradient.stops.len() < 2
-            || !gradient.angle_degrees.is_finite()
-            || gradient
-                .stops
-                .iter()
-                .any(|stop| !stop.position.is_finite() || stop.position < 0.0 || stop.position > 1.0)
-            || gradient
-                .stops
-                .windows(2)
-                .any(|stops| stops[0].position >= stops[1].position)
-        {
-            return None;
-        }
-        let geometry = rectangle.area.to_physical(Scale2::uniform(scale_factor));
-        let border_width = (width * scale_factor).round().max(0.0) as i32;
-        if geometry.width <= 0 || geometry.height <= 0 || rectangle.opacity <= 0.0 || border_width == 0 {
-            return None;
-        }
-        let opacity = (rectangle.opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
-        let inner_color = PremultipliedRgbaColor::new(rectangle.background, opacity);
-        let radii = Radii::new(rectangle.radius, scale_factor, geometry.width, geometry.height);
-        let angle = gradient.angle_degrees.to_radians();
-        let direction_x = angle.cos();
-        let direction_y = angle.sin();
-        let extent = direction_x.abs() * geometry.width as f32 + direction_y.abs() * geometry.height as f32;
-        let minimum = direction_x.min(0.0) * geometry.width as f32 + direction_y.min(0.0) * geometry.height as f32;
-        Some(Self {
-            geometry,
-            radii,
-            border_width,
-            inner_color,
-            opacity,
-            x_step: direction_x / extent,
-            y_step: direction_y / extent,
-            offset: (0.5 * direction_x + 0.5 * direction_y - minimum) / extent,
-        })
-    }
-
-    pub fn draw_line<P: Pixel>(
-        &self,
-        stops: &[GradientStop],
-        line: i32,
-        clip: PhysicalRect,
-        coverage: u8,
-        row: PixelSpan<'_, P>,
-    ) {
-        let Some(clipped) = self.geometry.intersection(clip).and_then(|area| {
-            area.intersection(PhysicalRect {
-                x: row.x,
-                y: line,
-                width: row.pixels.len() as i32,
-                height: 1,
-            })
-        }) else {
-            return;
-        };
-        let coverage = coverage as u32;
-        let pixels = &mut row.pixels[(clipped.x - row.x) as usize..][..clipped.width as usize];
-        if self.radii.is_zero() {
-            let inner = PhysicalRect {
-                x: self.geometry.x + self.border_width,
-                y: self.geometry.y + self.border_width,
-                width: (self.geometry.width - self.border_width * 2).max(0),
-                height: (self.geometry.height - self.border_width * 2).max(0),
-            };
-            if line < inner.y || line >= inner.y + inner.height {
-                self.draw_span(stops, line, clipped.x, coverage, pixels);
-                return;
-            }
-            let left = (inner.x - clipped.x).clamp(0, clipped.width) as usize;
-            let right = (inner.x + inner.width - clipped.x).clamp(0, clipped.width) as usize;
-            self.draw_span(stops, line, clipped.x, coverage, &mut pixels[..left]);
-            let color = self.inner_color.coverage(coverage);
-            P::blend_slice(&mut pixels[left..right], color);
-            self.draw_span(stops, line, clipped.x + right as i32, coverage, &mut pixels[right..]);
-            return;
-        }
-        let position = self.offset
-            + self.x_step * (clipped.x - self.geometry.x) as f32
-            + self.y_step * (line - self.geometry.y) as f32;
-        let mut sampler = GradientSampler::new(self, stops, position, clipped.x);
-        draw_gradient_line(
-            clipped,
-            line,
-            &RoundedGradient {
-                radii: self.radii,
-                border_width: self.border_width,
-                inner_color: self.inner_color.coverage(coverage),
-                top_clip: clipped.y - self.geometry.y,
-                bottom_clip: self.geometry.y + self.geometry.height - clipped.y - clipped.height,
-                left_clip: clipped.x - self.geometry.x,
-                right_clip: self.geometry.x + self.geometry.width - clipped.x - clipped.width,
-            },
-            pixels,
-            |x| sampler.sample(x).coverage(coverage),
-        );
-    }
-}
-
-impl Gradient {
-    fn draw_span<P: Pixel>(&self, stops: &[GradientStop], line: i32, start: i32, coverage: u32, pixels: &mut [P]) {
-        let position = self.offset
-            + self.x_step * (start - self.geometry.x) as f32
-            + self.y_step * (line - self.geometry.y) as f32;
-        let mut sampler = GradientSampler::new(self, stops, position, start);
-        for (index, pixel) in pixels.iter_mut().enumerate() {
-            let x = start + index as i32;
-            let color = sampler.sample(x).coverage(coverage);
-            pixel.blend(color);
-        }
-    }
-}
-
-struct GradientSampler<'a> {
-    gradient: &'a Gradient,
-    stops: &'a [GradientStop],
-    position: f32,
-    x: i32,
-    index: usize,
-    first: PremultipliedRgbaColor,
-    second: PremultipliedRgbaColor,
-    inverse_distance: f32,
-}
-
-impl<'a> GradientSampler<'a> {
-    fn new(gradient: &'a Gradient, stops: &'a [GradientStop], position: f32, x: i32) -> Self {
-        let index = stops
-            .partition_point(|stop| stop.position <= position)
-            .saturating_sub(1)
-            .min(stops.len() - 2);
-        let mut sampler = Self {
-            gradient,
-            stops,
-            position,
-            x,
-            index,
-            first: PremultipliedRgbaColor::default(),
-            second: PremultipliedRgbaColor::default(),
-            inverse_distance: 0.0,
-        };
-        sampler.update_colors();
-        sampler
-    }
-
-    fn sample(&mut self, x: i32) -> PremultipliedRgbaColor {
-        self.position += self.gradient.x_step * (x - self.x) as f32;
-        self.x = x;
-        while self.index + 1 < self.stops.len() - 1 && self.position >= self.stops[self.index + 1].position {
-            self.index += 1;
-            self.update_colors();
-        }
-        while self.index != 0 && self.position < self.stops[self.index].position {
-            self.index -= 1;
-            self.update_colors();
-        }
-        let amount = ((self.position - self.stops[self.index].position) * self.inverse_distance).clamp(0.0, 1.0);
-        interpolate((amount * 255.0).round() as u32, self.first, self.second)
-    }
-
-    fn update_colors(&mut self) {
-        let first = self.stops[self.index];
-        let second = self.stops[self.index + 1];
-        self.first = prepare_border_color(first.color, self.gradient.opacity, self.gradient.inner_color);
-        self.second = prepare_border_color(second.color, self.gradient.opacity, self.gradient.inner_color);
-        self.inverse_distance = 1.0 / (second.position - first.position);
-    }
-}
-
-fn prepare_border_color(color: Color, opacity: u8, inner: PremultipliedRgbaColor) -> PremultipliedRgbaColor {
-    let border = PremultipliedRgbaColor::new(color, opacity);
-    let inverse = 255 - border.alpha as u16;
-    PremultipliedRgbaColor {
-        red: (inner.red as u16 * inverse / 255) as u8 + border.red,
-        green: (inner.green as u16 * inverse / 255) as u8 + border.green,
-        blue: (inner.blue as u16 * inverse / 255) as u8 + border.blue,
-        alpha: (inner.alpha as u16 + border.alpha as u16 - inner.alpha as u16 * border.alpha as u16 / 255) as u8,
     }
 }

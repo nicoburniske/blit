@@ -1,7 +1,7 @@
-use blit::{Clip, PhysicalRect};
-use blit_widgets::performance::FrameProfiler;
+use blit::{Clip, ClipShape, PhysicalRect};
+use blit_widgets::FrameProfiler;
 
-use crate::{TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
+use crate::{RendererConfig, TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 
 /// rendering resources independent of terminal io and event loop ownership
 pub struct TuiContext {
@@ -12,8 +12,26 @@ pub struct TuiContext {
     should_quit: bool,
 }
 
+impl Default for TuiContext {
+    fn default() -> Self {
+        Self::new(TuiRenderer::new(RendererConfig::new()))
+    }
+}
+
 impl blit::Context for TuiContext {
     type Scalar = i32;
+}
+
+impl AsMut<TuiContext> for TuiContext {
+    fn as_mut(&mut self) -> &mut TuiContext {
+        self
+    }
+}
+
+impl AsRef<FrameProfiler> for TuiContext {
+    fn as_ref(&self) -> &FrameProfiler {
+        &self.profiler
+    }
 }
 
 impl TuiContext {
@@ -80,14 +98,20 @@ impl TuiContext {
 #[derive(Clone, Copy)]
 pub struct BoundsClip;
 
-impl Clip<TuiContext> for BoundsClip {
-    fn push(&self, context: &mut TuiContext, area: PhysicalRect) {
+impl<C: crate::Context> Clip<C> for BoundsClip {
+    fn shape(&self, area: PhysicalRect) -> ClipShape<i32> {
+        ClipShape::Rect(area)
+    }
+
+    fn push(&self, context: &mut C, area: PhysicalRect) {
+        let context = context.as_mut();
         let previous = context.clip;
         context.clip = previous.intersection(area).unwrap_or_default();
         context.clips.push(previous);
     }
 
-    fn pop(&self, context: &mut TuiContext) {
+    fn pop(&self, context: &mut C) {
+        let context = context.as_mut();
         context.clip = context.clips.pop().unwrap();
     }
 }

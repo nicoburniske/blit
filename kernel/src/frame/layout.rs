@@ -1,9 +1,11 @@
 use std::marker::PhantomData;
 
-use super::{Frame, NodeGeometry, NodeId, StoredNode};
+use super::{
+    Frame, NodeGeometry, NodeId, StoredNode,
+    bump::{BumpArena, BumpId, Scratch},
+};
 use crate::{
     Context, Scalar, TransitionProperties,
-    arena::{DataArena, DataId, Scratch},
     geometry::{Constraints, Point, Size},
     layout::Layout,
 };
@@ -11,12 +13,13 @@ use crate::{
 #[repr(C)]
 pub struct LayoutCx<'a, C: Context, I = ()> {
     frame: &'a Frame<C>,
-    data: &'a DataArena,
+    bump: &'a BumpArena,
     geometry: &'a mut [NodeGeometry<C::Scalar>],
     context: &'a mut C,
     frame_requested: &'a mut bool,
+    target_start: usize,
     node: NodeId,
-    default_item: DataId,
+    default_item: BumpId,
     item: PhantomData<fn() -> I>,
 }
 
@@ -51,16 +54,15 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     #[inline]
     pub fn children(&self) -> Children<'a> {
         Children {
-            nodes: &self.frame.nodes,
+            nodes: &self.frame.nodes[..=self.frame.nodes[self.node.index()].subtree_end as usize],
             next: NodeId::new(self.node.index() + 1),
-            end: self.frame.nodes[self.node.index()].subtree_end,
         }
     }
 
     #[inline]
     pub fn item(&self, child: NodeId) -> &'a I {
         let id = self.assert_child(child).item;
-        self.data
+        self.bump
             .load(if id.offset().is_some() { id } else { self.default_item })
     }
 
@@ -70,12 +72,22 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         self.cast::<()>().resolve(child, bounds)
     }
 
-    pub fn target_size(&self, child: NodeId) -> Size<C::Scalar> {
-        if self.frame.target_sizes.is_empty() {
-            self.size(child)
-        } else {
-            self.frame.target_sizes[child.index()].size
+    /// queries a child's declared sizing without running its layout
+    pub fn child_sizing(&self, child: NodeId, axis: crate::Axis) -> crate::Sizing<C::Scalar> {
+        let stored = self.assert_child(child);
+        if stored.layout.offset().is_none() {
+            return crate::Sizing::fit();
         }
+        let kind = &self.frame.layout_kinds[stored.layout_kind as usize];
+        (kind.sizing)(self.bump, stored.layout, axis)
+    }
+
+    pub fn target_size(&self, child: NodeId) -> Size<C::Scalar> {
+        child
+            .index()
+            .checked_sub(self.target_start)
+            .and_then(|index| self.frame.target_sizes.get(index))
+            .map_or_else(|| self.size(child), |target| target.size)
     }
 
     pub fn set_child_position(&mut self, child: NodeId, position: Point<C::Scalar>) {
@@ -90,12 +102,16 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         *self.frame_requested = true;
     }
 
-    pub fn context(&mut self) -> &mut C {
+    pub fn context(&self) -> &C {
+        self.context
+    }
+
+    pub fn context_mut(&mut self) -> &mut C {
         self.context
     }
 
     pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'a, T> {
-        self.data.scratch(len, value)
+        self.bump.scratch(len, value)
     }
 
     pub fn set_child_z_index(&mut self, child: NodeId, z_index: i16) {
@@ -105,11 +121,14 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     pub fn size_overrides(&self, child: NodeId) -> (Option<C::Scalar>, Option<C::Scalar>) {
-        if self.frame.target_sizes.is_empty() {
+        let Some(target) = child
+            .index()
+            .checked_sub(self.target_start)
+            .and_then(|index| self.frame.target_sizes.get(index))
+        else {
             return (None, None);
-        }
+        };
         let current = self.size(child);
-        let target = self.frame.target_sizes[child.index()];
         (
             target
                 .properties
@@ -152,7 +171,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
         while let Some(index) = atom.index() {
             let stored = self.frame.atoms[index];
             let measure = self.frame.atom_kinds[stored.kind as usize].measure;
-            size = size.max(measure(self.data, stored.data, self.context, constraints));
+            size = size.max(measure(self.bump, stored.bump_id, self.context, constraints));
             atom = stored.next;
         }
         constraints.constrain(size)
@@ -174,10 +193,11 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             let kind = &self.frame.layout_kinds[stored.layout_kind as usize];
             let mut cx = LayoutCx {
                 frame: self.frame,
-                data: self.data,
+                bump: self.bump,
                 geometry: self.geometry,
                 context: self.context,
                 frame_requested: self.frame_requested,
+                target_start: self.target_start,
                 node,
                 default_item: kind.default_item,
                 item: PhantomData,
@@ -202,7 +222,6 @@ impl<'a, C: Context> LayoutCx<'a, C> {
 pub struct Children<'a> {
     nodes: &'a [StoredNode],
     next: NodeId,
-    end: u32,
 }
 
 impl Iterator for Children<'_> {
@@ -210,7 +229,7 @@ impl Iterator for Children<'_> {
 
     #[inline]
     fn next(&mut self) -> Option<NodeId> {
-        while self.next.value <= self.end {
+        while (self.next.value as usize) < self.nodes.len() {
             let node = self.next;
             let stored = &self.nodes[node.index()];
             self.next.value = stored.subtree_end + 1;
@@ -222,41 +241,51 @@ impl Iterator for Children<'_> {
     }
 }
 
-pub fn resolve<C: Context>(frame: &mut Frame<C>, data: &DataArena, context: &mut C, size: Size<C::Scalar>) {
+pub fn resolve<C: Context>(
+    frame: &mut Frame<C>,
+    bump: &BumpArena,
+    context: &mut C,
+    node: NodeId,
+    bounds: Constraints<C::Scalar>,
+) -> Size<C::Scalar> {
     let mut geometry = std::mem::take(&mut frame.node_geometry);
     let mut requested = frame.frame_requested;
     let mut cx = LayoutCx {
         frame,
-        data,
+        bump,
         geometry: &mut geometry,
         context,
         frame_requested: &mut requested,
-        node: NodeId::new(0),
-        default_item: DataId::NONE,
+        target_start: node.index(),
+        node,
+        default_item: BumpId::NONE,
         item: PhantomData::<fn() -> ()>,
     };
-    cx.resolve(NodeId::new(0), Constraints::tight(size));
-    for index in 1..cx.frame.nodes.len() {
-        if !cx.frame.nodes[index].out_of_flow {
-            continue;
+    let size = cx.resolve(node, bounds);
+    if node.value == 0 {
+        for index in 1..cx.frame.nodes.len() {
+            if !cx.frame.nodes[index].out_of_flow {
+                continue;
+            }
+            let area = &mut cx.geometry[index].area;
+            area.x = C::Scalar::ZERO;
+            area.y = C::Scalar::ZERO;
+            cx.resolve(
+                NodeId::new(index),
+                Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)),
+            );
         }
-        let area = &mut cx.geometry[index].area;
-        area.x = C::Scalar::ZERO;
-        area.y = C::Scalar::ZERO;
-        cx.resolve(
-            NodeId::new(index),
-            Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)),
-        );
     }
     frame.node_geometry = geometry;
     frame.frame_requested = requested;
+    size
 }
 
 pub fn run<'a, C: Context, L: Layout<C>>(
     cx: &mut LayoutCx<'a, C>,
-    id: DataId,
+    id: BumpId,
     bounds: Constraints<C::Scalar>,
 ) -> Size<C::Scalar> {
-    let layout = cx.data.load::<L>(id);
+    let layout = cx.bump.load::<L>(id);
     layout.layout(cx.cast::<L::Item>(), bounds)
 }

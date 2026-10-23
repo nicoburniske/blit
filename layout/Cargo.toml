@@ -7,3 +7,10 @@ publish = false
 
 [dependencies]
 blit.workspace = true
+
+[dev-dependencies]
+divan = "0.1"
+
+[[bench]]
+name = "layout"
+harness = false

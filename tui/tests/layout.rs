@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use blit::{Frame, FrameInfo, Input, Size, WidgetId};
+use blit::{Frame, FrameInfo, Id, Input, Size};
 use blit_tui::{
     RendererConfig, TuiContext, TuiRenderer, Ui,
     layout::{Sizing, flex, grid, single},
@@ -24,14 +24,14 @@ fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
                         let mut row = ui.layout(grid::new(3));
                         for column in 0..3 {
                             row.child()
-                                .widget_id(WidgetId::new(column))
+                                .id(Id::new(column))
                                 .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
                         }
                     } else {
                         let mut row = ui.layout(flex::row());
                         for column in 0..3 {
                             row.child()
-                                .widget_id(WidgetId::new(column))
+                                .id(Id::new(column))
                                 .item(flex::item().width(Sizing::grow()))
                                 .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
                         }
@@ -41,7 +41,7 @@ fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
         );
         frame.layout(&mut context);
         assert_eq!(
-            [0, 1, 2].map(|column| frame.geometry(WidgetId::new(column)).unwrap().width),
+            [0, 1, 2].map(|column| frame.geometry(Id::new(column)).unwrap().width),
             [3, 4, 3]
         );
         context.begin_paint();

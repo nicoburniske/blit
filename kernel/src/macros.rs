@@ -1,73 +1,124 @@
 /// defines a builder struct with chainable setters
 ///
-/// # construction
-///
-/// - `new(...)` lists required fields
-/// - remaining fields use `field: Type = default`
-/// - every field is public and has a setter with the same name
-/// - setters take `self` and return the updated struct
-/// - empty `new()` also generates [`Default`]
-///
-/// # attributes
-///
-/// - `#[into]` setters accept `impl Into<Type>`
+/// - `new(field: Type, ...)` declares required constructor arguments
+/// - `field: Type = value` declares a field with a default and a setter
+/// - `field<T = Default>: Type = value` declares a generic field whose setter replaces `T`
+/// - header generics and `where` bounds constrain the struct and generated impls
+/// - `#[bounds(...)]` adds bounds to the field's generic on its setter to help type inference
+/// - `#[into]` makes a constructor argument or setter accept `impl Into<Type>`
+/// - every field is public and has a setter, including constructor fields
+/// - an empty `new()` also generates `Default`
 ///
 /// ```
 /// blit::builder! {
-///     pub struct Panel {
-///         new(title: &'static str),
-///         width: u16 = 80,
+///     pub struct Container<'a, T>
+///     where T: Copy,
+///     {
+///         new(elements: &'a [T]),
+///         #[bounds(FnMut(&T))]
+///         item<F = fn(&T)>: F = |_| (),
 ///         #[into]
-///         border: Option<u8> = None,
+///         border<B = u8>: Option<B> = None,
+///         gap: u16 = 0,
 ///     }
 /// }
-///
-/// let panel = Panel::new("status").width(40).border(1);
-/// assert_eq!(panel.border, Some(1));
-///
-/// let panel = panel.border(2).border(None);
-/// assert_eq!(panel.border, None);
+/// let container = Container::new(&[1, 2, 3])
+///     .item(|element| println!("{element}"))
+///     .gap(4)
+///     .border(1u8);
 /// ```
 #[macro_export]
 macro_rules! builder {
     (
-        $(#[$attribute:meta])*
-        $visibility:vis struct $name:ident
-        $(<$($generic:tt $($constant:ident)? $(: $bound:path)? $(= $default:tt)?),+ $(,)?>)? {
-            new($($required:ident: $required_type:ty),* $(,)?),
-            $($(#[$setter:ident])? $field:ident: $field_type:ty = $value:expr),* $(,)?
+        $(#[$attribute:meta])* $visibility:vis struct $name:ident
+        $(<$($generic:tt $($constant:ident)? $(: $bound:path)? $(= $default:tt)?),+ $(,)?>)?
+        $(where $($shared:ident: $shared_bound:path),+ $(,)?)? {
+            new($($(#[$required_into:ident])? $required:ident: $required_type:ty),* $(,)?),
+            $(
+                $(#[$setter:ident $(($($field_bounds:tt)*))?])* $field:ident
+                $(<$field_generic:ident = $field_default:ty>)?
+                : $type:ty = $value:expr
+            ),* $(,)?
         }
     ) => {
-        $(#[$attribute])*
-        $visibility struct $name $(<$($generic $($constant)? $(: $bound)? $(= $default)?),+>)? {
-            $(pub $required: $required_type,)*
-            $(pub $field: $field_type,)*
-        }
-
         $crate::builder!(@args
-            [$name [$(<$($generic $($constant)? $(: $bound)?),+>)?] ($($required),*) {
-                #[doc = concat!("creates a new [`", stringify!($name), "`]")]
-                $visibility fn new($($required: $required_type),*) -> Self {
-                    Self { $($required,)* $($field: $value,)* }
-                }
-                $($crate::builder!(@setter $visibility $required: $required_type);)*
-                $($crate::builder!(@setter $(#[$setter])? $visibility $field: $field_type);)*
-            }]
+            [[$(#[$attribute])*] [$visibility] $name
+                [$($($generic $($constant)? $(: $bound)? $(= $default)?,)+)?]
+                [$($($generic $($constant)? $(: $bound)?,)+)?]
+                [$($($shared: $shared_bound,)*)?]
+                [$([$($required_into)?] $required: $required_type,)*]
+                [$( ([$($setter)*] [$($($($field_bounds)*)?)*] $field
+                    [$($field_generic = $field_default)?]
+                    [$type] [$value]) )*]]
             [] $($($generic $($constant)?,)+)?
         );
     };
-    (@setter $(#[$setter:ident])? $visibility:vis $field:ident: $type:ty) => {
-        #[doc = concat!("sets [`Self::", stringify!($field), "`]")]
-        $visibility fn $field(mut self, value: $crate::builder!(@type $(#[$setter])? $type)) -> Self {
-            self.$field = value.into();
-            self
+    (@emit [[$($attributes:tt)*] [$visibility:vis] $name:ident
+        [$($declarations:tt)*] [$($generics:tt)*] [$($shared:ident: $shared_bound:path,)*]
+        [$([$($required_into:ident)?] $required:ident: $required_type:ty,)*]
+        [$( ([$($setter:ident)*] [$($field_bounds:tt)*] $field:ident
+            [$($generic:ident = $default:ty)?]
+            [$type:ty] [$value:expr]) )*]] [$($arguments:tt)*]
+    ) => {
+        $($attributes)*
+        $visibility struct $name<$($declarations)* $($($generic = $default,)?)*>
+        where $($shared: $shared_bound,)* {
+            $(pub $required: $required_type,)*
+            $(pub $field: $type,)*
         }
+        impl<$($generics)*> $name<$($arguments)* $($($default,)?)*>
+        where $($shared: $shared_bound,)* {
+            #[doc = concat!("creates a new [`", stringify!($name), "`]")]
+            $visibility fn new($($required: $crate::builder!(@type [$($required_into)?] $required_type)),*) -> Self {
+                Self { $($required: $required.into(),)* $($field: $value,)* }
+            }
+        }
+        $crate::builder!(@default $name [$($generics)*]
+            [$($arguments)* $($($default,)?)*] [$($shared: $shared_bound,)*]; $($required),*);
+        impl<$($generics)* $($($generic,)?)*> $name<$($arguments)* $($($generic,)?)*>
+        where $($shared: $shared_bound,)* {
+            $( $crate::builder!(@ordinary [$visibility] $required [] [$($required_into)?] [] [$required_type]); )*
+            $( $crate::builder!(@ordinary [$visibility] $field [$($generic)?] [$($setter)*] [$($field_bounds)*] [$type]); )*
+        }
+        $crate::builder!(@setters [$visibility] $name [$($generics)*] [$($arguments)*]
+            [$($shared: $shared_bound,)*]
+            [] [];
+            $( ([$($required_into)?] [] $required [] [$required_type]) )*
+            $( ([$($setter)*] [$($field_bounds)*] $field [$($generic)?] [$type]) )*
+        );
     };
-    (@type #[into] $type:ty) => { impl ::core::convert::Into<$type> };
-    (@type $type:ty) => { $type };
-    (@args [$name:ident [$($generics:tt)*] ($($required:ident),*) $body:tt] [$($($arguments:tt)+)?]) => {
-        impl $($generics)* $name $(<$($arguments)+>)? $body
-        $crate::builder!(@default $name [$($generics)*] [$(<$($arguments)+>)?]; $($required),*);
+    (@setters $visibility:tt $name:ident $generics:tt $arguments:tt $shared:tt
+        $previous:tt $moved:tt;) => {};
+    (@setters [$visibility:vis] $name:ident [$($generics:tt)*] [$($arguments:tt)*] $shared:tt
+        [$($previous:ident,)*] [$($moved:ident,)*];
+        ($setter:tt $bounds:tt $field:ident [] $type:tt) $($rest:tt)*
+    ) => {
+        $crate::builder!(@setters [$visibility] $name [$($generics)*] [$($arguments)*] $shared
+            [$($previous,)*] [$($moved,)* $field,]; $($rest)*);
+    };
+    (@setters [$visibility:vis] $name:ident [$($generics:tt)*] [$($arguments:tt)*]
+        [$($shared:ident: $shared_bound:path,)*]
+        [$($previous:ident,)*] [$($moved:ident,)*];
+        ([$($setter:ident)*] [$($($bounds:tt)+)?] $field:ident [$generic:ident] [$type:ty])
+        $( ([$($next_setter:ident)*] [$($next_bounds:tt)*] $next_field:ident
+            [$($next_generic:ident)?] [$next_type:ty]) )*
+    ) => {
+        impl<$($generics)* $($previous,)* __BlitOld, $($($next_generic,)?)*>
+            $name<$($arguments)* $($previous,)* __BlitOld, $($($next_generic,)?)*>
+        where $($shared: $shared_bound,)* {
+            #[doc = concat!("sets [`Self::", stringify!($field), "`] and replaces its generic type")]
+            $visibility fn $field<$generic>(self,
+                value: $crate::builder!(@type [$($setter)*] $type),
+            ) -> $name<$($arguments)* $($previous,)* $generic, $($($next_generic,)?)*>
+            where $($generic: $($bounds)+)? {
+                $name { $field: value.into(), $($moved: self.$moved,)* $($next_field: self.$next_field,)* }
+            }
+        }
+        $crate::builder!(@setters [$visibility] $name [$($generics)*] [$($arguments)*]
+            [$($shared: $shared_bound,)*]
+            [$($previous,)* $generic,] [$($moved,)* $field,];
+            $( ([$($next_setter)*] [$($next_bounds)*] $next_field
+                [$($next_generic)?] [$next_type]) )*);
     };
     (@args $input:tt [$($arguments:tt)*] const $name:ident, $($rest:tt)*) => {
         $crate::builder!(@args $input [$($arguments)* $name,] $($rest)*);
@@ -75,12 +126,93 @@ macro_rules! builder {
     (@args $input:tt [$($arguments:tt)*] $name:tt, $($rest:tt)*) => {
         $crate::builder!(@args $input [$($arguments)* $name,] $($rest)*);
     };
-    (@default $name:ident [$($generics:tt)*] [$($arguments:tt)*];) => {
-        impl $($generics)* Default for $name $($arguments)* {
-            fn default() -> Self {
-                Self::new()
+    (@args $input:tt $arguments:tt) => {
+        $crate::builder!(@emit $input $arguments);
+    };
+    (@ordinary [$visibility:vis] $field:ident [] [$($setter:ident)*] [$($($bounds:tt)+)?] [$type:ty]) => {
+        #[doc = concat!("sets [`Self::", stringify!($field), "`]")]
+        $visibility fn $field(mut self, value: $crate::builder!(@type [$($setter)*] $type)) -> Self
+        where $($type: $($bounds)+)? {
+            self.$field = value.into();
+            self
+        }
+    };
+    (@ordinary $visibility:tt $field:ident [$generic:ident] $setter:tt $bounds:tt $type:tt) => {};
+    (@type [bounds $($rest:ident)*] $type:ty) => { $crate::builder!(@type [$($rest)*] $type) };
+    (@type [into $($rest:ident)*] $type:ty) => { impl ::core::convert::Into<$crate::builder!(@type [$($rest)*] $type)> };
+    (@type [] $type:ty) => { $type };
+    (@default $name:ident [$($generics:tt)*] [$($arguments:tt)*] [$($shared:ident: $shared_bound:path,)*];) => {
+        impl<$($generics)*> Default for $name<$($arguments)*>
+        where $($shared: $shared_bound,)* {
+            fn default() -> Self { Self::new() }
+        }
+    };
+    (@default $name:ident $generics:tt $arguments:tt $shared:tt;
+        $required:ident $(, $rest:ident)*) => {};
+}
+
+macro_rules! flags {
+    ($visibility:vis struct $name:ident($field_visibility:vis $bits:ty) {
+        $($flag:ident = $value:expr),* $(,)?
+    }) => {
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+        $visibility struct $name($field_visibility $bits);
+
+        impl $name {
+            $(pub const $flag: Self = Self($value);)*
+
+            #[inline]
+            pub const fn contains(self, other: Self) -> bool {
+                self.0 & other.0 == other.0
+            }
+
+            #[inline]
+            pub const fn intersects(self, other: Self) -> bool {
+                self.0 & other.0 != 0
+            }
+        }
+
+        impl ::core::ops::BitOr for $name {
+            type Output = Self;
+
+            #[inline]
+            fn bitor(self, other: Self) -> Self {
+                Self(self.0 | other.0)
+            }
+        }
+
+        impl ::core::ops::BitOrAssign for $name {
+            #[inline]
+            fn bitor_assign(&mut self, other: Self) {
+                self.0 |= other.0;
+            }
+        }
+
+        impl ::core::ops::BitAnd for $name {
+            type Output = Self;
+
+            #[inline]
+            fn bitand(self, other: Self) -> Self {
+                Self(self.0 & other.0)
+            }
+        }
+
+        impl ::core::ops::BitAndAssign for $name {
+            #[inline]
+            fn bitand_assign(&mut self, other: Self) {
+                self.0 &= other.0;
+            }
+        }
+
+        impl ::core::ops::Not for $name {
+            type Output = Self;
+
+            #[inline]
+            fn not(self) -> Self {
+                Self(!self.0)
             }
         }
     };
-    (@default $name:ident $generics:tt $arguments:tt; $required:ident $(, $rest:ident)*) => {};
 }
+
+pub(crate) use flags;

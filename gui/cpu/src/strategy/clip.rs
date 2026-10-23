@@ -64,16 +64,13 @@ impl ClipSpan {
 }
 
 impl ClipStack {
-    pub fn push_node(&mut self, parent: ClipId, area: LogicalRect, radius: BorderRadius, scale_factor: f32) -> ClipId {
-        assert!(parent as usize <= self.nodes.len(), "invalid rounded clip parent");
+    pub fn push_node(&mut self, parent: ClipId, area: LogicalRect, radius: BorderRadius, scale_factor: f32) {
         let area = area.to_physical(Scale2::uniform(scale_factor));
-        let id = u32::try_from(self.nodes.len() + 1).expect("too many rounded clips in one frame");
         self.nodes.push(ClipNode {
             parent,
             area,
             radii: Radii::new(radius, scale_factor, area.width, area.height),
         });
-        id
     }
 
     pub fn for_each(&self, mut id: ClipId, line: i32, range: Range<i32>, draw: impl FnMut(Range<i32>, u8)) {

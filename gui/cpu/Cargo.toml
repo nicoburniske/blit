@@ -8,11 +8,10 @@ publish = false
 [dependencies]
 blit = { workspace = true }
 blit-gui.workspace = true
-blit_cache = { path = "../../internal/cache" }
-blit-raster.workspace = true
+blit-cache.workspace = true
 blit-text = { workspace = true }
-blit-arrayvec.workspace = true
-slotmap = "1"
+blit-arena.workspace = true
+fearless_simd = "1.1.0"
 
 [dev-dependencies]
 blit-text-cosmic.workspace = true

@@ -1,15 +1,14 @@
 use std::time::Duration;
 
-use super::{Frame, NodeId, layout};
+use super::{Frame, NodeId, bump::BumpArena, layout};
 use crate::{
     Context, Scalar,
     animation::{Transition, TransitionProperties},
-    arena::DataArena,
-    geometry::{Rect, Size},
-    interact::WidgetId,
+    geometry::{Constraints, Rect, Size},
+    interact::Id,
 };
 
-/// resolves transitions against the frame's target layout
+/// resolves transitions against a subtree's target layout
 ///
 /// - layout first establishes target geometry
 /// - active size transitions write animated sizes into node geometry and replay layout
@@ -17,69 +16,68 @@ use crate::{
 /// - position transitions apply after layout without replay
 pub fn resolve<C: Context>(
     frame: &mut Frame<C>,
-    data: &DataArena,
+    bump: &BumpArena,
     context: &mut C,
-    size: Size<C::Scalar>,
-    resized: bool,
-) {
-    for index in 0..frame.geometry.len() {
-        let record = frame.geometry[index];
-        let Some(config) = record.transition else {
+    root: NodeId,
+    bounds: Constraints<C::Scalar>,
+    commit: bool,
+) -> Size<C::Scalar> {
+    let mut size = layout::resolve(frame, bump, context, root, bounds);
+    if frame.geometry.is_empty() {
+        return size;
+    }
+    let mut active = TransitionProperties::NONE;
+    let start = root.index();
+    let end = frame.nodes[start].subtree_end as usize + 1;
+    let nodes = &frame.nodes[..end];
+    let mut index = start;
+    while index < end {
+        let stored = &nodes[index];
+        if !commit && start != 0 && stored.out_of_flow {
+            index = stored.subtree_end as usize + 1;
+            continue;
+        }
+        index += 1;
+        let Some(geometry) = stored.geometry.index() else {
             continue;
         };
-        let id = frame.nodes[record.node.index()].widget_id;
-        match frame.transitions.binary_search_by_key(&id, |state| state.id) {
-            Ok(index) => frame.transitions[index].begin(record.node, config),
-            Err(index) => frame
-                .transitions
-                .insert(index, TransitionState::new(id, record.node, config)),
-        }
-    }
-
-    layout::resolve(frame, data, context, size);
-    let mut active = TransitionProperties::NONE;
-    for index in 0..frame.transitions.len() {
-        if !frame.transitions[index].seen {
+        let record = frame.geometry[geometry];
+        let Some(config) = record.transition else { continue };
+        if !commit && !config.properties.intersects(TransitionProperties::SIZE) {
             continue;
         }
-        let node = frame.transitions[index].node;
-        let target = frame.node_geometry[node.index()].area;
-        frame.transitions[index].advance(target, frame.time, resized);
-        active = active.union(frame.transitions[index].active);
-    }
-
-    if active.intersects(TransitionProperties::SIZE) {
-        frame
-            .target_sizes
-            .extend(frame.node_geometry.iter().map(|node| super::TargetSize {
-                size: node.area.size(),
-                properties: TransitionProperties::NONE,
-            }));
-        let mut relayout = false;
-        for state in &mut frame.transitions {
-            if !state.seen {
-                continue;
+        let node = record.node;
+        let id = stored.widget_id;
+        let found = frame.transitions.binary_search_by_key(&id, |state| state.id);
+        let mut state = match found {
+            Ok(index) => frame.transitions[index],
+            Err(_) => TransitionState::new(id, node, config),
+        };
+        state.node = node;
+        state.config = config;
+        state.seen = true;
+        state.advance(frame.node_geometry[node.index()].area, frame.time, frame.resized);
+        let properties = state.active.intersection(TransitionProperties::SIZE);
+        if nodes[node.index()].parent == node {
+            if properties.intersects(TransitionProperties::WIDTH) {
+                state.current.width = state.target.width;
+                state.initial.width = state.target.width;
             }
-            let node = state.node;
-            let properties = state.active.intersection(TransitionProperties::SIZE);
-            if properties.is_empty() {
-                continue;
+            if properties.intersects(TransitionProperties::HEIGHT) {
+                state.current.height = state.target.height;
+                state.initial.height = state.target.height;
             }
-            let parent = frame.nodes[node.index()].parent;
-            if parent == node {
-                if properties.intersects(TransitionProperties::WIDTH) {
-                    state.current.width = state.target.width;
-                    state.initial.width = state.target.width;
-                }
-                if properties.intersects(TransitionProperties::HEIGHT) {
-                    state.current.height = state.target.height;
-                    state.initial.height = state.target.height;
-                }
-                state.active = state.active.intersection(TransitionProperties::POSITION);
-                if state.active.is_empty() {
-                    state.started_at = None;
-                }
-                continue;
+            state.active = state.active.intersection(TransitionProperties::POSITION);
+            if state.active.is_empty() {
+                state.started_at = None;
+            }
+        } else if !properties.is_empty() {
+            if frame.target_sizes.is_empty() {
+                let geometry = &frame.node_geometry[start..end];
+                frame.target_sizes.extend(geometry.iter().map(|node| super::TargetSize {
+                    size: node.area.size(),
+                    properties: TransitionProperties::NONE,
+                }));
             }
             let area = &mut frame.node_geometry[node.index()].area;
             if properties.intersects(TransitionProperties::WIDTH) {
@@ -88,16 +86,21 @@ pub fn resolve<C: Context>(
             if properties.intersects(TransitionProperties::HEIGHT) {
                 area.height = state.current.height;
             }
-            frame.target_sizes[node.index()].properties = properties;
-            relayout = true;
+            frame.target_sizes[node.index() - start].properties = properties;
         }
-        if relayout {
-            layout::resolve(frame, data, context, size);
+        active = active.union(state.active);
+        if commit {
+            match found {
+                Ok(index) => frame.transitions[index] = state,
+                Err(index) => frame.transitions.insert(index, state),
+            }
         }
+    }
+    if !frame.target_sizes.is_empty() {
+        size = layout::resolve(frame, bump, context, root, bounds);
         frame.target_sizes.clear();
     }
-
-    if active.intersects(TransitionProperties::POSITION) {
+    if commit && active.intersects(TransitionProperties::POSITION) {
         for state in frame.transitions.iter().filter(|state| state.seen) {
             let area = &mut frame.node_geometry[state.node.index()].area;
             if state.active.intersects(TransitionProperties::X) {
@@ -108,10 +111,12 @@ pub fn resolve<C: Context>(
             }
         }
     }
+    size
 }
 
+#[derive(Clone, Copy)]
 pub struct TransitionState<T> {
-    pub id: WidgetId,
+    pub id: Id,
     pub current: Rect<T>,
     pub initial: Rect<T>,
     pub target: Rect<T>,
@@ -124,7 +129,7 @@ pub struct TransitionState<T> {
 }
 
 impl<T: Scalar> TransitionState<T> {
-    pub fn new(id: WidgetId, node: NodeId, config: Transition) -> Self {
+    pub fn new(id: Id, node: NodeId, config: Transition) -> Self {
         Self {
             id,
             current: Rect::default(),
@@ -137,12 +142,6 @@ impl<T: Scalar> TransitionState<T> {
             initialized: false,
             seen: true,
         }
-    }
-
-    pub fn begin(&mut self, node: NodeId, config: Transition) {
-        self.node = node;
-        self.config = config;
-        self.seen = true;
     }
 
     pub fn is_active(&self) -> bool {

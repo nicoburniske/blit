@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write as _,
     hash::{Hash, Hasher},
     mem::size_of,
 };
@@ -6,17 +7,17 @@ use std::{
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
 use blit_cache::{DeferredCache, Equivalent, Scale};
 use blit_text::{
-    Caret, FontCandidate, FontData, FontError, FontFace, FontFaceId, FontSelectionId, FontStyle, LayoutRequest,
-    TextLayout, TextLayoutEngine,
+    Caret, FontData, FontError, FontFaceId, FontSelectionId, GlyphMask, LayoutRequest, TextLayout, TextLayoutEngine,
 };
 
 use crate::text::{
-    FontId, HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextOverflow, TextRequest, TextRunId, TextStyle,
-    TextWrap, VerticalAlign,
+    FontId, HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextOverflow, TextRequest, TextRun, TextSource,
+    TextStyle, TextWrap, VerticalAlign,
 };
 
 pub struct TextConfig {
     pub fonts: Vec<FontFamily>,
+    /// maximum retained source and shaping bytes
     pub text_cache_capacity: usize,
     pub layout_cache_capacity: usize,
 }
@@ -29,22 +30,27 @@ pub struct FontFamily {
 pub struct TextSystem {
     engine: Box<dyn ErasedTextEngine>,
     fonts: Box<[ConfiguredFont]>,
-    texts: DeferredCache<TextKey, CachedText, TextScale>,
+    sources: DeferredCache<SourceKey, CachedSource, SourceScale>,
     layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
-    next_text: u32,
+    formatted_text: String,
+    next_source: u32,
     next_layout: u64,
 }
 
 pub struct ResolvedTextLayout<'a> {
     pub id: TextLayoutId,
     pub layout: &'a TextLayout,
-    engine: &'a dyn ErasedTextEngine,
+    engine: &'a mut dyn ErasedTextEngine,
     placement: Placement,
 }
 
 impl ResolvedTextLayout<'_> {
-    pub fn font_face(&self, face: FontFaceId) -> Option<&FontFace> {
-        self.engine.font_face(face)
+    pub fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
+        let mask = self.engine.rasterize_glyph(face, glyph, size, offset_x);
+        if usize::from(mask.metrics.width) * usize::from(mask.metrics.height) != mask.alpha.len() {
+            return GlyphMask::default();
+        }
+        mask
     }
 
     pub fn line_offset(&self, line: usize) -> LogicalPoint {
@@ -60,13 +66,13 @@ struct ConfiguredFont {
     font: FontSelectionId,
 }
 
-struct TextKey {
+struct SourceKey {
     text: Box<str>,
     spans: CachedSpans,
 }
 
-struct CachedText {
-    id: TextRunId,
+struct CachedSource {
+    id: u64,
     shape: Option<usize>,
 }
 
@@ -75,14 +81,14 @@ enum CachedSpans {
     Many(Box<[blit_text::TextSpan]>),
 }
 
-struct TextQuery<'a> {
+struct SourceQuery<'a> {
     text: &'a str,
     spans: &'a [Span],
     style: blit_text::TextStyle,
     fonts: &'a [ConfiguredFont],
 }
 
-impl TextQuery<'_> {
+impl SourceQuery<'_> {
     fn resolve(&self, span: &Span) -> blit_text::TextStyle {
         blit_text::TextStyle {
             font: span.style.font.map_or(self.style.font, |id| {
@@ -96,7 +102,7 @@ impl TextQuery<'_> {
     }
 }
 
-impl Hash for TextQuery<'_> {
+impl Hash for SourceQuery<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for span in self.spans {
             hash_span(&self.text[span.range.clone()], self.resolve(span), state);
@@ -104,8 +110,8 @@ impl Hash for TextQuery<'_> {
     }
 }
 
-impl Equivalent<TextKey> for TextQuery<'_> {
-    fn equivalent(&self, key: &TextKey) -> bool {
+impl Equivalent<SourceKey> for SourceQuery<'_> {
+    fn equivalent(&self, key: &SourceKey) -> bool {
         if key.text.as_ref() != self.text {
             return false;
         }
@@ -121,7 +127,7 @@ impl Equivalent<TextKey> for TextQuery<'_> {
     }
 }
 
-impl Hash for TextKey {
+impl Hash for SourceKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match &self.spans {
             CachedSpans::One(style) => hash_span(&self.text, *style, state),
@@ -136,7 +142,7 @@ impl Hash for TextKey {
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct LayoutKey {
-    text: TextRunId,
+    text: u64,
     max_width: Option<u32>,
     max_height: Option<u32>,
     max_lines: Option<u16>,
@@ -164,7 +170,7 @@ struct Placement {
 }
 
 trait ErasedTextEngine {
-    fn font_face(&self, face: FontFaceId) -> Option<&FontFace>;
+    fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask;
 
     fn shape(&mut self, index: usize, text: blit_text::Text<'_>) -> usize;
 
@@ -186,8 +192,8 @@ struct ErasedEngine<E: TextLayoutEngine> {
 }
 
 impl<E: TextLayoutEngine> ErasedTextEngine for ErasedEngine<E> {
-    fn font_face(&self, face: FontFaceId) -> Option<&FontFace> {
-        self.engine.font_face(face)
+    fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
+        self.engine.rasterize_glyph(face, glyph, size, offset_x)
     }
 
     fn shape(&mut self, index: usize, text: blit_text::Text<'_>) -> usize {
@@ -218,15 +224,15 @@ impl<E: TextLayoutEngine> ErasedTextEngine for ErasedEngine<E> {
     }
 }
 
-struct TextScale;
+struct SourceScale;
 
-impl Scale<TextKey, CachedText> for TextScale {
-    fn weight(&self, key: &TextKey, text: &CachedText) -> usize {
+impl Scale<SourceKey, CachedSource> for SourceScale {
+    fn weight(&self, key: &SourceKey, source: &CachedSource) -> usize {
         let spans = match &key.spans {
             CachedSpans::One(_) => 0,
             CachedSpans::Many(spans) => spans.len() * size_of::<blit_text::TextSpan>(),
         };
-        size_of::<TextKey>() + size_of::<CachedText>() + key.text.len() + spans + text.shape.unwrap_or(0)
+        size_of::<SourceKey>() + size_of::<CachedSource>() + key.text.len() + spans + source.shape.unwrap_or(0)
     }
 }
 
@@ -258,33 +264,7 @@ impl TextSystem {
             }
             candidates.clear();
             for data in configured.fonts {
-                for backend_face in engine.register_font(data)? {
-                    let registered = engine.font_face(backend_face).ok_or(FontError::InvalidData)?;
-                    let face = ttf_parser::Face::parse(registered.data.as_ref(), registered.face_index)
-                        .map_err(|_| FontError::InvalidData)?;
-                    let stretch = match face.width() {
-                        ttf_parser::Width::UltraCondensed => 50,
-                        ttf_parser::Width::ExtraCondensed => 63,
-                        ttf_parser::Width::Condensed => 75,
-                        ttf_parser::Width::SemiCondensed => 88,
-                        ttf_parser::Width::Normal => 100,
-                        ttf_parser::Width::SemiExpanded => 113,
-                        ttf_parser::Width::Expanded => 125,
-                        ttf_parser::Width::ExtraExpanded => 150,
-                        ttf_parser::Width::UltraExpanded => 200,
-                    };
-                    let style = match face.style() {
-                        ttf_parser::Style::Normal => FontStyle::Normal,
-                        ttf_parser::Style::Italic => FontStyle::Italic,
-                        ttf_parser::Style::Oblique => FontStyle::Oblique,
-                    };
-                    candidates.push(FontCandidate {
-                        face: backend_face,
-                        weight: face.weight().to_number(),
-                        stretch,
-                        style,
-                    });
-                }
+                candidates.extend(engine.register_font(data)?);
             }
             let font = engine.register_font_selection(&candidates)?;
             fonts.push(ConfiguredFont {
@@ -298,20 +278,32 @@ impl TextSystem {
                 shapes: Vec::new(),
             }),
             fonts: fonts.into_boxed_slice(),
-            texts: DeferredCache::new(TextScale, config.text_cache_capacity),
+            sources: DeferredCache::new(SourceScale, config.text_cache_capacity),
             layouts: DeferredCache::new(LayoutScale, config.layout_cache_capacity),
-            next_text: 1,
+            formatted_text: String::new(),
+            next_source: 1,
             next_layout: 1,
         })
     }
 
-    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRunId {
-        self.rich_text(text, &[Span::new(0..text.len())], style)
+    /// registers geometry using the font attributes in style
+    pub fn text_run(&mut self, source: TextSource<'_>, style: TextStyle) -> TextRun {
+        let arguments = match source {
+            TextSource::Borrowed(text) => return self.rich_text(text, &[], style),
+            TextSource::Formatted(arguments) => arguments,
+        };
+        let mut text = std::mem::take(&mut self.formatted_text);
+        text.clear();
+        text.write_fmt(arguments).expect("text formatting failed");
+        let run = self.rich_text(&text, &[], style);
+        self.formatted_text = text;
+        run
     }
 
-    pub fn rich_text(&mut self, text: &str, spans: &[Span], style: TextStyle) -> TextRunId {
+    /// registers geometry using span ranges and font attributes
+    pub fn rich_text(&mut self, text: &str, spans: &[Span], style: TextStyle) -> TextRun {
         let Some(font) = self.fonts.iter().find(|font| font.id == style.font) else {
-            return TextRunId::default();
+            return TextRun::default();
         };
         let default = [Span::new(0..text.len())];
         let spans = if spans.is_empty() { &default } else { spans };
@@ -329,25 +321,24 @@ impl TextSystem {
                 .font
                 .is_some_and(|id| !self.fonts.iter().any(|font| font.id == id))
             {
-                return TextRunId::default();
+                return TextRun::default();
             }
         }
         assert_eq!(end, text.len(), "rich text spans must cover the text");
-        let style = blit_text::TextStyle {
-            font: font.font,
-            size: style.size,
-            weight: style.weight,
-            stretch: style.stretch,
-            style: style.style,
-        };
-        let query = TextQuery {
+        let query = SourceQuery {
             text,
             spans,
-            style,
+            style: blit_text::TextStyle {
+                font: font.font,
+                size: style.size,
+                weight: style.weight,
+                stretch: style.stretch,
+                style: style.style,
+            },
             fonts: &self.fonts,
         };
         let mut inserted = false;
-        let (_, index) = self.texts.get_or_insert(query, |query| {
+        let (_, source_index) = self.sources.get_or_insert(query, |query| {
             inserted = true;
             let spans = if query.spans.len() == 1 {
                 CachedSpans::One(query.resolve(&query.spans[0]))
@@ -362,32 +353,33 @@ impl TextSystem {
                 CachedSpans::Many(resolved.into_boxed_slice())
             };
             (
-                TextKey {
+                SourceKey {
                     text: query.text.into(),
                     spans,
                 },
-                CachedText {
-                    id: TextRunId(u64::from(self.next_text) << 32),
+                CachedSource {
+                    id: u64::from(self.next_source) << 32,
                     shape: None,
                 },
             )
         });
         if inserted {
-            let slot = u32::try_from(index + 1).expect("too many cached texts");
-            self.texts.update_index(index, |text| text.id.0 |= u64::from(slot));
-            self.next_text = self.next_text.checked_add(1).expect("too many texts");
+            let slot = u32::try_from(source_index + 1).expect("too many cached text sources");
+            self.sources
+                .update_index(source_index, |source| source.id |= u64::from(slot));
+            self.next_source = self.next_source.checked_add(1).expect("too many text sources");
         }
-        self.texts.get_index(index).id
+        TextRun(self.sources.get_index(source_index).id)
     }
 
-    pub fn paint_layout(&mut self, request: &TextRequest) -> ResolvedTextLayout<'_> {
+    pub fn paint_layout(&mut self, request: &TextRequest<'_>) -> ResolvedTextLayout<'_> {
         let (layout_request, placement) = paint_request(request);
         let (index, _) = self.layout(request.text, layout_request);
         let cached = self.layouts.get_index(index);
         ResolvedTextLayout {
             id: cached.id,
             layout: &cached.layout,
-            engine: self.engine.as_ref(),
+            engine: self.engine.as_mut(),
             placement,
         }
     }
@@ -415,9 +407,9 @@ impl TextSystem {
         self.layouts.get_index(index).layout.size
     }
 
-    pub fn offset_at_position(&mut self, request: &TextRequest, position: LogicalPoint) -> usize {
+    pub fn offset_at_position(&mut self, request: &TextRequest<'_>, position: LogicalPoint) -> usize {
         let (layout_request, placement) = paint_request(request);
-        let (layout_index, text_index) = self.layout(request.text, layout_request);
+        let (layout_index, shape_index) = self.layout(request.text, layout_request);
         let position = LogicalPoint {
             x: position.x - request.area.x + request.offset_x,
             y: position.y - request.area.y,
@@ -445,7 +437,7 @@ impl TextSystem {
         }) else {
             return 0;
         };
-        self.ensure_carets(text_index, layout_index, layout_request, line);
+        self.ensure_carets(shape_index, layout_index, layout_request, line);
         let cached = self.layouts.get_index(layout_index);
         let offset = placement_offset(placement, &cached.layout, line);
         cached
@@ -463,9 +455,9 @@ impl TextSystem {
             .map_or(0, |caret| caret.byte_offset as usize)
     }
 
-    pub fn cursor_rect(&mut self, request: &TextRequest, byte_offset: usize, width: f32) -> LogicalRect {
+    pub fn cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize, width: f32) -> LogicalRect {
         let (layout_request, placement) = paint_request(request);
-        let (layout_index, text_index) = self.layout(request.text, layout_request);
+        let (layout_index, shape_index) = self.layout(request.text, layout_request);
         let Some(line) = ({
             let layout = &self.layouts.get_index(layout_index).layout;
             layout
@@ -490,7 +482,7 @@ impl TextSystem {
                 height: 0.0,
             };
         };
-        self.ensure_carets(text_index, layout_index, layout_request, line);
+        self.ensure_carets(shape_index, layout_index, layout_request, line);
         let cached = self.layouts.get_index(layout_index);
         let caret = cached
             .carets
@@ -511,9 +503,9 @@ impl TextSystem {
 
     pub fn finish_frame(&mut self) {
         self.layouts.trim_to_weight();
-        self.texts.trim_to_weight_if(|_, text| {
-            if text.shape.is_some() {
-                let index = (text.id.0 as u32).checked_sub(1).unwrap() as usize;
+        self.sources.trim_to_weight_if(|_, source| {
+            if source.shape.is_some() {
+                let index = (source.id as u32 - 1) as usize;
                 self.engine.remove_shape(index);
             }
             true
@@ -522,14 +514,15 @@ impl TextSystem {
 }
 
 impl TextSystem {
-    fn layout(&mut self, id: TextRunId, request: LayoutRequest) -> (usize, usize) {
-        let index = (id.0 as u32).checked_sub(1).expect("invalid text") as usize;
-        let unshaped = self.texts.update_index(index, |cached| {
-            assert_eq!(cached.id, id, "expired text");
+    fn layout(&mut self, text: TextRun, request: LayoutRequest) -> (usize, usize) {
+        let id = text.0;
+        let index = (id as u32).checked_sub(1).expect("invalid text") as usize;
+        let unshaped = self.sources.update_index(index, |cached| {
+            assert_eq!(cached.id, id, "expired text source");
             cached.shape.is_none()
         });
         if unshaped {
-            let cached = self.texts.get_key_index(index);
+            let cached = self.sources.get_key_index(index);
             let one;
             let spans = match &cached.spans {
                 CachedSpans::One(style) => {
@@ -548,7 +541,7 @@ impl TextSystem {
                     spans,
                 },
             );
-            self.texts.update_index(index, |cached| cached.shape = Some(shape));
+            self.sources.update_index(index, |cached| cached.shape = Some(shape));
         }
         let key = LayoutKey {
             text: id,
@@ -558,7 +551,7 @@ impl TextSystem {
             wrap: request.wrap,
             overflow: request.overflow,
         };
-        let text = &self.texts.get_key_index(index).text;
+        let text = &self.sources.get_key_index(index).text;
         let (_, layout) = self.layouts.get_or_insert(key, |_| {
             let layout = self.engine.layout(ShapedText { index, text }, request);
             (
@@ -586,7 +579,7 @@ impl TextSystem {
         {
             return;
         }
-        let text = &self.texts.get_key_index(index).text;
+        let text = &self.sources.get_key_index(index).text;
         let carets = self.engine.carets(ShapedText { index, text }, request, line);
         self.layouts.update_index(layout, |cached| {
             cached.carets.push(LineCarets {
@@ -597,7 +590,7 @@ impl TextSystem {
     }
 }
 
-fn paint_request(request: &TextRequest) -> (LayoutRequest, Placement) {
+fn paint_request(request: &TextRequest<'_>) -> (LayoutRequest, Placement) {
     let TextOptions {
         wrap,
         overflow,

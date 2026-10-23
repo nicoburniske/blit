@@ -1,46 +1,99 @@
-use blit::{Axis, Clip, Content, Context, Scalar, Ui, Widget};
+use blit::{Axis, Clip, Context, Scalar, Sense, Ui, Widget};
 
-pub use super::{Behavior, State};
-use super::{ScrollLayout, build_scroll, update};
+pub use super::ScrollState;
+use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 
 blit::builder! {
-    #[derive(Clone, Copy, Debug)]
-    pub struct Config<T: Scalar> {
-        new(),
+    /// use for arbitrary content such as forms and small collections
+    /// builds all content every frame
+    pub struct ScrollArea<'a, T: Scalar> {
+        new(state: &'a mut ScrollState<T>),
         axis: Axis = Axis::Vertical,
-        behavior: Behavior<T> = Behavior::default(),
+        scroll_speed: f32 = 1.0,
+        inertia_friction: f32 = 6.0,
+        sense: Sense = Sense::SCROLL,
+        scrollbar_thickness: T = T::from_f32(1.0),
+        minimum_thumb_extent: T = T::from_f32(1.0),
+        clip<X = ()>: X = (),
     }
 }
 
-pub fn build<C: Context, W, X, T, H>(
-    mut ui: Ui<'_, C>,
-    state: &mut State<C::Scalar>,
-    area: Config<C::Scalar>,
-    clip: X,
-    content: W,
-    scrollbar: impl FnOnce(bool) -> (Option<T>, Option<H>),
-) where
-    W: Widget<C>,
-    X: Clip<C>,
-    T: Content<C>,
-    H: Content<C>,
-{
-    let config = area.behavior;
-    let axis = area.axis;
-    let (thumb_active, _) = update(state, &mut ui, axis, config);
-    let offset = state.offset;
-    let (track, thumb) = scrollbar(thumb_active);
-    build_scroll(
-        ui,
-        ScrollLayout {
+impl<T: Scalar, X> ScrollArea<'_, T, X> {
+    /// creates a widget without a scrollbar
+    pub fn build<C: Context<Scalar = T>>(self, content: impl FnOnce(Ui<'_, C>)) -> impl Widget<C, Response = ()>
+    where
+        X: Clip<C>,
+    {
+        move |ui: Ui<'_, C>| self.build_inner(ui, content, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>)
+    }
+
+    /// creates a widget with a track and thumb
+    pub fn build_scrollbar<C: Context<Scalar = T>>(
+        self,
+        content: impl FnOnce(Ui<'_, C>),
+        track: impl FnOnce(Ui<'_, C>),
+        thumb: impl FnOnce(Ui<'_, C>, bool),
+    ) -> impl Widget<C, Response = ()>
+    where
+        X: Clip<C>,
+    {
+        move |ui: Ui<'_, C>| self.build_inner(ui, content, Some(track), Some(thumb))
+    }
+
+    fn build_inner<C: Context<Scalar = T>>(
+        self,
+        mut ui: Ui<'_, C>,
+        content: impl FnOnce(Ui<'_, C>),
+        track: Option<impl FnOnce(Ui<'_, C>)>,
+        thumb: Option<impl FnOnce(Ui<'_, C>, bool)>,
+    ) where
+        X: Clip<C>,
+    {
+        let Self {
+            state,
             axis,
-            offset: move |_| offset,
-            scrollbar_thickness: config.scrollbar_thickness,
-            minimum_thumb_extent: config.minimum_thumb_extent,
-        },
-        clip,
-        content,
-        track,
-        thumb,
-    );
+            scroll_speed,
+            inertia_friction,
+            sense,
+            scrollbar_thickness,
+            minimum_thumb_extent,
+            clip,
+        } = self;
+        let (thumb_active, viewport_known) = update(state, &mut ui, axis, sense, scroll_speed, inertia_friction);
+        let reveal = match state.request.target {
+            Target::Widget(id) => Some(id),
+            _ => {
+                animate(state, &mut ui, axis, viewport_known);
+                None
+            }
+        };
+        let offset = state.offset;
+        let mut viewport = build_scroll(
+            ui,
+            ScrollLayout {
+                axis,
+                offset,
+                viewport_extent: state.viewport_extent,
+                scrollbar: Scrollbar {
+                    thickness: scrollbar_thickness,
+                    minimum: minimum_thumb_extent,
+                },
+            },
+            clip,
+            content,
+            track,
+            thumb,
+            thumb_active,
+        );
+        match reveal {
+            Some(id) if !viewport.contains_widget(id) => state.request.target = Target::None,
+            Some(_) => {
+                animate(state, &mut viewport, axis, viewport_known);
+                if state.offset != offset {
+                    viewport.request_frame();
+                }
+            }
+            None => {}
+        }
+    }
 }
