@@ -257,22 +257,73 @@ impl<C: Context, S> Ui<'_, C, S> {
     ///
     /// the node may be built later
     pub fn interact_widget(&mut self, id: Id, sense: Sense) -> Interaction<C::Scalar> {
+        self.request_interaction(id, sense);
         let frame = &mut *self.inner.frame;
-        frame
-            .requests
-            .entry(id)
-            .and_modify(|request| match request {
-                Request::Geometry => *request = Request::Interaction(sense),
-                Request::Interaction(previous) => {
-                    *previous |= sense;
-                }
-            })
-            .or_insert(Request::Interaction(sense));
         let interaction = frame.interaction.response(id);
         if interaction.activated || interaction.deactivated || interaction.clicked {
             frame.request_frame();
         }
         interaction
+    }
+
+    /// observes contacts that began in this subtree and contacts captured here
+    ///
+    /// uses the previous layout and returns copied values without allocating
+    /// pending contacts may be observed by ancestors before capture
+    /// ended and cancelled contacts are visible for one build
+    /// observers that lose a contact must abandon their recognition
+    /// copy the contacts you need before calling capture or release
+    ///
+    /// ```
+    /// # fn example(mut ui: blit::Ui<'_, ()>) {
+    /// let (first, second) = {
+    ///     let mut contacts = ui.contacts();
+    ///     (contacts.next(), contacts.next())
+    /// };
+    /// if let (Some(a), Some(b)) = (first, second) {
+    ///     if ui.capture(a.id) && !ui.capture(b.id) {
+    ///         ui.release(a.id);
+    ///     }
+    /// }
+    /// # }
+    /// ```
+    pub fn contacts(&mut self) -> impl Iterator<Item = crate::Contact<C::Scalar>> + '_ {
+        let id = self.current_id();
+        self.request_interaction(id, Sense::NONE);
+        self.inner.frame.interaction.contacts(id)
+    }
+
+    /// captures a contact routed through this subtree
+    ///
+    /// capture survives movement outside the widget and cancels the former owner
+    /// an ancestor may take capture and descendants cannot take it back
+    /// call before building children to prevent their actions for this input
+    /// returns false when this widget is ineligible
+    /// capturing an existing capture succeeds and preserves ordinary drag responses
+    /// the release event can also be claimed before children commit a click
+    pub fn capture(&mut self, contact: crate::ContactId) -> bool {
+        let id = self.current_id();
+        self.request_interaction(id, Sense::NONE);
+        let Some(changed) = self.inner.frame.interaction.capture(id, contact) else {
+            return false;
+        };
+        if changed {
+            self.request_frame();
+        }
+        true
+    }
+
+    /// abandons capture without restoring a pending click
+    ///
+    /// native release and cancellation release capture automatically
+    /// the contact remains observable here and by ancestors without reviving child input
+    /// returns false unless this widget holds a live capture
+    pub fn release(&mut self, contact: crate::ContactId) -> bool {
+        if !self.inner.frame.interaction.release(self.current_id(), contact) {
+            return false;
+        }
+        self.request_frame();
+        true
     }
 
     pub fn input(&self) -> &Input<C::Scalar> {
@@ -462,6 +513,20 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
             },
             marker: PhantomData,
         }
+    }
+
+    fn request_interaction(&mut self, id: Id, sense: Sense) {
+        let frame = &mut *self.inner.frame;
+        frame
+            .requests
+            .entry(id)
+            .and_modify(|request| match request {
+                Request::Geometry => *request = Request::Interaction(sense),
+                Request::Interaction(previous) => {
+                    *previous |= sense;
+                }
+            })
+            .or_insert(Request::Interaction(sense));
     }
 }
 

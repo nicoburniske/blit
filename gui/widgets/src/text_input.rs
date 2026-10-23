@@ -1,4 +1,6 @@
-use blit::{Atom, AtomCx, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, Widget};
+use blit::{
+    Atom, AtomCx, Constraints, ContactSource, Input, Key, LogicalRect, Phase, PointerButton, Sense, Sides, Size, Widget,
+};
 pub use blit_widgets::TextInputResponse;
 pub type TextInputState = blit_widgets::TextInputState<f32>;
 
@@ -38,7 +40,7 @@ impl<C: Context> Widget<C> for TextInput<'_> {
             cursor_background,
         } = self;
         let id = ui.current_id();
-        let interaction = ui.interact(Sense::FOCUS | Sense::DRAG);
+        let interaction = ui.interact(Sense::FOCUS | Sense::DRAG_X);
         let input = *ui.input();
         match input {
             Input::Key(key) if ui.is_focused(id) && key.key == Key::Escape && key.pressed => {
@@ -54,20 +56,31 @@ impl<C: Context> Widget<C> for TextInput<'_> {
             ..TextOptions::default()
         };
         let pointer = if focused {
-            match input {
+            let source = match input {
                 Input::PointerDown {
-                    position,
                     button: PointerButton::Primary,
-                    modifiers,
-                } if interaction.active => Some((position, modifiers.shift())),
-                Input::PointerMove { position, .. } if interaction.active => Some((position, true)),
-                Input::Touch { position, phase, .. } if interaction.active => match phase {
-                    blit::TouchPhase::Down => Some((position, false)),
-                    blit::TouchPhase::Move => Some((position, true)),
-                    _ => None,
-                },
+                    ..
+                }
+                | Input::PointerUp {
+                    button: PointerButton::Primary,
+                    ..
+                }
+                | Input::PointerMove { .. } => Some(ContactSource::Mouse(PointerButton::Primary)),
+                Input::Touch { id, .. } => Some(ContactSource::Touch(id)),
                 _ => None,
-            }
+            };
+            source
+                .and_then(|source| {
+                    ui.contacts()
+                        .find(|contact| contact.source == source && contact.phase != Phase::Cancelled)
+                })
+                .and_then(|contact| match contact.phase {
+                    Phase::Started if interaction.active => Some((contact.position, contact.modifiers.shift())),
+                    Phase::Changed if interaction.active => Some((contact.position, true)),
+                    Phase::Ended if contact.captured => Some((contact.position, true)),
+                    Phase::Ended if interaction.clicked => Some((contact.position, contact.modifiers.shift())),
+                    _ => None,
+                })
         } else {
             None
         };

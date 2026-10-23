@@ -31,16 +31,11 @@ impl Id {
 }
 
 crate::builder! {
-    /// recognition thresholds in frame coordinates and coordinates per second
+    /// pointer routing thresholds in frame coordinates
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct InteractionConfig {
         new(),
         drag_threshold: f32 = 6.0,
-        long_press_delay: Duration = Duration::from_millis(500),
-        double_tap_delay: Duration = Duration::from_millis(300),
-        double_tap_distance: f32 = 12.0,
-        swipe_distance: f32 = 30.0,
-        swipe_speed: f32 = 250.0,
     }
 }
 
@@ -52,13 +47,8 @@ pub struct Interaction<T> {
     pub deactivated: bool,
     pub hovered: bool,
     pub clicked: bool,
-    pub double_tapped: bool,
-    pub long_pressed: bool,
     pub drag: Option<Drag<T>>,
     pub scroll: Option<Scroll>,
-    pub swipe: Option<Direction>,
-    pub pinch: Option<Pinch<T>>,
-    pub rotation: Option<Rotation<T>>,
 }
 
 impl<T> Default for Interaction<T> {
@@ -69,15 +59,40 @@ impl<T> Default for Interaction<T> {
             deactivated: false,
             hovered: false,
             clicked: false,
-            double_tapped: false,
-            long_pressed: false,
             drag: None,
             scroll: None,
-            swipe: None,
-            pinch: None,
-            rotation: None,
         }
     }
+}
+
+/// a mouse press or touch routed through this widget
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Contact<T> {
+    pub id: ContactId,
+    pub source: ContactSource,
+    pub phase: Phase,
+    pub origin: Point<T>,
+    pub position: Point<T>,
+    /// movement since the previous input
+    pub delta: Point<T>,
+    /// frame clock time of the press
+    pub started: Duration,
+    /// frame clock time of the last input for this contact
+    pub updated: Duration,
+    pub modifiers: crate::Modifiers,
+    /// captured by the widget reading this contact
+    pub captured: bool,
+}
+
+/// identifies one press or touch within a frame instance
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ContactId(pub(crate) u64);
+
+/// platform identity which may be reused after release
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContactSource {
+    Mouse(crate::PointerButton),
+    Touch(u64),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -86,8 +101,6 @@ pub struct Drag<T> {
     pub position: Point<T>,
     /// movement since the previous input including normal completion
     pub delta: Point<T>,
-    /// coordinate units per second
-    pub velocity: Point<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -95,22 +108,6 @@ pub struct Scroll {
     pub phase: Phase,
     pub delta: Point<f32>,
     pub continuous: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Pinch<T> {
-    pub phase: Phase,
-    pub center: Point<T>,
-    /// scale multiplier since the previous input
-    pub scale: f32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Rotation<T> {
-    pub phase: Phase,
-    pub center: Point<T>,
-    /// rotation in radians since the previous input
-    pub radians: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,18 +120,10 @@ pub enum Phase {
     Cancelled = 4,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Direction {
-    Left,
-    Right,
-    Up,
-    Down,
-}
-
 flags! {
     pub struct Sense(pub u16) {
         NONE = 0,
-        ALL = (1 << 12) - 1,
+        ALL = (1 << 6) - 1,
         CLICK = 1,
         DRAG_X = 1 << 1,
         DRAG_Y = 1 << 2,
@@ -143,12 +132,5 @@ flags! {
         SCROLL_X = 1 << 4,
         SCROLL_Y = 1 << 5,
         SCROLL = Self::SCROLL_X.0 | Self::SCROLL_Y.0,
-        DOUBLE_TAP = 1 << 6,
-        LONG_PRESS = 1 << 7,
-        SWIPE_X = 1 << 8,
-        SWIPE_Y = 1 << 9,
-        SWIPE = Self::SWIPE_X.0 | Self::SWIPE_Y.0,
-        PINCH = 1 << 10,
-        ROTATE = 1 << 11,
     }
 }

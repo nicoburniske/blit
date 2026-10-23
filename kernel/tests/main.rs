@@ -1,14 +1,13 @@
 use std::{
     cell::Cell,
-    f32::consts::FRAC_PI_4,
     panic::{AssertUnwindSafe, catch_unwind},
     rc::Rc,
     time::Duration,
 };
 
 use blit::{
-    Atom, AtomCx, Clip, ClipShape, Constraints, Context, Direction, Easing, Frame, FrameInfo, Id, Input, Interaction,
-    Layout, LayoutCx, Modifiers, NodeTarget,
+    Atom, AtomCx, Clip, ClipShape, Constraints, ContactSource, Context, Easing, Frame, FrameInfo, Id, Input,
+    Interaction, Layout, LayoutCx, Modifiers, NodeTarget,
     Phase::{Cancelled, Changed, Ended, Started},
     Point, PointerButton, Rect, Scalar, ScrollPhase, Sense, Size, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
@@ -16,6 +15,7 @@ use blit::{
 };
 
 mod animation;
+mod contacts;
 mod frame;
 mod interaction;
 

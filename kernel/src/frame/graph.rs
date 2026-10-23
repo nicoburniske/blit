@@ -84,7 +84,7 @@ impl<C: Context> Default for Frame<C> {
 }
 
 impl<C: Context> Frame<C> {
-    /// updates recognition thresholds including pending long press timers
+    /// updates pointer routing thresholds
     pub fn set_interaction_config(&mut self, config: crate::InteractionConfig) {
         self.interaction.config = config;
         self.request_frame();
@@ -158,7 +158,14 @@ impl<C: Context> Frame<C> {
     pub fn layout(&mut self, context: &mut C) {
         let mut bump = std::mem::take(&mut self.bump);
         bump.prepare_scratch();
-        transition::resolve(self, &bump, context, NodeId::new(0), Constraints::tight(self.screen.size()), true);
+        transition::resolve(
+            self,
+            &bump,
+            context,
+            NodeId::new(0),
+            Constraints::tight(self.screen.size()),
+            true,
+        );
         position::resolve(self);
         paint::resolve_order(self, &bump);
         paint::resolve_clips(self, &bump);
@@ -185,11 +192,7 @@ impl<C: Context> Frame<C> {
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
-        self.timers
-            .iter()
-            .filter_map(timer::TimerState::deadline)
-            .chain(self.interaction.next_deadline())
-            .min()
+        self.timers.iter().filter_map(timer::TimerState::deadline).min()
     }
 
     pub fn request_frame(&mut self) {
