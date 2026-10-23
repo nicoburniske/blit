@@ -113,8 +113,7 @@ impl Prepared {
         };
         let edges = [edge(second, third), edge(third, first), edge(first, second)];
         let steps = [second[1] - third[1], third[1] - first[1], first[1] - second[1]];
-        let covered = |offset: i32| {
-            let offset = offset as f32;
+        let covered = |offset: f32| {
             (0..3).fold(true, |covered, index| {
                 let edge = edges[index] + steps[index] * offset;
                 covered & ((edge > 0.0) | ((edge == 0.0) & self.inclusive[index]))
@@ -133,11 +132,16 @@ impl Prepared {
         }
         left = left.clamp(0, clip.width);
         right = right.clamp(left, clip.width);
-        while left < right && !covered(left) {
+        // float counters keep llvm from vectorizing these short searches
+        let mut offset = left as f32;
+        while left < right && !covered(offset) {
             left += 1;
+            offset += 1.0;
         }
-        while left < right && !covered(right - 1) {
+        let mut offset = (right - 1) as f32;
+        while left < right && !covered(offset) {
             right -= 1;
+            offset -= 1.0;
         }
         if left == right {
             return;
