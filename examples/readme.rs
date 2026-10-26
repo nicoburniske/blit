@@ -1,4 +1,4 @@
-use blit::{Input, Press, Raw, Sides};
+use blit::{Input, Press, Sides};
 use blit_tui::{
     Ui,
     atom::Border,
@@ -29,7 +29,7 @@ fn main() -> std::io::Result<()> {
                 interaction.clicked
             })
         });
-        if quit || matches!(root.interact(Raw), Input::Text('q')) {
+        if quit || matches!(root.input(), Input::Text('q')) {
             root.context_mut().quit();
         }
     })

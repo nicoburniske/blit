@@ -1,4 +1,4 @@
-use blit::{Context, Input, Interaction, NodeTarget, Press, Raw, Scalar, Sides, Ui, Widget};
+use blit::{Context, Input, Interaction, NodeTarget, Press, Scalar, Sides, Ui, Widget};
 use blit_layout::{
     absolute,
     absolute::{Anchor, Sizing},
@@ -69,20 +69,21 @@ where
                 .build(|ui: Ui<'_, C>| trigger(ui, interaction, state.open));
             anchor
         };
+        let backdrop_id = id.child("popover backdrop");
+        let content_id = id.child("popover content");
+        // requested while closed too so the opening frame knows where the trigger is
+        let areas = [trigger_id, content_id].map(|id| root.area(id));
         if !state.open {
             return None;
         }
 
-        let backdrop_id = id.child("popover backdrop");
-        let content_id = id.child("popover content");
         let backdrop = root.interact_widget(backdrop_id, Press::new());
         let content_interaction = root.interact_widget(content_id, Press::new());
-        let areas = [trigger_id, content_id].map(|id| root.area(id));
         let pointer_inside = content_interaction.hovered
             || root
                 .pointer_position()
                 .is_some_and(|position| areas.into_iter().flatten().any(|area| area.contains(position)));
-        if match (self.close, root.interact(Raw)) {
+        if match (self.close, root.input()) {
             (PopoverClose::Click, _) => backdrop.activated,
             (PopoverClose::Exit, Input::PointerMove { .. } | Input::PointerLeave) => !pointer_inside,
             _ => false,

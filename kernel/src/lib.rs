@@ -63,7 +63,7 @@ pub use self::{
     },
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase, TouchPhase},
     interact::{
-        Contact, ContactId, ContactSource, Focus, Hold, Id, Interact, Interaction, Phase, Press, Raw, Scroll, Wheel,
+        Contact, ContactId, ContactSource, Focus, Hold, Id, Interact, Interaction, Phase, Press, Scroll, Wheel,
     },
     layout::{Axis, Layout, LayoutCx, Scratch, Sizing},
 };

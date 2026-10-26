@@ -304,6 +304,11 @@ impl<C: Context, S> Ui<'_, C, S> {
         self.inner.frame.interaction.position
     }
 
+    /// this frame's input, the same for every widget
+    pub fn input(&self) -> Input<C::Scalar> {
+        self.inner.frame.input
+    }
+
     pub fn screen(&self) -> Rect<C::Scalar> {
         self.inner.frame.screen
     }

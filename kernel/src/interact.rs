@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{Input, InteractCx, PointerButton, Scalar, geometry::Point, internal::hash::FxHasher};
+use crate::{InteractCx, PointerButton, Scalar, geometry::Point, internal::hash::FxHasher};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id(pub(crate) NonZeroU64);
@@ -190,17 +190,5 @@ impl<T: Scalar> Interact<T> for Wheel {
         let scroll = cx.wheel()?;
         cx.capture_wheel();
         Some(scroll)
-    }
-}
-
-/// the current input when it routes through this widget
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Raw;
-
-impl<T: Scalar> Interact<T> for Raw {
-    type Output = Input<T>;
-
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Input<T> {
-        cx.input()
     }
 }

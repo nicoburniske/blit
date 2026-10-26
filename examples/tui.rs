@@ -1,6 +1,6 @@
 use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
-use blit::{Axis, Easing, Id, Input, Interaction, Key, Press, Raw, Scalar, Sides, Size, Transition, Widget};
+use blit::{Axis, Easing, Id, Input, Interaction, Key, Press, Scalar, Sides, Size, Transition, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiContext, Ui,
@@ -51,10 +51,10 @@ impl Default for Demo {
 
 impl Demo {
     fn show(&mut self, mut ui: Ui<'_>) {
-        let escape = matches!(ui.interact(Raw), Input::Key(key)
+        let escape = matches!(ui.input(), Input::Key(key)
             if key.key == Key::Escape && key.pressed && !key.repeat);
         let input_focused = ui.is_focused(Id::new("tui text input"));
-        if !self.modal.open && !input_focused && (escape || matches!(ui.interact(Raw), Input::Text('q'))) {
+        if !self.modal.open && !input_focused && (escape || matches!(ui.input(), Input::Text('q'))) {
             ui.context_mut().quit();
             return;
         }
@@ -175,8 +175,8 @@ impl Default for Modal {
 impl Widget<TuiContext> for &mut Modal {
     type Response = bool;
 
-    fn build(self, mut ui: Ui<'_>) -> bool {
-        if matches!(ui.interact(Raw), Input::Key(key)
+    fn build(self, ui: Ui<'_>) -> bool {
+        if matches!(ui.input(), Input::Key(key)
             if key.key == Key::Escape && key.pressed && !key.repeat)
         {
             if self.palette.open {

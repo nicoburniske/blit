@@ -96,50 +96,9 @@ impl<T: Scalar> InteractCx<'_, T> {
         }
     }
 
-    /// the current input when it routes through this widget
+    /// this frame's input, the same for every widget
     pub fn input(&self) -> Input<T> {
-        let routed = match *self.input {
-            Input::Key(_) | Input::Text(_) => {
-                self.state.root == Some(self.id)
-                    || self.state.key_focus.is_some_and(|focus| {
-                        self.state
-                            .hits
-                            .iter()
-                            .find(|hit| hit.id == focus)
-                            .is_some_and(|hit| self.contains(hit.node))
-                    })
-            }
-            Input::PointerDown { button, .. } | Input::PointerUp { button, .. } => {
-                let phase = if matches!(self.input, Input::PointerDown { .. }) {
-                    Phase::Started
-                } else {
-                    Phase::Ended
-                };
-                self.contacts()
-                    .any(|contact| contact.source == ContactSource::Mouse(button) && contact.phase == phase)
-            }
-            Input::PointerMove { .. } => {
-                if self.state.contacts.iter().any(|tracked| {
-                    matches!(tracked.source, Source::Mouse(_))
-                        && !matches!(tracked.phase, Phase::Ended | Phase::Cancelled)
-                }) {
-                    self.contacts().any(|contact| {
-                        matches!(contact.source, ContactSource::Mouse(_)) && contact.phase == Phase::Changed
-                    })
-                } else {
-                    self.hovered()
-                }
-            }
-            Input::PointerLeave | Input::Scroll { .. } => self.state.hover.is_some_and(|node| self.contains(node)),
-            Input::Touch { id, .. } => self.state.contacts.iter().any(|tracked| {
-                tracked.source == Source::Touch(id) && tracked.phase != Phase::Held && self.sees(tracked.route)
-            }),
-            Input::Cancel => {
-                self.contacts().next().is_some() || self.state.wheel.is_some_and(|wheel| wheel.owner == Some(self.id))
-            }
-            Input::None => false,
-        };
-        if routed { *self.input } else { Input::None }
+        *self.input
     }
 
     /// wheel scrolling over this widget, or the cancellation of a sequence it held
@@ -170,16 +129,6 @@ impl<T: Scalar> InteractCx<'_, T> {
 
     fn contains(&self, node: usize) -> bool {
         self.node as usize <= node && node <= self.end as usize
-    }
-
-    fn sees(&self, route: Route) -> bool {
-        match route {
-            Route::Pending {
-                target: Some(target), ..
-            } => self.contains(target.node),
-            Route::Captured { owner } => owner == self.id,
-            Route::Pending { target: None, .. } | Route::Retired => false,
-        }
     }
 
     fn pending(&mut self, contact: ContactId) -> Option<&mut Route> {
@@ -263,12 +212,10 @@ pub struct InteractionState<T> {
     next_contact: u32,
     wheel: Option<WheelState>,
     hits: Vec<HitItem<T>>,
-    root: Option<Id>,
     // node under the pointer in the previous layout
     hover: Option<usize>,
     // ids hovered when this build began, compared after layout
     hover_key: u64,
-    key_focus: Option<Id>,
     // a deeper widget took focus during this update
     focus_taken: bool,
     // claimants whose contacts an ancestor captured after they updated
@@ -347,7 +294,6 @@ impl<T: Scalar> InteractionState<T> {
     }
 
     pub fn begin(&mut self, input: &Input<T>, time: Duration) {
-        self.key_focus = self.focused;
         self.focus_taken = false;
         self.stolen.clear();
         self.contacts
@@ -735,7 +681,6 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     }
     frame.areas_previous.sort_unstable_by_key(|(id, _)| *id);
     let interaction = &mut frame.interaction;
-    interaction.root = Some(nodes[0].widget_id);
     let hover = interaction
         .position
         .and_then(|position| interaction.hit(position))

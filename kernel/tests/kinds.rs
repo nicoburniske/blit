@@ -69,14 +69,13 @@ fn deepest_gesture_captures_first() {
         let parent = ui.interact(CAPTURE)[0];
         let mut root = ui.layout(Overlay);
         root.child().id(child_id).insert(Fill('C', Size::uniform(200.0)));
-        (parent, child, root.interact(Raw))
+        (parent, child)
     };
     render(&mut frame, &mut context, &build);
     let down = pointer(Some(1), Down, [10.0, 10.0]);
-    let (parent, child, input) = render_inputs(&mut frame, &mut context, Duration::ZERO, [down], &build);
+    let (parent, child) = render_inputs(&mut frame, &mut context, Duration::ZERO, [down], &build);
     assert_eq!(parent, None);
     assert!(child.unwrap().hold == Hold::Captured);
-    assert_eq!(input, Input::None);
 }
 
 #[test]

@@ -20,62 +20,41 @@ fn presses() {
 }
 
 #[test]
-fn input_follows_one_contact_and_focus() {
+fn focus_follows_presses_and_taps() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
-    let left_id = Id::new("left");
     let right_id = Id::new("right");
     let change_focus = Cell::new(false);
-    let focused_before_read = Cell::new(false);
     let clear_focus = Cell::new(false);
     let build = |mut ui: Ui<'_>| {
-        let root_input = ui.interact(Raw);
-        focused_before_read.set(ui.is_focused(right_id));
-        if clear_focus.get() {
+        if clear_focus.replace(false) {
             ui.clear_focus();
         }
         let mut ui = ui.layout(Rects);
-        let mut left = ui.child().item(Rect::new(0.0, 0.0, 100.0, 200.0)).id(left_id);
-        left.interact(Focus);
-        let left_input = left.interact(Raw);
-        if change_focus.get() {
+        let mut left = ui.child().item(Rect::new(0.0, 0.0, 100.0, 200.0)).id(Id::new("left"));
+        let left_focused = left.interact(Focus);
+        if change_focus.replace(false) {
             left.focus(right_id);
         }
         drop(left);
         let mut right = ui.child().item(Rect::new(100.0, 0.0, 100.0, 200.0)).id(right_id);
-        right.interact(Focus);
-        let right_input = right.interact(Raw);
-        (root_input, left_input, right_input)
+        (left_focused, right.interact(Focus))
     };
     render(&mut frame, &mut context, &build);
     let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
-    let key = Input::Key(blit::KeyInput::new(blit::Key::Character('x')));
-    assert_eq!(step(key), (key, Input::None, Input::None));
-    let down = pointer(None, Down, [10.0, 10.0]);
-    assert_eq!(step(down), (down, down, Input::None));
-    // an uncaptured press keeps reaching every ancestor of its target
-    let moved = pointer(None, Move, [30.0, 10.0]);
-    assert_eq!(step(moved), (moved, moved, Input::None));
-    assert_eq!(step(key), (key, key, Input::None));
-
-    // focus changes during a build route from the next input
+    assert_eq!(step(pointer(None, Down, [10.0, 10.0])), (true, false));
+    step(pointer(None, Up, [10.0, 10.0]));
+    // focus set during a build shows from the next one
     change_focus.set(true);
-    assert_eq!(step(key), (key, key, Input::None));
-    change_focus.set(false);
-    assert_eq!(step(key), (key, Input::None, key));
-
-    // dragging a touch across focusable content keeps focus
-    step(pointer(Some(1), Down, [110.0, 10.0]));
-    step(pointer(Some(1), Move, [130.0, 10.0]));
-    step(pointer(Some(1), Up, [130.0, 10.0]));
-    assert!(focused_before_read.get());
-    assert_eq!(step(key), (key, Input::None, key));
-
+    assert_eq!(step(Input::None), (true, false));
+    assert_eq!(step(Input::None), (false, true));
+    // dragging a touch across content is not a tap and keeps focus
     clear_focus.set(true);
+    step(pointer(Some(1), Down, [10.0, 10.0]));
+    step(pointer(Some(1), Move, [30.0, 10.0]));
+    assert_eq!(step(pointer(Some(1), Up, [30.0, 10.0])), (false, false));
+    // a tap takes focus on release
     step(pointer(Some(1), Down, [110.0, 10.0]));
-    step(pointer(Some(1), Up, [110.0, 10.0]));
-    assert!(focused_before_read.get());
-    clear_focus.set(false);
-    assert_eq!(step(key), (key, Input::None, Input::None));
+    assert_eq!(step(pointer(Some(1), Up, [110.0, 10.0])), (false, true));
 }
 
 #[test]
