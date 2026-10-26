@@ -7,17 +7,17 @@ struct Watch(fn(&Contact<f32>) -> bool);
 const WATCH: Watch = Watch(|_| false);
 const CAPTURE: Watch = Watch(|_| true);
 
-impl Gesture<f32> for Watch {
+impl Interact<f32> for Watch {
     type Output = [Option<Contact<f32>>; 2];
 
-    fn update(&mut self, cx: &mut GestureCx<'_, f32>) -> Self::Output {
+    fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> Self::Output {
         let mut seen = [None; 2];
         for (seen, contact) in seen.iter_mut().zip(cx.contacts()) {
             *seen = Some(contact);
         }
         for contact in seen.iter_mut().flatten().filter(|contact| (self.0)(contact)) {
             cx.capture(contact.id);
-            contact.captured = true;
+            contact.hold = Hold::Captured;
         }
         seen
     }
@@ -27,10 +27,10 @@ impl Gesture<f32> for Watch {
 #[derive(Clone, Copy)]
 struct Pinch;
 
-impl Gesture<f32> for Pinch {
+impl Interact<f32> for Pinch {
     type Output = Option<f32>;
 
-    fn update(&mut self, cx: &mut GestureCx<'_, f32>) -> Option<f32> {
+    fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> Option<f32> {
         let [a, b] = cx
             .contacts()
             .next_array()
@@ -44,7 +44,7 @@ impl Gesture<f32> for Pinch {
 #[test]
 fn gesture_sees_independent_contacts() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
-    let build = |mut ui: Ui<'_>| ui.interact().gesture(WATCH);
+    let build = |mut ui: Ui<'_>| ui.interact(WATCH);
     render(&mut frame, &mut context, &build);
     let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
     step(pointer(Some(1), Down, [10.0, 10.0]));
@@ -65,41 +65,44 @@ fn deepest_gesture_captures_first() {
     let child_id = Id::new("child");
     let build = |mut ui: Ui<'_>| {
         // requested out of preorder and before the child node exists
-        let child = ui.interact_widget(child_id).gesture(CAPTURE)[0];
-        let parent = ui.interact().gesture(CAPTURE)[0];
+        let child = ui.interact_widget(child_id, CAPTURE)[0];
+        let parent = ui.interact(CAPTURE)[0];
         let mut root = ui.layout(Overlay);
         root.child().id(child_id).insert(Fill('C', Size::uniform(200.0)));
-        (parent, child, root.interact().input())
+        (parent, child, root.interact(Raw))
     };
     render(&mut frame, &mut context, &build);
     let down = pointer(Some(1), Down, [10.0, 10.0]);
     let (parent, child, input) = render_inputs(&mut frame, &mut context, Duration::ZERO, [down], &build);
     assert_eq!(parent, None);
-    assert!(child.unwrap().captured);
+    assert!(child.unwrap().hold == Hold::Captured);
     assert_eq!(input, Input::None);
 }
 
 #[test]
 fn capture_cancels_click() {
-    for (ending, phase) in [(Move, Changed), (Up, Ended), (Cancel, Cancelled)] {
+    for ending in [Up, Cancel] {
         let (mut frame, mut context) = frame(Size::uniform(200.0));
         let build = |mut ui: Ui<'_>| {
-            // claims a press once it moves or ends
-            let seen = ui.interact().gesture(Watch(|contact| contact.phase != Started))[0];
+            // takes a press once it moves, like a scroll view panning
+            let seen = ui.interact(Watch(|contact| contact.phase == Changed))[0];
             let mut root = ui.layout(Overlay);
             let mut child = root.child().id(Id::new("button"));
             child.insert(Fill('B', Size::uniform(200.0)));
-            (seen, child.interact().sense(Sense::CLICK))
+            (seen, child.interact(Press::new()))
         };
         render(&mut frame, &mut context, &build);
-        let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
-        let (seen, response) = step(pointer(Some(1), Down, [10.0, 10.0]));
-        assert!(response.active && !seen.unwrap().captured);
-        let (seen, response) = step(pointer(Some(1), ending, [12.0, 10.0]));
-        assert!(seen.unwrap().captured);
-        assert_eq!(seen.unwrap().phase, phase);
-        assert!(response.deactivated && !response.clicked);
-        assert!(!frame.has_pending_redraw());
+        let mut step = |input| {
+            let output = render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
+            (output, frame.has_pending_redraw())
+        };
+        let ((seen, response), _) = step(pointer(Some(1), Down, [10.0, 10.0]));
+        assert!(response.active && seen.unwrap().hold == Hold::ClaimedElsewhere);
+        // the button updates again after the capture, within the same build
+        let ((seen, response), redraw) = step(pointer(Some(1), Move, [12.0, 10.0]));
+        assert!(seen.unwrap().hold == Hold::Captured && !redraw);
+        assert!(response.deactivated && !response.active);
+        assert!(!step(pointer(Some(1), ending, [12.0, 10.0])).0.1.clicked);
     }
 }
 
@@ -107,12 +110,12 @@ fn capture_cancels_click() {
 fn gestures_on_one_widget_share_captures() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let build = |mut ui: Ui<'_>| {
-        ui.interact().gesture(CAPTURE);
-        let pinch = ui.interact().gesture(Pinch);
+        ui.interact(CAPTURE);
+        let pinch = ui.interact(Pinch);
         let mut root = ui.layout(Overlay);
         let mut child = root.child().id(Id::new("button"));
         child.insert(Fill('B', Size::uniform(200.0)));
-        (pinch, child.interact().sense(Sense::CLICK).clicked)
+        (pinch, child.interact(Press::new()).clicked)
     };
     render(&mut frame, &mut context, &build);
     let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
@@ -132,19 +135,19 @@ fn unmounted_owner_retires_contact() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let mounted = Cell::new(true);
     let build = |mut ui: Ui<'_>| {
-        let root = ui.interact().gesture(WATCH)[0];
+        let root = ui.interact(WATCH)[0];
         let mut layout = ui.layout(Overlay);
         let owned = mounted.get().then(|| {
             let mut child = layout.child().id(Id::new("child"));
             child.insert(Fill('B', Size::uniform(200.0)));
-            child.interact().gesture(CAPTURE)[0]
+            child.interact(CAPTURE)[0]
         });
         (root, owned.flatten())
     };
     render(&mut frame, &mut context, &build);
     let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
     let (root, owned) = step(pointer(Some(1), Down, [10.0, 10.0]));
-    assert!(root.is_none() && owned.unwrap().captured);
+    assert!(root.is_none() && owned.unwrap().hold == Hold::Captured);
     mounted.set(false);
     step(Input::None);
     assert_eq!(step(pointer(Some(1), Move, [30.0, 10.0])), (None, None));
@@ -156,10 +159,10 @@ fn gesture_state_lives_while_requested() {
     #[derive(Clone, Copy)]
     struct Count([u64; 32]);
 
-    impl Gesture<f32> for Count {
+    impl Interact<f32> for Count {
         type Output = u64;
 
-        fn update(&mut self, cx: &mut GestureCx<'_, f32>) -> u64 {
+        fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> u64 {
             self.0[31] += 1;
             cx.wake_at(Duration::from_secs(1));
             self.0[31]
@@ -169,10 +172,10 @@ fn gesture_state_lives_while_requested() {
     #[derive(Clone, Copy)]
     struct Empty;
 
-    impl Gesture<f32> for Empty {
+    impl Interact<f32> for Empty {
         type Output = ();
 
-        fn update(&mut self, _: &mut GestureCx<'_, f32>) {}
+        fn update(&mut self, _: &mut InteractCx<'_, f32>) {}
     }
 
     let (mut frame, mut context) = frame(Size::uniform(200.0));
@@ -183,8 +186,8 @@ fn gesture_state_lives_while_requested() {
         let (start, end) = rows.get();
         for (row, updates) in updates.iter_mut().enumerate().take(end).skip(start) {
             let mut child = root.child().id(Id::new(row));
-            child.interact().gesture(Empty);
-            *updates = Some(child.interact().gesture(Count([0; 32])));
+            child.interact(Empty);
+            *updates = Some(child.interact(Count([0; 32])));
         }
         updates
     };

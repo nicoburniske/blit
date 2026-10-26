@@ -1,4 +1,4 @@
-use blit::{Input, Sense, Sides};
+use blit::{Input, Press, Raw, Sides};
 use blit_tui::{
     Ui,
     atom::Border,
@@ -21,7 +21,7 @@ fn main() -> std::io::Result<()> {
             });
 
             header.child().item(flex::item().fixed(8, 1)).build(|mut ui: Ui<'_>| {
-                let interaction = ui.interact().sense(Sense::CLICK);
+                let interaction = ui.interact(Press::new());
 
                 ui.insert(Block::new().background(Color::BLUE));
                 ui.insert(Text::new("quit").options(TextOptions::new().horizontal_align(HorizontalAlign::Center)));
@@ -29,7 +29,7 @@ fn main() -> std::io::Result<()> {
                 interaction.clicked
             })
         });
-        if quit || matches!(root.interact().input(), Input::Text('q')) {
+        if quit || matches!(root.interact(Raw), Input::Text('q')) {
             root.context_mut().quit();
         }
     })

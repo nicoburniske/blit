@@ -1,5 +1,6 @@
 use blit::{
-    Atom, AtomCx, Axis, Constraints, Input, Key, LogicalRect, PointerButton, Sense, Sides, Size, TouchPhase, Widget,
+    Atom, AtomCx, Axis, Constraints, Focus, Input, Key, LogicalRect, PointerButton, Press, Raw, Sides, Size,
+    TouchPhase, Widget,
 };
 use blit_widgets::Drag;
 pub use blit_widgets::TextInputResponse;
@@ -41,9 +42,10 @@ impl<C: Context> Widget<C> for TextInput<'_> {
             cursor_background,
         } = self;
         let id = ui.current_id();
-        let interaction = ui.interact().sense(Sense::FOCUS);
-        let dragged = ui.interact().gesture(Drag::new().axis(Axis::Horizontal)).is_some();
-        let input = ui.interact().input();
+        let interaction = ui.interact(Press::new());
+        ui.interact(Focus);
+        let dragged = ui.interact(Drag::new().axis(Axis::Horizontal)).is_some();
+        let input = ui.interact(Raw);
         match input {
             Input::Key(key) if ui.is_focused(id) && key.key == Key::Escape && key.pressed => {
                 ui.clear_focus();

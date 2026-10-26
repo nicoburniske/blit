@@ -184,7 +184,7 @@ fn visual_parent_and_hit_order() {
     let modal = Id::new("modal");
     for open in [false, true, false] {
         let build = |mut ui: Ui<'_>| {
-            let responses = [popup, modal].map(|id| ui.interact_widget(id).sense(Sense::CLICK));
+            let responses = [popup, modal].map(|id| ui.interact_widget(id, Press::new()));
             let mut root = ui.layout(Overlay);
             if open {
                 root.child()
@@ -360,7 +360,7 @@ fn bindings_and_geometry() {
                 assert_eq!(ui.geometry(a).is_some(), retained_a);
                 assert_eq!(ui.geometry(b).is_some(), retained_b);
             }
-            ui.interact_widget(b).sense(Sense::CLICK);
+            ui.interact_widget(b, Press::new());
             let mut root = ui.layout(Overlay);
             for _ in 0..count {
                 root.child().insert(());

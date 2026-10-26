@@ -1,6 +1,6 @@
 use std::{hint::black_box, time::Duration};
 
-use blit::{Constraints, Frame, FrameInfo, Id, Input, Layout, LayoutCx, Point, Sense, Size, Transition, Ui, state};
+use blit::{Constraints, Frame, FrameInfo, Id, Input, Layout, LayoutCx, Point, Press, Size, Transition, Ui, state};
 
 #[global_allocator]
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
@@ -34,7 +34,7 @@ fn build_interactive(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
         build(&mut frame, count, |mut ui, _| {
-            black_box(ui.interact().sense(Sense::CLICK));
+            black_box(ui.interact(Press::new()));
         })
     });
 }
@@ -77,7 +77,7 @@ fn build_interactive_and_layout(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
         build(&mut frame, count, |mut ui, _| {
-            black_box(ui.interact().sense(Sense::CLICK));
+            black_box(ui.interact(Press::new()));
         });
         frame.layout(&mut ());
         black_box(&frame);

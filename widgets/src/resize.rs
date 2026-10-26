@@ -1,4 +1,4 @@
-use blit::{Constraints, Context, Interaction, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
+use blit::{Constraints, Context, Interaction, LayoutCx, Point, Press, Scalar, Size, Ui, Widget};
 
 use crate::Drag;
 
@@ -48,11 +48,11 @@ where
         let bottom_id = id.child("bottom grip");
         let corner_id = id.child("corner grip");
         let geometry = ui.geometry(id);
-        let right = ui.interact_widget(right_id).sense(Sense::CLICK);
-        let bottom = ui.interact_widget(bottom_id).sense(Sense::CLICK);
-        let corner = ui.interact_widget(corner_id).sense(Sense::CLICK);
+        let right = ui.interact_widget(right_id, Press::new());
+        let bottom = ui.interact_widget(bottom_id, Press::new());
+        let corner = ui.interact_widget(corner_id, Press::new());
         let mut drag = |id| {
-            let drag = ui.interact_widget(id).gesture(Drag::new());
+            let drag = ui.interact_widget(id, Drag::new());
             drag.map_or(Point::ZERO, |drag| drag.delta)
         };
         let (right_delta, bottom_delta, corner_delta) = (drag(right_id), drag(bottom_id), drag(corner_id));

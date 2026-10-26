@@ -4,10 +4,10 @@ use std::{
     time::Duration,
 };
 
-use crate::{GestureCx, geometry::Point, internal::hash::FxHasher, macros::flags};
+use crate::{Input, InteractCx, PointerButton, Scalar, geometry::Point, internal::hash::FxHasher};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Id(NonZeroU64);
+pub struct Id(pub(crate) NonZeroU64);
 
 impl Id {
     /// creates an absolute id from a stable value
@@ -23,15 +23,15 @@ impl Id {
     }
 }
 
-/// an owned snapshot of this widget's interaction
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Interaction {
-    pub active: bool,
-    pub activated: bool,
-    pub deactivated: bool,
-    pub hovered: bool,
-    pub clicked: bool,
-    pub scroll: Option<Scroll>,
+/// an interaction kind the kernel retains for one widget
+///
+/// it updates before every build, deepest widget first, so it can claim contacts before its
+/// ancestors see them
+pub trait Interact<T>: Copy + 'static {
+    /// what the kind recognized during one update, default before the first
+    type Output: Copy + Default + 'static;
+
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Self::Output;
 }
 
 /// a mouse press or touch routed through this widget
@@ -40,6 +40,7 @@ pub struct Contact<T> {
     pub id: ContactId,
     pub source: ContactSource,
     pub phase: Phase,
+    pub hold: Hold,
     pub origin: Point<T>,
     pub position: Point<T>,
     /// movement since the previous input
@@ -47,8 +48,8 @@ pub struct Contact<T> {
     /// frame clock time of the press
     pub started: Duration,
     pub modifiers: crate::Modifiers,
-    /// captured by the widget reading this contact
-    pub captured: bool,
+    /// still within the tap slop of its origin
+    pub tap: bool,
 }
 
 /// identifies one press or touch within a frame instance
@@ -58,8 +59,18 @@ pub struct ContactId(pub(crate) NonZeroU32);
 /// kind of pointer producing a contact
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContactSource {
-    Mouse(crate::PointerButton),
+    Mouse(PointerButton),
     Touch,
+}
+
+/// who holds a contact, as seen by the widget reading it
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hold {
+    Free,
+    /// tentatively held by this widget until something captures it
+    Claimed,
+    ClaimedElsewhere,
+    Captured,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -81,25 +92,115 @@ pub enum Phase {
     Cancelled = 4,
 }
 
-flags! {
-    pub struct Sense(pub u16) {
-        NONE = 0,
-        ALL = (1 << 4) - 1,
-        CLICK = 1,
-        FOCUS = Self::CLICK.0 | (1 << 1),
-        SCROLL_X = 1 << 2,
-        SCROLL_Y = 1 << 3,
-        SCROLL = Self::SCROLL_X.0 | Self::SCROLL_Y.0,
+/// clicks and press feedback
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Press {
+    active: bool,
+}
+
+/// the output of [`Press`]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Interaction {
+    pub active: bool,
+    pub activated: bool,
+    pub deactivated: bool,
+    pub hovered: bool,
+    pub clicked: bool,
+}
+
+impl Press {
+    pub const fn new() -> Self {
+        Self { active: false }
     }
 }
 
-/// a recognizer the kernel retains for one widget
-///
-/// it updates before every build, deepest widget first, so it can capture contacts before its
-/// ancestors and click see them
-pub trait Gesture<T>: Copy + 'static {
-    /// what the gesture recognized during one update, default before the first
-    type Output: Copy + Default + 'static;
+impl<T: Scalar> Interact<T> for Press {
+    type Output = Interaction;
 
-    fn update(&mut self, cx: &mut GestureCx<'_, T>) -> Self::Output;
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Interaction {
+        let mut active = false;
+        let mut clicked = false;
+        for contact in cx.contacts() {
+            let live = !matches!(contact.phase, Phase::Ended | Phase::Cancelled);
+            match contact.hold {
+                Hold::Claimed if contact.tap => {
+                    active |= live;
+                    clicked |= contact.phase == Phase::Ended && cx.over(contact.position);
+                }
+                Hold::Captured => active |= live,
+                _ => {}
+            }
+        }
+        // one press at a time, deeper widgets claimed theirs first
+        if !active
+            && let Some(contact) = cx.contacts().find(|contact| {
+                contact.hold == Hold::Free
+                    && contact.phase == Phase::Started
+                    && matches!(
+                        contact.source,
+                        ContactSource::Touch | ContactSource::Mouse(PointerButton::Primary)
+                    )
+            })
+        {
+            cx.claim(contact.id);
+            active = true;
+        }
+        let interaction = Interaction {
+            active,
+            activated: active && !self.active,
+            deactivated: self.active && !active,
+            hovered: cx.hovered(),
+            clicked,
+        };
+        self.active = active;
+        interaction
+    }
+}
+
+/// takes keyboard focus when pressed or tapped, returning whether this widget is focused
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Focus;
+
+impl<T: Scalar> Interact<T> for Focus {
+    type Output = bool;
+
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> bool {
+        if cx.contacts().any(|contact| {
+            contact.hold != Hold::ClaimedElsewhere
+                && match contact.source {
+                    ContactSource::Mouse(PointerButton::Primary) => contact.phase == Phase::Started,
+                    ContactSource::Touch => contact.phase == Phase::Ended && contact.tap,
+                    ContactSource::Mouse(_) => false,
+                }
+        }) {
+            cx.focus();
+        }
+        cx.focused()
+    }
+}
+
+/// wheel and trackpad scrolling, keeping continuous sequences until they end
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Wheel;
+
+impl<T: Scalar> Interact<T> for Wheel {
+    type Output = Option<Scroll>;
+
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Option<Scroll> {
+        let scroll = cx.wheel()?;
+        cx.capture_wheel();
+        Some(scroll)
+    }
+}
+
+/// the current input when it routes through this widget
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Raw;
+
+impl<T: Scalar> Interact<T> for Raw {
+    type Output = Input<T>;
+
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Input<T> {
+        cx.input()
+    }
 }

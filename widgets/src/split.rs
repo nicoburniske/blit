@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, Context, Interaction, LayoutCx, Point, Scalar, Sense, Size, Ui, Widget};
+use blit::{Axis, Constraints, Context, Interaction, LayoutCx, Point, Press, Scalar, Size, Ui, Widget};
 
 use crate::Drag;
 
@@ -56,9 +56,9 @@ where
         let leading_id = id.child("leading pane");
         let divider_id = id.child("divider");
         let trailing_id = id.child("trailing pane");
-        let interaction = ui.interact_widget(divider_id).sense(Sense::CLICK);
+        let interaction = ui.interact_widget(divider_id, Press::new());
         let measured = ui.geometry(leading_id).map(|area| axis.extent(area.size()));
-        let drag = ui.interact_widget(divider_id).gesture(Drag::new());
+        let drag = ui.interact_widget(divider_id, Drag::new());
         let delta = drag.map_or(Point::ZERO, |drag| drag.delta);
         let delta = match axis {
             Axis::Horizontal => delta.x,

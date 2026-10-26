@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn presses() {
     for id in [None, Some(1)] {
-        let mut scene = Scene::new(Sense::CLICK);
+        let mut scene = Scene::new(Press::new());
         let down = scene.step(10, pointer(id, Down, [10.0, 10.0]));
         assert!(down.active && down.activated && !down.clicked);
         let up = scene.step(20, pointer(id, Up, [12.0, 10.0]));
@@ -20,24 +20,6 @@ fn presses() {
 }
 
 #[test]
-fn click_snapshots_are_repeatable() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
-    let build = |mut ui: Ui<'_>| {
-        let _ = ui.interact().sense(Sense::CLICK).hovered;
-        let first = ui.interact().sense(Sense::CLICK);
-        let second = ui.interact().sense(Sense::CLICK);
-        (first, second)
-    };
-    render(&mut frame, &mut context, &build);
-    let tap = [pointer(Some(1), Down, [10.0, 10.0]), pointer(Some(1), Up, [10.0, 10.0])];
-    let (first, second) = render_inputs(&mut frame, &mut context, Duration::ZERO, tap, &build);
-    assert!(first.clicked && first == second);
-    assert!(first.scroll.is_none());
-    assert!(!frame.has_pending_redraw());
-    assert!(!render(&mut frame, &mut context, &build).0.clicked);
-}
-
-#[test]
 fn input_follows_one_contact_and_focus() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let left_id = Id::new("left");
@@ -46,22 +28,22 @@ fn input_follows_one_contact_and_focus() {
     let focused_before_read = Cell::new(false);
     let clear_focus = Cell::new(false);
     let build = |mut ui: Ui<'_>| {
-        let root_input = ui.interact().input();
+        let root_input = ui.interact(Raw);
         focused_before_read.set(ui.is_focused(right_id));
         if clear_focus.get() {
             ui.clear_focus();
         }
         let mut ui = ui.layout(Rects);
         let mut left = ui.child().item(Rect::new(0.0, 0.0, 100.0, 200.0)).id(left_id);
-        left.interact().sense(Sense::FOCUS);
-        let left_input = left.interact().input();
+        left.interact(Focus);
+        let left_input = left.interact(Raw);
         if change_focus.get() {
             left.focus(right_id);
         }
         drop(left);
         let mut right = ui.child().item(Rect::new(100.0, 0.0, 100.0, 200.0)).id(right_id);
-        right.interact().sense(Sense::FOCUS);
-        let right_input = right.interact().input();
+        right.interact(Focus);
+        let right_input = right.interact(Raw);
         (root_input, left_input, right_input)
     };
     render(&mut frame, &mut context, &build);
@@ -108,7 +90,7 @@ fn tapping_unregistered_background_clears_focus() {
             }
             let mut root = ui.layout(Rects);
             let mut field = root.child().item(Rect::new(0.0, 0.0, 100.0, 200.0)).id(field_id);
-            field.interact().sense(Sense::FOCUS);
+            field.interact(Focus);
             field.is_focused(field_id)
         };
         assert!(render(&mut frame, &mut context, &build));
@@ -122,8 +104,8 @@ fn tapping_unregistered_background_clears_focus() {
 #[test]
 fn scroll() {
     // zero delta endings stay with the owner even outside its bounds
-    for sense in [Sense::SCROLL_X, Sense::SCROLL_Y] {
-        let mut scene = InputScene::<Integer>::new(sense);
+    for horizontal in [true, false] {
+        let mut scene = InputScene::<Integer, _>::new(Wheel);
         for (phase, expected) in [
             (ScrollPhase::Started, Started),
             (ScrollPhase::Moved, Changed),
@@ -131,7 +113,7 @@ fn scroll() {
         ] {
             let delta = if phase == ScrollPhase::Ended {
                 Point::ZERO
-            } else if sense == Sense::SCROLL_X {
+            } else if horizontal {
                 Point::new(0.5, -0.25)
             } else {
                 Point::new(0.25, -0.5)
@@ -151,9 +133,9 @@ fn scroll() {
                     modifiers: Modifiers::NONE,
                 },
             );
-            let scroll = response.scroll.unwrap();
+            let scroll = response.unwrap();
             assert_eq!((scroll.delta, scroll.phase, scroll.continuous), (delta, expected, true));
-            assert_eq!(scene.step(11, Input::None).scroll, None);
+            assert_eq!(scene.step(11, Input::None), None);
         }
         // native and global cancellation both end capture
         for global in [false, true] {
@@ -161,8 +143,8 @@ fn scroll() {
                 20,
                 Input::Scroll {
                     position: Point::new(10, 10),
-                    delta_x: if sense == Sense::SCROLL_X { 0.5 } else { 0.0 },
-                    delta_y: if sense == Sense::SCROLL_Y { 0.5 } else { 0.0 },
+                    delta_x: if horizontal { 0.5 } else { 0.0 },
+                    delta_y: if horizontal { 0.0 } else { 0.5 },
                     continuous: true,
                     phase: ScrollPhase::Started,
                     modifiers: Modifiers::NONE,
@@ -180,7 +162,7 @@ fn scroll() {
                     modifiers: Modifiers::NONE,
                 }
             };
-            assert_eq!(scene.step(21, cancel).scroll.unwrap().phase, Cancelled);
+            assert_eq!(scene.step(21, cancel).unwrap().phase, Cancelled);
         }
     }
 }
@@ -195,15 +177,15 @@ fn clipping() {
             .clip(TestClip)
             .child()
             .build(|mut ui: Ui<'_>| {
-                let response = ui.interact().sense(Sense::CLICK);
-                ui.interact().sense(Sense::SCROLL);
+                let response = ui.interact(Press::new());
+                let wheel = ui.interact(Wheel);
                 ui.insert(Fill('C', Size::new(5.0, 1.0)));
-                response
+                (response, wheel)
             })
     };
     render(&mut frame, &mut context, &build);
     for (phase, x, active) in [(Down, 4.5, false), (Up, 4.5, false), (Down, 2.5, true)] {
-        let response = render_inputs(
+        let (response, _) = render_inputs(
             &mut frame,
             &mut context,
             Duration::ZERO,
@@ -213,7 +195,7 @@ fn clipping() {
         assert_eq!(response.active, active);
         assert!(!response.clicked);
     }
-    let response = render_inputs(
+    let (response, wheel) = render_inputs(
         &mut frame,
         &mut context,
         Duration::ZERO,
@@ -227,7 +209,7 @@ fn clipping() {
         }],
         &build,
     );
-    assert!(response.active && response.scroll.is_some());
+    assert!(response.active && wheel.is_some());
 }
 
 #[test]
@@ -256,7 +238,7 @@ fn clip_shapes() {
             let mut panel = root.child().item(Rect::new(0.0, 0.0, 1.0, 1.0)).clip(()).layout(Rects);
             let mut child = panel.child().item(Rect::new(3.0, 3.0, 1.0, 1.0)).clip(TestClip);
             child.insert(Fill('C', Size::uniform(1.0)));
-            child.interact().sense(Sense::CLICK)
+            child.interact(Press::new())
         };
         render(&mut frame, &mut context, &build);
         assert!(context.commands.contains(&Paint('C', Rect::new(3.0, 3.0, 1.0, 1.0))));
@@ -283,14 +265,13 @@ fn hover_tracks_changed_ancestry() {
             .child()
             .item(Rect::new(0.0, 0.0, 200.0, 200.0))
             .id(Id::new(parent.get()));
-        let hovered = parent.interact().sense(Sense::CLICK).hovered;
+        let hovered = parent.interact(Press::new()).hovered;
         parent
             .layout(Rects)
             .child()
             .item(Rect::new(0.0, 0.0, 200.0, 200.0))
             .id(Id::new("leaf"))
-            .interact()
-            .sense(Sense::CLICK);
+            .interact(Press::new());
         hovered
     };
     render(&mut frame, &mut context, &build);

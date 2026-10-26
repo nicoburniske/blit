@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use blit::{
-    Atom, AtomCx, Axis, Constraints, Easing, Id, Interaction, LogicalRect, Sense, Sides, Size, Transition, Widget,
+    Atom, AtomCx, Axis, Constraints, Easing, Id, Interaction, LogicalRect, Press, Sides, Size, Transition, Widget,
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 #[cfg(not(feature = "gpu"))]
@@ -1154,7 +1154,7 @@ impl Widget<DesktopContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        let interaction = ui.interact().sense(Sense::CLICK);
+        let interaction = ui.interact(Press::new());
         draw_button(ui, self.label, self.selected, interaction);
         interaction.clicked
     }

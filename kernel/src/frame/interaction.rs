@@ -1,68 +1,200 @@
-use std::{any::TypeId, mem::MaybeUninit, num::NonZeroU32, time::Duration};
-
-use super::{Frame, Request, ResolvedClip, ResolvedClipId};
-use crate::{
-    Contact, ContactId, ContactSource, Context, Gesture, Id, Input, Interaction, Modifiers, Phase, PointerButton,
-    Scalar, Scroll, ScrollPhase, Sense, TouchPhase,
-    geometry::{Point, Rect, Sides},
-    internal::bump::Bump,
+use std::{
+    any::TypeId,
+    hash::{Hash, Hasher},
+    mem::MaybeUninit,
+    num::NonZeroU32,
+    time::Duration,
 };
 
-// movement after which a press is no longer a click
-const CLICK_SLOP: f32 = 6.0;
+use super::{Frame, ResolvedClip, ResolvedClipId};
+use crate::{
+    Contact, ContactId, ContactSource, Context, Hold, Id, Input, Interact, Modifiers, Phase, PointerButton, Scalar,
+    Scroll, ScrollPhase, TouchPhase,
+    geometry::{Point, Rect, Sides},
+    internal::{bump::Bump, hash::FxHasher},
+};
+
+// movement after which a press is no longer a tap
+const TAP_SLOP: f32 = 6.0;
 
 // slot node for a named widget missing from the layout
 const UNRESOLVED: u32 = u32::MAX;
 
-/// contacts routed to one gesture before a build
-pub struct GestureCx<'a, T> {
+/// input routed to one interaction kind before a build
+pub struct InteractCx<'a, T> {
     id: Id,
     node: u32,
     end: u32,
-    contacts: &'a mut [TrackedContact<T>],
+    state: &'a mut InteractionState<T>,
+    input: &'a Input<T>,
     time: Duration,
-    deadline: &'a mut Option<Duration>,
 }
 
-impl<T: Scalar> GestureCx<'_, T> {
+impl<T: Scalar> InteractCx<'_, T> {
     pub fn time(&self) -> Duration {
         self.time
+    }
+
+    /// builds a frame at this time without input
+    pub fn wake_at(&mut self, time: Duration) {
+        let deadline = &mut self.state.deadline;
+        *deadline = Some(deadline.map_or(time, |deadline| deadline.min(time)));
     }
 
     /// pending contacts within this widget and contacts it captured
     pub fn contacts(&self) -> Contacts<'_, T> {
         Contacts {
-            contacts: self.contacts.iter(),
+            contacts: self.state.contacts.iter(),
             id: self.id,
             node: self.node,
             end: self.end,
         }
     }
 
-    /// takes a pending contact within this widget from its ancestors and click until it ends
-    pub fn capture(&mut self, contact: ContactId) {
-        let (node, end) = (self.node as usize, self.end as usize);
-        if let Some(tracked) = self.contacts.iter_mut().find(|tracked| tracked.id == contact)
-            && let Route::Pending {
-                target: Some(target), ..
-            } = tracked.route
-            && node <= target.node
-            && target.node <= end
+    /// holds a free pending contact within this widget until something captures it
+    pub fn claim(&mut self, contact: ContactId) {
+        let id = self.id;
+        if let Some(Route::Pending { claim, .. }) = self.pending(contact)
+            && claim.is_none()
         {
-            tracked.route = Route::Captured {
-                owner: self.id,
-                click: false,
-            };
+            *claim = Some(id);
         }
     }
 
-    /// builds a frame at this time without input
-    pub fn wake_at(&mut self, time: Duration) {
-        *self.deadline = Some(self.deadline.map_or(time, |deadline| deadline.min(time)));
+    /// takes a pending contact within this widget from every other widget until it ends
+    pub fn capture(&mut self, contact: ContactId) {
+        let owner = self.id;
+        let Some(route) = self.pending(contact) else {
+            return;
+        };
+        let claimant = match *route {
+            Route::Pending { claim, .. } => claim.filter(|claim| *claim != owner),
+            _ => None,
+        };
+        *route = Route::Captured { owner };
+        self.state.stolen.extend(claimant);
+    }
+
+    pub fn hovered(&self) -> bool {
+        self.state.position.is_some() && self.state.hover.is_some_and(|node| self.contains(node))
+    }
+
+    /// whether `position` falls on this widget rather than something above it
+    pub fn over(&self, position: Point<T>) -> bool {
+        self.state.hit(position).is_some_and(|hit| self.contains(hit.node))
+    }
+
+    pub fn focused(&self) -> bool {
+        self.state.focused == Some(self.id)
+    }
+
+    /// focuses this widget unless a deeper widget took focus during this update
+    pub fn focus(&mut self) {
+        if !self.state.focus_taken {
+            self.state.focused = Some(self.id);
+            self.state.focus_taken = true;
+        }
+    }
+
+    /// the current input when it routes through this widget
+    pub fn input(&self) -> Input<T> {
+        let routed = match *self.input {
+            Input::Key(_) | Input::Text(_) => {
+                self.state.root == Some(self.id)
+                    || self.state.key_focus.is_some_and(|focus| {
+                        self.state
+                            .hits
+                            .iter()
+                            .find(|hit| hit.id == focus)
+                            .is_some_and(|hit| self.contains(hit.node))
+                    })
+            }
+            Input::PointerDown { button, .. } | Input::PointerUp { button, .. } => {
+                let phase = if matches!(self.input, Input::PointerDown { .. }) {
+                    Phase::Started
+                } else {
+                    Phase::Ended
+                };
+                self.contacts()
+                    .any(|contact| contact.source == ContactSource::Mouse(button) && contact.phase == phase)
+            }
+            Input::PointerMove { .. } => {
+                if self.state.contacts.iter().any(|tracked| {
+                    matches!(tracked.source, Source::Mouse(_))
+                        && !matches!(tracked.phase, Phase::Ended | Phase::Cancelled)
+                }) {
+                    self.contacts().any(|contact| {
+                        matches!(contact.source, ContactSource::Mouse(_)) && contact.phase == Phase::Changed
+                    })
+                } else {
+                    self.hovered()
+                }
+            }
+            Input::PointerLeave | Input::Scroll { .. } => self.state.hover.is_some_and(|node| self.contains(node)),
+            Input::Touch { id, .. } => self.state.contacts.iter().any(|tracked| {
+                tracked.source == Source::Touch(id) && tracked.phase != Phase::Held && self.sees(tracked.route)
+            }),
+            Input::Cancel => {
+                self.contacts().next().is_some() || self.state.wheel.is_some_and(|wheel| wheel.owner == Some(self.id))
+            }
+            Input::None => false,
+        };
+        if routed { *self.input } else { Input::None }
+    }
+
+    /// wheel scrolling over this widget, or the cancellation of a sequence it held
+    pub fn wheel(&self) -> Option<Scroll> {
+        let wheel = self.state.wheel?;
+        let event = wheel.event.filter(|_| match wheel.owner {
+            Some(owner) => owner == self.id,
+            None => wheel.target.is_some_and(|node| self.contains(node)),
+        });
+        event.or((wheel.cancelled == Some(self.id)).then_some(Scroll {
+            phase: Phase::Cancelled,
+            delta: Point::ZERO,
+            continuous: true,
+        }))
+    }
+
+    /// keeps a continuous wheel sequence over this widget until it ends
+    pub fn capture_wheel(&mut self) {
+        let id = self.id;
+        let (node, end) = (self.node as usize, self.end as usize);
+        if let Some(wheel) = &mut self.state.wheel
+            && wheel.owner.is_none()
+            && wheel.target.is_some_and(|target| node <= target && target <= end)
+        {
+            wheel.owner = Some(id);
+        }
+    }
+
+    fn contains(&self, node: usize) -> bool {
+        self.node as usize <= node && node <= self.end as usize
+    }
+
+    fn sees(&self, route: Route) -> bool {
+        match route {
+            Route::Pending {
+                target: Some(target), ..
+            } => self.contains(target.node),
+            Route::Captured { owner } => owner == self.id,
+            Route::Pending { target: None, .. } | Route::Retired => false,
+        }
+    }
+
+    fn pending(&mut self, contact: ContactId) -> Option<&mut Route> {
+        let (node, end) = (self.node as usize, self.end as usize);
+        let tracked = self.state.contacts.iter_mut().find(|tracked| tracked.id == contact)?;
+        match tracked.route {
+            Route::Pending {
+                target: Some(target), ..
+            } if node <= target.node && target.node <= end => Some(&mut tracked.route),
+            _ => None,
+        }
     }
 }
 
-/// contacts visible to one gesture
+/// contacts visible to one interaction kind
 pub struct Contacts<'a, T> {
     contacts: std::slice::Iter<'a, TrackedContact<T>>,
     id: Id,
@@ -87,12 +219,21 @@ impl<T: Scalar> Iterator for Contacts<'_, T> {
     type Item = Contact<T>;
 
     fn next(&mut self) -> Option<Contact<T>> {
-        let tracked = self.contacts.find(|tracked| match tracked.route {
-            Route::Pending {
-                target: Some(target), ..
-            } => self.node as usize <= target.node && target.node <= self.end as usize,
-            Route::Captured { owner, .. } => owner == self.id,
-            Route::Pending { target: None, .. } | Route::Retired => false,
+        let (id, node, end) = (self.id, self.node as usize, self.end as usize);
+        let (tracked, hold) = self.contacts.find_map(|tracked| {
+            let hold = match tracked.route {
+                Route::Pending {
+                    target: Some(target),
+                    claim,
+                } if node <= target.node && target.node <= end => match claim {
+                    None => Hold::Free,
+                    Some(claim) if claim == id => Hold::Claimed,
+                    Some(_) => Hold::ClaimedElsewhere,
+                },
+                Route::Captured { owner } if owner == id => Hold::Captured,
+                _ => return None,
+            };
+            Some((tracked, hold))
         })?;
         Some(Contact {
             id: tracked.id,
@@ -101,12 +242,13 @@ impl<T: Scalar> Iterator for Contacts<'_, T> {
                 Source::Touch(_) => ContactSource::Touch,
             },
             phase: tracked.phase,
+            hold,
             origin: tracked.origin,
             position: tracked.position,
             delta: tracked.delta,
             started: tracked.started,
             modifiers: tracked.modifiers,
-            captured: matches!(tracked.route, Route::Captured { .. }),
+            tap: tracked.tap,
         })
     }
 }
@@ -119,139 +261,95 @@ pub struct InteractionState<T> {
     pub position: Option<Point<T>>,
     contacts: Vec<TrackedContact<T>>,
     next_contact: u32,
-    active_previous: Vec<Id>,
-    wheel: Option<Wheel>,
+    wheel: Option<WheelState>,
     hits: Vec<HitItem<T>>,
-    // preorder by node so reverse iteration visits descendants first
-    gestures: Vec<GestureSlot>,
-    // slots requested by this build are moved before the cursor
-    cursor: usize,
-    gesture_kinds: Vec<GestureKind<T>>,
-    // cells of every gesture kind, reused through each kind's free list
-    gesture_state: Bump,
+    root: Option<Id>,
+    // node under the pointer in the previous layout
+    hover: Option<usize>,
+    // ids hovered when this build began, compared after layout
+    hover_key: u64,
     key_focus: Option<Id>,
-    hovered: Vec<Id>,
+    // a deeper widget took focus during this update
+    focus_taken: bool,
+    // claimants whose contacts an ancestor captured after they updated
+    stolen: Vec<Id>,
+    kinds: Kinds<T>,
 }
 
 impl<T: Scalar> InteractionState<T> {
-    pub fn gesture<G: Gesture<T>>(&mut self, id: Id, node: Option<usize>, initial: G) -> G::Output {
-        let type_id = TypeId::of::<G>();
-        let kind = self
-            .gesture_kinds
+    pub fn interact<K: Interact<T>>(&mut self, id: Id, node: Option<usize>, initial: K) -> K::Output {
+        let kinds = &mut self.kinds;
+        let type_id = TypeId::of::<K>();
+        let kind = kinds
+            .kinds
             .iter()
             .position(|kind| kind.type_id == type_id)
             .unwrap_or_else(|| {
-                self.gesture_kinds.push(GestureKind {
+                kinds.kinds.push(Kind {
                     type_id,
                     update: |state, offset, cx| {
-                        // safety: slots of this kind point at live cells holding G and its output
-                        let (gesture, output) =
-                            unsafe { &mut *state.as_ptr().add(offset as usize).cast::<(G, G::Output)>() };
-                        *output = gesture.update(cx);
+                        // safety: slots of this kind point at live cells holding K and its output
+                        let (kind, output) =
+                            unsafe { &mut *state.as_ptr().add(offset as usize).cast::<(K, K::Output)>() };
+                        *output = kind.update(cx);
                     },
                     free: None,
                 });
-                self.gesture_kinds.len() - 1
+                kinds.kinds.len() - 1
             });
-        let kind = u16::try_from(kind).expect("too many gesture kinds");
-        let matches = |slot: &GestureSlot| slot.id == id && slot.kind == kind;
-        let cursor = self.cursor;
-        // builds request gestures in nearly the same order each frame
-        let index = if let Some(offset) = self.gestures[cursor..].iter().position(matches) {
-            self.gestures.swap(cursor, cursor + offset);
-            self.cursor += 1;
+        let kind = u16::try_from(kind).expect("too many interaction kinds");
+        let matches = |slot: &Slot| slot.id == id && slot.kind == kind;
+        let cursor = kinds.cursor;
+        // builds request kinds in nearly the same order each frame
+        let index = if let Some(offset) = kinds.slots[cursor..].iter().position(matches) {
+            kinds.slots.swap(cursor, cursor + offset);
+            kinds.cursor += 1;
             cursor
-        } else if let Some(index) = self.gestures[..cursor].iter().position(matches) {
+        } else if let Some(index) = kinds.slots[..cursor].iter().position(matches) {
             index
         } else {
-            let value = (initial, G::Output::default());
+            let value = (initial, K::Output::default());
             // reserve first so a panic cannot lose a reused cell
-            self.gestures.reserve(1);
-            let free = &mut self.gesture_kinds[kind as usize].free;
+            kinds.slots.reserve(1);
+            let free = &mut kinds.kinds[kind as usize].free;
             let offset = match *free {
                 Some(offset) => {
-                    let cell = self
-                        .gesture_state
+                    let cell = kinds
+                        .state
                         .as_ptr()
                         .wrapping_add(offset as usize)
-                        .cast::<GestureCell<(G, G::Output)>>();
+                        .cast::<Cell<(K, K::Output)>>();
                     // safety: free cells of this kind are dead cells of this layout holding the next link
                     unsafe {
                         *free = (*cell).next;
-                        cell.write(GestureCell { value });
+                        cell.write(Cell { value });
                     }
                     offset
                 }
-                None => self.gesture_state.push(GestureCell { value }).byte(),
+                None => kinds.state.push(Cell { value }).byte(),
             };
-            self.gestures.push(GestureSlot {
+            kinds.slots.push(Slot {
                 id,
                 node: UNRESOLVED,
                 end: 0,
                 offset,
                 kind,
             });
-            let last = self.gestures.len() - 1;
-            self.gestures.swap(cursor, last);
-            self.cursor += 1;
+            let last = kinds.slots.len() - 1;
+            kinds.slots.swap(cursor, last);
+            kinds.cursor += 1;
             cursor
         };
-        let slot = &mut self.gestures[index];
+        let slot = &mut kinds.slots[index];
         slot.node = node.map_or(UNRESOLVED, |node| u32::try_from(node).expect("too many frame nodes"));
-        // safety: slots of this kind point at live cells holding G and its output
-        unsafe {
-            (*self
-                .gesture_state
-                .as_ptr()
-                .add(slot.offset as usize)
-                .cast::<(G, G::Output)>())
-            .1
-        }
-    }
-
-    pub fn response(&mut self, id: Id) -> Interaction {
-        let mut response = Interaction {
-            hovered: self.position.is_some() && self.hovered.contains(&id),
-            ..Interaction::default()
-        };
-        for index in 0..self.contacts.len() {
-            let tracked = self.contacts[index];
-            if let Route::Pending { click: Some(click), .. } = tracked.route
-                && click == id
-                && tracked.phase == Phase::Ended
-                && self
-                    .hit(tracked.position)
-                    .is_some_and(|hit| Self::ancestor(&self.hits, id, hit.id))
-            {
-                // the first read commits the click so repeated reads agree
-                self.contacts[index].route = Route::Captured { owner: id, click: true };
-            }
-            let route = self.contacts[index].route;
-            if route.receiver() == Some(id) {
-                response.active |= !matches!(tracked.phase, Phase::Ended | Phase::Cancelled);
-                response.clicked |=
-                    tracked.phase == Phase::Ended && matches!(route, Route::Captured { click: true, .. });
-            }
-        }
-        let previous = self.active_previous.contains(&id);
-        response.activated = response.active && !previous;
-        response.deactivated = previous && !response.active;
-        if let Some(wheel) = &self.wheel {
-            if wheel.owner == Some(id) {
-                response.scroll = wheel.event.or(response.scroll);
-            } else if wheel.cancelled == Some(id) {
-                response.scroll = Some(Scroll {
-                    phase: Phase::Cancelled,
-                    delta: Point::ZERO,
-                    continuous: true,
-                });
-            }
-        }
-        response
+        // safety: slots of this kind point at live cells holding K and its output
+        unsafe { (*kinds.state.as_ptr().add(slot.offset as usize).cast::<(K, K::Output)>()).1 }
     }
 
     pub fn begin(&mut self, input: &Input<T>, time: Duration) {
         self.key_focus = self.focused;
+        self.focus_taken = false;
+        self.stolen.clear();
         self.contacts
             .retain(|tracked| !matches!(tracked.phase, Phase::Ended | Phase::Cancelled));
         for tracked in &mut self.contacts {
@@ -278,6 +376,10 @@ impl<T: Scalar> InteractionState<T> {
                         self.contacts[index].modifiers = modifiers;
                         self.update(index, position, Phase::Changed);
                     }
+                }
+                // a press away from any focusable widget clears focus
+                if button == PointerButton::Primary {
+                    self.focused = None;
                 }
                 self.press(Source::Mouse(button), position, modifiers, time);
             }
@@ -321,6 +423,10 @@ impl<T: Scalar> InteractionState<T> {
                             TouchPhase::Down => unreachable!(),
                         },
                     );
+                    // a tap away from any focusable widget clears focus
+                    if phase == TouchPhase::Up && self.contacts[index].tap {
+                        self.focused = None;
+                    }
                 }
             }
             Input::PointerLeave => self.position = None,
@@ -333,29 +439,18 @@ impl<T: Scalar> InteractionState<T> {
                 ..
             } => {
                 self.position = Some(position);
-                let axis = if delta_x == 0.0 && delta_y == 0.0 {
-                    Sense::SCROLL
-                } else if delta_x.abs() > delta_y.abs() {
-                    Sense::SCROLL_X
-                } else {
-                    Sense::SCROLL_Y
-                };
                 let previous = self.wheel.filter(|wheel| wheel.active);
                 let continuing = continuous && phase != ScrollPhase::Started && previous.is_some();
-                let owner = if continuing {
-                    previous.and_then(|wheel| wheel.owner)
-                } else if continuous && matches!(phase, ScrollPhase::Ended | ScrollPhase::Cancelled) {
-                    None
-                } else {
-                    self.hit(position)
-                        .and_then(|hit| self.target(hit.node, position, axis))
-                        .map(|hit| hit.id)
-                };
-                let cancelled = previous.filter(|_| !continuing).and_then(|wheel| wheel.owner);
-                self.wheel = Some(Wheel {
-                    owner,
-                    active: continuous && matches!(phase, ScrollPhase::Started | ScrollPhase::Moved),
-                    event: owner.map(|_| Scroll {
+                // a continuous ending without a sequence has nothing to end
+                let stray = continuous && matches!(phase, ScrollPhase::Ended | ScrollPhase::Cancelled) && !continuing;
+                self.wheel = Some(WheelState {
+                    target: if continuing {
+                        previous.and_then(|wheel| wheel.target)
+                    } else {
+                        self.hit(position).map(|hit| hit.node)
+                    },
+                    owner: previous.filter(|_| continuing).and_then(|wheel| wheel.owner),
+                    event: (!stray).then_some(Scroll {
                         phase: match phase {
                             ScrollPhase::Started => Phase::Started,
                             ScrollPhase::Moved => Phase::Changed,
@@ -369,7 +464,8 @@ impl<T: Scalar> InteractionState<T> {
                         },
                         continuous,
                     }),
-                    cancelled: cancelled.filter(|previous| Some(*previous) != owner),
+                    active: continuous && matches!(phase, ScrollPhase::Started | ScrollPhase::Moved),
+                    cancelled: previous.filter(|_| !continuing).and_then(|wheel| wheel.owner),
                 });
             }
             Input::Cancel => {
@@ -388,117 +484,41 @@ impl<T: Scalar> InteractionState<T> {
             }
             Input::None | Input::Text(_) | Input::Key(_) => {}
         }
-        // deepest gestures claim contacts first
+        if !matches!(input, Input::PointerLeave) {
+            self.hover = self
+                .position
+                .and_then(|position| self.hit(position))
+                .map(|hit| hit.node);
+        }
+        self.hover_key = self.hover_key(self.position.and(self.hover));
+        // deepest kinds see contacts first
         self.deadline = None;
-        self.cursor = 0;
-        for slot in self.gestures.iter().rev() {
-            (self.gesture_kinds[slot.kind as usize].update)(
-                &self.gesture_state,
+        let mut kinds = std::mem::take(&mut self.kinds);
+        kinds.cursor = 0;
+        let update = |slot: &Slot, state: &mut Self| {
+            (kinds.kinds[slot.kind as usize].update)(
+                &kinds.state,
                 slot.offset,
-                &mut GestureCx {
+                &mut InteractCx {
                     id: slot.id,
                     node: slot.node,
                     end: slot.end,
-                    contacts: &mut self.contacts,
+                    state,
+                    input,
                     time,
-                    deadline: &mut self.deadline,
                 },
             );
+        };
+        for slot in kinds.slots.iter().rev() {
+            update(slot, self);
         }
-        if let Input::Touch {
-            id,
-            position,
-            phase: TouchPhase::Up,
-        } = *input
-            && let Some(tracked) = self.contacts.iter().find(|tracked| tracked.source == Source::Touch(id))
-            && let Route::Pending { click, tap: true, .. } = tracked.route
-        {
-            let target = click.filter(|owner| {
-                self.hit(position)
-                    .is_some_and(|hit| Self::ancestor(&self.hits, *owner, hit.id))
-            });
-            self.focused = target.filter(|owner| {
-                self.hits
-                    .iter()
-                    .any(|hit| hit.id == *owner && hit.sense.contains(Sense::FOCUS))
-            });
-        }
-        if !matches!(input, Input::PointerLeave) {
-            self.hovered.clear();
-            if let Some(hit) = self.position.and_then(|position| self.hit(position)) {
-                self.hovered.extend(
-                    self.hits
-                        .iter()
-                        .filter(|item| item.node <= hit.node && hit.node <= item.end)
-                        .map(|item| item.id),
-                );
+        // claimants updated before an ancestor captured their contact, so they update again
+        for slot in kinds.slots.iter().rev() {
+            if self.stolen.contains(&slot.id) {
+                update(slot, self);
             }
         }
-    }
-
-    pub fn routes(&self, id: Id, root: Id, input: &Input<T>) -> bool {
-        match *input {
-            Input::Key(_) | Input::Text(_) => {
-                id == root
-                    || self
-                        .key_focus
-                        .is_some_and(|owner| Self::ancestor(&self.hits, id, owner))
-            }
-            Input::PointerDown { button, .. } | Input::PointerUp { button, .. } => {
-                let phase = if matches!(input, Input::PointerDown { .. }) {
-                    Phase::Started
-                } else {
-                    Phase::Ended
-                };
-                self.contacts.iter().any(|tracked| {
-                    tracked.source == Source::Mouse(button)
-                        && tracked.phase == phase
-                        && Self::visible(&self.hits, id, tracked.route)
-                })
-            }
-            Input::PointerMove { .. } => {
-                if self.contacts.iter().any(|tracked| {
-                    matches!(tracked.source, Source::Mouse(_))
-                        && !matches!(tracked.phase, Phase::Ended | Phase::Cancelled)
-                }) {
-                    self.contacts.iter().any(|tracked| {
-                        matches!(tracked.source, Source::Mouse(_))
-                            && tracked.phase == Phase::Changed
-                            && Self::visible(&self.hits, id, tracked.route)
-                    })
-                } else {
-                    self.hovered.contains(&id)
-                }
-            }
-            Input::PointerLeave => self.hovered.contains(&id),
-            Input::Touch { id: source, phase, .. } => {
-                let phase = match phase {
-                    TouchPhase::Down => Phase::Started,
-                    TouchPhase::Move => Phase::Changed,
-                    TouchPhase::Up => Phase::Ended,
-                    TouchPhase::Cancel => Phase::Cancelled,
-                };
-                self.contacts.iter().any(|tracked| {
-                    tracked.source == Source::Touch(source)
-                        && tracked.phase == phase
-                        && Self::visible(&self.hits, id, tracked.route)
-                })
-            }
-            Input::Scroll { .. } => self
-                .wheel
-                .and_then(|wheel| wheel.owner)
-                .is_some_and(|owner| Self::ancestor(&self.hits, id, owner)),
-            Input::Cancel => {
-                self.contacts
-                    .iter()
-                    .any(|tracked| Self::visible(&self.hits, id, tracked.route))
-                    || self
-                        .wheel
-                        .and_then(|wheel| wheel.owner)
-                        .is_some_and(|owner| Self::ancestor(&self.hits, id, owner))
-            }
-            Input::None => false,
-        }
+        self.kinds = kinds;
     }
 
     fn press(&mut self, source: Source, position: Point<T>, modifiers: Modifiers, time: Duration) {
@@ -507,36 +527,24 @@ impl<T: Scalar> InteractionState<T> {
                 self.update(index, self.contacts[index].position, Phase::Cancelled);
             }
         }
-        let target = self.hit(position);
-        let ordinary = !matches!(source, Source::Mouse(button) if button != PointerButton::Primary);
-        let click = target
-            .filter(|_| ordinary)
-            .and_then(|hit| self.target(hit.node, position, Sense::CLICK));
-        if source == Source::Mouse(PointerButton::Primary) {
-            self.focused = click.filter(|hit| hit.sense.contains(Sense::FOCUS)).map(|hit| hit.id);
-        }
-        let busy = click.is_some_and(|hit| self.busy(hit.id));
-        let route = Route::Pending {
-            target: target.map(|hit| Target {
-                id: hit.id,
-                node: hit.node,
-            }),
-            click: click.filter(|_| !busy).map(|hit| hit.id),
-            tap: ordinary && !busy,
-        };
         // ids wrap past zero, only live contacts need distinct ids
         let id = NonZeroU32::new(self.next_contact.wrapping_add(1)).unwrap_or(NonZeroU32::MIN);
         self.next_contact = id.get();
+        let target = self.hit(position).map(|hit| Target {
+            id: hit.id,
+            node: hit.node,
+        });
         self.contacts.push(TrackedContact {
             id: ContactId(id),
             source,
-            route,
+            route: Route::Pending { target, claim: None },
             phase: Phase::Started,
             origin: position,
             position,
             delta: Point::ZERO,
             started: time,
             modifiers,
+            tap: true,
         });
     }
 
@@ -554,57 +562,26 @@ impl<T: Scalar> InteractionState<T> {
         tracked.phase = phase;
         let x = (position.x - tracked.origin.x).to_f32();
         let y = (position.y - tracked.origin.y).to_f32();
-        let distance = x * x + y * y;
-        if let Route::Pending { click, tap, .. } = &mut tracked.route
-            && distance >= CLICK_SLOP * CLICK_SLOP
-        {
-            *click = None;
-            *tap = false;
-        }
+        tracked.tap &= x * x + y * y < TAP_SLOP * TAP_SLOP;
     }
 
-    /// whether a live contact already drives this widget
-    fn busy(&self, id: Id) -> bool {
-        self.contacts.iter().any(|tracked| {
-            !matches!(tracked.phase, Phase::Ended | Phase::Cancelled) && tracked.route.receiver() == Some(id)
-        })
-    }
-
-    fn visible(hits: &[HitItem<T>], id: Id, route: Route) -> bool {
-        match route {
-            Route::Pending {
-                target: Some(target), ..
-            } => hits
-                .iter()
-                .any(|hit| hit.id == id && hit.node <= target.node && target.node <= hit.end),
-            Route::Captured { owner, .. } => owner == id,
-            Route::Pending { target: None, .. } | Route::Retired => false,
-        }
-    }
-
-    fn ancestor(hits: &[HitItem<T>], id: Id, target: Id) -> bool {
-        if id == target {
-            return true;
-        }
-        let Some(node) = hits.iter().find(|hit| hit.id == target).map(|hit| hit.node) else {
-            return false;
+    /// identifies the widgets under the pointer to notice when layout changes them
+    fn hover_key(&self, node: Option<usize>) -> u64 {
+        let Some(node) = node else {
+            return 0;
         };
-        hits.iter()
-            .any(|hit| hit.id == id && hit.node <= node && node <= hit.end)
+        self.hits
+            .iter()
+            .filter(|hit| hit.node <= node && node <= hit.end)
+            .fold(0, |key: u64, hit| {
+                let mut hasher = FxHasher::default();
+                hit.id.hash(&mut hasher);
+                key.wrapping_add(hasher.finish())
+            })
     }
 
     fn hit(&self, position: Point<T>) -> Option<HitItem<T>> {
         self.hits.iter().rev().find(|hit| self.contains(hit, position)).copied()
-    }
-
-    fn target(&self, node: usize, position: Point<T>, sense: Sense) -> Option<HitItem<T>> {
-        self.hits
-            .iter()
-            .rev()
-            .find(|hit| {
-                hit.sense.intersects(sense) && hit.node <= node && node <= hit.end && self.contains(hit, position)
-            })
-            .copied()
     }
 
     fn contains(&self, hit: &HitItem<T>, position: Point<T>) -> bool {
@@ -624,16 +601,46 @@ impl<T: Scalar> InteractionState<T> {
 }
 
 pub fn resolve<C: Context>(frame: &mut Frame<C>) {
-    let requests = &frame.requests;
+    let kinds = &mut frame.interaction.kinds;
+    for slot in &kinds.slots[kinds.cursor..] {
+        let free = &mut kinds.kinds[slot.kind as usize].free;
+        let cell = kinds.state.as_ptr().wrapping_add(slot.offset as usize);
+        // safety: unrequested cells are dead and every cell starts with room for the link
+        unsafe { cell.cast::<Option<u32>>().write(*free) };
+        *free = Some(slot.offset);
+    }
+    kinds.slots.truncate(kinds.cursor);
+    for slot in &mut kinds.slots {
+        // named widgets find their nodes now that the build placed them
+        if slot.node == UNRESOLVED
+            && let Some(index) = frame.nodes.iter().position(|stored| stored.widget_id == slot.id)
+        {
+            slot.node = index as u32;
+            frame.nodes[index].interactive = true;
+        }
+        slot.end = frame
+            .nodes
+            .get(slot.node as usize)
+            .map_or(0, |stored| stored.subtree_end);
+    }
+    // stable insertion sort stays near linear since builds request in preorder
+    let slots = &mut kinds.slots;
+    for sorted in 1..slots.len() {
+        let mut index = sorted;
+        while index > 0 && slots[index - 1].node > slots[index].node {
+            slots.swap(index - 1, index);
+            index -= 1;
+        }
+    }
     let nodes = &frame.nodes;
     let hits = &frame.interaction.hits;
     let node = |id| {
-        matches!(requests.get(&id), Some(Request::Interaction { .. }))
-            .then(|| nodes.iter().position(|stored| stored.widget_id == id))
-            .flatten()
+        nodes
+            .iter()
+            .position(|stored| stored.interactive && stored.widget_id == id)
     };
     let next_route = |route| match route {
-        Route::Pending { target, click, tap } => {
+        Route::Pending { target, claim } => {
             let Some(Target {
                 id: target,
                 node: previous,
@@ -649,45 +656,23 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
                     .max_by_key(|hit| hit.node)?
                     .id
             };
-            let target_node = node(target)?;
-            let click = click.filter(|id| {
-                matches!(requests.get(id), Some(Request::Interaction { sense, .. }) if sense.contains(Sense::CLICK))
-                    && node(*id)
-                        .is_some_and(|index| index <= target_node && target_node <= nodes[index].subtree_end as usize)
-            });
             Some(Route::Pending {
                 target: Some(Target {
                     id: target,
-                    node: target_node,
+                    node: node(target)?,
                 }),
-                click,
-                tap,
+                claim: claim.filter(|claim| node(*claim).is_some()),
             })
         }
-        Route::Captured { owner, .. } => node(owner).map(|_| route),
+        Route::Captured { owner } => node(owner).map(|_| route),
         Route::Retired => None,
     };
-    for (&id, request) in requests {
-        if !matches!(request, Request::Interaction { response: true, .. }) {
-            continue;
-        }
-        if frame.interaction.busy(id) {
-            let next_active = frame.interaction.contacts.iter().any(|tracked| {
-                !matches!(tracked.phase, Phase::Ended | Phase::Cancelled)
-                    && next_route(tracked.route).and_then(Route::receiver) == Some(id)
-            });
-            frame.frame_requested |= !next_active;
-        }
-    }
-    frame.interaction.active_previous.clear();
     for tracked in &mut frame.interaction.contacts {
-        let next = next_route(tracked.route);
-        if !matches!(tracked.phase, Phase::Ended | Phase::Cancelled)
-            && let Some(receiver) = tracked.route.receiver()
-        {
-            frame.interaction.active_previous.push(receiver);
-        }
-        tracked.route = next.unwrap_or(Route::Retired);
+        let next = next_route(tracked.route).unwrap_or(Route::Retired);
+        // a live contact losing its holder changes that holder's output
+        frame.frame_requested |=
+            !matches!(tracked.phase, Phase::Ended | Phase::Cancelled) && next.holder() != tracked.route.holder();
+        tracked.route = next;
     }
     if frame.interaction.focused.is_some_and(|id| node(id).is_none()) {
         frame.interaction.focused = None;
@@ -700,20 +685,20 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     }
     frame.geometry_previous.clear();
     frame.interaction.hits.clear();
-    if !frame.requests.is_empty() {
+    if !frame.requests.is_empty() || !frame.interaction.kinds.slots.is_empty() {
         let count = frame.nodes.len();
         let geometry = &frame.node_geometry[..count];
         let mut collect = {
             #[inline(always)]
             |index: usize, stored: &super::StoredNode, area: Rect<C::Scalar>| {
                 let id = stored.widget_id;
-                let Some(request) = frame.requests.get(&id).copied() else {
+                // interactive nodes keep their geometry too
+                if stored.interactive || frame.requests.contains(&id) {
+                    frame.geometry_previous.push((id, area));
+                }
+                if !stored.interactive {
                     return;
-                };
-                frame.geometry_previous.push((id, area));
-                let Request::Interaction { sense, .. } = request else {
-                    return;
-                };
+                }
                 let hit = stored
                     .geometry
                     .index()
@@ -732,7 +717,6 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
                     id,
                     area: area.intersection(clip_bounds).unwrap_or_default(),
                     clip: stored.resolved_clip,
-                    sense,
                     node: index,
                     end: stored.subtree_end as usize,
                 });
@@ -750,93 +734,33 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     }
     frame.geometry_previous.sort_unstable_by_key(|(id, _)| *id);
     let interaction = &mut frame.interaction;
-    for slot in &interaction.gestures[interaction.cursor..] {
-        let free = &mut interaction.gesture_kinds[slot.kind as usize].free;
-        let cell = interaction.gesture_state.as_ptr().wrapping_add(slot.offset as usize);
-        // safety: unrequested cells are dead and every cell starts with room for the link
-        unsafe { cell.cast::<Option<u32>>().write(*free) };
-        *free = Some(slot.offset);
-    }
-    interaction.gestures.truncate(interaction.cursor);
-    for slot in &mut interaction.gestures {
-        if slot.node == UNRESOLVED
-            && let Some(index) = nodes.iter().position(|stored| stored.widget_id == slot.id)
-        {
-            slot.node = index as u32;
-        }
-        slot.end = nodes.get(slot.node as usize).map_or(0, |stored| stored.subtree_end);
-    }
-    // stable insertion sort stays near linear since builds request in preorder
-    let gestures = &mut interaction.gestures;
-    for sorted in 1..gestures.len() {
-        let mut index = sorted;
-        while index > 0 && gestures[index - 1].node > gestures[index].node {
-            gestures.swap(index - 1, index);
-            index -= 1;
-        }
-    }
-    let hit = frame
-        .interaction
+    interaction.root = Some(nodes[0].widget_id);
+    let hover = interaction
         .position
-        .and_then(|position| frame.interaction.hit(position));
-    let previous = if frame.interaction.position.is_some() {
-        frame
-            .interaction
-            .hovered
-            .iter()
-            .filter(|id| {
-                matches!(
-                    frame.requests.get(id),
-                    Some(Request::Interaction { response: true, .. })
-                )
-            })
-            .count()
-    } else {
-        0
-    };
-    let mut count = 0;
-    for item in &frame.interaction.hits {
-        if hit.is_some_and(|hit| item.node <= hit.node && hit.node <= item.end)
-            && matches!(
-                frame.requests.get(&item.id),
-                Some(Request::Interaction { response: true, .. })
-            )
-        {
-            count += 1;
-            frame.frame_requested |= !frame.interaction.hovered.contains(&item.id);
-        }
-    }
-    frame.frame_requested |= previous != count;
+        .and_then(|position| interaction.hit(position))
+        .map(|hit| hit.node);
+    frame.frame_requested |= interaction.hover_key(hover) != interaction.hover_key;
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Route {
-    Pending {
-        target: Option<Target>,
-        click: Option<Id>,
-        // still within the threshold of its press
-        tap: bool,
-    },
-    Captured {
-        owner: Id,
-        click: bool,
-    },
+    Pending { target: Option<Target>, claim: Option<Id> },
+    Captured { owner: Id },
     Retired,
 }
 
 impl Route {
-    /// the widget whose response this contact drives
-    fn receiver(self) -> Option<Id> {
+    fn holder(self) -> Option<Id> {
         match self {
-            Route::Pending { click, .. } => click,
-            Route::Captured { owner, .. } => Some(owner),
+            Route::Pending { claim, .. } => claim,
+            Route::Captured { owner } => Some(owner),
             Route::Retired => None,
         }
     }
 }
 
 /// a pending contact's deepest widget and its node in the previous layout
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct Target {
     id: Id,
     node: usize,
@@ -853,6 +777,7 @@ struct TrackedContact<T> {
     delta: Point<T>,
     started: Duration,
     modifiers: Modifiers,
+    tap: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -862,7 +787,9 @@ enum Source {
 }
 
 #[derive(Clone, Copy)]
-struct Wheel {
+struct WheelState {
+    // node under the pointer when the sequence started
+    target: Option<usize>,
     owner: Option<Id>,
     event: Option<Scroll>,
     active: bool,
@@ -874,13 +801,24 @@ struct HitItem<T> {
     id: Id,
     area: Rect<T>,
     clip: ResolvedClipId,
-    sense: Sense,
     node: usize,
     end: usize,
 }
 
+/// retained interaction kinds and their state
+#[derive(Default)]
+struct Kinds<T> {
+    // preorder by node so reverse iteration visits descendants first
+    slots: Vec<Slot>,
+    // slots requested by this build are moved before the cursor
+    cursor: usize,
+    kinds: Vec<Kind<T>>,
+    // cells of every kind, reused through each kind's free list
+    state: Bump,
+}
+
 #[derive(Clone, Copy)]
-struct GestureSlot {
+struct Slot {
     id: Id,
     // node and subtree end in the previous layout
     node: u32,
@@ -889,17 +827,17 @@ struct GestureSlot {
     kind: u16,
 }
 
-struct GestureKind<T> {
+struct Kind<T> {
     type_id: TypeId,
-    update: fn(&Bump, u32, &mut GestureCx<'_, T>),
+    update: fn(&Bump, u32, &mut InteractCx<'_, T>),
     // dead cells of this kind linked through their first bytes
     free: Option<u32>,
 }
 
-/// a gesture and its latest output, which holds the free link once it is dead
+/// a kind and its latest output, which holds the free link once it is dead
 #[derive(Clone, Copy)]
 #[repr(C)]
-union GestureCell<S: Copy> {
+union Cell<S: Copy> {
     value: S,
     next: Option<u32>,
 }

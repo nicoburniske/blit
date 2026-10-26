@@ -1,4 +1,4 @@
-use blit::{Axis, ContactId, ContactSource, Gesture, GestureCx, Phase, Point, PointerButton, Scalar};
+use blit::{Axis, ContactId, ContactSource, Hold, Interact, InteractCx, Phase, Point, PointerButton, Scalar};
 
 /// follows one primary press or touch once it moves past the drag threshold
 #[derive(Clone, Copy, Debug)]
@@ -52,10 +52,10 @@ impl Default for Drag {
     }
 }
 
-impl<T: Scalar> Gesture<T> for Drag {
+impl<T: Scalar> Interact<T> for Drag {
     type Output = Option<DragMotion<T>>;
 
-    fn update(&mut self, cx: &mut GestureCx<'_, T>) -> Self::Output {
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Self::Output {
         if let Some(id) = self.contact {
             let contact = cx.contacts().find(|contact| contact.id == id);
             if contact.is_none_or(|contact| matches!(contact.phase, Phase::Ended | Phase::Cancelled)) {
@@ -76,7 +76,7 @@ impl<T: Scalar> Gesture<T> for Drag {
         let contact = cx.contacts().find(|contact| {
             let x = contact.position.x - contact.origin.x;
             let y = contact.position.y - contact.origin.y;
-            !contact.captured
+            contact.hold != Hold::Captured
                 && matches!(contact.phase, Phase::Changed | Phase::Ended)
                 && match contact.source {
                     ContactSource::Touch => true,
@@ -128,11 +128,11 @@ mod tests {
             Duration::ZERO,
             input,
             |mut ui: Ui<'_, TestContext>| {
-                let pan = ui.interact().gesture(Drag::new().axis(Axis::Vertical).touch(true));
+                let pan = ui.interact(Drag::new().axis(Axis::Vertical).touch(true));
                 let slider = ui
                     .layout(single::new().grow())
                     .child()
-                    .build(|mut ui: Ui<'_, TestContext>| ui.interact().gesture(Drag::new().axis(Axis::Horizontal)));
+                    .build(|mut ui: Ui<'_, TestContext>| ui.interact(Drag::new().axis(Axis::Horizontal)));
                 (pan, slider)
             },
         );

@@ -5,8 +5,8 @@ mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Context, Easing, Id, Layout, LayoutCx, NodeId, Phase, Point, Scalar, Scroll, Sense, Size,
-    Sizing, Ui, Widget,
+    Axis, Clip, Constraints, Context, Easing, Id, Layout, LayoutCx, NodeId, Phase, Point, Press, Scalar, Scroll, Size,
+    Sizing, Ui, Wheel, Widget,
 };
 
 pub use self::{
@@ -284,7 +284,7 @@ fn update<C: Context>(
         state.content_extent = axis.extent(area.size());
     }
 
-    let (motion, deactivated) = content_input(ui, axis);
+    let motion = content_input(ui, axis);
     if motion.is_some() {
         state.request.target = Target::None;
     }
@@ -301,15 +301,7 @@ fn update<C: Context>(
             ScrollbarInput::Idle => {}
         }
     } else {
-        let delta = content_motion(
-            &mut state.motion,
-            ui,
-            axis,
-            scroll_speed,
-            inertia_friction,
-            motion,
-            deactivated,
-        );
+        let delta = content_motion(&mut state.motion, ui, axis, scroll_speed, inertia_friction, motion);
         move_by(state, delta);
     }
     (thumb_active, viewport_known)
@@ -330,11 +322,11 @@ fn scrollbar_input<C: Context>(
     let id = ui.current_id();
     let thumb_id = id.child("scroll thumb");
     let track_id = id.child("scroll track");
-    let thumb = ui.interact_widget(thumb_id).sense(Sense::CLICK);
-    let track = ui.interact_widget(track_id).sense(Sense::CLICK);
+    let thumb = ui.interact_widget(thumb_id, Press::new());
+    let track = ui.interact_widget(track_id, Press::new());
     let active = thumb.active || track.active;
-    let thumb_drag = ui.interact_widget(thumb_id).gesture(Drag::new());
-    let track_drag = ui.interact_widget(track_id).gesture(Drag::new());
+    let thumb_drag = ui.interact_widget(thumb_id, Drag::new());
+    let track_drag = ui.interact_widget(track_id, Drag::new());
     let thumb_drag = thumb_drag.filter(|drag| drag.phase != Phase::Cancelled);
     let track_drag = track_drag.filter(|drag| match drag.phase {
         Phase::Cancelled => false,
@@ -387,16 +379,15 @@ fn scrollbar_input<C: Context>(
 }
 
 /// wheel scrolling and touch panning over the content
-fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> (Option<Scroll>, bool) {
-    let interaction = ui.interact().sense(Sense::SCROLL);
+fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> Option<Scroll> {
+    let wheel = ui.interact(Wheel);
     // touches pan the content, moving it against the finger
-    let pan = ui.interact().gesture(Drag::new().axis(axis).touch(true));
-    let motion = interaction.scroll.or(pan.map(|drag| Scroll {
+    let pan = ui.interact(Drag::new().axis(axis).touch(true));
+    wheel.or(pan.map(|drag| Scroll {
         phase: drag.phase,
         delta: Point::new(-drag.delta.x.to_f32(), -drag.delta.y.to_f32()),
         continuous: true,
-    }));
-    (motion, interaction.deactivated)
+    }))
 }
 
 fn content_motion<C: Context>(
@@ -406,7 +397,6 @@ fn content_motion<C: Context>(
     scroll_speed: f32,
     inertia_friction: f32,
     motion: Option<Scroll>,
-    deactivated: bool,
 ) -> f32 {
     let now = ui.time();
     let elapsed = state
@@ -448,8 +438,6 @@ fn content_motion<C: Context>(
             state.velocity = 0.0;
             state.tracking = false;
         }
-    } else if deactivated {
-        state.tracking = false;
     }
 
     if direct_delta != 0.0 && sample_velocity && elapsed > 0.0 {

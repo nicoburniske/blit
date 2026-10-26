@@ -1,4 +1,4 @@
-use blit::{Context, Input, Interaction, NodeTarget, Scalar, Sense, Sides, Ui, Widget};
+use blit::{Context, Input, Interaction, NodeTarget, Press, Raw, Scalar, Sides, Ui, Widget};
 use blit_layout::{
     absolute,
     absolute::{Anchor, Sizing},
@@ -54,7 +54,7 @@ where
         let content = self.content;
         let id = ui.current_id();
         let trigger_id = id.child("popover trigger");
-        let interaction = ui.interact_widget(trigger_id).sense(Sense::CLICK);
+        let interaction = ui.interact_widget(trigger_id, Press::new());
         if self.open_on_hover && interaction.hovered {
             state.open = true;
         } else if !self.open_on_hover && interaction.activated {
@@ -75,8 +75,8 @@ where
 
         let backdrop_id = id.child("popover backdrop");
         let content_id = id.child("popover content");
-        let backdrop = root.interact_widget(backdrop_id).sense(Sense::ALL);
-        let content_interaction = root.interact_widget(content_id).sense(Sense::ALL);
+        let backdrop = root.interact_widget(backdrop_id, Press::new());
+        let content_interaction = root.interact_widget(content_id, Press::new());
         let pointer_inside = content_interaction.hovered
             || root.pointer_position().is_some_and(|position| {
                 [trigger_id, content_id]
@@ -84,7 +84,7 @@ where
                     .filter_map(|id| root.geometry(id))
                     .any(|area| area.contains(position))
             });
-        if match (self.close, root.interact().input()) {
+        if match (self.close, root.interact(Raw)) {
             (PopoverClose::Click, _) => backdrop.activated,
             (PopoverClose::Exit, Input::PointerMove { .. } | Input::PointerLeave) => !pointer_inside,
             _ => false,

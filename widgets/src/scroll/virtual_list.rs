@@ -81,7 +81,7 @@ where
         let size = viewport.map_or(ui.screen().size(), |area| area.size());
         let overscan = size.height.repeat(VIEWPORTS);
         let row = state.sample.get(state.visible.start);
-        let (motion, deactivated) = content_input(&mut ui, Axis::Vertical);
+        let motion = content_input(&mut ui, Axis::Vertical);
         let (thumb_active, scrollbar) = scrollbar_input(&mut state.motion, &mut ui, Axis::Vertical, size.height);
         let movement = match scrollbar {
             None => content_motion(
@@ -91,7 +91,6 @@ where
                 scroll_speed,
                 inertia_friction,
                 motion,
-                deactivated,
             ),
             Some(_) => 0.0,
         };

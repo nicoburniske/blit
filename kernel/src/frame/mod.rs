@@ -11,7 +11,7 @@ pub mod transition;
 
 use std::{
     any::TypeId,
-    collections::HashMap,
+    collections::HashSet,
     hash::{BuildHasherDefault, Hasher},
     marker::PhantomData,
     time::Duration,
@@ -23,7 +23,7 @@ use crate::{
     animation::{Easing, Transition},
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::Input,
-    interact::{Gesture, Id, Interaction, Sense},
+    interact::{Id, Interact},
     layout::Layout,
 };
 
@@ -240,7 +240,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 impl<C: Context, S> Ui<'_, C, S> {
     /// returns previous frame geometry and tracks this id for the next layout
     pub fn geometry(&mut self, id: Id) -> Option<Rect<C::Scalar>> {
-        self.inner.frame.requests.entry(id).or_insert(Request::Geometry);
+        self.inner.frame.requests.insert(id);
         let geometry = &self.inner.frame.geometry_previous;
         geometry
             .binary_search_by_key(&id, |(candidate, _)| *candidate)
@@ -248,25 +248,20 @@ impl<C: Context, S> Ui<'_, C, S> {
             .map(|index| geometry[index].1)
     }
 
-    /// accesses interaction for this node
-    pub fn interact(&mut self) -> InteractionScope<'_, C> {
+    /// retains `kind` for this node while builds keep requesting it
+    ///
+    /// `kind` is used once. returns its output from the update before this build
+    pub fn interact<K: Interact<C::Scalar>>(&mut self, kind: K) -> K::Output {
         let id = self.current_id();
-        InteractionScope {
-            node: Some(self.inner.node.index()),
-            frame: self.inner.frame,
-            id,
-        }
+        let node = self.inner.node.index();
+        let frame = &mut *self.inner.frame;
+        frame.nodes[node].interactive = true;
+        frame.interaction.interact(id, Some(node), kind)
     }
 
-    /// accesses interaction for a node assigned this exact widget id
-    ///
-    /// the node may be built later
-    pub fn interact_widget(&mut self, id: Id) -> InteractionScope<'_, C> {
-        InteractionScope {
-            frame: self.inner.frame,
-            id,
-            node: None,
-        }
+    /// interacts as a node assigned this exact widget id, which may be built later
+    pub fn interact_widget<K: Interact<C::Scalar>>(&mut self, id: Id, kind: K) -> K::Output {
+        self.inner.frame.interaction.interact(id, None, kind)
     }
 
     /// access context during frame construction
@@ -350,41 +345,6 @@ impl<C: Context, S> Ui<'_, C, S> {
 
     pub fn request_frame(&mut self) {
         self.inner.frame.request_frame();
-    }
-}
-
-/// interaction operations for one widget id
-pub struct InteractionScope<'a, C: Context> {
-    frame: &'a mut Frame<C>,
-    id: Id,
-    // unknown until layout for named widgets
-    node: Option<usize>,
-}
-
-impl<'a, C: Context> InteractionScope<'a, C> {
-    /// requests ordinary interaction and returns its response
-    pub fn sense(&mut self, sense: Sense) -> Interaction {
-        self.frame.request_interaction(self.id, sense, true);
-        self.frame.interaction.response(self.id)
-    }
-
-    /// retains a gesture for this widget while builds keep requesting it
-    ///
-    /// `initial` is used once. returns the output of the update before this build
-    pub fn gesture<G: Gesture<C::Scalar>>(&mut self, initial: G) -> G::Output {
-        self.frame.request_interaction(self.id, Sense::NONE, false);
-        self.frame.interaction.gesture(self.id, self.node, initial)
-    }
-
-    /// returns the current physical input routed through this widget
-    pub fn input(&mut self) -> Input<C::Scalar> {
-        self.frame.request_interaction(self.id, Sense::NONE, false);
-        let root = self.frame.nodes[0].widget_id;
-        if self.frame.interaction.routes(self.id, root, &self.frame.input) {
-            self.frame.input
-        } else {
-            Input::None
-        }
     }
 }
 
@@ -488,25 +448,6 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
             },
             marker: PhantomData,
         }
-    }
-}
-
-impl<C: Context> Frame<C> {
-    fn request_interaction(&mut self, id: Id, sense: Sense, response: bool) {
-        let incoming = Request::Interaction { sense, response };
-        self.requests
-            .entry(id)
-            .and_modify(|request| match request {
-                Request::Geometry => *request = incoming,
-                Request::Interaction {
-                    sense: previous,
-                    response: response_seen,
-                } => {
-                    *previous |= sense;
-                    *response_seen |= response;
-                }
-            })
-            .or_insert(incoming);
     }
 }
 

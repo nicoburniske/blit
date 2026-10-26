@@ -51,10 +51,10 @@ pub use self::{
     animation::{Easing, Transition, TransitionProperties},
     clip::{Clip, ClipShape},
     frame::{
-        Frame, InteractionScope, NodeId, NodeTarget, Ui,
+        Frame, NodeId, NodeTarget, Ui,
         atom::AtomCx,
         bump::FrameSlice,
-        interaction::{Contacts, GestureCx},
+        interaction::{Contacts, InteractCx},
         state,
     },
     geometry::{
@@ -62,7 +62,9 @@ pub use self::{
         Scalar, Scale2, Sides, Size,
     },
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase, TouchPhase},
-    interact::{Contact, ContactId, ContactSource, Gesture, Id, Interaction, Phase, Scroll, Sense},
+    interact::{
+        Contact, ContactId, ContactSource, Focus, Hold, Id, Interact, Interaction, Phase, Press, Raw, Scroll, Wheel,
+    },
     layout::{Axis, Layout, LayoutCx, Scratch, Sizing},
 };
 

@@ -1,6 +1,6 @@
 use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
-use blit::{Axis, Easing, Id, Input, Interaction, Key, Scalar, Sense, Sides, Size, Transition, Widget};
+use blit::{Axis, Easing, Id, Input, Interaction, Key, Press, Raw, Scalar, Sides, Size, Transition, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiContext, Ui,
@@ -51,10 +51,10 @@ impl Default for Demo {
 
 impl Demo {
     fn show(&mut self, mut ui: Ui<'_>) {
-        let escape = matches!(ui.interact().input(), Input::Key(key)
+        let escape = matches!(ui.interact(Raw), Input::Key(key)
             if key.key == Key::Escape && key.pressed && !key.repeat);
         let input_focused = ui.is_focused(Id::new("tui text input"));
-        if !self.modal.open && !input_focused && (escape || matches!(ui.interact().input(), Input::Text('q'))) {
+        if !self.modal.open && !input_focused && (escape || matches!(ui.interact(Raw), Input::Text('q'))) {
             ui.context_mut().quit();
             return;
         }
@@ -176,7 +176,7 @@ impl Widget<TuiContext> for &mut Modal {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        if matches!(ui.interact().input(), Input::Key(key)
+        if matches!(ui.interact(Raw), Input::Key(key)
             if key.key == Key::Escape && key.pressed && !key.repeat)
         {
             if self.palette.open {
@@ -192,7 +192,7 @@ impl Widget<TuiContext> for &mut Modal {
             self.palette.open = false;
         }
         let backdrop_id = Id::new("tui modal backdrop");
-        if self.open && root.interact_widget(backdrop_id).sense(Sense::ALL).clicked {
+        if self.open && root.interact_widget(backdrop_id, Press::new()).clicked {
             self.open = false;
         }
         if !self.open {
@@ -205,7 +205,7 @@ impl Widget<TuiContext> for &mut Modal {
         ];
         let (_, accent) = palettes[self.accent];
         let panel_id = Id::new("tui modal panel");
-        root.interact_widget(panel_id).sense(Sense::ALL);
+        root.interact_widget(panel_id, Press::new());
         let mut modal = root
             .child()
             .parent(blit::NodeTarget::Root)
@@ -1017,7 +1017,7 @@ impl Widget<TuiContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        let interaction = ui.interact().sense(Sense::CLICK);
+        let interaction = ui.interact(Press::new());
         draw_button(ui, self.label, self.selected, interaction);
         interaction.clicked
     }

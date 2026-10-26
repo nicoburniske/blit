@@ -6,18 +6,18 @@ use std::{
 };
 
 use blit::{
-    Atom, AtomCx, Clip, ClipShape, Constraints, Contact, ContactSource, Context, Easing, Frame, FrameInfo, Gesture,
-    GestureCx, Id, Input, Interaction, Layout, LayoutCx, Modifiers, NodeTarget,
+    Atom, AtomCx, Clip, ClipShape, Constraints, Contact, ContactSource, Context, Easing, Focus, Frame, FrameInfo, Hold,
+    Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, NodeTarget,
     Phase::{Cancelled, Changed, Ended, Held, Started},
-    Point, PointerButton, Rect, Scalar, ScrollPhase, Sense, Size, TouchPhase,
+    Point, PointerButton, Press, Raw, Rect, Scalar, ScrollPhase, Size, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
-    Transition, Widget,
+    Transition, Wheel, Widget,
 };
 
 mod animation;
 mod frame;
-mod gesture;
 mod interaction;
+mod kinds;
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TestContext, S>;
 
@@ -290,31 +290,32 @@ impl Context for Integer {
     type Scalar = i32;
 }
 
-type Scene = InputScene<()>;
+type Scene = InputScene<(), Press>;
 
-struct InputScene<C: Context> {
+/// one root node running a single interaction kind
+struct InputScene<C: Context, K> {
     frame: Frame<C>,
     context: C,
-    sense: Sense,
+    kind: K,
 }
 
-impl<C: Context + Default> InputScene<C> {
-    fn new(sense: Sense) -> Self {
+impl<C: Context + Default, K: Interact<C::Scalar>> InputScene<C, K> {
+    fn new(kind: K) -> Self {
         let mut scene = Self {
             frame: Frame::default(),
             context: C::default(),
-            sense,
+            kind,
         };
         scene.step(0, Input::None);
         scene
     }
-    fn step(&mut self, time: u64, input: Input<C::Scalar>) -> Interaction {
+    fn step(&mut self, time: u64, input: Input<C::Scalar>) -> K::Output {
         let output = self.frame.build(
             &mut self.context,
             FrameInfo::new(Size::uniform(C::Scalar::from_f32(200.0))),
             Duration::from_millis(time),
             input,
-            |mut ui: blit::Ui<'_, C>| ui.interact().sense(self.sense),
+            |mut ui: blit::Ui<'_, C>| ui.interact(self.kind),
         );
         self.frame.layout(&mut self.context);
         output

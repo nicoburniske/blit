@@ -13,7 +13,8 @@ pub struct Frame<C: Context> {
     active_clips: Vec<ResolvedClipId>,
     interaction: interaction::InteractionState<C::Scalar>,
     geometry_previous: Vec<(Id, Rect<C::Scalar>)>,
-    requests: HashMap<Id, Request, BuildHasherDefault<IdHasher>>,
+    // ids whose previous geometry builds asked for
+    requests: HashSet<Id, BuildHasherDefault<IdHasher>>,
     animations: Vec<animation::AnimationState>,
     transitions: Vec<transition::TransitionState<C::Scalar>>,
     target_sizes: Vec<TargetSize<C::Scalar>>,
@@ -25,15 +26,6 @@ pub struct Frame<C: Context> {
     frame_requested: bool,
     #[cfg(debug_assertions)]
     widget_ids: std::collections::HashSet<Id>,
-}
-
-#[derive(Clone, Copy)]
-enum Request {
-    Geometry,
-    Interaction {
-        sense: Sense,
-        response: bool,
-    },
 }
 
 #[derive(Default)]
@@ -70,7 +62,7 @@ impl<C: Context> Default for Frame<C> {
             active_clips: Vec::new(),
             interaction: interaction::InteractionState::default(),
             geometry_previous: Vec::new(),
-            requests: HashMap::default(),
+            requests: HashSet::default(),
             animations: Vec::new(),
             transitions: Vec::new(),
             target_sizes: Vec::new(),
@@ -271,6 +263,7 @@ impl<C: Context> Frame<C> {
             item: BumpId::NONE,
             relative: parent.unwrap_or(id),
             out_of_flow: false,
+            interactive: false,
             geometry: GeometryId::NONE,
             resolved_clip: ResolvedClipId::NONE,
         });
@@ -380,6 +373,8 @@ struct StoredNode {
     item: BumpId,
     relative: NodeId,
     out_of_flow: bool,
+    // requested an interaction kind
+    interactive: bool,
     geometry: GeometryId,
     resolved_clip: ResolvedClipId,
 }
