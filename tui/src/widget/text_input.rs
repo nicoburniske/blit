@@ -76,7 +76,7 @@ impl<C: Context> Widget<C> for TextInput<'_> {
                     position,
                     phase: TouchPhase::Move,
                     ..
-                } if interaction.active => Some((position, true)),
+                } if interaction.active || dragged => Some((position, true)),
                 Input::PointerUp {
                     button: PointerButton::Primary,
                     position,

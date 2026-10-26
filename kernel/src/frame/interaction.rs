@@ -2,8 +2,8 @@ use std::{any::TypeId, mem::MaybeUninit, num::NonZeroU32, time::Duration};
 
 use super::{Frame, ResolvedClip, ResolvedClipId};
 use crate::{
-    Contact, ContactId, ContactSource, Context, Hold, Id, Input, Interact, Modifiers, Phase, PointerButton, Scalar,
-    Scroll, ScrollPhase, TouchPhase,
+    Contact, ContactId, ContactSource, Context, Id, Input, Interact, Modifiers, Phase, PointerButton, Scalar, Scroll,
+    ScrollPhase, TouchPhase,
     geometry::{Point, Rect, Sides},
     internal::bump::Bump,
 };
@@ -42,14 +42,19 @@ impl<T: Scalar> InteractCx<'_, T> {
         }
     }
 
-    /// holds a free pending contact within this widget until something captures it
-    pub fn claim(&mut self, contact: ContactId) {
+    /// keeps a pending contact from ancestors until the next update
+    ///
+    /// fails for a contact this widget already captured. widgets see contacts claimed by others
+    /// only once those claims lapse
+    pub fn claim(&mut self, contact: ContactId) -> bool {
         let id = self.id;
         if let Some(Route::Pending { claim, .. }) = self.pending(contact)
-            && claim.is_none()
+            && claim.is_none_or(|claim| claim == id)
         {
             *claim = Some(id);
+            return true;
         }
+        false
     }
 
     /// takes a pending contact within this widget from every other widget until it ends
@@ -167,20 +172,13 @@ impl<T: Scalar> Iterator for Contacts<'_, T> {
 
     fn next(&mut self) -> Option<Contact<T>> {
         let (id, node, end) = (self.id, self.node as usize, self.end as usize);
-        let (tracked, hold) = self.contacts.find_map(|tracked| {
-            let hold = match tracked.route {
-                Route::Pending {
-                    target: Some(target),
-                    claim,
-                } if node <= target.node && target.node <= end => match claim {
-                    None => Hold::Free,
-                    Some(claim) if claim == id => Hold::Claimed,
-                    Some(_) => Hold::ClaimedElsewhere,
-                },
-                Route::Captured { owner } if owner == id => Hold::Captured,
-                _ => return None,
-            };
-            Some((tracked, hold))
+        let tracked = self.contacts.find(|tracked| match tracked.route {
+            Route::Pending {
+                target: Some(target),
+                claim,
+            } => node <= target.node && target.node <= end && claim.is_none_or(|claim| claim == id),
+            Route::Captured { owner } => owner == id,
+            Route::Pending { target: None, .. } | Route::Retired => false,
         })?;
         Some(Contact {
             id: tracked.id,
@@ -189,7 +187,6 @@ impl<T: Scalar> Iterator for Contacts<'_, T> {
                 Source::Touch(_) => ContactSource::Touch,
             },
             phase: tracked.phase,
-            hold,
             origin: tracked.origin,
             position: tracked.position,
             delta: tracked.delta,

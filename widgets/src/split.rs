@@ -56,9 +56,14 @@ where
         let leading_id = id.child("leading pane");
         let divider_id = id.child("divider");
         let trailing_id = id.child("trailing pane");
-        let interaction = ui.interact_widget(divider_id, Press::new());
+        let press = ui.interact_widget(divider_id, Press::new());
         let measured = ui.area(leading_id).map(|area| axis.extent(area.size()));
         let drag = ui.interact_widget(divider_id, Drag::new());
+        // the divider stays active while dragged
+        let interaction = PressState {
+            active: press.active || drag.is_some(),
+            ..press
+        };
         let delta = drag.map_or(Point::ZERO, |drag| drag.delta);
         let delta = match axis {
             Axis::Horizontal => delta.x,

@@ -1,4 +1,4 @@
-use blit::{Axis, ContactId, ContactSource, Hold, Interact, InteractCx, Phase, Point, PointerButton, Scalar};
+use blit::{Axis, ContactId, ContactSource, Interact, InteractCx, Phase, Point, PointerButton, Scalar};
 
 /// follows one primary press or touch once it moves past the drag threshold
 #[derive(Clone, Copy, Debug)]
@@ -61,21 +61,18 @@ impl<T: Scalar> Interact<T> for Drag {
             if contact.is_none_or(|contact| matches!(contact.phase, Phase::Ended | Phase::Cancelled)) {
                 self.contact = None;
             }
-            return contact
-                .filter(|contact| contact.phase != Phase::Held)
-                .map(|contact| DragMotion {
-                    phase: contact.phase,
-                    position: contact.position,
-                    delta: contact.delta,
-                });
+            // reported every update while held so some means dragging
+            return contact.map(|contact| DragMotion {
+                phase: contact.phase,
+                position: contact.position,
+                delta: contact.delta,
+            });
         }
         let contact = cx.contacts().find(|contact| {
             let x = (contact.position.x - contact.origin.x).to_f32();
             let y = (contact.position.y - contact.origin.y).to_f32();
             let distance = x * x + y * y;
-            // a contact claimed elsewhere, like a press still within its slop, is not ours yet
-            matches!(contact.hold, Hold::Free | Hold::Claimed)
-                && matches!(contact.phase, Phase::Changed | Phase::Ended)
+            matches!(contact.phase, Phase::Changed | Phase::Ended)
                 && match contact.source {
                     ContactSource::Touch => true,
                     ContactSource::Mouse(button) => !self.touch && button == PointerButton::Primary,
@@ -163,9 +160,10 @@ mod tests {
         assert_eq!(step(&mut frame, touch(1, TouchPhase::Move, 12.0, 10.0)), (None, None));
         let started = step(&mut frame, touch(1, TouchPhase::Move, 30.0, 10.0));
         assert_eq!(started, (None, motion(Phase::Started, 30.0, 10.0, 20.0, 0.0)));
-        // a held drag ignores a second contact
-        step(&mut frame, touch(2, TouchPhase::Down, 50.0, 50.0));
-        assert_eq!(step(&mut frame, touch(2, TouchPhase::Move, 80.0, 50.0)), (None, None));
+        // a held drag reports its contact as held and ignores a second one
+        let held = motion(Phase::Held, 30.0, 10.0, 0.0, 0.0);
+        assert_eq!(step(&mut frame, touch(2, TouchPhase::Down, 50.0, 50.0)), (None, held));
+        assert_eq!(step(&mut frame, touch(2, TouchPhase::Move, 80.0, 50.0)), (None, held));
         let ended = step(&mut frame, touch(1, TouchPhase::Up, 35.0, 10.0));
         assert_eq!(ended, (None, motion(Phase::Ended, 35.0, 10.0, 5.0, 0.0)));
         // once free, the slider takes the other contact on its next move

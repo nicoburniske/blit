@@ -1,6 +1,6 @@
 use super::*;
 
-/// reports up to two routed contacts and captures those its predicate accepts
+/// reports up to two visible contacts, capturing those its predicate accepts
 #[derive(Clone, Copy)]
 struct Watch(fn(&Contact<f32>) -> bool);
 
@@ -8,17 +8,16 @@ const WATCH: Watch = Watch(|_| false);
 const CAPTURE: Watch = Watch(|_| true);
 
 impl Interact<f32> for Watch {
-    type Output = [Option<Contact<f32>>; 2];
+    /// each contact with whether this update captured it
+    type Output = [Option<(Contact<f32>, bool)>; 2];
 
     fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> Self::Output {
         let mut seen = [None; 2];
         for (seen, contact) in seen.iter_mut().zip(cx.contacts()) {
-            *seen = Some(contact);
+            *seen = Some((contact, false));
         }
-        for contact in seen.iter_mut().flatten().filter(|contact| (self.0)(contact)) {
-            if cx.capture(contact.id) {
-                contact.hold = Hold::Captured;
-            }
+        for (contact, captured) in seen.iter_mut().flatten() {
+            *captured = (self.0)(contact) && cx.capture(contact.id);
         }
         seen
     }
@@ -45,7 +44,7 @@ impl Interact<f32> for Pinch {
 #[test]
 fn gesture_sees_independent_contacts() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
-    let build = |mut ui: Ui<'_>| ui.interact(WATCH);
+    let build = |mut ui: Ui<'_>| ui.interact(WATCH).map(|seen| seen.map(|(contact, _)| contact));
     render(&mut frame, &mut context, &build);
     let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
     step(pointer(Some(1), Down, [10.0, 10.0]));
@@ -76,7 +75,7 @@ fn deepest_gesture_captures_first() {
     let down = pointer(Some(1), Down, [10.0, 10.0]);
     let (parent, child) = render_inputs(&mut frame, &mut context, Duration::ZERO, [down], &build);
     assert_eq!(parent, None);
-    assert!(child.unwrap().hold == Hold::Captured);
+    assert!(child.unwrap().1);
 }
 
 #[test]
@@ -96,14 +95,14 @@ fn capture_cancels_click() {
             let output = render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
             (output, frame.has_pending_redraw())
         };
+        // the button claims the press, hiding it from the ancestor
         let ((seen, response), _) = step(pointer(Some(1), Down, [10.0, 10.0]));
-        assert!(response.active && seen.unwrap().hold == Hold::ClaimedElsewhere);
-        // a finger that has not moved stays with the button
+        assert!(response.active && seen.is_none());
         let ((seen, response), _) = step(pointer(Some(1), Move, [12.0, 10.0]));
-        assert!(response.active && seen.unwrap().hold == Hold::ClaimedElsewhere);
+        assert!(response.active && seen.is_none());
         // past the slop the button lets go first, then the ancestor takes it in the same build
         let ((seen, response), redraw) = step(pointer(Some(1), Move, [30.0, 10.0]));
-        assert!(seen.unwrap().hold == Hold::Captured && !redraw);
+        assert!(seen.unwrap().1 && !redraw);
         assert!(response.deactivated && !response.active);
         assert!(!step(pointer(Some(1), ending, [30.0, 10.0])).0.1.clicked);
     }
@@ -122,15 +121,12 @@ fn gestures_on_one_widget_share_captures() {
     };
     render(&mut frame, &mut context, &build);
     let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
-    assert_eq!(step(pointer(Some(1), Down, [10.0, 10.0])).0, None);
-    // the pinch joins the contact its widget already captured
-    for (input, span) in [
-        (pointer(Some(2), Down, [20.0, 10.0]), 10.0),
-        (pointer(Some(1), Move, [0.0, 10.0]), 20.0),
-    ] {
-        assert_eq!(step(input), (Some(span), false));
-    }
-    assert!(!step(pointer(Some(2), Up, [20.0, 10.0])).1);
+    // the button claims the first finger, the root captures the second
+    assert_eq!(step(pointer(Some(1), Down, [10.0, 10.0])), (None, false));
+    assert_eq!(step(pointer(Some(2), Down, [20.0, 10.0])), (None, false));
+    // once the first finger moves the button lets go and the pinch joins the root's capture
+    assert_eq!(step(pointer(Some(1), Move, [0.0, 10.0])), (Some(20.0), false));
+    assert!(!step(pointer(Some(1), Up, [0.0, 10.0])).1);
 }
 
 #[test]
@@ -150,7 +146,7 @@ fn unmounted_owner_retires_contact() {
     render(&mut frame, &mut context, &build);
     let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
     let (root, owned) = step(pointer(Some(1), Down, [10.0, 10.0]));
-    assert!(root.is_none() && owned.unwrap().hold == Hold::Captured);
+    assert!(root.is_none() && owned.unwrap().1);
     mounted.set(false);
     step(Input::None);
     assert_eq!(step(pointer(Some(1), Move, [30.0, 10.0])), (None, None));

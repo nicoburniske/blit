@@ -48,14 +48,19 @@ where
         let bottom_id = id.child("bottom grip");
         let corner_id = id.child("corner grip");
         let previous = ui.area(id);
-        let right = ui.interact_widget(right_id, Press::new());
-        let bottom = ui.interact_widget(bottom_id, Press::new());
-        let corner = ui.interact_widget(corner_id, Press::new());
-        let mut drag = |id| {
+        // grips stay active while dragged
+        let mut grip_input = |id| {
+            let press = ui.interact_widget(id, Press::new());
             let drag = ui.interact_widget(id, Drag::new());
-            drag.map_or(Point::ZERO, |drag| drag.delta)
+            let state = PressState {
+                active: press.active || drag.is_some(),
+                ..press
+            };
+            (state, drag.map_or(Point::ZERO, |drag| drag.delta))
         };
-        let (right_delta, bottom_delta, corner_delta) = (drag(right_id), drag(bottom_id), drag(corner_id));
+        let (right, right_delta) = grip_input(right_id);
+        let (bottom, bottom_delta) = grip_input(bottom_id);
+        let (corner, corner_delta) = grip_input(corner_id);
         let delta = Size::new(right_delta.x + corner_delta.x, bottom_delta.y + corner_delta.y);
         if delta != Size::ZERO {
             let size = state

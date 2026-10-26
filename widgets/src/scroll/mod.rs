@@ -326,9 +326,9 @@ fn scrollbar_input<C: Context>(
     let track_area = ui.area(track_id);
     let thumb = ui.interact_widget(thumb_id, Press::new());
     let track = ui.interact_widget(track_id, Press::new());
-    let active = thumb.active || track.active;
     let thumb_drag = ui.interact_widget(thumb_id, Drag::new());
     let track_drag = ui.interact_widget(track_id, Drag::new());
+    let active = thumb.active || track.active || thumb_drag.is_some() || track_drag.is_some();
     let thumb_drag = thumb_drag.filter(|drag| drag.phase != Phase::Cancelled);
     let track_drag = track_drag.filter(|drag| match drag.phase {
         Phase::Cancelled => false,
