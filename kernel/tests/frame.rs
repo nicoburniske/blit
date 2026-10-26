@@ -374,6 +374,6 @@ fn bindings_and_geometry() {
         assert_eq!(frame.geometry(a).is_some(), count != 0);
         assert_eq!(frame.geometry(b).is_some(), count != 0);
         retained_a = count != 0 && query;
-        retained_b = count != 0;
+        retained_b = count != 0 && query;
     }
 }

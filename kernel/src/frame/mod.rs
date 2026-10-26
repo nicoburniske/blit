@@ -9,13 +9,7 @@ pub mod position;
 pub mod timer;
 pub mod transition;
 
-use std::{
-    any::TypeId,
-    collections::HashSet,
-    hash::{BuildHasherDefault, Hasher},
-    marker::PhantomData,
-    time::Duration,
-};
+use std::{any::TypeId, marker::PhantomData, time::Duration};
 
 use self::bump::{BumpArena, BumpId, FrameSlice, Scratch};
 use crate::{
@@ -240,7 +234,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 impl<C: Context, S> Ui<'_, C, S> {
     /// returns previous frame geometry and tracks this id for the next layout
     pub fn geometry(&mut self, id: Id) -> Option<Rect<C::Scalar>> {
-        self.inner.frame.requests.insert(id);
+        self.inner.frame.geometry_requests.push(id);
         let geometry = &self.inner.frame.geometry_previous;
         geometry
             .binary_search_by_key(&id, |(candidate, _)| *candidate)

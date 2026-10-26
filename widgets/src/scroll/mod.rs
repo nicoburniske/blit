@@ -322,6 +322,8 @@ fn scrollbar_input<C: Context>(
     let id = ui.current_id();
     let thumb_id = id.child("scroll thumb");
     let track_id = id.child("scroll track");
+    let thumb_area = ui.geometry(thumb_id);
+    let track_area = ui.geometry(track_id);
     let thumb = ui.interact_widget(thumb_id, Press::new());
     let track = ui.interact_widget(track_id, Press::new());
     let active = thumb.active || track.active;
@@ -340,9 +342,7 @@ fn scrollbar_input<C: Context>(
         return (active, None);
     }
     state.last_frame = Some(ui.time());
-    let extent = ui
-        .geometry(thumb_id)
-        .map_or(C::Scalar::ZERO, |area| axis.extent(area.size()));
+    let extent = thumb_area.map_or(C::Scalar::ZERO, |area| axis.extent(area.size()));
     let travel = viewport_extent - extent;
     state.velocity = 0.0;
     state.tracking = false;
@@ -363,7 +363,7 @@ fn scrollbar_input<C: Context>(
                 Some(drag) => Some(drag.position),
                 None => ui.pointer_position(),
             };
-            match (ui.geometry(track_id), pointer) {
+            match (track_area, pointer) {
                 (Some(track), Some(pointer)) => {
                     let position = match axis {
                         Axis::Horizontal => pointer.x - track.x,

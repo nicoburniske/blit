@@ -12,9 +12,10 @@ pub struct Frame<C: Context> {
     paint_order: Vec<NodeId>,
     active_clips: Vec<ResolvedClipId>,
     interaction: interaction::InteractionState<C::Scalar>,
+    // ids whose geometry this build asked for, sorted at layout
+    geometry_requests: Vec<Id>,
+    // resolved geometry requests
     geometry_previous: Vec<(Id, Rect<C::Scalar>)>,
-    // ids whose previous geometry builds asked for
-    requests: HashSet<Id, BuildHasherDefault<IdHasher>>,
     animations: Vec<animation::AnimationState>,
     transitions: Vec<transition::TransitionState<C::Scalar>>,
     target_sizes: Vec<TargetSize<C::Scalar>>,
@@ -26,23 +27,6 @@ pub struct Frame<C: Context> {
     frame_requested: bool,
     #[cfg(debug_assertions)]
     widget_ids: std::collections::HashSet<Id>,
-}
-
-#[derive(Default)]
-struct IdHasher(u64);
-
-impl Hasher for IdHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write_u64(&mut self, value: u64) {
-        self.0 = value;
-    }
-
-    fn write(&mut self, _: &[u8]) {
-        unreachable!("Id hashes one u64")
-    }
 }
 
 impl<C: Context> Default for Frame<C> {
@@ -62,7 +46,7 @@ impl<C: Context> Default for Frame<C> {
             active_clips: Vec::new(),
             interaction: interaction::InteractionState::default(),
             geometry_previous: Vec::new(),
-            requests: HashSet::default(),
+            geometry_requests: Vec::new(),
             animations: Vec::new(),
             transitions: Vec::new(),
             target_sizes: Vec::new(),
@@ -96,7 +80,7 @@ impl<C: Context> Frame<C> {
         self.atoms.clear();
         self.clips.clear();
         self.geometry.clear();
-        self.requests.clear();
+        self.geometry_requests.clear();
         self.bump.clear();
         for kind in &mut self.layout_kinds {
             kind.default_item = BumpId::NONE;

@@ -77,13 +77,11 @@ where
         let content_id = id.child("popover content");
         let backdrop = root.interact_widget(backdrop_id, Press::new());
         let content_interaction = root.interact_widget(content_id, Press::new());
+        let areas = [trigger_id, content_id].map(|id| root.geometry(id));
         let pointer_inside = content_interaction.hovered
-            || root.pointer_position().is_some_and(|position| {
-                [trigger_id, content_id]
-                    .into_iter()
-                    .filter_map(|id| root.geometry(id))
-                    .any(|area| area.contains(position))
-            });
+            || root
+                .pointer_position()
+                .is_some_and(|position| areas.into_iter().flatten().any(|area| area.contains(position)));
         if match (self.close, root.interact(Raw)) {
             (PopoverClose::Click, _) => backdrop.activated,
             (PopoverClose::Exit, Input::PointerMove { .. } | Input::PointerLeave) => !pointer_inside,

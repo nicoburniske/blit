@@ -685,15 +685,16 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     }
     frame.geometry_previous.clear();
     frame.interaction.hits.clear();
-    if !frame.requests.is_empty() || !frame.interaction.kinds.slots.is_empty() {
+    frame.geometry_requests.sort_unstable();
+    frame.geometry_requests.dedup();
+    if !frame.geometry_requests.is_empty() || !frame.interaction.kinds.slots.is_empty() {
         let count = frame.nodes.len();
         let geometry = &frame.node_geometry[..count];
         let mut collect = {
             #[inline(always)]
             |index: usize, stored: &super::StoredNode, area: Rect<C::Scalar>| {
                 let id = stored.widget_id;
-                // interactive nodes keep their geometry too
-                if stored.interactive || frame.requests.contains(&id) {
+                if !frame.geometry_requests.is_empty() && frame.geometry_requests.binary_search(&id).is_ok() {
                     frame.geometry_previous.push((id, area));
                 }
                 if !stored.interactive {
