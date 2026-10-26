@@ -42,6 +42,26 @@ impl Interact<f32> for Pinch {
 }
 
 #[test]
+fn new_kind_observes_hover_without_another_frame() {
+    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let added = Cell::new(false);
+    let build = |mut ui: Ui<'_>| {
+        ui.interact(Wheel::new());
+        added.get() && ui.interact(Press::new()).hovered
+    };
+    render_inputs(
+        &mut frame,
+        &mut context,
+        Duration::ZERO,
+        [pointer(None, Move, [10.0, 10.0])],
+        &build,
+    );
+    added.set(true);
+    assert!(render(&mut frame, &mut context, &build));
+    assert!(!frame.has_pending_redraw());
+}
+
+#[test]
 fn gesture_sees_independent_contacts() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let build = |mut ui: Ui<'_>| ui.interact(WATCH).map(|seen| seen.map(|(contact, _)| contact));
@@ -191,13 +211,13 @@ fn gesture_state_lives_while_requested() {
         updates
     };
     let mut step = || render(&mut frame, &mut context, &build);
-    assert_eq!(step(), [Some(0), Some(0), Some(0), None]);
     assert_eq!(step(), [Some(1), Some(1), Some(1), None]);
+    assert_eq!(step(), [Some(2), Some(2), Some(2), None]);
     rows.set((1, 4));
-    assert_eq!(step(), [None, Some(2), Some(2), Some(0)]);
+    assert_eq!(step(), [None, Some(3), Some(3), Some(1)]);
     // row 0 returns in a recycled cell with fresh state
     rows.set((0, 3));
-    assert_eq!(step(), [Some(0), Some(3), Some(3), None]);
+    assert_eq!(step(), [Some(1), Some(4), Some(4), None]);
     assert_eq!(frame.next_timer_deadline(), Some(Duration::from_secs(1)));
     rows.set((0, 0));
     render(&mut frame, &mut context, &build);

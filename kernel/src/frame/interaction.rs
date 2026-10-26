@@ -11,13 +11,14 @@ use crate::{
 // slot node for a named widget missing from the layout
 const UNRESOLVED: u32 = u32::MAX;
 
-/// input routed to one interaction kind before a build
+/// the previous layout and input routed to one interaction kind
 pub struct InteractCx<'a, T> {
     id: Id,
     node: u32,
     end: u32,
     state: &'a mut InteractionState<T>,
-    input: &'a Input<T>,
+    // none during the first update so registration cannot change input ownership
+    input: Option<&'a Input<T>>,
     time: Duration,
 }
 
@@ -35,7 +36,11 @@ impl<T: Scalar> InteractCx<'_, T> {
     /// pending contacts within this widget and contacts it captured
     pub fn contacts(&self) -> Contacts<'_, T> {
         Contacts {
-            contacts: self.state.contacts.iter(),
+            contacts: if self.input.is_some() {
+                self.state.contacts.iter()
+            } else {
+                [].iter()
+            },
             id: self.id,
             node: self.node,
             end: self.end,
@@ -63,7 +68,8 @@ impl<T: Scalar> InteractCx<'_, T> {
     pub fn capture(&mut self, contact: ContactId) -> bool {
         let owner = self.id;
         let (node, end) = (self.node as usize, self.end as usize);
-        if let Some(tracked) = self.state.contacts.iter_mut().find(|tracked| tracked.id == contact)
+        if self.input.is_some()
+            && let Some(tracked) = self.state.contacts.iter_mut().find(|tracked| tracked.id == contact)
             && let Route::Pending {
                 target: Some(target),
                 claim,
@@ -93,19 +99,20 @@ impl<T: Scalar> InteractCx<'_, T> {
 
     /// focuses this widget unless a deeper widget took focus during this update
     pub fn focus(&mut self) {
-        if !self.state.focus_taken {
+        if self.input.is_some() && !self.state.focus_taken {
             self.state.focused = Some(self.id);
             self.state.focus_taken = true;
         }
     }
 
-    /// this frame's input, the same for every widget
+    /// this frame's input or none during the first update
     pub fn input(&self) -> Input<T> {
-        *self.input
+        self.input.copied().unwrap_or(Input::None)
     }
 
     /// wheel scrolling over this widget, or the cancellation of a sequence it held
     pub fn wheel(&self) -> Option<Scroll> {
+        self.input?;
         let wheel = self.state.wheel?;
         let event = wheel.event.filter(|_| match wheel.owner {
             Some(owner) => owner == self.id,
@@ -122,7 +129,8 @@ impl<T: Scalar> InteractCx<'_, T> {
     pub fn capture_wheel(&mut self) {
         let id = self.id;
         let (node, end) = (self.node as usize, self.end as usize);
-        if let Some(wheel) = &mut self.state.wheel
+        if self.input.is_some()
+            && let Some(wheel) = &mut self.state.wheel
             && wheel.owner.is_none()
             && wheel.target.is_some_and(|target| node <= target && target <= end)
         {
@@ -135,6 +143,7 @@ impl<T: Scalar> InteractCx<'_, T> {
     }
 
     fn pending(&mut self, contact: ContactId) -> Option<&mut Route> {
+        self.input?;
         let (node, end) = (self.node as usize, self.end as usize);
         let tracked = self.state.contacts.iter_mut().find(|tracked| tracked.id == contact)?;
         match tracked.route {
@@ -216,7 +225,13 @@ pub struct InteractionState<T> {
 }
 
 impl<T: Scalar> InteractionState<T> {
-    pub fn interact<K: Interact<T>>(&mut self, id: Id, node: Option<usize>, initial: K) -> K::Output {
+    pub fn interact<K: Interact<T>>(
+        &mut self,
+        id: Id,
+        node: Option<usize>,
+        mut initial: K,
+        time: Duration,
+    ) -> K::Output {
         let kinds = &mut self.kinds;
         let type_id = TypeId::of::<K>();
         let kind = kinds
@@ -247,7 +262,18 @@ impl<T: Scalar> InteractionState<T> {
         } else if let Some(index) = kinds.slots[..cursor].iter().position(matches) {
             index
         } else {
-            let value = (initial, K::Output::default());
+            let hit = self.hits.iter().find(|hit| hit.id == id);
+            let (previous, end) = hit.map_or((UNRESOLVED, 0), |hit| (hit.node as u32, hit.end as u32));
+            let output = initial.update(&mut InteractCx {
+                id,
+                node: previous,
+                end,
+                state: self,
+                input: None,
+                time,
+            });
+            let value = (initial, output);
+            let kinds = &mut self.kinds;
             // reserve first so a panic cannot lose a reused cell
             kinds.slots.reserve(1);
             let free = &mut kinds.kinds[kind as usize].free;
@@ -279,6 +305,7 @@ impl<T: Scalar> InteractionState<T> {
             kinds.cursor += 1;
             cursor
         };
+        let kinds = &mut self.kinds;
         let slot = &mut kinds.slots[index];
         slot.node = node.map_or(UNRESOLVED, |node| u32::try_from(node).expect("too many frame nodes"));
         // safety: slots of this kind point at live cells holding K and its output
@@ -445,7 +472,7 @@ impl<T: Scalar> InteractionState<T> {
                     node: slot.node,
                     end: slot.end,
                     state: self,
-                    input,
+                    input: Some(input),
                     time,
                 },
             );

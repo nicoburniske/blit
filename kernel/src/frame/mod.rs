@@ -245,17 +245,19 @@ impl<C: Context, S> Ui<'_, C, S> {
     /// retains `kind` for this node while builds keep requesting it
     ///
     /// `kind` is used once. returns its output from the update before this build
+    /// or its first update without routed input when newly registered
     pub fn interact<K: Interact<C::Scalar>>(&mut self, kind: K) -> K::Output {
         let id = self.current_id();
         let node = self.inner.node.index();
         let frame = &mut *self.inner.frame;
         frame.nodes[node].interactive = true;
-        frame.interaction.interact(id, Some(node), kind)
+        frame.interaction.interact(id, Some(node), kind, frame.time)
     }
 
     /// interacts as a node assigned this exact widget id, which may be built later
     pub fn interact_widget<K: Interact<C::Scalar>>(&mut self, id: Id, kind: K) -> K::Output {
-        self.inner.frame.interaction.interact(id, None, kind)
+        let frame = &mut *self.inner.frame;
+        frame.interaction.interact(id, None, kind, frame.time)
     }
 
     /// access context during frame construction
