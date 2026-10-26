@@ -47,12 +47,11 @@ fn focus_follows_presses_and_taps() {
     change_focus.set(true);
     assert_eq!(step(Input::None), (true, false));
     assert_eq!(step(Input::None), (false, true));
-    // dragging a touch across content is not a tap and keeps focus
+    // a touch takes focus on release unless something captured it
     clear_focus.set(true);
     step(pointer(Some(1), Down, [10.0, 10.0]));
     step(pointer(Some(1), Move, [30.0, 10.0]));
-    assert_eq!(step(pointer(Some(1), Up, [30.0, 10.0])), (false, false));
-    // a tap takes focus on release
+    assert_eq!(step(pointer(Some(1), Up, [30.0, 10.0])), (true, false));
     step(pointer(Some(1), Down, [110.0, 10.0]));
     assert_eq!(step(pointer(Some(1), Up, [110.0, 10.0])), (false, true));
 }

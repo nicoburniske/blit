@@ -48,8 +48,6 @@ pub struct Contact<T> {
     /// frame clock time of the press
     pub started: Duration,
     pub modifiers: crate::Modifiers,
-    /// still within the tap slop of its origin
-    pub tap: bool,
 }
 
 /// identifies one press or touch within a frame instance
@@ -64,10 +62,11 @@ pub enum ContactSource {
 }
 
 /// who holds a contact, as seen by the widget reading it
+///
+/// claims last one update, captures until the contact ends
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hold {
     Free,
-    /// tentatively held by this widget until something captures it
     Claimed,
     ClaimedElsewhere,
     Captured,
@@ -93,8 +92,10 @@ pub enum Phase {
 }
 
 /// clicks and press feedback
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Press {
+    slop: f32,
+    contact: Option<ContactId>,
     active: bool,
 }
 
@@ -110,7 +111,22 @@ pub struct PressState {
 
 impl Press {
     pub const fn new() -> Self {
-        Self { active: false }
+        Self {
+            slop: 6.0,
+            contact: None,
+            active: false,
+        }
+    }
+
+    /// movement in frame coordinates after which a press is no longer a click
+    pub const fn slop(self, slop: f32) -> Self {
+        Self { slop, ..self }
+    }
+}
+
+impl Default for Press {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -120,30 +136,41 @@ impl<T: Scalar> Interact<T> for Press {
     fn update(&mut self, cx: &mut InteractCx<'_, T>) -> PressState {
         let mut active = false;
         let mut clicked = false;
-        for contact in cx.contacts() {
+        if let Some(id) = self.contact
+            && let Some(contact) = cx.contacts().find(|contact| contact.id == id)
+        {
             let live = !matches!(contact.phase, Phase::Ended | Phase::Cancelled);
+            let x = (contact.position.x - contact.origin.x).to_f32();
+            let y = (contact.position.y - contact.origin.y).to_f32();
             match contact.hold {
-                Hold::Claimed if contact.tap => {
-                    active |= live;
-                    clicked |= contact.phase == Phase::Ended && cx.over(contact.position);
+                // this widget's own capture, like its drag, keeps it pressed
+                Hold::Captured => active = live,
+                // keep claiming while it is still a click so ancestors cannot take it
+                Hold::Free if x * x + y * y < self.slop * self.slop => {
+                    cx.claim(id);
+                    active = live;
+                    clicked = contact.phase == Phase::Ended && cx.over(contact.position);
                 }
-                Hold::Captured => active |= live,
                 _ => {}
             }
         }
         // one press at a time, deeper widgets claimed theirs first
-        if !active
-            && let Some(contact) = cx.contacts().find(|contact| {
-                contact.hold == Hold::Free
-                    && contact.phase == Phase::Started
-                    && matches!(
-                        contact.source,
-                        ContactSource::Touch | ContactSource::Mouse(PointerButton::Primary)
-                    )
-            })
-        {
-            cx.claim(contact.id);
-            active = true;
+        if !active {
+            self.contact = cx
+                .contacts()
+                .find(|contact| {
+                    contact.hold == Hold::Free
+                        && contact.phase == Phase::Started
+                        && matches!(
+                            contact.source,
+                            ContactSource::Touch | ContactSource::Mouse(PointerButton::Primary)
+                        )
+                })
+                .map(|contact| contact.id);
+            if let Some(id) = self.contact {
+                cx.claim(id);
+                active = true;
+            }
         }
         let state = PressState {
             active,
@@ -169,7 +196,7 @@ impl<T: Scalar> Interact<T> for Focus {
             contact.hold != Hold::ClaimedElsewhere
                 && match contact.source {
                     ContactSource::Mouse(PointerButton::Primary) => contact.phase == Phase::Started,
-                    ContactSource::Touch => contact.phase == Phase::Ended && contact.tap,
+                    ContactSource::Touch => contact.phase == Phase::Ended,
                     ContactSource::Mouse(_) => false,
                 }
         }) {

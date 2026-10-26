@@ -69,27 +69,26 @@ impl<T: Scalar> Interact<T> for Drag {
                     delta: contact.delta,
                 });
         }
-        let beyond = |x: T, y: T| {
-            let distance = x.to_f32().powi(2) + y.to_f32().powi(2);
-            distance > 0.0 && distance >= self.threshold * self.threshold
-        };
         let contact = cx.contacts().find(|contact| {
-            let x = contact.position.x - contact.origin.x;
-            let y = contact.position.y - contact.origin.y;
-            contact.hold != Hold::Captured
+            let x = (contact.position.x - contact.origin.x).to_f32();
+            let y = (contact.position.y - contact.origin.y).to_f32();
+            let distance = x * x + y * y;
+            // a contact claimed elsewhere, like a press still within its slop, is not ours yet
+            matches!(contact.hold, Hold::Free | Hold::Claimed)
                 && matches!(contact.phase, Phase::Changed | Phase::Ended)
                 && match contact.source {
                     ContactSource::Touch => true,
                     ContactSource::Mouse(button) => !self.touch && button == PointerButton::Primary,
                 }
-                // decide once, when the contact first crosses the threshold
-                && !beyond(x - contact.delta.x, y - contact.delta.y)
-                && beyond(x, y)
+                && distance > 0.0
+                && distance >= self.threshold * self.threshold
                 && self
                     .axis
-                    .is_none_or(|axis| (axis == Axis::Horizontal) == (x.to_f32().abs() >= y.to_f32().abs()))
+                    .is_none_or(|axis| (axis == Axis::Horizontal) == (x.abs() >= y.abs()))
         })?;
-        cx.capture(contact.id);
+        if !cx.capture(contact.id) {
+            return None;
+        }
         if contact.phase == Phase::Changed {
             self.contact = Some(contact.id);
         }
@@ -157,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn axis_is_decided_once_at_the_threshold() {
+    fn drags_pick_contacts_by_axis() {
         let mut frame = Frame::default();
         step(&mut frame, Input::None);
         step(&mut frame, touch(1, TouchPhase::Down, 10.0, 10.0));
@@ -169,7 +168,9 @@ mod tests {
         assert_eq!(step(&mut frame, touch(2, TouchPhase::Move, 80.0, 50.0)), (None, None));
         let ended = step(&mut frame, touch(1, TouchPhase::Up, 35.0, 10.0));
         assert_eq!(ended, (None, motion(Phase::Ended, 35.0, 10.0, 5.0, 0.0)));
-        assert_eq!(step(&mut frame, touch(2, TouchPhase::Move, 90.0, 50.0)), (None, None));
+        // once free, the slider takes the other contact on its next move
+        let taken = step(&mut frame, touch(2, TouchPhase::Move, 90.0, 50.0));
+        assert_eq!(taken, (None, motion(Phase::Started, 90.0, 50.0, 40.0, 0.0)));
         step(&mut frame, touch(2, TouchPhase::Up, 90.0, 50.0));
 
         // vertical movement goes to the pan and the slider never takes it later

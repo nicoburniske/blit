@@ -8,9 +8,6 @@ use crate::{
     internal::bump::Bump,
 };
 
-// movement after which a press is no longer a tap
-const TAP_SLOP: f32 = 6.0;
-
 // slot node for a named widget missing from the layout
 const UNRESOLVED: u32 = u32::MAX;
 
@@ -56,17 +53,24 @@ impl<T: Scalar> InteractCx<'_, T> {
     }
 
     /// takes a pending contact within this widget from every other widget until it ends
-    pub fn capture(&mut self, contact: ContactId) {
+    ///
+    /// a contact another widget claimed during this update stays with it
+    pub fn capture(&mut self, contact: ContactId) -> bool {
         let owner = self.id;
-        let Some(route) = self.pending(contact) else {
-            return;
-        };
-        let claimant = match *route {
-            Route::Pending { claim, .. } => claim.filter(|claim| *claim != owner),
-            _ => None,
-        };
-        *route = Route::Captured { owner };
-        self.state.stolen.extend(claimant);
+        let (node, end) = (self.node as usize, self.end as usize);
+        if let Some(tracked) = self.state.contacts.iter_mut().find(|tracked| tracked.id == contact)
+            && let Route::Pending {
+                target: Some(target),
+                claim,
+            } = tracked.route
+            && node <= target.node
+            && target.node <= end
+            && claim.is_none_or(|claim| claim == owner)
+        {
+            tracked.route = Route::Captured { owner };
+            return true;
+        }
+        false
     }
 
     pub fn hovered(&self) -> bool {
@@ -191,7 +195,6 @@ impl<T: Scalar> Iterator for Contacts<'_, T> {
             delta: tracked.delta,
             started: tracked.started,
             modifiers: tracked.modifiers,
-            tap: tracked.tap,
         })
     }
 }
@@ -212,8 +215,6 @@ pub struct InteractionState<T> {
     hover_key: u64,
     // a deeper widget took focus during this update
     focus_taken: bool,
-    // claimants whose contacts an ancestor captured after they updated
-    stolen: Vec<Id>,
     kinds: Kinds<T>,
 }
 
@@ -289,12 +290,15 @@ impl<T: Scalar> InteractionState<T> {
 
     pub fn begin(&mut self, input: &Input<T>, time: Duration) {
         self.focus_taken = false;
-        self.stolen.clear();
         self.contacts
             .retain(|tracked| !matches!(tracked.phase, Phase::Ended | Phase::Cancelled));
         for tracked in &mut self.contacts {
             tracked.phase = Phase::Held;
             tracked.delta = Point::ZERO;
+            // claims last one update, claimants renew them
+            if let Route::Pending { claim, .. } = &mut tracked.route {
+                *claim = None;
+            }
         }
         if let Some(wheel) = &mut self.wheel {
             if wheel.active {
@@ -363,8 +367,8 @@ impl<T: Scalar> InteractionState<T> {
                             TouchPhase::Down => unreachable!(),
                         },
                     );
-                    // a tap away from any focusable widget clears focus
-                    if phase == TouchPhase::Up && self.contacts[index].tap {
+                    // a release nothing captured clears focus unless a focusable widget takes it
+                    if phase == TouchPhase::Up && matches!(self.contacts[index].route, Route::Pending { .. }) {
                         self.focused = None;
                     }
                 }
@@ -435,7 +439,7 @@ impl<T: Scalar> InteractionState<T> {
         self.deadline = None;
         let mut kinds = std::mem::take(&mut self.kinds);
         kinds.cursor = 0;
-        let update = |slot: &Slot, state: &mut Self| {
+        for slot in kinds.slots.iter().rev() {
             (kinds.kinds[slot.kind as usize].update)(
                 &kinds.state,
                 slot.offset,
@@ -443,22 +447,11 @@ impl<T: Scalar> InteractionState<T> {
                     id: slot.id,
                     node: slot.node,
                     end: slot.end,
-                    state,
+                    state: self,
                     input,
                     time,
                 },
             );
-        };
-        for slot in kinds.slots.iter().rev() {
-            update(slot, self);
-        }
-        // claimants updated before an ancestor captured their contact, so they update again
-        if !self.stolen.is_empty() {
-            for slot in kinds.slots.iter().rev() {
-                if self.stolen.contains(&slot.id) {
-                    update(slot, self);
-                }
-            }
         }
         self.kinds = kinds;
     }
@@ -486,7 +479,6 @@ impl<T: Scalar> InteractionState<T> {
             delta: Point::ZERO,
             started: time,
             modifiers,
-            tap: true,
         });
     }
 
@@ -502,9 +494,6 @@ impl<T: Scalar> InteractionState<T> {
         };
         tracked.position = position;
         tracked.phase = phase;
-        let x = (position.x - tracked.origin.x).to_f32();
-        let y = (position.y - tracked.origin.y).to_f32();
-        tracked.tap &= x * x + y * y < TAP_SLOP * TAP_SLOP;
     }
 
     /// identifies the widgets under the pointer to notice when layout changes them
@@ -715,7 +704,6 @@ struct TrackedContact<T> {
     delta: Point<T>,
     started: Duration,
     modifiers: Modifiers,
-    tap: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

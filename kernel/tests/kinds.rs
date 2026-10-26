@@ -16,8 +16,9 @@ impl Interact<f32> for Watch {
             *seen = Some(contact);
         }
         for contact in seen.iter_mut().flatten().filter(|contact| (self.0)(contact)) {
-            cx.capture(contact.id);
-            contact.hold = Hold::Captured;
+            if cx.capture(contact.id) {
+                contact.hold = Hold::Captured;
+            }
         }
         seen
     }
@@ -97,11 +98,14 @@ fn capture_cancels_click() {
         };
         let ((seen, response), _) = step(pointer(Some(1), Down, [10.0, 10.0]));
         assert!(response.active && seen.unwrap().hold == Hold::ClaimedElsewhere);
-        // the button updates again after the capture, within the same build
-        let ((seen, response), redraw) = step(pointer(Some(1), Move, [12.0, 10.0]));
+        // a finger that has not moved stays with the button
+        let ((seen, response), _) = step(pointer(Some(1), Move, [12.0, 10.0]));
+        assert!(response.active && seen.unwrap().hold == Hold::ClaimedElsewhere);
+        // past the slop the button lets go first, then the ancestor takes it in the same build
+        let ((seen, response), redraw) = step(pointer(Some(1), Move, [30.0, 10.0]));
         assert!(seen.unwrap().hold == Hold::Captured && !redraw);
         assert!(response.deactivated && !response.active);
-        assert!(!step(pointer(Some(1), ending, [12.0, 10.0])).0.1.clicked);
+        assert!(!step(pointer(Some(1), ending, [30.0, 10.0])).0.1.clicked);
     }
 }
 
