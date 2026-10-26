@@ -77,7 +77,7 @@ where
         let content_id = id.child("popover content");
         let backdrop = root.interact_widget(backdrop_id, Press::new());
         let content_interaction = root.interact_widget(content_id, Press::new());
-        let areas = [trigger_id, content_id].map(|id| root.geometry(id));
+        let areas = [trigger_id, content_id].map(|id| root.area(id));
         let pointer_inside = content_interaction.hovered
             || root
                 .pointer_position()
@@ -205,7 +205,7 @@ mod tests {
         }
 
         let mut expected = [true, true, false].into_iter();
-        let mut content_geometry = None;
+        let mut content_area = None;
         for input in [
             Input::PointerDown {
                 position: InputPoint::new(1.0, 0.5),
@@ -231,7 +231,7 @@ mod tests {
                 input,
                 |mut ui: Ui<'_, TestContext>| {
                     if let Input::PointerUp { .. } = input {
-                        content_geometry = ui.geometry(content_id);
+                        content_area = ui.area(content_id);
                     }
                     render(
                         ui,
@@ -244,13 +244,13 @@ mod tests {
             );
             frame.layout(&mut context);
             if let Input::PointerUp { .. } = input {
-                assert_eq!(frame.geometry(Id::new("named content")), content_geometry);
+                assert_eq!(frame.area(Id::new("named content")), content_area);
                 assert_eq!(
-                    frame.geometry(Id::new("named trigger")),
+                    frame.area(Id::new("named trigger")),
                     Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
                 );
             }
         }
-        assert_eq!(content_geometry, Some(Rect::new(0.0, 1.0, 5.0, 4.0)));
+        assert_eq!(content_area, Some(Rect::new(0.0, 1.0, 5.0, 4.0)));
     }
 }

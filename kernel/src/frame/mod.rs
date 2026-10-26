@@ -73,12 +73,12 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     }
 
     pub fn hit(self, hit: Sides<C::Scalar>) -> Self {
-        self.inner.frame.geometry_mut(self.inner.node).hit = hit;
+        self.inner.frame.bounds_mut(self.inner.node).hit = hit;
         self
     }
 
     pub fn transition(self, transition: Transition) -> Self {
-        self.inner.frame.geometry_mut(self.inner.node).transition = Some(transition);
+        self.inner.frame.bounds_mut(self.inner.node).transition = Some(transition);
         self
     }
 
@@ -103,7 +103,7 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
 
     /// sets this node's paint order among its visual siblings
     pub fn z_index(self, z_index: i16) -> Self {
-        self.inner.frame.node_geometry[self.inner.node.index()].z_index = z_index;
+        self.inner.frame.placements[self.inner.node.index()].z_index = z_index;
         self
     }
 
@@ -232,14 +232,14 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 }
 
 impl<C: Context, S> Ui<'_, C, S> {
-    /// returns previous frame geometry and tracks this id for the next layout
-    pub fn geometry(&mut self, id: Id) -> Option<Rect<C::Scalar>> {
-        self.inner.frame.geometry_requests.push(id);
-        let geometry = &self.inner.frame.geometry_previous;
-        geometry
+    /// returns the area from the previous layout and tracks this id for the next one
+    pub fn area(&mut self, id: Id) -> Option<Rect<C::Scalar>> {
+        self.inner.frame.areas_requested.push(id);
+        let areas = &self.inner.frame.areas_previous;
+        areas
             .binary_search_by_key(&id, |(candidate, _)| *candidate)
             .ok()
-            .map(|index| geometry[index].1)
+            .map(|index| areas[index].1)
     }
 
     /// retains `kind` for this node while builds keep requesting it

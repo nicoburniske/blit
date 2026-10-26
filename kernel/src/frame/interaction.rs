@@ -683,27 +683,27 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
         wheel.owner = None;
         wheel.event = None;
     }
-    frame.geometry_previous.clear();
+    frame.areas_previous.clear();
     frame.interaction.hits.clear();
-    frame.geometry_requests.sort_unstable();
-    frame.geometry_requests.dedup();
-    if !frame.geometry_requests.is_empty() || !frame.interaction.kinds.slots.is_empty() {
+    frame.areas_requested.sort_unstable();
+    frame.areas_requested.dedup();
+    if !frame.areas_requested.is_empty() || !frame.interaction.kinds.slots.is_empty() {
         let count = frame.nodes.len();
-        let geometry = &frame.node_geometry[..count];
+        let placements = &frame.placements[..count];
         let mut collect = {
             #[inline(always)]
             |index: usize, stored: &super::StoredNode, area: Rect<C::Scalar>| {
                 let id = stored.widget_id;
-                if !frame.geometry_requests.is_empty() && frame.geometry_requests.binary_search(&id).is_ok() {
-                    frame.geometry_previous.push((id, area));
+                if !frame.areas_requested.is_empty() && frame.areas_requested.binary_search(&id).is_ok() {
+                    frame.areas_previous.push((id, area));
                 }
                 if !stored.interactive {
                     return;
                 }
                 let hit = stored
-                    .geometry
+                    .bounds
                     .index()
-                    .map_or(Sides::all(C::Scalar::ZERO), |index| frame.geometry[index].hit);
+                    .map_or(Sides::all(C::Scalar::ZERO), |index| frame.bounds[index].hit);
                 let area = Rect::new(
                     area.x - hit.left,
                     area.y - hit.top,
@@ -724,16 +724,16 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
             }
         };
         if frame.paint_order.is_empty() {
-            for (index, (stored, geometry)) in nodes.iter().zip(geometry).enumerate() {
-                collect(index, stored, geometry.area);
+            for (index, (stored, placement)) in nodes.iter().zip(placements).enumerate() {
+                collect(index, stored, placement.area);
             }
         } else {
             for id in &frame.paint_order[..count] {
-                collect(id.index(), &nodes[id.index()], geometry[id.index()].area);
+                collect(id.index(), &nodes[id.index()], placements[id.index()].area);
             }
         }
     }
-    frame.geometry_previous.sort_unstable_by_key(|(id, _)| *id);
+    frame.areas_previous.sort_unstable_by_key(|(id, _)| *id);
     let interaction = &mut frame.interaction;
     interaction.root = Some(nodes[0].widget_id);
     let hover = interaction

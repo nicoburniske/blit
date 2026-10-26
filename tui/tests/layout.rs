@@ -41,7 +41,7 @@ fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
         );
         frame.layout(&mut context);
         assert_eq!(
-            [0, 1, 2].map(|column| frame.geometry(Id::new(column)).unwrap().width),
+            [0, 1, 2].map(|column| frame.area(Id::new(column)).unwrap().width),
             [3, 4, 3]
         );
         context.begin_paint();

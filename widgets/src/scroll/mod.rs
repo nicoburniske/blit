@@ -274,13 +274,13 @@ fn update<C: Context>(
 ) -> (bool, bool) {
     let id = ui.current_id();
     let content_id = id.child("content");
-    let viewport_known = if let Some(area) = ui.geometry(id) {
+    let viewport_known = if let Some(area) = ui.area(id) {
         state.viewport_extent = axis.extent(area.size());
         true
     } else {
         false
     };
-    if let Some(area) = ui.geometry(content_id) {
+    if let Some(area) = ui.area(content_id) {
         state.content_extent = axis.extent(area.size());
     }
 
@@ -322,8 +322,8 @@ fn scrollbar_input<C: Context>(
     let id = ui.current_id();
     let thumb_id = id.child("scroll thumb");
     let track_id = id.child("scroll track");
-    let thumb_area = ui.geometry(thumb_id);
-    let track_area = ui.geometry(track_id);
+    let thumb_area = ui.area(thumb_id);
+    let track_area = ui.area(track_id);
     let thumb = ui.interact_widget(thumb_id, Press::new());
     let track = ui.interact_widget(track_id, Press::new());
     let active = thumb.active || track.active;
@@ -469,7 +469,7 @@ fn animate<C: Context, S>(state: &mut ScrollState<C::Scalar>, ui: &mut Ui<'_, C,
         }
         Target::Offset(offset) => offset,
         Target::Widget(id) => {
-            let Some((widget, content)) = ui.geometry(id).zip(ui.geometry(ui.current_id().child("content"))) else {
+            let Some((widget, content)) = ui.area(id).zip(ui.area(ui.current_id().child("content"))) else {
                 ui.request_frame();
                 return;
             };

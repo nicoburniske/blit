@@ -103,7 +103,7 @@ impl<C: Context> Widget<C> for TextInput<'_> {
         } else {
             None
         };
-        if let Some(area) = ui.geometry(id) {
+        if let Some(area) = ui.area(id) {
             let area = area.inset(padding);
             let request = TextRequest {
                 text,

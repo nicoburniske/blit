@@ -85,7 +85,7 @@ fn build_interactive_and_layout(bencher: divan::Bencher, count: usize) {
 }
 
 #[divan::bench(args = [1000])]
-fn build_geometry_and_layout(bencher: divan::Bencher, count: usize) {
+fn build_areas_and_layout(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
         frame.build(
@@ -95,7 +95,7 @@ fn build_geometry_and_layout(bencher: divan::Bencher, count: usize) {
             Input::None,
             |mut ui: Ui<'_, ()>| {
                 for index in 0..10 {
-                    black_box(ui.geometry(Id::new(index)));
+                    black_box(ui.area(Id::new(index)));
                 }
                 let mut root = ui.layout(Stack);
                 for index in 0..count {

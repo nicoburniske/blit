@@ -77,7 +77,7 @@ where
             clip,
         } = self;
         let id = ui.current_id();
-        let viewport = ui.geometry(id);
+        let viewport = ui.area(id);
         let size = viewport.map_or(ui.screen().size(), |area| area.size());
         let overscan = size.height.repeat(VIEWPORTS);
         let row = state.sample.get(state.visible.start);
@@ -598,7 +598,7 @@ mod tests {
             });
             assert!(state.sample.len() <= 101);
             assert_eq!(state.position().0, 1);
-            assert_eq!(frame.geometry(Id::new(1usize)).unwrap().y, 0.0);
+            assert_eq!(frame.area(Id::new(1usize)).unwrap().y, 0.0);
             assert!(!frame.has_pending_redraw());
         }
     }
@@ -677,7 +677,7 @@ mod tests {
                 });
             }
             if let Some(count) = count {
-                let area = frame.geometry(Id::new(count - 1)).unwrap();
+                let area = frame.area(Id::new(count - 1)).unwrap();
                 assert_eq!(area.y + area.height, heights.iter().sum::<f32>().min(50.0));
             } else {
                 assert_eq!(state.position().0, 5);
@@ -720,15 +720,15 @@ mod tests {
                 state.scroll_to(20, 0.0);
                 settle_frame(&mut frame, &mut state, count, row);
                 let key = Id::new(20usize);
-                let y = frame.geometry(key).unwrap().y;
+                let y = frame.area(key).unwrap().y;
                 state.scroll_by(-20.0);
                 render_frame(&mut frame, &mut state, count, Input::None, row);
-                assert_eq!(frame.geometry(key).unwrap().y, y + 20.0);
+                assert_eq!(frame.area(key).unwrap().y, y + 20.0);
                 settle_frame(&mut frame, &mut state, count, row);
-                assert_eq!(frame.geometry(key).unwrap().y, y + 20.0);
+                assert_eq!(frame.area(key).unwrap().y, y + 20.0);
                 state.scroll_by(40.0);
                 render_frame(&mut frame, &mut state, count, Input::None, row);
-                assert_eq!(frame.geometry(key).unwrap().y, y - 20.0);
+                assert_eq!(frame.area(key).unwrap().y, y - 20.0);
             }
         }
     }
@@ -780,11 +780,8 @@ mod tests {
         );
         frame.layout(&mut TestContext);
         (
-            state
-                .sample
-                .get(state.visible.start)
-                .and_then(|row| frame.geometry(row.id)),
-            frame.geometry(thumb_id).unwrap(),
+            state.sample.get(state.visible.start).and_then(|row| frame.area(row.id)),
+            frame.area(thumb_id).unwrap(),
         )
     }
 }

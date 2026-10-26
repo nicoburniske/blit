@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use super::{
-    Frame, NodeGeometry, NodeId, StoredNode,
+    Frame, NodeId, Placement, StoredNode,
     bump::{BumpArena, BumpId, Scratch},
 };
 use crate::{
@@ -14,7 +14,7 @@ use crate::{
 pub struct LayoutCx<'a, C: Context, I = ()> {
     frame: &'a Frame<C>,
     bump: &'a BumpArena,
-    geometry: &'a mut [NodeGeometry<C::Scalar>],
+    placements: &'a mut [Placement<C::Scalar>],
     context: &'a mut C,
     frame_requested: &'a mut bool,
     target_start: usize,
@@ -37,7 +37,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     pub fn size(&self, node: NodeId) -> Size<C::Scalar> {
-        self.geometry[node.index()].area.size()
+        self.placements[node.index()].area.size()
     }
 
     pub fn measure_atoms(&mut self, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
@@ -46,7 +46,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     pub fn set_position(&mut self, position: Point<C::Scalar>) {
-        let area = &mut self.geometry[self.node.index()].area;
+        let area = &mut self.placements[self.node.index()].area;
         area.x = position.x;
         area.y = position.y;
     }
@@ -93,7 +93,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     pub fn set_child_position(&mut self, child: NodeId, position: Point<C::Scalar>) {
         #[cfg(debug_assertions)]
         self.assert_child(child);
-        let area = &mut self.geometry[child.index()].area;
+        let area = &mut self.placements[child.index()].area;
         area.x = position.x;
         area.y = position.y;
     }
@@ -117,7 +117,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     pub fn set_child_z_index(&mut self, child: NodeId, z_index: i16) {
         #[cfg(debug_assertions)]
         self.assert_child(child);
-        self.geometry[child.index()].z_index = z_index;
+        self.placements[child.index()].z_index = z_index;
     }
 
     pub fn size_overrides(&self, child: NodeId) -> (Option<C::Scalar>, Option<C::Scalar>) {
@@ -194,7 +194,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             let mut cx = LayoutCx {
                 frame: self.frame,
                 bump: self.bump,
-                geometry: self.geometry,
+                placements: self.placements,
                 context: self.context,
                 frame_requested: self.frame_requested,
                 target_start: self.target_start,
@@ -211,7 +211,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             bounds.constrain(size),
             "layout returned a size outside its constraints"
         );
-        let area = &mut self.geometry[node.index()].area;
+        let area = &mut self.placements[node.index()].area;
         area.width = size.width;
         area.height = size.height;
         size
@@ -248,12 +248,12 @@ pub fn resolve<C: Context>(
     node: NodeId,
     bounds: Constraints<C::Scalar>,
 ) -> Size<C::Scalar> {
-    let mut geometry = std::mem::take(&mut frame.node_geometry);
+    let mut placements = std::mem::take(&mut frame.placements);
     let mut requested = frame.frame_requested;
     let mut cx = LayoutCx {
         frame,
         bump,
-        geometry: &mut geometry,
+        placements: &mut placements,
         context,
         frame_requested: &mut requested,
         target_start: node.index(),
@@ -267,7 +267,7 @@ pub fn resolve<C: Context>(
             if !cx.frame.nodes[index].out_of_flow {
                 continue;
             }
-            let area = &mut cx.geometry[index].area;
+            let area = &mut cx.placements[index].area;
             area.x = C::Scalar::ZERO;
             area.y = C::Scalar::ZERO;
             cx.resolve(
@@ -276,7 +276,7 @@ pub fn resolve<C: Context>(
             );
         }
     }
-    frame.node_geometry = geometry;
+    frame.placements = placements;
     frame.frame_requested = requested;
     size
 }

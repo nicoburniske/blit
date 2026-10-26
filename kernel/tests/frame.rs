@@ -73,7 +73,7 @@ fn scratch_and_default_items() {
             },
         );
         assert_eq!(
-            frame.geometry(id).unwrap().size(),
+            frame.area(id).unwrap().size(),
             Size::uniform(if millis == 500 { 1.5 } else { 1.0 })
         );
     }
@@ -211,7 +211,7 @@ fn visual_parent_and_hit_order() {
             responses
         };
         render(&mut frame, &mut context, &build);
-        assert_eq!(frame.geometry(popup), Some(Rect::new(1.0, 0.0, 5.0, 5.0)));
+        assert_eq!(frame.area(popup), Some(Rect::new(1.0, 0.0, 5.0, 5.0)));
         let area = Rect::new(1.0, 0.0, 5.0, 5.0);
         if open {
             assert_eq!(
@@ -357,8 +357,8 @@ fn bindings_and_geometry() {
     ] {
         render(&mut frame, &mut context, |mut ui: Ui<'_>| {
             if query {
-                assert_eq!(ui.geometry(a).is_some(), retained_a);
-                assert_eq!(ui.geometry(b).is_some(), retained_b);
+                assert_eq!(ui.area(a).is_some(), retained_a);
+                assert_eq!(ui.area(b).is_some(), retained_b);
             }
             ui.interact_widget(b, Press::new());
             let mut root = ui.layout(Overlay);
@@ -371,8 +371,8 @@ fn bindings_and_geometry() {
                 root.child().layout(At((), |_| Point::ZERO)).relative(a).insert(());
             }
         });
-        assert_eq!(frame.geometry(a).is_some(), count != 0);
-        assert_eq!(frame.geometry(b).is_some(), count != 0);
+        assert_eq!(frame.area(a).is_some(), count != 0);
+        assert_eq!(frame.area(b).is_some(), count != 0);
         retained_a = count != 0 && query;
         retained_b = count != 0 && query;
     }

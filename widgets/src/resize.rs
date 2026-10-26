@@ -47,7 +47,7 @@ where
         let right_id = id.child("right grip");
         let bottom_id = id.child("bottom grip");
         let corner_id = id.child("corner grip");
-        let geometry = ui.geometry(id);
+        let previous = ui.area(id);
         let right = ui.interact_widget(right_id, Press::new());
         let bottom = ui.interact_widget(bottom_id, Press::new());
         let corner = ui.interact_widget(corner_id, Press::new());
@@ -60,7 +60,7 @@ where
         if delta != Size::ZERO {
             let size = state
                 .size
-                .or_else(|| geometry.map(|area| area.size()))
+                .or_else(|| previous.map(|area| area.size()))
                 .unwrap_or(self.initial);
             state.size = Some(size + delta);
         }

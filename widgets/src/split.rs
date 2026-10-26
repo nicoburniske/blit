@@ -57,7 +57,7 @@ where
         let divider_id = id.child("divider");
         let trailing_id = id.child("trailing pane");
         let interaction = ui.interact_widget(divider_id, Press::new());
-        let measured = ui.geometry(leading_id).map(|area| axis.extent(area.size()));
+        let measured = ui.area(leading_id).map(|area| axis.extent(area.size()));
         let drag = ui.interact_widget(divider_id, Drag::new());
         let delta = drag.map_or(Point::ZERO, |drag| drag.delta);
         let delta = match axis {
@@ -196,7 +196,7 @@ mod tests {
         );
         frame.layout(context);
         assert_eq!(
-            frame.geometry(id.child("leading pane")),
+            frame.area(id.child("leading pane")),
             Some(Rect::new(0.0, 0.0, 76.0, 20.0))
         );
     }

@@ -4,12 +4,12 @@ use crate::{ClipShape, Context, Rect, Scalar};
 pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
     frame.paint_order.clear();
     let count = frame.nodes.len();
-    let geometry = &frame.node_geometry[..count];
+    let placements = &frame.placements[..count];
     if !frame
         .nodes
         .iter()
-        .zip(geometry)
-        .any(|(node, geometry)| geometry.z_index != 0 || node.visual_parent != node.parent)
+        .zip(placements)
+        .any(|(node, placement)| placement.z_index != 0 || node.visual_parent != node.parent)
     {
         return;
     }
@@ -38,14 +38,14 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
         while child != 0 {
             let index = child as usize;
             child = links[index].next_sibling;
-            needs_sort = needs_sort || geometry[index].z_index != 0;
+            needs_sort = needs_sort || placements[index].z_index != 0;
             pending -= 1;
             debug_assert!(pending > output);
             order[pending] = NodeId::new(index);
         }
         let children = &mut order[pending..start];
         if needs_sort {
-            children.sort_unstable_by_key(|id| (geometry[id.index()].z_index, id.index()));
+            children.sort_unstable_by_key(|id| (placements[id.index()].z_index, id.index()));
         }
     }
     debug_assert_eq!(pending, count);
@@ -55,7 +55,7 @@ pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
     frame.interaction.clips.clear();
     let count = frame.nodes.len();
     let nodes = &mut frame.nodes[..count];
-    let geometry = &frame.node_geometry[..count];
+    let placements = &frame.placements[..count];
     for index in 0..count {
         let parent = if index == 0 {
             ResolvedClipId::NONE
@@ -67,7 +67,7 @@ pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
             continue;
         };
         let stored = frame.clips[clip];
-        let area = geometry[index].area;
+        let area = placements[index].area;
         let shape = (frame.clip_kinds[stored.kind as usize].shape)(bump, stored.bump_id, area);
         let parent_bounds = parent
             .index()
@@ -152,7 +152,7 @@ fn paint_node<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut 
     if frame.nodes[node].first_atom.index().is_none() {
         return;
     }
-    let area = frame.node_geometry[node].area;
+    let area = frame.placements[node].area;
     let resolved_clip = frame.nodes[node].resolved_clip;
     let clip_bounds = frame.clip_bounds(resolved_clip);
     let mut clip_set = false;

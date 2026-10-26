@@ -1,9 +1,9 @@
 pub struct Frame<C: Context> {
     nodes: Vec<StoredNode>,
-    node_geometry: Vec<NodeGeometry<C::Scalar>>,
+    placements: Vec<Placement<C::Scalar>>,
     atoms: Vec<StoredAtom>,
     clips: Vec<StoredClip>,
-    geometry: Vec<GeometryRecord<C::Scalar>>,
+    bounds: Vec<Bounds<C::Scalar>>,
     atom_kinds: Vec<AtomKind<C>>,
     layout_kinds: Vec<LayoutKind<C>>,
     clip_kinds: Vec<ClipKind<C>>,
@@ -12,10 +12,10 @@ pub struct Frame<C: Context> {
     paint_order: Vec<NodeId>,
     active_clips: Vec<ResolvedClipId>,
     interaction: interaction::InteractionState<C::Scalar>,
-    // ids whose geometry this build asked for, sorted at layout
-    geometry_requests: Vec<Id>,
-    // resolved geometry requests
-    geometry_previous: Vec<(Id, Rect<C::Scalar>)>,
+    /// ids passed to [`Ui::area`] during this build
+    areas_requested: Vec<Id>,
+    // requested areas from the previous layout, sorted by id
+    areas_previous: Vec<(Id, Rect<C::Scalar>)>,
     animations: Vec<animation::AnimationState>,
     transitions: Vec<transition::TransitionState<C::Scalar>>,
     target_sizes: Vec<TargetSize<C::Scalar>>,
@@ -33,10 +33,10 @@ impl<C: Context> Default for Frame<C> {
     fn default() -> Self {
         Self {
             nodes: Vec::new(),
-            node_geometry: Vec::new(),
+            placements: Vec::new(),
             atoms: Vec::new(),
             clips: Vec::new(),
-            geometry: Vec::new(),
+            bounds: Vec::new(),
             atom_kinds: Vec::new(),
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
@@ -45,8 +45,8 @@ impl<C: Context> Default for Frame<C> {
             paint_order: Vec::new(),
             active_clips: Vec::new(),
             interaction: interaction::InteractionState::default(),
-            geometry_previous: Vec::new(),
-            geometry_requests: Vec::new(),
+            areas_previous: Vec::new(),
+            areas_requested: Vec::new(),
             animations: Vec::new(),
             transitions: Vec::new(),
             target_sizes: Vec::new(),
@@ -76,11 +76,11 @@ impl<C: Context> Frame<C> {
         #[cfg(debug_assertions)]
         generation::begin();
         self.nodes.clear();
-        self.node_geometry.clear();
+        self.placements.clear();
         self.atoms.clear();
         self.clips.clear();
-        self.geometry.clear();
-        self.geometry_requests.clear();
+        self.bounds.clear();
+        self.areas_requested.clear();
         self.bump.clear();
         for kind in &mut self.layout_kinds {
             kind.default_item = BumpId::NONE;
@@ -174,12 +174,12 @@ impl<C: Context> Frame<C> {
         self.frame_requested = true;
     }
 
-    /// returns geometry from the current frame after layout
-    pub fn geometry(&self, id: Id) -> Option<Rect<C::Scalar>> {
+    /// returns the area from the current frame after layout
+    pub fn area(&self, id: Id) -> Option<Rect<C::Scalar>> {
         self.nodes
             .iter()
             .enumerate()
-            .find_map(|(index, node)| (node.widget_id == id).then_some(self.node_geometry[index].area))
+            .find_map(|(index, node)| (node.widget_id == id).then_some(self.placements[index].area))
     }
 }
 
@@ -248,10 +248,10 @@ impl<C: Context> Frame<C> {
             relative: parent.unwrap_or(id),
             out_of_flow: false,
             interactive: false,
-            geometry: GeometryId::NONE,
+            bounds: BoundsId::NONE,
             resolved_clip: ResolvedClipId::NONE,
         });
-        self.node_geometry.push(NodeGeometry {
+        self.placements.push(Placement {
             area: Rect::default(),
             z_index: 0,
         });
@@ -295,20 +295,20 @@ impl<C: Context> Frame<C> {
         target
     }
 
-    fn geometry_mut(&mut self, node: NodeId) -> &mut GeometryRecord<C::Scalar> {
-        let index = if let Some(index) = self.nodes[node.index()].geometry.index() {
+    fn bounds_mut(&mut self, node: NodeId) -> &mut Bounds<C::Scalar> {
+        let index = if let Some(index) = self.nodes[node.index()].bounds.index() {
             index
         } else {
-            let id = GeometryId::new(self.geometry.len());
-            self.nodes[node.index()].geometry = id;
-            self.geometry.push(GeometryRecord {
+            let id = BoundsId::new(self.bounds.len());
+            self.nodes[node.index()].bounds = id;
+            self.bounds.push(Bounds {
                 node,
                 hit: Sides::all(C::Scalar::ZERO),
                 transition: None,
             });
             id.index().unwrap()
         };
-        &mut self.geometry[index]
+        &mut self.bounds[index]
     }
 
     fn clip_bounds(&self, clip: ResolvedClipId) -> Rect<C::Scalar> {
@@ -359,12 +359,12 @@ struct StoredNode {
     out_of_flow: bool,
     // requested an interaction kind
     interactive: bool,
-    geometry: GeometryId,
+    bounds: BoundsId,
     resolved_clip: ResolvedClipId,
 }
 
 #[derive(Clone, Copy)]
-struct NodeGeometry<T> {
+struct Placement<T> {
     area: Rect<T>,
     z_index: i16,
 }
@@ -376,7 +376,7 @@ struct TargetSize<T> {
 }
 
 #[derive(Clone, Copy)]
-struct GeometryRecord<T> {
+struct Bounds<T> {
     node: NodeId,
     hit: Sides<T>,
     transition: Option<Transition>,
@@ -425,7 +425,7 @@ impl<T> Index<T> {
 
 type StoredAtomId = Index<StoredAtom>;
 type StoredClipId = Index<StoredClip>;
-type GeometryId = Index<GeometryRecord<()>>;
+type BoundsId = Index<Bounds<()>>;
 type ResolvedClipId = Index<ResolvedClip<()>>;
 
 struct AtomKind<C: Context> {

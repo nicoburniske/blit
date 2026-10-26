@@ -10,8 +10,8 @@ use crate::{
 
 /// resolves transitions against a subtree's target layout
 ///
-/// - layout first establishes target geometry
-/// - active size transitions write animated sizes into node geometry and replay layout
+/// - layout first establishes target areas
+/// - active size transitions write animated sizes into placements and replay layout
 /// - target sizes remain available for structural decisions such as wrapping
 /// - position transitions apply after layout without replay
 pub fn resolve<C: Context>(
@@ -23,7 +23,7 @@ pub fn resolve<C: Context>(
     commit: bool,
 ) -> Size<C::Scalar> {
     let mut size = layout::resolve(frame, bump, context, root, bounds);
-    if frame.geometry.is_empty() {
+    if frame.bounds.is_empty() {
         return size;
     }
     let mut active = TransitionProperties::NONE;
@@ -38,10 +38,10 @@ pub fn resolve<C: Context>(
             continue;
         }
         index += 1;
-        let Some(geometry) = stored.geometry.index() else {
+        let Some(bounds) = stored.bounds.index() else {
             continue;
         };
-        let record = frame.geometry[geometry];
+        let record = frame.bounds[bounds];
         let Some(config) = record.transition else { continue };
         if !commit && !config.properties.intersects(TransitionProperties::SIZE) {
             continue;
@@ -56,7 +56,7 @@ pub fn resolve<C: Context>(
         state.node = node;
         state.config = config;
         state.seen = true;
-        state.advance(frame.node_geometry[node.index()].area, frame.time, frame.resized);
+        state.advance(frame.placements[node.index()].area, frame.time, frame.resized);
         let properties = state.active.intersection(TransitionProperties::SIZE);
         if nodes[node.index()].parent == node {
             if properties.intersects(TransitionProperties::WIDTH) {
@@ -73,13 +73,15 @@ pub fn resolve<C: Context>(
             }
         } else if !properties.is_empty() {
             if frame.target_sizes.is_empty() {
-                let geometry = &frame.node_geometry[start..end];
-                frame.target_sizes.extend(geometry.iter().map(|node| super::TargetSize {
-                    size: node.area.size(),
-                    properties: TransitionProperties::NONE,
-                }));
+                let placements = &frame.placements[start..end];
+                frame
+                    .target_sizes
+                    .extend(placements.iter().map(|node| super::TargetSize {
+                        size: node.area.size(),
+                        properties: TransitionProperties::NONE,
+                    }));
             }
-            let area = &mut frame.node_geometry[node.index()].area;
+            let area = &mut frame.placements[node.index()].area;
             if properties.intersects(TransitionProperties::WIDTH) {
                 area.width = state.current.width;
             }
@@ -102,7 +104,7 @@ pub fn resolve<C: Context>(
     }
     if commit && active.intersects(TransitionProperties::POSITION) {
         for state in frame.transitions.iter().filter(|state| state.seen) {
-            let area = &mut frame.node_geometry[state.node.index()].area;
+            let area = &mut frame.placements[state.node.index()].area;
             if state.active.intersects(TransitionProperties::X) {
                 area.x = state.current.x;
             }

@@ -95,7 +95,7 @@ fn absolute_positions_use_the_target_and_sizes_use_the_parent() {
             );
         },
     );
-    assert_eq!(frame.geometry(id), Some(Rect::new(8.0, 3.0, 5.0, 4.0)));
+    assert_eq!(frame.area(id), Some(Rect::new(8.0, 3.0, 5.0, 4.0)));
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn flex_remeasures_constraint_dependent_atoms() {
                 .insert(ResponsiveAtom);
         },
     );
-    assert_eq!(frame.geometry(child).unwrap().size(), Size::new(5.0, 2.0));
+    assert_eq!(frame.area(child).unwrap().size(), Size::new(5.0, 2.0));
 }
 
 #[test]
@@ -163,9 +163,9 @@ fn flow_items_inherit_child_sizing_and_override_each_axis() {
                 }
             },
         );
-        assert_eq!(frame.geometry(inherited).unwrap().size(), Size::new(70.0, 6.0));
-        assert_eq!(frame.geometry(fixed).unwrap().size(), Size::new(20.0, 9.0));
-        assert_eq!(frame.geometry(fit).unwrap().size(), Size::new(10.0, 6.0));
+        assert_eq!(frame.area(inherited).unwrap().size(), Size::new(70.0, 6.0));
+        assert_eq!(frame.area(fixed).unwrap().size(), Size::new(20.0, 9.0));
+        assert_eq!(frame.area(fit).unwrap().size(), Size::new(10.0, 6.0));
     }
 }
 
@@ -229,8 +229,8 @@ fn flex_cross_grow_uses_fit_siblings_under_loose_constraints() {
                 .insert(BoxAtom(Size::ZERO));
         },
     );
-    assert_eq!(frame.geometry(header).unwrap().height, 10.0);
-    assert_eq!(frame.geometry(body).unwrap().height, 90.0);
+    assert_eq!(frame.area(header).unwrap().height, 10.0);
+    assert_eq!(frame.area(body).unwrap().height, 90.0);
 }
 
 #[test]
@@ -307,15 +307,15 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
             );
             assert_eq!(context.0, [1; 3]);
             assert_eq!(
-                axis.other().extent(frame.geometry(leaf).unwrap().size()),
+                axis.other().extent(frame.area(leaf).unwrap().size()),
                 if cross_fixed { 36.0 } else { 10.0 }
             );
             assert_eq!(
-                axis.other().extent(frame.geometry(sibling).unwrap().size()),
+                axis.other().extent(frame.area(sibling).unwrap().size()),
                 if cross_fixed { 40.0 } else { 14.0 }
             );
             assert_eq!(
-                axis.extent(frame.geometry(branch_id).unwrap().size()),
+                axis.extent(frame.area(branch_id).unwrap().size()),
                 axis.extent(screen) - 18.0
             );
         }
@@ -383,10 +383,10 @@ fn flex_unbounded_cross_uses_content_or_zero_for_fill_children() {
                         },
                     );
                     if include_fit {
-                        assert_eq!(axis.other().extent(frame.geometry(fit).unwrap().size()), 12.0);
+                        assert_eq!(axis.other().extent(frame.area(fit).unwrap().size()), 12.0);
                     }
                     assert_eq!(
-                        axis.other().extent(frame.geometry(grow).unwrap().size()),
+                        axis.other().extent(frame.area(grow).unwrap().size()),
                         if include_fit { 8.0 } else { 0.0 }
                     );
                 }
@@ -417,8 +417,8 @@ fn flex_distributes_growing_space() {
                 .insert(BoxAtom(Size::new(1.0, 10.0)));
         },
     );
-    assert_eq!(frame.geometry(fixed).unwrap().width, 20.0);
-    assert_eq!(frame.geometry(grow).unwrap().width, 76.0);
+    assert_eq!(frame.area(fixed).unwrap().width, 20.0);
+    assert_eq!(frame.area(grow).unwrap().width, 76.0);
 }
 
 #[test]
@@ -444,7 +444,7 @@ fn flex_respects_growth_caps() {
             }
         },
     );
-    assert_eq!(ids.map(|id| frame.geometry(id).unwrap().width), [2.0, 4.0, 9.0]);
+    assert_eq!(ids.map(|id| frame.area(id).unwrap().width), [2.0, 4.0, 9.0]);
 }
 
 #[test]
@@ -472,10 +472,7 @@ fn flex_size_transition_preserves_exact_overflow_and_reflows_siblings() {
             },
         );
         frame.layout(&mut TestContext);
-        (
-            frame.geometry(animated).unwrap().size(),
-            frame.geometry(sibling).unwrap().x,
-        )
+        (frame.area(animated).unwrap().size(), frame.area(sibling).unwrap().x)
     };
 
     assert_eq!(render(1.0, Duration::ZERO), (Size::uniform(1.0), 1.0));
@@ -506,7 +503,7 @@ fn empty_layouts_keep_padding() {
             root.child().id(ids[3]).layout(single::new().padding(padding));
         },
     );
-    assert_eq!(ids.map(|id| frame.geometry(id).unwrap().size()), [Size::uniform(4); 4]);
+    assert_eq!(ids.map(|id| frame.area(id).unwrap().size()), [Size::uniform(4); 4]);
 }
 
 #[test]
@@ -525,7 +522,7 @@ fn wrap_uses_exact_cell_boundaries() {
             wrap.child().id(last).insert(BoxAtom(Size::uniform(1)));
         },
     );
-    assert_eq!(frame.geometry(last), Some(Rect::new(0, 1, 1, 1)));
+    assert_eq!(frame.area(last), Some(Rect::new(0, 1, 1, 1)));
 }
 
 #[test]
@@ -558,10 +555,10 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
                 .insert(ResponsiveAtom);
         },
     );
-    assert_eq!(frame.geometry(wrap_id).unwrap().size(), Size::new(11.0, 4.0));
-    assert_eq!(frame.geometry(ids[0]), Some(Rect::new(0.0, 0.0, 5.0, 3.0)));
-    assert_eq!(frame.geometry(ids[1]), Some(Rect::new(5.0, 0.0, 5.5, 3.0)));
-    assert_eq!(frame.geometry(ids[2]), Some(Rect::new(0.0, 3.0, 11.0, 1.0)));
+    assert_eq!(frame.area(wrap_id).unwrap().size(), Size::new(11.0, 4.0));
+    assert_eq!(frame.area(ids[0]), Some(Rect::new(0.0, 0.0, 5.0, 3.0)));
+    assert_eq!(frame.area(ids[1]), Some(Rect::new(5.0, 0.0, 5.5, 3.0)));
+    assert_eq!(frame.area(ids[2]), Some(Rect::new(0.0, 3.0, 11.0, 1.0)));
 }
 
 #[test]
@@ -586,7 +583,7 @@ fn wrap_keeps_target_runs_during_size_transitions() {
             },
         );
         frame.layout(&mut Cells);
-        frame.geometry(ids[9]).unwrap()
+        frame.area(ids[9]).unwrap()
     };
 
     assert_eq!(render(40, Duration::ZERO).y, 1);
@@ -618,8 +615,8 @@ fn wrap_shrinkwraps_animated_target_runs() {
             },
         );
         frame.layout(&mut TestContext);
-        let wrap = frame.geometry(wrap_id).unwrap();
-        let child = frame.geometry(child_ids[1]).unwrap();
+        let wrap = frame.area(wrap_id).unwrap();
+        let child = frame.area(child_ids[1]).unwrap();
         [wrap.width, child.x, child.y]
     };
 
@@ -662,7 +659,7 @@ fn percentage_children_share_rounded_space() {
         },
     );
     for index in [1, 3] {
-        assert_eq!(frame.geometry(ids[index]), Some(Rect::new(2, (index / 2) as i32, 1, 1)));
+        assert_eq!(frame.area(ids[index]), Some(Rect::new(2, (index / 2) as i32, 1, 1)));
     }
 }
 
@@ -686,8 +683,8 @@ fn single_percentages_use_the_incoming_budget() {
             fit.child().id(percent).insert(BoxAtom(Size::new(4.0, 2.0)));
         },
     );
-    assert_eq!(frame.geometry(container), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));
-    assert_eq!(frame.geometry(percent), Some(Rect::new(1.0, 1.0, 8.0, 3.0)));
+    assert_eq!(frame.area(container), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));
+    assert_eq!(frame.area(percent), Some(Rect::new(1.0, 1.0, 8.0, 3.0)));
 }
 
 #[test]
@@ -708,7 +705,7 @@ fn spanning_grid_sizes_spanning_items() {
             grid.child().insert(BoxAtom(Size::uniform(10.0)));
         },
     );
-    assert_eq!(frame.geometry(wide).unwrap().size(), Size::new(66.0, 12.0));
+    assert_eq!(frame.area(wide).unwrap().size(), Size::new(66.0, 12.0));
 }
 
 #[test]
@@ -735,8 +732,8 @@ fn grid_intrinsic_width_preserves_integer_spans() {
                     .insert(BoxAtom(Size::new(width, 1)));
             },
         );
-        assert_eq!(frame.geometry(child), Some(Rect::new(x, 0, width, 1)));
-        assert_eq!(frame.geometry(grid_id).unwrap().size(), Size::new(total, 1));
+        assert_eq!(frame.area(child), Some(Rect::new(x, 0, width, 1)));
+        assert_eq!(frame.area(grid_id).unwrap().size(), Size::new(total, 1));
     }
 }
 
@@ -757,7 +754,7 @@ fn spanning_grid_fills_available_cell() {
             grid.child().id(hole).insert(ResponsiveAtom);
         },
     );
-    assert_eq!(frame.geometry(hole), Some(Rect::new(19, 2, 9, 2)));
+    assert_eq!(frame.area(hole), Some(Rect::new(19, 2, 9, 2)));
 }
 
 #[test]
@@ -780,7 +777,7 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
             },
         );
         frame.layout(&mut Cells);
-        frame.geometry(id).unwrap().height
+        frame.area(id).unwrap().height
     };
 
     assert_eq!(render(1, Duration::ZERO), 1);
