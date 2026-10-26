@@ -16,9 +16,15 @@ pub struct InteractCx<'a, T> {
     id: Id,
     node: u32,
     end: u32,
-    state: &'a mut InteractionState<T>,
-    // none during the first update so registration cannot change input ownership
-    input: Option<&'a Input<T>>,
+    contacts: &'a mut [TrackedContact<T>],
+    wheel: &'a mut Option<WheelState>,
+    focused: &'a mut Option<Id>,
+    focus_taken: &'a mut bool,
+    hits: &'a [HitItem<T>],
+    clips: &'a [ResolvedClip<T>],
+    hover: Option<usize>,
+    deadline: &'a mut Option<Duration>,
+    input: &'a Input<T>,
     time: Duration,
 }
 
@@ -29,18 +35,13 @@ impl<T: Scalar> InteractCx<'_, T> {
 
     /// builds a frame at this time without input
     pub fn wake_at(&mut self, time: Duration) {
-        let deadline = &mut self.state.deadline;
-        *deadline = Some(deadline.map_or(time, |deadline| deadline.min(time)));
+        *self.deadline = Some(self.deadline.map_or(time, |deadline| deadline.min(time)));
     }
 
     /// pending contacts within this widget and contacts it captured
     pub fn contacts(&self) -> Contacts<'_, T> {
         Contacts {
-            contacts: if self.input.is_some() {
-                self.state.contacts.iter()
-            } else {
-                [].iter()
-            },
+            contacts: self.contacts.iter(),
             id: self.id,
             node: self.node,
             end: self.end,
@@ -68,8 +69,7 @@ impl<T: Scalar> InteractCx<'_, T> {
     pub fn capture(&mut self, contact: ContactId) -> bool {
         let owner = self.id;
         let (node, end) = (self.node as usize, self.end as usize);
-        if self.input.is_some()
-            && let Some(tracked) = self.state.contacts.iter_mut().find(|tracked| tracked.id == contact)
+        if let Some(tracked) = self.contacts.iter_mut().find(|tracked| tracked.id == contact)
             && let Route::Pending {
                 target: Some(target),
                 claim,
@@ -85,35 +85,34 @@ impl<T: Scalar> InteractCx<'_, T> {
     }
 
     pub fn hovered(&self) -> bool {
-        self.state.position.is_some() && self.state.hover.is_some_and(|node| self.contains(node))
+        self.hover.is_some_and(|node| self.contains(node))
     }
 
     /// whether `position` falls on this widget rather than something above it
     pub fn over(&self, position: Point<T>) -> bool {
-        self.state.hit(position).is_some_and(|hit| self.contains(hit.node))
+        hit(self.hits, self.clips, position).is_some_and(|hit| self.contains(hit.node))
     }
 
     pub fn focused(&self) -> bool {
-        self.state.focused == Some(self.id)
+        *self.focused == Some(self.id)
     }
 
     /// focuses this widget unless a deeper widget took focus during this update
     pub fn focus(&mut self) {
-        if self.input.is_some() && !self.state.focus_taken {
-            self.state.focused = Some(self.id);
-            self.state.focus_taken = true;
+        if !*self.focus_taken {
+            *self.focused = Some(self.id);
+            *self.focus_taken = true;
         }
     }
 
     /// this frame's input or none during the first update
     pub fn input(&self) -> Input<T> {
-        self.input.copied().unwrap_or(Input::None)
+        *self.input
     }
 
     /// wheel scrolling over this widget, or the cancellation of a sequence it held
     pub fn wheel(&self) -> Option<Scroll> {
-        self.input?;
-        let wheel = self.state.wheel?;
+        let wheel = (*self.wheel)?;
         let event = wheel.event.filter(|_| match wheel.owner {
             Some(owner) => owner == self.id,
             None => wheel.target.is_some_and(|node| self.contains(node)),
@@ -129,8 +128,7 @@ impl<T: Scalar> InteractCx<'_, T> {
     pub fn capture_wheel(&mut self) {
         let id = self.id;
         let (node, end) = (self.node as usize, self.end as usize);
-        if self.input.is_some()
-            && let Some(wheel) = &mut self.state.wheel
+        if let Some(wheel) = self.wheel
             && wheel.owner.is_none()
             && wheel.target.is_some_and(|target| node <= target && target <= end)
         {
@@ -143,9 +141,8 @@ impl<T: Scalar> InteractCx<'_, T> {
     }
 
     fn pending(&mut self, contact: ContactId) -> Option<&mut Route> {
-        self.input?;
         let (node, end) = (self.node as usize, self.end as usize);
-        let tracked = self.state.contacts.iter_mut().find(|tracked| tracked.id == contact)?;
+        let tracked = self.contacts.iter_mut().find(|tracked| tracked.id == contact)?;
         match tracked.route {
             Route::Pending {
                 target: Some(target), ..
@@ -264,16 +261,23 @@ impl<T: Scalar> InteractionState<T> {
         } else {
             let hit = self.hits.iter().find(|hit| hit.id == id);
             let (previous, end) = hit.map_or((UNRESOLVED, 0), |hit| (hit.node as u32, hit.end as u32));
+            let mut focused = self.focused;
             let output = initial.update(&mut InteractCx {
                 id,
                 node: previous,
                 end,
-                state: self,
-                input: None,
+                contacts: &mut [],
+                wheel: &mut None,
+                focused: &mut focused,
+                focus_taken: &mut true,
+                hits: &self.hits,
+                clips: &self.clips,
+                hover: self.hover,
+                deadline: &mut self.deadline,
+                input: &Input::None,
                 time,
             });
             let value = (initial, output);
-            let kinds = &mut self.kinds;
             // reserve first so a panic cannot lose a reused cell
             kinds.slots.reserve(1);
             let free = &mut kinds.kinds[kind as usize].free;
@@ -305,7 +309,6 @@ impl<T: Scalar> InteractionState<T> {
             kinds.cursor += 1;
             cursor
         };
-        let kinds = &mut self.kinds;
         let slot = &mut kinds.slots[index];
         slot.node = node.map_or(UNRESOLVED, |node| u32::try_from(node).expect("too many frame nodes"));
         // safety: slots of this kind point at live cells holding K and its output
@@ -415,7 +418,7 @@ impl<T: Scalar> InteractionState<T> {
                     target: if continuing {
                         previous.and_then(|wheel| wheel.target)
                     } else {
-                        self.hit(position).map(|hit| hit.node)
+                        hit(&self.hits, &self.clips, position).map(|hit| hit.node)
                     },
                     owner: previous.filter(|_| continuing).and_then(|wheel| wheel.owner),
                     event: (!stray).then_some(Scroll {
@@ -452,16 +455,14 @@ impl<T: Scalar> InteractionState<T> {
             }
             Input::None | Input::Text(_) | Input::Key(_) => {}
         }
-        if !matches!(input, Input::PointerLeave) {
-            self.hover = self
-                .position
-                .and_then(|position| self.hit(position))
-                .map(|hit| hit.node);
-        }
-        self.hover_key = self.hover_key(self.position.and(self.hover));
+        self.hover = self
+            .position
+            .and_then(|position| hit(&self.hits, &self.clips, position))
+            .map(|hit| hit.node);
+        self.hover_key = self.hover_key(self.hover);
         // deepest kinds see contacts first
         self.deadline = None;
-        let mut kinds = std::mem::take(&mut self.kinds);
+        let kinds = &mut self.kinds;
         kinds.cursor = 0;
         for slot in kinds.slots.iter().rev() {
             (kinds.kinds[slot.kind as usize].update)(
@@ -471,13 +472,19 @@ impl<T: Scalar> InteractionState<T> {
                     id: slot.id,
                     node: slot.node,
                     end: slot.end,
-                    state: self,
-                    input: Some(input),
+                    contacts: &mut self.contacts,
+                    wheel: &mut self.wheel,
+                    focused: &mut self.focused,
+                    focus_taken: &mut self.focus_taken,
+                    hits: &self.hits,
+                    clips: &self.clips,
+                    hover: self.hover,
+                    deadline: &mut self.deadline,
+                    input,
                     time,
                 },
             );
         }
-        self.kinds = kinds;
     }
 
     fn press(&mut self, source: Source, position: Point<T>, modifiers: Modifiers, time: Duration) {
@@ -489,7 +496,7 @@ impl<T: Scalar> InteractionState<T> {
         // ids wrap past zero, only live contacts need distinct ids
         let id = NonZeroU32::new(self.next_contact.wrapping_add(1)).unwrap_or(NonZeroU32::MIN);
         self.next_contact = id.get();
-        let target = self.hit(position).map(|hit| Target {
+        let target = hit(&self.hits, &self.clips, position).map(|hit| Target {
             id: hit.id,
             node: hit.node,
         });
@@ -529,25 +536,6 @@ impl<T: Scalar> InteractionState<T> {
             .iter()
             .filter(|hit| hit.node <= node && node <= hit.end)
             .fold(0, |key: u64, hit| key.wrapping_add(hit.id.0.get()))
-    }
-
-    fn hit(&self, position: Point<T>) -> Option<HitItem<T>> {
-        self.hits.iter().rev().find(|hit| self.contains(hit, position)).copied()
-    }
-
-    fn contains(&self, hit: &HitItem<T>, position: Point<T>) -> bool {
-        if !hit.area.contains(position) {
-            return false;
-        }
-        let mut clip = hit.clip;
-        while let Some(index) = clip.index() {
-            let stored = &self.clips[index];
-            if !stored.shape.contains(position) {
-                return false;
-            }
-            clip = stored.parent;
-        }
-        true
     }
 }
 
@@ -599,18 +587,19 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
             else {
                 return Some(route);
             };
-            let target = if node(target).is_some() {
-                target
+            let (target, index) = if let Some(index) = node(target) {
+                (target, index)
             } else {
                 hits.iter()
-                    .filter(|hit| hit.node <= previous && previous <= hit.end && node(hit.id).is_some())
-                    .max_by_key(|hit| hit.node)?
-                    .id
+                    .filter(|hit| hit.node <= previous && previous <= hit.end)
+                    .filter_map(|hit| node(hit.id).map(|index| (hit, index)))
+                    .max_by_key(|(hit, _)| hit.node)
+                    .map(|(hit, index)| (hit.id, index))?
             };
             Some(Route::Pending {
                 target: Some(Target {
                     id: target,
-                    node: node(target)?,
+                    node: index,
                 }),
                 claim: claim.filter(|claim| node(*claim).is_some()),
             })
@@ -685,12 +674,32 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
         }
     }
     frame.areas_previous.sort_unstable_by_key(|(id, _)| *id);
-    let interaction = &mut frame.interaction;
+    let interaction = &frame.interaction;
     let hover = interaction
         .position
-        .and_then(|position| interaction.hit(position))
+        .and_then(|position| hit(&interaction.hits, &interaction.clips, position))
         .map(|hit| hit.node);
     frame.frame_requested |= interaction.hover_key(hover) != interaction.hover_key;
+}
+
+fn hit<T: Scalar>(hits: &[HitItem<T>], clips: &[ResolvedClip<T>], position: Point<T>) -> Option<HitItem<T>> {
+    hits.iter()
+        .rev()
+        .find(|hit| {
+            if !hit.area.contains(position) {
+                return false;
+            }
+            let mut clip = hit.clip;
+            while let Some(index) = clip.index() {
+                let stored = &clips[index];
+                if !stored.shape.contains(position) {
+                    return false;
+                }
+                clip = stored.parent;
+            }
+            true
+        })
+        .copied()
 }
 
 #[derive(Clone, Copy, PartialEq)]
