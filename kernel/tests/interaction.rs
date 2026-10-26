@@ -84,7 +84,7 @@ fn tapping_unregistered_background_clears_focus() {
 fn scroll() {
     // zero delta endings stay with the owner even outside its bounds
     for horizontal in [true, false] {
-        let mut scene = InputScene::<Integer, _>::new(Wheel);
+        let mut scene = InputScene::<Integer, _>::new(Wheel::new());
         for (phase, expected) in [
             (ScrollPhase::Started, Started),
             (ScrollPhase::Moved, Changed),
@@ -157,7 +157,7 @@ fn clipping() {
             .child()
             .build(|mut ui: Ui<'_>| {
                 let response = ui.interact(Press::new());
-                let wheel = ui.interact(Wheel);
+                let wheel = ui.interact(Wheel::new());
                 ui.insert(Fill('C', Size::new(5.0, 1.0)));
                 (response, wheel)
             })
@@ -265,4 +265,31 @@ fn hover_tracks_changed_ancestry() {
     assert!(!render(&mut frame, &mut context, &build));
     assert!(frame.has_pending_redraw());
     assert!(render(&mut frame, &mut context, &build));
+}
+
+#[test]
+fn wheel_axis_leaves_other_directions_to_ancestors() {
+    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let build = |mut ui: Ui<'_>| {
+        let list = ui.interact(Wheel::new().axis(Axis::Vertical));
+        let mut root = ui.layout(Overlay);
+        let mut carousel = root.child().id(Id::new("carousel"));
+        carousel.insert(Fill('C', Size::uniform(200.0)));
+        (list, carousel.interact(Wheel::new().axis(Axis::Horizontal)))
+    };
+    render(&mut frame, &mut context, &build);
+    let mut wheel = |delta_x, delta_y| {
+        let input = Input::Scroll {
+            position: Point::new(10.0, 10.0),
+            delta_x,
+            delta_y,
+            continuous: false,
+            phase: ScrollPhase::Moved,
+            modifiers: Modifiers::NONE,
+        };
+        let (list, carousel) = render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
+        (list.is_some(), carousel.is_some())
+    };
+    assert_eq!(wheel(5.0, 1.0), (false, true));
+    assert_eq!(wheel(1.0, 5.0), (true, false));
 }

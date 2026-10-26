@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use blit::{
-    Atom, AtomCx, Axis, Constraints, Easing, Id, Interaction, LogicalRect, Press, Sides, Size, Transition, Widget,
+    Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Press, PressState, Sides, Size, Transition, Widget,
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 #[cfg(not(feature = "gpu"))]
@@ -1160,7 +1160,7 @@ impl Widget<DesktopContext> for Button<'_> {
     }
 }
 
-fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction) {
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: PressState) {
     let background = if interaction.active {
         colors::ACCENT_DARK
     } else if selected {

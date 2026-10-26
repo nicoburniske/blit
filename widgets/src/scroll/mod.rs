@@ -380,7 +380,7 @@ fn scrollbar_input<C: Context>(
 
 /// wheel scrolling and touch panning over the content
 fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> Option<Scroll> {
-    let wheel = ui.interact(Wheel);
+    let wheel = ui.interact(Wheel::new());
     // touches pan the content, moving it against the finger
     let pan = ui.interact(Drag::new().axis(axis).touch(true));
     wheel.or(pan.map(|drag| Scroll {

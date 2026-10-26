@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use blit::{Interaction, Sides, Size, Widget};
+use blit::{PressState, Sides, Size, Widget};
 use blit_gui::{
     Context,
     atom::Rectangle,
@@ -76,7 +76,7 @@ where
                 .x(self.popover_x)
                 .y(self.popover_y)
                 .close(PopoverClose::Manual)
-                .trigger(|ui: blit::Ui<'_, C>, interaction: Interaction, open| {
+                .trigger(|ui: blit::Ui<'_, C>, interaction: PressState, open| {
                     let mut badge = ui.layout(
                         flex::row()
                             .padding(self.badge_padding)

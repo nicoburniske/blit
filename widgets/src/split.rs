@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, Context, Interaction, LayoutCx, Point, Press, Scalar, Size, Ui, Widget};
+use blit::{Axis, Constraints, Context, LayoutCx, Point, Press, PressState, Scalar, Size, Ui, Widget};
 
 use crate::Drag;
 
@@ -7,8 +7,8 @@ blit::builder! {
         new(state: &'a mut SplitState<C::Scalar>),
         leading<L = fn(Ui<'_, C>)>: L = |_| (),
         trailing<R = fn(Ui<'_, C>)>: R = |_| (),
-        #[bounds(FnOnce(Ui<'_, C>, Axis, Interaction))]
-        divider<D = fn(Ui<'_, C>, Axis, Interaction)>: D = |_, _, _| (),
+        #[bounds(FnOnce(Ui<'_, C>, Axis, PressState))]
+        divider<D = fn(Ui<'_, C>, Axis, PressState)>: D = |_, _, _| (),
         initial_extent: C::Scalar = C::Scalar::ZERO,
         axis: Axis = Axis::Horizontal,
         divider_extent: C::Scalar = C::Scalar::from_f32(1.0),
@@ -43,7 +43,7 @@ impl<C: Context, L, R, D> Widget<C> for Split<'_, C, L, R, D>
 where
     L: Widget<C>,
     R: Widget<C>,
-    D: FnOnce(Ui<'_, C>, Axis, Interaction),
+    D: FnOnce(Ui<'_, C>, Axis, PressState),
 {
     type Response = ();
     fn build(self, mut ui: Ui<'_, C>) {

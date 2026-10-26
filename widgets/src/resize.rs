@@ -1,4 +1,4 @@
-use blit::{Constraints, Context, Interaction, LayoutCx, Point, Press, Scalar, Size, Ui, Widget};
+use blit::{Constraints, Context, LayoutCx, Point, Press, PressState, Scalar, Size, Ui, Widget};
 
 use crate::Drag;
 
@@ -17,7 +17,7 @@ pub enum ResizeEdge {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ResizeGrip {
     pub edge: ResizeEdge,
-    pub interaction: Interaction,
+    pub interaction: PressState,
 }
 
 blit::builder! {

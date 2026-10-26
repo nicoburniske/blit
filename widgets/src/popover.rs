@@ -1,4 +1,4 @@
-use blit::{Context, Input, Interaction, NodeTarget, Press, Scalar, Sides, Ui, Widget};
+use blit::{Context, Input, NodeTarget, Press, PressState, Scalar, Sides, Ui, Widget};
 use blit_layout::{
     absolute,
     absolute::{Anchor, Sizing},
@@ -16,8 +16,8 @@ pub enum PopoverClose {
 blit::builder! {
     pub struct Popover<'a, C: Context> {
         new(state: &'a mut PopoverState),
-        #[bounds(FnOnce(Ui<'_, C>, Interaction, bool))]
-        trigger<F = fn(Ui<'_, C>, Interaction, bool)>: F = |_, _, _| (),
+        #[bounds(FnOnce(Ui<'_, C>, PressState, bool))]
+        trigger<F = fn(Ui<'_, C>, PressState, bool)>: F = |_, _, _| (),
         content<W = fn(Ui<'_, C>)>: W = |_| (),
         #[into]
         parent: NodeTarget = NodeTarget::Root,
@@ -44,7 +44,7 @@ blit::builder! {
 
 impl<C: Context, F, W> Widget<C> for Popover<'_, C, F, W>
 where
-    F: FnOnce(Ui<'_, C>, Interaction, bool),
+    F: FnOnce(Ui<'_, C>, PressState, bool),
     W: Widget<C>,
 {
     type Response = Option<W::Response>;

@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{InteractCx, PointerButton, Scalar, geometry::Point, internal::hash::FxHasher};
+use crate::{Axis, InteractCx, PointerButton, Scalar, geometry::Point, internal::hash::FxHasher};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id(pub(crate) NonZeroU64);
@@ -100,7 +100,7 @@ pub struct Press {
 
 /// the output of [`Press`]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Interaction {
+pub struct PressState {
     pub active: bool,
     pub activated: bool,
     pub deactivated: bool,
@@ -115,9 +115,9 @@ impl Press {
 }
 
 impl<T: Scalar> Interact<T> for Press {
-    type Output = Interaction;
+    type Output = PressState;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Interaction {
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> PressState {
         let mut active = false;
         let mut clicked = false;
         for contact in cx.contacts() {
@@ -145,7 +145,7 @@ impl<T: Scalar> Interact<T> for Press {
             cx.claim(contact.id);
             active = true;
         }
-        let interaction = Interaction {
+        let state = PressState {
             active,
             activated: active && !self.active,
             deactivated: self.active && !active,
@@ -153,7 +153,7 @@ impl<T: Scalar> Interact<T> for Press {
             clicked,
         };
         self.active = active;
-        interaction
+        state
     }
 }
 
@@ -181,13 +181,37 @@ impl<T: Scalar> Interact<T> for Focus {
 
 /// wheel and trackpad scrolling, keeping continuous sequences until they end
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Wheel;
+pub struct Wheel {
+    axis: Option<Axis>,
+}
+
+impl Wheel {
+    pub const fn new() -> Self {
+        Self { axis: None }
+    }
+
+    /// takes only scrolling that starts mostly along `axis`, leaving the rest to ancestors
+    pub const fn axis(self, axis: Axis) -> Self {
+        Self { axis: Some(axis) }
+    }
+}
 
 impl<T: Scalar> Interact<T> for Wheel {
     type Output = Option<Scroll>;
 
     fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Option<Scroll> {
         let scroll = cx.wheel()?;
+        let Point { x, y } = scroll.delta;
+        // a held sequence stays whatever its direction, so only its start is checked
+        let starts = scroll.phase == Phase::Started || !scroll.continuous;
+        if starts
+            && (x != 0.0 || y != 0.0)
+            && self
+                .axis
+                .is_some_and(|axis| (axis == Axis::Horizontal) != (x.abs() > y.abs()))
+        {
+            return None;
+        }
         cx.capture_wheel();
         Some(scroll)
     }

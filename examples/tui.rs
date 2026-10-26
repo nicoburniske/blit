@@ -1,6 +1,6 @@
 use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
-use blit::{Axis, Easing, Id, Input, Interaction, Key, Press, Scalar, Sides, Size, Transition, Widget};
+use blit::{Axis, Easing, Id, Input, Key, Press, PressState, Scalar, Sides, Size, Transition, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiContext, Ui,
@@ -1023,7 +1023,7 @@ impl Widget<TuiContext> for Button<'_> {
     }
 }
 
-fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: Interaction) {
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: PressState) {
     let block = if interaction.active {
         Block::new().background(colors::ACCENT_DARK)
     } else if selected {

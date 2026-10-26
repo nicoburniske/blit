@@ -1,17 +1,11 @@
-use std::{
-    any::TypeId,
-    hash::{Hash, Hasher},
-    mem::MaybeUninit,
-    num::NonZeroU32,
-    time::Duration,
-};
+use std::{any::TypeId, mem::MaybeUninit, num::NonZeroU32, time::Duration};
 
 use super::{Frame, ResolvedClip, ResolvedClipId};
 use crate::{
     Contact, ContactId, ContactSource, Context, Hold, Id, Input, Interact, Modifiers, Phase, PointerButton, Scalar,
     Scroll, ScrollPhase, TouchPhase,
     geometry::{Point, Rect, Sides},
-    internal::{bump::Bump, hash::FxHasher},
+    internal::bump::Bump,
 };
 
 // movement after which a press is no longer a tap
@@ -459,9 +453,11 @@ impl<T: Scalar> InteractionState<T> {
             update(slot, self);
         }
         // claimants updated before an ancestor captured their contact, so they update again
-        for slot in kinds.slots.iter().rev() {
-            if self.stolen.contains(&slot.id) {
-                update(slot, self);
+        if !self.stolen.is_empty() {
+            for slot in kinds.slots.iter().rev() {
+                if self.stolen.contains(&slot.id) {
+                    update(slot, self);
+                }
             }
         }
         self.kinds = kinds;
@@ -519,11 +515,7 @@ impl<T: Scalar> InteractionState<T> {
         self.hits
             .iter()
             .filter(|hit| hit.node <= node && node <= hit.end)
-            .fold(0, |key: u64, hit| {
-                let mut hasher = FxHasher::default();
-                hit.id.hash(&mut hasher);
-                key.wrapping_add(hasher.finish())
-            })
+            .fold(0, |key: u64, hit| key.wrapping_add(hit.id.0.get()))
     }
 
     fn hit(&self, position: Point<T>) -> Option<HitItem<T>> {
@@ -640,7 +632,7 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
             #[inline(always)]
             |index: usize, stored: &super::StoredNode, area: Rect<C::Scalar>| {
                 let id = stored.widget_id;
-                if !frame.areas_requested.is_empty() && frame.areas_requested.binary_search(&id).is_ok() {
+                if frame.areas_requested.binary_search(&id).is_ok() {
                     frame.areas_previous.push((id, area));
                 }
                 if !stored.interactive {
