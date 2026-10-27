@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, Context, LayoutCx, Point, Press, PressState, Scalar, Size, Ui, Widget};
+use blit::{Axis, Constraints, Context, LayoutCx, Point, Press, Scalar, Size, Ui, Widget};
 
 use crate::Drag;
 
@@ -7,14 +7,23 @@ blit::builder! {
         new(state: &'a mut SplitState<C::Scalar>),
         leading<L = fn(Ui<'_, C>)>: L = |_| (),
         trailing<R = fn(Ui<'_, C>)>: R = |_| (),
-        #[bounds(FnOnce(Ui<'_, C>, Axis, PressState))]
-        divider<D = fn(Ui<'_, C>, Axis, PressState)>: D = |_, _, _| (),
+        #[bounds(FnOnce(Ui<'_, C>, SplitDivider))]
+        divider<D = fn(Ui<'_, C>, SplitDivider)>: D = |_, _| (),
         initial_extent: C::Scalar = C::Scalar::ZERO,
         axis: Axis = Axis::Horizontal,
         divider_extent: C::Scalar = C::Scalar::from_f32(1.0),
         minimum_leading: C::Scalar = C::Scalar::ZERO,
         minimum_trailing: C::Scalar = C::Scalar::ZERO,
     }
+}
+
+/// what a divider builder needs to draw itself
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SplitDivider {
+    pub axis: Axis,
+    pub hovered: bool,
+    /// pressed or being dragged
+    pub active: bool,
 }
 
 #[derive(Debug, Default)]
@@ -43,7 +52,7 @@ impl<C: Context, L, R, D> Widget<C> for Split<'_, C, L, R, D>
 where
     L: Widget<C>,
     R: Widget<C>,
-    D: FnOnce(Ui<'_, C>, Axis, PressState),
+    D: FnOnce(Ui<'_, C>, SplitDivider),
 {
     type Response = ();
     fn build(self, mut ui: Ui<'_, C>) {
@@ -59,11 +68,6 @@ where
         let press = ui.interact_widget(divider_id, Press::new());
         let measured = ui.area(leading_id).map(|area| axis.extent(area.size()));
         let drag = ui.interact_widget(divider_id, Drag::new());
-        // the divider stays active while dragged
-        let interaction = PressState {
-            active: press.active || drag.active,
-            ..press
-        };
         let delta = match axis {
             Axis::Horizontal => drag.delta.x,
             Axis::Vertical => drag.delta.y,
@@ -87,10 +91,16 @@ where
             minimum_trailing: self.minimum_trailing,
         });
         panes.child().id(leading_id).build(leading);
-        panes
-            .child()
-            .id(divider_id)
-            .build(|ui: Ui<'_, C>| divider(ui, axis, interaction));
+        panes.child().id(divider_id).build(|ui: Ui<'_, C>| {
+            divider(
+                ui,
+                SplitDivider {
+                    axis,
+                    hovered: press.hovered,
+                    active: press.active || drag.active,
+                },
+            )
+        });
         panes.child().id(trailing_id).build(trailing);
     }
 }

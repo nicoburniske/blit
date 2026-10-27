@@ -9,11 +9,11 @@ pub struct Drag {
     contact: Option<ContactId>,
 }
 
-/// the output of [`Drag`]
+/// the response of [`Drag`]
 ///
 /// `activated` implies `active` unless `deactivated`, and `released` implies `deactivated`
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct DragState<T> {
+pub struct DragResponse<T> {
     /// a contact is being dragged
     pub active: bool,
     pub activated: bool,
@@ -61,9 +61,9 @@ impl Default for Drag {
 }
 
 impl<T: Scalar> Interact<T> for Drag {
-    type Output = DragState<T>;
+    type Response = DragResponse<T>;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Self::Output {
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Self::Response {
         if let Some(id) = self.contact {
             let contact = cx.contacts().find(|contact| contact.id == id);
             let active = contact.is_some_and(|contact| !matches!(contact.phase, Phase::Ended | Phase::Cancelled));
@@ -71,7 +71,7 @@ impl<T: Scalar> Interact<T> for Drag {
                 self.contact = None;
             }
             // a contact that vanished with its widget ends the drag without a release
-            return DragState {
+            return DragResponse {
                 active,
                 activated: false,
                 deactivated: !active,
@@ -96,14 +96,14 @@ impl<T: Scalar> Interact<T> for Drag {
                     .is_none_or(|axis| (axis == Axis::Horizontal) == (x.abs() >= y.abs()))
         });
         let Some(contact) = contact.filter(|contact| cx.capture(contact.id)) else {
-            return DragState::default();
+            return DragResponse::default();
         };
         // a release past the threshold starts and ends in one update
         let active = contact.phase == Phase::Changed;
         if active {
             self.contact = Some(contact.id);
         }
-        DragState {
+        DragResponse {
             active,
             activated: true,
             deactivated: !active,
@@ -127,7 +127,7 @@ mod tests {
     use super::*;
     use crate::test::TestContext;
 
-    type States = (DragState<f32>, DragState<f32>);
+    type States = (DragResponse<f32>, DragResponse<f32>);
 
     /// a horizontal slider inside a vertical touch pan
     fn step(frame: &mut Frame<TestContext>, input: Input<f32>) -> States {
@@ -157,17 +157,17 @@ mod tests {
         }
     }
 
-    fn dragging(x: f32, y: f32, dx: f32, dy: f32) -> DragState<f32> {
-        DragState {
+    fn dragging(x: f32, y: f32, dx: f32, dy: f32) -> DragResponse<f32> {
+        DragResponse {
             active: true,
             position: Point::new(x, y),
             delta: Point::new(dx, dy),
-            ..DragState::default()
+            ..DragResponse::default()
         }
     }
 
-    fn let_go(x: f32, y: f32, dx: f32, dy: f32) -> DragState<f32> {
-        DragState {
+    fn let_go(x: f32, y: f32, dx: f32, dy: f32) -> DragResponse<f32> {
+        DragResponse {
             active: false,
             deactivated: true,
             released: true,
@@ -177,13 +177,13 @@ mod tests {
 
     #[test]
     fn drags_pick_contacts_by_axis() {
-        let idle = DragState::default();
+        let idle = DragResponse::default();
         let mut frame = Frame::default();
         step(&mut frame, Input::None);
         step(&mut frame, touch(1, TouchPhase::Down, 10.0, 10.0));
         assert_eq!(step(&mut frame, touch(1, TouchPhase::Move, 12.0, 10.0)), (idle, idle));
         let started = step(&mut frame, touch(1, TouchPhase::Move, 30.0, 10.0));
-        let activated = DragState {
+        let activated = DragResponse {
             activated: true,
             ..dragging(30.0, 10.0, 20.0, 0.0)
         };
@@ -206,7 +206,7 @@ mod tests {
         let sideways = step(&mut frame, touch(3, TouchPhase::Move, 60.0, 30.0));
         assert_eq!(sideways, (dragging(60.0, 30.0, 50.0, 0.0), idle));
         let cancelled = step(&mut frame, Input::Cancel);
-        let cancelled_state = DragState {
+        let cancelled_state = DragResponse {
             released: false,
             ..let_go(60.0, 30.0, 0.0, 0.0)
         };

@@ -21,12 +21,12 @@ fn main() -> std::io::Result<()> {
             });
 
             header.child().item(flex::item().fixed(8, 1)).build(|mut ui: Ui<'_>| {
-                let interaction = ui.interact(Press::new());
+                let press = ui.interact(Press::new());
 
                 ui.insert(Block::new().background(Color::BLUE));
                 ui.insert(Text::new("quit").options(TextOptions::new().horizontal_align(HorizontalAlign::Center)));
 
-                interaction.clicked
+                press.clicked
             })
         });
         if quit || matches!(root.input(), Input::Text('q')) {

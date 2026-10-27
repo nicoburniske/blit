@@ -29,9 +29,9 @@ impl Id {
 /// the first update runs on registration without resolved geometry, routed input, or changes to input ownership
 pub trait Interact<T>: Copy + 'static {
     /// what the kind recognized during one update
-    type Output: Copy + 'static;
+    type Response: Copy + 'static;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Self::Output;
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Self::Response;
 }
 
 /// a mouse press or touch routed through this widget
@@ -109,9 +109,9 @@ impl Default for Press {
     }
 }
 
-/// the output of [`Press`]
+/// the response of [`Press`]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct PressState {
+pub struct PressResponse {
     pub active: bool,
     pub activated: bool,
     pub deactivated: bool,
@@ -120,9 +120,9 @@ pub struct PressState {
 }
 
 impl<T: Scalar> Interact<T> for Press {
-    type Output = PressState;
+    type Response = PressResponse;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> PressState {
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> PressResponse {
         let mut active = false;
         let mut clicked = false;
         // claims last one update, so keep claiming while it is still a click
@@ -152,7 +152,7 @@ impl<T: Scalar> Interact<T> for Press {
                 .filter(|id| cx.claim(*id));
             active = self.contact.is_some();
         }
-        let state = PressState {
+        let state = PressResponse {
             active,
             activated: active && !self.active,
             deactivated: self.active && !active,
@@ -169,7 +169,7 @@ impl<T: Scalar> Interact<T> for Press {
 pub struct Focus;
 
 impl<T: Scalar> Interact<T> for Focus {
-    type Output = bool;
+    type Response = bool;
 
     fn update(&mut self, cx: &mut InteractCx<'_, T>) -> bool {
         if cx.contacts().any(|contact| match contact.source {
@@ -207,11 +207,11 @@ impl Scroll {
     }
 }
 
-/// the output of [`Scroll`]
+/// the response of [`Scroll`]
 ///
 /// `activated` implies `active` unless `deactivated`, and `released` implies `deactivated`
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct ScrollMotion {
+pub struct ScrollResponse {
     /// this widget holds a continuous trackpad sequence
     pub active: bool,
     pub activated: bool,
@@ -225,15 +225,15 @@ pub struct ScrollMotion {
 }
 
 impl<T: Scalar> Interact<T> for Scroll {
-    type Output = ScrollMotion;
+    type Response = ScrollResponse;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> ScrollMotion {
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> ScrollResponse {
         let held = self.active;
         let Some(event) = cx.scroll() else {
-            return ScrollMotion {
+            return ScrollResponse {
                 active: held,
                 continuous: held,
-                ..ScrollMotion::default()
+                ..ScrollResponse::default()
             };
         };
         let Point { x, y } = event.delta;
@@ -244,14 +244,14 @@ impl<T: Scalar> Interact<T> for Scroll {
                     .axis
                     .is_some_and(|axis| (axis == Axis::Horizontal) != (x.abs() > y.abs())))
         {
-            return ScrollMotion::default();
+            return ScrollResponse::default();
         }
         // a cancellation ends this widget's sequence, so it must not take the next one
         if event.phase != Phase::Cancelled {
             cx.capture_scroll();
         }
         self.active = event.continuous && matches!(event.phase, Phase::Started | Phase::Changed);
-        ScrollMotion {
+        ScrollResponse {
             active: self.active,
             activated: self.active && !held,
             deactivated: held && !self.active,

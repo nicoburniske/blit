@@ -83,28 +83,28 @@ fn scroll() {
     // zero delta endings stay with the owner even outside its bounds
     for horizontal in [true, false] {
         let mut scene = InputScene::<Integer, _>::new(Scroll::new());
-        let held = ScrollMotion {
+        let held = ScrollResponse {
             active: true,
             continuous: true,
-            ..ScrollMotion::default()
+            ..ScrollResponse::default()
         };
-        let ended = ScrollMotion {
+        let ended = ScrollResponse {
             deactivated: true,
             released: true,
             continuous: true,
-            ..ScrollMotion::default()
+            ..ScrollResponse::default()
         };
         for (phase, expected, after) in [
             (
                 ScrollPhase::Started,
-                ScrollMotion {
+                ScrollResponse {
                     activated: true,
                     ..held
                 },
                 held,
             ),
             (ScrollPhase::Moved, held, held),
-            (ScrollPhase::Ended, ended, ScrollMotion::default()),
+            (ScrollPhase::Ended, ended, ScrollResponse::default()),
         ] {
             let delta = if phase == ScrollPhase::Ended {
                 Point::ZERO
@@ -128,7 +128,7 @@ fn scroll() {
                     modifiers: Modifiers::NONE,
                 },
             );
-            assert_eq!(response, ScrollMotion { delta, ..expected });
+            assert_eq!(response, ScrollResponse { delta, ..expected });
             assert_eq!(scene.step(11, Input::None), after);
         }
         // native and global cancellation both end capture

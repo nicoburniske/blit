@@ -220,7 +220,13 @@ pub struct InteractionState<T> {
 }
 
 impl<T: Scalar> InteractionState<T> {
-    pub fn interact<K: Interact<T>>(&mut self, id: Id, node: Option<u32>, mut initial: K, time: Duration) -> K::Output {
+    pub fn interact<K: Interact<T>>(
+        &mut self,
+        id: Id,
+        node: Option<u32>,
+        mut initial: K,
+        time: Duration,
+    ) -> K::Response {
         let kinds = &mut self.kinds;
         let type_id = TypeId::of::<K>();
         let kind = kinds
@@ -232,10 +238,10 @@ impl<T: Scalar> InteractionState<T> {
                 kinds.kinds.push(Kind {
                     type_id,
                     update: |state, offset, cx| {
-                        // safety: slots of this kind point at live cells holding K and its output
-                        let (kind, output) =
-                            unsafe { &mut *state.as_ptr().add(offset as usize).cast::<(K, K::Output)>() };
-                        *output = kind.update(cx);
+                        // safety: slots of this kind point at live cells holding K and its response
+                        let (kind, response) =
+                            unsafe { &mut *state.as_ptr().add(offset as usize).cast::<(K, K::Response)>() };
+                        *response = kind.update(cx);
                     },
                     free: None,
                 });
@@ -250,7 +256,7 @@ impl<T: Scalar> InteractionState<T> {
             }
             Err(_) => {
                 let mut focused = self.focused;
-                let output = initial.update(&mut InteractCx {
+                let response = initial.update(&mut InteractCx {
                     id,
                     node: UNRESOLVED,
                     end: 0,
@@ -265,7 +271,7 @@ impl<T: Scalar> InteractionState<T> {
                     input: &Input::None,
                     time,
                 });
-                let value = (initial, output);
+                let value = (initial, response);
                 // reserve first so a panic cannot lose a reused cell
                 kinds.slots.reserve(1);
                 let free = &mut kinds.kinds[kind as usize].free;
@@ -276,7 +282,7 @@ impl<T: Scalar> InteractionState<T> {
                             .state
                             .as_ptr()
                             .wrapping_add(offset as usize)
-                            .cast::<Cell<(K, K::Output)>>();
+                            .cast::<Cell<(K, K::Response)>>();
                         // safety: free cells of this kind are dead cells of this layout holding the next link
                         unsafe {
                             *free = (*cell).next;
@@ -300,8 +306,15 @@ impl<T: Scalar> InteractionState<T> {
         slot.node = node.unwrap_or(UNRESOLVED);
         slot.end = kinds.requested as u32;
         kinds.requested += 1;
-        // safety: slots of this kind point at live cells holding K and its output
-        unsafe { (*kinds.state.as_ptr().add(slot.offset as usize).cast::<(K, K::Output)>()).1 }
+        // safety: slots of this kind point at live cells holding K and its response
+        unsafe {
+            (*kinds
+                .state
+                .as_ptr()
+                .add(slot.offset as usize)
+                .cast::<(K, K::Response)>())
+            .1
+        }
     }
 
     pub fn begin(&mut self, input: &Input<T>, time: Duration) {
@@ -760,7 +773,7 @@ struct Kind<T> {
     free: Option<NonZeroU32>,
 }
 
-/// a kind and its latest output, which holds the free link once it is dead
+/// a kind and its latest response, which holds the free link once it is dead
 #[derive(Clone, Copy)]
 #[repr(C)]
 union Cell<S: Copy> {

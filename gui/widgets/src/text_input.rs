@@ -42,7 +42,7 @@ impl<C: Context> Widget<C> for TextInput<'_> {
             cursor_background,
         } = self;
         let id = ui.current_id();
-        let interaction = ui.interact(Press::new());
+        let press = ui.interact(Press::new());
         ui.interact(Focus);
         let drag = ui.interact(Drag::new().axis(Axis::Horizontal));
         let dragged = drag.active || drag.released;
@@ -66,29 +66,29 @@ impl<C: Context> Widget<C> for TextInput<'_> {
                     button: PointerButton::Primary,
                     position,
                     modifiers,
-                } if interaction.active => Some((position, modifiers.shift())),
+                } if press.active => Some((position, modifiers.shift())),
                 Input::Touch {
                     position,
                     phase: TouchPhase::Down,
                     ..
-                } if interaction.active => Some((position, false)),
+                } if press.active => Some((position, false)),
                 Input::PointerMove { position, .. }
                 | Input::Touch {
                     position,
                     phase: TouchPhase::Move,
                     ..
-                } if interaction.active || dragged => Some((position, true)),
+                } if press.active || dragged => Some((position, true)),
                 Input::PointerUp {
                     button: PointerButton::Primary,
                     position,
                     modifiers,
                     ..
-                } if interaction.clicked => Some((position, modifiers.shift())),
+                } if press.clicked => Some((position, modifiers.shift())),
                 Input::Touch {
                     position,
                     phase: TouchPhase::Up,
                     ..
-                } if interaction.clicked => Some((position, false)),
+                } if press.clicked => Some((position, false)),
                 Input::PointerUp {
                     button: PointerButton::Primary,
                     position,

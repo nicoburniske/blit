@@ -1,4 +1,4 @@
-use blit::{Constraints, Context, LayoutCx, Point, Press, PressState, Scalar, Size, Ui, Widget};
+use blit::{Constraints, Context, LayoutCx, Point, Press, Scalar, Size, Ui, Widget};
 
 use crate::Drag;
 
@@ -14,10 +14,13 @@ pub enum ResizeEdge {
     Corner,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// what a grip builder needs to draw itself
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResizeGrip {
     pub edge: ResizeEdge,
-    pub interaction: PressState,
+    pub hovered: bool,
+    /// pressed or being dragged
+    pub active: bool,
 }
 
 blit::builder! {
@@ -48,19 +51,19 @@ where
         let bottom_id = id.child("bottom grip");
         let corner_id = id.child("corner grip");
         let previous = ui.area(id);
-        // grips stay active while dragged
-        let mut grip_input = |id| {
+        let mut grip_input = |id, edge| {
             let press = ui.interact_widget(id, Press::new());
             let drag = ui.interact_widget(id, Drag::new());
-            let state = PressState {
+            let grip = ResizeGrip {
+                edge,
+                hovered: press.hovered,
                 active: press.active || drag.active,
-                ..press
             };
-            (state, drag.delta)
+            (grip, drag.delta)
         };
-        let (right, right_delta) = grip_input(right_id);
-        let (bottom, bottom_delta) = grip_input(bottom_id);
-        let (corner, corner_delta) = grip_input(corner_id);
+        let (right, right_delta) = grip_input(right_id, ResizeEdge::Right);
+        let (bottom, bottom_delta) = grip_input(bottom_id, ResizeEdge::Bottom);
+        let (corner, corner_delta) = grip_input(corner_id, ResizeEdge::Corner);
         let delta = Size::new(right_delta.x + corner_delta.x, bottom_delta.y + corner_delta.y);
         if delta != Size::ZERO {
             let size = state
@@ -82,16 +85,16 @@ where
             grip_size: self.grip_size,
         });
         shell.child().item(Item::Content).build(content);
-        for (item, edge, grip_id, interaction) in [
-            (Item::Right, ResizeEdge::Right, right_id, right),
-            (Item::Bottom, ResizeEdge::Bottom, bottom_id, bottom),
-            (Item::Corner, ResizeEdge::Corner, corner_id, corner),
+        for (item, grip_id, handle) in [
+            (Item::Right, right_id, right),
+            (Item::Bottom, bottom_id, bottom),
+            (Item::Corner, corner_id, corner),
         ] {
             shell
                 .child()
                 .item(item)
                 .id(grip_id)
-                .build(|ui: Ui<'_, C>| grip(ui, ResizeGrip { edge, interaction }));
+                .build(|ui: Ui<'_, C>| grip(ui, handle));
         }
     }
 }

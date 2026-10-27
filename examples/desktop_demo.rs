@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use blit::{
-    Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Press, PressState, Sides, Size, Transition, Widget,
+    Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Press, PressResponse, Sides, Size, Transition, Widget,
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 #[cfg(not(feature = "gpu"))]
@@ -155,8 +155,8 @@ impl Application for App {
                     .y(sz::XXS)
                     .open_on_hover(true)
                     .close(PopoverClose::Exit)
-                    .trigger(|ui, interaction, open| {
-                        draw_button(ui, "settings", open, interaction);
+                    .trigger(|ui, press, open| {
+                        draw_button(ui, "settings", open, press);
                     })
                     .content(|ui: Ui<'_>| {
                         let mut popup = ui.layout(flex::column().padding(Sides::all(sz::MD)).gap(sz::SM));
@@ -1095,15 +1095,14 @@ fn split(
     Split::new(state)
         .initial_extent(initial_extent)
         .divider_extent(sz::LG)
-        .divider(|ui, axis, interaction| {
-            let active = interaction.hovered || interaction.active;
-            let marker = match axis {
+        .divider(|ui, divider| {
+            let active = divider.hovered || divider.active;
+            let marker = match divider.axis {
                 Axis::Horizontal => Size::new(sz::BORDER_STRONG, sz::XXXL),
                 Axis::Vertical => Size::new(sz::XXXL, sz::BORDER_STRONG),
             };
-            let mut divider = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
-            divider
-                .child()
+            let mut row = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
+            row.child()
                 .item(flex::item().fixed(marker.width, marker.height))
                 .insert(
                     Rectangle::new()
@@ -1121,7 +1120,7 @@ fn draw_grip(ui: Ui<'_>, grip: ResizeGrip) {
         ResizeEdge::Bottom => Size::new(sz::XXXXL, sz::XXS),
         ResizeEdge::Corner => Size::uniform(sz::XS),
     };
-    let active = grip.interaction.hovered || grip.interaction.active;
+    let active = grip.hovered || grip.active;
     let color = if active {
         colors::ACCENT
     } else if grip.edge == ResizeEdge::Corner {
@@ -1154,18 +1153,18 @@ impl Widget<DesktopContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        let interaction = ui.interact(Press::new());
-        draw_button(ui, self.label, self.selected, interaction);
-        interaction.clicked
+        let press = ui.interact(Press::new());
+        draw_button(ui, self.label, self.selected, press);
+        press.clicked
     }
 }
 
-fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: PressState) {
-    let background = if interaction.active {
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, press: PressResponse) {
+    let background = if press.active {
         colors::ACCENT_DARK
     } else if selected {
         colors::SELECTED
-    } else if interaction.hovered {
+    } else if press.hovered {
         colors::SURFACE_HIGH
     } else {
         colors::TRACK

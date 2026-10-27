@@ -1,4 +1,4 @@
-use blit::{Context, Input, NodeTarget, Press, PressState, Scalar, Sides, Ui, Widget};
+use blit::{Context, Input, NodeTarget, Press, PressResponse, Scalar, Sides, Ui, Widget};
 use blit_layout::{
     absolute,
     absolute::{Anchor, Sizing},
@@ -16,8 +16,8 @@ pub enum PopoverClose {
 blit::builder! {
     pub struct Popover<'a, C: Context> {
         new(state: &'a mut PopoverState),
-        #[bounds(FnOnce(Ui<'_, C>, PressState, bool))]
-        trigger<F = fn(Ui<'_, C>, PressState, bool)>: F = |_, _, _| (),
+        #[bounds(FnOnce(Ui<'_, C>, PressResponse, bool))]
+        trigger<F = fn(Ui<'_, C>, PressResponse, bool)>: F = |_, _, _| (),
         content<W = fn(Ui<'_, C>)>: W = |_| (),
         #[into]
         parent: NodeTarget = NodeTarget::Root,
@@ -44,7 +44,7 @@ blit::builder! {
 
 impl<C: Context, F, W> Widget<C> for Popover<'_, C, F, W>
 where
-    F: FnOnce(Ui<'_, C>, PressState, bool),
+    F: FnOnce(Ui<'_, C>, PressResponse, bool),
     W: Widget<C>,
 {
     type Response = Option<W::Response>;
@@ -54,10 +54,10 @@ where
         let content = self.content;
         let id = ui.current_id();
         let trigger_id = id.child("popover trigger");
-        let interaction = ui.interact_widget(trigger_id, Press::new());
-        if self.open_on_hover && interaction.hovered {
+        let press = ui.interact_widget(trigger_id, Press::new());
+        if self.open_on_hover && press.hovered {
             state.open = true;
-        } else if !self.open_on_hover && interaction.activated {
+        } else if !self.open_on_hover && press.activated {
             state.open = !state.open;
         }
         let mut root = ui.layout(single::new());
@@ -66,7 +66,7 @@ where
             let anchor = trigger_node.node_id();
             trigger_node
                 .child()
-                .build(|ui: Ui<'_, C>| trigger(ui, interaction, state.open));
+                .build(|ui: Ui<'_, C>| trigger(ui, press, state.open));
             anchor
         };
         let backdrop_id = id.child("popover backdrop");
@@ -78,8 +78,8 @@ where
         }
 
         let backdrop = root.interact_widget(backdrop_id, Press::new());
-        let content_interaction = root.interact_widget(content_id, Press::new());
-        let pointer_inside = content_interaction.hovered
+        let content_press = root.interact_widget(content_id, Press::new());
+        let pointer_inside = content_press.hovered
             || root
                 .pointer_position()
                 .is_some_and(|position| areas.into_iter().flatten().any(|area| area.contains(position)));

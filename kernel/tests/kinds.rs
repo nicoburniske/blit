@@ -9,9 +9,9 @@ const CAPTURE: Watch = Watch(|_| true);
 
 impl Interact<f32> for Watch {
     /// each contact with whether this update captured it
-    type Output = [Option<(Contact<f32>, bool)>; 2];
+    type Response = [Option<(Contact<f32>, bool)>; 2];
 
-    fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> Self::Output {
+    fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> Self::Response {
         let mut seen = [None; 2];
         for (seen, contact) in seen.iter_mut().zip(cx.contacts()) {
             *seen = Some((contact, false));
@@ -28,7 +28,7 @@ impl Interact<f32> for Watch {
 struct Pinch;
 
 impl Interact<f32> for Pinch {
-    type Output = Option<f32>;
+    type Response = Option<f32>;
 
     fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> Option<f32> {
         let [a, b] = cx
@@ -179,7 +179,7 @@ fn gesture_state_lives_while_requested() {
     struct Count([u64; 32]);
 
     impl Interact<f32> for Count {
-        type Output = u64;
+        type Response = u64;
 
         fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> u64 {
             self.0[31] += 1;
@@ -192,7 +192,7 @@ fn gesture_state_lives_while_requested() {
     struct Empty;
 
     impl Interact<f32> for Empty {
-        type Output = ();
+        type Response = ();
 
         fn update(&mut self, _: &mut InteractCx<'_, f32>) {}
     }

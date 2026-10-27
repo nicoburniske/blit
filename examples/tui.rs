@@ -1,6 +1,6 @@
 use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
-use blit::{Axis, Easing, Id, Input, Key, Press, PressState, Scalar, Sides, Size, Transition, Widget};
+use blit::{Axis, Easing, Id, Input, Key, Press, PressResponse, Scalar, Sides, Size, Transition, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiContext, Ui,
@@ -96,8 +96,8 @@ impl Demo {
                     .child_anchor(Anchor::TopRight)
                     .open_on_hover(true)
                     .close(PopoverClose::Exit)
-                    .trigger(|ui, interaction, open| {
-                        draw_button(ui, " settings ", open, interaction);
+                    .trigger(|ui, press, open| {
+                        draw_button(ui, " settings ", open, press);
                     })
                     .content(|ui: Ui<'_>| {
                         let mut popup = ui.layout(flex::column().padding(Sides::all(1)).gap(1));
@@ -245,8 +245,8 @@ impl Widget<TuiContext> for &mut Modal {
         let selected = panel.child().build(
             Popover::new(&mut self.palette)
                 .parent(backdrop_id)
-                .trigger(|ui, interaction, open| {
-                    draw_button(ui, " Accent color ▾ ", open, interaction);
+                .trigger(|ui, press, open| {
+                    draw_button(ui, " Accent color ▾ ", open, press);
                 })
                 .content(|ui: Ui<'_>| {
                     let mut menu = ui.layout(flex::column().padding(Sides::all(1)));
@@ -990,7 +990,7 @@ fn draw_grip(ui: Ui<'_>, grip: ResizeGrip) {
         ResizeEdge::Bottom => "═══",
         ResizeEdge::Corner => "╝",
     };
-    let active = grip.interaction.hovered || grip.interaction.active;
+    let active = grip.hovered || grip.active;
     let color = if active {
         colors::ACCENT
     } else if grip.edge == ResizeEdge::Corner {
@@ -1017,18 +1017,18 @@ impl Widget<TuiContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        let interaction = ui.interact(Press::new());
-        draw_button(ui, self.label, self.selected, interaction);
-        interaction.clicked
+        let press = ui.interact(Press::new());
+        draw_button(ui, self.label, self.selected, press);
+        press.clicked
     }
 }
 
-fn draw_button(ui: Ui<'_>, label: &str, selected: bool, interaction: PressState) {
-    let block = if interaction.active {
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, press: PressResponse) {
+    let block = if press.active {
         Block::new().background(colors::ACCENT_DARK)
     } else if selected {
         Block::new().background(colors::SELECTED)
-    } else if interaction.hovered {
+    } else if press.hovered {
         Block::new().background(colors::SURFACE_HIGH)
     } else {
         Block::new()
@@ -1188,11 +1188,10 @@ fn split(
 ) -> impl Widget<TuiContext> {
     Split::new(state)
         .initial_extent(initial_extent)
-        .divider(|ui, _, interaction| {
-            let active = interaction.hovered || interaction.active;
-            let mut divider = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
-            divider
-                .child()
+        .divider(|ui, divider| {
+            let active = divider.hovered || divider.active;
+            let mut row = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
+            row.child()
                 .insert(Text::new("⠿").color(if active { colors::ACCENT } else { colors::TEXT_DIM }));
         })
         .leading(leading)

@@ -7,14 +7,14 @@ mod split;
 mod text_input;
 
 pub use blit::{Clip, Context, Id, Ui, Widget, state};
-pub use drag::{Drag, DragState};
+pub use drag::{Drag, DragResponse};
 pub use performance::{FrameProfiler, Stage};
 pub use popover::{Popover, PopoverClose, PopoverState};
 pub use resize::{Resize, ResizeEdge, ResizeGrip, ResizeState};
 pub use scroll::{
     ScrollArea, ScrollState, UniformList, UniformListResponse, VirtualList, VirtualListResponse, VirtualListState,
 };
-pub use split::{Split, SplitState};
+pub use split::{Split, SplitDivider, SplitState};
 pub use text_input::{Response as TextInputResponse, State as TextInputState};
 
 #[cfg(test)]

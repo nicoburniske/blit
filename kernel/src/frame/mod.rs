@@ -244,10 +244,10 @@ impl<C: Context, S> Ui<'_, C, S> {
 
     /// retains `kind` for this node while builds keep requesting it
     ///
-    /// `kind` is used once. returns its output from the update before this build
+    /// `kind` is used once. returns its response from the update before this build
     /// or its first update without resolved geometry or routed input when newly registered
     /// request each interaction kind only once per widget in a build
-    pub fn interact<K: Interact<C::Scalar>>(&mut self, kind: K) -> K::Output {
+    pub fn interact<K: Interact<C::Scalar>>(&mut self, kind: K) -> K::Response {
         let id = self.current_id();
         let node = self.inner.node;
         let frame = &mut *self.inner.frame;
@@ -257,7 +257,7 @@ impl<C: Context, S> Ui<'_, C, S> {
 
     /// interacts as a node assigned this exact widget id, which may be built later
     /// request each interaction kind only once per widget in a build
-    pub fn interact_widget<K: Interact<C::Scalar>>(&mut self, id: Id, kind: K) -> K::Output {
+    pub fn interact_widget<K: Interact<C::Scalar>>(&mut self, id: Id, kind: K) -> K::Response {
         let frame = &mut *self.inner.frame;
         frame.interaction.interact(id, None, kind, frame.time)
     }

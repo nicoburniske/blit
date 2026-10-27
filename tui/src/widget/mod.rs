@@ -1,6 +1,6 @@
 mod performance;
 pub use blit_widgets::{
-    Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ScrollArea, Split, Stage, UniformList,
+    Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ScrollArea, Split, SplitDivider, Stage, UniformList,
     UniformListResponse, VirtualList, VirtualListResponse,
 };
 pub type ResizeState = blit_widgets::ResizeState<i32>;
