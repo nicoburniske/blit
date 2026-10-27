@@ -25,9 +25,8 @@ impl Id {
 
 /// an interaction kind the kernel retains for one widget
 ///
-/// it updates before every build, deepest widget first, so it can claim contacts before its
-/// ancestors see them. the first update runs on registration with the previous layout and
-/// no routed input or changes to input ownership
+/// it updates before every build, deepest widget first, so it can claim contacts before its ancestors see them
+/// the first update runs on registration with the previous layout and no routed input or changes to input ownership
 pub trait Interact<T>: Copy + 'static {
     /// what the kind recognized during one update
     type Output: Copy + 'static;

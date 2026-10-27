@@ -249,17 +249,24 @@ impl<T: Scalar> InteractionState<T> {
                 kinds.kinds.len() - 1
             });
         let kind = u16::try_from(kind).expect("too many interaction kinds");
-        let matches = |slot: &Slot| slot.id == id && slot.kind == kind;
+        // only widgets with a slot were interactive in the previous layout
+        let mut existed = false;
+        let mut matches = |slot: &Slot| {
+            slot.id == id && {
+                existed = true;
+                slot.kind == kind
+            }
+        };
         let cursor = kinds.cursor;
         // builds request kinds in nearly the same order each frame
-        let index = if let Some(offset) = kinds.slots[cursor..].iter().position(matches) {
+        let index = if let Some(offset) = kinds.slots[cursor..].iter().position(&mut matches) {
             kinds.slots.swap(cursor, cursor + offset);
             kinds.cursor += 1;
             cursor
-        } else if let Some(index) = kinds.slots[..cursor].iter().position(matches) {
+        } else if let Some(index) = kinds.slots[..cursor].iter().position(&mut matches) {
             index
         } else {
-            let hit = self.hits.iter().find(|hit| hit.id == id);
+            let hit = existed.then(|| self.hits.iter().find(|hit| hit.id == id)).flatten();
             let (previous, end) = hit.map_or((UNRESOLVED, 0), |hit| (hit.node as u32, hit.end as u32));
             let mut focused = self.focused;
             let output = initial.update(&mut InteractCx {
@@ -297,15 +304,17 @@ impl<T: Scalar> InteractionState<T> {
                 }
                 None => kinds.state.push(Cell { value }).byte(),
             };
-            kinds.slots.push(Slot {
-                id,
-                node: UNRESOLVED,
-                end: 0,
-                offset,
-                kind,
-            });
-            let last = kinds.slots.len() - 1;
-            kinds.slots.swap(cursor, last);
+            // inserting keeps the next expected slot at the cursor
+            kinds.slots.insert(
+                cursor,
+                Slot {
+                    id,
+                    node: UNRESOLVED,
+                    end: 0,
+                    offset,
+                    kind,
+                },
+            );
             kinds.cursor += 1;
             cursor
         };
