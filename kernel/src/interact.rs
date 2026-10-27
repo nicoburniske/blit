@@ -61,7 +61,7 @@ pub enum ContactSource {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Scroll {
+pub struct ScrollMotion {
     pub phase: Phase,
     pub delta: Point<f32>,
     pub continuous: bool,
@@ -184,11 +184,11 @@ impl<T: Scalar> Interact<T> for Focus {
 
 /// wheel and trackpad scrolling, keeping continuous sequences until they end
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Wheel {
+pub struct Scroll {
     axis: Option<Axis>,
 }
 
-impl Wheel {
+impl Scroll {
     pub const fn new() -> Self {
         Self { axis: None }
     }
@@ -199,11 +199,11 @@ impl Wheel {
     }
 }
 
-impl<T: Scalar> Interact<T> for Wheel {
-    type Output = Option<Scroll>;
+impl<T: Scalar> Interact<T> for Scroll {
+    type Output = Option<ScrollMotion>;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Option<Scroll> {
-        let scroll = cx.wheel()?;
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Option<ScrollMotion> {
+        let scroll = cx.scroll()?;
         let Point { x, y } = scroll.delta;
         // a held sequence stays whatever its direction, so only its start is checked
         let starts = scroll.phase == Phase::Started || !scroll.continuous;
@@ -215,7 +215,7 @@ impl<T: Scalar> Interact<T> for Wheel {
         {
             return None;
         }
-        cx.capture_wheel();
+        cx.capture_scroll();
         Some(scroll)
     }
 }

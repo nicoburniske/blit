@@ -83,7 +83,7 @@ fn tapping_unregistered_background_clears_focus() {
 fn scroll() {
     // zero delta endings stay with the owner even outside its bounds
     for horizontal in [true, false] {
-        let mut scene = InputScene::<Integer, _>::new(Wheel::new());
+        let mut scene = InputScene::<Integer, _>::new(Scroll::new());
         for (phase, expected) in [
             (ScrollPhase::Started, Started),
             (ScrollPhase::Moved, Changed),
@@ -156,7 +156,7 @@ fn clipping() {
             .child()
             .build(|mut ui: Ui<'_>| {
                 let response = ui.interact(Press::new());
-                let wheel = ui.interact(Wheel::new());
+                let wheel = ui.interact(Scroll::new());
                 ui.insert(Fill('C', Size::new(5.0, 1.0)));
                 (response, wheel)
             })
@@ -270,11 +270,11 @@ fn hover_tracks_changed_ancestry() {
 fn wheel_axis_leaves_other_directions_to_ancestors() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let build = |mut ui: Ui<'_>| {
-        let list = ui.interact(Wheel::new().axis(Axis::Vertical));
+        let list = ui.interact(Scroll::new().axis(Axis::Vertical));
         let mut root = ui.layout(Overlay);
         let mut carousel = root.child().id(Id::new("carousel"));
         carousel.insert(Fill('C', Size::uniform(200.0)));
-        (list, carousel.interact(Wheel::new().axis(Axis::Horizontal)))
+        (list, carousel.interact(Scroll::new().axis(Axis::Horizontal)))
     };
     render(&mut frame, &mut context, &build);
     let mut wheel = |delta_x, delta_y| {

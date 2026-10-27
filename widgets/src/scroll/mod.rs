@@ -5,8 +5,8 @@ mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Context, Easing, Id, Layout, LayoutCx, NodeId, Phase, Point, Press, Scalar, Scroll, Size,
-    Sizing, Ui, Wheel, Widget,
+    Axis, Clip, Constraints, Context, Easing, Id, Layout, LayoutCx, NodeId, Phase, Point, Press, Scalar, Scroll,
+    ScrollMotion, Size, Sizing, Ui, Widget,
 };
 
 pub use self::{
@@ -379,11 +379,11 @@ fn scrollbar_input<C: Context>(
 }
 
 /// wheel scrolling and touch panning over the content
-fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> Option<Scroll> {
-    let wheel = ui.interact(Wheel::new());
+fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> Option<ScrollMotion> {
+    let scroll = ui.interact(Scroll::new());
     // touches pan the content, moving it against the finger
     let pan = ui.interact(Drag::new().axis(axis).touch(true));
-    wheel.or(pan.map(|drag| Scroll {
+    scroll.or(pan.map(|drag| ScrollMotion {
         phase: drag.phase,
         delta: Point::new(-drag.delta.x.to_f32(), -drag.delta.y.to_f32()),
         continuous: true,
@@ -396,7 +396,7 @@ fn content_motion<C: Context>(
     axis: Axis,
     scroll_speed: f32,
     inertia_friction: f32,
-    motion: Option<Scroll>,
+    motion: Option<ScrollMotion>,
 ) -> f32 {
     let now = ui.time();
     let elapsed = state

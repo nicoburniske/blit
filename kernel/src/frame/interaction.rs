@@ -2,8 +2,8 @@ use std::{any::TypeId, mem::MaybeUninit, num::NonZeroU32, time::Duration};
 
 use super::{Frame, ResolvedClip, ResolvedClipId};
 use crate::{
-    Contact, ContactId, ContactSource, Context, Id, Input, Interact, Modifiers, Phase, PointerButton, Scalar, Scroll,
-    ScrollPhase, TouchPhase,
+    Contact, ContactId, ContactSource, Context, Id, Input, Interact, Modifiers, Phase, PointerButton, Scalar,
+    ScrollMotion, ScrollPhase, TouchPhase,
     geometry::{Point, Rect, Sides},
     internal::bump::Bump,
 };
@@ -17,7 +17,7 @@ pub struct InteractCx<'a, T> {
     node: u32,
     end: u32,
     contacts: &'a mut [TrackedContact<T>],
-    wheel: &'a mut Option<WheelState>,
+    scroll: &'a mut Option<TrackedScroll>,
     focused: &'a mut Option<Id>,
     focus_taken: &'a mut bool,
     hits: &'a [HitItem<T>],
@@ -110,29 +110,29 @@ impl<T: Scalar> InteractCx<'_, T> {
         *self.input
     }
 
-    /// wheel scrolling over this widget, or the cancellation of a sequence it held
-    pub fn wheel(&self) -> Option<Scroll> {
-        let wheel = (*self.wheel)?;
-        let event = wheel.event.filter(|_| match wheel.owner {
+    /// scrolling over this widget, or the cancellation of a sequence it held
+    pub fn scroll(&self) -> Option<ScrollMotion> {
+        let scroll = (*self.scroll)?;
+        let event = scroll.event.filter(|_| match scroll.owner {
             Some(owner) => owner == self.id,
-            None => wheel.target.is_some_and(|node| self.contains(node)),
+            None => scroll.target.is_some_and(|node| self.contains(node)),
         });
-        event.or((wheel.cancelled == Some(self.id)).then_some(Scroll {
+        event.or((scroll.cancelled == Some(self.id)).then_some(ScrollMotion {
             phase: Phase::Cancelled,
             delta: Point::ZERO,
             continuous: true,
         }))
     }
 
-    /// keeps a continuous wheel sequence over this widget until it ends
-    pub fn capture_wheel(&mut self) {
+    /// keeps a continuous scroll sequence over this widget until it ends
+    pub fn capture_scroll(&mut self) {
         let id = self.id;
         let (node, end) = (self.node, self.end);
-        if let Some(wheel) = self.wheel
-            && wheel.owner.is_none()
-            && wheel.target.is_some_and(|target| node <= target && target <= end)
+        if let Some(scroll) = self.scroll
+            && scroll.owner.is_none()
+            && scroll.target.is_some_and(|target| node <= target && target <= end)
         {
-            wheel.owner = Some(id);
+            scroll.owner = Some(id);
         }
     }
 
@@ -210,7 +210,7 @@ pub struct InteractionState<T> {
     pub position: Option<Point<T>>,
     contacts: Vec<TrackedContact<T>>,
     next_contact: u32,
-    wheel: Option<WheelState>,
+    scroll: Option<TrackedScroll>,
     hits: Vec<HitItem<T>>,
     // node under the pointer in the previous layout
     hover: Option<u32>,
@@ -274,7 +274,7 @@ impl<T: Scalar> InteractionState<T> {
                 node: previous,
                 end,
                 contacts: &mut [],
-                wheel: &mut None,
+                scroll: &mut None,
                 focused: &mut focused,
                 focus_taken: &mut true,
                 hits: &self.hits,
@@ -336,12 +336,12 @@ impl<T: Scalar> InteractionState<T> {
                 *claim = None;
             }
         }
-        if let Some(wheel) = &mut self.wheel {
-            if wheel.active {
-                wheel.event = None;
-                wheel.cancelled = None;
+        if let Some(scroll) = &mut self.scroll {
+            if scroll.active {
+                scroll.event = None;
+                scroll.cancelled = None;
             } else {
-                self.wheel = None;
+                self.scroll = None;
             }
         }
         match *input {
@@ -419,18 +419,18 @@ impl<T: Scalar> InteractionState<T> {
                 ..
             } => {
                 self.position = Some(position);
-                let previous = self.wheel.filter(|wheel| wheel.active);
+                let previous = self.scroll.filter(|scroll| scroll.active);
                 let continuing = continuous && phase != ScrollPhase::Started && previous.is_some();
                 // a continuous ending without a sequence has nothing to end
                 let stray = continuous && matches!(phase, ScrollPhase::Ended | ScrollPhase::Cancelled) && !continuing;
-                self.wheel = Some(WheelState {
+                self.scroll = Some(TrackedScroll {
                     target: if continuing {
-                        previous.and_then(|wheel| wheel.target)
+                        previous.and_then(|scroll| scroll.target)
                     } else {
                         hit(&self.hits, &self.clips, position).map(|hit| hit.node)
                     },
-                    owner: previous.filter(|_| continuing).and_then(|wheel| wheel.owner),
-                    event: (!stray).then_some(Scroll {
+                    owner: previous.filter(|_| continuing).and_then(|scroll| scroll.owner),
+                    event: (!stray).then_some(ScrollMotion {
                         phase: match phase {
                             ScrollPhase::Started => Phase::Started,
                             ScrollPhase::Moved => Phase::Changed,
@@ -445,7 +445,7 @@ impl<T: Scalar> InteractionState<T> {
                         continuous,
                     }),
                     active: continuous && matches!(phase, ScrollPhase::Started | ScrollPhase::Moved),
-                    cancelled: previous.filter(|_| !continuing).and_then(|wheel| wheel.owner),
+                    cancelled: previous.filter(|_| !continuing).and_then(|scroll| scroll.owner),
                 });
             }
             Input::Cancel => {
@@ -453,9 +453,9 @@ impl<T: Scalar> InteractionState<T> {
                 for index in 0..self.contacts.len() {
                     self.update(index, self.contacts[index].position, Phase::Cancelled);
                 }
-                if let Some(wheel) = &mut self.wheel {
-                    wheel.active = false;
-                    wheel.event = Some(Scroll {
+                if let Some(scroll) = &mut self.scroll {
+                    scroll.active = false;
+                    scroll.event = Some(ScrollMotion {
                         phase: Phase::Cancelled,
                         delta: Point::ZERO,
                         continuous: true,
@@ -482,7 +482,7 @@ impl<T: Scalar> InteractionState<T> {
                     node: slot.node,
                     end: slot.end,
                     contacts: &mut self.contacts,
-                    wheel: &mut self.wheel,
+                    scroll: &mut self.scroll,
                     focused: &mut self.focused,
                     focus_taken: &mut self.focus_taken,
                     hits: &self.hits,
@@ -626,11 +626,11 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     if frame.interaction.focused.is_some_and(|id| node(id).is_none()) {
         frame.interaction.focused = None;
     }
-    if let Some(wheel) = &mut frame.interaction.wheel
-        && wheel.owner.is_some_and(|id| node(id).is_none())
+    if let Some(scroll) = &mut frame.interaction.scroll
+        && scroll.owner.is_some_and(|id| node(id).is_none())
     {
-        wheel.owner = None;
-        wheel.event = None;
+        scroll.owner = None;
+        scroll.event = None;
     }
     frame.areas_previous.clear();
     frame.interaction.hits.clear();
@@ -755,11 +755,11 @@ enum Source {
 }
 
 #[derive(Clone, Copy)]
-struct WheelState {
+struct TrackedScroll {
     // node under the pointer when the sequence started
     target: Option<u32>,
     owner: Option<Id>,
-    event: Option<Scroll>,
+    event: Option<ScrollMotion>,
     active: bool,
     cancelled: Option<Id>,
 }

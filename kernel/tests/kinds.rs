@@ -46,7 +46,7 @@ fn new_kind_observes_hover_without_another_frame() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let added = Cell::new(false);
     let build = |mut ui: Ui<'_>| {
-        ui.interact(Wheel::new());
+        ui.interact(Scroll::new());
         added.get() && ui.interact(Press::new()).hovered
     };
     render_inputs(
