@@ -1,14 +1,4 @@
-use std::marker::PhantomData;
-
-use super::{
-    Frame, NodeId, Placement, StoredNode,
-    bump::{BumpArena, BumpId, Scratch},
-};
-use crate::{
-    Context, Scalar, TransitionProperties,
-    geometry::{Constraints, Point, Size},
-    layout::Layout,
-};
+use super::*;
 
 #[repr(C)]
 pub struct LayoutCx<'a, C: Context, I = ()> {
@@ -73,10 +63,10 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     /// queries a child's declared sizing without running its layout
-    pub fn child_sizing(&self, child: NodeId, axis: crate::Axis) -> crate::Sizing<C::Scalar> {
+    pub fn child_sizing(&self, child: NodeId, axis: Axis) -> Sizing<C::Scalar> {
         let stored = self.assert_child(child);
         if stored.layout.offset().is_none() {
-            return crate::Sizing::fit();
+            return Sizing::fit();
         }
         let kind = &self.frame.layout_kinds[stored.layout_kind as usize];
         (kind.sizing)(self.bump, stored.layout, axis)
@@ -241,7 +231,135 @@ impl Iterator for Children<'_> {
     }
 }
 
+/// resolves transitions against a subtree's target layout
+///
+/// - layout first establishes target areas
+/// - active size transitions write animated sizes into placements and replay layout
+/// - target sizes remain available for structural decisions such as wrapping
+/// - position transitions apply after layout without replay
 pub fn resolve<C: Context>(
+    frame: &mut Frame<C>,
+    bump: &BumpArena,
+    context: &mut C,
+    root: NodeId,
+    bounds: Constraints<C::Scalar>,
+    commit: bool,
+) -> Size<C::Scalar> {
+    let mut size = arrange(frame, bump, context, root, bounds);
+    if frame.bounds.is_empty() {
+        return size;
+    }
+    let mut active = TransitionProperties::NONE;
+    let start = root.index();
+    let end = frame.nodes[start].subtree_end as usize + 1;
+    let nodes = &frame.nodes[..end];
+    let mut index = start;
+    while index < end {
+        let stored = &nodes[index];
+        if !commit && start != 0 && stored.out_of_flow {
+            index = stored.subtree_end as usize + 1;
+            continue;
+        }
+        index += 1;
+        let Some(bounds) = stored.bounds.index() else {
+            continue;
+        };
+        let record = frame.bounds[bounds];
+        let Some(config) = record.transition else { continue };
+        if !commit && !config.properties.intersects(TransitionProperties::SIZE) {
+            continue;
+        }
+        let node = record.node;
+        let id = stored.widget_id;
+        let found = frame.transitions.binary_search_by_key(&id, |state| state.id);
+        let mut state = match found {
+            Ok(index) => frame.transitions[index],
+            Err(_) => TransitionState::new(id, node, config),
+        };
+        state.node = node;
+        state.config = config;
+        state.seen = true;
+        state.advance(frame.placements[node.index()].area, frame.time, frame.resized);
+        let properties = state.active.intersection(TransitionProperties::SIZE);
+        if nodes[node.index()].parent == node {
+            if properties.intersects(TransitionProperties::WIDTH) {
+                state.current.width = state.target.width;
+                state.initial.width = state.target.width;
+            }
+            if properties.intersects(TransitionProperties::HEIGHT) {
+                state.current.height = state.target.height;
+                state.initial.height = state.target.height;
+            }
+            state.active = state.active.intersection(TransitionProperties::POSITION);
+            if state.active.is_empty() {
+                state.started_at = None;
+            }
+        } else if !properties.is_empty() {
+            if frame.target_sizes.is_empty() {
+                let placements = &frame.placements[start..end];
+                frame.target_sizes.extend(placements.iter().map(|node| TargetSize {
+                    size: node.area.size(),
+                    properties: TransitionProperties::NONE,
+                }));
+            }
+            let area = &mut frame.placements[node.index()].area;
+            if properties.intersects(TransitionProperties::WIDTH) {
+                area.width = state.current.width;
+            }
+            if properties.intersects(TransitionProperties::HEIGHT) {
+                area.height = state.current.height;
+            }
+            frame.target_sizes[node.index() - start].properties = properties;
+        }
+        active = active.union(state.active);
+        if commit {
+            match found {
+                Ok(index) => frame.transitions[index] = state,
+                Err(index) => frame.transitions.insert(index, state),
+            }
+        }
+    }
+    if !frame.target_sizes.is_empty() {
+        size = arrange(frame, bump, context, root, bounds);
+        frame.target_sizes.clear();
+    }
+    if commit && active.intersects(TransitionProperties::POSITION) {
+        for state in frame.transitions.iter().filter(|state| state.seen) {
+            let area = &mut frame.placements[state.node.index()].area;
+            if state.active.intersects(TransitionProperties::X) {
+                area.x = state.current.x;
+            }
+            if state.active.intersects(TransitionProperties::Y) {
+                area.y = state.current.y;
+            }
+        }
+    }
+    size
+}
+
+/// offsets each area by its relative reference
+pub fn position<C: Context>(frame: &mut Frame<C>) {
+    let count = frame.nodes.len();
+    let placements = &mut frame.placements[..count];
+    for index in 1..count {
+        let reference = frame.nodes[index].relative;
+        let reference = placements[reference.index()].area;
+        let area = &mut placements[index].area;
+        area.x += reference.x;
+        area.y += reference.y;
+    }
+}
+
+pub fn run<'a, C: Context, L: Layout<C>>(
+    cx: &mut LayoutCx<'a, C>,
+    id: BumpId,
+    bounds: Constraints<C::Scalar>,
+) -> Size<C::Scalar> {
+    let layout = cx.bump.load::<L>(id);
+    layout.layout(cx.cast::<L::Item>(), bounds)
+}
+
+fn arrange<C: Context>(
     frame: &mut Frame<C>,
     bump: &BumpArena,
     context: &mut C,
@@ -279,13 +397,4 @@ pub fn resolve<C: Context>(
     frame.placements = placements;
     frame.frame_requested = requested;
     size
-}
-
-pub fn run<'a, C: Context, L: Layout<C>>(
-    cx: &mut LayoutCx<'a, C>,
-    id: BumpId,
-    bounds: Constraints<C::Scalar>,
-) -> Size<C::Scalar> {
-    let layout = cx.bump.load::<L>(id);
-    layout.layout(cx.cast::<L::Item>(), bounds)
 }

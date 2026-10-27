@@ -1,5 +1,5 @@
 pub use crate::frame::{
-    bump::Scratch,
+    arena::Scratch,
     layout::{Children, LayoutCx},
 };
 use crate::{

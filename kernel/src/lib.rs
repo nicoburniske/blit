@@ -51,11 +51,11 @@ pub use self::{
     animation::{Easing, Transition, TransitionProperties},
     clip::{Clip, ClipShape},
     frame::{
-        Frame, NodeId, NodeTarget, Ui,
+        Frame, NodeId,
+        arena::FrameSlice,
         atom::AtomCx,
-        bump::FrameSlice,
-        interaction::{Contacts, InteractCx},
-        state,
+        interact::{Contacts, InteractCx},
+        ui::{NodeTarget, Ui, state},
     },
     geometry::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
@@ -63,7 +63,7 @@ pub use self::{
     },
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase, TouchPhase},
     interact::{
-        Contact, ContactId, ContactSource, Focus, Id, Interact, Phase, Press, PressResponse, Scroll, ScrollEvent,
+        Contact, ContactId, ContactSource, Focus, Interact, Phase, Press, PressResponse, Scroll, ScrollEvent,
         ScrollResponse,
     },
     layout::{Axis, Layout, LayoutCx, Scratch, Sizing},
@@ -108,6 +108,26 @@ pub trait Atom<C: Context>: 'static {
     /// override when painting extends beyond the layout `area`
     fn paint_bounds(&self, area: Rect<C::Scalar>) -> Rect<C::Scalar> {
         area
+    }
+}
+
+/// stable identity for widgets, animations and timers
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Id(std::num::NonZeroU64);
+
+impl Id {
+    /// creates an absolute id from a stable value
+    pub fn new(source: impl std::hash::Hash) -> Self {
+        use std::{hash::Hasher, num::NonZeroU64};
+
+        let mut hasher = internal::hash::FxHasher::default();
+        source.hash(&mut hasher);
+        Self(NonZeroU64::new(hasher.finish()).unwrap_or(NonZeroU64::MIN))
+    }
+
+    /// composes a stable child id without using the current ui node
+    pub fn child(self, source: impl std::hash::Hash) -> Self {
+        Self::new((self, source))
     }
 }
 

@@ -1,365 +1,233 @@
-use crate::{Context, Scalar};
 pub mod animation;
+pub mod arena;
 pub mod atom;
-pub mod bump;
-pub mod interaction;
+pub mod interact;
 pub mod layout;
 pub mod paint;
-pub mod position;
 pub mod timer;
-pub mod transition;
+pub mod ui;
 
-use std::{any::TypeId, marker::PhantomData, time::Duration};
-
-use self::bump::{BumpArena, BumpId, FrameSlice, Scratch};
-use crate::{
-    Atom, AtomWidget, Clip, ClipShape, FrameInfo, IntoWidget, Widget,
-    animation::{Easing, Transition},
-    geometry::{Constraints, Point, Rect, Sides, Size},
-    input::Input,
-    interact::{Id, Interact},
-    layout::Layout,
+use std::{
+    any::TypeId,
+    cell::Cell,
+    marker::PhantomData,
+    mem::{MaybeUninit, align_of, needs_drop, size_of},
+    num::NonZeroU32,
+    ops::{Deref, DerefMut},
+    time::Duration,
 };
 
-/// typestate modes for [`crate::Ui`]
-///
-/// every mode can insert content and access shared frame services
-pub mod state {
-    use super::PhantomData;
+use self::{
+    animation::{AnimationState, TransitionState},
+    arena::{BumpArena, BumpId, FrameSlice, Scratch},
+    timer::TimerState,
+    ui::{NodeTarget, Ui},
+};
+use crate::{
+    Atom, AtomWidget, Clip, ClipShape, Contact, ContactId, ContactSource, Context, FrameInfo, Id, IntoWidget, Scalar,
+    Widget,
+    animation::{Easing, Transition, TransitionProperties},
+    geometry::{Constraints, Point, Rect, Sides, Size},
+    input::{Input, Modifiers, PointerButton, ScrollPhase, TouchPhase},
+    interact::{Interact, Phase, ScrollEvent},
+    internal::bump::{Bump, Slice},
+    layout::{Axis, Layout, Sizing},
+};
 
-    /// an unlaid node that may establish a layout
-    pub struct Build;
-
-    /// an unlaid child with layout item `I`
-    pub struct Child<I>(PhantomData<I>);
-
-    /// a laid-out node that may create children
-    pub struct Open<L>(PhantomData<L>);
-
-    /// access to an existing node without layout or child creation
-    pub struct Node;
+pub struct Frame<C: Context> {
+    nodes: Vec<StoredNode>,
+    placements: Vec<Placement<C::Scalar>>,
+    atoms: Vec<StoredAtom>,
+    clips: Vec<StoredClip>,
+    bounds: Vec<Bounds<C::Scalar>>,
+    atom_kinds: Vec<AtomKind<C>>,
+    layout_kinds: Vec<LayoutKind<C>>,
+    clip_kinds: Vec<ClipKind<C>>,
+    bump: BumpArena,
+    scratch: BumpArena,
+    paint_order: Vec<NodeId>,
+    active_clips: Vec<ResolvedClipId>,
+    interaction: interact::InteractionState<C::Scalar>,
+    /// ids passed to [`Ui::area`] during this build
+    areas_requested: Vec<Id>,
+    // requested areas from the previous layout, sorted by id
+    areas_previous: Vec<(Id, Rect<C::Scalar>)>,
+    animations: Vec<AnimationState>,
+    transitions: Vec<TransitionState<C::Scalar>>,
+    target_sizes: Vec<TargetSize<C::Scalar>>,
+    timers: Vec<TimerState>,
+    input: Input<C::Scalar>,
+    time: Duration,
+    screen: Rect<C::Scalar>,
+    resized: bool,
+    frame_requested: bool,
+    // the next frame updates interactions against this layout
+    settle: bool,
+    #[cfg(debug_assertions)]
+    widget_ids: std::collections::HashSet<Id>,
 }
 
-/// scoped handle for building a frame node
-///
-/// its [`state`] mode determines which operations are available
-pub struct Ui<'ui, C: Context, S = state::Build> {
-    inner: UiInner<'ui, C>,
-    marker: PhantomData<S>,
-}
-
-impl<'ui, C: Context, S> Ui<'ui, C, S> {
-    /// identifies this node for references within the current render
-    pub fn node_id(&self) -> NodeId {
-        self.inner.node
-    }
-
-    /// stores values that atoms can read until the next build
-    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
-        self.inner.frame.bump.store_slice(values)
-    }
-
-    pub fn clip<X: Clip<C>>(self, clip: X) -> Self {
-        let clip = self.inner.frame.store_clip(clip);
-        self.inner.frame.nodes[self.inner.node.index()].clip = clip;
-        self
-    }
-
-    /// returns this node's stable id
-    ///
-    /// without an explicit id, it derives from the parent's id and child position
-    pub fn current_id(&self) -> Id {
-        self.inner.frame.nodes[self.inner.node.index()].widget_id
-    }
-
-    pub fn hit(self, hit: Sides<C::Scalar>) -> Self {
-        self.inner.frame.bounds_mut(self.inner.node).hit = hit;
-        self
-    }
-
-    pub fn transition(self, transition: Transition) -> Self {
-        self.inner.frame.bounds_mut(self.inner.node).transition = Some(transition);
-        self
-    }
-
-    /// selects the parent for stacking, clipping and containing size
-    ///
-    /// named targets must already exist. positioning stays with its anchor.
-    #[inline]
-    pub fn parent(self, target: impl Into<NodeTarget>) -> Self {
-        let parent = self.inner.frame.resolve_target(self.inner.node, target.into());
-        self.inner.frame.nodes[self.inner.node.index()].visual_parent = parent;
-        self
-    }
-
-    /// positions this node against a reference outside its parent's flow
-    pub fn relative(self, target: impl Into<NodeTarget>) -> Self {
-        let reference = self.inner.frame.resolve_target(self.inner.node, target.into());
-        let node = &mut self.inner.frame.nodes[self.inner.node.index()];
-        node.relative = reference;
-        node.out_of_flow = true;
-        self
-    }
-
-    /// sets this node's paint order among its visual siblings
-    pub fn z_index(self, z_index: i16) -> Self {
-        self.inner.frame.placements[self.inner.node.index()].z_index = z_index;
-        self
-    }
-
-    /// inserts content into the current node
-    ///
-    /// layouts choose whether their atoms contribute to sizing
-    pub fn insert<T, W>(&mut self, widget: T) -> W::Response
-    where
-        T: IntoWidget<C, W>,
-        W: Widget<C, state::Node>,
-    {
-        widget.into_widget().build(Ui {
-            inner: UiInner {
-                frame: self.inner.frame,
-                context: self.inner.context,
-                scratch: self.inner.scratch,
-                node: self.inner.node,
-                next_child: 0,
-                owns_node: false,
-            },
-            marker: PhantomData,
-        })
-    }
-
-    /// temporary storage that stays usable while building this node
-    pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'ui, T> {
-        self.inner.scratch.scratch(len, value)
+impl<C: Context> Default for Frame<C> {
+    fn default() -> Self {
+        Self {
+            nodes: Vec::new(),
+            placements: Vec::new(),
+            atoms: Vec::new(),
+            clips: Vec::new(),
+            bounds: Vec::new(),
+            atom_kinds: Vec::new(),
+            layout_kinds: Vec::new(),
+            clip_kinds: Vec::new(),
+            bump: BumpArena::default(),
+            scratch: BumpArena::default(),
+            paint_order: Vec::new(),
+            active_clips: Vec::new(),
+            interaction: interact::InteractionState::default(),
+            areas_previous: Vec::new(),
+            areas_requested: Vec::new(),
+            animations: Vec::new(),
+            transitions: Vec::new(),
+            target_sizes: Vec::new(),
+            timers: Vec::new(),
+            input: Input::None,
+            time: Duration::ZERO,
+            screen: Rect::default(),
+            resized: false,
+            frame_requested: true,
+            settle: false,
+            #[cfg(debug_assertions)]
+            widget_ids: Default::default(),
+        }
     }
 }
 
-impl<'ui, C: Context> Ui<'ui, C, state::Build> {
-    /// assigns an absolute id before this node is given children
-    pub fn id(mut self, id: Id) -> Self {
-        self.inner.set_widget_id(id);
-        self
-    }
-
-    /// builds a widget in this node
-    pub fn build<W: Widget<C>>(self, widget: W) -> W::Response {
-        widget.build(self)
-    }
-
-    /// builds a flow subtree and measures its current animated size under `bounds`
-    pub fn build_measured<W: Widget<C>>(
-        self,
-        bounds: Constraints<C::Scalar>,
+impl<C: Context> Frame<C> {
+    /// rebuilds the frame graph for one input
+    pub fn build<W: Widget<C>>(
+        &mut self,
+        context: &mut C,
+        frame: FrameInfo<C::Scalar>,
+        time: Duration,
+        input: Input<C::Scalar>,
         widget: W,
-    ) -> (W::Response, Size<C::Scalar>) {
-        let mut inner = self.inner;
-        inner.owns_node = false;
-        let node = inner.node;
-        let response = widget.build(Ui::new(inner.frame, inner.context, inner.scratch, node));
+    ) -> W::Response {
+        // interactions update against the previous layout, so every frame settles in one more
+        // unless nothing but settling built it
+        let settling = std::mem::take(&mut self.settle)
+            && !self.has_pending_redraw()
+            && matches!(input, Input::None)
+            && self.screen.size() == frame.size
+            && self.next_timer_deadline().is_none_or(|deadline| deadline > time);
+        self.settle = !settling;
+        self.frame_requested = false;
+        #[cfg(debug_assertions)]
+        generation::begin();
+        self.nodes.clear();
+        self.placements.clear();
+        self.atoms.clear();
+        self.clips.clear();
+        self.bounds.clear();
+        self.areas_requested.clear();
+        self.bump.clear();
+        for kind in &mut self.layout_kinds {
+            kind.default_item = BumpId::NONE;
+        }
+        #[cfg(debug_assertions)]
+        self.widget_ids.clear();
+        self.paint_order.clear();
+        self.active_clips.clear();
+        self.input = input;
+        self.time = time;
+        let size = frame.size;
+        self.resized = self.screen.size() != size;
+        self.screen = Rect::new(C::Scalar::ZERO, C::Scalar::ZERO, size.width, size.height);
+        for animation in &mut self.animations {
+            animation.seen = false;
+        }
+        for state in &mut self.transitions {
+            state.seen = false;
+        }
+        for timer in &mut self.timers {
+            timer.seen = false;
+        }
+        self.interaction.begin(&input, time);
+
+        let id = Id::new("blit frame root");
+        let root = self.push_node(None, id);
+        let mut scratch = std::mem::take(&mut self.scratch);
+        scratch.prepare_scratch();
+        let output = widget.build(Ui::new(self, context, &scratch, root));
+        scratch.prepare_scratch();
+        self.scratch = scratch;
+        #[cfg(debug_assertions)]
         assert!(
-            !inner.frame.nodes[node.index()].out_of_flow,
-            "measured widgets must stay in flow"
+            self.nodes.iter().all(|node| self.widget_ids.insert(node.widget_id)),
+            "widget ids must identify unique nodes"
         );
-        let mut bump = std::mem::take(&mut inner.frame.bump);
+        assert_eq!(
+            self.nodes[0].subtree_end as usize,
+            self.nodes.len() - 1,
+            "a frame must have exactly one root"
+        );
+        output
+    }
+
+    /// resolves layout, positioning, clipping and interaction for the built graph
+    pub fn layout(&mut self, context: &mut C) {
+        let mut bump = std::mem::take(&mut self.bump);
         bump.prepare_scratch();
-        let size = transition::resolve(inner.frame, &bump, inner.context, node, bounds, false);
-        inner.frame.bump = bump;
-        (response, size)
+        layout::resolve(
+            self,
+            &bump,
+            context,
+            NodeId::new(0),
+            Constraints::tight(self.screen.size()),
+            true,
+        );
+        layout::position(self);
+        paint::resolve_order(self, &bump);
+        paint::resolve_clips(self, &bump);
+        interact::resolve(self);
+        self.animations.retain(|animation| animation.seen);
+        self.transitions.retain(|state| state.seen);
+        self.timers.retain(|timer| timer.seen);
+        bump.prepare_scratch();
+        self.bump = bump;
     }
 
-    /// establishes the current node's layout
-    pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
-        let Ui { inner, .. } = layout.on_insert(self);
-        inner.frame.store_layout(inner.node, layout);
-        Ui {
-            inner,
-            marker: PhantomData,
-        }
-    }
-}
-
-impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
-    /// assigns an absolute id before this node is given children
-    pub fn id(mut self, id: Id) -> Self {
-        self.inner.set_widget_id(id);
-        self
+    /// paints the resolved graph and releases its retained values
+    pub fn paint(&mut self, context: &mut C) {
+        let mut bump = std::mem::take(&mut self.bump);
+        paint::paint(self, &bump, context);
+        bump.clear();
+        self.bump = bump;
     }
 
-    /// sets this child's layout item
-    #[inline]
-    pub fn item(self, item: I) -> Self {
-        let node = &mut self.inner.frame.nodes[self.inner.node.index()];
-        if node.item.offset().is_some() {
-            *self.inner.frame.bump.load_mut(node.item) = item;
-        } else {
-            node.item = self.inner.frame.bump.store(item);
-        }
-        self
+    pub fn has_pending_redraw(&self) -> bool {
+        self.frame_requested
+            || self.settle
+            || self.animations.iter().any(AnimationState::is_active)
+            || self.transitions.iter().any(TransitionState::is_active)
     }
 
-    /// builds a widget in this node
-    pub fn build<W: Widget<C>>(self, widget: W) -> W::Response {
-        widget.build(self.into())
-    }
-
-    pub fn build_measured<W: Widget<C>>(
-        self,
-        bounds: Constraints<C::Scalar>,
-        widget: W,
-    ) -> (W::Response, Size<C::Scalar>) {
-        Ui::<C>::from(self).build_measured(bounds, widget)
-    }
-
-    /// establishes the current node's layout
-    pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
-        Ui::<C>::from(self).layout(layout)
-    }
-}
-
-impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
-    /// assigns an absolute id before this node is given children
-    pub fn id(mut self, id: Id) -> Self {
-        self.inner.set_widget_id(id);
-        self
-    }
-
-    /// creates a child with this layout's shared default item
-    #[inline]
-    pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
-        let node = self.inner.push_child();
-        Ui::new(self.inner.frame, self.inner.context, self.inner.scratch, node)
-    }
-}
-
-impl<C: Context, S> Ui<'_, C, S> {
-    /// returns the area from the previous layout and tracks this id for the next one
-    pub fn area(&mut self, id: Id) -> Option<Rect<C::Scalar>> {
-        self.inner.frame.areas_requested.push(id);
-        let areas = &self.inner.frame.areas_previous;
-        areas
-            .binary_search_by_key(&id, |(candidate, _)| *candidate)
-            .ok()
-            .map(|index| areas[index].1)
-    }
-
-    /// retains `kind` for this node while builds keep requesting it
-    ///
-    /// `kind` is used once. returns its response from the update before this build
-    /// or its first update without resolved geometry or routed input when newly registered
-    /// request each interaction kind only once per widget in a build
-    pub fn interact<K: Interact<C::Scalar>>(&mut self, kind: K) -> K::Response {
-        let id = self.current_id();
-        let node = self.inner.node;
-        let frame = &mut *self.inner.frame;
-        frame.nodes[node.index()].interactive = true;
-        frame.interaction.interact(id, Some(node.value), kind, frame.time)
-    }
-
-    /// interacts as a node assigned this exact widget id, which may be built later
-    /// request each interaction kind only once per widget in a build
-    pub fn interact_widget<K: Interact<C::Scalar>>(&mut self, id: Id, kind: K) -> K::Response {
-        let frame = &mut *self.inner.frame;
-        frame.interaction.interact(id, None, kind, frame.time)
-    }
-
-    /// access context during frame construction
-    pub fn context(&self) -> &C {
-        self.inner.context
-    }
-
-    /// access mutable context during frame construction
-    pub fn context_mut(&mut self) -> &mut C {
-        self.inner.context
-    }
-
-    /// returns the focused widget in this node's built subtree including this node
-    ///
-    /// call after building children to include them. follows structural parenting.
-    pub fn focused(&self) -> Option<Id> {
-        let focused = self.inner.frame.interaction.focused?;
-        self.contains_widget(focused).then_some(focused)
-    }
-
-    /// checks this node and its children already built in the current frame
-    pub fn contains_widget(&self, id: Id) -> bool {
-        self.inner.frame.nodes[self.inner.node.index()..]
+    pub fn next_timer_deadline(&self) -> Option<Duration> {
+        self.timers
             .iter()
-            .any(|node| node.widget_id == id)
-    }
-
-    pub fn is_focused(&self, id: Id) -> bool {
-        self.inner.frame.interaction.focused == Some(id)
-    }
-
-    pub fn focus(&mut self, id: Id) {
-        self.inner.frame.interaction.focused = Some(id);
-    }
-
-    pub fn clear_focus(&mut self) {
-        self.inner.frame.interaction.focused = None;
-    }
-
-    pub fn pointer_position(&self) -> Option<Point<C::Scalar>> {
-        self.inner.frame.interaction.position
-    }
-
-    /// this frame's input, the same for every widget
-    pub fn input(&self) -> Input<C::Scalar> {
-        self.inner.frame.input
-    }
-
-    pub fn screen(&self) -> Rect<C::Scalar> {
-        self.inner.frame.screen
-    }
-
-    pub fn time(&self) -> Duration {
-        self.inner.frame.time
-    }
-
-    pub fn animate(&mut self, id: Id, target: f32, duration: Duration, easing: Easing) -> f32 {
-        let frame = &mut *self.inner.frame;
-        animation::AnimationState::update(&mut frame.animations, id, target, |animation| {
-            animation.advance(target, duration, easing, frame.time)
-        })
-    }
-
-    pub fn animate_loop(&mut self, id: Id, duration: Duration, easing: Easing) -> f32 {
-        let frame = &mut *self.inner.frame;
-        animation::AnimationState::update(&mut frame.animations, id, 0.0, |animation| {
-            animation.advance_loop(duration, easing, frame.time)
-        })
-    }
-
-    pub fn timer(&mut self, id: Id, duration: Duration) -> bool {
-        let frame = &mut *self.inner.frame;
-        timer::TimerState::update(&mut frame.timers, id, duration, None, frame.time)
-    }
-
-    pub fn timer_loop(&mut self, id: Id, duration: Duration) -> bool {
-        assert!(!duration.is_zero(), "looping timer duration must be nonzero");
-        let frame = &mut *self.inner.frame;
-        timer::TimerState::update(&mut frame.timers, id, duration, Some(duration), frame.time)
+            .filter_map(TimerState::deadline)
+            .chain(self.interaction.deadline)
+            .min()
     }
 
     pub fn request_frame(&mut self) {
-        self.inner.frame.request_frame();
+        self.frame_requested = true;
     }
-}
 
-impl<'ui, C: Context, I: 'static> From<Ui<'ui, C, state::Child<I>>> for Ui<'ui, C> {
-    fn from(ui: Ui<'ui, C, state::Child<I>>) -> Self {
-        Self {
-            inner: ui.inner,
-            marker: PhantomData,
-        }
-    }
-}
-
-impl<C: Context, A: Atom<C>> Widget<C, state::Node> for AtomWidget<A> {
-    type Response = ();
-
-    fn build(self, ui: Ui<'_, C, state::Node>) {
-        atom::insert(ui.inner.frame, ui.inner.node, self.0);
+    /// returns the area from the current frame after layout
+    pub fn area(&self, id: Id) -> Option<Rect<C::Scalar>> {
+        self.nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| (node.widget_id == id).then_some(self.placements[index].area))
     }
 }
 
@@ -374,89 +242,9 @@ pub struct NodeId {
     generation: u16,
 }
 
-/// selects a node for visual parenting or absolute positioning
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum NodeTarget {
-    /// the node's structural parent
-    #[default]
-    Parent,
-    /// an earlier node in the current render
-    Node(NodeId),
-    /// an earlier node whose unique widget id is already assigned
-    Widget(Id),
-    /// the frame root
-    Root,
-}
-
-impl From<Id> for NodeTarget {
-    fn from(id: Id) -> Self {
-        Self::Widget(id)
-    }
-}
-
-impl From<NodeId> for NodeTarget {
-    fn from(id: NodeId) -> Self {
-        Self::Node(id)
-    }
-}
-
 //
 // internals
 //
-
-include!("graph.rs");
-
-struct UiInner<'ui, C: Context> {
-    frame: &'ui mut Frame<C>,
-    context: &'ui mut C,
-    scratch: &'ui BumpArena,
-    node: NodeId,
-    next_child: u32,
-    owns_node: bool,
-}
-
-impl<C: Context> UiInner<'_, C> {
-    fn set_widget_id(&mut self, id: Id) {
-        assert_eq!(
-            self.next_child, 0,
-            "a widget id must be assigned before children are built"
-        );
-        self.frame.nodes[self.node.index()].widget_id = id;
-    }
-
-    #[inline]
-    fn push_child(&mut self) -> NodeId {
-        let slot = self.next_child;
-        self.next_child = slot.checked_add(1).expect("child id overflow");
-        let id = self.frame.nodes[self.node.index()].widget_id.child(slot);
-        self.frame.push_node(Some(self.node), id)
-    }
-}
-
-impl<'ui, C: Context, S> Ui<'ui, C, S> {
-    fn new(frame: &'ui mut Frame<C>, context: &'ui mut C, scratch: &'ui BumpArena, node: NodeId) -> Self {
-        Self {
-            inner: UiInner {
-                frame,
-                context,
-                scratch,
-                node,
-                next_child: 0,
-                owns_node: true,
-            },
-            marker: PhantomData,
-        }
-    }
-}
-
-impl<C: Context> Drop for UiInner<'_, C> {
-    fn drop(&mut self) {
-        if !self.owns_node {
-            return;
-        }
-        self.frame.nodes[self.node.index()].subtree_end = (self.frame.nodes.len() - 1) as u32;
-    }
-}
 
 impl NodeId {
     #[inline]
@@ -473,4 +261,267 @@ impl NodeId {
         generation::assert(self.generation);
         self.value as usize
     }
+}
+
+impl<C: Context> Frame<C> {
+    fn store_layout<L: Layout<C>>(&mut self, node: NodeId, value: L) {
+        let type_id = TypeId::of::<L>();
+        let kind = self
+            .layout_kinds
+            .iter()
+            .position(|kind| kind.type_id == type_id)
+            .unwrap_or_else(|| {
+                self.layout_kinds.push(LayoutKind {
+                    type_id,
+                    run: layout::run::<C, L>,
+                    sizing: |bump, id, axis| bump.load::<L>(id).sizing(axis),
+                    default_item: BumpId::NONE,
+                });
+                self.layout_kinds.len() - 1
+            });
+        if self.layout_kinds[kind].default_item.offset().is_none() {
+            self.layout_kinds[kind].default_item = self.bump.store(L::Item::default());
+        }
+        let kind = u16::try_from(kind).expect("too many layout kinds");
+        let bump_id = self.bump.store(value);
+        let node = &mut self.nodes[node.index()];
+        node.layout = bump_id;
+        node.layout_kind = kind;
+    }
+
+    fn store_clip<X: Clip<C>>(&mut self, clip: X) -> StoredClipId {
+        let type_id = TypeId::of::<X>();
+        let kind = self
+            .clip_kinds
+            .iter()
+            .position(|kind| kind.type_id == type_id)
+            .unwrap_or_else(|| {
+                self.clip_kinds.push(ClipKind {
+                    type_id,
+                    shape: |bump, id, area| bump.load::<X>(id).shape(area),
+                    push: |bump, id, context, area| bump.load::<X>(id).push(context, area),
+                    pop: |bump, id, context| bump.load::<X>(id).pop(context),
+                });
+                self.clip_kinds.len() - 1
+            });
+        let id = StoredClipId::new(self.clips.len());
+        self.clips.push(StoredClip {
+            kind: u16::try_from(kind).expect("too many clip types"),
+            bump_id: self.bump.store(clip),
+        });
+        id
+    }
+
+    fn push_node(&mut self, parent: Option<NodeId>, widget_id: Id) -> NodeId {
+        let id = NodeId::new(self.nodes.len());
+        self.nodes.push(StoredNode {
+            widget_id,
+            parent: parent.unwrap_or(id),
+            visual_parent: parent.unwrap_or(id),
+            subtree_end: id.value,
+            first_atom: StoredAtomId::NONE,
+            last_atom: StoredAtomId::NONE,
+            layout: BumpId::NONE,
+            layout_kind: 0,
+            clip: StoredClipId::NONE,
+            item: BumpId::NONE,
+            relative: parent.unwrap_or(id),
+            out_of_flow: false,
+            interactive: false,
+            bounds: BoundsId::NONE,
+            resolved_clip: ResolvedClipId::NONE,
+        });
+        self.placements.push(Placement {
+            area: Rect::default(),
+            z_index: 0,
+        });
+        id
+    }
+
+    fn resolve_target(&self, node: NodeId, target: NodeTarget) -> NodeId {
+        let target = match target {
+            NodeTarget::Parent => self.nodes[node.index()].parent,
+            NodeTarget::Root => NodeId::new(0),
+            NodeTarget::Node(id) => id,
+            NodeTarget::Widget(id) => {
+                let open = {
+                    // open ancestors are cheap to find on the parent chain
+                    let mut ancestor = self.nodes[node.index()].parent;
+                    loop {
+                        let stored = &self.nodes[ancestor.index()];
+                        if stored.widget_id == id {
+                            break Some(ancestor);
+                        }
+                        if stored.parent == ancestor {
+                            break None;
+                        }
+                        ancestor = stored.parent;
+                    }
+                };
+                if let Some(open) = open {
+                    open
+                } else {
+                    // search recent closed nodes first
+                    // todo: repeated lookups are n^2
+                    let index = self.nodes[..node.index()]
+                        .iter()
+                        .rposition(|stored| stored.widget_id == id)
+                        .expect("target widget id must already be assigned");
+                    NodeId::new(index)
+                }
+            }
+        };
+        assert!(target.index() < node.index(), "target must be declared before its node");
+        target
+    }
+
+    fn bounds_mut(&mut self, node: NodeId) -> &mut Bounds<C::Scalar> {
+        let index = if let Some(index) = self.nodes[node.index()].bounds.index() {
+            index
+        } else {
+            let id = BoundsId::new(self.bounds.len());
+            self.nodes[node.index()].bounds = id;
+            self.bounds.push(Bounds {
+                node,
+                hit: Sides::all(C::Scalar::ZERO),
+                transition: None,
+            });
+            id.index().unwrap()
+        };
+        &mut self.bounds[index]
+    }
+
+    fn clip_bounds(&self, clip: ResolvedClipId) -> Rect<C::Scalar> {
+        clip.index()
+            .map_or(self.screen, |clip| self.interaction.clips[clip].bounds)
+    }
+}
+
+#[cfg(debug_assertions)]
+mod generation {
+    use std::{
+        cell::Cell,
+        sync::atomic::{AtomicU16, Ordering},
+    };
+
+    static NEXT: AtomicU16 = AtomicU16::new(1);
+
+    thread_local! {
+        static CURRENT: Cell<u16> = const { Cell::new(0) };
+    }
+
+    pub fn begin() {
+        CURRENT.set(NEXT.fetch_add(1, Ordering::Relaxed));
+    }
+
+    pub fn get() -> u16 {
+        CURRENT.get()
+    }
+
+    #[inline]
+    pub fn assert(id: u16) {
+        assert_eq!(id, get(), "id belongs to another frame");
+    }
+}
+
+struct StoredNode {
+    widget_id: Id,
+    parent: NodeId,
+    visual_parent: NodeId,
+    subtree_end: u32,
+    first_atom: StoredAtomId,
+    last_atom: StoredAtomId,
+    layout: BumpId,
+    layout_kind: u16,
+    clip: StoredClipId,
+    item: BumpId,
+    relative: NodeId,
+    out_of_flow: bool,
+    // requested an interaction kind
+    interactive: bool,
+    bounds: BoundsId,
+    resolved_clip: ResolvedClipId,
+}
+
+#[derive(Clone, Copy)]
+struct Placement<T> {
+    area: Rect<T>,
+    z_index: i16,
+}
+
+#[derive(Clone, Copy)]
+struct TargetSize<T> {
+    size: Size<T>,
+    properties: TransitionProperties,
+}
+
+#[derive(Clone, Copy)]
+struct Bounds<T> {
+    node: NodeId,
+    hit: Sides<T>,
+    transition: Option<Transition>,
+}
+
+#[derive(Clone, Copy)]
+pub struct ResolvedClip<T> {
+    parent: ResolvedClipId,
+    depth: u32,
+    clip: StoredClipId,
+    area: Rect<T>,
+    bounds: Rect<T>,
+    shape: ClipShape<T>,
+}
+
+#[derive(Clone, Copy)]
+struct StoredAtom {
+    kind: u16,
+    bump_id: BumpId,
+    next: StoredAtomId,
+}
+
+#[derive(Clone, Copy)]
+struct StoredClip {
+    kind: u16,
+    bump_id: BumpId,
+}
+
+#[derive(Clone, Copy)]
+struct Index<T>(u32, PhantomData<fn() -> T>);
+
+impl<T> Index<T> {
+    const NONE: Self = Self(u32::MAX, PhantomData);
+
+    fn new(index: usize) -> Self {
+        Self(u32::try_from(index).expect("too many frame values"), PhantomData)
+    }
+
+    fn index(&self) -> Option<usize> {
+        (self.0 != u32::MAX).then_some(self.0 as usize)
+    }
+}
+
+type StoredAtomId = Index<StoredAtom>;
+type StoredClipId = Index<StoredClip>;
+type BoundsId = Index<Bounds<()>>;
+type ResolvedClipId = Index<ResolvedClip<()>>;
+
+struct AtomKind<C: Context> {
+    type_id: TypeId,
+    measure: fn(&BumpArena, BumpId, &mut C, Constraints<C::Scalar>) -> Size<C::Scalar>,
+    paint_bounds: fn(&BumpArena, BumpId, Rect<C::Scalar>) -> Rect<C::Scalar>,
+    paint: fn(&BumpArena, BumpId, &mut C, Rect<C::Scalar>),
+}
+
+struct LayoutKind<C: Context> {
+    type_id: TypeId,
+    run: for<'a> fn(&mut layout::LayoutCx<'a, C>, BumpId, Constraints<C::Scalar>) -> Size<C::Scalar>,
+    sizing: fn(&BumpArena, BumpId, Axis) -> Sizing<C::Scalar>,
+    default_item: BumpId,
+}
+
+struct ClipKind<C: Context> {
+    type_id: TypeId,
+    shape: fn(&BumpArena, BumpId, Rect<C::Scalar>) -> ClipShape<C::Scalar>,
+    push: fn(&BumpArena, BumpId, &mut C, Rect<C::Scalar>),
+    pop: fn(&BumpArena, BumpId, &mut C),
 }

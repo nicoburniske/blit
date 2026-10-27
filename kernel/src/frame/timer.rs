@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use crate::interact::Id;
+use super::*;
 
 pub struct TimerState {
     pub id: Id,

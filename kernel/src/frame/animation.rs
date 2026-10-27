@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use crate::{animation::Easing, interact::Id};
+use super::*;
 
 pub struct AnimationState {
     pub id: Id,
@@ -94,6 +92,113 @@ impl AnimationState {
             easing: Easing::Linear,
             seen: false,
             looping: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct TransitionState<T> {
+    pub id: Id,
+    pub current: Rect<T>,
+    pub initial: Rect<T>,
+    pub target: Rect<T>,
+    pub started_at: Option<Duration>,
+    pub active: TransitionProperties,
+    pub node: NodeId,
+    pub config: Transition,
+    pub initialized: bool,
+    pub seen: bool,
+}
+
+impl<T: Scalar> TransitionState<T> {
+    pub fn new(id: Id, node: NodeId, config: Transition) -> Self {
+        Self {
+            id,
+            current: Rect::default(),
+            initial: Rect::default(),
+            target: Rect::default(),
+            started_at: None,
+            active: TransitionProperties::NONE,
+            node,
+            config,
+            initialized: false,
+            seen: true,
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.started_at.is_some()
+    }
+
+    pub fn advance(&mut self, target: Rect<T>, now: Duration, resized: bool) {
+        if !self.initialized || (resized && !self.config.properties.intersects(TransitionProperties::RESIZE)) {
+            self.current = target;
+            self.initial = target;
+            self.target = target;
+            self.initialized = true;
+            self.started_at = None;
+            self.active = TransitionProperties::NONE;
+            return;
+        }
+        self.active = self.active.intersection(self.config.properties);
+        if self.active.is_empty() {
+            self.started_at = None;
+        }
+        if self.started_at.is_some() && self.config.duration.is_zero() {
+            self.current = self.target;
+            self.started_at = None;
+            self.active = TransitionProperties::NONE;
+        }
+        if let Some(started_at) = self.started_at {
+            let progress = (now.saturating_sub(started_at).as_secs_f32() / self.config.duration.as_secs_f32()).min(1.0);
+            let amount = self.config.easing.apply(progress);
+            if self.active.intersects(TransitionProperties::X) {
+                self.current.x = self.initial.x.lerp(self.target.x, amount);
+            }
+            if self.active.intersects(TransitionProperties::Y) {
+                self.current.y = self.initial.y.lerp(self.target.y, amount);
+            }
+            if self.active.intersects(TransitionProperties::WIDTH) {
+                self.current.width = self.initial.width.lerp(self.target.width, amount);
+            }
+            if self.active.intersects(TransitionProperties::HEIGHT) {
+                self.current.height = self.initial.height.lerp(self.target.height, amount);
+            }
+            if progress == 1.0 {
+                self.current = self.target;
+                self.started_at = None;
+                self.active = TransitionProperties::NONE;
+            }
+        }
+
+        let mut changed = TransitionProperties::NONE;
+        if self.config.properties.intersects(TransitionProperties::X) && self.target.x != target.x {
+            changed = changed.union(TransitionProperties::X);
+        }
+        if self.config.properties.intersects(TransitionProperties::Y) && self.target.y != target.y {
+            changed = changed.union(TransitionProperties::Y);
+        }
+        if self.config.properties.intersects(TransitionProperties::WIDTH) && self.target.width != target.width {
+            changed = changed.union(TransitionProperties::WIDTH);
+        }
+        if self.config.properties.intersects(TransitionProperties::HEIGHT) && self.target.height != target.height {
+            changed = changed.union(TransitionProperties::HEIGHT);
+        }
+
+        self.target = target;
+        if !changed.is_empty() {
+            self.initial = self.current;
+            self.active = self.active.union(changed);
+            if self.config.duration.is_zero() {
+                self.current = target;
+                self.started_at = None;
+                self.active = TransitionProperties::NONE;
+            } else {
+                self.started_at = Some(now);
+            }
+        } else if self.started_at.is_none() {
+            self.initial = target;
+            self.current = target;
         }
     }
 }

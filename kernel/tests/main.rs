@@ -15,9 +15,9 @@ use blit::{
 };
 
 mod animation;
+mod bump;
 mod frame;
-mod interaction;
-mod kinds;
+mod interact;
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TestContext, S>;
 
@@ -281,44 +281,6 @@ impl Layout<TestContext> for SharedItems {
             cx.set_child_position(child, Point::ZERO);
         }
         bounds.min
-    }
-}
-
-#[derive(Default)]
-struct Integer;
-impl Context for Integer {
-    type Scalar = i32;
-}
-
-type Scene = InputScene<(), Press>;
-
-/// one root node running a single interaction kind
-struct InputScene<C: Context, K> {
-    frame: Frame<C>,
-    context: C,
-    kind: K,
-}
-
-impl<C: Context + Default, K: Interact<C::Scalar>> InputScene<C, K> {
-    fn new(kind: K) -> Self {
-        let mut scene = Self {
-            frame: Frame::default(),
-            context: C::default(),
-            kind,
-        };
-        scene.step(0, Input::None);
-        scene
-    }
-    fn step(&mut self, time: u64, input: Input<C::Scalar>) -> K::Response {
-        let output = self.frame.build(
-            &mut self.context,
-            FrameInfo::new(Size::uniform(C::Scalar::from_f32(200.0))),
-            Duration::from_millis(time),
-            input,
-            |mut ui: blit::Ui<'_, C>| ui.interact(self.kind),
-        );
-        self.frame.layout(&mut self.context);
-        output
     }
 }
 
