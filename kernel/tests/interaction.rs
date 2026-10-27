@@ -13,7 +13,6 @@ fn presses() {
             scene.step(30, pointer(id, Down, [10.0, 10.0]));
             let moved = scene.step(40, pointer(id, Move, [10.0, 300.0]));
             assert!(moved.deactivated && !moved.active);
-            assert!(!scene.frame.has_pending_redraw());
             assert!(!scene.step(50, pointer(id, ending, [10.0, 10.0])).clicked);
         }
     }
@@ -234,36 +233,41 @@ fn clip_shapes() {
 }
 
 #[test]
-fn hover_tracks_changed_ancestry() {
+fn input_settles_against_its_layout() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
-    let parent = Cell::new(0);
-    let build = |ui: Ui<'_>| {
+    let offset = Cell::new(0.0);
+    let build = |mut ui: Ui<'_>| {
+        // scrolling moves the row under a still pointer
+        if matches!(ui.input(), Input::Scroll { .. }) {
+            offset.set(100.0);
+        }
         let mut root = ui.layout(Rects);
-        let mut parent = root
+        let mut row = root
             .child()
-            .item(Rect::new(0.0, 0.0, 200.0, 200.0))
-            .id(Id::new(parent.get()));
-        let hovered = parent.interact(Press::new()).hovered;
-        parent
-            .layout(Rects)
-            .child()
-            .item(Rect::new(0.0, 0.0, 200.0, 200.0))
-            .id(Id::new("leaf"))
-            .interact(Press::new());
-        hovered
+            .item(Rect::new(offset.get(), 0.0, 100.0, 200.0))
+            .id(Id::new("row"));
+        row.interact(Press::new()).hovered
     };
     render(&mut frame, &mut context, &build);
-    assert!(render_inputs(
+    let scroll = Input::Scroll {
+        position: Point::new(150.0, 10.0),
+        delta_x: 0.0,
+        delta_y: 1.0,
+        modifiers: Modifiers::NONE,
+        continuous: false,
+        phase: ScrollPhase::Moved,
+    };
+    // the scrolled build still sees the layout from before it
+    assert!(!render_inputs(
         &mut frame,
         &mut context,
         Duration::ZERO,
-        [pointer(None, Move, [10.0, 10.0])],
+        [scroll],
         &build
     ));
-    parent.set(1);
-    assert!(!render(&mut frame, &mut context, &build));
     assert!(frame.has_pending_redraw());
     assert!(render(&mut frame, &mut context, &build));
+    assert!(!frame.has_pending_redraw());
 }
 
 #[test]

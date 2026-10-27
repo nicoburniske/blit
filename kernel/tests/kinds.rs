@@ -112,20 +112,17 @@ fn capture_cancels_click() {
             (seen, child.interact(Press::new()))
         };
         render(&mut frame, &mut context, &build);
-        let mut step = |input| {
-            let output = render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
-            (output, frame.has_pending_redraw())
-        };
+        let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
         // the button claims the press, hiding it from the ancestor
-        let ((seen, response), _) = step(pointer(Some(1), Down, [10.0, 10.0]));
+        let (seen, response) = step(pointer(Some(1), Down, [10.0, 10.0]));
         assert!(response.active && seen.is_none());
-        let ((seen, response), _) = step(pointer(Some(1), Move, [12.0, 10.0]));
+        let (seen, response) = step(pointer(Some(1), Move, [12.0, 10.0]));
         assert!(response.active && seen.is_none());
         // past the slop the button lets go first, then the ancestor takes it in the same build
-        let ((seen, response), redraw) = step(pointer(Some(1), Move, [30.0, 10.0]));
-        assert!(seen.unwrap().1 && !redraw);
+        let (seen, response) = step(pointer(Some(1), Move, [30.0, 10.0]));
+        assert!(seen.unwrap().1);
         assert!(response.deactivated && !response.active);
-        assert!(!step(pointer(Some(1), ending, [30.0, 10.0])).0.1.clicked);
+        assert!(!step(pointer(Some(1), ending, [30.0, 10.0])).1.clicked);
     }
 }
 

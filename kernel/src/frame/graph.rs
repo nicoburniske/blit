@@ -72,7 +72,8 @@ impl<C: Context> Frame<C> {
         input: Input<C::Scalar>,
         widget: W,
     ) -> W::Response {
-        self.frame_requested = false;
+        // input settles in one more frame that updates against the layout it produced
+        self.frame_requested = !matches!(input, Input::None);
         #[cfg(debug_assertions)]
         generation::begin();
         self.nodes.clear();

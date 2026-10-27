@@ -214,8 +214,6 @@ pub struct InteractionState<T> {
     hits: Vec<HitItem<T>>,
     // node under the pointer in the previous layout
     hover: Option<u32>,
-    // ids hovered when this build began, compared after layout
-    hover_key: u64,
     // a deeper widget took focus during this update
     focus_taken: bool,
     kinds: Kinds<T>,
@@ -450,7 +448,6 @@ impl<T: Scalar> InteractionState<T> {
             .position
             .and_then(|position| hit(&self.hits, &self.clips, position))
             .map(|hit| hit.node);
-        self.hover_key = self.hover_key(self.hover);
         // deepest kinds see contacts first
         self.deadline = None;
         let kinds = &mut self.kinds;
@@ -519,17 +516,6 @@ impl<T: Scalar> InteractionState<T> {
         };
         tracked.position = position;
         tracked.phase = phase;
-    }
-
-    /// identifies the widgets under the pointer to notice when layout changes them
-    fn hover_key(&self, node: Option<u32>) -> u64 {
-        let Some(node) = node else {
-            return 0;
-        };
-        self.hits
-            .iter()
-            .filter(|hit| hit.node <= node && node <= hit.end)
-            .fold(0, |key: u64, hit| key.wrapping_add(hit.id.0.get()))
     }
 }
 
@@ -675,12 +661,6 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
         }
     }
     frame.areas_previous.sort_unstable_by_key(|(id, _)| *id);
-    let interaction = &frame.interaction;
-    let hover = interaction
-        .position
-        .and_then(|position| hit(&interaction.hits, &interaction.clips, position))
-        .map(|hit| hit.node);
-    frame.frame_requested |= interaction.hover_key(hover) != interaction.hover_key;
 }
 
 fn hit<T: Scalar>(hits: &[HitItem<T>], clips: &[ResolvedClip<T>], position: Point<T>) -> Option<HitItem<T>> {
