@@ -249,78 +249,64 @@ impl<T: Scalar> InteractionState<T> {
                 kinds.kinds.len() - 1
             });
         let kind = u16::try_from(kind).expect("too many interaction kinds");
-        // only widgets with a slot were interactive in the previous layout
-        let mut existed = false;
-        let mut matches = |slot: &Slot| {
-            slot.id == id && {
-                existed = true;
-                slot.kind == kind
+        let previous = &kinds.slots[..kinds.previous_len];
+        let index = match previous.binary_search_by_key(&(id, kind), |slot| (slot.id, slot.kind)) {
+            Ok(index) => {
+                debug_assert_eq!(previous[index].end, UNRESOLVED, "interaction requested twice");
+                index
             }
-        };
-        let cursor = kinds.cursor;
-        // builds request kinds in nearly the same order each frame
-        let index = if let Some(offset) = kinds.slots[cursor..].iter().position(&mut matches) {
-            kinds.slots.swap(cursor, cursor + offset);
-            kinds.cursor += 1;
-            cursor
-        } else if let Some(index) = kinds.slots[..cursor].iter().position(&mut matches) {
-            index
-        } else {
-            let hit = existed.then(|| self.hits.iter().find(|hit| hit.id == id)).flatten();
-            let (previous, end) = hit.map_or((UNRESOLVED, 0), |hit| (hit.node, hit.end));
-            let mut focused = self.focused;
-            let output = initial.update(&mut InteractCx {
-                id,
-                node: previous,
-                end,
-                contacts: &mut [],
-                scroll: &mut None,
-                focused: &mut focused,
-                focus_taken: &mut true,
-                hits: &self.hits,
-                clips: &self.clips,
-                hover: self.hover,
-                deadline: &mut self.deadline,
-                input: &Input::None,
-                time,
-            });
-            let value = (initial, output);
-            // reserve first so a panic cannot lose a reused cell
-            kinds.slots.reserve(1);
-            let free = &mut kinds.kinds[kind as usize].free;
-            let offset = match *free {
-                Some(offset) => {
-                    let offset = offset.get() - 1;
-                    let cell = kinds
-                        .state
-                        .as_ptr()
-                        .wrapping_add(offset as usize)
-                        .cast::<Cell<(K, K::Output)>>();
-                    // safety: free cells of this kind are dead cells of this layout holding the next link
-                    unsafe {
-                        *free = (*cell).next;
-                        cell.write(Cell { value });
+            Err(_) => {
+                let mut focused = self.focused;
+                let output = initial.update(&mut InteractCx {
+                    id,
+                    node: UNRESOLVED,
+                    end: 0,
+                    contacts: &mut [],
+                    scroll: &mut None,
+                    focused: &mut focused,
+                    focus_taken: &mut true,
+                    hits: &self.hits,
+                    clips: &self.clips,
+                    hover: None,
+                    deadline: &mut self.deadline,
+                    input: &Input::None,
+                    time,
+                });
+                let value = (initial, output);
+                // reserve first so a panic cannot lose a reused cell
+                kinds.slots.reserve(1);
+                let free = &mut kinds.kinds[kind as usize].free;
+                let offset = match *free {
+                    Some(offset) => {
+                        let offset = offset.get() - 1;
+                        let cell = kinds
+                            .state
+                            .as_ptr()
+                            .wrapping_add(offset as usize)
+                            .cast::<Cell<(K, K::Output)>>();
+                        // safety: free cells of this kind are dead cells of this layout holding the next link
+                        unsafe {
+                            *free = (*cell).next;
+                            cell.write(Cell { value });
+                        }
+                        offset
                     }
-                    offset
-                }
-                None => kinds.state.push(Cell { value }).byte(),
-            };
-            // inserting keeps the next expected slot at the cursor
-            kinds.slots.insert(
-                cursor,
-                Slot {
+                    None => kinds.state.push(Cell { value }).byte(),
+                };
+                kinds.slots.push(Slot {
                     id,
                     node: UNRESOLVED,
                     end: 0,
                     offset,
                     kind,
-                },
-            );
-            kinds.cursor += 1;
-            cursor
+                });
+                kinds.slots.len() - 1
+            }
         };
         let slot = &mut kinds.slots[index];
         slot.node = node.map_or(UNRESOLVED, |node| u32::try_from(node).expect("too many frame nodes"));
+        slot.end = u32::try_from(kinds.requested).expect("too many interaction slots");
+        kinds.requested += 1;
         // safety: slots of this kind point at live cells holding K and its output
         unsafe { (*kinds.state.as_ptr().add(slot.offset as usize).cast::<(K, K::Output)>()).1 }
     }
@@ -473,8 +459,9 @@ impl<T: Scalar> InteractionState<T> {
         // deepest kinds see contacts first
         self.deadline = None;
         let kinds = &mut self.kinds;
-        kinds.cursor = 0;
-        for slot in kinds.slots.iter().rev() {
+        kinds.requested = 0;
+        kinds.previous_len = kinds.slots.len();
+        for slot in kinds.slots.iter_mut().rev() {
             (kinds.kinds[slot.kind as usize].update)(
                 &kinds.state,
                 slot.offset,
@@ -494,7 +481,9 @@ impl<T: Scalar> InteractionState<T> {
                     time,
                 },
             );
+            slot.end = UNRESOLVED;
         }
+        kinds.slots.sort_unstable_by_key(|slot| (slot.id, slot.kind));
     }
 
     fn press(&mut self, source: Source, position: Point<T>, modifiers: Modifiers, time: Duration) {
@@ -551,35 +540,42 @@ impl<T: Scalar> InteractionState<T> {
 
 pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     let kinds = &mut frame.interaction.kinds;
-    for slot in &kinds.slots[kinds.cursor..] {
+    if kinds
+        .slots
+        .iter()
+        .any(|slot| slot.end != UNRESOLVED && slot.node == UNRESOLVED)
+    {
+        kinds
+            .slots
+            .sort_unstable_by_key(|slot| (slot.end == UNRESOLVED, slot.id, slot.kind));
+        let slots = &mut kinds.slots[..kinds.requested];
+        // named widgets find their nodes now that the build placed them
+        for (index, stored) in frame.nodes.iter_mut().enumerate() {
+            let first = slots.partition_point(|slot| slot.id < stored.widget_id);
+            for slot in slots[first..].iter_mut().take_while(|slot| slot.id == stored.widget_id) {
+                if slot.node == UNRESOLVED {
+                    slot.node = index as u32;
+                    stored.interactive = true;
+                }
+            }
+        }
+    }
+    kinds
+        .slots
+        .sort_unstable_by_key(|slot| (slot.end == UNRESOLVED, slot.node, slot.end));
+    for slot in &kinds.slots[kinds.requested..] {
         let free = &mut kinds.kinds[slot.kind as usize].free;
         let cell = kinds.state.as_ptr().wrapping_add(slot.offset as usize);
         // safety: unrequested cells are dead and every cell starts with room for the link
         unsafe { cell.cast::<Option<NonZeroU32>>().write(*free) };
         *free = NonZeroU32::new(slot.offset + 1);
     }
-    kinds.slots.truncate(kinds.cursor);
+    kinds.slots.truncate(kinds.requested);
     for slot in &mut kinds.slots {
-        // named widgets find their nodes now that the build placed them
-        if slot.node == UNRESOLVED
-            && let Some(index) = frame.nodes.iter().position(|stored| stored.widget_id == slot.id)
-        {
-            slot.node = index as u32;
-            frame.nodes[index].interactive = true;
-        }
         slot.end = frame
             .nodes
             .get(slot.node as usize)
             .map_or(0, |stored| stored.subtree_end);
-    }
-    // stable insertion sort stays near linear since builds request in preorder
-    let slots = &mut kinds.slots;
-    for sorted in 1..slots.len() {
-        let mut index = sorted;
-        while index > 0 && slots[index - 1].node > slots[index].node {
-            slots.swap(index - 1, index);
-            index -= 1;
-        }
     }
     let nodes = &frame.nodes;
     let hits = &frame.interaction.hits;
@@ -777,10 +773,10 @@ struct HitItem<T> {
 /// retained interaction kinds and their state
 #[derive(Default)]
 struct Kinds<T> {
-    // preorder by node so reverse iteration visits descendants first
+    // sorted by identity during builds and by node between layouts and updates
     slots: Vec<Slot>,
-    // slots requested by this build are moved before the cursor
-    cursor: usize,
+    previous_len: usize,
+    requested: usize,
     kinds: Vec<Kind<T>>,
     // cells of every kind, reused through each kind's free list
     state: Bump,
@@ -789,8 +785,8 @@ struct Kinds<T> {
 #[derive(Clone, Copy)]
 struct Slot {
     id: Id,
-    // node and subtree end in the previous layout
     node: u32,
+    // subtree end before updates, request order during builds, or unresolved when unrequested
     end: u32,
     offset: u32,
     kind: u16,

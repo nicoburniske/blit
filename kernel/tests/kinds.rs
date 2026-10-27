@@ -42,7 +42,7 @@ impl Interact<f32> for Pinch {
 }
 
 #[test]
-fn new_kind_observes_hover_without_another_frame() {
+fn new_kind_gets_geometry_after_layout() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let added = Cell::new(false);
     let build = |mut ui: Ui<'_>| {
@@ -57,6 +57,7 @@ fn new_kind_observes_hover_without_another_frame() {
         &build,
     );
     added.set(true);
+    assert!(!render(&mut frame, &mut context, &build));
     assert!(render(&mut frame, &mut context, &build));
     assert!(!frame.has_pending_redraw());
 }
