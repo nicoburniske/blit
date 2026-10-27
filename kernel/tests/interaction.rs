@@ -236,7 +236,7 @@ fn clip_shapes() {
 fn input_settles_against_its_layout() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let offset = Cell::new(0.0);
-    let build = |mut ui: Ui<'_>| {
+    let build = |ui: Ui<'_>| {
         // scrolling moves the row under a still pointer
         if matches!(ui.input(), Input::Scroll { .. }) {
             offset.set(100.0);

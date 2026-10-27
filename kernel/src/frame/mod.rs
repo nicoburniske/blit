@@ -292,16 +292,11 @@ impl<C: Context, S> Ui<'_, C, S> {
     }
 
     pub fn focus(&mut self, id: Id) {
-        if self.inner.frame.interaction.focused != Some(id) {
-            self.inner.frame.interaction.focused = Some(id);
-            self.inner.frame.request_frame();
-        }
+        self.inner.frame.interaction.focused = Some(id);
     }
 
     pub fn clear_focus(&mut self) {
-        if self.inner.frame.interaction.focused.take().is_some() {
-            self.inner.frame.request_frame();
-        }
+        self.inner.frame.interaction.focused = None;
     }
 
     pub fn pointer_position(&self) -> Option<Point<C::Scalar>> {

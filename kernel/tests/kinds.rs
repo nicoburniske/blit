@@ -56,7 +56,9 @@ fn new_kind_gets_geometry_after_layout() {
         [pointer(None, Move, [10.0, 10.0])],
         &build,
     );
+    // the app changes state and asks for a frame
     added.set(true);
+    frame.request_frame();
     assert!(!render(&mut frame, &mut context, &build));
     assert!(render(&mut frame, &mut context, &build));
     assert!(!frame.has_pending_redraw());

@@ -10,33 +10,29 @@ fn transitions() {
             (3.0, 2.0, 500, Rect::new(0.0, 1.0, 1.0, 2.0), Some(4.0), true),
             (3.0, 2.0, 1000, Rect::new(0.0, 2.0, 1.0, 3.0), None, false),
         ] {
-            render_inputs(
-                &mut frame,
-                &mut context,
-                Duration::from_millis(millis),
-                [],
-                |ui: Ui<'_>| {
-                    let mut column = ui.layout(Column);
-                    let mut child = column
-                        .child()
-                        .item(gap)
-                        .transition(Transition::new(Duration::from_secs(1)).height().y());
-                    if named {
-                        child = child.id(Id::new("transition"));
-                    }
-                    let (_, measured) = child.build_measured(
-                        Constraints {
-                            min: Size::new(1.0, 0.0),
-                            max: Size::new(1.0, f32::INFINITY),
-                        },
-                        |ui: Ui<'_>| {
-                            ui.layout(()).child().insert(Fill('X', Size::new(1.0, extent)));
-                        },
-                    );
-                    assert_eq!(measured, area.size());
-                    column.child().insert(Fill('Y', Size::uniform(1.0)));
-                },
-            );
+            let build = |ui: Ui<'_>| {
+                let mut column = ui.layout(Column);
+                let mut child = column
+                    .child()
+                    .item(gap)
+                    .transition(Transition::new(Duration::from_secs(1)).height().y());
+                if named {
+                    child = child.id(Id::new("transition"));
+                }
+                let (_, measured) = child.build_measured(
+                    Constraints {
+                        min: Size::new(1.0, 0.0),
+                        max: Size::new(1.0, f32::INFINITY),
+                    },
+                    |ui: Ui<'_>| {
+                        ui.layout(()).child().insert(Fill('X', Size::new(1.0, extent)));
+                    },
+                );
+                assert_eq!(measured, area.size());
+                column.child().insert(Fill('Y', Size::uniform(1.0)));
+            };
+            let time = Duration::from_millis(millis);
+            render_inputs(&mut frame, &mut context, time, [], build);
             if let Some(y) = sibling {
                 assert_eq!(
                     context.commands,
@@ -45,6 +41,8 @@ fn transitions() {
             } else {
                 assert_eq!(context.commands, [Paint('X', area)]);
             }
+            // the frame after settles without changing the transition
+            render_inputs(&mut frame, &mut context, time, [], build);
             assert_eq!(frame.has_pending_redraw(), pending);
         }
     }

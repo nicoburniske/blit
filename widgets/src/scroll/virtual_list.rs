@@ -593,13 +593,10 @@ mod tests {
             settle_frame(&mut frame, &mut state, count, tall);
             state.scroll_by(5_000.0);
             settle_frame(&mut frame, &mut state, count, tall);
-            render_frame(&mut frame, &mut state, count, Input::None, |index| {
-                (Id::new(index), 1.0)
-            });
+            settle_frame(&mut frame, &mut state, count, |index| (Id::new(index), 1.0));
             assert!(state.sample.len() <= 101);
             assert_eq!(state.position().0, 1);
             assert_eq!(frame.area(Id::new(1usize)).unwrap().y, 0.0);
-            assert!(!frame.has_pending_redraw());
         }
     }
 

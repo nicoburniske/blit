@@ -595,11 +595,7 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
         Route::Retired => None,
     };
     for tracked in &mut frame.interaction.contacts {
-        let next = next_route(tracked.route).unwrap_or(Route::Retired);
-        // a live contact losing its holder changes that holder's output
-        frame.frame_requested |=
-            !matches!(tracked.phase, Phase::Ended | Phase::Cancelled) && next.holder() != tracked.route.holder();
-        tracked.route = next;
+        tracked.route = next_route(tracked.route).unwrap_or(Route::Retired);
     }
     if frame.interaction.focused.is_some_and(|id| node(id).is_none()) {
         frame.interaction.focused = None;
@@ -688,16 +684,6 @@ enum Route {
     Pending { target: Option<Target>, claim: Option<Id> },
     Captured { owner: Id },
     Retired,
-}
-
-impl Route {
-    fn holder(self) -> Option<Id> {
-        match self {
-            Route::Pending { claim, .. } => claim,
-            Route::Captured { owner } => Some(owner),
-            Route::Retired => None,
-        }
-    }
 }
 
 /// a pending contact's deepest widget and its node in the previous layout

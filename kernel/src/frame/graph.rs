@@ -25,6 +25,8 @@ pub struct Frame<C: Context> {
     screen: Rect<C::Scalar>,
     resized: bool,
     frame_requested: bool,
+    // the next frame updates interactions against this layout
+    settle: bool,
     #[cfg(debug_assertions)]
     widget_ids: std::collections::HashSet<Id>,
 }
@@ -56,6 +58,7 @@ impl<C: Context> Default for Frame<C> {
             screen: Rect::default(),
             resized: false,
             frame_requested: true,
+            settle: false,
             #[cfg(debug_assertions)]
             widget_ids: Default::default(),
         }
@@ -72,8 +75,15 @@ impl<C: Context> Frame<C> {
         input: Input<C::Scalar>,
         widget: W,
     ) -> W::Response {
-        // input settles in one more frame that updates against the layout it produced
-        self.frame_requested = !matches!(input, Input::None);
+        // interactions update against the previous layout, so every frame settles in one more
+        // unless nothing but settling built it
+        let settling = std::mem::take(&mut self.settle)
+            && !self.has_pending_redraw()
+            && matches!(input, Input::None)
+            && self.screen.size() == frame.size
+            && self.next_timer_deadline().is_none_or(|deadline| deadline > time);
+        self.settle = !settling;
+        self.frame_requested = false;
         #[cfg(debug_assertions)]
         generation::begin();
         self.nodes.clear();
@@ -159,6 +169,7 @@ impl<C: Context> Frame<C> {
 
     pub fn has_pending_redraw(&self) -> bool {
         self.frame_requested
+            || self.settle
             || self.animations.iter().any(animation::AnimationState::is_active)
             || self.transitions.iter().any(transition::TransitionState::is_active)
     }
