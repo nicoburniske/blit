@@ -290,6 +290,7 @@ impl<T: Scalar> InteractionState<T> {
             let free = &mut kinds.kinds[kind as usize].free;
             let offset = match *free {
                 Some(offset) => {
+                    let offset = offset.get() - 1;
                     let cell = kinds
                         .state
                         .as_ptr()
@@ -554,8 +555,8 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
         let free = &mut kinds.kinds[slot.kind as usize].free;
         let cell = kinds.state.as_ptr().wrapping_add(slot.offset as usize);
         // safety: unrequested cells are dead and every cell starts with room for the link
-        unsafe { cell.cast::<Option<u32>>().write(*free) };
-        *free = Some(slot.offset);
+        unsafe { cell.cast::<Option<NonZeroU32>>().write(*free) };
+        *free = NonZeroU32::new(slot.offset + 1);
     }
     kinds.slots.truncate(kinds.cursor);
     for slot in &mut kinds.slots {
@@ -798,8 +799,8 @@ struct Slot {
 struct Kind<T> {
     type_id: TypeId,
     update: fn(&Bump, u32, &mut InteractCx<'_, T>),
-    // dead cells of this kind linked through their first bytes
-    free: Option<u32>,
+    // dead cells of this kind linked by byte offset plus one
+    free: Option<NonZeroU32>,
 }
 
 /// a kind and its latest output, which holds the free link once it is dead
@@ -807,5 +808,5 @@ struct Kind<T> {
 #[repr(C)]
 union Cell<S: Copy> {
     value: S,
-    next: Option<u32>,
+    next: Option<NonZeroU32>,
 }
