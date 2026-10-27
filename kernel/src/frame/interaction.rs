@@ -250,10 +250,7 @@ impl<T: Scalar> InteractionState<T> {
         let kind = kind as u16;
         let previous = &kinds.slots[..kinds.previous_len];
         let index = match previous.binary_search_by_key(&(id, kind), |slot| (slot.id, slot.kind)) {
-            Ok(index) => {
-                debug_assert_eq!(previous[index].end, UNRESOLVED, "interaction requested twice");
-                index
-            }
+            Ok(index) => index,
             Err(_) => {
                 let mut focused = self.focused;
                 let response = initial.update(&mut InteractCx {
@@ -295,7 +292,7 @@ impl<T: Scalar> InteractionState<T> {
                 kinds.slots.push(Slot {
                     id,
                     node: UNRESOLVED,
-                    end: 0,
+                    end: UNRESOLVED,
                     offset,
                     kind,
                 });
@@ -304,8 +301,11 @@ impl<T: Scalar> InteractionState<T> {
         };
         let slot = &mut kinds.slots[index];
         slot.node = node.unwrap_or(UNRESOLVED);
-        slot.end = kinds.requested as u32;
-        kinds.requested += 1;
+        // a kind requested twice in one build shares its slot
+        if slot.end == UNRESOLVED {
+            slot.end = kinds.requested as u32;
+            kinds.requested += 1;
+        }
         // safety: slots of this kind point at live cells holding K and its response
         unsafe {
             (*kinds
