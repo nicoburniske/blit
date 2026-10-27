@@ -249,10 +249,10 @@ impl<C: Context, S> Ui<'_, C, S> {
     /// request each interaction kind only once per widget in a build
     pub fn interact<K: Interact<C::Scalar>>(&mut self, kind: K) -> K::Output {
         let id = self.current_id();
-        let node = self.inner.node.index();
+        let node = self.inner.node;
         let frame = &mut *self.inner.frame;
-        frame.nodes[node].interactive = true;
-        frame.interaction.interact(id, Some(node), kind, frame.time)
+        frame.nodes[node.index()].interactive = true;
+        frame.interaction.interact(id, Some(node.value), kind, frame.time)
     }
 
     /// interacts as a node assigned this exact widget id, which may be built later

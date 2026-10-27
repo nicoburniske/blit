@@ -222,13 +222,7 @@ pub struct InteractionState<T> {
 }
 
 impl<T: Scalar> InteractionState<T> {
-    pub fn interact<K: Interact<T>>(
-        &mut self,
-        id: Id,
-        node: Option<usize>,
-        mut initial: K,
-        time: Duration,
-    ) -> K::Output {
+    pub fn interact<K: Interact<T>>(&mut self, id: Id, node: Option<u32>, mut initial: K, time: Duration) -> K::Output {
         let kinds = &mut self.kinds;
         let type_id = TypeId::of::<K>();
         let kind = kinds
@@ -236,6 +230,7 @@ impl<T: Scalar> InteractionState<T> {
             .iter()
             .position(|kind| kind.type_id == type_id)
             .unwrap_or_else(|| {
+                assert!(kinds.kinds.len() <= u16::MAX as usize, "too many interaction kinds");
                 kinds.kinds.push(Kind {
                     type_id,
                     update: |state, offset, cx| {
@@ -248,7 +243,7 @@ impl<T: Scalar> InteractionState<T> {
                 });
                 kinds.kinds.len() - 1
             });
-        let kind = u16::try_from(kind).expect("too many interaction kinds");
+        let kind = kind as u16;
         let previous = &kinds.slots[..kinds.previous_len];
         let index = match previous.binary_search_by_key(&(id, kind), |slot| (slot.id, slot.kind)) {
             Ok(index) => {
@@ -304,8 +299,8 @@ impl<T: Scalar> InteractionState<T> {
             }
         };
         let slot = &mut kinds.slots[index];
-        slot.node = node.map_or(UNRESOLVED, |node| u32::try_from(node).expect("too many frame nodes"));
-        slot.end = u32::try_from(kinds.requested).expect("too many interaction slots");
+        slot.node = node.unwrap_or(UNRESOLVED);
+        slot.end = kinds.requested as u32;
         kinds.requested += 1;
         // safety: slots of this kind point at live cells holding K and its output
         unsafe { (*kinds.state.as_ptr().add(slot.offset as usize).cast::<(K, K::Output)>()).1 }
