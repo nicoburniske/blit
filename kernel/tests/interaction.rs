@@ -318,3 +318,33 @@ fn wheel_axis_leaves_other_directions_to_ancestors() {
     assert_eq!(wheel(ScrollPhase::Moved, true, 1.0, 5.0), (true, false));
     assert_eq!(wheel(ScrollPhase::Moved, true, 5.0, 1.0), (true, false));
 }
+
+#[test]
+fn removed_scroll_owner_keeps_its_sequence() {
+    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let owner = Cell::new("first");
+    let build = |ui: Ui<'_>| {
+        let mut root = ui.layout(Overlay);
+        let mut list = root.child().id(Id::new(owner.get()));
+        list.insert(Fill('L', Size::uniform(200.0)));
+        list.interact(Scroll::new())
+    };
+    render(&mut frame, &mut context, &build);
+    let mut scroll = |phase| {
+        let input = Input::Scroll {
+            position: Point::new(10.0, 10.0),
+            delta_x: 0.0,
+            delta_y: 1.0,
+            continuous: true,
+            phase,
+            modifiers: Modifiers::NONE,
+        };
+        render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build)
+    };
+    assert!(scroll(ScrollPhase::Started).activated);
+    // another widget takes the owner's node while the gesture continues
+    owner.set("second");
+    assert_eq!(scroll(ScrollPhase::Moved), ScrollResponse::default());
+    assert_eq!(scroll(ScrollPhase::Moved), ScrollResponse::default());
+    assert!(scroll(ScrollPhase::Started).activated);
+}

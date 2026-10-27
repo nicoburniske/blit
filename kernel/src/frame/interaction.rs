@@ -616,8 +616,10 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     if let Some(scroll) = &mut frame.interaction.scroll
         && scroll.owner.is_some_and(|id| node(id).is_none())
     {
+        // the rest of a removed owner's sequence reaches no one, rather than whatever moved into its node
         scroll.owner = None;
         scroll.event = None;
+        scroll.target = None;
     }
     frame.areas_previous.clear();
     frame.interaction.hits.clear();
