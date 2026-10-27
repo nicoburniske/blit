@@ -224,3 +224,31 @@ fn gesture_state_lives_while_requested() {
     render(&mut frame, &mut context, &build);
     assert_eq!(frame.next_timer_deadline(), None);
 }
+
+#[test]
+fn kind_requested_twice_keeps_one_slot() {
+    static UPDATES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    #[derive(Clone, Copy)]
+    struct Count;
+
+    impl Interact<f32> for Count {
+        type Response = ();
+
+        fn update(&mut self, _: &mut InteractCx<'_, f32>) {
+            UPDATES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let build = |mut ui: Ui<'_>| {
+        ui.interact(Count);
+        ui.interact(Count);
+    };
+    // copies made by the first build collapse by the next one
+    render(&mut frame, &mut context, &build);
+    render(&mut frame, &mut context, &build);
+    UPDATES.store(0, std::sync::atomic::Ordering::Relaxed);
+    render(&mut frame, &mut context, &build);
+    assert_eq!(UPDATES.load(std::sync::atomic::Ordering::Relaxed), 1);
+}
