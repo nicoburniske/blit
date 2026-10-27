@@ -22,7 +22,7 @@ pub struct InteractCx<'a, T> {
     focus_taken: &'a mut bool,
     hits: &'a [HitItem<T>],
     clips: &'a [ResolvedClip<T>],
-    hover: Option<usize>,
+    hover: Option<u32>,
     deadline: &'a mut Option<Duration>,
     input: &'a Input<T>,
     time: Duration,
@@ -68,7 +68,7 @@ impl<T: Scalar> InteractCx<'_, T> {
     /// a contact another widget claimed during this update stays with it
     pub fn capture(&mut self, contact: ContactId) -> bool {
         let owner = self.id;
-        let (node, end) = (self.node as usize, self.end as usize);
+        let (node, end) = (self.node, self.end);
         if let Some(tracked) = self.contacts.iter_mut().find(|tracked| tracked.id == contact)
             && let Route::Pending {
                 target: Some(target),
@@ -127,7 +127,7 @@ impl<T: Scalar> InteractCx<'_, T> {
     /// keeps a continuous wheel sequence over this widget until it ends
     pub fn capture_wheel(&mut self) {
         let id = self.id;
-        let (node, end) = (self.node as usize, self.end as usize);
+        let (node, end) = (self.node, self.end);
         if let Some(wheel) = self.wheel
             && wheel.owner.is_none()
             && wheel.target.is_some_and(|target| node <= target && target <= end)
@@ -136,12 +136,12 @@ impl<T: Scalar> InteractCx<'_, T> {
         }
     }
 
-    fn contains(&self, node: usize) -> bool {
-        self.node as usize <= node && node <= self.end as usize
+    fn contains(&self, node: u32) -> bool {
+        self.node <= node && node <= self.end
     }
 
     fn pending(&mut self, contact: ContactId) -> Option<&mut Route> {
-        let (node, end) = (self.node as usize, self.end as usize);
+        let (node, end) = (self.node, self.end);
         let tracked = self.contacts.iter_mut().find(|tracked| tracked.id == contact)?;
         match tracked.route {
             Route::Pending {
@@ -177,7 +177,7 @@ impl<T: Scalar> Iterator for Contacts<'_, T> {
     type Item = Contact<T>;
 
     fn next(&mut self) -> Option<Contact<T>> {
-        let (id, node, end) = (self.id, self.node as usize, self.end as usize);
+        let (id, node, end) = (self.id, self.node, self.end);
         let tracked = self.contacts.find(|tracked| match tracked.route {
             Route::Pending {
                 target: Some(target),
@@ -213,7 +213,7 @@ pub struct InteractionState<T> {
     wheel: Option<WheelState>,
     hits: Vec<HitItem<T>>,
     // node under the pointer in the previous layout
-    hover: Option<usize>,
+    hover: Option<u32>,
     // ids hovered when this build began, compared after layout
     hover_key: u64,
     // a deeper widget took focus during this update
@@ -267,7 +267,7 @@ impl<T: Scalar> InteractionState<T> {
             index
         } else {
             let hit = existed.then(|| self.hits.iter().find(|hit| hit.id == id)).flatten();
-            let (previous, end) = hit.map_or((UNRESOLVED, 0), |hit| (hit.node as u32, hit.end as u32));
+            let (previous, end) = hit.map_or((UNRESOLVED, 0), |hit| (hit.node, hit.end));
             let mut focused = self.focused;
             let output = initial.update(&mut InteractCx {
                 id,
@@ -537,7 +537,7 @@ impl<T: Scalar> InteractionState<T> {
     }
 
     /// identifies the widgets under the pointer to notice when layout changes them
-    fn hover_key(&self, node: Option<usize>) -> u64 {
+    fn hover_key(&self, node: Option<u32>) -> u64 {
         let Some(node) = node else {
             return 0;
         };
@@ -608,7 +608,7 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
             Some(Route::Pending {
                 target: Some(Target {
                     id: target,
-                    node: index,
+                    node: index as u32,
                 }),
                 claim: claim.filter(|claim| node(*claim).is_some()),
             })
@@ -667,8 +667,8 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
                     id,
                     area: area.intersection(clip_bounds).unwrap_or_default(),
                     clip: stored.resolved_clip,
-                    node: index,
-                    end: stored.subtree_end as usize,
+                    node: index as u32,
+                    end: stored.subtree_end,
                 });
             }
         };
@@ -732,7 +732,7 @@ impl Route {
 #[derive(Clone, Copy, PartialEq)]
 struct Target {
     id: Id,
-    node: usize,
+    node: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -757,7 +757,7 @@ enum Source {
 #[derive(Clone, Copy)]
 struct WheelState {
     // node under the pointer when the sequence started
-    target: Option<usize>,
+    target: Option<u32>,
     owner: Option<Id>,
     event: Option<Scroll>,
     active: bool,
@@ -769,8 +769,8 @@ struct HitItem<T> {
     id: Id,
     area: Rect<T>,
     clip: ResolvedClipId,
-    node: usize,
-    end: usize,
+    node: u32,
+    end: u32,
 }
 
 /// retained interaction kinds and their state
