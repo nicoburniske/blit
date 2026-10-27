@@ -61,13 +61,12 @@ where
         let drag = ui.interact_widget(divider_id, Drag::new());
         // the divider stays active while dragged
         let interaction = PressState {
-            active: press.active || drag.is_some(),
+            active: press.active || drag.active,
             ..press
         };
-        let delta = drag.map_or(Point::ZERO, |drag| drag.delta);
         let delta = match axis {
-            Axis::Horizontal => delta.x,
-            Axis::Vertical => delta.y,
+            Axis::Horizontal => drag.delta.x,
+            Axis::Vertical => drag.delta.y,
         };
         if !state.changed
             && let Some(measured) = measured

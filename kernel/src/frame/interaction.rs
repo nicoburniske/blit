@@ -3,7 +3,7 @@ use std::{any::TypeId, mem::MaybeUninit, num::NonZeroU32, time::Duration};
 use super::{Frame, ResolvedClip, ResolvedClipId};
 use crate::{
     Contact, ContactId, ContactSource, Context, Id, Input, Interact, Modifiers, Phase, PointerButton, Scalar,
-    ScrollMotion, ScrollPhase, TouchPhase,
+    ScrollEvent, ScrollPhase, TouchPhase,
     geometry::{Point, Rect, Sides},
     internal::bump::Bump,
 };
@@ -111,13 +111,13 @@ impl<T: Scalar> InteractCx<'_, T> {
     }
 
     /// scrolling over this widget, or the cancellation of a sequence it held
-    pub fn scroll(&self) -> Option<ScrollMotion> {
+    pub fn scroll(&self) -> Option<ScrollEvent> {
         let scroll = (*self.scroll)?;
         let event = scroll.event.filter(|_| match scroll.owner {
             Some(owner) => owner == self.id,
             None => scroll.target.is_some_and(|node| self.contains(node)),
         });
-        event.or((scroll.cancelled == Some(self.id)).then_some(ScrollMotion {
+        event.or((scroll.cancelled == Some(self.id)).then_some(ScrollEvent {
             phase: Phase::Cancelled,
             delta: Point::ZERO,
             continuous: true,
@@ -410,7 +410,7 @@ impl<T: Scalar> InteractionState<T> {
                         hit(&self.hits, &self.clips, position).map(|hit| hit.node)
                     },
                     owner: previous.filter(|_| continuing).and_then(|scroll| scroll.owner),
-                    event: (!stray).then_some(ScrollMotion {
+                    event: (!stray).then_some(ScrollEvent {
                         phase: match phase {
                             ScrollPhase::Started => Phase::Started,
                             ScrollPhase::Moved => Phase::Changed,
@@ -435,7 +435,7 @@ impl<T: Scalar> InteractionState<T> {
                 }
                 if let Some(scroll) = &mut self.scroll {
                     scroll.active = false;
-                    scroll.event = Some(ScrollMotion {
+                    scroll.event = Some(ScrollEvent {
                         phase: Phase::Cancelled,
                         delta: Point::ZERO,
                         continuous: true,
@@ -717,7 +717,7 @@ struct TrackedScroll {
     // node under the pointer when the sequence started
     target: Option<u32>,
     owner: Option<Id>,
-    event: Option<ScrollMotion>,
+    event: Option<ScrollEvent>,
     active: bool,
     cancelled: Option<Id>,
 }

@@ -83,10 +83,28 @@ fn scroll() {
     // zero delta endings stay with the owner even outside its bounds
     for horizontal in [true, false] {
         let mut scene = InputScene::<Integer, _>::new(Scroll::new());
-        for (phase, expected) in [
-            (ScrollPhase::Started, Started),
-            (ScrollPhase::Moved, Changed),
-            (ScrollPhase::Ended, Ended),
+        let held = ScrollMotion {
+            active: true,
+            continuous: true,
+            ..ScrollMotion::default()
+        };
+        let ended = ScrollMotion {
+            deactivated: true,
+            released: true,
+            continuous: true,
+            ..ScrollMotion::default()
+        };
+        for (phase, expected, after) in [
+            (
+                ScrollPhase::Started,
+                ScrollMotion {
+                    activated: true,
+                    ..held
+                },
+                held,
+            ),
+            (ScrollPhase::Moved, held, held),
+            (ScrollPhase::Ended, ended, ScrollMotion::default()),
         ] {
             let delta = if phase == ScrollPhase::Ended {
                 Point::ZERO
@@ -110,9 +128,8 @@ fn scroll() {
                     modifiers: Modifiers::NONE,
                 },
             );
-            let scroll = response.unwrap();
-            assert_eq!((scroll.delta, scroll.phase, scroll.continuous), (delta, expected, true));
-            assert_eq!(scene.step(11, Input::None), None);
+            assert_eq!(response, ScrollMotion { delta, ..expected });
+            assert_eq!(scene.step(11, Input::None), after);
         }
         // native and global cancellation both end capture
         for global in [false, true] {
@@ -139,7 +156,8 @@ fn scroll() {
                     modifiers: Modifiers::NONE,
                 }
             };
-            assert_eq!(scene.step(21, cancel).unwrap().phase, Cancelled);
+            let cancelled = scene.step(21, cancel);
+            assert!(cancelled.deactivated && !cancelled.released && !cancelled.active);
         }
     }
 }
@@ -186,7 +204,7 @@ fn clipping() {
         }],
         &build,
     );
-    assert!(response.active && wheel.is_some());
+    assert!(response.active && wheel.delta != Point::ZERO);
 }
 
 #[test]
@@ -281,18 +299,22 @@ fn wheel_axis_leaves_other_directions_to_ancestors() {
         (list, carousel.interact(Scroll::new().axis(Axis::Horizontal)))
     };
     render(&mut frame, &mut context, &build);
-    let mut wheel = |delta_x, delta_y| {
+    let mut wheel = |phase, continuous, delta_x, delta_y| {
         let input = Input::Scroll {
             position: Point::new(10.0, 10.0),
             delta_x,
             delta_y,
-            continuous: false,
-            phase: ScrollPhase::Moved,
+            continuous,
+            phase,
             modifiers: Modifiers::NONE,
         };
         let (list, carousel) = render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
-        (list.is_some(), carousel.is_some())
+        (list.delta != Point::ZERO, carousel.delta != Point::ZERO)
     };
-    assert_eq!(wheel(5.0, 1.0), (false, true));
-    assert_eq!(wheel(1.0, 5.0), (true, false));
+    assert_eq!(wheel(ScrollPhase::Moved, false, 5.0, 1.0), (false, true));
+    assert_eq!(wheel(ScrollPhase::Moved, false, 1.0, 5.0), (true, false));
+    // a trackpad sequence waits for a direction, then stays with whoever took it
+    assert_eq!(wheel(ScrollPhase::Started, true, 0.0, 0.0), (false, false));
+    assert_eq!(wheel(ScrollPhase::Moved, true, 1.0, 5.0), (true, false));
+    assert_eq!(wheel(ScrollPhase::Moved, true, 5.0, 1.0), (true, false));
 }

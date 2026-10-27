@@ -60,8 +60,9 @@ pub enum ContactSource {
     Touch,
 }
 
+/// wheel or trackpad scrolling routed through this widget
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ScrollMotion {
+pub struct ScrollEvent {
     pub phase: Phase,
     pub delta: Point<f32>,
     pub continuous: bool,
@@ -186,36 +187,77 @@ impl<T: Scalar> Interact<T> for Focus {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Scroll {
     axis: Option<Axis>,
+    active: bool,
 }
 
 impl Scroll {
     pub const fn new() -> Self {
-        Self { axis: None }
+        Self {
+            axis: None,
+            active: false,
+        }
     }
 
     /// takes only scrolling that starts mostly along `axis`, leaving the rest to ancestors
     pub const fn axis(self, axis: Axis) -> Self {
-        Self { axis: Some(axis) }
+        Self {
+            axis: Some(axis),
+            ..self
+        }
     }
 }
 
-impl<T: Scalar> Interact<T> for Scroll {
-    type Output = Option<ScrollMotion>;
+/// the output of [`Scroll`]
+///
+/// `activated` implies `active` unless `deactivated`, and `released` implies `deactivated`
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScrollMotion {
+    /// this widget holds a continuous trackpad sequence
+    pub active: bool,
+    pub activated: bool,
+    pub deactivated: bool,
+    /// the held sequence ended by lifting rather than being cancelled
+    pub released: bool,
+    /// scrolling during this update
+    pub delta: Point<f32>,
+    /// trackpad scrolling rather than wheel steps
+    pub continuous: bool,
+}
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Option<ScrollMotion> {
-        let scroll = cx.scroll()?;
-        let Point { x, y } = scroll.delta;
-        // a held sequence stays whatever its direction, so only its start is checked
-        let starts = scroll.phase == Phase::Started || !scroll.continuous;
-        if starts
-            && (x != 0.0 || y != 0.0)
-            && self
-                .axis
-                .is_some_and(|axis| (axis == Axis::Horizontal) != (x.abs() > y.abs()))
+impl<T: Scalar> Interact<T> for Scroll {
+    type Output = ScrollMotion;
+
+    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> ScrollMotion {
+        let held = self.active;
+        let Some(event) = cx.scroll() else {
+            return ScrollMotion {
+                active: held,
+                continuous: held,
+                ..ScrollMotion::default()
+            };
+        };
+        let Point { x, y } = event.delta;
+        // a held sequence stays whatever its direction, so only one not yet held waits for a direction
+        if !held
+            && ((x == 0.0 && y == 0.0)
+                || self
+                    .axis
+                    .is_some_and(|axis| (axis == Axis::Horizontal) != (x.abs() > y.abs())))
         {
-            return None;
+            return ScrollMotion::default();
         }
-        cx.capture_scroll();
-        Some(scroll)
+        // a cancellation ends this widget's sequence, so it must not take the next one
+        if event.phase != Phase::Cancelled {
+            cx.capture_scroll();
+        }
+        self.active = event.continuous && matches!(event.phase, Phase::Started | Phase::Changed);
+        ScrollMotion {
+            active: self.active,
+            activated: self.active && !held,
+            deactivated: held && !self.active,
+            released: held && event.phase == Phase::Ended,
+            delta: event.delta,
+            continuous: event.continuous,
+        }
     }
 }

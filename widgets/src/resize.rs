@@ -53,10 +53,10 @@ where
             let press = ui.interact_widget(id, Press::new());
             let drag = ui.interact_widget(id, Drag::new());
             let state = PressState {
-                active: press.active || drag.is_some(),
+                active: press.active || drag.active,
                 ..press
             };
-            (state, drag.map_or(Point::ZERO, |drag| drag.delta))
+            (state, drag.delta)
         };
         let (right, right_delta) = grip_input(right_id);
         let (bottom, bottom_delta) = grip_input(bottom_id);

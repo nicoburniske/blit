@@ -47,7 +47,8 @@ impl<C: Context> Widget<C> for TextInput<'_> {
         let id = ui.current_id();
         let interaction = ui.interact(Press::new());
         ui.interact(Focus);
-        let dragged = ui.interact(Drag::new().axis(Axis::Horizontal)).is_some();
+        let drag = ui.interact(Drag::new().axis(Axis::Horizontal));
+        let dragged = drag.active || drag.released;
         let input = ui.input();
         match input {
             Input::Key(key) if ui.is_focused(id) && key.key == Key::Escape && key.pressed => {

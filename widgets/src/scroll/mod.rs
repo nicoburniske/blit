@@ -5,8 +5,8 @@ mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Axis, Clip, Constraints, Context, Easing, Id, Layout, LayoutCx, NodeId, Phase, Point, Press, Scalar, Scroll,
-    ScrollMotion, Size, Sizing, Ui, Widget,
+    Axis, Clip, Constraints, Context, Easing, Id, Layout, LayoutCx, NodeId, Point, Press, Scalar, Scroll, ScrollMotion,
+    Size, Sizing, Ui, Widget,
 };
 
 pub use self::{
@@ -285,7 +285,7 @@ fn update<C: Context>(
     }
 
     let motion = content_input(ui, axis);
-    if motion.is_some() {
+    if motion.active || motion.deactivated || motion.delta != Point::ZERO {
         state.request.target = Target::None;
     }
     let maximum = state.maximum_offset();
@@ -328,17 +328,15 @@ fn scrollbar_input<C: Context>(
     let track = ui.interact_widget(track_id, Press::new());
     let thumb_drag = ui.interact_widget(thumb_id, Drag::new());
     let track_drag = ui.interact_widget(track_id, Drag::new());
-    let active = thumb.active || track.active || thumb_drag.is_some() || track_drag.is_some();
-    let thumb_drag = thumb_drag.filter(|drag| drag.phase != Phase::Cancelled);
-    let track_drag = track_drag.filter(|drag| match drag.phase {
-        Phase::Cancelled => false,
-        Phase::Ended => match axis {
-            Axis::Horizontal => drag.delta.x != C::Scalar::ZERO,
-            Axis::Vertical => drag.delta.y != C::Scalar::ZERO,
-        },
-        _ => true,
-    });
-    if thumb_drag.is_none() && !track.activated && track_drag.is_none() {
+    let active = thumb.active || track.active || thumb_drag.active || track_drag.active;
+    // cancelled drags leave the offset alone
+    let thumb_moved = thumb_drag.active || thumb_drag.released;
+    let track_delta = match axis {
+        Axis::Horizontal => track_drag.delta.x,
+        Axis::Vertical => track_drag.delta.y,
+    };
+    let track_moved = track_drag.active || track_drag.released && track_delta != C::Scalar::ZERO;
+    if !thumb_moved && !track.activated && !track_moved {
         return (active, None);
     }
     state.last_frame = Some(ui.time());
@@ -350,44 +348,48 @@ fn scrollbar_input<C: Context>(
         return (active, Some(ScrollbarInput::Idle));
     }
     let travel = travel.to_f32();
-    let action = match thumb_drag {
-        Some(drag) => {
-            let delta = match axis {
-                Axis::Horizontal => drag.delta.x,
-                Axis::Vertical => drag.delta.y,
-            };
-            ScrollbarInput::Thumb(delta.to_f32() / travel)
-        }
-        None => {
-            let pointer = match track_drag {
-                Some(drag) => Some(drag.position),
-                None => ui.pointer_position(),
-            };
-            match (track_area, pointer) {
-                (Some(track), Some(pointer)) => {
-                    let position = match axis {
-                        Axis::Horizontal => pointer.x - track.x,
-                        Axis::Vertical => pointer.y - track.y,
-                    };
-                    ScrollbarInput::Track(((position.to_f32() - extent.to_f32() / 2.0) / travel).clamp(0.0, 1.0))
-                }
-                _ => ScrollbarInput::Idle,
+    let action = if thumb_moved {
+        let delta = match axis {
+            Axis::Horizontal => thumb_drag.delta.x,
+            Axis::Vertical => thumb_drag.delta.y,
+        };
+        ScrollbarInput::Thumb(delta.to_f32() / travel)
+    } else {
+        let pointer = if track_moved {
+            Some(track_drag.position)
+        } else {
+            ui.pointer_position()
+        };
+        match (track_area, pointer) {
+            (Some(track), Some(pointer)) => {
+                let position = match axis {
+                    Axis::Horizontal => pointer.x - track.x,
+                    Axis::Vertical => pointer.y - track.y,
+                };
+                ScrollbarInput::Track(((position.to_f32() - extent.to_f32() / 2.0) / travel).clamp(0.0, 1.0))
             }
+            _ => ScrollbarInput::Idle,
         }
     };
     (active, Some(action))
 }
 
 /// wheel scrolling and touch panning over the content
-fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> Option<ScrollMotion> {
+fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> ScrollMotion {
     let scroll = ui.interact(Scroll::new());
-    // touches pan the content, moving it against the finger
     let pan = ui.interact(Drag::new().axis(axis).touch(true));
-    scroll.or(pan.map(|drag| ScrollMotion {
-        phase: drag.phase,
-        delta: Point::new(-drag.delta.x.to_f32(), -drag.delta.y.to_f32()),
+    if !pan.active && !pan.deactivated {
+        return scroll;
+    }
+    // touches pan the content, moving it against the finger
+    ScrollMotion {
+        active: pan.active,
+        activated: pan.activated,
+        deactivated: pan.deactivated,
+        released: pan.released,
+        delta: Point::new(-pan.delta.x.to_f32(), -pan.delta.y.to_f32()),
         continuous: true,
-    }))
+    }
 }
 
 fn content_motion<C: Context>(
@@ -396,48 +398,33 @@ fn content_motion<C: Context>(
     axis: Axis,
     scroll_speed: f32,
     inertia_friction: f32,
-    motion: Option<ScrollMotion>,
+    motion: ScrollMotion,
 ) -> f32 {
     let now = ui.time();
     let elapsed = state
         .last_frame
         .replace(now)
         .map_or(0.0, |previous| now.saturating_sub(previous).as_secs_f32());
-    let mut direct_delta = 0.0;
+    let moving = motion.active || motion.deactivated || motion.delta != Point::ZERO;
+    let mut delta = match axis {
+        Axis::Horizontal => motion.delta.x,
+        Axis::Vertical => motion.delta.y,
+    };
+    if axis == Axis::Horizontal && delta == 0.0 {
+        delta = motion.delta.y;
+    }
+    let mut direct_delta = delta * scroll_speed;
     let mut sample_velocity = false;
-    if let Some(scroll) = motion {
-        let mut delta = match axis {
-            Axis::Horizontal => scroll.delta.x,
-            Axis::Vertical => scroll.delta.y,
-        };
-        if axis == Axis::Horizontal && delta == 0.0 {
-            delta = scroll.delta.y;
-        }
-        direct_delta = delta * scroll_speed;
-        if scroll.continuous {
-            match scroll.phase {
-                Phase::Started => {
-                    state.velocity = 0.0;
-                    state.tracking = true;
-                }
-                Phase::Changed => {
-                    sample_velocity = state.tracking;
-                    state.tracking = true;
-                }
-                Phase::Ended => {
-                    sample_velocity = state.tracking;
-                    state.tracking = false;
-                }
-                Phase::Cancelled => {
-                    state.velocity = 0.0;
-                    state.tracking = false;
-                }
-                Phase::Held => {}
-            }
-        } else {
+    if motion.continuous {
+        // a sequence that started this update has no earlier sample to measure against
+        sample_velocity = state.tracking && !motion.activated;
+        if motion.activated || motion.deactivated && !motion.released {
             state.velocity = 0.0;
-            state.tracking = false;
         }
+        state.tracking = motion.active;
+    } else if moving {
+        state.velocity = 0.0;
+        state.tracking = false;
     }
 
     if direct_delta != 0.0 && sample_velocity && elapsed > 0.0 {
@@ -445,7 +432,7 @@ fn content_motion<C: Context>(
     }
 
     if !state.tracking && state.velocity != 0.0 {
-        let elapsed = if motion.is_some() { 0.0 } else { elapsed };
+        let elapsed = if moving { 0.0 } else { elapsed };
         let decay = (-inertia_friction * elapsed).exp();
         let delta = state.velocity * (1.0 - decay) / inertia_friction;
         state.velocity *= decay;
