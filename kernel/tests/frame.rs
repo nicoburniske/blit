@@ -81,6 +81,15 @@ fn scratch_and_default_items() {
 }
 
 #[test]
+#[should_panic(expected = "too much scratch data")]
+fn scratch_rejects_size_overflow() {
+    let (mut frame, mut context) = frame(Size::uniform(4.0));
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
+        ui.scratch(usize::MAX, 0_u64);
+    });
+}
+
+#[test]
 fn owned_values_and_paint_bounds() {
     let result = Rc::new(Cell::new(ProbeResult::default()));
     let (mut frame, mut context) = frame(Size::new(3.0, 2.0));

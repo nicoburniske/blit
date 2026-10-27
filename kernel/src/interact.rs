@@ -1,27 +1,6 @@
-use std::{
-    hash::{Hash, Hasher},
-    num::{NonZeroU32, NonZeroU64},
-    time::Duration,
-};
+use std::{num::NonZeroU32, time::Duration};
 
-use crate::{Axis, InteractCx, PointerButton, Scalar, geometry::Point, internal::hash::FxHasher};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Id(pub(crate) NonZeroU64);
-
-impl Id {
-    /// creates an absolute id from a stable value
-    pub fn new(source: impl Hash) -> Self {
-        let mut hasher = FxHasher::default();
-        source.hash(&mut hasher);
-        Self(NonZeroU64::new(hasher.finish()).unwrap_or(NonZeroU64::MIN))
-    }
-
-    /// composes a stable child id without using the current ui node
-    pub fn child(self, source: impl Hash) -> Self {
-        Self::new((self, source))
-    }
-}
+use crate::{Axis, InteractCx, Modifiers, PointerButton, Scalar, geometry::Point};
 
 /// an interaction kind the kernel retains for one widget
 ///
@@ -46,7 +25,7 @@ pub struct Contact<T> {
     pub delta: Point<T>,
     /// frame clock time of the press
     pub started: Duration,
-    pub modifiers: crate::Modifiers,
+    pub modifiers: Modifiers,
 }
 
 /// identifies one press or touch within a frame instance

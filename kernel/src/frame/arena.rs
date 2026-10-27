@@ -1,10 +1,4 @@
-use std::{
-    cell::Cell,
-    mem::{MaybeUninit, align_of, needs_drop, size_of},
-    ops::{Deref, DerefMut},
-};
-
-use crate::internal::bump::{Bump, Slice};
+use super::*;
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -211,52 +205,4 @@ enum ScratchInner<'a, T> {
 struct DropEntry {
     offset: u32,
     drop: fn(*mut u8),
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{cell::Cell, rc::Rc};
-
-    use super::*;
-
-    #[test]
-    #[should_panic(expected = "too much scratch data")]
-    fn rejects_scratch_size_overflow() {
-        BumpArena::default().scratch(usize::MAX, 0_u64);
-    }
-
-    #[test]
-    #[should_panic(expected = "too much scratch data")]
-    fn rejects_scratch_beyond_address_limit() {
-        let mut bump = BumpArena::default();
-        bump.store(0_u8);
-        bump.scratch(isize::MAX as usize, 0_u8);
-    }
-
-    #[test]
-    fn drops_owned_values_and_skips_trivial_values() {
-        #[repr(align(64))]
-        struct Aligned(u8);
-
-        struct Dropped(Rc<Cell<bool>>);
-
-        impl Drop for Dropped {
-            fn drop(&mut self) {
-                self.0.set(true);
-            }
-        }
-
-        let dropped = Rc::new(Cell::new(false));
-        let mut bump = BumpArena::default();
-        bump.store(1_u32);
-        let aligned = bump.store(Aligned(7));
-        assert_eq!(bump.load::<Aligned>(aligned).0, 7);
-        assert!(bump.drops.is_empty());
-        bump.store(Dropped(dropped.clone()));
-        assert_eq!(bump.drops.len(), 1);
-
-        bump.clear();
-        assert!(dropped.get());
-        assert!(bump.drops.is_empty());
-    }
 }

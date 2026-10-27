@@ -1,13 +1,4 @@
-use std::any::TypeId;
-
-use super::{
-    AtomKind, Frame, NodeId, StoredAtom, StoredAtomId,
-    bump::{BumpArena, BumpId, FrameSlice, Scratch},
-};
-use crate::{
-    Atom, Context,
-    geometry::{Constraints, Rect, Size},
-};
+use super::*;
 
 /// context resources and temporary storage for measuring and painting atoms
 pub struct AtomCx<'a, C: Context> {

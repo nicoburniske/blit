@@ -1,12 +1,4 @@
-use std::{any::TypeId, mem::MaybeUninit, num::NonZeroU32, time::Duration};
-
-use super::{Frame, ResolvedClip, ResolvedClipId};
-use crate::{
-    Contact, ContactId, ContactSource, Context, Id, Input, Interact, Modifiers, Phase, PointerButton, Scalar,
-    ScrollEvent, ScrollPhase, TouchPhase,
-    geometry::{Point, Rect, Sides},
-    internal::bump::Bump,
-};
+use super::*;
 
 // slot node for a named widget missing from the layout
 const UNRESOLVED: u32 = u32::MAX;
