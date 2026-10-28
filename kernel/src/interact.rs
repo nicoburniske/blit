@@ -5,6 +5,7 @@ use crate::{Axis, InteractCx, Modifiers, PointerButton, Scalar, geometry::Point}
 /// an interaction kind the kernel retains for one widget
 ///
 /// it updates before every build, deepest widget first, so it can claim contacts before its ancestors see them
+/// kinds on one widget update in reverse order of their first requests in the previous build
 /// the first update runs on registration without resolved geometry, routed input, or changes to input ownership
 pub trait Interact<T>: Copy + 'static {
     /// what the kind recognized during one update

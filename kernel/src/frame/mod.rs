@@ -122,6 +122,8 @@ impl<C: Context> Frame<C> {
         self.frame_requested = false;
         #[cfg(debug_assertions)]
         generation::begin();
+        // interactions update against the previous build's nodes
+        self.interaction.begin(&input, time, &self.nodes);
         self.nodes.clear();
         self.placements.clear();
         self.atoms.clear();
@@ -150,7 +152,6 @@ impl<C: Context> Frame<C> {
         for timer in &mut self.timers {
             timer.seen = false;
         }
-        self.interaction.begin(&input, time);
 
         let id = Id::new("blit frame root");
         let root = self.push_node(None, id);
@@ -424,7 +425,7 @@ mod generation {
     }
 }
 
-struct StoredNode {
+pub struct StoredNode {
     widget_id: Id,
     parent: NodeId,
     visual_parent: NodeId,
@@ -437,7 +438,6 @@ struct StoredNode {
     item: BumpId,
     relative: NodeId,
     out_of_flow: bool,
-    // requested an interaction kind
     interactive: bool,
     bounds: BoundsId,
     resolved_clip: ResolvedClipId,

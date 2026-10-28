@@ -1,4 +1,5 @@
 use super::*;
+use crate::internal::bump::Offset;
 
 // slot node for a named widget missing from the layout
 const UNRESOLVED: u32 = u32::MAX;
@@ -204,21 +205,11 @@ pub struct InteractionState<T> {
     next_contact: u32,
     scroll: Option<TrackedScroll>,
     hits: Vec<HitItem<T>>,
-    // node under the pointer in the previous layout
-    hover: Option<u32>,
-    // a deeper widget took focus during this update
-    focus_taken: bool,
     kinds: Kinds<T>,
 }
 
 impl<T: Scalar> InteractionState<T> {
-    pub fn interact<K: Interact<T>>(
-        &mut self,
-        id: Id,
-        node: Option<u32>,
-        mut initial: K,
-        time: Duration,
-    ) -> K::Response {
+    pub fn interact<K: Interact<T>>(&mut self, id: Id, mut initial: K, time: Duration) -> K::Response {
         let kinds = &mut self.kinds;
         let type_id = TypeId::of::<K>();
         let kind = kinds
@@ -229,10 +220,8 @@ impl<T: Scalar> InteractionState<T> {
                 assert!(kinds.kinds.len() <= u16::MAX as usize, "too many interaction kinds");
                 kinds.kinds.push(Kind {
                     type_id,
-                    update: |state, offset, cx| {
-                        // safety: slots of this kind point at live cells holding K and its response
-                        let (kind, response) =
-                            unsafe { &mut *state.as_ptr().add(offset as usize).cast::<(K, K::Response)>() };
+                    update: |kinds, index, cx| {
+                        let (kind, response) = kinds.get_mut::<K>(index);
                         *response = kind.update(cx);
                     },
                     free: None,
@@ -240,10 +229,8 @@ impl<T: Scalar> InteractionState<T> {
                 kinds.kinds.len() - 1
             });
         let kind = kind as u16;
-        let previous = &kinds.slots[..kinds.previous_len];
-        let index = match previous.binary_search_by_key(&(id, kind), |slot| (slot.id, slot.kind)) {
-            Ok(index) => index,
-            Err(_) => {
+        let index = match kinds.find(id, Some(kind)) {
+            Err(bucket) => {
                 let mut focused = self.focused;
                 let response = initial.update(&mut InteractCx {
                     id,
@@ -267,50 +254,38 @@ impl<T: Scalar> InteractionState<T> {
                 let offset = match *free {
                     Some(offset) => {
                         let offset = offset.get() - 1;
-                        let cell = kinds
-                            .state
-                            .as_ptr()
-                            .wrapping_add(offset as usize)
-                            .cast::<Cell<(K, K::Response)>>();
                         // safety: free cells of this kind are dead cells of this layout holding the next link
                         unsafe {
-                            *free = (*cell).next;
-                            cell.write(Cell { value });
+                            let cell = kinds.state.get_mut::<Cell<(K, K::Response)>>(Offset::new(offset));
+                            *free = cell.next;
+                            *cell = Cell { value };
                         }
                         offset
                     }
                     None => kinds.state.push(Cell { value }).byte(),
                 };
-                kinds.slots.push(Slot {
-                    id,
-                    node: UNRESOLVED,
-                    end: UNRESOLVED,
-                    offset,
-                    kind,
-                });
-                kinds.slots.len() - 1
+                kinds.insert(
+                    bucket,
+                    Slot {
+                        id,
+                        node: UNRESOLVED,
+                        offset,
+                        order: UNRESOLVED,
+                        kind,
+                    },
+                )
             }
+            Ok(index) => index,
         };
         let slot = &mut kinds.slots[index];
-        slot.node = node.unwrap_or(UNRESOLVED);
-        // a kind requested twice in one build shares its slot
-        if slot.end == UNRESOLVED {
-            slot.end = kinds.requested as u32;
+        if slot.order == UNRESOLVED {
+            slot.order = kinds.requested;
             kinds.requested += 1;
         }
-        // safety: slots of this kind point at live cells holding K and its response
-        unsafe {
-            (*kinds
-                .state
-                .as_ptr()
-                .add(slot.offset as usize)
-                .cast::<(K, K::Response)>())
-            .1
-        }
+        kinds.get_mut::<K>(index).1
     }
 
-    pub fn begin(&mut self, input: &Input<T>, time: Duration) {
-        self.focus_taken = false;
+    pub fn begin(&mut self, input: &Input<T>, time: Duration, nodes: &[StoredNode]) {
         self.contacts
             .retain(|tracked| !matches!(tracked.phase, Phase::Ended | Phase::Cancelled));
         for tracked in &mut self.contacts {
@@ -331,24 +306,9 @@ impl<T: Scalar> InteractionState<T> {
         }
         match *input {
             Input::PointerDown {
-                position,
-                button,
-                modifiers,
-            } => {
-                self.position = Some(position);
-                for index in 0..self.contacts.len() {
-                    if matches!(self.contacts[index].source, Source::Mouse(_)) {
-                        self.contacts[index].modifiers = modifiers;
-                        self.update(index, position, Phase::Changed);
-                    }
-                }
-                // a press away from any focusable widget clears focus
-                if button == PointerButton::Primary {
-                    self.focused = None;
-                }
-                self.press(Source::Mouse(button), position, modifiers, time);
+                position, modifiers, ..
             }
-            Input::PointerMove { position, modifiers }
+            | Input::PointerMove { position, modifiers }
             | Input::PointerUp {
                 position, modifiers, ..
             } => {
@@ -360,6 +320,13 @@ impl<T: Scalar> InteractionState<T> {
                     let released = matches!(input, Input::PointerUp { button: released, .. } if *released == button);
                     self.contacts[index].modifiers = modifiers;
                     self.update(index, position, if released { Phase::Ended } else { Phase::Changed });
+                }
+                if let Input::PointerDown { button, .. } = *input {
+                    // a press away from any focusable widget clears focus
+                    if button == PointerButton::Primary {
+                        self.focused = None;
+                    }
+                    self.press(Source::Mouse(button), position, modifiers, time);
                 }
                 if matches!(input, Input::PointerUp { leave: true, .. }) {
                     self.position = None;
@@ -449,38 +416,36 @@ impl<T: Scalar> InteractionState<T> {
             }
             Input::None | Input::Text(_) | Input::Key(_) => {}
         }
-        self.hover = self
+        let hover = self
             .position
             .and_then(|position| hit(&self.hits, &self.clips, position))
             .map(|hit| hit.node);
-        // deepest kinds see contacts first
+        // deepest nodes update first
         self.deadline = None;
+        let mut focus_taken = false;
         let kinds = &mut self.kinds;
-        kinds.requested = 0;
-        kinds.previous_len = kinds.slots.len();
-        for slot in kinds.slots.iter_mut().rev() {
+        for index in (0..kinds.slots.len()).rev() {
+            let slot = kinds.slots[index];
             (kinds.kinds[slot.kind as usize].update)(
-                &kinds.state,
-                slot.offset,
+                kinds,
+                index,
                 &mut InteractCx {
                     id: slot.id,
                     node: slot.node,
-                    end: slot.end,
+                    end: nodes.get(slot.node as usize).map_or(0, |stored| stored.subtree_end),
                     contacts: &mut self.contacts,
                     scroll: &mut self.scroll,
                     focused: &mut self.focused,
-                    focus_taken: &mut self.focus_taken,
+                    focus_taken: &mut focus_taken,
                     hits: &self.hits,
                     clips: &self.clips,
-                    hover: self.hover,
+                    hover,
                     deadline: &mut self.deadline,
                     input,
                     time,
                 },
             );
-            slot.end = UNRESOLVED;
         }
-        kinds.slots.sort_unstable_by_key(|slot| (slot.id, slot.kind));
     }
 
     fn press(&mut self, source: Source, position: Point<T>, modifiers: Modifiers, time: Duration) {
@@ -525,50 +490,45 @@ impl<T: Scalar> InteractionState<T> {
 }
 
 pub fn resolve<C: Context>(frame: &mut Frame<C>) {
-    let kinds = &mut frame.interaction.kinds;
-    if kinds
-        .slots
-        .iter()
-        .any(|slot| slot.end != UNRESOLVED && slot.node == UNRESOLVED)
-    {
-        kinds
-            .slots
-            .sort_unstable_by_key(|slot| (slot.end == UNRESOLVED, slot.id, slot.kind));
-        let slots = &mut kinds.slots[..kinds.requested];
-        // named widgets find their nodes now that the build placed them
-        for (index, stored) in frame.nodes.iter_mut().enumerate() {
-            let first = slots.partition_point(|slot| slot.id < stored.widget_id);
-            for slot in slots[first..].iter_mut().take_while(|slot| slot.id == stored.widget_id) {
-                if slot.node == UNRESOLVED {
-                    slot.node = index as u32;
-                    stored.interactive = true;
-                }
-            }
+    let retained = &mut frame.interaction.kinds;
+    for slot in &mut retained.slots {
+        slot.node = UNRESOLVED;
+    }
+    if !retained.slots.is_empty() {
+        for (index, stored) in frame.nodes.iter().enumerate() {
+            retained.bind(stored.widget_id, index as u32);
         }
     }
-    kinds
-        .slots
-        .sort_unstable_by_key(|slot| (slot.end == UNRESOLVED, slot.node, slot.end));
-    for slot in &kinds.slots[kinds.requested..] {
-        let free = &mut kinds.kinds[slot.kind as usize].free;
-        let cell = kinds.state.as_ptr().wrapping_add(slot.offset as usize);
+    let Kinds {
+        slots, kinds, state, ..
+    } = retained;
+    slots.retain(|slot| {
+        if slot.order != UNRESOLVED {
+            return true;
+        }
+        let free = &mut kinds[slot.kind as usize].free;
+        let cell = state.as_ptr().wrapping_add(slot.offset as usize);
         // safety: unrequested cells are dead and every cell starts with room for the link
         unsafe { cell.cast::<Option<NonZeroU32>>().write(*free) };
         *free = NonZeroU32::new(slot.offset + 1);
+        false
+    });
+    // adding one puts missing widgets first so reverse updates reach them last
+    slots.sort_unstable_by_key(|slot| (slot.node.wrapping_add(1), slot.order));
+    retained.rebuild();
+    retained.requested = 0;
+    for slot in &mut retained.slots {
+        slot.order = UNRESOLVED;
+        if let Some(stored) = frame.nodes.get_mut(slot.node as usize) {
+            stored.interactive = true;
+        }
     }
-    kinds.slots.truncate(kinds.requested);
-    for slot in &mut kinds.slots {
-        slot.end = frame
-            .nodes
-            .get(slot.node as usize)
-            .map_or(0, |stored| stored.subtree_end);
-    }
+    let retained = &*retained;
     let nodes = &frame.nodes;
     let hits = &frame.interaction.hits;
     let node = |id| {
-        nodes
-            .iter()
-            .position(|stored| stored.interactive && stored.widget_id == id)
+        let slot = &retained.slots[retained.find(id, None).ok()?];
+        (slot.node != UNRESOLVED).then_some(slot.node as usize)
     };
     let next_route = |route| match route {
         Route::Pending { target, claim } => {
@@ -593,7 +553,7 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
                     id: target,
                     node: index as u32,
                 }),
-                claim: claim.filter(|claim| node(*claim).is_some()),
+                claim,
             })
         }
         Route::Captured { owner } => node(owner).map(|_| route),
@@ -741,28 +701,115 @@ struct HitItem<T> {
 /// retained interaction kinds and their state
 #[derive(Default)]
 struct Kinds<T> {
-    // sorted by identity during builds and by node between layouts and updates
+    // sorted by node and request order, then slots added by the current build
     slots: Vec<Slot>,
-    previous_len: usize,
-    requested: usize,
+    // slot indices, at most half full
+    table: Vec<u32>,
+    requested: u32,
     kinds: Vec<Kind<T>>,
     // cells of every kind, reused through each kind's free list
     state: Bump,
 }
 
+impl<T> Kinds<T> {
+    fn get_mut<K: Interact<T>>(&mut self, index: usize) -> &mut (K, K::Response) {
+        let slot = &self.slots[index];
+        assert_eq!(
+            self.kinds[slot.kind as usize].type_id,
+            TypeId::of::<K>(),
+            "interaction kind mismatch"
+        );
+        // safety: the slot is live and its kind was checked above
+        unsafe { self.state.get_mut(Offset::new(slot.offset)) }
+    }
+
+    // slot index on a hit, insertion bucket on a miss
+    fn find(&self, id: Id, kind: Option<u16>) -> Result<usize, usize> {
+        if self.table.is_empty() {
+            return Err(0);
+        }
+        let bucket = self.probe(id, kind);
+        match self.table[bucket] {
+            UNRESOLVED => Err(bucket),
+            index => Ok(index as usize),
+        }
+    }
+
+    fn insert(&mut self, bucket: usize, slot: Slot) -> usize {
+        let index = self.slots.len();
+        assert!(index < UNRESOLVED as usize, "too many interaction slots");
+        self.slots.push(slot);
+        if self.slots.len() > self.table.len() / 2 {
+            self.rebuild();
+        } else {
+            self.table[bucket] = index as u32;
+        }
+        index
+    }
+
+    fn bind(&mut self, id: Id, node: u32) {
+        let mut bucket = self.probe(id, None);
+        while self.table[bucket] != UNRESOLVED {
+            let slot = &mut self.slots[self.table[bucket] as usize];
+            if slot.id == id {
+                slot.node = node;
+            }
+            bucket = (bucket + 1) & (self.table.len() - 1);
+        }
+    }
+
+    fn rebuild(&mut self) {
+        let len = self.slots.len();
+        if len == 0 {
+            self.table.clear();
+            return;
+        }
+        // grow above half full and shrink below one eighth
+        // to avoid resizing on small count changes
+        if len < self.table.len() / 8 {
+            self.table.truncate((len * 2).next_power_of_two());
+        }
+        self.table.fill(UNRESOLVED);
+        if len > self.table.len() / 2 {
+            self.table.resize((len * 2).next_power_of_two(), UNRESOLVED);
+        }
+        for (index, slot) in self.slots.iter().enumerate() {
+            let bucket = self.probe(slot.id, Some(slot.kind));
+            self.table[bucket] = index as u32;
+        }
+    }
+
+    fn probe(&self, id: Id, kind: Option<u16>) -> usize {
+        let mask = self.table.len() - 1;
+        let mut bucket = (id.0.get() as usize) >> (usize::BITS - self.table.len().trailing_zeros());
+        loop {
+            let index = self.table[bucket];
+            if index == UNRESOLVED {
+                return bucket;
+            }
+            let slot = &self.slots[index as usize];
+            if slot.id == id && kind.is_none_or(|kind| slot.kind == kind) {
+                return bucket;
+            }
+            bucket = (bucket + 1) & mask;
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Slot {
     id: Id,
+    // in the latest build, or unresolved for a named widget missing from it
     node: u32,
-    // subtree end before updates, request order during builds, or unresolved when unrequested
-    end: u32,
     offset: u32,
+    // first request in the current build, or unresolved when unrequested
+    order: u32,
     kind: u16,
 }
 
 struct Kind<T> {
     type_id: TypeId,
-    update: fn(&Bump, u32, &mut InteractCx<'_, T>),
+    update: fn(&mut Kinds<T>, usize, &mut InteractCx<'_, T>),
     // dead cells of this kind linked by byte offset plus one
     free: Option<NonZeroU32>,
 }
