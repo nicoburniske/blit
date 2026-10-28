@@ -432,7 +432,7 @@ fn tapping_unregistered_background_clears_focus() {
             let mut root = ui.layout(Rects);
             let mut field = root.child().item(Rect::new(0.0, 0.0, 100.0, 200.0)).id(field_id);
             field.interact(Focus);
-            field.is_focused(field_id)
+            field.focused() == Some(field_id)
         };
         assert!(render(&mut frame, &mut context, &build));
         let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);

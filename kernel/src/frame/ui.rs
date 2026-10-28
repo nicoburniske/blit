@@ -249,23 +249,17 @@ impl<C: Context, S> Ui<'_, C, S> {
         self.inner.context
     }
 
-    /// returns the focused widget in this node's built subtree including this node
-    ///
-    /// call after building children to include them. follows structural parenting.
     pub fn focused(&self) -> Option<Id> {
-        let focused = self.inner.frame.interaction.focused?;
-        self.contains_widget(focused).then_some(focused)
+        self.inner.frame.interaction.focused
     }
 
     /// checks this node and its children already built in the current frame
+    ///
+    /// scans the built subtree
     pub fn contains_widget(&self, id: Id) -> bool {
         self.inner.frame.nodes[self.inner.node.index()..]
             .iter()
             .any(|node| node.widget_id == id)
-    }
-
-    pub fn is_focused(&self, id: Id) -> bool {
-        self.inner.frame.interaction.focused == Some(id)
     }
 
     pub fn focus(&mut self, id: Id) {
