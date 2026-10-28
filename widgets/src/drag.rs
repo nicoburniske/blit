@@ -65,7 +65,7 @@ impl<T: Scalar> Interact<T> for Drag {
 
     fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Self::Response {
         if let Some(id) = self.contact {
-            let contact = cx.contacts().find(|contact| contact.id == id);
+            let contact = cx.contacts().find(|contact| contact.id == id && contact.free);
             let active = contact.is_some_and(|contact| !matches!(contact.phase, Phase::Ended | Phase::Cancelled));
             if !active {
                 self.contact = None;
@@ -85,6 +85,7 @@ impl<T: Scalar> Interact<T> for Drag {
             let y = (contact.position.y - contact.origin.y).to_f32();
             let distance = x * x + y * y;
             matches!(contact.phase, Phase::Changed | Phase::Ended)
+                && contact.free
                 && match contact.source {
                     ContactSource::Touch => true,
                     ContactSource::Mouse(button) => !self.touch && button == PointerButton::Primary,

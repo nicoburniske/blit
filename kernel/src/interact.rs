@@ -14,7 +14,7 @@ pub trait Interact<T>: Copy + 'static {
     fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Self::Response;
 }
 
-/// a mouse press or touch routed through this widget
+/// a mouse press or touch, as seen by one widget
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Contact<T> {
     pub id: ContactId,
@@ -27,6 +27,10 @@ pub struct Contact<T> {
     /// frame clock time of the press
     pub started: Duration,
     pub modifiers: Modifiers,
+    /// the position falls on this widget rather than something above it
+    pub over: bool,
+    /// free for this widget to use
+    pub free: bool,
 }
 
 /// identifies one press or touch within a frame instance
@@ -114,7 +118,7 @@ impl<T: Scalar> Interact<T> for Press {
             // this widget capturing it, like with its own drag, ends the click
             if x * x + y * y < self.slop * self.slop && cx.claim(id) {
                 active = !matches!(contact.phase, Phase::Ended | Phase::Cancelled);
-                clicked = contact.phase == Phase::Ended && cx.over(contact.position);
+                clicked = contact.phase == Phase::Ended && contact.over;
             }
         }
         // one press at a time, deeper widgets claimed theirs first
@@ -123,6 +127,7 @@ impl<T: Scalar> Interact<T> for Press {
                 .contacts()
                 .find(|contact| {
                     contact.phase == Phase::Started
+                        && contact.free
                         && matches!(
                             contact.source,
                             ContactSource::Touch | ContactSource::Mouse(PointerButton::Primary)
@@ -152,10 +157,13 @@ impl<T: Scalar> Interact<T> for Focus {
     type Response = bool;
 
     fn update(&mut self, cx: &mut InteractCx<'_, T>) -> bool {
-        if cx.contacts().any(|contact| match contact.source {
-            ContactSource::Mouse(PointerButton::Primary) => contact.phase == Phase::Started,
-            ContactSource::Touch => contact.phase == Phase::Ended,
-            ContactSource::Mouse(_) => false,
+        if cx.contacts().any(|contact| {
+            contact.free
+                && match contact.source {
+                    ContactSource::Mouse(PointerButton::Primary) => contact.phase == Phase::Started,
+                    ContactSource::Touch => contact.phase == Phase::Ended,
+                    ContactSource::Mouse(_) => false,
+                }
         }) {
             cx.focus();
         }

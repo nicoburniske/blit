@@ -13,7 +13,7 @@ impl Interact<f32> for Watch {
 
     fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> Self::Response {
         let mut seen = [None; 2];
-        for (seen, contact) in seen.iter_mut().zip(cx.contacts()) {
+        for (seen, contact) in seen.iter_mut().zip(cx.contacts().filter(|contact| contact.free)) {
             *seen = Some((contact, false));
         }
         for (contact, captured) in seen.iter_mut().flatten() {
@@ -31,10 +31,11 @@ impl Interact<f32> for Pinch {
     type Response = Option<f32>;
 
     fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> Option<f32> {
-        let [a, b] = cx
-            .contacts()
-            .next_array()
-            .filter(|[a, b]| a.phase != Cancelled && b.phase != Cancelled)?;
+        let mut free = cx.contacts().filter(|contact| contact.free);
+        let [a, b] = [free.next()?, free.next()?];
+        if a.phase == Cancelled || b.phase == Cancelled {
+            return None;
+        }
         cx.capture(a.id);
         cx.capture(b.id);
         Some((b.position.x - a.position.x).hypot(b.position.y - a.position.y))
