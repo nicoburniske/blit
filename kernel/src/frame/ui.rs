@@ -221,19 +221,16 @@ impl<C: Context, S> Ui<'_, C, S> {
             .map(|index| areas[index].1)
     }
 
-    /// retains `kind` for this node while builds keep requesting it
+    /// keeps `kind` for this widget across builds and returns its latest response
     ///
-    /// `kind` is used once. returns its response from the update before this build
-    /// or its first update without resolved geometry or routed input when newly registered
-    /// request each interaction kind only once per widget in a build
+    /// only the first `kind` is kept, so later configuration changes are ignored
     pub fn interact<K: Interact<C::Scalar>>(&mut self, kind: K) -> K::Response {
         let id = self.current_id();
         let frame = &mut *self.inner.frame;
         frame.interaction.interact(id, kind, frame.time)
     }
 
-    /// interacts as a node assigned this exact widget id, which may be built later
-    /// request each interaction kind only once per widget in a build
+    /// like [`Self::interact`] for the widget `id`, which may be built later
     pub fn interact_widget<K: Interact<C::Scalar>>(&mut self, id: Id, kind: K) -> K::Response {
         let frame = &mut *self.inner.frame;
         frame.interaction.interact(id, kind, frame.time)
@@ -262,6 +259,7 @@ impl<C: Context, S> Ui<'_, C, S> {
             .any(|node| node.widget_id == id)
     }
 
+    /// focus lasts while `id` requests an interaction
     pub fn focus(&mut self, id: Id) {
         self.inner.frame.interaction.focused = Some(id);
     }

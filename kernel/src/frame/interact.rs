@@ -39,10 +39,9 @@ impl<T: Scalar> InteractCx<'_, T> {
         }
     }
 
-    /// keeps a pending contact from ancestors until the next update
+    /// keeps a contact from ancestors until the next update
     ///
-    /// fails for a contact this widget already captured. widgets see contacts claimed by others
-    /// only once those claims lapse
+    /// fails for a contact this widget already captured
     pub fn claim(&mut self, contact: ContactId) -> bool {
         let id = self.id;
         if let Some(Route::Pending { claim, .. }) = self.pending(contact)
@@ -138,7 +137,7 @@ impl<T: Scalar> InteractCx<'_, T> {
     }
 }
 
-/// contacts visible to one interaction kind
+/// every live contact as seen by one widget
 pub struct Contacts<'a, T> {
     contacts: std::slice::Iter<'a, TrackedContact<T>>,
     id: Id,
