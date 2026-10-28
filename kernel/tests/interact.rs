@@ -74,7 +74,8 @@ fn gesture_sees_independent_contacts() {
     step(pointer(Some(1), Down, [10.0, 10.0]));
     step(pointer(Some(2), Down, [20.0, 10.0]));
     let [first, second] = step(pointer(Some(1), Move, [15.0, 10.0])).map(Option::unwrap);
-    assert_eq!(first.source, ContactSource::Touch);
+    assert_eq!(first.source, ContactSource::Touch(1));
+    assert_eq!(second.source, ContactSource::Touch(2));
     assert_eq!(first.delta, Point::new(5.0, 0.0));
     assert_eq!(second.phase, Held);
     let [ended, held] = step(pointer(Some(1), Up, [17.0, 10.0])).map(Option::unwrap);

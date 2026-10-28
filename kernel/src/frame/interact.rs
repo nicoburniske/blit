@@ -161,10 +161,7 @@ impl<T: Scalar> Iterator for Contacts<'_, T> {
         };
         Some(Contact {
             id: tracked.id,
-            source: match tracked.source {
-                Source::Mouse(button) => ContactSource::Mouse(button),
-                Source::Touch(_) => ContactSource::Touch,
-            },
+            source: tracked.source,
             phase: tracked.phase,
             origin: tracked.origin,
             position: tracked.position,
@@ -294,7 +291,7 @@ impl<T: Scalar> InteractionState<T> {
             } => {
                 self.position = Some(position);
                 for index in 0..self.contacts.len() {
-                    let Source::Mouse(button) = self.contacts[index].source else {
+                    let ContactSource::Mouse(button) = self.contacts[index].source else {
                         continue;
                     };
                     let released = matches!(input, Input::PointerUp { button: released, .. } if *released == button);
@@ -306,7 +303,7 @@ impl<T: Scalar> InteractionState<T> {
                     if button == PointerButton::Primary {
                         self.focused = None;
                     }
-                    self.press(Source::Mouse(button), position, modifiers, time);
+                    self.press(ContactSource::Mouse(button), position, modifiers, time);
                 }
                 if matches!(input, Input::PointerUp { leave: true, .. }) {
                     self.position = None;
@@ -317,13 +314,13 @@ impl<T: Scalar> InteractionState<T> {
                 position,
                 phase: TouchPhase::Down,
             } => {
-                self.press(Source::Touch(id), position, Modifiers::NONE, time);
+                self.press(ContactSource::Touch(id), position, Modifiers::NONE, time);
             }
             Input::Touch { id, position, phase } => {
                 if let Some(index) = self
                     .contacts
                     .iter()
-                    .position(|tracked| tracked.source == Source::Touch(id))
+                    .position(|tracked| tracked.source == ContactSource::Touch(id))
                 {
                     self.update(
                         index,
@@ -429,7 +426,7 @@ impl<T: Scalar> InteractionState<T> {
         }
     }
 
-    fn press(&mut self, source: Source, position: Point<T>, modifiers: Modifiers, time: Duration) {
+    fn press(&mut self, source: ContactSource, position: Point<T>, modifiers: Modifiers, time: Duration) {
         for index in 0..self.contacts.len() {
             if self.contacts[index].source == source {
                 self.update(index, self.contacts[index].position, Phase::Cancelled);
@@ -645,7 +642,7 @@ struct Target {
 #[derive(Clone, Copy)]
 struct TrackedContact<T> {
     id: ContactId,
-    source: Source,
+    source: ContactSource,
     route: Route,
     phase: Phase,
     origin: Point<T>,
@@ -655,12 +652,6 @@ struct TrackedContact<T> {
     modifiers: Modifiers,
     // node under the position in the previous layout
     hit: Option<u32>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Source {
-    Mouse(PointerButton),
-    Touch(u64),
 }
 
 #[derive(Clone, Copy)]

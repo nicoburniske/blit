@@ -87,7 +87,7 @@ impl<T: Scalar> Interact<T> for Drag {
             matches!(contact.phase, Phase::Changed | Phase::Ended)
                 && contact.free
                 && match contact.source {
-                    ContactSource::Touch => true,
+                    ContactSource::Touch(_) => true,
                     ContactSource::Mouse(button) => !self.touch && button == PointerButton::Primary,
                 }
                 && distance > 0.0
