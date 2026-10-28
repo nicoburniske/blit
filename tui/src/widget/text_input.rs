@@ -46,17 +46,18 @@ impl<C: Context> Widget<C> for TextInput<'_> {
         } = self;
         let id = ui.current_id();
         let press = ui.interact(Press::new());
-        ui.interact(Focus);
         let drag = ui.interact(Drag::new().axis(Axis::Horizontal));
         let dragged = drag.active || drag.released;
         let input = ui.input();
-        match input {
-            Input::Key(key) if ui.focused() == Some(id) && key.key == Key::Escape && key.pressed => {
-                ui.clear_focus();
-            }
-            _ => {}
+        let mut focused = ui.interact(Focus);
+        if focused
+            && let Input::Key(key) = input
+            && key.key == Key::Escape
+            && key.pressed
+        {
+            ui.clear_focus();
+            focused = false;
         }
-        let focused = ui.focused() == Some(id);
         let response = state.update(value, if focused { &input } else { &Input::None });
         let text = ui.context_mut().as_mut().renderer_mut().text_run(value);
         let options = TextOptions::new().max_lines(1);

@@ -221,19 +221,17 @@ impl<C: Context, S> Ui<'_, C, S> {
             .map(|index| areas[index].1)
     }
 
-    /// keeps `kind` for this widget across builds and returns its latest response
-    ///
-    /// only the first `kind` is kept, so later configuration changes are ignored
-    pub fn interact<K: Interact<C::Scalar>>(&mut self, kind: K) -> K::Response {
+    /// adds `interaction` to this widget and returns its latest response
+    pub fn interact<K: Interact<C::Scalar>>(&mut self, interaction: K) -> K::Response {
         let id = self.current_id();
         let frame = &mut *self.inner.frame;
-        frame.interaction.interact(id, kind, frame.time)
+        frame.interaction.interact(id, interaction, frame.time)
     }
 
     /// like [`Self::interact`] for the widget `id`, which may be built later
-    pub fn interact_widget<K: Interact<C::Scalar>>(&mut self, id: Id, kind: K) -> K::Response {
+    pub fn interact_widget<K: Interact<C::Scalar>>(&mut self, id: Id, interaction: K) -> K::Response {
         let frame = &mut *self.inner.frame;
-        frame.interaction.interact(id, kind, frame.time)
+        frame.interaction.interact(id, interaction, frame.time)
     }
 
     /// access context during frame construction

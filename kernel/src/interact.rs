@@ -1,15 +1,17 @@
 use std::{num::NonZeroU32, time::Duration};
 
-use crate::{Axis, InteractCx, Modifiers, PointerButton, Scalar, geometry::Point};
+use crate::{Axis, InteractCx, Modifiers, PointerButton, Scalar, builder, geometry::Point};
 
-/// state a widget keeps across builds to recognize input
+/// how a widget recognizes input, configured by its latest build
 ///
 /// updates before every build, deepest widget first, so deeper widgets claim contacts before their ancestors
 pub trait Interact<T>: Copy + 'static {
-    /// what the kind recognized during one update
+    /// kept across builds
+    type State: Copy + Default + 'static;
+    /// what one update recognized
     type Response: Copy + 'static;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Self::Response;
+    fn update(&self, state: &mut Self::State, cx: &mut InteractCx<'_, T>) -> Self::Response;
 }
 
 /// a mouse press or touch, as seen by one widget
@@ -62,32 +64,14 @@ pub enum Phase {
     Cancelled = 4,
 }
 
-/// clicks and press feedback
-#[derive(Clone, Copy, Debug)]
-pub struct Press {
-    slop: f32,
-    contact: Option<ContactId>,
-    active: bool,
-}
-
-impl Press {
-    pub const fn new() -> Self {
-        Self {
-            slop: 6.0,
-            contact: None,
-            active: false,
-        }
-    }
-
-    /// movement in frame coordinates after which a press is no longer a click
-    pub const fn slop(self, slop: f32) -> Self {
-        Self { slop, ..self }
-    }
-}
-
-impl Default for Press {
-    fn default() -> Self {
-        Self::new()
+builder! {
+    /// clicks and press feedback
+    ///
+    /// a press that moves `slop` in frame coordinates is no longer a click
+    #[derive(Clone, Copy, Debug)]
+    pub struct Press {
+        new(),
+        slop: f32 = 6.0,
     }
 }
 
@@ -102,13 +86,16 @@ pub struct PressResponse {
 }
 
 impl<T: Scalar> Interact<T> for Press {
+    /// the press in progress
+    type State = Option<ContactId>;
     type Response = PressResponse;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> PressResponse {
+    fn update(&self, press: &mut Option<ContactId>, cx: &mut InteractCx<'_, T>) -> PressResponse {
+        let was_active = press.is_some();
         let mut active = false;
         let mut clicked = false;
         // claims last one update, so keep claiming while it is still a click
-        if let Some(id) = self.contact
+        if let Some(id) = *press
             && let Some(contact) = cx.contacts().find(|contact| contact.id == id)
         {
             let x = (contact.position.x - contact.origin.x).to_f32();
@@ -121,7 +108,7 @@ impl<T: Scalar> Interact<T> for Press {
         }
         // one press at a time, deeper widgets claimed theirs first
         if !active {
-            self.contact = cx
+            *press = cx
                 .contacts()
                 .find(|contact| {
                     contact.phase == Phase::Started
@@ -133,28 +120,27 @@ impl<T: Scalar> Interact<T> for Press {
                 })
                 .map(|contact| contact.id)
                 .filter(|id| cx.claim(*id));
-            active = self.contact.is_some();
+            active = press.is_some();
         }
-        let state = PressResponse {
+        PressResponse {
             active,
-            activated: active && !self.active,
-            deactivated: self.active && !active,
+            activated: active && !was_active,
+            deactivated: was_active && !active,
             hovered: cx.hovered(),
             clicked,
-        };
-        self.active = active;
-        state
+        }
     }
 }
 
-/// takes keyboard focus when pressed or tapped, returning whether this widget is focused
+/// takes focus when pressed or tapped, returning whether this widget is focused
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Focus;
 
 impl<T: Scalar> Interact<T> for Focus {
+    type State = ();
     type Response = bool;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> bool {
+    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, T>) -> bool {
         if cx.contacts().any(|contact| {
             contact.free
                 && match contact.source {
@@ -169,27 +155,15 @@ impl<T: Scalar> Interact<T> for Focus {
     }
 }
 
-/// wheel and trackpad scrolling, keeping continuous sequences until they end
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Scroll {
-    axis: Option<Axis>,
-    active: bool,
-}
-
-impl Scroll {
-    pub const fn new() -> Self {
-        Self {
-            axis: None,
-            active: false,
-        }
-    }
-
-    /// takes only scrolling that starts mostly along `axis`, leaving the rest to ancestors
-    pub const fn axis(self, axis: Axis) -> Self {
-        Self {
-            axis: Some(axis),
-            ..self
-        }
+builder! {
+    /// wheel and trackpad scrolling, keeping continuous sequences until they end
+    ///
+    /// with an `axis`, takes only scrolling that starts mostly along it, leaving the rest to ancestors
+    #[derive(Clone, Copy, Debug)]
+    pub struct Scroll {
+        new(),
+        #[into]
+        axis: Option<Axis> = None,
     }
 }
 
@@ -211,10 +185,12 @@ pub struct ScrollResponse {
 }
 
 impl<T: Scalar> Interact<T> for Scroll {
+    /// holding a continuous sequence
+    type State = bool;
     type Response = ScrollResponse;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> ScrollResponse {
-        let held = self.active;
+    fn update(&self, active: &mut bool, cx: &mut InteractCx<'_, T>) -> ScrollResponse {
+        let held = *active;
         let Some(event) = cx.scroll() else {
             return ScrollResponse {
                 active: held,
@@ -236,11 +212,11 @@ impl<T: Scalar> Interact<T> for Scroll {
         if event.phase != Phase::Cancelled {
             cx.capture_scroll();
         }
-        self.active = event.continuous && matches!(event.phase, Phase::Started | Phase::Changed);
+        *active = event.continuous && matches!(event.phase, Phase::Started | Phase::Changed);
         ScrollResponse {
-            active: self.active,
-            activated: self.active && !held,
-            deactivated: held && !self.active,
+            active: *active,
+            activated: *active && !held,
+            deactivated: held && !*active,
             released: held && event.phase == Phase::Ended,
             delta: event.delta,
             continuous: event.continuous,

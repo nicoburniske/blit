@@ -8,10 +8,11 @@ const WATCH: Watch = Watch(|_| false);
 const CAPTURE: Watch = Watch(|_| true);
 
 impl Interact<f32> for Watch {
+    type State = ();
     /// each contact with whether this update captured it
     type Response = [Option<(Contact<f32>, bool)>; 2];
 
-    fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> Self::Response {
+    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, f32>) -> Self::Response {
         let mut seen = [None; 2];
         for (seen, contact) in seen.iter_mut().zip(cx.contacts().filter(|contact| contact.free)) {
             *seen = Some((contact, false));
@@ -28,9 +29,10 @@ impl Interact<f32> for Watch {
 struct Pinch;
 
 impl Interact<f32> for Pinch {
+    type State = ();
     type Response = Option<f32>;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> Option<f32> {
+    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, f32>) -> Option<f32> {
         let mut free = cx.contacts().filter(|contact| contact.free);
         let [a, b] = [free.next()?, free.next()?];
         if a.phase == Cancelled || b.phase == Cancelled {
@@ -178,15 +180,16 @@ fn unmounted_owner_retires_contact() {
 fn gesture_state_lives_while_requested() {
     // larger than any inline limit
     #[derive(Clone, Copy)]
-    struct Count([u64; 32]);
+    struct Count;
 
     impl Interact<f32> for Count {
+        type State = [u64; 32];
         type Response = u64;
 
-        fn update(&mut self, cx: &mut InteractCx<'_, f32>) -> u64 {
-            self.0[31] += 1;
+        fn update(&self, count: &mut [u64; 32], cx: &mut InteractCx<'_, f32>) -> u64 {
+            count[31] += 1;
             cx.wake_at(Duration::from_secs(1));
-            self.0[31]
+            count[31]
         }
     }
 
@@ -194,9 +197,10 @@ fn gesture_state_lives_while_requested() {
     struct Empty;
 
     impl Interact<f32> for Empty {
+        type State = ();
         type Response = ();
 
-        fn update(&mut self, _: &mut InteractCx<'_, f32>) {}
+        fn update(&self, _: &mut (), _: &mut InteractCx<'_, f32>) {}
     }
 
     let (mut frame, mut context) = frame(Size::uniform(200.0));
@@ -208,7 +212,7 @@ fn gesture_state_lives_while_requested() {
         for (row, updates) in updates.iter_mut().enumerate().take(end).skip(start) {
             let mut child = root.child().id(Id::new(row));
             child.interact(Empty);
-            *updates = Some(child.interact(Count([0; 32])));
+            *updates = Some(child.interact(Count));
         }
         updates
     };
@@ -302,9 +306,10 @@ fn kind_requested_twice_keeps_one_slot() {
     struct Count;
 
     impl Interact<f32> for Count {
+        type State = ();
         type Response = ();
 
-        fn update(&mut self, _: &mut InteractCx<'_, f32>) {
+        fn update(&self, _: &mut (), _: &mut InteractCx<'_, f32>) {
             UPDATES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
     }

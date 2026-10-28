@@ -1,12 +1,18 @@
-use blit::{Axis, ContactId, ContactSource, Interact, InteractCx, Phase, Point, PointerButton, Scalar};
+use blit::{Axis, ContactId, ContactSource, Interact, InteractCx, Phase, Point, PointerButton, Scalar, builder};
 
-/// follows one primary press or touch once it moves past the drag threshold
-#[derive(Clone, Copy, Debug)]
-pub struct Drag {
-    axis: Option<Axis>,
-    touch: bool,
-    threshold: f32,
-    contact: Option<ContactId>,
+builder! {
+    /// follows one primary press or touch once it moves `threshold` in frame coordinates
+    ///
+    /// with an `axis`, starts only when movement is mostly along it,
+    /// and `touch` ignores the mouse since it scrolls with its wheel instead
+    #[derive(Clone, Copy, Debug)]
+    pub struct Drag {
+        new(),
+        #[into]
+        axis: Option<Axis> = None,
+        touch: bool = false,
+        threshold: f32 = 6.0,
+    }
 }
 
 /// the response of [`Drag`]
@@ -25,50 +31,17 @@ pub struct DragResponse<T> {
     pub delta: Point<T>,
 }
 
-impl Drag {
-    pub const fn new() -> Self {
-        Self {
-            axis: None,
-            touch: false,
-            threshold: 6.0,
-            contact: None,
-        }
-    }
-
-    /// starts only when movement is mostly along `axis`
-    pub const fn axis(self, axis: Axis) -> Self {
-        Self {
-            axis: Some(axis),
-            ..self
-        }
-    }
-
-    /// ignores the mouse when set, since it scrolls with its wheel instead
-    pub const fn touch(self, touch: bool) -> Self {
-        Self { touch, ..self }
-    }
-
-    /// movement in frame coordinates before the drag starts
-    pub const fn threshold(self, threshold: f32) -> Self {
-        Self { threshold, ..self }
-    }
-}
-
-impl Default for Drag {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<T: Scalar> Interact<T> for Drag {
+    /// the dragged contact
+    type State = Option<ContactId>;
     type Response = DragResponse<T>;
 
-    fn update(&mut self, cx: &mut InteractCx<'_, T>) -> Self::Response {
-        if let Some(id) = self.contact {
+    fn update(&self, drag: &mut Option<ContactId>, cx: &mut InteractCx<'_, T>) -> Self::Response {
+        if let Some(id) = *drag {
             let contact = cx.contacts().find(|contact| contact.id == id && contact.free);
             let active = contact.is_some_and(|contact| !matches!(contact.phase, Phase::Ended | Phase::Cancelled));
             if !active {
-                self.contact = None;
+                *drag = None;
             }
             // a contact this widget lost ends the drag without a release
             return DragResponse {
@@ -102,7 +75,7 @@ impl<T: Scalar> Interact<T> for Drag {
         // a release past the threshold starts and ends in one update
         let active = contact.phase == Phase::Changed;
         if active {
-            self.contact = Some(contact.id);
+            *drag = Some(contact.id);
         }
         DragResponse {
             active,
