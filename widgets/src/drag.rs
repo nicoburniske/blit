@@ -70,7 +70,7 @@ impl<T: Scalar> Interact<T> for Drag {
             if !active {
                 self.contact = None;
             }
-            // a contact that vanished with its widget ends the drag without a release
+            // a contact this widget lost ends the drag without a release
             return DragResponse {
                 active,
                 activated: false,
