@@ -51,6 +51,14 @@ impl Bump {
     }
 
     /// # Safety
+    /// the offset must identify a live initialized T in this storage
+    #[inline]
+    pub unsafe fn get_mut<T>(&mut self, offset: Offset<T>) -> &mut T {
+        // safety: the caller guarantees the type and validity and the mutable borrow is exclusive
+        unsafe { &mut *self.as_ptr().add(offset.byte as usize).cast::<T>() }
+    }
+
+    /// # Safety
     /// the slice must identify live initialized values in this storage
     #[inline]
     pub unsafe fn slice<T>(&self, slice: Slice<T>) -> &[T] {
@@ -131,6 +139,13 @@ pub struct Offset<T> {
 }
 
 impl<T> Offset<T> {
+    pub const fn new(byte: u32) -> Self {
+        Self {
+            byte,
+            marker: PhantomData,
+        }
+    }
+
     pub const fn byte(self) -> u32 {
         self.byte
     }

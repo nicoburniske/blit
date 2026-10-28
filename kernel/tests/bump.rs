@@ -23,6 +23,10 @@ fn preserves_alignment_and_values_across_growth() {
         assert_eq!(*bump.get(second), 23);
         assert_eq!(bump.slice(numbers), &[31, 47]);
         assert_eq!(bump.get(aligned).0, [59; 8]);
+        *bump.get_mut(first) = 19;
+        bump.get_mut(aligned).0[0] = 61;
+        assert_eq!(*bump.get(first), 19);
+        assert_eq!(bump.get(aligned).0[0], 61);
     }
     let capacity = bump.capacity();
     bump.clear();

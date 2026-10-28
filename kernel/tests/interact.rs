@@ -226,6 +226,73 @@ fn gesture_state_lives_while_requested() {
 }
 
 #[test]
+fn named_kinds_follow_reordered_nodes() {
+    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let order = Cell::new([Some(0), Some(1), Some(2)]);
+    let build = |mut ui: Ui<'_>| {
+        let responses = [0, 1, 2].map(|id| {
+            let id = Id::new(id);
+            (
+                ui.interact_widget(id, Press::new()).hovered,
+                ui.interact_widget(id, Focus),
+            )
+        });
+        let mut root = ui.layout(Rects);
+        for (index, id) in order.get().into_iter().enumerate() {
+            if let Some(id) = id {
+                root.child()
+                    .id(Id::new(id))
+                    .item(Rect::new(index as f32 * 50.0, 0.0, 50.0, 100.0));
+            }
+        }
+        responses
+    };
+    for nodes in [
+        [Some(0), Some(1), Some(2)],
+        [Some(2), Some(0), None],
+        [Some(1), Some(2), Some(0)],
+    ] {
+        order.set(nodes);
+        render(&mut frame, &mut context, &build);
+        let responses = render_inputs(
+            &mut frame,
+            &mut context,
+            Duration::ZERO,
+            [pointer(None, Down, [5.0, 5.0])],
+            &build,
+        );
+        let hovered = nodes[0].unwrap();
+        assert_eq!(responses, [0, 1, 2].map(|id| (id == hovered, id == hovered)));
+    }
+}
+
+#[test]
+fn kind_order_follows_requests() {
+    for seed in [false, true] {
+        let (mut frame, mut context) = frame(Size::uniform(200.0));
+        let capture = Watch(|contact| contact.phase == Ended);
+        if seed {
+            render(&mut frame, &mut context, |mut ui: Ui<'_>| {
+                ui.interact_widget(Id::new("absent"), capture);
+            });
+        }
+        let build = |mut ui: Ui<'_>| {
+            let response = ui.interact(Press::new());
+            ui.interact(capture);
+            response.clicked
+        };
+        render(&mut frame, &mut context, &build);
+        assert!(!render_inputs(
+            &mut frame,
+            &mut context,
+            Duration::ZERO,
+            [pointer(Some(1), Down, [10.0, 10.0]), pointer(Some(1), Up, [10.0, 10.0])],
+            &build,
+        ));
+    }
+}
+
+#[test]
 fn kind_requested_twice_keeps_one_slot() {
     static UPDATES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
@@ -241,16 +308,22 @@ fn kind_requested_twice_keeps_one_slot() {
     }
 
     let (mut frame, mut context) = frame(Size::uniform(200.0));
-    let build = |mut ui: Ui<'_>| {
-        ui.interact(Count);
-        ui.interact(Count);
+    let build = |ui: Ui<'_>| {
+        let mut root = ui.layout(Overlay);
+        for id in 0..64 {
+            let mut child = root.child().id(Id::new(id));
+            child.interact(Count);
+            child.interact(Count);
+        }
+        for id in 0..64 {
+            root.interact_widget(Id::new(id), Count);
+        }
     };
-    // copies made by the first build collapse by the next one
-    render(&mut frame, &mut context, &build);
-    render(&mut frame, &mut context, &build);
-    UPDATES.store(0, std::sync::atomic::Ordering::Relaxed);
-    render(&mut frame, &mut context, &build);
-    assert_eq!(UPDATES.load(std::sync::atomic::Ordering::Relaxed), 1);
+    for _ in 0..3 {
+        UPDATES.store(0, std::sync::atomic::Ordering::Relaxed);
+        render(&mut frame, &mut context, &build);
+        assert_eq!(UPDATES.load(std::sync::atomic::Ordering::Relaxed), 64);
+    }
 }
 
 #[derive(Default)]
