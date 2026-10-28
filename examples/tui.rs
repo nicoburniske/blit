@@ -53,7 +53,7 @@ impl Demo {
     fn show(&mut self, mut ui: Ui<'_>) {
         let escape = matches!(ui.input(), Input::Key(key)
             if key.key == Key::Escape && key.pressed && !key.repeat);
-        let input_focused = ui.is_focused(Id::new("tui text input"));
+        let input_focused = ui.focused() == Some(Id::new("tui text input"));
         if !self.modal.open && !input_focused && (escape || matches!(ui.input(), Input::Text('q'))) {
             ui.context_mut().quit();
             return;

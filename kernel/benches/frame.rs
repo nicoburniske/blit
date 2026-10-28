@@ -72,11 +72,27 @@ fn build_and_layout(bencher: divan::Bencher, count: usize) {
     });
 }
 
-#[divan::bench(args = [1000])]
+#[divan::bench(args = [100, 1000])]
 fn build_interactive_and_layout(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
         build(&mut frame, count, |mut ui, _| {
+            black_box(ui.interact(Press::new()));
+        });
+        frame.layout(&mut ());
+        black_box(&frame);
+    });
+}
+
+#[divan::bench]
+fn build_interactive_after_peak(bencher: divan::Bencher) {
+    let mut frame = Frame::default();
+    build(&mut frame, 100_000, |mut ui, _| {
+        black_box(ui.interact(Press::new()));
+    });
+    frame.layout(&mut ());
+    bencher.bench_local(|| {
+        build(&mut frame, 100, |mut ui, _| {
             black_box(ui.interact(Press::new()));
         });
         frame.layout(&mut ());
