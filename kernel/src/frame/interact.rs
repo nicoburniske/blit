@@ -13,8 +13,6 @@ pub struct InteractCx<'a, T> {
     scroll: &'a mut Option<TrackedScroll>,
     focused: &'a mut Option<Id>,
     focus_taken: &'a mut bool,
-    hits: &'a [HitItem<T>],
-    clips: &'a [ResolvedClip<T>],
     hover: Option<u32>,
     deadline: &'a mut Option<Duration>,
     input: &'a Input<T>,
@@ -31,7 +29,7 @@ impl<T: Scalar> InteractCx<'_, T> {
         *self.deadline = Some(self.deadline.map_or(time, |deadline| deadline.min(time)));
     }
 
-    /// pending contacts within this widget and contacts it captured
+    /// every live press and touch
     pub fn contacts(&self) -> Contacts<'_, T> {
         Contacts {
             contacts: self.contacts.iter(),
@@ -79,11 +77,6 @@ impl<T: Scalar> InteractCx<'_, T> {
 
     pub fn hovered(&self) -> bool {
         self.hover.is_some_and(|node| self.contains(node))
-    }
-
-    /// whether `position` falls on this widget rather than something above it
-    pub fn over(&self, position: Point<T>) -> bool {
-        hit(self.hits, self.clips, position).is_some_and(|hit| self.contains(hit.node))
     }
 
     pub fn focused(&self) -> bool {
@@ -153,32 +146,20 @@ pub struct Contacts<'a, T> {
     end: u32,
 }
 
-impl<T: Scalar> Contacts<'_, T> {
-    /// takes the next `N` contacts when at least `N` remain
-    pub fn next_array<const N: usize>(&mut self) -> Option<[Contact<T>; N]> {
-        let mut contacts = [const { MaybeUninit::uninit() }; N];
-        for contact in &mut contacts {
-            // contacts are copy so an early return leaks nothing
-            contact.write(self.next()?);
-        }
-        // safety: every element was written above
-        Some(unsafe { contacts.as_ptr().cast::<[Contact<T>; N]>().read() })
-    }
-}
-
 impl<T: Scalar> Iterator for Contacts<'_, T> {
     type Item = Contact<T>;
 
     fn next(&mut self) -> Option<Contact<T>> {
-        let (id, node, end) = (self.id, self.node, self.end);
-        let tracked = self.contacts.find(|tracked| match tracked.route {
+        let tracked = self.contacts.next()?;
+        let within = |node| self.node <= node && node <= self.end;
+        let free = match tracked.route {
             Route::Pending {
                 target: Some(target),
                 claim,
-            } => node <= target.node && target.node <= end && claim.is_none_or(|claim| claim == id),
-            Route::Captured { owner } => owner == id,
+            } => within(target.node) && claim.is_none_or(|claim| claim == self.id),
+            Route::Captured { owner } => owner == self.id,
             Route::Pending { target: None, .. } | Route::Retired => false,
-        })?;
+        };
         Some(Contact {
             id: tracked.id,
             source: match tracked.source {
@@ -191,6 +172,8 @@ impl<T: Scalar> Iterator for Contacts<'_, T> {
             delta: tracked.delta,
             started: tracked.started,
             modifiers: tracked.modifiers,
+            over: tracked.hit.is_some_and(within),
+            free,
         })
     }
 }
@@ -240,8 +223,6 @@ impl<T: Scalar> InteractionState<T> {
                     scroll: &mut None,
                     focused: &mut focused,
                     focus_taken: &mut true,
-                    hits: &self.hits,
-                    clips: &self.clips,
                     hover: None,
                     deadline: &mut self.deadline,
                     input: &Input::None,
@@ -420,6 +401,9 @@ impl<T: Scalar> InteractionState<T> {
             .position
             .and_then(|position| hit(&self.hits, &self.clips, position))
             .map(|hit| hit.node);
+        for tracked in &mut self.contacts {
+            tracked.hit = hit(&self.hits, &self.clips, tracked.position).map(|hit| hit.node);
+        }
         // deepest nodes update first
         self.deadline = None;
         let mut focus_taken = false;
@@ -437,8 +421,6 @@ impl<T: Scalar> InteractionState<T> {
                     scroll: &mut self.scroll,
                     focused: &mut self.focused,
                     focus_taken: &mut focus_taken,
-                    hits: &self.hits,
-                    clips: &self.clips,
                     hover,
                     deadline: &mut self.deadline,
                     input,
@@ -471,6 +453,7 @@ impl<T: Scalar> InteractionState<T> {
             delta: Point::ZERO,
             started: time,
             modifiers,
+            hit: None,
         });
     }
 
@@ -671,6 +654,8 @@ struct TrackedContact<T> {
     delta: Point<T>,
     started: Duration,
     modifiers: Modifiers,
+    // node under the position in the previous layout
+    hit: Option<u32>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
