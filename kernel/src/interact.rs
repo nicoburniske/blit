@@ -39,7 +39,7 @@ pub struct ContactId(pub(crate) NonZeroU32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContactSource {
     Mouse(PointerButton),
-    Touch,
+    Touch(u64),
 }
 
 /// wheel or trackpad scrolling routed through this widget
@@ -128,7 +128,7 @@ impl<T: Scalar> Interact<T> for Press {
                         && contact.free
                         && matches!(
                             contact.source,
-                            ContactSource::Touch | ContactSource::Mouse(PointerButton::Primary)
+                            ContactSource::Touch(_) | ContactSource::Mouse(PointerButton::Primary)
                         )
                 })
                 .map(|contact| contact.id)
@@ -159,7 +159,7 @@ impl<T: Scalar> Interact<T> for Focus {
             contact.free
                 && match contact.source {
                     ContactSource::Mouse(PointerButton::Primary) => contact.phase == Phase::Started,
-                    ContactSource::Touch => contact.phase == Phase::Ended,
+                    ContactSource::Touch(_) => contact.phase == Phase::Ended,
                     ContactSource::Mouse(_) => false,
                 }
         }) {
