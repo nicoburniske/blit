@@ -22,6 +22,10 @@ impl blit::Context for TuiContext {
     type Scalar = i32;
 }
 
+impl blit_widgets::Context for TuiContext {
+    const SLOP: i32 = 1;
+}
+
 impl AsMut<TuiContext> for TuiContext {
     fn as_mut(&mut self) -> &mut TuiContext {
         self

@@ -1,6 +1,9 @@
-use blit::{Axis, Constraints, Context, LayoutCx, Point, Press, Scalar, Size, Ui, Widget};
+use blit::{Axis, Constraints, LayoutCx, Point, Scalar, Size, Ui, Widget};
 
-use crate::Drag;
+use crate::{
+    Context,
+    interact::{drag, press},
+};
 
 blit::builder! {
     pub struct Split<'a, C: Context> {
@@ -65,9 +68,9 @@ where
         let leading_id = id.child("leading pane");
         let divider_id = id.child("divider");
         let trailing_id = id.child("trailing pane");
-        let press = ui.interact_widget(divider_id, Press::new());
+        let press = ui.interact_widget(divider_id, press::new());
         let measured = ui.area(leading_id).map(|area| axis.extent(area.size()));
-        let drag = ui.interact_widget(divider_id, Drag::new());
+        let drag = ui.interact_widget(divider_id, drag::new());
         let delta = match axis {
             Axis::Horizontal => drag.delta.x,
             Axis::Vertical => drag.delta.y,

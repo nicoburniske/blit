@@ -1,8 +1,9 @@
-use blit::{Input, Press, Sides};
+use blit::{Input, Sides};
 use blit_tui::{
     Ui,
     atom::Border,
     color::Color,
+    interact::press,
     layout::{Justify, flex},
     text::{HorizontalAlign, TextAttributes, TextOptions},
     widget::{Block, Text},
@@ -21,7 +22,7 @@ fn main() -> std::io::Result<()> {
             });
 
             header.child().item(flex::item().fixed(8, 1)).build(|mut ui: Ui<'_>| {
-                let press = ui.interact(Press::new());
+                let press = ui.interact(press::new());
 
                 ui.insert(Block::new().background(Color::BLUE));
                 ui.insert(Text::new("quit").options(TextOptions::new().horizontal_align(HorizontalAlign::Center)));

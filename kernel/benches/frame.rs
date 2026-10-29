@@ -1,6 +1,9 @@
 use std::{hint::black_box, time::Duration};
 
-use blit::{Constraints, Frame, FrameInfo, Id, Input, Layout, LayoutCx, Point, Press, Size, Transition, Ui, state};
+use blit::{
+    Constraints, Context, Frame, FrameInfo, Id, Input, Interact, InteractCx, Layout, LayoutCx, Point, Size, Transition,
+    Ui, state,
+};
 
 #[global_allocator]
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
@@ -34,7 +37,7 @@ fn build_interactive(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
         build(&mut frame, count, |mut ui, _| {
-            black_box(ui.interact(Press::new()));
+            black_box(ui.interact(Hover));
         })
     });
 }
@@ -77,7 +80,7 @@ fn build_interactive_and_layout(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
         build(&mut frame, count, |mut ui, _| {
-            black_box(ui.interact(Press::new()));
+            black_box(ui.interact(Hover));
         });
         frame.layout(&mut ());
         black_box(&frame);
@@ -88,12 +91,12 @@ fn build_interactive_and_layout(bencher: divan::Bencher, count: usize) {
 fn build_interactive_after_peak(bencher: divan::Bencher) {
     let mut frame = Frame::default();
     build(&mut frame, 100_000, |mut ui, _| {
-        black_box(ui.interact(Press::new()));
+        black_box(ui.interact(Hover));
     });
     frame.layout(&mut ());
     bencher.bench_local(|| {
         build(&mut frame, 100, |mut ui, _| {
-            black_box(ui.interact(Press::new()));
+            black_box(ui.interact(Hover));
         });
         frame.layout(&mut ());
         black_box(&frame);
@@ -151,5 +154,18 @@ impl Layout<()> for Stack {
             cx.set_child_position(child, Point::ZERO);
         }
         bounds.min
+    }
+}
+
+/// whether the pointer is over this widget
+#[derive(Clone, Copy)]
+struct Hover;
+
+impl<C: Context> Interact<C> for Hover {
+    type State = ();
+    type Response = bool;
+
+    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, C::Scalar>) -> bool {
+        cx.hovered()
     }
 }

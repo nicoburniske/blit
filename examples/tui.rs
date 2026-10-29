@@ -1,11 +1,12 @@
 use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
-use blit::{Axis, Easing, Id, Input, Key, Press, PressResponse, Scalar, Sides, Size, Transition, Widget};
+use blit::{Axis, Easing, Id, Input, Key, Scalar, Sides, Size, Transition, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiContext, Ui,
     atom::{Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, Tint, TitlePosition},
     color::Color,
+    interact::press,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
     text::{HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
     widget::{
@@ -192,7 +193,7 @@ impl Widget<TuiContext> for &mut Modal {
             self.palette.open = false;
         }
         let backdrop_id = Id::new("tui modal backdrop");
-        if self.open && root.interact_widget(backdrop_id, Press::new()).clicked {
+        if self.open && root.interact_widget(backdrop_id, press::new()).clicked {
             self.open = false;
         }
         if !self.open {
@@ -205,7 +206,7 @@ impl Widget<TuiContext> for &mut Modal {
         ];
         let (_, accent) = palettes[self.accent];
         let panel_id = Id::new("tui modal panel");
-        root.interact_widget(panel_id, Press::new());
+        root.interact_widget(panel_id, press::new());
         let mut modal = root
             .child()
             .parent(blit::NodeTarget::Root)
@@ -1017,13 +1018,13 @@ impl Widget<TuiContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        let press = ui.interact(Press::new());
+        let press = ui.interact(press::new());
         draw_button(ui, self.label, self.selected, press);
         press.clicked
     }
 }
 
-fn draw_button(ui: Ui<'_>, label: &str, selected: bool, press: PressResponse) {
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, press: press::Response) {
     let block = if press.active {
         Block::new().background(colors::ACCENT_DARK)
     } else if selected {

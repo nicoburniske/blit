@@ -1,8 +1,6 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
-use blit::{
-    Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Press, PressResponse, Sides, Size, Transition, Widget,
-};
+use blit::{Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Sides, Size, Transition, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 #[cfg(not(feature = "gpu"))]
 use blit_desktop::cpu;
@@ -24,6 +22,7 @@ use blit_gui_widgets::{
     Performance, PerformanceState, Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip, ResizeState,
     RichText, ScrollArea, ScrollState, Split, SplitState, Text, TextInput, TextInputState, UniformList, VirtualList,
     VirtualListState,
+    interact::press,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
 };
 
@@ -1153,13 +1152,13 @@ impl Widget<DesktopContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        let press = ui.interact(Press::new());
+        let press = ui.interact(press::new());
         draw_button(ui, self.label, self.selected, press);
         press.clicked
     }
 }
 
-fn draw_button(ui: Ui<'_>, label: &str, selected: bool, press: PressResponse) {
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, press: press::Response) {
     let background = if press.active {
         colors::ACCENT_DARK
     } else if selected {

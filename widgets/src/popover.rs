@@ -1,9 +1,11 @@
-use blit::{Context, Input, NodeTarget, Press, PressResponse, Scalar, Sides, Ui, Widget};
+use blit::{Input, NodeTarget, Scalar, Sides, Ui, Widget};
 use blit_layout::{
     absolute,
     absolute::{Anchor, Sizing},
     single,
 };
+
+use crate::{Context, interact::press};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PopoverClose {
@@ -16,8 +18,8 @@ pub enum PopoverClose {
 blit::builder! {
     pub struct Popover<'a, C: Context> {
         new(state: &'a mut PopoverState),
-        #[bounds(FnOnce(Ui<'_, C>, PressResponse, bool))]
-        trigger<F = fn(Ui<'_, C>, PressResponse, bool)>: F = |_, _, _| (),
+        #[bounds(FnOnce(Ui<'_, C>, press::Response, bool))]
+        trigger<F = fn(Ui<'_, C>, press::Response, bool)>: F = |_, _, _| (),
         content<W = fn(Ui<'_, C>)>: W = |_| (),
         #[into]
         parent: NodeTarget = NodeTarget::Root,
@@ -44,7 +46,7 @@ blit::builder! {
 
 impl<C: Context, F, W> Widget<C> for Popover<'_, C, F, W>
 where
-    F: FnOnce(Ui<'_, C>, PressResponse, bool),
+    F: FnOnce(Ui<'_, C>, press::Response, bool),
     W: Widget<C>,
 {
     type Response = Option<W::Response>;
@@ -54,7 +56,7 @@ where
         let content = self.content;
         let id = ui.current_id();
         let trigger_id = id.child("popover trigger");
-        let press = ui.interact_widget(trigger_id, Press::new());
+        let press = ui.interact_widget(trigger_id, press::new());
         if self.open_on_hover && press.hovered {
             state.open = true;
         } else if !self.open_on_hover && press.activated {
@@ -77,8 +79,8 @@ where
             return None;
         }
 
-        let backdrop = root.interact_widget(backdrop_id, Press::new());
-        let content_press = root.interact_widget(content_id, Press::new());
+        let backdrop = root.interact_widget(backdrop_id, press::new());
+        let content_press = root.interact_widget(content_id, press::new());
         let pointer_inside = content_press.hovered
             || root
                 .pointer_position()
