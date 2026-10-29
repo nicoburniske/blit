@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use blit::{PressResponse, Sides, Size, Widget};
+use blit::{Sides, Size, Widget};
 use blit_gui::{
     Context,
     atom::Rectangle,
@@ -8,7 +8,7 @@ use blit_gui::{
     style::{Border, BorderRadius},
     text::TextStyle,
 };
-use blit_widgets::FrameProfiler;
+use blit_widgets::{FrameProfiler, interact::press};
 
 use crate::{
     Popover, PopoverClose, PopoverState, Text,
@@ -46,7 +46,7 @@ blit::builder! {
 
 impl<C> Widget<C> for Performance<'_>
 where
-    C: Context + AsRef<FrameProfiler>,
+    C: Context + blit_widgets::Context + AsRef<FrameProfiler>,
 {
     type Response = ();
 
@@ -76,7 +76,7 @@ where
                 .x(self.popover_x)
                 .y(self.popover_y)
                 .close(PopoverClose::Manual)
-                .trigger(|ui: blit::Ui<'_, C>, press: PressResponse, open| {
+                .trigger(|ui: blit::Ui<'_, C>, press: press::Response, open| {
                     let mut badge = ui.layout(
                         flex::row()
                             .padding(self.badge_padding)

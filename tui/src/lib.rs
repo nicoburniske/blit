@@ -22,6 +22,8 @@ pub mod layout {
     blit_layout::export!(i32);
 }
 
+pub use blit_widgets::interact;
+
 pub use self::{
     context::{BoundsClip, TuiContext},
     renderer::{RendererConfig, TuiRenderer, cell, color, image, text},
@@ -29,9 +31,9 @@ pub use self::{
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiContext, S>;
 
-pub trait Context: blit::Context<Scalar = i32> + AsMut<TuiContext> {}
+pub trait Context: blit_widgets::Context<Scalar = i32> + AsMut<TuiContext> {}
 
-impl<C: blit::Context<Scalar = i32> + AsMut<TuiContext>> Context for C {}
+impl<C: blit_widgets::Context<Scalar = i32> + AsMut<TuiContext>> Context for C {}
 
 use std::{
     io,

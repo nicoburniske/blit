@@ -1,9 +1,6 @@
-use blit::{
-    Atom, AtomCx, Axis, Constraints, Focus, Input, Key, LogicalRect, PointerButton, Press, Sides, Size, TouchPhase,
-    Widget,
-};
-use blit_widgets::Drag;
+use blit::{Atom, AtomCx, Axis, Constraints, Input, Key, LogicalRect, PointerButton, Sides, Size, TouchPhase, Widget};
 pub use blit_widgets::TextInputResponse;
+use blit_widgets::interact::{drag, focus, press};
 pub type TextInputState = blit_widgets::TextInputState<f32>;
 
 use blit_gui::{
@@ -26,7 +23,7 @@ blit::builder! {
     }
 }
 
-impl<C: Context> Widget<C> for TextInput<'_> {
+impl<C: Context + blit_widgets::Context> Widget<C> for TextInput<'_> {
     type Response = TextInputResponse;
 
     fn build(self, mut ui: blit::Ui<'_, C>) -> Self::Response {
@@ -42,9 +39,9 @@ impl<C: Context> Widget<C> for TextInput<'_> {
             cursor_background,
         } = self;
         let id = ui.current_id();
-        let press = ui.interact(Press::new());
-        let mut focused = ui.interact(Focus);
-        let drag = ui.interact(Drag::new().axis(Axis::Horizontal));
+        let press = ui.interact(press::new());
+        let mut focused = ui.interact(focus::new());
+        let drag = ui.interact(drag::new().axis(Axis::Horizontal));
         let dragged = drag.active || drag.released;
         let input = ui.input();
         if focused

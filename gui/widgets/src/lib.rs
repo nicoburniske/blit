@@ -4,7 +4,7 @@ mod text_input;
 pub use blit_gui::widget::{RichText, Text};
 pub use blit_widgets::{
     Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ScrollArea, Split, SplitDivider, UniformList,
-    UniformListResponse, VirtualList, VirtualListResponse,
+    UniformListResponse, VirtualList, VirtualListResponse, interact,
 };
 pub type ResizeState = blit_widgets::ResizeState<f32>;
 pub use blit_widgets::ResizeGrip;

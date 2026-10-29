@@ -1,9 +1,8 @@
 use blit::{
-    Atom, AtomCx, Axis, Constraints, Focus, Input, Key, PhysicalRect, PointerButton, Press, Sides, Size, TouchPhase,
-    Ui, Widget,
+    Atom, AtomCx, Axis, Constraints, Input, Key, PhysicalRect, PointerButton, Sides, Size, TouchPhase, Ui, Widget,
 };
-use blit_widgets::Drag;
 pub use blit_widgets::TextInputResponse;
+use blit_widgets::interact::{drag, focus, press};
 pub type TextInputState = blit_widgets::TextInputState<i32>;
 
 use crate::{
@@ -45,11 +44,11 @@ impl<C: Context> Widget<C> for TextInput<'_> {
             attributes,
         } = self;
         let id = ui.current_id();
-        let press = ui.interact(Press::new());
-        let drag = ui.interact(Drag::new().axis(Axis::Horizontal));
+        let press = ui.interact(press::new());
+        let drag = ui.interact(drag::new().axis(Axis::Horizontal));
         let dragged = drag.active || drag.released;
         let input = ui.input();
-        let mut focused = ui.interact(Focus);
+        let mut focused = ui.interact(focus::new());
         if focused
             && let Input::Key(key) = input
             && key.key == Key::Escape

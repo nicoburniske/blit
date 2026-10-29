@@ -30,6 +30,10 @@ impl blit::Context for DesktopContext {
     type Scalar = f32;
 }
 
+impl blit_widgets::Context for DesktopContext {
+    const SLOP: f32 = 6.0;
+}
+
 impl AsMut<GuiContext> for DesktopContext {
     fn as_mut(&mut self) -> &mut GuiContext {
         &mut self.gui

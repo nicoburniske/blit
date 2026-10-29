@@ -193,7 +193,7 @@ fn visual_parent_and_hit_order() {
     let modal = Id::new("modal");
     for open in [false, true, false] {
         let build = |mut ui: Ui<'_>| {
-            let responses = [popup, modal].map(|id| ui.interact_widget(id, Press::new()));
+            let responses = [popup, modal].map(|id| ui.interact_widget(id, WATCH)[0].is_some());
             let mut root = ui.layout(Overlay);
             if open {
                 root.child()
@@ -243,7 +243,7 @@ fn visual_parent_and_hit_order() {
                 [pointer(None, Down, [x, 2.5])],
                 &build,
             );
-            assert_eq!(down.map(|response| response.activated), expected);
+            assert_eq!(down, expected);
             let up = render_inputs(
                 &mut frame,
                 &mut context,
@@ -251,7 +251,7 @@ fn visual_parent_and_hit_order() {
                 [pointer(None, Up, [x, 2.5])],
                 &build,
             );
-            assert_eq!(up.map(|response| response.clicked), expected);
+            assert_eq!(up, expected);
         }
     }
 }
@@ -369,7 +369,7 @@ fn bindings_and_geometry() {
                 assert_eq!(ui.area(a).is_some(), retained_a);
                 assert_eq!(ui.area(b).is_some(), retained_b);
             }
-            ui.interact_widget(b, Press::new());
+            ui.interact_widget(b, WATCH);
             let mut root = ui.layout(Overlay);
             for _ in 0..count {
                 root.child().insert(());

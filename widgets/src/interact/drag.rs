@@ -1,27 +1,28 @@
-use blit::{
-    Axis, ContactId, ContactSource, Context, Interact, InteractCx, Phase, Point, PointerButton, Scalar, builder,
-};
+use blit::{Axis, ContactId, ContactSource, InteractCx, Phase, Point, PointerButton, Scalar, builder};
+
+use crate::Context;
 
 builder! {
-    /// follows one primary press or touch once it moves `threshold` in frame coordinates
+    /// follows one primary press or touch once it moves [`Context::SLOP`]
     ///
-    /// with an `axis`, starts only when movement is mostly along it,
-    /// and `touch` ignores the mouse since it scrolls with its wheel instead
+    /// with an `axis`, starts only when movement is mostly along it
     #[derive(Clone, Copy, Debug)]
-    pub struct Drag {
+    pub struct Interact {
         new(),
         #[into]
         axis: Option<Axis> = None,
-        touch: bool = false,
-        threshold: f32 = 6.0,
     }
 }
 
-/// the response of [`Drag`]
+pub fn new() -> Interact {
+    Interact::new()
+}
+
+/// the response of [`Interact`]
 ///
 /// `activated` implies `active` unless `deactivated`, and `released` implies `deactivated`
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct DragResponse<T> {
+pub struct Response<T> {
     /// a contact is being dragged
     pub active: bool,
     pub activated: bool,
@@ -33,10 +34,10 @@ pub struct DragResponse<T> {
     pub delta: Point<T>,
 }
 
-impl<C: Context> Interact<C> for Drag {
+impl<C: Context> blit::Interact<C> for Interact {
     /// the dragged contact
     type State = Option<ContactId>;
-    type Response = DragResponse<C::Scalar>;
+    type Response = Response<C::Scalar>;
 
     fn update(&self, drag: &mut Option<ContactId>, cx: &mut InteractCx<'_, C::Scalar>) -> Self::Response {
         if let Some(id) = *drag {
@@ -46,7 +47,7 @@ impl<C: Context> Interact<C> for Drag {
                 *drag = None;
             }
             // a contact this widget lost ends the drag without a release
-            return DragResponse {
+            return Response {
                 active,
                 activated: false,
                 deactivated: !active,
@@ -55,6 +56,7 @@ impl<C: Context> Interact<C> for Drag {
                 delta: contact.map_or(Point::ZERO, |contact| contact.delta),
             };
         }
+        let slop = C::SLOP.to_f32();
         let contact = cx.contacts().find(|contact| {
             let x = (contact.position.x - contact.origin.x).to_f32();
             let y = (contact.position.y - contact.origin.y).to_f32();
@@ -63,23 +65,23 @@ impl<C: Context> Interact<C> for Drag {
                 && contact.free
                 && match contact.source {
                     ContactSource::Touch(_) => true,
-                    ContactSource::Mouse(button) => !self.touch && button == PointerButton::Primary,
+                    ContactSource::Mouse(button) => button == PointerButton::Primary,
                 }
                 && distance > 0.0
-                && distance >= self.threshold * self.threshold
+                && distance >= slop * slop
                 && self
                     .axis
                     .is_none_or(|axis| (axis == Axis::Horizontal) == (x.abs() >= y.abs()))
         });
         let Some(contact) = contact.filter(|contact| cx.capture(contact.id)) else {
-            return DragResponse::default();
+            return Response::default();
         };
         // a release past the threshold starts and ends in one update
         let active = contact.phase == Phase::Changed;
         if active {
             *drag = Some(contact.id);
         }
-        DragResponse {
+        Response {
             active,
             activated: true,
             deactivated: !active,
@@ -95,55 +97,39 @@ impl<C: Context> Interact<C> for Drag {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::Cell, time::Duration};
+    use std::cell::Cell;
 
-    use blit::{Frame, FrameInfo, Id, Input, Size, TouchPhase, Ui};
+    use blit::{
+        Frame, Id, Input,
+        TouchPhase::{Down, Move, Up},
+        Ui,
+    };
     use blit_layout::single;
 
     use super::*;
-    use crate::test::TestContext;
+    use crate::test::{TestContext, pointer, step};
 
-    type States = (DragResponse<f32>, DragResponse<f32>);
-
-    /// a horizontal slider inside a vertical touch pan
-    fn step(frame: &mut Frame<TestContext>, input: Input<f32>) -> States {
-        let output = frame.build(
-            &mut TestContext,
-            FrameInfo::new(Size::uniform(100.0)),
-            Duration::ZERO,
-            input,
-            |mut ui: Ui<'_, TestContext>| {
-                let pan = ui.interact(Drag::new().axis(Axis::Vertical).touch(true));
-                let slider = ui
-                    .layout(single::new().grow())
-                    .child()
-                    .build(|mut ui: Ui<'_, TestContext>| ui.interact(Drag::new().axis(Axis::Horizontal)));
-                (pan, slider)
-            },
-        );
-        frame.layout(&mut TestContext);
-        output
+    /// a horizontal slider inside a vertical pan
+    fn slider(mut ui: Ui<'_, TestContext>) -> (Response<f32>, Response<f32>) {
+        let pan = ui.interact(new().axis(Axis::Vertical));
+        let slider = ui
+            .layout(single::new().grow())
+            .child()
+            .build(|mut ui: Ui<'_, TestContext>| ui.interact(new().axis(Axis::Horizontal)));
+        (pan, slider)
     }
 
-    fn touch(id: u64, phase: TouchPhase, x: f32, y: f32) -> Input<f32> {
-        Input::Touch {
-            id,
-            position: Point::new(x, y),
-            phase,
-        }
-    }
-
-    fn dragging(x: f32, y: f32, dx: f32, dy: f32) -> DragResponse<f32> {
-        DragResponse {
+    fn dragging(x: f32, y: f32, dx: f32, dy: f32) -> Response<f32> {
+        Response {
             active: true,
             position: Point::new(x, y),
             delta: Point::new(dx, dy),
-            ..DragResponse::default()
+            ..Response::default()
         }
     }
 
-    fn let_go(x: f32, y: f32, dx: f32, dy: f32) -> DragResponse<f32> {
-        DragResponse {
+    fn let_go(x: f32, y: f32, dx: f32, dy: f32) -> Response<f32> {
+        Response {
             active: false,
             deactivated: true,
             released: true,
@@ -153,36 +139,37 @@ mod tests {
 
     #[test]
     fn drags_pick_contacts_by_axis() {
-        let idle = DragResponse::default();
+        let idle = Response::default();
         let mut frame = Frame::default();
-        step(&mut frame, Input::None);
-        step(&mut frame, touch(1, TouchPhase::Down, 10.0, 10.0));
-        assert_eq!(step(&mut frame, touch(1, TouchPhase::Move, 12.0, 10.0)), (idle, idle));
-        let started = step(&mut frame, touch(1, TouchPhase::Move, 30.0, 10.0));
-        let activated = DragResponse {
+        let mut next = |input| step(&mut frame, input, slider);
+        next(Input::None);
+        next(pointer(Some(1), Down, 10.0, 10.0));
+        assert_eq!(next(pointer(Some(1), Move, 12.0, 10.0)), (idle, idle));
+        let started = next(pointer(Some(1), Move, 30.0, 10.0));
+        let activated = Response {
             activated: true,
             ..dragging(30.0, 10.0, 20.0, 0.0)
         };
         assert_eq!(started, (idle, activated));
         // a held drag stays active and ignores a second contact
         let held = dragging(30.0, 10.0, 0.0, 0.0);
-        assert_eq!(step(&mut frame, touch(2, TouchPhase::Down, 50.0, 50.0)), (idle, held));
-        assert_eq!(step(&mut frame, touch(2, TouchPhase::Move, 80.0, 50.0)), (idle, held));
-        let ended = step(&mut frame, touch(1, TouchPhase::Up, 35.0, 10.0));
+        assert_eq!(next(pointer(Some(2), Down, 50.0, 50.0)), (idle, held));
+        assert_eq!(next(pointer(Some(2), Move, 80.0, 50.0)), (idle, held));
+        let ended = next(pointer(Some(1), Up, 35.0, 10.0));
         assert_eq!(ended, (idle, let_go(35.0, 10.0, 5.0, 0.0)));
         // once free, the slider takes the other contact on its next move
-        let taken = step(&mut frame, touch(2, TouchPhase::Move, 90.0, 50.0));
+        let taken = next(pointer(Some(2), Move, 90.0, 50.0));
         assert!(taken.1.activated && taken.1.active && taken.1.delta == Point::new(40.0, 0.0));
-        step(&mut frame, touch(2, TouchPhase::Up, 90.0, 50.0));
+        next(pointer(Some(2), Up, 90.0, 50.0));
 
         // vertical movement goes to the pan and the slider never takes it later
-        step(&mut frame, touch(3, TouchPhase::Down, 10.0, 10.0));
-        let panned = step(&mut frame, touch(3, TouchPhase::Move, 10.0, 30.0));
+        next(pointer(Some(3), Down, 10.0, 10.0));
+        let panned = next(pointer(Some(3), Move, 10.0, 30.0));
         assert!(panned.0.activated && panned.1 == idle);
-        let sideways = step(&mut frame, touch(3, TouchPhase::Move, 60.0, 30.0));
+        let sideways = next(pointer(Some(3), Move, 60.0, 30.0));
         assert_eq!(sideways, (dragging(60.0, 30.0, 50.0, 0.0), idle));
-        let cancelled = step(&mut frame, Input::Cancel);
-        let cancelled_state = DragResponse {
+        let cancelled = next(Input::Cancel);
+        let cancelled_state = Response {
             released: false,
             ..let_go(60.0, 30.0, 0.0, 0.0)
         };
@@ -193,33 +180,24 @@ mod tests {
     fn removing_the_dragged_widget_cancels() {
         let mut frame = Frame::<TestContext>::default();
         let mounted = Cell::new(true);
-        let mut step = |input| {
-            let output = frame.build(
-                &mut TestContext,
-                FrameInfo::new(Size::uniform(100.0)),
-                Duration::ZERO,
-                input,
-                |mut ui: Ui<'_, TestContext>| {
-                    let handle = Id::new("handle");
-                    let drag = ui.interact_widget(handle, Drag::new());
-                    if mounted.get() {
-                        ui.layout(single::new().grow())
-                            .child()
-                            .id(handle)
-                            .build(|_: Ui<'_, TestContext>| {});
-                    }
-                    drag
-                },
-            );
-            frame.layout(&mut TestContext);
-            output
+        let build = |mut ui: Ui<'_, TestContext>| {
+            let handle = Id::new("handle");
+            let drag = ui.interact_widget(handle, new());
+            if mounted.get() {
+                ui.layout(single::new().grow())
+                    .child()
+                    .id(handle)
+                    .build(|_: Ui<'_, TestContext>| {});
+            }
+            drag
         };
-        step(Input::None);
-        step(touch(1, TouchPhase::Down, 10.0, 10.0));
-        assert!(step(touch(1, TouchPhase::Move, 40.0, 10.0)).active);
+        let mut next = |input| step(&mut frame, input, build);
+        next(Input::None);
+        next(pointer(Some(1), Down, 10.0, 10.0));
+        assert!(next(pointer(Some(1), Move, 40.0, 10.0)).active);
         mounted.set(false);
-        step(touch(1, TouchPhase::Move, 50.0, 10.0));
-        let removed = step(Input::None);
+        next(pointer(Some(1), Move, 50.0, 10.0));
+        let removed = next(Input::None);
         assert!(removed.deactivated && !removed.released && !removed.active);
     }
 }

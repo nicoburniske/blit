@@ -6,10 +6,10 @@ use std::{
 };
 
 use blit::{
-    Atom, AtomCx, Axis, Clip, ClipShape, Constraints, Contact, ContactSource, Context, Easing, Focus, Frame, FrameInfo,
-    Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, NodeTarget,
-    Phase::{Cancelled, Changed, Ended, Held},
-    Point, PointerButton, Press, Rect, Scalar, Scroll, ScrollPhase, ScrollResponse, Size, TouchPhase,
+    Atom, AtomCx, Clip, ClipShape, Constraints, Contact, ContactSource, Context, Easing, Frame, FrameInfo, Id, Input,
+    Interact, InteractCx, Layout, LayoutCx, Modifiers, NodeTarget,
+    Phase::{Cancelled, Ended, Held, Started},
+    Point, PointerButton, Rect, ScrollPhase, Size, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
     Transition, Widget,
 };
@@ -38,6 +38,30 @@ use Command::{Paint, PopClip, PushClip};
 
 impl Context for TestContext {
     type Scalar = f32;
+}
+
+/// reports up to two contacts this widget may use, capturing those its predicate accepts
+#[derive(Clone, Copy)]
+struct Watch(fn(&Contact<f32>) -> bool);
+
+const WATCH: Watch = Watch(|_| false);
+const CAPTURE: Watch = Watch(|_| true);
+
+impl<C: Context<Scalar = f32>> Interact<C> for Watch {
+    type State = ();
+    /// each contact with whether this update captured it
+    type Response = [Option<(Contact<f32>, bool)>; 2];
+
+    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, f32>) -> Self::Response {
+        let mut seen = [None; 2];
+        for (seen, contact) in seen.iter_mut().zip(cx.contacts().filter(|contact| contact.free)) {
+            *seen = Some((contact, false));
+        }
+        for (contact, captured) in seen.iter_mut().flatten() {
+            *captured = (self.0)(contact) && cx.capture(contact.id);
+        }
+        seen
+    }
 }
 
 fn frame(size: Size<f32>) -> (Frame<TestContext>, TestContext) {

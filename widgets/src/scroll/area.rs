@@ -1,7 +1,8 @@
-use blit::{Axis, Clip, Context, Scalar, Ui, Widget};
+use blit::{Axis, Clip, Scalar, Ui, Widget};
 
 pub use super::ScrollState;
 use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
+use crate::Context;
 
 blit::builder! {
     /// use for arbitrary content such as forms and small collections

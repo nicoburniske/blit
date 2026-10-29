@@ -1,26 +1,44 @@
 use super::*;
 
-/// reports up to two visible contacts, capturing those its predicate accepts
+/// whether the pointer is over this widget
 #[derive(Clone, Copy)]
-struct Watch(fn(&Contact<f32>) -> bool);
+struct Hover;
 
-const WATCH: Watch = Watch(|_| false);
-const CAPTURE: Watch = Watch(|_| true);
-
-impl<C: Context<Scalar = f32>> Interact<C> for Watch {
+impl<C: Context> Interact<C> for Hover {
     type State = ();
-    /// each contact with whether this update captured it
-    type Response = [Option<(Contact<f32>, bool)>; 2];
+    type Response = bool;
 
-    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, f32>) -> Self::Response {
-        let mut seen = [None; 2];
-        for (seen, contact) in seen.iter_mut().zip(cx.contacts().filter(|contact| contact.free)) {
-            *seen = Some((contact, false));
-        }
-        for (contact, captured) in seen.iter_mut().flatten() {
-            *captured = (self.0)(contact) && cx.capture(contact.id);
-        }
-        seen
+    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, C::Scalar>) -> bool {
+        cx.hovered()
+    }
+}
+
+/// claims a contact as it ends, reporting whether the claim held
+#[derive(Clone, Copy)]
+struct ClaimEnded;
+
+impl<C: Context> Interact<C> for ClaimEnded {
+    type State = ();
+    type Response = bool;
+
+    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, C::Scalar>) -> bool {
+        let ended = cx.contacts().find(|contact| contact.phase == Ended);
+        ended.is_some_and(|contact| cx.claim(contact.id))
+    }
+}
+
+/// scrolling over this widget, holding its sequence
+#[derive(Clone, Copy)]
+struct Wheel;
+
+impl<C: Context> Interact<C> for Wheel {
+    type State = ();
+    type Response = Option<Point<f32>>;
+
+    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, C::Scalar>) -> Option<Point<f32>> {
+        let event = cx.scroll()?;
+        cx.capture_scroll();
+        Some(event.delta)
     }
 }
 
@@ -49,8 +67,8 @@ fn new_kind_gets_geometry_after_layout() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let added = Cell::new(false);
     let build = |mut ui: Ui<'_>| {
-        ui.interact(Scroll::new());
-        added.get() && ui.interact(Press::new()).hovered
+        ui.interact(WATCH);
+        added.get() && ui.interact(Hover)
     };
     render_inputs(
         &mut frame,
@@ -106,51 +124,18 @@ fn deepest_gesture_captures_first() {
 }
 
 #[test]
-fn capture_cancels_click() {
-    for ending in [Up, Cancel] {
-        let (mut frame, mut context) = frame(Size::uniform(200.0));
-        let build = |mut ui: Ui<'_>| {
-            // takes a press once it moves, like a scroll view panning
-            let seen = ui.interact(Watch(|contact| contact.phase == Changed))[0];
-            let mut root = ui.layout(Overlay);
-            let mut child = root.child().id(Id::new("button"));
-            child.insert(Fill('B', Size::uniform(200.0)));
-            (seen, child.interact(Press::new()))
-        };
-        render(&mut frame, &mut context, &build);
-        let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
-        // the button claims the press, hiding it from the ancestor
-        let (seen, response) = step(pointer(Some(1), Down, [10.0, 10.0]));
-        assert!(response.active && seen.is_none());
-        let (seen, response) = step(pointer(Some(1), Move, [12.0, 10.0]));
-        assert!(response.active && seen.is_none());
-        // past the slop the button lets go first, then the ancestor takes it in the same build
-        let (seen, response) = step(pointer(Some(1), Move, [30.0, 10.0]));
-        assert!(seen.unwrap().1);
-        assert!(response.deactivated && !response.active);
-        assert!(!step(pointer(Some(1), ending, [30.0, 10.0])).1.clicked);
-    }
-}
-
-#[test]
 fn gestures_on_one_widget_share_captures() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let build = |mut ui: Ui<'_>| {
         ui.interact(CAPTURE);
-        let pinch = ui.interact(Pinch);
-        let mut root = ui.layout(Overlay);
-        let mut child = root.child().id(Id::new("button"));
-        child.insert(Fill('B', Size::uniform(200.0)));
-        (pinch, child.interact(Press::new()).clicked)
+        ui.interact(Pinch)
     };
     render(&mut frame, &mut context, &build);
     let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
-    // the button claims the first finger, the root captures the second
-    assert_eq!(step(pointer(Some(1), Down, [10.0, 10.0])), (None, false));
-    assert_eq!(step(pointer(Some(2), Down, [20.0, 10.0])), (None, false));
-    // once the first finger moves the button lets go and the pinch joins the root's capture
-    assert_eq!(step(pointer(Some(1), Move, [0.0, 10.0])), (Some(20.0), false));
-    assert!(!step(pointer(Some(1), Up, [0.0, 10.0])).1);
+    assert_eq!(step(pointer(Some(1), Down, [10.0, 10.0])), None);
+    // the pinch still sees the fingers its widget captured
+    assert_eq!(step(pointer(Some(2), Down, [20.0, 10.0])), Some(10.0));
+    assert_eq!(step(pointer(Some(1), Move, [0.0, 10.0])), Some(20.0));
 }
 
 #[test]
@@ -193,16 +178,6 @@ fn gesture_state_lives_while_requested() {
         }
     }
 
-    #[derive(Clone, Copy)]
-    struct Empty;
-
-    impl<C: Context<Scalar = f32>> Interact<C> for Empty {
-        type State = ();
-        type Response = ();
-
-        fn update(&self, _: &mut (), _: &mut InteractCx<'_, f32>) {}
-    }
-
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let rows = Cell::new((0, 3));
     let build = |ui: Ui<'_>| {
@@ -211,7 +186,7 @@ fn gesture_state_lives_while_requested() {
         let (start, end) = rows.get();
         for (row, updates) in updates.iter_mut().enumerate().take(end).skip(start) {
             let mut child = root.child().id(Id::new(row));
-            child.interact(Empty);
+            child.interact(Hover);
             *updates = Some(child.interact(Count));
         }
         updates
@@ -238,10 +213,8 @@ fn named_kinds_follow_reordered_nodes() {
     let build = |mut ui: Ui<'_>| {
         let responses = [0, 1, 2].map(|id| {
             let id = Id::new(id);
-            (
-                ui.interact_widget(id, Press::new()).hovered,
-                ui.interact_widget(id, Focus),
-            )
+            let pressed = ui.interact_widget(id, WATCH)[0].is_some_and(|(contact, _)| contact.phase == Started);
+            (ui.interact_widget(id, Hover), pressed)
         });
         let mut root = ui.layout(Rects);
         for (index, id) in order.get().into_iter().enumerate() {
@@ -283,9 +256,9 @@ fn kind_order_follows_requests() {
             });
         }
         let build = |mut ui: Ui<'_>| {
-            let response = ui.interact(Press::new());
+            let claimed = ui.interact(ClaimEnded);
             ui.interact(capture);
-            response.clicked
+            claimed
         };
         render(&mut frame, &mut context, &build);
         assert!(!render_inputs(
@@ -333,99 +306,6 @@ fn kind_requested_twice_keeps_one_slot() {
     }
 }
 
-#[derive(Default)]
-struct Integer;
-impl Context for Integer {
-    type Scalar = i32;
-}
-
-type Scene = InputScene<(), Press>;
-
-/// one root node running a single interaction kind
-struct InputScene<C: Context, K> {
-    frame: Frame<C>,
-    context: C,
-    kind: K,
-}
-
-impl<C: Context + Default, K: Interact<C>> InputScene<C, K> {
-    fn new(kind: K) -> Self {
-        let mut scene = Self {
-            frame: Frame::default(),
-            context: C::default(),
-            kind,
-        };
-        scene.step(0, Input::None);
-        scene
-    }
-    fn step(&mut self, time: u64, input: Input<C::Scalar>) -> K::Response {
-        let output = self.frame.build(
-            &mut self.context,
-            FrameInfo::new(Size::uniform(C::Scalar::from_f32(200.0))),
-            Duration::from_millis(time),
-            input,
-            |mut ui: blit::Ui<'_, C>| ui.interact(self.kind),
-        );
-        self.frame.layout(&mut self.context);
-        output
-    }
-}
-
-#[test]
-fn presses() {
-    for id in [None, Some(1)] {
-        let mut scene = Scene::new(Press::new());
-        let down = scene.step(10, pointer(id, Down, [10.0, 10.0]));
-        assert!(down.active && down.activated && !down.clicked);
-        let up = scene.step(20, pointer(id, Up, [12.0, 10.0]));
-        assert!(up.clicked && up.deactivated && !up.active);
-        // moving past the slop or cancelling is not a click
-        for ending in [Up, Cancel] {
-            scene.step(30, pointer(id, Down, [10.0, 10.0]));
-            let moved = scene.step(40, pointer(id, Move, [10.0, 300.0]));
-            assert!(moved.deactivated && !moved.active);
-            assert!(!scene.step(50, pointer(id, ending, [10.0, 10.0])).clicked);
-        }
-    }
-}
-
-#[test]
-fn focus_follows_presses_and_taps() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
-    let right_id = Id::new("right");
-    let change_focus = Cell::new(false);
-    let clear_focus = Cell::new(false);
-    let build = |mut ui: Ui<'_>| {
-        if clear_focus.replace(false) {
-            ui.clear_focus();
-        }
-        let mut ui = ui.layout(Rects);
-        let mut left = ui.child().item(Rect::new(0.0, 0.0, 100.0, 200.0)).id(Id::new("left"));
-        let left_focused = left.interact(Focus);
-        if change_focus.replace(false) {
-            left.focus(right_id);
-        }
-        drop(left);
-        let mut right = ui.child().item(Rect::new(100.0, 0.0, 100.0, 200.0)).id(right_id);
-        (left_focused, right.interact(Focus))
-    };
-    render(&mut frame, &mut context, &build);
-    let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
-    assert_eq!(step(pointer(None, Down, [10.0, 10.0])), (true, false));
-    step(pointer(None, Up, [10.0, 10.0]));
-    // focus set during a build shows from the next one
-    change_focus.set(true);
-    assert_eq!(step(Input::None), (true, false));
-    assert_eq!(step(Input::None), (false, true));
-    // a touch takes focus on release unless something captured it
-    clear_focus.set(true);
-    step(pointer(Some(1), Down, [10.0, 10.0]));
-    step(pointer(Some(1), Move, [30.0, 10.0]));
-    assert_eq!(step(pointer(Some(1), Up, [30.0, 10.0])), (true, false));
-    step(pointer(Some(1), Down, [110.0, 10.0]));
-    assert_eq!(step(pointer(Some(1), Up, [110.0, 10.0])), (false, true));
-}
-
 #[test]
 fn tapping_unregistered_background_clears_focus() {
     for id in [None, Some(1)] {
@@ -438,7 +318,7 @@ fn tapping_unregistered_background_clears_focus() {
             }
             let mut root = ui.layout(Rects);
             let mut field = root.child().item(Rect::new(0.0, 0.0, 100.0, 200.0)).id(field_id);
-            field.interact(Focus);
+            field.interact(WATCH);
             field.focused() == Some(field_id)
         };
         assert!(render(&mut frame, &mut context, &build));
@@ -446,90 +326,6 @@ fn tapping_unregistered_background_clears_focus() {
         // mouse clears focus on press and touch on release
         assert_eq!(step(pointer(id, Down, [150.0, 10.0])), id.is_some());
         assert!(!step(pointer(id, Up, [150.0, 10.0])));
-    }
-}
-
-#[test]
-fn scroll() {
-    // zero delta endings stay with the owner even outside its bounds
-    for horizontal in [true, false] {
-        let mut scene = InputScene::<Integer, _>::new(Scroll::new());
-        let held = ScrollResponse {
-            active: true,
-            continuous: true,
-            ..ScrollResponse::default()
-        };
-        let ended = ScrollResponse {
-            deactivated: true,
-            released: true,
-            continuous: true,
-            ..ScrollResponse::default()
-        };
-        for (phase, expected, after) in [
-            (
-                ScrollPhase::Started,
-                ScrollResponse {
-                    activated: true,
-                    ..held
-                },
-                held,
-            ),
-            (ScrollPhase::Moved, held, held),
-            (ScrollPhase::Ended, ended, ScrollResponse::default()),
-        ] {
-            let delta = if phase == ScrollPhase::Ended {
-                Point::ZERO
-            } else if horizontal {
-                Point::new(0.5, -0.25)
-            } else {
-                Point::new(0.25, -0.5)
-            };
-            let response = scene.step(
-                10,
-                Input::Scroll {
-                    position: if phase == ScrollPhase::Ended {
-                        Point::new(300, 300)
-                    } else {
-                        Point::new(10, 10)
-                    },
-                    delta_x: delta.x,
-                    delta_y: delta.y,
-                    continuous: true,
-                    phase,
-                    modifiers: Modifiers::NONE,
-                },
-            );
-            assert_eq!(response, ScrollResponse { delta, ..expected });
-            assert_eq!(scene.step(11, Input::None), after);
-        }
-        // native and global cancellation both end capture
-        for global in [false, true] {
-            scene.step(
-                20,
-                Input::Scroll {
-                    position: Point::new(10, 10),
-                    delta_x: if horizontal { 0.5 } else { 0.0 },
-                    delta_y: if horizontal { 0.0 } else { 0.5 },
-                    continuous: true,
-                    phase: ScrollPhase::Started,
-                    modifiers: Modifiers::NONE,
-                },
-            );
-            let cancel = if global {
-                Input::Cancel
-            } else {
-                Input::Scroll {
-                    position: Point::new(300, 300),
-                    delta_x: 0.0,
-                    delta_y: 0.0,
-                    continuous: true,
-                    phase: ScrollPhase::Cancelled,
-                    modifiers: Modifiers::NONE,
-                }
-            };
-            let cancelled = scene.step(21, cancel);
-            assert!(cancelled.deactivated && !cancelled.released && !cancelled.active);
-        }
     }
 }
 
@@ -543,25 +339,24 @@ fn clipping() {
             .clip(TestClip)
             .child()
             .build(|mut ui: Ui<'_>| {
-                let response = ui.interact(Press::new());
-                let wheel = ui.interact(Scroll::new());
+                let seen = ui.interact(WATCH)[0].is_some();
+                let wheel = ui.interact(Wheel);
                 ui.insert(Fill('C', Size::new(5.0, 1.0)));
-                (response, wheel)
+                (seen, wheel)
             })
     };
     render(&mut frame, &mut context, &build);
-    for (phase, x, active) in [(Down, 4.5, false), (Up, 4.5, false), (Down, 2.5, true)] {
-        let (response, _) = render_inputs(
+    for (phase, x, inside) in [(Down, 4.5, false), (Up, 4.5, false), (Down, 2.5, true)] {
+        let (seen, _) = render_inputs(
             &mut frame,
             &mut context,
             Duration::ZERO,
             [pointer(None, phase, [x, 0.5])],
             &build,
         );
-        assert_eq!(response.active, active);
-        assert!(!response.clicked);
+        assert_eq!(seen, inside);
     }
-    let (response, wheel) = render_inputs(
+    let (seen, wheel) = render_inputs(
         &mut frame,
         &mut context,
         Duration::ZERO,
@@ -575,7 +370,7 @@ fn clipping() {
         }],
         &build,
     );
-    assert!(response.active && wheel.delta != Point::ZERO);
+    assert!(seen && wheel.is_some_and(|delta| delta != Point::ZERO));
 }
 
 #[test]
@@ -604,19 +399,19 @@ fn clip_shapes() {
             let mut panel = root.child().item(Rect::new(0.0, 0.0, 1.0, 1.0)).clip(()).layout(Rects);
             let mut child = panel.child().item(Rect::new(3.0, 3.0, 1.0, 1.0)).clip(TestClip);
             child.insert(Fill('C', Size::uniform(1.0)));
-            child.interact(Press::new())
+            child.interact(WATCH)[0].is_some()
         };
         render(&mut frame, &mut context, &build);
         assert!(context.commands.contains(&Paint('C', Rect::new(3.0, 3.0, 1.0, 1.0))));
         for (position, inside) in [([3.1, 3.1], true), ([3.9, 3.9], shape == ClipShape::Unbounded)] {
-            let response = render_inputs(
+            let seen = render_inputs(
                 &mut frame,
                 &mut context,
                 Duration::ZERO,
                 [pointer(None, Down, position), pointer(None, Up, position)],
                 &build,
             );
-            assert_eq!(response.clicked, inside);
+            assert_eq!(seen, inside);
         }
     }
 }
@@ -635,7 +430,7 @@ fn input_settles_against_its_layout() {
             .child()
             .item(Rect::new(offset.get(), 0.0, 100.0, 200.0))
             .id(Id::new("row"));
-        row.interact(Press::new()).hovered
+        row.interact(Hover)
     };
     render(&mut frame, &mut context, &build);
     let scroll = Input::Scroll {
@@ -660,37 +455,6 @@ fn input_settles_against_its_layout() {
 }
 
 #[test]
-fn wheel_axis_leaves_other_directions_to_ancestors() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
-    let build = |mut ui: Ui<'_>| {
-        let list = ui.interact(Scroll::new().axis(Axis::Vertical));
-        let mut root = ui.layout(Overlay);
-        let mut carousel = root.child().id(Id::new("carousel"));
-        carousel.insert(Fill('C', Size::uniform(200.0)));
-        (list, carousel.interact(Scroll::new().axis(Axis::Horizontal)))
-    };
-    render(&mut frame, &mut context, &build);
-    let mut wheel = |phase, continuous, delta_x, delta_y| {
-        let input = Input::Scroll {
-            position: Point::new(10.0, 10.0),
-            delta_x,
-            delta_y,
-            continuous,
-            phase,
-            modifiers: Modifiers::NONE,
-        };
-        let (list, carousel) = render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
-        (list.delta != Point::ZERO, carousel.delta != Point::ZERO)
-    };
-    assert_eq!(wheel(ScrollPhase::Moved, false, 5.0, 1.0), (false, true));
-    assert_eq!(wheel(ScrollPhase::Moved, false, 1.0, 5.0), (true, false));
-    // a trackpad sequence waits for a direction, then stays with whoever took it
-    assert_eq!(wheel(ScrollPhase::Started, true, 0.0, 0.0), (false, false));
-    assert_eq!(wheel(ScrollPhase::Moved, true, 1.0, 5.0), (true, false));
-    assert_eq!(wheel(ScrollPhase::Moved, true, 5.0, 1.0), (true, false));
-}
-
-#[test]
 fn removed_scroll_owner_keeps_its_sequence() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let owner = Cell::new("first");
@@ -698,7 +462,7 @@ fn removed_scroll_owner_keeps_its_sequence() {
         let mut root = ui.layout(Overlay);
         let mut list = root.child().id(Id::new(owner.get()));
         list.insert(Fill('L', Size::uniform(200.0)));
-        list.interact(Scroll::new())
+        list.interact(Wheel)
     };
     render(&mut frame, &mut context, &build);
     let mut scroll = |phase| {
@@ -712,10 +476,10 @@ fn removed_scroll_owner_keeps_its_sequence() {
         };
         render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build)
     };
-    assert!(scroll(ScrollPhase::Started).activated);
+    assert!(scroll(ScrollPhase::Started).is_some());
     // another widget takes the owner's node while the gesture continues
     owner.set("second");
-    assert_eq!(scroll(ScrollPhase::Moved), ScrollResponse::default());
-    assert_eq!(scroll(ScrollPhase::Moved), ScrollResponse::default());
-    assert!(scroll(ScrollPhase::Started).activated);
+    assert_eq!(scroll(ScrollPhase::Moved), None);
+    assert_eq!(scroll(ScrollPhase::Moved), None);
+    assert!(scroll(ScrollPhase::Started).is_some());
 }

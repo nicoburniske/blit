@@ -35,10 +35,11 @@ each frame builds a tree of nodes. widgets can be types or closures, and every
 node can draw content and choose how to lay out its children:
 
 ```rust
-use blit::{Input, Sense, Sides};
+use blit::{Input, Sides};
 use blit_tui::{
     Ui,
     atom::Border,
+    interact::press,
     color::Color,
     layout::{Align, Justify, flex},
     text::{HorizontalAlign, TextAttributes, TextOptions},
@@ -75,7 +76,7 @@ fn main() -> std::io::Result<()> {
                     .child()
                     .item(flex::item().fixed(8, 1))
                     .build(|mut ui: Ui<'_>| {
-                        let interaction = ui.interact(Sense::CLICK);
+                        let press = ui.interact(press::new());
 
                         ui.insert(Block::new().background(Color::BLUE));
                         ui.insert(
@@ -83,11 +84,11 @@ fn main() -> std::io::Result<()> {
                                 .options(TextOptions::new().horizontal_align(HorizontalAlign::Center)),
                         );
 
-                        interaction.clicked
+                        press.clicked
                     })
             });
         if quit || matches!(root.input(), Input::Text('q')) {
-            root.context().quit();
+            root.context_mut().quit();
         }
     })
 }
@@ -99,6 +100,6 @@ blit is a set of focused building blocks:
 
 - `blit` provides the core ui model
 - `blit-layout` provides layouts for gui and tui
-- `blit-widgets` provides shared widget behavior
+- `blit-widgets` provides shared widgets and interactions like press and drag
 - `blit-gui` and `blit-tui` are graphical and terminal ui toolkits
 - `blit-desktop` runs graphical applications in native windows (macos + wayland)

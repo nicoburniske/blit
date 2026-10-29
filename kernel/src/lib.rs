@@ -62,10 +62,7 @@ pub use self::{
         Scalar, Scale2, Sides, Size,
     },
     input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase, TouchPhase},
-    interact::{
-        Contact, ContactId, ContactSource, Focus, Interact, Phase, Press, PressResponse, Scroll, ScrollEvent,
-        ScrollResponse,
-    },
+    interact::{Contact, ContactId, ContactSource, Interact, Phase, ScrollEvent},
     layout::{Axis, Layout, LayoutCx, Scratch, Sizing},
 };
 

@@ -4,17 +4,17 @@ mod virtual_list;
 
 use std::time::Duration;
 
-use blit::{
-    Axis, Clip, Constraints, Context, Easing, Id, Layout, LayoutCx, NodeId, Point, Press, Scalar, Scroll,
-    ScrollResponse, Size, Sizing, Ui, Widget,
-};
+use blit::{Axis, Clip, Constraints, Easing, Id, Layout, LayoutCx, NodeId, Point, Scalar, Size, Sizing, Ui, Widget};
 
 pub use self::{
     area::ScrollArea,
     uniform_list::{Response as UniformListResponse, UniformList},
     virtual_list::{Response as VirtualListResponse, VirtualList, VirtualListState},
 };
-use crate::Drag;
+use crate::{
+    Context,
+    interact::{drag, press, scroll},
+};
 
 /// persistent scroll position and motion
 #[derive(Debug, Default)]
@@ -324,10 +324,10 @@ fn scrollbar_input<C: Context>(
     let track_id = id.child("scroll track");
     let thumb_area = ui.area(thumb_id);
     let track_area = ui.area(track_id);
-    let thumb = ui.interact_widget(thumb_id, Press::new());
-    let track = ui.interact_widget(track_id, Press::new());
-    let thumb_drag = ui.interact_widget(thumb_id, Drag::new());
-    let track_drag = ui.interact_widget(track_id, Drag::new());
+    let thumb = ui.interact_widget(thumb_id, press::new());
+    let track = ui.interact_widget(track_id, press::new());
+    let thumb_drag = ui.interact_widget(thumb_id, drag::new());
+    let track_drag = ui.interact_widget(track_id, drag::new());
     let active = thumb.active || track.active || thumb_drag.active || track_drag.active;
     // cancelled drags leave the offset alone
     let thumb_moved = thumb_drag.active || thumb_drag.released;
@@ -374,15 +374,15 @@ fn scrollbar_input<C: Context>(
     (active, Some(action))
 }
 
-/// wheel scrolling and touch panning over the content
-fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> ScrollResponse {
-    let scroll = ui.interact(Scroll::new());
-    let pan = ui.interact(Drag::new().axis(axis).touch(true));
+/// wheel scrolling and panning over the content
+fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> scroll::Response {
+    let scroll = ui.interact(scroll::new());
+    let pan = ui.interact(drag::new().axis(axis));
     if !pan.active && !pan.deactivated {
         return scroll;
     }
     // touches pan the content, moving it against the finger
-    ScrollResponse {
+    scroll::Response {
         active: pan.active,
         activated: pan.activated,
         deactivated: pan.deactivated,
@@ -398,7 +398,7 @@ fn content_motion<C: Context>(
     axis: Axis,
     scroll_speed: f32,
     inertia_friction: f32,
-    motion: ScrollResponse,
+    motion: scroll::Response,
 ) -> f32 {
     let now = ui.time();
     let elapsed = state
