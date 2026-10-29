@@ -1,17 +1,17 @@
 use std::{num::NonZeroU32, time::Duration};
 
-use crate::{Axis, InteractCx, Modifiers, PointerButton, Scalar, builder, geometry::Point};
+use crate::{Axis, Context, InteractCx, Modifiers, PointerButton, Scalar, builder, geometry::Point};
 
 /// how a widget recognizes input, configured by its latest build
 ///
 /// updates before every build, deepest widget first, so deeper widgets claim contacts before their ancestors
-pub trait Interact<T>: Copy + 'static {
+pub trait Interact<C: Context>: Copy + 'static {
     /// kept across builds
     type State: Copy + Default + 'static;
     /// what one update recognized
     type Response: Copy + 'static;
 
-    fn update(&self, state: &mut Self::State, cx: &mut InteractCx<'_, T>) -> Self::Response;
+    fn update(&self, state: &mut Self::State, cx: &mut InteractCx<'_, C::Scalar>) -> Self::Response;
 }
 
 /// a mouse press or touch, as seen by one widget
@@ -85,12 +85,12 @@ pub struct PressResponse {
     pub clicked: bool,
 }
 
-impl<T: Scalar> Interact<T> for Press {
+impl<C: Context> Interact<C> for Press {
     /// the press in progress
     type State = Option<ContactId>;
     type Response = PressResponse;
 
-    fn update(&self, press: &mut Option<ContactId>, cx: &mut InteractCx<'_, T>) -> PressResponse {
+    fn update(&self, press: &mut Option<ContactId>, cx: &mut InteractCx<'_, C::Scalar>) -> PressResponse {
         let was_active = press.is_some();
         let mut active = false;
         let mut clicked = false;
@@ -136,11 +136,11 @@ impl<T: Scalar> Interact<T> for Press {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Focus;
 
-impl<T: Scalar> Interact<T> for Focus {
+impl<C: Context> Interact<C> for Focus {
     type State = ();
     type Response = bool;
 
-    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, T>) -> bool {
+    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, C::Scalar>) -> bool {
         if cx.contacts().any(|contact| {
             contact.free
                 && match contact.source {
@@ -184,12 +184,12 @@ pub struct ScrollResponse {
     pub continuous: bool,
 }
 
-impl<T: Scalar> Interact<T> for Scroll {
+impl<C: Context> Interact<C> for Scroll {
     /// holding a continuous sequence
     type State = bool;
     type Response = ScrollResponse;
 
-    fn update(&self, active: &mut bool, cx: &mut InteractCx<'_, T>) -> ScrollResponse {
+    fn update(&self, active: &mut bool, cx: &mut InteractCx<'_, C::Scalar>) -> ScrollResponse {
         let held = *active;
         let Some(event) = cx.scroll() else {
             return ScrollResponse {

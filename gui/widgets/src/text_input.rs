@@ -47,7 +47,11 @@ impl<C: Context> Widget<C> for TextInput<'_> {
         let drag = ui.interact(Drag::new().axis(Axis::Horizontal));
         let dragged = drag.active || drag.released;
         let input = ui.input();
-        if focused && let Input::Key(key) = input && key.key == Key::Escape && key.pressed {
+        if focused
+            && let Input::Key(key) = input
+            && key.key == Key::Escape
+            && key.pressed
+        {
             ui.clear_focus();
             focused = false;
         }
