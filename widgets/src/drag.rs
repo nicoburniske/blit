@@ -1,4 +1,6 @@
-use blit::{Axis, ContactId, ContactSource, Interact, InteractCx, Phase, Point, PointerButton, Scalar, builder};
+use blit::{
+    Axis, ContactId, ContactSource, Context, Interact, InteractCx, Phase, Point, PointerButton, Scalar, builder,
+};
 
 builder! {
     /// follows one primary press or touch once it moves `threshold` in frame coordinates
@@ -31,12 +33,12 @@ pub struct DragResponse<T> {
     pub delta: Point<T>,
 }
 
-impl<T: Scalar> Interact<T> for Drag {
+impl<C: Context> Interact<C> for Drag {
     /// the dragged contact
     type State = Option<ContactId>;
-    type Response = DragResponse<T>;
+    type Response = DragResponse<C::Scalar>;
 
-    fn update(&self, drag: &mut Option<ContactId>, cx: &mut InteractCx<'_, T>) -> Self::Response {
+    fn update(&self, drag: &mut Option<ContactId>, cx: &mut InteractCx<'_, C::Scalar>) -> Self::Response {
         if let Some(id) = *drag {
             let contact = cx.contacts().find(|contact| contact.id == id && contact.free);
             let active = contact.is_some_and(|contact| !matches!(contact.phase, Phase::Ended | Phase::Cancelled));

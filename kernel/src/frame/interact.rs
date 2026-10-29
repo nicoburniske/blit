@@ -188,7 +188,12 @@ pub struct InteractionState<T> {
 }
 
 impl<T: Scalar> InteractionState<T> {
-    pub fn interact<K: Interact<T>>(&mut self, id: Id, config: K, time: Duration) -> K::Response {
+    pub fn interact<C: Context<Scalar = T>, K: Interact<C>>(
+        &mut self,
+        id: Id,
+        config: K,
+        time: Duration,
+    ) -> K::Response {
         let kinds = &mut self.kinds;
         let type_id = TypeId::of::<K>();
         let kind = kinds
@@ -200,7 +205,7 @@ impl<T: Scalar> InteractionState<T> {
                 kinds.kinds.push(Kind {
                     type_id,
                     update: |kinds, index, cx| {
-                        let (config, state, response) = kinds.get_mut::<K>(index);
+                        let (config, state, response) = kinds.get_mut::<C, K>(index);
                         *response = config.update(state, cx);
                     },
                     free: None,
@@ -212,19 +217,22 @@ impl<T: Scalar> InteractionState<T> {
             Err(bucket) => {
                 let mut focused = self.focused;
                 let mut state = K::State::default();
-                let response = config.update(&mut state, &mut InteractCx {
-                    id,
-                    node: UNRESOLVED,
-                    end: 0,
-                    contacts: &mut [],
-                    scroll: &mut None,
-                    focused: &mut focused,
-                    focus_taken: &mut true,
-                    hover: None,
-                    deadline: &mut self.deadline,
-                    input: &Input::None,
-                    time,
-                });
+                let response = config.update(
+                    &mut state,
+                    &mut InteractCx {
+                        id,
+                        node: UNRESOLVED,
+                        end: 0,
+                        contacts: &mut [],
+                        scroll: &mut None,
+                        focused: &mut focused,
+                        focus_taken: &mut true,
+                        hover: None,
+                        deadline: &mut self.deadline,
+                        input: &Input::None,
+                        time,
+                    },
+                );
                 let value = (config, state, response);
                 // reserve first so a panic cannot lose a reused cell
                 kinds.slots.reserve(1);
@@ -234,7 +242,9 @@ impl<T: Scalar> InteractionState<T> {
                         let offset = offset.get() - 1;
                         // safety: free cells of this kind are dead cells of this layout holding the next link
                         unsafe {
-                            let cell = kinds.state.get_mut::<Cell<(K, K::State, K::Response)>>(Offset::new(offset));
+                            let cell = kinds
+                                .state
+                                .get_mut::<Cell<(K, K::State, K::Response)>>(Offset::new(offset));
                             *free = cell.next;
                             *cell = Cell { value };
                         }
@@ -260,7 +270,7 @@ impl<T: Scalar> InteractionState<T> {
             slot.order = kinds.requested;
             kinds.requested += 1;
         }
-        let cell = kinds.get_mut::<K>(index);
+        let cell = kinds.get_mut::<C, K>(index);
         cell.0 = config;
         cell.2
     }
@@ -690,7 +700,7 @@ struct Kinds<T> {
 }
 
 impl<T> Kinds<T> {
-    fn get_mut<K: Interact<T>>(&mut self, index: usize) -> &mut (K, K::State, K::Response) {
+    fn get_mut<C: Context<Scalar = T>, K: Interact<C>>(&mut self, index: usize) -> &mut (K, K::State, K::Response) {
         let slot = &self.slots[index];
         assert_eq!(
             self.kinds[slot.kind as usize].type_id,

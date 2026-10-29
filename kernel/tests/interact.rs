@@ -7,7 +7,7 @@ struct Watch(fn(&Contact<f32>) -> bool);
 const WATCH: Watch = Watch(|_| false);
 const CAPTURE: Watch = Watch(|_| true);
 
-impl Interact<f32> for Watch {
+impl<C: Context<Scalar = f32>> Interact<C> for Watch {
     type State = ();
     /// each contact with whether this update captured it
     type Response = [Option<(Contact<f32>, bool)>; 2];
@@ -28,7 +28,7 @@ impl Interact<f32> for Watch {
 #[derive(Clone, Copy)]
 struct Pinch;
 
-impl Interact<f32> for Pinch {
+impl<C: Context<Scalar = f32>> Interact<C> for Pinch {
     type State = ();
     type Response = Option<f32>;
 
@@ -182,7 +182,7 @@ fn gesture_state_lives_while_requested() {
     #[derive(Clone, Copy)]
     struct Count;
 
-    impl Interact<f32> for Count {
+    impl<C: Context<Scalar = f32>> Interact<C> for Count {
         type State = [u64; 32];
         type Response = u64;
 
@@ -196,7 +196,7 @@ fn gesture_state_lives_while_requested() {
     #[derive(Clone, Copy)]
     struct Empty;
 
-    impl Interact<f32> for Empty {
+    impl<C: Context<Scalar = f32>> Interact<C> for Empty {
         type State = ();
         type Response = ();
 
@@ -305,7 +305,7 @@ fn kind_requested_twice_keeps_one_slot() {
     #[derive(Clone, Copy)]
     struct Count;
 
-    impl Interact<f32> for Count {
+    impl<C: Context<Scalar = f32>> Interact<C> for Count {
         type State = ();
         type Response = ();
 
@@ -348,7 +348,7 @@ struct InputScene<C: Context, K> {
     kind: K,
 }
 
-impl<C: Context + Default, K: Interact<C::Scalar>> InputScene<C, K> {
+impl<C: Context + Default, K: Interact<C>> InputScene<C, K> {
     fn new(kind: K) -> Self {
         let mut scene = Self {
             frame: Frame::default(),
