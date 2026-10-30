@@ -5,7 +5,7 @@ use std::{sync::mpsc, time::Duration};
 use blit::{Clip, LogicalRect, PhysicalRect, PhysicalSize};
 use blit_gpu::{Renderer, RendererConfig};
 use blit_gui::{
-    BoundsClip, FontData, FontFamily, GuiContext, TextConfig, TextSystem,
+    BoundsClip, FontData, FontStack, GuiContext, TextConfig, TextSystem,
     color::Color,
     display_list::{BoxShadow, ClipId, Mesh, MeshVertex, Rectangle},
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
@@ -57,9 +57,11 @@ fn renders_primitives_and_rebuilds_frames() {
     let mut gui = GuiContext::new(
         TextSystem::new(
             TextConfig {
-                fonts: vec![FontFamily {
+                fonts: vec![FontStack {
                     id: FontId::default(),
-                    fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+                    families: vec![blit_gui::Family::embedded([FontData::Static(include_bytes!(env!(
+                        "BLIT_TEST_FONT"
+                    )))])],
                 }],
                 text_cache_capacity: 1024,
                 layout_cache_capacity: 1024,

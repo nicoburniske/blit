@@ -8,11 +8,11 @@ pub mod text;
 mod text_system;
 pub mod widget;
 
-pub use blit_text::{FontData, FontError, TextLayoutEngine};
+pub use blit_text::{Family, FontData, FontError, TextLayoutEngine};
 
 pub use self::{
     context::{BoundsClip, GuiContext, RenderInput},
-    text_system::{FontFamily, ResolvedTextLayout, TextConfig, TextLayoutId, TextSystem},
+    text_system::{FontStack, GlyphImageId, ResolvedTextLayout, TextConfig, TextSystem},
 };
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, GuiContext, S>;

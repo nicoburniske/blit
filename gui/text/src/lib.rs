@@ -1,25 +1,21 @@
-use std::{ops::Range, sync::Arc};
+use std::{hash::Hash, ops::Range, sync::Arc};
 
-use blit::{LogicalPoint, LogicalRect, LogicalSize};
+use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, Point};
 
-/// todo: support variable font instances
 pub trait TextLayoutEngine: 'static {
     type Shape: 'static;
+    type GlyphKey: Eq + Hash + 'static;
 
-    fn system_font(&mut self, _request: SystemFontRequest<'_>) -> Result<FontFaceId, FontError> {
-        Err(FontError::Unsupported)
-    }
+    fn register_stack(&mut self, families: &[Family]) -> Result<FontStackId, FontError>;
 
-    fn register_font(&mut self, data: FontData) -> Result<Vec<FontCandidate>, FontError>;
+    fn prepare_glyph(&mut self, shape: &Self::Shape, request: GlyphRequest) -> PreparedGlyph<Self::GlyphKey>;
 
-    fn register_font_selection(&mut self, candidates: &[FontCandidate]) -> Result<FontSelectionId, FontError>;
-
-    /// returns tightly packed row major alpha coverage at the requested pixel size
-    /// offset_x is a horizontal pixel phase in the range 0..1
-    fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask;
+    /// equal keys must produce identical pixels and bearings
+    fn rasterize_glyph(&mut self, key: &Self::GlyphKey) -> Result<GlyphImage, FontError>;
 
     fn shape(&mut self, text: Text<'_>) -> (Self::Shape, usize);
 
+    /// font indices remain valid until the shape is dropped
     fn layout(&mut self, shape: &mut Self::Shape, text: &str, request: LayoutRequest) -> TextLayout;
 
     fn carets(&mut self, shape: &mut Self::Shape, text: &str, request: LayoutRequest, line: usize) -> Box<[Caret]>;
@@ -28,17 +24,17 @@ pub trait TextLayoutEngine: 'static {
 #[derive(Clone, Copy, Debug)]
 pub struct Text<'a> {
     pub text: &'a str,
-    pub spans: &'a [TextSpan],
+    pub spans: &'a [TextSpan<'a>],
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TextSpan {
+pub struct TextSpan<'a> {
     pub range: Range<usize>,
-    pub style: TextStyle,
+    pub style: TextStyle<'a>,
 }
 
-impl Text<'_> {
-    pub fn segments(&self) -> impl Iterator<Item = (usize, Range<usize>, TextStyle)> + '_ {
+impl<'a> Text<'a> {
+    pub fn segments(&self) -> impl Iterator<Item = (usize, Range<usize>, TextStyle<'a>)> + '_ {
         assert!(!self.spans.is_empty());
         let mut end = 0;
         for span in self.spans {
@@ -60,10 +56,66 @@ pub enum FontData {
     Shared(Arc<[u8]>),
 }
 
+#[derive(Clone, Debug)]
+pub enum Family {
+    Embedded(Vec<FontData>),
+    Named(String),
+}
+
+impl Family {
+    pub fn embedded(fonts: impl IntoIterator<Item = FontData>) -> Self {
+        Self::Embedded(fonts.into_iter().collect())
+    }
+
+    pub fn named(name: impl Into<String>) -> Self {
+        Self::Named(name.into())
+    }
+}
+
+pub struct GlyphRequest {
+    pub font: usize,
+    pub glyph: u16,
+    pub scale: f32,
+    /// glyph origin in device pixels
+    pub origin: Point<f32>,
+}
+
+pub struct PreparedGlyph<K> {
+    pub key: K,
+    pub origin: PhysicalPoint,
+}
+
 #[derive(Debug, Default)]
-pub struct GlyphMask {
+pub struct GlyphImage {
     pub metrics: GlyphMetrics,
-    pub alpha: Box<[u8]>,
+    pub pixels: GlyphPixels,
+}
+
+#[derive(Debug)]
+pub enum GlyphPixels {
+    /// tightly packed coverage tinted by the text color
+    Alpha8(Box<[u8]>),
+    /// tightly packed rgba with encoded srgb channels multiplied by alpha
+    /// keeps intrinsic colors and receives text alpha once
+    Rgba8(Box<[u8]>),
+}
+
+impl Default for GlyphPixels {
+    fn default() -> Self {
+        Self::Alpha8(Box::default())
+    }
+}
+
+impl GlyphPixels {
+    pub fn data(&self) -> &[u8] {
+        match self {
+            Self::Alpha8(data) | Self::Rgba8(data) => data,
+        }
+    }
+
+    pub fn is_color(&self) -> bool {
+        matches!(self, Self::Rgba8(_))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -85,29 +137,9 @@ impl AsRef<[u8]> for FontData {
     }
 }
 
-/// backend owned font selection
+/// backend owned font stack
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct FontSelectionId(pub u64);
-
-/// exact face used by glyph ids
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct FontFaceId(pub u64);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FontCandidate {
-    pub face: FontFaceId,
-    pub weight: u16,
-    pub stretch: u16,
-    pub style: FontStyle,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SystemFontRequest<'a> {
-    pub family: &'a str,
-    pub weight: u16,
-    pub stretch: u16,
-    pub style: FontStyle,
-}
+pub struct FontStackId(pub u64);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FontStyle {
@@ -118,12 +150,40 @@ pub enum FontStyle {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextStyle {
-    pub font: FontSelectionId,
+pub struct TextStyle<'a> {
+    pub font: FontStackId,
     pub size: f32,
     pub weight: u16,
     pub stretch: u16,
     pub style: FontStyle,
+    pub settings: FontSettings<'a>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FontSettings<'a> {
+    pub features: &'a [([u8; 4], u32)],
+    pub variations: &'a [([u8; 4], f32)],
+    pub language: Option<&'a str>,
+    pub optical_size: OpticalSize,
+}
+
+impl FontSettings<'_> {
+    pub const fn new() -> Self {
+        Self {
+            features: &[],
+            variations: &[],
+            language: None,
+            optical_size: OpticalSize::Auto,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum OpticalSize {
+    #[default]
+    Auto,
+    FontDefault,
+    Fixed(f32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -145,8 +205,8 @@ pub struct TextLayout {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayoutRun {
-    pub face: FontFaceId,
-    pub size: f32,
+    /// backend font index within the shape
+    pub font: usize,
     pub glyphs: Range<u32>,
     pub span: usize,
     pub line: u32,

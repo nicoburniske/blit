@@ -131,7 +131,7 @@ impl Cache {
                 },
             )
         };
-        let (image, nine_slice) = if let Some(cached) = self.entries.get(&key) {
+        let (image, nine_slice) = if let Some((cached, _)) = self.entries.get(&key) {
             (cached.image.id(), cached.nine_slice)
         } else {
             let width = bounds.width as usize;

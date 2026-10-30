@@ -9,7 +9,7 @@ blit::builder! {
     #[derive(Clone, Copy, Debug)]
     pub struct Text<'a> {
         new(#[into] text: TextSource<'a>),
-        style: TextStyle = TextStyle::new(),
+        style: TextStyle<'a> = TextStyle::new(),
         offset_x: f32 = 0.0,
         options: TextOptions = TextOptions::new(),
     }
@@ -33,8 +33,8 @@ blit::builder! {
     /// text partitioned by ordered, contiguous spans
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct RichText<'a> {
-        new(text: &'a str, spans: &'a [Span]),
-        style: TextStyle = TextStyle::new(),
+        new(text: &'a str, spans: &'a [Span<'a>]),
+        style: TextStyle<'a> = TextStyle::new(),
         offset_x: f32 = 0.0,
         options: TextOptions = TextOptions::new(),
     }

@@ -9,7 +9,6 @@ use blit_gui::{
     display_list::Command,
     image::{ImageData, ImageFormat, ImageHandle, ImageId, ImageSampling, ImageTiling, prepare_image_patches},
     style::{BorderRadius, Fill},
-    text::TextPhases,
 };
 use bytemuck::{Pod, Zeroable};
 
@@ -28,7 +27,6 @@ const DRAW_MESH: u32 = 1 << 30;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RendererConfig {
     pub clear_color: Color,
-    pub text_phases: TextPhases,
 }
 
 pub struct Renderer {
@@ -58,7 +56,6 @@ pub struct Renderer {
     batches: Vec<Batch>,
     images: Arena<StoredImage>,
     glyphs: text::GlyphAtlas,
-    text_phase_count: i32,
     empty_texture: wgpu::BindGroup,
     upload: Vec<u8>,
 }
@@ -223,12 +220,7 @@ impl Renderer {
             &mesh_buffer,
         );
         let clear_color = premultiplied(config.clear_color, 1.0);
-        let text_phase_count = config.text_phases as i32;
-        let glyphs = text::GlyphAtlas::new(
-            &device,
-            texture_bind_group_layout.clone(),
-            1.0 / text_phase_count as f32,
-        );
+        let glyphs = text::GlyphAtlas::new(&device, texture_bind_group_layout.clone());
         let empty_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("blit gpu empty texture"),
             size: wgpu::Extent3d {
@@ -285,7 +277,6 @@ impl Renderer {
             batches: Vec::new(),
             images: Arena::new(),
             glyphs,
-            text_phase_count,
             empty_texture,
             upload: Vec::new(),
         }
@@ -705,7 +696,6 @@ impl Renderer {
                     Pipeline::Image(request.image)
                 }
                 Command::Text(request) => {
-                    let phase_count = self.text_phase_count;
                     let area = request.area.to_physical(Scale2::uniform(scale));
                     let Some(visible_area) = area
                         .intersection(record.bounds)
@@ -722,36 +712,27 @@ impl Renderer {
                             continue;
                         }
                         let color = u32::from_le_bytes([color.red, color.green, color.blue, color.alpha]);
-                        let size = run.size * scale;
                         for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
-                            let x = (glyph.position.x + offset.x - request.offset_x) * scale;
-                            let x_phases = (x * phase_count as f32).round() as i32;
-                            let phase = x_phases.rem_euclid(phase_count) as u8;
-                            let cached = self.glyphs.glyph(
-                                &self.device,
-                                &self.queue,
-                                &mut resolved,
-                                run.face,
-                                glyph.id,
-                                size,
-                                phase,
-                            );
+                            let prepared = resolved.prepare_glyph(blit_text::GlyphRequest {
+                                font: run.font,
+                                glyph: glyph.id,
+                                scale,
+                                origin: blit::Point::new(
+                                    (request.area.x + glyph.position.x + offset.x - request.offset_x) * scale,
+                                    (request.area.y + glyph.position.y + offset.y) * scale,
+                                ),
+                            });
+                            let cached = self
+                                .glyphs
+                                .glyph(&self.device, &self.queue, &mut resolved, prepared.key);
                             if cached.metrics.width == 0 || cached.metrics.height == 0 {
                                 continue;
                             }
                             let width = i32::from(cached.metrics.width);
                             let height = i32::from(cached.metrics.height);
-                            let x = x_phases
-                                .div_euclid(phase_count)
-                                .saturating_add(i32::from(cached.metrics.left));
-                            let y =
-                                ((glyph.position.y + offset.y) * scale + f32::from(cached.metrics.top)).round() as i32;
-                            let shape = PhysicalRect {
-                                x: area.x.saturating_add(x),
-                                y: area.y.saturating_add(y),
-                                width,
-                                height,
-                            };
+                            let x = prepared.origin.x.saturating_add(i32::from(cached.metrics.left));
+                            let y = prepared.origin.y.saturating_add(i32::from(cached.metrics.top));
+                            let shape = PhysicalRect { x, y, width, height };
                             let Some(draw) = shape.intersection(visible_area) else {
                                 continue;
                             };
@@ -763,7 +744,7 @@ impl Renderer {
                                     cached.atlas[1] + u32::try_from(draw.y - shape.y).unwrap(),
                                 ],
                                 color,
-                                clip: record.clip.0,
+                                clip: record.clip.0 | if cached.color { 1 << 31 } else { 0 },
                             });
                             self.push_draw(Pipeline::Content(Some(cached.page)), DRAW_TEXT | index);
                         }
@@ -930,7 +911,7 @@ impl Renderer {
             }
         }
         self.queue.submit([encoder.finish()]);
-        self.glyphs.end_frame();
+        self.glyphs.end_frame(text_system);
         self.images.retain(|image| !image.handle.is_uniquely_owned());
     }
 

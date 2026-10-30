@@ -36,7 +36,7 @@ blit::builder! {
         marker_size: f32 = 8.0,
         marker_radius: BorderRadius = BorderRadius::uniform(4.0),
         graph_size: Size<f32> = Size::new(300.0, 100.0),
-        text_style: TextStyle = TextStyle::new().size(14.0),
+        text_style: TextStyle<'a> = TextStyle::new().size(14.0),
         popover_target_anchor: Anchor = Anchor::TopRight,
         popover_child_anchor: Anchor = Anchor::BottomRight,
         popover_x: f32 = 0.0,

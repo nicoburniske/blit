@@ -146,7 +146,7 @@ version = "0.1.0"
 name = "blit-cache"
 version = "0.1.0"
 dependencies = [
- "hashbrown 0.14.5",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -219,8 +219,10 @@ name = "blit-gui"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-arena",
  "blit-cache",
  "blit-text",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -261,9 +263,9 @@ name = "blit-text-cosmic"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-raster",
  "blit-text",
  "cosmic-text",
+ "swash",
  "unicode-segmentation",
 ]
 
@@ -276,6 +278,7 @@ dependencies = [
  "blit-text",
  "fontdue",
  "ttf-parser",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -830,16 +833,6 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
-dependencies = [
- "ahash",
- "allocator-api2",
-]
-
-[[package]]
-name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
@@ -855,6 +848,8 @@ version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
+ "allocator-api2",
+ "equivalent",
  "foldhash",
 ]
 

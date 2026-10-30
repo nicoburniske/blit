@@ -16,7 +16,7 @@ pub type Cache<K, V, S> = LruCache<K, V, S, true>;
 pub type DeferredCache<K, V, S> = LruCache<K, V, S, false>;
 
 pub struct LruCache<K, V, S: Scale<K, V>, const TRIM_ON_INSERT: bool> {
-    hash_builder: hashbrown::hash_map::DefaultHashBuilder,
+    hash_builder: hashbrown::DefaultHashBuilder,
     table: hashbrown::HashTable<usize>,
     entries: list::LruList<Entry<K, V>>,
     scale: S,
@@ -45,13 +45,13 @@ where
         }
     }
 
-    pub fn get<Q>(&mut self, query: &Q) -> Option<&V>
+    pub fn get<Q>(&mut self, query: &Q) -> Option<(&V, usize)>
     where
         Q: Equivalent<K> + std::hash::Hash + ?Sized,
     {
         let hash = self.hash_builder.hash_one(query);
         let index = self.find(hash, |candidate, _| query.equivalent(candidate))?;
-        Some(&self.entries.get(index).value)
+        Some((&self.entries.get(index).value, index))
     }
 
     pub fn get_key_index(&self, index: usize) -> &K {
@@ -215,9 +215,9 @@ mod test {
 
         cache.trim_to_weight();
 
-        assert_eq!(cache.get(&1), None);
-        assert_eq!(cache.get(&2), Some(&20));
-        assert_eq!(cache.get(&3), Some(&30));
+        assert_eq!(cache.get(&1).map(|(value, _)| value), None);
+        assert_eq!(cache.get(&2).map(|(value, _)| value), Some(&20));
+        assert_eq!(cache.get(&3).map(|(value, _)| value), Some(&30));
         assert_eq!(cache.weight, 2);
     }
 
@@ -227,12 +227,12 @@ mod test {
 
         cache.get_or_insert(1, |key| (key, 10)).unwrap();
         cache.get_or_insert(2, |key| (key, 20)).unwrap();
-        assert_eq!(cache.get(&1), Some(&10));
+        assert_eq!(cache.get(&1).map(|(value, _)| value), Some(&10));
         cache.get_or_insert(3, |key| (key, 30)).unwrap();
 
-        assert_eq!(cache.get(&1), Some(&10));
-        assert_eq!(cache.get(&2), None);
-        assert_eq!(cache.get(&3), Some(&30));
+        assert_eq!(cache.get(&1).map(|(value, _)| value), Some(&10));
+        assert_eq!(cache.get(&2).map(|(value, _)| value), None);
+        assert_eq!(cache.get(&3).map(|(value, _)| value), Some(&30));
         assert_eq!(cache.table.len(), 2);
     }
 
@@ -249,7 +249,7 @@ mod test {
 
         cache.trim_to_weight();
 
-        assert_eq!(cache.get(&1), Some(&2));
-        assert_eq!(cache.get(&2), None);
+        assert_eq!(cache.get(&1).map(|(value, _)| value), Some(&2));
+        assert_eq!(cache.get(&2).map(|(value, _)| value), None);
     }
 }

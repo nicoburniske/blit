@@ -5,12 +5,12 @@ use blit_cpu::{
     Direct, Pixel, PremultipliedRgbaColor, RenderStrategy, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888,
 };
 use blit_gui::{
-    FontData, FontFamily, GuiContext, TextConfig, TextSystem,
+    FontData, FontStack, GuiContext, TextConfig, TextSystem,
     color::Color,
     display_list::{BoxShadow, ClipId, DisplayList, Mesh, MeshVertex, Rectangle},
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
     style::{Border, BorderRadius, GradientStop, LinearGradient},
-    text::{FontId, TextOptions, TextPhases, TextRequest, TextStyle, TextWrap},
+    text::{FontId, TextOptions, TextRequest, TextStyle, TextWrap},
 };
 use divan::counter::ItemsCount;
 
@@ -626,19 +626,19 @@ where
         VecBuffer::new(width, height),
         RendererConfig {
             damage_tile_size: 32,
-            paint_cache_capacity: 512 * 1024,
             glyph_cache_capacity: 512 * 1024,
             shadow_cache_capacity,
-            text_phases: TextPhases::Four,
         },
     )
     .strategy(strategy);
     let gui = GuiContext::new(
         TextSystem::new(
             TextConfig {
-                fonts: vec![FontFamily {
+                fonts: vec![FontStack {
                     id: FontId::default(),
-                    fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+                    families: vec![blit_gui::Family::embedded([FontData::Static(include_bytes!(env!(
+                        "BLIT_TEST_FONT"
+                    )))])],
                 }],
                 text_cache_capacity: 1024 * 1024,
                 layout_cache_capacity: 1024 * 1024,

@@ -13,7 +13,7 @@ use blit_gui::{
 blit::builder! {
     pub struct TextInput<'a> {
         new(state: &'a mut TextInputState, value: &'a mut String),
-        style: TextStyle = TextStyle::new(),
+        style: TextStyle<'a> = TextStyle::new(),
         padding: Sides<f32> = Sides::all(0.0),
         background: Color = Color::TRANSPARENT,
         placeholder: &'a str = "",

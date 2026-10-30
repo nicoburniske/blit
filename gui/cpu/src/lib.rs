@@ -11,7 +11,7 @@ use blit_gui::{
     RenderInput, TextSystem,
     display_list::{BoxShadow, Command, Rectangle},
     image::{ImageData, ImageFormat, ImageHandle, ImageRequest},
-    text::{TextPhases, TextRequest},
+    text::TextRequest,
 };
 
 pub use self::{
@@ -30,24 +30,18 @@ use self::{
 pub struct RendererConfig {
     /// width and height of a damage tile in physical pixels as a nonzero power of two
     pub damage_tile_size: u16,
-    /// maximum retained text paint data in bytes
-    pub paint_cache_capacity: usize,
     /// maximum retained rasterized glyph data in bytes
     pub glyph_cache_capacity: usize,
     /// maximum retained shadow masks in bytes
     pub shadow_cache_capacity: usize,
-    /// cached horizontal positions for grayscale glyph rasterization
-    pub text_phases: TextPhases,
 }
 
 impl Default for RendererConfig {
     fn default() -> Self {
         Self {
             damage_tile_size: 32,
-            paint_cache_capacity: 2 * 1024 * 1024,
             glyph_cache_capacity: 1024 * 1024,
             shadow_cache_capacity: 512 * 1024,
-            text_phases: TextPhases::default(),
         }
     }
 }
@@ -148,7 +142,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         context.commands.clear();
         context.clips.clear();
         context.shadows.finish_frame();
-        context.text.finish_frame();
+        context.text.finish_frame(input.text);
         context.images.retain(|image| !image.handle.is_uniquely_owned());
     }
 

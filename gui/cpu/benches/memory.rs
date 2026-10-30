@@ -6,10 +6,10 @@ use std::{
 use blit::{LogicalRect, Scale2};
 use blit_cpu::{Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888};
 use blit_gui::{
-    FontData, FontFamily, GuiContext, TextConfig, TextSystem,
+    FontData, FontStack, GuiContext, TextConfig, TextSystem,
     color::Color,
     display_list::{ClipId, DisplayList, Rectangle},
-    text::{FontId, TextPhases},
+    text::FontId,
 };
 
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
@@ -38,18 +38,18 @@ fn main() {
         VecBuffer::<Xrgb8888>::new(SIDE, SIDE),
         RendererConfig {
             damage_tile_size: 32,
-            paint_cache_capacity: 1,
             glyph_cache_capacity: 1,
             shadow_cache_capacity: 0,
-            text_phases: TextPhases::Four,
         },
     )
     .strategy(Scanline::default());
     let text = TextSystem::new(
         TextConfig {
-            fonts: vec![FontFamily {
+            fonts: vec![FontStack {
                 id: FontId::default(),
-                fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+                families: vec![blit_gui::Family::embedded([FontData::Static(include_bytes!(env!(
+                    "BLIT_TEST_FONT"
+                )))])],
             }],
             text_cache_capacity: 1,
             layout_cache_capacity: 1,

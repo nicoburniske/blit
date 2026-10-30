@@ -1,23 +1,24 @@
 use std::{iter, mem::size_of, sync::Arc};
 
-use blit::{LogicalPoint, LogicalRect, LogicalSize};
-use blit_raster::{FontFace, Rasterizer};
+use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint};
 use blit_text::{
-    Caret, FontCandidate, FontData, FontError, FontFaceId, FontSelectionId, FontStyle, Glyph, GlyphMask, LayoutLine,
-    LayoutRequest, LayoutRun, SystemFontRequest, TextLayout, TextOverflow, TextStyle, TextWrap,
+    Caret, Family, FontError, FontStackId, FontStyle, Glyph, GlyphImage, GlyphMetrics, GlyphPixels, GlyphRequest,
+    LayoutLine, LayoutRequest, LayoutRun, PreparedGlyph, TextLayout, TextOverflow, TextStyle, TextWrap,
 };
 use cosmic_text::{
-    Align, Attrs, Buffer, Ellipsize, EllipsizeHeightLimit, Family, FontSystem, LineIter, Metrics, Shaping, Wrap,
+    Align, Attrs, BidiParagraphs, Buffer, CacheKey, CacheKeyFlags, Ellipsize, EllipsizeHeightLimit, FontFeatures,
+    FontSystem, Metrics, Shaping, SwashCache, SwashContent, Wrap,
     fontdb::{self, Query, Source},
+    skrifa::{FontRef, MetadataProvider},
 };
 use unicode_segmentation::UnicodeSegmentation;
 
+/// system and embedded fonts with shaping features and color glyphs
+/// variations and per span language and optical sizing are not exposed by cosmic text
 pub struct Backend {
-    rasterizer: Rasterizer,
     fonts: FontSystem,
-    faces: Vec<CosmicFace>,
-    aliases: Vec<CosmicAlias>,
-    selections: Vec<Box<str>>,
+    stacks: Vec<Vec<String>>,
+    swash: SwashCache,
 }
 
 pub struct Shape {
@@ -25,16 +26,15 @@ pub struct Shape {
     line_starts: Box<[u32]>,
     empty: bool,
     empty_height: f32,
+    fonts: Vec<Instance>,
 }
 
-struct CosmicFace {
-    cosmic: fontdb::ID,
-    data: FontFace,
-}
-
-struct CosmicAlias {
-    cosmic: fontdb::ID,
-    face: FontFaceId,
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Instance {
+    face: fontdb::ID,
+    size: u32,
+    weight: fontdb::Weight,
+    flags: CacheKeyFlags,
 }
 
 impl Backend {
@@ -48,16 +48,12 @@ impl Backend {
             fontdb::Database::new(),
         ))
     }
-}
 
-impl Backend {
     fn with_font_system(fonts: FontSystem) -> Self {
         Self {
-            rasterizer: Rasterizer::default(),
             fonts,
-            faces: Vec::new(),
-            aliases: Vec::new(),
-            selections: Vec::new(),
+            stacks: Vec::new(),
+            swash: SwashCache::new(),
         }
     }
 }
@@ -70,153 +66,200 @@ impl Default for Backend {
 
 impl blit_text::TextLayoutEngine for Backend {
     type Shape = Shape;
+    type GlyphKey = CacheKey;
 
-    fn system_font(&mut self, request: SystemFontRequest<'_>) -> Result<FontFaceId, FontError> {
-        let family = [Family::Name(request.family)];
-        let cosmic = self
-            .fonts
-            .db()
-            .query(&Query {
-                families: &family,
-                weight: fontdb::Weight(request.weight),
-                stretch: cosmic_stretch(request.stretch),
-                style: cosmic_style(request.style),
-            })
-            .ok_or(FontError::NotFound)?;
-        face(self.fonts.db(), &mut self.faces, &self.aliases, cosmic).ok_or(FontError::InvalidData)
-    }
-
-    fn register_font(&mut self, data: FontData) -> Result<Vec<FontCandidate>, FontError> {
-        let faces = self
-            .fonts
-            .db_mut()
-            .load_font_source(Source::Binary(Arc::new(data.clone())));
-        if faces.is_empty() {
-            return Err(FontError::InvalidData);
-        }
-        let mut registered = Vec::new();
-        for cosmic in faces {
-            let info = self.fonts.db().face(cosmic).ok_or(FontError::InvalidData)?;
-            let face_index = info.index;
-            let id = FontFaceId(u64::try_from(self.faces.len() + 1).map_err(|_| FontError::Unsupported)?);
-            self.faces.push(CosmicFace {
-                cosmic,
-                data: FontFace::new(data.clone(), face_index).ok_or(FontError::InvalidData)?,
-            });
-            registered.push(FontCandidate {
-                face: id,
-                weight: info.weight.0,
-                stretch: match info.stretch {
-                    fontdb::Stretch::UltraCondensed => 50,
-                    fontdb::Stretch::ExtraCondensed => 63,
-                    fontdb::Stretch::Condensed => 75,
-                    fontdb::Stretch::SemiCondensed => 88,
-                    fontdb::Stretch::Normal => 100,
-                    fontdb::Stretch::SemiExpanded => 113,
-                    fontdb::Stretch::Expanded => 125,
-                    fontdb::Stretch::ExtraExpanded => 150,
-                    fontdb::Stretch::UltraExpanded => 200,
-                },
-                style: match info.style {
-                    fontdb::Style::Normal => FontStyle::Normal,
-                    fontdb::Style::Italic => FontStyle::Italic,
-                    fontdb::Style::Oblique => FontStyle::Oblique,
-                },
-            });
-        }
-        Ok(registered)
-    }
-
-    fn register_font_selection(&mut self, candidates: &[FontCandidate]) -> Result<FontSelectionId, FontError> {
-        if candidates.is_empty() {
-            return Err(FontError::NotFound);
-        }
-        for candidate in candidates {
-            let index = usize::try_from(candidate.face.0)
-                .ok()
-                .and_then(|index| index.checked_sub(1))
-                .ok_or(FontError::NotFound)?;
-            let face = self.faces.get(index).ok_or(FontError::NotFound)?;
-            if self
-                .fonts
-                .db()
-                .face(face.cosmic)
-                .is_none_or(|face| face.families.is_empty())
-            {
-                return Err(FontError::InvalidData);
+    fn register_stack(&mut self, families: &[Family]) -> Result<FontStackId, FontError> {
+        let mut names = Vec::new();
+        for family in families {
+            match family {
+                Family::Embedded(data) => {
+                    let name = format!("\0blit-{}-{}", self.stacks.len(), names.len());
+                    let mut count = 0;
+                    for data in data {
+                        let ids = self
+                            .fonts
+                            .db_mut()
+                            .load_font_source(Source::Binary(Arc::new(data.clone())));
+                        if ids.is_empty() {
+                            return Err(FontError::InvalidData);
+                        }
+                        for id in ids {
+                            let mut info = self.fonts.db().face(id).ok_or(FontError::InvalidData)?.clone();
+                            info.id = fontdb::ID::dummy();
+                            info.families = vec![(name.clone(), fontdb::Language::English_UnitedStates)];
+                            self.fonts.db_mut().push_face_info(info);
+                            count += 1;
+                        }
+                    }
+                    if count == 0 {
+                        return Err(FontError::NotFound);
+                    }
+                    names.push(name);
+                }
+                Family::Named(name) => names.push(name.clone()),
             }
         }
-
-        let id = FontSelectionId(u64::try_from(self.selections.len() + 1).map_err(|_| FontError::Unsupported)?);
-        // expose configured candidates to cosmic as one private family
-        let family = format!("\0blit-{}", id.0).into_boxed_str();
-        for candidate in candidates {
-            let index = usize::try_from(candidate.face.0).unwrap() - 1;
-            let mut info = self.fonts.db().face(self.faces[index].cosmic).unwrap().clone();
-            info.id = fontdb::ID::dummy();
-            info.families[0].0 = family.to_string();
-            info.families.truncate(1);
-            info.weight = fontdb::Weight(candidate.weight);
-            info.stretch = cosmic_stretch(candidate.stretch);
-            info.style = cosmic_style(candidate.style);
-            let cosmic = self.fonts.db_mut().push_face_info(info);
-            self.aliases.push(CosmicAlias {
-                cosmic,
-                face: candidate.face,
-            });
+        if names.is_empty() {
+            return Err(FontError::NotFound);
         }
-        self.selections.push(family);
-        Ok(id)
+        self.stacks.push(names);
+        Ok(FontStackId(self.stacks.len() as u64))
     }
 
-    fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
-        let Some(face) = usize::try_from(face.0)
-            .ok()
-            .and_then(|index| index.checked_sub(1))
-            .and_then(|index| self.faces.get(index))
-        else {
-            return GlyphMask::default();
+    fn prepare_glyph(&mut self, shape: &Shape, request: GlyphRequest) -> PreparedGlyph<Self::GlyphKey> {
+        let font = shape.fonts[request.font];
+        let (cache, x, y) = CacheKey::new(
+            font.face,
+            request.glyph,
+            f32::from_bits(font.size) * request.scale,
+            (request.origin.x, request.origin.y),
+            font.weight,
+            font.flags,
+        );
+        PreparedGlyph {
+            key: cache,
+            origin: PhysicalPoint::new(x, y),
+        }
+    }
+
+    fn rasterize_glyph(&mut self, key: &Self::GlyphKey) -> Result<GlyphImage, FontError> {
+        let Some(mut image) = self.swash.get_image_uncached(&mut self.fonts, *key) else {
+            return Ok(GlyphImage::default());
         };
-        self.rasterizer.rasterize(&face.data, glyph, size, offset_x)
+        let metrics = GlyphMetrics {
+            width: image.placement.width.try_into().map_err(|_| FontError::Unsupported)?,
+            height: image.placement.height.try_into().map_err(|_| FontError::Unsupported)?,
+            left: image.placement.left.try_into().map_err(|_| FontError::Unsupported)?,
+            top: (-image.placement.top).try_into().map_err(|_| FontError::Unsupported)?,
+        };
+        let pixels = match image.content {
+            SwashContent::Mask => GlyphPixels::Alpha8(image.data.into_boxed_slice()),
+            SwashContent::Color => {
+                if matches!(image.source, swash::scale::Source::ColorBitmap(_)) {
+                    for pixel in image.data.as_chunks_mut::<4>().0 {
+                        for channel in 0..3 {
+                            pixel[channel] = (u16::from(pixel[channel]) * u16::from(pixel[3]) / 255) as u8;
+                        }
+                    }
+                }
+                GlyphPixels::Rgba8(image.data.into_boxed_slice())
+            }
+            SwashContent::SubpixelMask => return Err(FontError::Unsupported),
+        };
+        Ok(GlyphImage { metrics, pixels })
     }
 
     fn shape(&mut self, text: blit_text::Text<'_>) -> (Shape, usize) {
         assert!(text.text.len() <= u32::MAX as usize, "text is too long");
-        let attrs = |style: TextStyle| {
-            let index = style.font.0.checked_sub(1).expect("invalid font selection") as usize;
-            Attrs::new()
-                .family(Family::Name(&self.selections[index]))
+        let stacks = &self.stacks;
+        let fonts = &mut self.fonts;
+        let mut attrs = |style: TextStyle<'_>| {
+            let names = &stacks[style.font.0 as usize - 1];
+            let candidates = names
+                .iter()
+                .filter_map(|name| {
+                    let id = fonts.db().query(&Query {
+                        families: &[fontdb::Family::Name(name)],
+                        weight: fontdb::Weight(style.weight),
+                        stretch: cosmic_stretch(style.stretch),
+                        style: cosmic_style(style.style),
+                    })?;
+                    let index = fonts.db().face(id)?.index;
+                    Some((name.as_str(), fonts.get_font(id, fontdb::Weight(style.weight))?, index))
+                })
+                .collect::<Vec<_>>();
+            let mut features = FontFeatures::new();
+            for (tag, value) in style.settings.features {
+                features.set(cosmic_text::FeatureTag::new(tag), *value);
+            }
+            let attrs = Attrs::new()
+                .family(fontdb::Family::Name(names.first().expect("empty font stack")))
                 .metrics(Metrics::relative(style.size, 1.2))
                 .stretch(cosmic_stretch(style.stretch))
                 .style(cosmic_style(style.style))
                 .weight(fontdb::Weight(style.weight))
+                .font_features(features);
+            (attrs, candidates)
         };
-        let default_style = text.spans.first().expect("text requires a span").style;
-        let default_attrs = attrs(default_style);
-        let mut buffer = Buffer::new_empty(Metrics::relative(default_style.size, 1.2));
-        buffer.set_metrics(Metrics::relative(default_style.size, 1.2));
+        let default = text.spans.first().expect("text requires a span").style;
+        let default_attrs = attrs(default).0;
+        let mut buffer = Buffer::new_empty(Metrics::relative(default.size, 1.2));
         buffer.set_rich_text(
-            text.segments()
-                .map(|(index, range, style)| (&text.text[range], attrs(style).metadata(index))),
+            text.segments().flat_map(|(index, range, style)| {
+                let (attrs, candidates) = attrs(style);
+                let mut clusters = text.text[range.clone()].grapheme_indices(true).peekable();
+                // family of the peeked cluster that ended the previous run
+                let mut pending = None;
+                iter::from_fn(move || {
+                    let select = |cluster: &str| {
+                        let mut fallback = None;
+                        for (name, font, index) in &candidates {
+                            let Ok(font) = FontRef::from_index(font.data(), *index) else {
+                                continue;
+                            };
+                            let charmap = font.charmap();
+                            let mut variants = true;
+                            let mut previous = '\0';
+                            if !cluster.chars().all(|ch| {
+                                if matches!(ch, '\u{fe00}'..='\u{fe0f}' | '\u{e0100}'..='\u{e01ef}') {
+                                    variants &= charmap.map_variant(previous, ch).is_some();
+                                    return true;
+                                }
+                                previous = ch;
+                                ch.is_control()
+                                    || matches!(ch, '\u{200c}'..='\u{200d}' | '\u{e0000}'..='\u{e0fff}')
+                                    || charmap.map(ch).is_some_and(|glyph| glyph.to_u32() != 0)
+                            }) {
+                                continue;
+                            }
+                            if variants {
+                                return Some(*name);
+                            }
+                            fallback.get_or_insert(*name);
+                        }
+                        fallback
+                    };
+                    let (start, cluster) = clusters.next()?;
+                    let family = pending.take().unwrap_or_else(|| select(cluster));
+                    let mut end = start + cluster.len();
+                    while let Some(&(offset, cluster)) = clusters.peek() {
+                        let next = select(cluster);
+                        if next != family {
+                            pending = Some(next);
+                            break;
+                        }
+                        end = offset + cluster.len();
+                        clusters.next();
+                    }
+                    let mut attrs = attrs.clone().metadata(index);
+                    if let Some(family) = family {
+                        attrs = attrs.family(fontdb::Family::Name(family));
+                    }
+                    Some((&text.text[range.start + start..range.start + end], attrs))
+                })
+            }),
             &default_attrs,
             Shaping::Advanced,
             Some(Align::Left),
         );
         buffer.shape_until_scroll(&mut self.fonts, false);
-        let mut line_starts = LineIter::new(text.text)
-            .map(|(range, _)| range.start as u32)
-            .collect::<Vec<_>>();
-        if line_starts.is_empty() {
-            line_starts.push(0);
-        }
+        let line_starts = BidiParagraphs::new(text.text)
+            .map(|line| (line.as_ptr() as usize - text.text.as_ptr() as usize) as u32)
+            .chain(text.text.is_empty().then_some(0))
+            .collect::<Box<[_]>>();
         let weight = line_starts.len() * size_of::<u32>()
-            + text.text.len() * (2 + size_of::<cosmic_text::ShapeGlyph>() + size_of::<cosmic_text::LayoutGlyph>());
+            + buffer.lines.len() * size_of::<cosmic_text::BufferLine>()
+            + text.text.len()
+                * (2 + size_of::<cosmic_text::ShapeGlyph>()
+                    + size_of::<cosmic_text::LayoutGlyph>()
+                    + size_of::<Instance>());
         (
             Shape {
                 buffer,
-                line_starts: line_starts.into_boxed_slice(),
+                line_starts,
                 empty: text.text.is_empty(),
-                empty_height: default_style.size * 1.2,
+                empty_height: default.size * 1.2,
+                fonts: Vec::new(),
             },
             weight,
         )
@@ -225,29 +268,16 @@ impl blit_text::TextLayoutEngine for Backend {
     fn layout(&mut self, shape: &mut Shape, _text: &str, request: LayoutRequest) -> TextLayout {
         prepare(shape, &mut self.fonts, request);
         let max_lines = request.max_lines.map_or(usize::MAX, usize::from);
-
         let mut width = 0.0f32;
         let mut content_height = if shape.empty { shape.empty_height } else { 0.0 };
-        for run in shape.buffer.layout_runs().take(max_lines) {
-            width = width.max(run.line_w);
-            content_height = content_height.max(run.line_top + run.line_height);
-        }
-
         let mut glyphs = Vec::new();
         let mut runs = Vec::new();
         let mut lines = Vec::new();
         for line in shape.buffer.layout_runs().take(max_lines) {
-            let line_start = *shape
-                .line_starts
-                .get(line.line_i)
-                .expect("cosmic-text returned invalid line") as usize;
-            let line_index = u32::try_from(lines.len()).expect("too many lines");
-            let bounds = LogicalRect {
-                x: 0.0,
-                y: line.line_top,
-                width: line.line_w,
-                height: line.line_height,
-            };
+            width = width.max(line.line_w);
+            content_height = content_height.max(line.line_top + line.line_height);
+            let line_start = *shape.line_starts.get(line.line_i).expect("invalid line") as usize;
+            let line_index = lines.len() as u32;
             let mut start = 0;
             while start < line.glyphs.len() {
                 let source = &line.glyphs[start];
@@ -255,24 +285,37 @@ impl blit_text::TextLayoutEngine for Backend {
                 while end < line.glyphs.len()
                     && line.glyphs[end].font_id == source.font_id
                     && line.glyphs[end].font_size.to_bits() == source.font_size.to_bits()
+                    && line.glyphs[end].font_weight == source.font_weight
+                    && line.glyphs[end].cache_key_flags == source.cache_key_flags
                     && line.glyphs[end].metadata == source.metadata
                 {
                     end += 1;
                 }
-                let face = face(self.fonts.db(), &mut self.faces, &self.aliases, source.font_id)
-                    .expect("cosmic-text returned invalid font");
+                let instance = Instance {
+                    face: source.font_id,
+                    size: source.font_size.to_bits(),
+                    weight: source.font_weight,
+                    flags: source.cache_key_flags,
+                };
+                let font = shape
+                    .fonts
+                    .iter()
+                    .position(|font| *font == instance)
+                    .unwrap_or_else(|| {
+                        shape.fonts.push(instance);
+                        shape.fonts.len() - 1
+                    });
                 let glyph_start = glyphs.len() as u32;
                 glyphs.extend(line.glyphs[start..end].iter().map(|glyph| Glyph {
                     id: glyph.glyph_id,
-                    position: LogicalPoint {
-                        x: glyph.x + glyph.font_size * glyph.x_offset,
-                        y: line.line_y + glyph.y - glyph.font_size * glyph.y_offset,
-                    },
+                    position: LogicalPoint::new(
+                        glyph.x + glyph.font_size * glyph.x_offset,
+                        line.line_y + glyph.y - glyph.font_size * glyph.y_offset,
+                    ),
                 }));
                 runs.push(LayoutRun {
-                    face,
-                    size: source.font_size,
-                    glyphs: glyph_start..u32::try_from(glyphs.len()).expect("too many glyphs"),
+                    font,
+                    glyphs: glyph_start..glyphs.len() as u32,
                     span: source.metadata,
                     line: line_index,
                 });
@@ -281,16 +324,12 @@ impl blit_text::TextLayoutEngine for Backend {
             let text_start = line.glyphs.iter().map(|glyph| glyph.start).min().unwrap_or(0);
             let text_end = line.glyphs.iter().map(|glyph| glyph.end).max().unwrap_or(0);
             lines.push(LayoutLine {
-                bounds,
+                bounds: LogicalRect::new(0.0, line.line_top, line.line_w, line.line_height),
                 text: (line_start + text_start) as u32..(line_start + text_end) as u32,
             });
         }
-
         TextLayout {
-            size: LogicalSize {
-                width,
-                height: content_height,
-            },
+            size: LogicalSize::new(width, content_height),
             glyphs: glyphs.into_boxed_slice(),
             runs: runs.into_boxed_slice(),
             lines: lines.into_boxed_slice(),
@@ -353,11 +392,7 @@ impl blit_text::TextLayoutEngine for Backend {
         }
         carets.sort_by_key(|(end, caret)| (caret.byte_offset, *end));
         carets.dedup_by_key(|(_, caret)| caret.byte_offset);
-        carets
-            .into_iter()
-            .map(|(_, caret)| caret)
-            .collect::<Vec<_>>()
-            .into_boxed_slice()
+        carets.into_iter().map(|(_, caret)| caret).collect()
     }
 }
 
@@ -376,26 +411,6 @@ fn prepare(shape: &mut Shape, fonts: &mut FontSystem, request: LayoutRequest) {
         }),
     });
     shape.buffer.shape_until_scroll(fonts, false);
-}
-
-fn face(
-    db: &fontdb::Database,
-    faces: &mut Vec<CosmicFace>,
-    aliases: &[CosmicAlias],
-    cosmic: fontdb::ID,
-) -> Option<FontFaceId> {
-    if let Some(index) = faces.iter().position(|face| face.cosmic == cosmic) {
-        return Some(FontFaceId(u64::try_from(index + 1).ok()?));
-    }
-    if let Some(alias) = aliases.iter().find(|alias| alias.cosmic == cosmic) {
-        return Some(alias.face);
-    }
-    let data = db.with_face_data(cosmic, |data, face_index| {
-        FontFace::new(FontData::Shared(Arc::from(data)), face_index)
-    })??;
-    let id = FontFaceId(u64::try_from(faces.len() + 1).ok()?);
-    faces.push(CosmicFace { cosmic, data });
-    Some(id)
 }
 
 fn cosmic_stretch(stretch: u16) -> fontdb::Stretch {
@@ -422,76 +437,103 @@ fn cosmic_style(style: FontStyle) -> fontdb::Style {
 
 #[cfg(test)]
 mod tests {
-    use blit_text::TextLayoutEngine as _;
+    use blit_text::{FontData, TextLayoutEngine as _};
 
     use super::*;
 
-    #[test]
-    fn selection_and_size_resolve_per_span() {
+    fn setup() -> (Backend, TextStyle<'static>, LayoutRequest) {
         let mut backend = Backend::without_system_fonts();
-        let data = FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")));
-        let regular = backend.register_font(data.clone()).unwrap()[0].face;
-        let bold = backend.register_font(data).unwrap()[0].face;
         let font = backend
-            .register_font_selection(&[
-                FontCandidate {
-                    face: regular,
-                    weight: 400,
-                    stretch: 100,
-                    style: FontStyle::Normal,
-                },
-                FontCandidate {
-                    face: bold,
-                    weight: 700,
-                    stretch: 100,
-                    style: FontStyle::Normal,
-                },
-            ])
+            .register_stack(&[Family::embedded([FontData::Static(FONT)])])
             .unwrap();
-        let text = "regular bold";
-        let regular_style = TextStyle {
+        let style = TextStyle {
             font,
             size: 16.0,
             weight: 400,
             stretch: 100,
             style: FontStyle::Normal,
+            settings: blit_text::FontSettings::default(),
         };
+        let request = LayoutRequest {
+            max_width: None,
+            max_height: None,
+            max_lines: None,
+            wrap: TextWrap::None,
+            overflow: TextOverflow::Clip,
+        };
+        (backend, style, request)
+    }
+
+    const FONT: &[u8] = include_bytes!(env!("BLIT_TEST_FONT"));
+
+    #[test]
+    fn empty_and_paragraph_text_keep_valid_line_offsets() {
+        let (mut backend, style, request) = setup();
+        for (text, starts) in [
+            ("", &[0][..]),
+            ("a\nb", &[0, 2][..]),
+            ("a\r\nb", &[0, 3][..]),
+            ("a\u{2029}b", &[0, 4][..]),
+        ] {
+            let (mut shape, _) = backend.shape(blit_text::Text {
+                text,
+                spans: &[blit_text::TextSpan {
+                    range: 0..text.len(),
+                    style,
+                }],
+            });
+            let layout = backend.layout(&mut shape, text, request);
+            assert_eq!(layout.lines.len(), starts.len());
+            for (index, &start) in starts.iter().enumerate() {
+                assert_eq!(layout.lines[index].text.start, start);
+                let carets = backend.carets(&mut shape, text, request, index);
+                assert_eq!(carets[0].byte_offset, start);
+            }
+        }
+    }
+
+    #[test]
+    fn selection_and_size_resolve_per_span() {
+        let (mut backend, style, request) = setup();
+        let bold = backend
+            .register_stack(&[Family::embedded([FontData::Static(FONT)])])
+            .unwrap();
+        let text = "regular bold";
         let (mut shape, _) = backend.shape(blit_text::Text {
             text,
             spans: &[
-                blit_text::TextSpan {
-                    range: 0..8,
-                    style: regular_style,
-                },
+                blit_text::TextSpan { range: 0..8, style },
                 blit_text::TextSpan {
                     range: 8..text.len(),
                     style: TextStyle {
+                        font: bold,
                         size: 24.0,
                         weight: 700,
-                        ..regular_style
+                        ..style
                     },
                 },
             ],
         });
-        let layout = backend.layout(
+        let layout = backend.layout(&mut shape, text, request);
+        let regular_index = layout.runs.iter().find(|run| run.span == 0).unwrap().font;
+        let bold_index = layout.runs.iter().find(|run| run.span == 1).unwrap().font;
+        let regular = shape.fonts[regular_index];
+        let bold = shape.fonts[bold_index];
+        assert_ne!(regular.face, bold.face);
+        assert_eq!(f32::from_bits(regular.size), 16.0);
+        assert_eq!(f32::from_bits(bold.size), 24.0);
+        assert!(layout.lines[0].bounds.height > 16.0 * 1.2);
+        let count = shape.fonts.len();
+        backend.layout(
             &mut shape,
             text,
             LayoutRequest {
-                max_width: None,
-                max_height: None,
-                max_lines: None,
-                wrap: TextWrap::None,
-                overflow: TextOverflow::Clip,
+                max_width: Some(40.0),
+                wrap: TextWrap::Word,
+                ..request
             },
         );
-
-        assert!(layout.runs.iter().any(|run| run.span == 0 && run.face == regular));
-        assert!(
-            layout
-                .runs
-                .iter()
-                .any(|run| run.span == 1 && run.face == bold && run.size == 24.0)
-        );
-        assert!(layout.lines[0].bounds.height > 16.0 * 1.2);
+        assert!(shape.fonts[regular_index] == regular && shape.fonts[bold_index] == bold);
+        assert_eq!(shape.fonts.len(), count);
     }
 }

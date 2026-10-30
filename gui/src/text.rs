@@ -1,7 +1,7 @@
 use std::{fmt, ops::Range};
 
 use blit::geometry::LogicalRect;
-pub use blit_text::FontStyle;
+pub use blit_text::{FontSettings, FontStyle, OpticalSize};
 
 use crate::color::Color;
 
@@ -37,25 +37,10 @@ impl<'a> From<fmt::Arguments<'a>> for TextSource<'a> {
     }
 }
 
-/// cached horizontal positions for grayscale glyph rasterization
-///
-/// more phases improve fractional text placement at the cost of glyph cache space
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(u8)]
-pub enum TextPhases {
-    /// snaps glyphs to physical pixels
-    One = 1,
-    /// caches glyphs at half-pixel positions
-    Two = 2,
-    /// caches glyphs at quarter-pixel positions
-    #[default]
-    Four = 4,
-}
-
 blit::builder! {
     /// style overrides for a rich text span
     #[derive(Clone, Debug, PartialEq)]
-    pub struct SpanStyle {
+    pub struct SpanStyle<'a> {
         new(),
         #[into]
         font: Option<FontId> = None,
@@ -69,15 +54,17 @@ blit::builder! {
         style: Option<FontStyle> = None,
         #[into]
         color: Option<Color> = None,
+        #[into]
+        settings: Option<FontSettings<'a>> = None,
     }
 }
 
 blit::builder! {
     /// a styled byte range within a rich text string
     #[derive(Clone, Debug, PartialEq)]
-    pub struct Span {
+    pub struct Span<'a> {
         new(range: Range<usize>),
-        style: SpanStyle = SpanStyle::new(),
+        style: SpanStyle<'a> = SpanStyle::new(),
     }
 }
 
@@ -135,7 +122,7 @@ pub struct TextLayoutRequest {
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct TextStyle {
+    pub struct TextStyle<'a> {
         new(),
         font: FontId = FontId(0),
         size: f32 = 16.0,
@@ -143,6 +130,7 @@ blit::builder! {
         stretch: u16 = 100,
         style: FontStyle = FontStyle::Normal,
         color: Color = Color::BLACK,
+        settings: FontSettings<'a> = FontSettings::new(),
     }
 }
 

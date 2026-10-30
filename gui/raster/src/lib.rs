@@ -1,4 +1,4 @@
-use blit_text::{FontData, GlyphMask, GlyphMetrics};
+use blit_text::{FontData, GlyphImage, GlyphMetrics, GlyphPixels};
 use ttf_parser::{OutlineBuilder, Rect};
 
 // adapted from femtofont 0.5.0 and fontdue 0.9.3
@@ -12,7 +12,7 @@ pub struct FontFace {
 
 impl FontFace {
     pub fn new(data: FontData, face_index: u32) -> Option<Self> {
-        // SAFETY: font bytes are static or behind an arc, so they never move or change while `data` is alive, and
+        // safety: font bytes are static or behind an arc so they never move or change while `data` is alive
         // `face` is private and only lent out with the lifetime of `self`
         let bytes = unsafe { &*(data.as_ref() as *const [u8]) };
         let face = ttf_parser::Face::parse(bytes, face_index).ok()?;
@@ -51,14 +51,14 @@ impl Default for Rasterizer {
 }
 
 impl Rasterizer {
-    pub fn rasterize(&mut self, font: &FontFace, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
+    pub fn rasterize(&mut self, font: &FontFace, glyph: u16, size: f32, offset_x: f32) -> GlyphImage {
         let face = &font.face;
         if !size.is_finite() || size <= 0.0 || !(0.0..1.0).contains(&offset_x) {
-            return GlyphMask::default();
+            return GlyphImage::default();
         }
         let glyph = ttf_parser::GlyphId(glyph);
         let Some(bounds) = face.glyph_bounding_box(glyph) else {
-            return GlyphMask::default();
+            return GlyphImage::default();
         };
         let scale = size / face.units_per_em() as f32;
         let outline_bounds = OutlineBounds {
@@ -84,7 +84,7 @@ impl Rasterizer {
             || !(i16::MIN as f32..=i16::MAX as f32).contains(&left)
             || !(i16::MIN as f32..=i16::MAX as f32).contains(&top)
         {
-            return GlyphMask::default();
+            return GlyphImage::default();
         }
         let mut metrics = GlyphMetrics {
             width: width as u16,
@@ -94,9 +94,9 @@ impl Rasterizer {
         };
         let pixels = usize::from(metrics.width) * usize::from(metrics.height);
         if pixels == 0 {
-            return GlyphMask {
+            return GlyphImage {
                 metrics,
-                alpha: Box::default(),
+                pixels: GlyphPixels::default(),
             };
         }
 
@@ -104,9 +104,9 @@ impl Rasterizer {
         if face.outline_glyph(glyph, &mut self.outline).is_none() {
             metrics.width = 0;
             metrics.height = 0;
-            return GlyphMask {
+            return GlyphImage {
                 metrics,
-                alpha: Box::default(),
+                pixels: GlyphPixels::default(),
             };
         }
         self.outline.finish(bounds);
@@ -126,7 +126,10 @@ impl Rasterizer {
                 COVERAGE[(height.abs() * 255.9) as u8 as usize]
             })
             .collect();
-        GlyphMask { metrics, alpha }
+        GlyphImage {
+            metrics,
+            pixels: GlyphPixels::Alpha8(alpha),
+        }
     }
 }
 

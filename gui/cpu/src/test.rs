@@ -2,19 +2,19 @@ use std::ops::Range;
 
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_gui::{
-    FontData, FontFamily, GuiContext, TextConfig, TextSystem,
+    FontData, FontStack, GuiContext, TextConfig, TextSystem,
     color::Color,
     display_list::{BoxShadow, ClipId, DisplayList, Mesh, MeshVertex, Rectangle},
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
     style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
     text::{
-        FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextPhases, TextRequest, TextRun,
-        TextStyle, TextWrap, VerticalAlign,
+        FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle,
+        TextWrap, VerticalAlign,
     },
 };
 use blit_text::{
-    Caret, FontCandidate, FontError, FontFaceId as BackendFontFaceId, FontSelectionId, GlyphMask, LayoutLine,
-    LayoutRequest, TextLayout, TextLayoutEngine,
+    Caret, Family, FontError, FontStackId, GlyphImage, GlyphRequest, LayoutLine, LayoutRequest, PreparedGlyph,
+    TextLayout, TextLayoutEngine,
 };
 
 use super::*;
@@ -338,10 +338,8 @@ impl PixelBuffer for TrackingBuffer {
 fn renderer_config() -> RendererConfig {
     RendererConfig {
         damage_tile_size: 32,
-        paint_cache_capacity: 1024 * 1024,
         glyph_cache_capacity: 1024 * 1024,
         shadow_cache_capacity: 1024 * 1024,
-        text_phases: TextPhases::Four,
     }
 }
 
@@ -382,9 +380,11 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
         gui: GuiContext::new(
             TextSystem::new(
                 TextConfig {
-                    fonts: vec![FontFamily {
+                    fonts: vec![FontStack {
                         id: FontId::default(),
-                        fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+                        families: vec![blit_gui::Family::embedded([FontData::Static(include_bytes!(env!(
+                            "BLIT_TEST_FONT"
+                        )))])],
                     }],
                     text_cache_capacity: 1024 * 1024,
                     layout_cache_capacity: 1024 * 1024,
@@ -552,7 +552,7 @@ fn render_input_tracks_damage_and_invalidation() {
 }
 
 #[test]
-fn text_paint_cache_tracks_physical_clip_size() {
+fn text_placement_tracks_physical_clip_size() {
     let config = renderer_config();
     let mut renderer = new_renderer_with_backend(
         VecBuffer::<Xrgb8888>::new(16, 24),
@@ -590,9 +590,9 @@ fn text_cache_stages_are_independent() {
         let counts = Rc::new(TextCounts::default());
         let mut text = TextSystem::new(
             TextConfig {
-                fonts: vec![FontFamily {
+                fonts: vec![FontStack {
                     id: FontId::default(),
-                    fonts: Vec::new(),
+                    families: Vec::new(),
                 }],
                 text_cache_capacity,
                 layout_cache_capacity,
@@ -629,11 +629,9 @@ fn text_cache_stages_are_independent() {
         assert_eq!(counts.layouts.get(), 1);
         assert_eq!(counts.carets.get(), 1);
 
-        let old_layout = text.paint_layout(&paint).id;
         text.finish_frame();
         request.text = text.text_run("cached".into(), TextStyle::default());
         assert_eq!(request.text == paint.text, !source_evicted);
-        paint.text = request.text;
         text.measure(&request);
         let shapes = if source_evicted { 2 } else { 1 };
         let layouts = if source_evicted || layout_cache_capacity == 0 {
@@ -643,7 +641,6 @@ fn text_cache_stages_are_independent() {
         };
         assert_eq!(counts.shapes.get(), shapes);
         assert_eq!(counts.layouts.get(), layouts);
-        assert_eq!(text.paint_layout(&paint).id == old_layout, layouts == 1);
 
         for width in [10.0, 20.0] {
             text.measure(&TextLayoutRequest {
@@ -654,6 +651,29 @@ fn text_cache_stages_are_independent() {
         }
         assert_eq!(counts.shapes.get(), shapes);
         assert_eq!(counts.layouts.get(), layouts + 2);
+
+        paint.text = request.text;
+        for capacity in [1024, 0] {
+            let mut glyphs = crate::glyph::GlyphCache::new(capacity);
+            let mut previous = None;
+            for _ in 0..2 {
+                let mut resolved = text.paint_layout(&paint);
+                let id = resolved
+                    .prepare_glyph(GlyphRequest {
+                        font: 0,
+                        glyph: 0,
+                        scale: 1.0,
+                        origin: LogicalPoint::default(),
+                    })
+                    .key;
+                if let Some(previous) = previous {
+                    assert_eq!(id == previous, capacity != 0);
+                }
+                assert!(glyphs.glyph(&mut resolved, id).is_some());
+                previous = Some(id);
+                glyphs.finish_frame(&mut text);
+            }
+        }
     }
 
     #[derive(Default)]
@@ -667,17 +687,21 @@ fn text_cache_stages_are_independent() {
 
     impl TextLayoutEngine for CountingBackend {
         type Shape = ();
+        type GlyphKey = ();
 
-        fn register_font(&mut self, _data: FontData) -> Result<Vec<FontCandidate>, FontError> {
-            Ok(Vec::new())
+        fn register_stack(&mut self, _families: &[Family]) -> Result<FontStackId, FontError> {
+            Ok(FontStackId(1))
         }
 
-        fn register_font_selection(&mut self, _candidates: &[FontCandidate]) -> Result<FontSelectionId, FontError> {
-            Ok(FontSelectionId(1))
+        fn prepare_glyph(&mut self, _shape: &(), _request: GlyphRequest) -> PreparedGlyph<()> {
+            PreparedGlyph {
+                key: (),
+                origin: blit::PhysicalPoint::default(),
+            }
         }
 
-        fn rasterize_glyph(&mut self, _face: BackendFontFaceId, _glyph: u16, _size: f32, _offset_x: f32) -> GlyphMask {
-            GlyphMask::default()
+        fn rasterize_glyph(&mut self, _key: &()) -> Result<GlyphImage, FontError> {
+            Ok(GlyphImage::default())
         }
 
         fn shape(&mut self, _text: blit_text::Text<'_>) -> ((), usize) {
@@ -1640,6 +1664,56 @@ fn text_runs_are_keyed_by_content_and_style() {
     assert_eq!(white, text);
     assert_ne!(gui.text_run("changed", style), text);
     assert_ne!(gui.text_run("same", TextStyle { weight: 500, ..style }), text);
+    use blit_gui::text::{FontSettings, OpticalSize};
+    for settings in [
+        FontSettings {
+            features: &[(*b"liga", 0)],
+            ..FontSettings::default()
+        },
+        FontSettings {
+            variations: &[(*b"wght", 550.0)],
+            ..FontSettings::default()
+        },
+        FontSettings {
+            language: Some("tr"),
+            ..FontSettings::default()
+        },
+        FontSettings {
+            optical_size: OpticalSize::FontDefault,
+            ..FontSettings::default()
+        },
+    ] {
+        let configured = gui.text_run("same", style.settings(settings));
+        assert_ne!(configured, text);
+        assert_eq!(
+            gui.rich_text(
+                "same",
+                &[Span::new(0..4).style(SpanStyle::new().settings(settings))],
+                style
+            ),
+            configured
+        );
+    }
+    let owned = {
+        let language = String::from("fr");
+        gui.text_run(
+            "same",
+            style.settings(FontSettings {
+                language: Some(&language),
+                ..FontSettings::default()
+            }),
+        )
+    };
+    assert_eq!(
+        gui.text_run(
+            "same",
+            style.settings(FontSettings {
+                language: Some("fr"),
+                ..FontSettings::default()
+            })
+        ),
+        owned
+    );
 }
 
 #[test]

@@ -183,7 +183,7 @@ fn blurred_coverage(
 
 fn clip_coverage(position: vec2<f32>, first_clip: u32) -> f32 {
     var coverage = 1.0;
-    var clip_id = first_clip;
+    var clip_id = first_clip & 0x7fffffffu;
     while clip_id != 0u {
         let clip = clips[clip_id];
         coverage *= rounded_coverage(position, clip.rect, clip.radii);
@@ -341,8 +341,12 @@ fn content(input: ContentOutput) -> @location(0) vec4<f32> {
     }
 
     if (input.reference & DRAW_TEXT) != 0u {
-        let coverage = textureLoad(image_texture, vec2<i32>(floor(input.atlas)), 0).r
-            * clip_coverage(position, input.clip);
+        let texel = textureLoad(image_texture, vec2<i32>(floor(input.atlas)), 0);
+        let clip = clip_coverage(position, input.clip);
+        if (input.clip & 0x80000000u) != 0u {
+            return texel * input.color.a * clip;
+        }
+        let coverage = texel.r * clip;
         if coverage <= 0.0 {
             discard;
         }

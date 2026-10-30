@@ -8,7 +8,7 @@ use blit_desktop::cpu;
 use blit_desktop::gpu;
 use blit_desktop::{Application, Config, DesktopContext, EventLoopProxy, Root, Ui};
 use blit_gui::{
-    BoundsClip, FontData, FontFamily, TextConfig, TextLayoutEngine,
+    BoundsClip, Family, FontData, FontStack, TextConfig, TextLayoutEngine,
     atom::{Rectangle, Shadow},
     color::Color,
     display_list::{Mesh, MeshVertex},
@@ -26,12 +26,14 @@ use blit_gui_widgets::{
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
 };
 
-pub fn run(text: impl TextLayoutEngine) {
+pub fn run(text: impl TextLayoutEngine, fallbacks: &[Family]) {
     let fonts = std::fs::read_dir(std::path::Path::new(env!("BLIT_TEST_FONT")).with_file_name(""))
         .unwrap()
         .filter_map(|entry| std::fs::read(entry.ok()?.path()).ok())
         .map(|data| FontData::Shared(data.into()))
-        .collect();
+        .collect::<Vec<_>>();
+    let mut families = vec![Family::embedded(fonts)];
+    families.extend_from_slice(fallbacks);
     #[cfg(feature = "gpu")]
     let graphics = Box::new(gpu::Backend::new(gpu::Config::default()));
     #[cfg(not(feature = "gpu"))]
@@ -41,9 +43,9 @@ pub fn run(text: impl TextLayoutEngine) {
         width: 1120,
         height: 800,
         text_config: TextConfig {
-            fonts: vec![FontFamily {
+            fonts: vec![FontStack {
                 id: FontId::default(),
-                fonts,
+                families,
             }],
             text_cache_capacity: 1024 * 1024,
             layout_cache_capacity: 2 * 1024 * 1024,
@@ -212,7 +214,7 @@ impl Application for App {
 
 struct TextPage {
     text: String,
-    spans: Vec<Span>,
+    spans: Vec<Span<'static>>,
     resize: ResizeState,
     wrap: TextWrap,
     overflow: TextOverflow,
@@ -235,6 +237,8 @@ impl Default for TextPage {
                     .style(FontStyle::Italic)
                     .color(colors::ACCENT),
             ),
+            ("😀 🚀 🌈 ❤️ 👨‍👩‍👧‍👦 🇺🇸 1️⃣\n", SpanStyle::new().size(sz::XXL)),
+            ("Text ©  Emoji ©️\n\n", SpanStyle::new().color(colors::TEXT)),
             ("One paragraph can mix inherited body text with ", SpanStyle::new()),
             ("large type", SpanStyle::new().size(sz::XL).color(colors::TEXT)),
             (", ", SpanStyle::new()),

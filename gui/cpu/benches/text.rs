@@ -2,7 +2,7 @@ use std::hint::black_box;
 
 use blit::{LogicalPoint, LogicalRect};
 use blit_gui::{
-    FontData, FontFamily, TextConfig, TextSystem,
+    FontData, FontStack, TextConfig, TextSystem,
     color::Color,
     text::{FontId, HorizontalAlign, TextLayoutRequest, TextOptions, TextRequest, TextSource, TextStyle, TextWrap},
 };
@@ -154,9 +154,11 @@ fn layout_with_caret_query(bencher: divan::Bencher) {
 fn text_system(layout_cache_capacity: usize) -> TextSystem {
     TextSystem::new(
         TextConfig {
-            fonts: vec![FontFamily {
+            fonts: vec![FontStack {
                 id: FontId::default(),
-                fonts: vec![FontData::Static(include_bytes!(env!("BLIT_TEST_FONT")))],
+                families: vec![blit_gui::Family::embedded([FontData::Static(include_bytes!(env!(
+                    "BLIT_TEST_FONT"
+                )))])],
             }],
             text_cache_capacity: 1024 * 1024,
             layout_cache_capacity,

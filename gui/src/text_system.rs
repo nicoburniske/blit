@@ -1,13 +1,15 @@
 use std::{
     fmt::Write as _,
-    hash::{Hash, Hasher},
+    hash::{BuildHasher, Hash, Hasher},
     mem::size_of,
 };
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
+use blit_arena::Arena;
 use blit_cache::{DeferredCache, Equivalent, Scale};
 use blit_text::{
-    Caret, FontData, FontError, FontFaceId, FontSelectionId, GlyphMask, LayoutRequest, TextLayout, TextLayoutEngine,
+    Caret, Family, FontError, FontSettings, FontStackId, GlyphImage, GlyphRequest, LayoutRequest, OpticalSize,
+    PreparedGlyph, TextLayout, TextLayoutEngine,
 };
 
 use crate::text::{
@@ -16,15 +18,39 @@ use crate::text::{
 };
 
 pub struct TextConfig {
-    pub fonts: Vec<FontFamily>,
+    pub fonts: Vec<FontStack>,
     /// maximum retained source and shaping bytes
     pub text_cache_capacity: usize,
     pub layout_cache_capacity: usize,
 }
 
-pub struct FontFamily {
+pub struct FontStack {
     pub id: FontId,
-    pub fonts: Vec<FontData>,
+    pub families: Vec<Family>,
+}
+
+impl TextConfig {
+    pub fn new() -> Self {
+        Self {
+            fonts: Vec::new(),
+            text_cache_capacity: 1024 * 1024,
+            layout_cache_capacity: 1024 * 1024,
+        }
+    }
+
+    pub fn font(mut self, id: FontId, families: impl IntoIterator<Item = Family>) -> Self {
+        self.fonts.push(FontStack {
+            id,
+            families: families.into_iter().collect(),
+        });
+        self
+    }
+}
+
+impl Default for TextConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub struct TextSystem {
@@ -34,23 +60,32 @@ pub struct TextSystem {
     layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
     formatted_text: String,
     next_source: u32,
-    next_layout: u64,
 }
 
 pub struct ResolvedTextLayout<'a> {
-    pub id: TextLayoutId,
     pub layout: &'a TextLayout,
     engine: &'a mut dyn ErasedTextEngine,
+    shape: usize,
     placement: Placement,
 }
 
 impl ResolvedTextLayout<'_> {
-    pub fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
-        let mask = self.engine.rasterize_glyph(face, glyph, size, offset_x);
-        if usize::from(mask.metrics.width) * usize::from(mask.metrics.height) != mask.alpha.len() {
-            return GlyphMask::default();
+    pub fn prepare_glyph(&mut self, request: GlyphRequest) -> PreparedGlyph<GlyphImageId> {
+        self.engine.prepare_glyph(self.shape, request)
+    }
+
+    pub fn rasterize_glyph(&mut self, id: GlyphImageId) -> Result<GlyphImage, FontError> {
+        let image = self.engine.rasterize_glyph(id)?;
+        let channels = if image.pixels.is_color() { 4 } else { 1 };
+        if usize::from(image.metrics.width) * usize::from(image.metrics.height) * channels != image.pixels.data().len()
+        {
+            return Err(FontError::InvalidData);
         }
-        mask
+        Ok(image)
+    }
+
+    pub fn remove_glyph(&mut self, id: GlyphImageId) {
+        self.engine.remove_glyph(id);
     }
 
     pub fn line_offset(&self, line: usize) -> LogicalPoint {
@@ -58,12 +93,15 @@ impl ResolvedTextLayout<'_> {
     }
 }
 
+/// identifies cached glyph pixels
+///
+/// ids are owned by a single renderer, and must not be shared between renderers
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TextLayoutId(u64);
+pub struct GlyphImageId(u64);
 
 struct ConfiguredFont {
     id: FontId,
-    font: FontSelectionId,
+    font: FontStackId,
 }
 
 struct SourceKey {
@@ -77,19 +115,74 @@ struct CachedSource {
 }
 
 enum CachedSpans {
-    One(blit_text::TextStyle),
-    Many(Box<[blit_text::TextSpan]>),
+    One(CachedStyle),
+    Many(Box<[CachedSpan]>),
+}
+
+struct CachedSpan {
+    range: std::ops::Range<usize>,
+    style: CachedStyle,
+}
+
+struct CachedStyle {
+    font: FontStackId,
+    size: f32,
+    weight: u16,
+    stretch: u16,
+    style: blit_text::FontStyle,
+    features: Box<[([u8; 4], u32)]>,
+    variations: Box<[([u8; 4], f32)]>,
+    language: Option<Box<str>>,
+    optical_size: OpticalSize,
+}
+
+impl CachedStyle {
+    fn new(style: blit_text::TextStyle<'_>) -> Self {
+        Self {
+            font: style.font,
+            size: style.size,
+            weight: style.weight,
+            stretch: style.stretch,
+            style: style.style,
+            features: style.settings.features.into(),
+            variations: style.settings.variations.into(),
+            language: style.settings.language.map(Into::into),
+            optical_size: style.settings.optical_size,
+        }
+    }
+
+    fn as_style(&self) -> blit_text::TextStyle<'_> {
+        blit_text::TextStyle {
+            font: self.font,
+            size: self.size,
+            weight: self.weight,
+            stretch: self.stretch,
+            style: self.style,
+            settings: FontSettings {
+                features: &self.features,
+                variations: &self.variations,
+                language: self.language.as_deref(),
+                optical_size: self.optical_size,
+            },
+        }
+    }
+
+    fn heap_weight(&self) -> usize {
+        self.features.len() * size_of::<([u8; 4], u32)>()
+            + self.variations.len() * size_of::<([u8; 4], f32)>()
+            + self.language.as_ref().map_or(0, |language| language.len())
+    }
 }
 
 struct SourceQuery<'a> {
     text: &'a str,
-    spans: &'a [Span],
-    style: blit_text::TextStyle,
+    spans: &'a [Span<'a>],
+    style: blit_text::TextStyle<'a>,
     fonts: &'a [ConfiguredFont],
 }
 
-impl SourceQuery<'_> {
-    fn resolve(&self, span: &Span) -> blit_text::TextStyle {
+impl<'a> SourceQuery<'a> {
+    fn resolve(&self, span: &Span<'a>) -> blit_text::TextStyle<'a> {
         blit_text::TextStyle {
             font: span.style.font.map_or(self.style.font, |id| {
                 self.fonts.iter().find(|font| font.id == id).unwrap().font
@@ -98,6 +191,7 @@ impl SourceQuery<'_> {
             weight: span.style.weight.unwrap_or(self.style.weight),
             stretch: span.style.stretch.unwrap_or(self.style.stretch),
             style: span.style.style.unwrap_or(self.style.style),
+            settings: span.style.settings.unwrap_or(self.style.settings),
         }
     }
 }
@@ -116,11 +210,11 @@ impl Equivalent<SourceKey> for SourceQuery<'_> {
             return false;
         }
         match &key.spans {
-            CachedSpans::One(style) => self.spans.len() == 1 && *style == self.resolve(&self.spans[0]),
+            CachedSpans::One(style) => self.spans.len() == 1 && style.as_style() == self.resolve(&self.spans[0]),
             CachedSpans::Many(spans) => {
                 spans.len() == self.spans.len()
                     && spans.iter().zip(self.spans).all(|(cached_span, span)| {
-                        cached_span.range == span.range && cached_span.style == self.resolve(span)
+                        cached_span.range == span.range && cached_span.style.as_style() == self.resolve(span)
                     })
             }
         }
@@ -130,10 +224,10 @@ impl Equivalent<SourceKey> for SourceQuery<'_> {
 impl Hash for SourceKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match &self.spans {
-            CachedSpans::One(style) => hash_span(&self.text, *style, state),
+            CachedSpans::One(style) => hash_span(&self.text, style.as_style(), state),
             CachedSpans::Many(spans) => {
                 for span in spans {
-                    hash_span(&self.text[span.range.clone()], span.style, state);
+                    hash_span(&self.text[span.range.clone()], span.style.as_style(), state);
                 }
             }
         }
@@ -151,7 +245,6 @@ struct LayoutKey {
 }
 
 struct CachedLayout {
-    id: TextLayoutId,
     layout: TextLayout,
     carets: Vec<LineCarets>,
 }
@@ -170,7 +263,11 @@ struct Placement {
 }
 
 trait ErasedTextEngine {
-    fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask;
+    fn prepare_glyph(&mut self, shape: usize, request: GlyphRequest) -> PreparedGlyph<GlyphImageId>;
+
+    fn rasterize_glyph(&mut self, id: GlyphImageId) -> Result<GlyphImage, FontError>;
+
+    fn remove_glyph(&mut self, id: GlyphImageId);
 
     fn shape(&mut self, index: usize, text: blit_text::Text<'_>) -> usize;
 
@@ -189,11 +286,45 @@ struct ShapedText<'a> {
 struct ErasedEngine<E: TextLayoutEngine> {
     engine: E,
     shapes: Vec<Option<E::Shape>>,
+    glyphs: hashbrown::HashTable<GlyphImageId>,
+    glyph_keys: Arena<E::GlyphKey>,
+    hash_builder: hashbrown::DefaultHashBuilder,
 }
 
 impl<E: TextLayoutEngine> ErasedTextEngine for ErasedEngine<E> {
-    fn rasterize_glyph(&mut self, face: FontFaceId, glyph: u16, size: f32, offset_x: f32) -> GlyphMask {
-        self.engine.rasterize_glyph(face, glyph, size, offset_x)
+    fn prepare_glyph(&mut self, shape: usize, request: GlyphRequest) -> PreparedGlyph<GlyphImageId> {
+        let prepared = self.engine.prepare_glyph(self.shapes[shape].as_ref().unwrap(), request);
+        let hash = self.hash_builder.hash_one(&prepared.key);
+        let id = if let Some(id) = self
+            .glyphs
+            .find(hash, |id| self.glyph_keys.get(id.0.into()).unwrap() == &prepared.key)
+        {
+            *id
+        } else {
+            let id = GlyphImageId(self.glyph_keys.insert(prepared.key).into());
+            self.glyphs.insert_unique(hash, id, |id| {
+                self.hash_builder.hash_one(self.glyph_keys.get(id.0.into()).unwrap())
+            });
+            id
+        };
+        PreparedGlyph {
+            key: id,
+            origin: prepared.origin,
+        }
+    }
+
+    fn rasterize_glyph(&mut self, id: GlyphImageId) -> Result<GlyphImage, FontError> {
+        self.engine
+            .rasterize_glyph(self.glyph_keys.get(id.0.into()).expect("expired glyph image"))
+    }
+
+    fn remove_glyph(&mut self, id: GlyphImageId) {
+        let key = self.glyph_keys.remove(id.0.into()).expect("expired glyph image");
+        let hash = self.hash_builder.hash_one(&key);
+        self.glyphs
+            .find_entry(hash, |candidate| *candidate == id)
+            .expect("glyph table missing live entry")
+            .remove();
     }
 
     fn shape(&mut self, index: usize, text: blit_text::Text<'_>) -> usize {
@@ -229,8 +360,10 @@ struct SourceScale;
 impl Scale<SourceKey, CachedSource> for SourceScale {
     fn weight(&self, key: &SourceKey, source: &CachedSource) -> usize {
         let spans = match &key.spans {
-            CachedSpans::One(_) => 0,
-            CachedSpans::Many(spans) => spans.len() * size_of::<blit_text::TextSpan>(),
+            CachedSpans::One(style) => style.heap_weight(),
+            CachedSpans::Many(spans) => {
+                spans.len() * size_of::<CachedSpan>() + spans.iter().map(|span| span.style.heap_weight()).sum::<usize>()
+            }
         };
         size_of::<SourceKey>() + size_of::<CachedSource>() + key.text.len() + spans + source.shape.unwrap_or(0)
     }
@@ -257,16 +390,11 @@ impl Scale<LayoutKey, CachedLayout> for LayoutScale {
 impl TextSystem {
     pub fn new<E: TextLayoutEngine>(config: TextConfig, mut engine: E) -> Result<Self, FontError> {
         let mut fonts = Vec::new();
-        let mut candidates = Vec::new();
         for configured in config.fonts {
             if fonts.iter().any(|font: &ConfiguredFont| font.id == configured.id) {
                 return Err(FontError::InvalidData);
             }
-            candidates.clear();
-            for data in configured.fonts {
-                candidates.extend(engine.register_font(data)?);
-            }
-            let font = engine.register_font_selection(&candidates)?;
+            let font = engine.register_stack(&configured.families)?;
             fonts.push(ConfiguredFont {
                 id: configured.id,
                 font,
@@ -276,13 +404,15 @@ impl TextSystem {
             engine: Box::new(ErasedEngine {
                 engine,
                 shapes: Vec::new(),
+                glyphs: hashbrown::HashTable::new(),
+                glyph_keys: Arena::new(),
+                hash_builder: Default::default(),
             }),
             fonts: fonts.into_boxed_slice(),
             sources: DeferredCache::new(SourceScale, config.text_cache_capacity),
             layouts: DeferredCache::new(LayoutScale, config.layout_cache_capacity),
             formatted_text: String::new(),
             next_source: 1,
-            next_layout: 1,
         })
     }
 
@@ -301,7 +431,7 @@ impl TextSystem {
     }
 
     /// registers geometry using span ranges and font attributes
-    pub fn rich_text(&mut self, text: &str, spans: &[Span], style: TextStyle) -> TextRun {
+    pub fn rich_text(&mut self, text: &str, spans: &[Span<'_>], style: TextStyle) -> TextRun {
         let Some(font) = self.fonts.iter().find(|font| font.id == style.font) else {
             return TextRun::default();
         };
@@ -334,6 +464,7 @@ impl TextSystem {
                 weight: style.weight,
                 stretch: style.stretch,
                 style: style.style,
+                settings: style.settings,
             },
             fonts: &self.fonts,
         };
@@ -341,13 +472,13 @@ impl TextSystem {
         let (_, source_index) = self.sources.get_or_insert(query, |query| {
             inserted = true;
             let spans = if query.spans.len() == 1 {
-                CachedSpans::One(query.resolve(&query.spans[0]))
+                CachedSpans::One(CachedStyle::new(query.resolve(&query.spans[0])))
             } else {
                 let mut resolved = Vec::with_capacity(query.spans.len());
                 for span in query.spans {
-                    resolved.push(blit_text::TextSpan {
+                    resolved.push(CachedSpan {
                         range: span.range.clone(),
-                        style: query.resolve(span),
+                        style: CachedStyle::new(query.resolve(span)),
                     });
                 }
                 CachedSpans::Many(resolved.into_boxed_slice())
@@ -374,14 +505,18 @@ impl TextSystem {
 
     pub fn paint_layout(&mut self, request: &TextRequest<'_>) -> ResolvedTextLayout<'_> {
         let (layout_request, placement) = paint_request(request);
-        let (index, _) = self.layout(request.text, layout_request);
+        let (index, shape) = self.layout(request.text, layout_request);
         let cached = self.layouts.get_index(index);
         ResolvedTextLayout {
-            id: cached.id,
             layout: &cached.layout,
             engine: self.engine.as_mut(),
+            shape,
             placement,
         }
+    }
+
+    pub fn remove_glyph(&mut self, id: GlyphImageId) {
+        self.engine.remove_glyph(id);
     }
 
     pub fn measure(&mut self, request: &TextLayoutRequest) -> LogicalSize {
@@ -524,15 +659,25 @@ impl TextSystem {
         if unshaped {
             let cached = self.sources.get_key_index(index);
             let one;
+            let many;
             let spans = match &cached.spans {
                 CachedSpans::One(style) => {
                     one = blit_text::TextSpan {
                         range: 0..cached.text.len(),
-                        style: *style,
+                        style: style.as_style(),
                     };
                     std::slice::from_ref(&one)
                 }
-                CachedSpans::Many(spans) => spans,
+                CachedSpans::Many(spans) => {
+                    many = spans
+                        .iter()
+                        .map(|span| blit_text::TextSpan {
+                            range: span.range.clone(),
+                            style: span.style.as_style(),
+                        })
+                        .collect::<Vec<_>>();
+                    &many
+                }
             };
             let shape = self.engine.shape(
                 index,
@@ -557,15 +702,11 @@ impl TextSystem {
             (
                 key,
                 CachedLayout {
-                    id: TextLayoutId(self.next_layout),
                     layout,
                     carets: Vec::new(),
                 },
             )
         });
-        if self.layouts.get_index(layout).id.0 == self.next_layout {
-            self.next_layout = self.next_layout.checked_add(1).expect("too many text layouts");
-        }
         (layout, index)
     }
 
@@ -646,8 +787,22 @@ fn placement_offset(placement: Placement, layout: &TextLayout, line: usize) -> L
 fn hash_span(text: &str, style: blit_text::TextStyle, state: &mut impl Hasher) {
     text.hash(state);
     style.font.hash(state);
-    style.size.to_bits().hash(state);
+    (if style.size == 0.0 { 0 } else { style.size.to_bits() }).hash(state);
     style.weight.hash(state);
     style.stretch.hash(state);
     style.style.hash(state);
+    style.settings.features.hash(state);
+    for (tag, value) in style.settings.variations {
+        tag.hash(state);
+        (if *value == 0.0 { 0 } else { value.to_bits() }).hash(state);
+    }
+    style.settings.language.hash(state);
+    match style.settings.optical_size {
+        OpticalSize::Auto => 0u8.hash(state),
+        OpticalSize::FontDefault => 1u8.hash(state),
+        OpticalSize::Fixed(size) => {
+            2u8.hash(state);
+            (if size == 0.0 { 0 } else { size.to_bits() }).hash(state);
+        }
+    }
 }

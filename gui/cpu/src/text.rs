@@ -1,76 +1,25 @@
-use std::{mem::size_of, ptr::NonNull};
+use std::ptr::NonNull;
 
-use blit::{PhysicalRect, Scale2};
-use blit_cache::{DeferredCache, Scale};
-use blit_gui::{
-    TextLayoutId, TextSystem,
-    color::Color,
-    text::{HorizontalAlign, TextRequest, VerticalAlign},
-};
+use blit::{PhysicalRect, Point, Scale2};
+use blit_gui::{TextSystem, color::Color, text::TextRequest};
+use blit_text::GlyphRequest;
 
 use crate::{Pixel, PixelSpan, RendererConfig, glyph::GlyphCache, strategy::command::PreparedText};
 
 pub struct TextRenderer {
-    paints: DeferredCache<PaintKey, CachedPaint, PaintScale>,
     glyphs: GlyphCache,
-    phase_count: i32,
     prepared: Vec<PreparedGlyph>,
     runs: Vec<PreparedRun>,
     coverage: Vec<u8>,
 }
 
-struct CachedPaint {
-    bounds: PhysicalRect,
-    glyphs: Vec<PaintGlyph>,
-    runs: Vec<PaintRun>,
-}
-
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
-struct PaintKey {
-    layout: TextLayoutId,
-    scale: u32,
-    offset_x: u32,
-    width: u32,
-    height: u32,
-    clip_width: i32,
-    clip_height: i32,
-    horizontal_align: HorizontalAlign,
-    vertical_align: VerticalAlign,
-}
-
-#[derive(Clone, Copy)]
-struct PaintGlyph {
-    glyph: u16,
-    phase: u8,
-    x: i32,
-    y: i32,
-}
-
-struct PaintScale;
-
-impl Scale<PaintKey, CachedPaint> for PaintScale {
-    fn weight(&self, _key: &PaintKey, paint: &CachedPaint) -> usize {
-        size_of::<PaintKey>()
-            + size_of::<CachedPaint>()
-            + paint.glyphs.capacity() * size_of::<PaintGlyph>()
-            + paint.runs.capacity() * size_of::<PaintRun>()
-    }
-}
-
 pub struct PreparedGlyph {
-    alpha: NonNull<u8>,
+    pixels: NonNull<u8>,
+    color: bool,
     x: i32,
     y: i32,
     width: u32,
     height: u32,
-}
-
-struct PaintRun {
-    glyph_start: u32,
-    glyph_end: u32,
-    top: i32,
-    bottom: i32,
-    layout_run: u32,
 }
 
 struct PreparedRun {
@@ -96,11 +45,8 @@ impl PreparedRuns {
 
 impl TextRenderer {
     pub fn new(config: &RendererConfig) -> Self {
-        let phase_count = config.text_phases as i32;
         Self {
-            paints: DeferredCache::new(PaintScale, config.paint_cache_capacity),
-            glyphs: GlyphCache::new(config.glyph_cache_capacity, 1.0 / phase_count as f32),
-            phase_count,
+            glyphs: GlyphCache::new(config.glyph_cache_capacity),
             prepared: Vec::new(),
             runs: Vec::new(),
             coverage: Vec::new(),
@@ -116,147 +62,86 @@ impl TextRenderer {
         let area = request.area.to_physical(Scale2::uniform(scale_factor));
         let mut resolved = text.paint_layout(request);
         let layout = resolved.layout;
-        let key = PaintKey {
-            layout: resolved.id,
-            scale: scale_factor.to_bits(),
-            offset_x: request.offset_x.to_bits(),
-            width: request.area.width.to_bits(),
-            height: request.area.height.to_bits(),
-            clip_width: area.width,
-            clip_height: area.height,
-            horizontal_align: request.options.horizontal_align,
-            vertical_align: request.options.vertical_align,
-        };
-        let phase_count = self.phase_count;
-        let (_, paint_index) = self.paints.get_or_insert(key, |key| {
-            let mut paint = CachedPaint {
-                bounds: PhysicalRect::default(),
-                glyphs: Vec::new(),
-                runs: Vec::new(),
-            };
-            let mut has_bounds = false;
-            let width = area.width.max(0);
-            let height = area.height.max(0);
-            for (run_index, run) in layout.runs.iter().enumerate() {
-                let offset = resolved.line_offset(run.line as usize);
-                let start = paint.glyphs.len() as u32;
-                let mut top = i32::MAX;
-                let mut bottom = i32::MIN;
-                let size = (run.size * scale_factor).to_bits();
-                for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
-                    let x = (glyph.position.x + offset.x - request.offset_x) * scale_factor;
-                    let x_phases = (x * phase_count as f32).round() as i32;
-                    let phase = x_phases.rem_euclid(phase_count) as u8;
-                    let cached = self.glyphs.glyph(&mut resolved, run.face, glyph.id, size, phase);
-                    let cached = self.glyphs.get(cached);
-                    let x = x_phases
-                        .div_euclid(phase_count)
-                        .saturating_add(i32::from(cached.metrics.left));
-                    let y =
-                        ((glyph.position.y + offset.y) * scale_factor + f32::from(cached.metrics.top)).round() as i32;
-                    let glyph_width = i32::from(cached.metrics.width);
-                    let glyph_height = i32::from(cached.metrics.height);
-                    let right = x.saturating_add(glyph_width);
-                    let glyph_bottom = y.saturating_add(glyph_height);
-                    if glyph_width == 0
-                        || glyph_height == 0
-                        || x >= width
-                        || right <= 0
-                        || y >= height
-                        || glyph_bottom <= 0
-                    {
-                        continue;
-                    }
-                    paint.glyphs.push(PaintGlyph {
-                        glyph: glyph.id,
-                        phase,
-                        x,
-                        y,
-                    });
-                    top = top.min(y);
-                    bottom = bottom.max(glyph_bottom);
-                    let glyph_bounds = PhysicalRect {
-                        x: x.max(0),
-                        y: y.max(0),
-                        width: right.min(width) - x.max(0),
-                        height: glyph_bottom.min(height) - y.max(0),
-                    };
-                    paint.bounds = if has_bounds {
-                        paint.bounds.union(glyph_bounds)
-                    } else {
-                        has_bounds = true;
-                        glyph_bounds
-                    };
-                }
-                let end = u32::try_from(paint.glyphs.len()).expect("too many paint glyphs");
-                if start != end {
-                    paint.runs.push(PaintRun {
-                        glyph_start: start,
-                        glyph_end: end,
-                        top,
-                        bottom,
-                        layout_run: u32::try_from(run_index).expect("too many layout runs"),
-                    });
-                }
-            }
-            (key, paint)
-        });
-
-        let paint = self.paints.get_index(paint_index);
         let glyph_start = self.prepared.len() as u32;
-        for run in &paint.runs {
-            let source = &layout.runs[run.layout_run as usize];
-            let size = (source.size * scale_factor).to_bits();
-            for glyph in &paint.glyphs[run.glyph_start as usize..run.glyph_end as usize] {
-                let cached = self
-                    .glyphs
-                    .glyph(&mut resolved, source.face, glyph.glyph, size, glyph.phase);
-                let cached = self.glyphs.get(cached);
+        let run_start = self.runs.len() as u32;
+        let mut bounds = None::<PhysicalRect>;
+        for run in &layout.runs {
+            let color = request.span_color(run.span);
+            if color.alpha == 0 {
+                continue;
+            }
+            let start = self.prepared.len() as u32;
+            let offset = resolved.line_offset(run.line as usize);
+            let mut top = i32::MAX;
+            let mut bottom = i32::MIN;
+            for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
+                let prepared = resolved.prepare_glyph(GlyphRequest {
+                    font: run.font,
+                    glyph: glyph.id,
+                    scale: scale_factor,
+                    origin: Point::new(
+                        (request.area.x + glyph.position.x + offset.x - request.offset_x) * scale_factor,
+                        (request.area.y + glyph.position.y + offset.y) * scale_factor,
+                    ),
+                });
+                let Some(index) = self.glyphs.glyph(&mut resolved, prepared.key) else {
+                    continue;
+                };
+                let cached = self.glyphs.get(index);
+                let shape = PhysicalRect::new(
+                    prepared.origin.x.saturating_add(i32::from(cached.metrics.left)),
+                    prepared.origin.y.saturating_add(i32::from(cached.metrics.top)),
+                    i32::from(cached.metrics.width),
+                    i32::from(cached.metrics.height),
+                );
+                let Some(visible) = shape.intersection(area) else {
+                    continue;
+                };
+                bounds = Some(bounds.map_or(visible, |bounds| bounds.union(visible)));
+                let y = shape.y.saturating_sub(area.y);
+                top = top.min(y);
+                bottom = bottom.max(y.saturating_add(shape.height));
                 self.prepared.push(PreparedGlyph {
-                    alpha: NonNull::new(cached.alpha.as_ptr().cast_mut()).unwrap(),
-                    x: glyph.x,
-                    y: glyph.y,
-                    width: u32::from(cached.metrics.width),
-                    height: u32::from(cached.metrics.height),
+                    pixels: NonNull::new(cached.pixels.data().as_ptr().cast_mut()).unwrap(),
+                    color: cached.pixels.is_color(),
+                    x: shape.x.saturating_sub(area.x),
+                    y,
+                    width: cached.metrics.width.into(),
+                    height: cached.metrics.height.into(),
+                });
+            }
+            if start != self.prepared.len() as u32 {
+                self.runs.push(PreparedRun {
+                    glyph_start: start,
+                    glyph_end: self.prepared.len() as u32,
+                    top,
+                    bottom,
+                    color,
                 });
             }
         }
-        let glyph_end = u32::try_from(self.prepared.len()).expect("too many prepared glyphs");
-        let runs = if paint.runs.len() > 1 {
-            let start = self.runs.len() as u32;
-            for run in &paint.runs {
-                self.runs.push(PreparedRun {
-                    glyph_start: glyph_start + run.glyph_start,
-                    glyph_end: glyph_start + run.glyph_end,
-                    top: run.top,
-                    bottom: run.bottom,
-                    color: request.span_color(layout.runs[run.layout_run as usize].span),
-                });
-            }
+        let color = self
+            .runs
+            .get(run_start as usize)
+            .map_or(Color::TRANSPARENT, |run| run.color);
+        let runs = if self.runs.len() - run_start as usize > 1 {
             PreparedRuns {
-                start,
-                end: u32::try_from(self.runs.len()).expect("too many prepared runs"),
+                start: run_start,
+                end: self.runs.len() as u32,
             }
         } else {
+            self.runs.truncate(run_start as usize);
             PreparedRuns::NONE
-        };
-        let bounds = PhysicalRect {
-            x: area.x.saturating_add(paint.bounds.x),
-            y: area.y.saturating_add(paint.bounds.y),
-            width: paint.bounds.width,
-            height: paint.bounds.height,
         };
         (
             PreparedText {
                 glyph_start,
-                glyph_end,
+                glyph_end: self.prepared.len() as u32,
                 runs,
                 area,
-                color: paint.runs.first().map_or(Color::TRANSPARENT, |run| {
-                    request.span_color(layout.runs[run.layout_run as usize].span)
-                }),
+                color,
             },
-            bounds,
+            bounds.unwrap_or_default(),
         )
     }
 
@@ -310,8 +195,37 @@ impl TextRenderer {
                 let source_y = (line - y) as usize;
                 let len = (right - left) as usize;
                 let source = source_y * glyph.width as usize + source_x;
-                // safety: glyph alpha allocations remain live until finish_frame
-                let alpha = unsafe { std::slice::from_raw_parts(glyph.alpha.as_ptr().add(source), len) };
+                if glyph.color {
+                    if touched_start < touched_end {
+                        P::blend_alpha_slice(
+                            &mut row.pixels[touched_start..touched_end],
+                            color,
+                            &coverage[touched_start..touched_end],
+                        );
+                        coverage[touched_start..touched_end].fill(0);
+                    }
+                    touched_start = row.pixels.len();
+                    touched_end = 0;
+                    // safety: rgba pixels have byte alignment and remain live until finish_frame
+                    let pixels = unsafe {
+                        std::slice::from_raw_parts(
+                            glyph
+                                .pixels
+                                .as_ptr()
+                                .add(source * 4)
+                                .cast::<crate::pixel::PremultipliedRgbaColor>(),
+                            len,
+                        )
+                    };
+                    P::blend_texture_slice_rgba(
+                        &mut row.pixels[(left - row.x) as usize..(right - row.x) as usize],
+                        pixels,
+                        color.alpha,
+                    );
+                    continue;
+                }
+                // safety: glyph pixels remain live until finish_frame
+                let alpha = unsafe { std::slice::from_raw_parts(glyph.pixels.as_ptr().add(source), len) };
                 let destination_start = (left - row.x) as usize;
                 let destination_end = destination_start + len;
                 let overlap = touched_end.saturating_sub(destination_start).min(len);
@@ -342,10 +256,51 @@ impl TextRenderer {
         }
     }
 
-    pub fn finish_frame(&mut self) {
+    pub fn finish_frame(&mut self, text: &mut TextSystem) {
         self.prepared.clear();
         self.runs.clear();
-        self.paints.trim_to_weight();
-        self.glyphs.finish_frame();
+        self.glyphs.finish_frame(text);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Xrgb8888;
+
+    #[test]
+    fn mixed_glyphs_preserve_color_opacity_and_painter_order() {
+        let mut renderer = TextRenderer::new(&RendererConfig::default());
+        let mut alpha = [255u8];
+        let mut rgba = [128u8, 0, 0, 128];
+        renderer.prepared = [false, true, false]
+            .map(|color| PreparedGlyph {
+                pixels: NonNull::new(if color { rgba.as_mut_ptr() } else { alpha.as_mut_ptr() }).unwrap(),
+                color,
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            })
+            .into();
+        let area = PhysicalRect::new(0, 0, 1, 1);
+        let mut pixels = [Xrgb8888::default()];
+        renderer.draw_line(
+            &PreparedText {
+                glyph_start: 0,
+                glyph_end: 3,
+                runs: PreparedRuns::NONE,
+                area,
+                color: Color::rgba(0, 255, 0, 128),
+            },
+            128,
+            0,
+            PixelSpan {
+                x: 0,
+                pixels: &mut pixels,
+            },
+            area,
+        );
+        assert_eq!(pixels[0], Xrgb8888::from_rgb(23, 105, 0));
     }
 }
