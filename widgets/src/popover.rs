@@ -1,4 +1,4 @@
-use blit::{Input, NodeTarget, Scalar, Sides, Ui, Widget};
+use blit::{Input, InteractCx, NodeTarget, Scalar, Sides, Ui, Widget};
 use blit_layout::{
     absolute,
     absolute::{Anchor, Sizing},
@@ -80,8 +80,8 @@ where
         }
 
         let backdrop = root.interact_widget(backdrop_id, press::new());
-        let content_press = root.interact_widget(content_id, press::new());
-        let pointer_inside = content_press.hovered
+        let content_hovered = root.interact_widget(content_id, BlockInput);
+        let pointer_inside = content_hovered
             || root
                 .pointer_position()
                 .is_some_and(|position| areas.into_iter().flatten().any(|area| area.contains(position)));
@@ -103,6 +103,7 @@ where
                 .height(Sizing::full()),
         );
         if self.close != PopoverClose::Manual {
+            popup.interact(BlockInput);
             popup
                 .child()
                 .layout(absolute::place(()).width(Sizing::full()).height(Sizing::full()))
@@ -136,14 +137,74 @@ where
     }
 }
 
+#[derive(Clone, Copy)]
+struct BlockInput;
+
+impl<C: Context> blit::Interact<C> for BlockInput {
+    type State = ();
+    type Response = bool;
+
+    fn update(&self, _: &mut (), cx: &mut InteractCx<'_, C::Scalar>) -> bool {
+        let mut index = 0;
+        while let Some(contact) = cx.contacts().nth(index) {
+            cx.capture(contact.id);
+            index += 1;
+        }
+        cx.capture_scroll();
+        cx.hovered()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Id, Modifiers, Point as InputPoint, PointerButton, Rect, Size};
+    use blit::{Axis, Frame, FrameInfo, Id, Modifiers, Point as InputPoint, PointerButton, Rect, ScrollPhase, Size};
 
     use super::*;
-    use crate::test::TestContext;
+    use crate::{
+        interact::scroll,
+        test::{TestContext, step},
+    };
+
+    #[test]
+    fn popover_blocks_background_scroll() {
+        let mut frame = Frame::default();
+        let mut state = PopoverState::new().open(true);
+        let mut next = |input| {
+            step(&mut frame, input, |mut ui: Ui<'_, TestContext>| {
+                let background = ui.interact(scroll::new()).delta;
+                let content = ui
+                    .build(
+                        Popover::new(&mut state)
+                            .width(Sizing::fixed(100.0))
+                            .height(Sizing::fixed(100.0))
+                            .content(|mut ui: Ui<'_, TestContext>| {
+                                ui.interact(scroll::new().axis(Axis::Horizontal)).delta
+                            }),
+                    )
+                    .unwrap();
+                (background, content)
+            })
+        };
+        next(Input::None);
+        for (position, delta) in [
+            (InputPoint::new(150.0, 150.0), InputPoint::new(0.0, 5.0)),
+            (InputPoint::new(20.0, 20.0), InputPoint::new(0.0, 5.0)),
+            (InputPoint::new(20.0, 20.0), InputPoint::new(5.0, 0.0)),
+        ] {
+            let (background, content) = next(Input::Scroll {
+                position,
+                delta_x: delta.x,
+                delta_y: delta.y,
+                continuous: false,
+                phase: ScrollPhase::Moved,
+                modifiers: Modifiers::NONE,
+            });
+            assert_eq!(background, InputPoint::ZERO);
+            assert_eq!(content, InputPoint::new(delta.x, 0.0));
+        }
+    }
 
     fn render(ui: Ui<'_, TestContext>, popover: Popover<'_, TestContext>) {
         ui.id(Id::new("test popover")).build(
