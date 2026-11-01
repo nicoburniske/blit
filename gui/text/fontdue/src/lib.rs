@@ -18,7 +18,7 @@ use unicode_segmentation::UnicodeSegmentation;
 /// embedded fonts with basic layout and alpha rasterization
 /// font features are ignored by this backend
 /// each change of fallback face appends a fontdue run which repositions all prior glyphs
-/// so long text alternating between faces is quadratic and better suited to cosmic
+/// so long text alternating between faces is quadratic and better suited to parley
 pub struct Backend {
     rasterizer: Rasterizer,
     faces: Vec<Face>,

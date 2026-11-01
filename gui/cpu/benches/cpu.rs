@@ -643,7 +643,7 @@ where
                 text_cache_capacity: 1024 * 1024,
                 layout_cache_capacity: 1024 * 1024,
             },
-            blit_text_cosmic::Backend::without_system_fonts(),
+            blit_text_parley::Backend::without_system_fonts(),
         )
         .unwrap(),
     );

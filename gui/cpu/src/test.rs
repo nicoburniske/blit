@@ -367,7 +367,7 @@ impl<B: PixelBuffer> TestRenderer<B> {
 }
 
 fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> TestRenderer<B> {
-    new_renderer_with_backend(buffer, config, blit_text_cosmic::Backend::without_system_fonts())
+    new_renderer_with_backend(buffer, config, blit_text_parley::Backend::without_system_fonts())
 }
 
 fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(

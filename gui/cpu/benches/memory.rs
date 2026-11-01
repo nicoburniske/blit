@@ -54,7 +54,7 @@ fn main() {
             text_cache_capacity: 1,
             layout_cache_capacity: 1,
         },
-        blit_text_cosmic::Backend::without_system_fonts(),
+        blit_text_parley::Backend::without_system_fonts(),
     )
     .unwrap();
     let mut gui = GuiContext::new(text);

@@ -14,7 +14,7 @@ blit-arena.workspace = true
 fearless_simd = "1.1.0"
 
 [dev-dependencies]
-blit-text-cosmic.workspace = true
+blit-text-parley.workspace = true
 blit-text-fontdue.workspace = true
 divan = "0.1"
 

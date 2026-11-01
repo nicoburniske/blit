@@ -10,8 +10,8 @@ members = [
     "gui/gpu",
     "gui/raster",
     "gui/text",
-    "gui/text/cosmic",
     "gui/text/fontdue",
+    "gui/text/parley",
     "internal/cache",
     "internal/arrayvec",
     "internal/arena",
@@ -33,8 +33,8 @@ blit-gpu = { path = "gui/gpu" }
 blit-layout = { path = "layout" }
 blit-widgets = { path = "widgets" }
 blit-text = { path = "gui/text" }
-blit-text-cosmic = { path = "gui/text/cosmic" }
 blit-text-fontdue = { path = "gui/text/fontdue" }
+blit-text-parley = { path = "gui/text/parley" }
 blit-arrayvec = { path = "internal/arrayvec" }
 blit-arena = { path = "internal/arena" }
 blit-cache = { path = "internal/cache" }

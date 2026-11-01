@@ -20,8 +20,8 @@ blit.workspace = true
 blit-desktop = { path = "../desktop", default-features = false }
 blit-gui.workspace = true
 blit-gui-widgets.workspace = true
-blit-text-cosmic.workspace = true
 blit-text-fontdue.workspace = true
+blit-text-parley.workspace = true
 blit-tui = { path = "../tui" }
 
 [[example]]
