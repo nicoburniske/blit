@@ -100,7 +100,7 @@ impl<T: Scalar> InteractCx<'_, T> {
         let scroll = (*self.scroll)?;
         let event = scroll.event.filter(|_| match scroll.owner {
             Some(owner) => owner == self.id,
-            None => scroll.target.is_some_and(|node| self.contains(node)),
+            None => scroll.target.is_some_and(|target| self.contains(target.node)),
         });
         event.or((scroll.cancelled == Some(self.id)).then_some(ScrollEvent {
             phase: Phase::Cancelled,
@@ -115,7 +115,9 @@ impl<T: Scalar> InteractCx<'_, T> {
         let (node, end) = (self.node, self.end);
         if let Some(scroll) = self.scroll
             && scroll.owner.is_none()
-            && scroll.target.is_some_and(|target| node <= target && target <= end)
+            && scroll
+                .target
+                .is_some_and(|target| node <= target.node && target.node <= end)
         {
             scroll.owner = Some(id);
         }
@@ -287,9 +289,8 @@ impl<T: Scalar> InteractionState<T> {
             }
         }
         if let Some(scroll) = &mut self.scroll {
-            if scroll.active {
+            if scroll.active || scroll.cancelled.is_some() {
                 scroll.event = None;
-                scroll.cancelled = None;
             } else {
                 self.scroll = None;
             }
@@ -362,6 +363,7 @@ impl<T: Scalar> InteractionState<T> {
             } => {
                 self.position = Some(position);
                 let previous = self.scroll.filter(|scroll| scroll.active);
+                let cancelled = self.scroll.and_then(|scroll| scroll.cancelled);
                 let continuing = continuous && phase != ScrollPhase::Started && previous.is_some();
                 // a continuous ending without a sequence has nothing to end
                 let stray = continuous && matches!(phase, ScrollPhase::Ended | ScrollPhase::Cancelled) && !continuing;
@@ -369,7 +371,10 @@ impl<T: Scalar> InteractionState<T> {
                     target: if continuing {
                         previous.and_then(|scroll| scroll.target)
                     } else {
-                        hit(&self.hits, &self.clips, position).map(|hit| hit.node)
+                        hit(&self.hits, &self.clips, position).map(|hit| Target {
+                            id: hit.id,
+                            node: hit.node,
+                        })
                     },
                     owner: previous.filter(|_| continuing).and_then(|scroll| scroll.owner),
                     event: (!stray).then_some(ScrollEvent {
@@ -387,7 +392,10 @@ impl<T: Scalar> InteractionState<T> {
                         continuous,
                     }),
                     active: continuous && matches!(phase, ScrollPhase::Started | ScrollPhase::Moved),
-                    cancelled: previous.filter(|_| !continuing).and_then(|scroll| scroll.owner),
+                    cancelled: previous
+                        .filter(|_| !continuing)
+                        .and_then(|scroll| scroll.owner)
+                        .or(cancelled),
                 });
             }
             Input::Cancel => {
@@ -436,6 +444,9 @@ impl<T: Scalar> InteractionState<T> {
                     time,
                 },
             );
+        }
+        if let Some(scroll) = &mut self.scroll {
+            scroll.cancelled = None;
         }
     }
 
@@ -522,48 +533,42 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
         let slot = &retained.slots[retained.find(id, None).ok()?];
         (slot.node != UNRESOLVED).then_some(slot.node as usize)
     };
-    let next_route = |route| match route {
-        Route::Pending { target, claim } => {
-            let Some(Target {
-                id: target,
-                node: previous,
-            }) = target
-            else {
-                return Some(route);
-            };
-            let (target, index) = if let Some(index) = node(target) {
-                (target, index)
-            } else {
-                hits.iter()
-                    .filter(|hit| hit.node <= previous && previous <= hit.end)
-                    .filter_map(|hit| node(hit.id).map(|index| (hit, index)))
-                    .max_by_key(|(hit, _)| hit.node)
-                    .map(|(hit, index)| (hit.id, index))?
-            };
-            Some(Route::Pending {
-                target: Some(Target {
-                    id: target,
-                    node: index as u32,
-                }),
-                claim,
-            })
-        }
-        Route::Captured { owner } => node(owner).map(|_| route),
-        Route::Retired => None,
+    let rebind = |Target { id, node: previous }| {
+        let (id, index) = if let Some(index) = node(id) {
+            (id, index)
+        } else {
+            hits.iter()
+                .filter(|hit| hit.node <= previous && previous <= hit.end)
+                .filter_map(|hit| node(hit.id).map(|index| (hit, index)))
+                .max_by_key(|(hit, _)| hit.node)
+                .map(|(hit, index)| (hit.id, index))?
+        };
+        Some(Target { id, node: index as u32 })
     };
     for tracked in &mut frame.interaction.contacts {
-        tracked.route = next_route(tracked.route).unwrap_or(Route::Retired);
+        tracked.route = match tracked.route {
+            Route::Pending {
+                target: Some(target),
+                claim,
+            } => rebind(target).map_or(Route::Retired, |target| Route::Pending {
+                target: Some(target),
+                claim,
+            }),
+            Route::Captured { owner } if node(owner).is_none() => Route::Retired,
+            route => route,
+        };
     }
     if frame.interaction.focused.is_some_and(|id| node(id).is_none()) {
         frame.interaction.focused = None;
     }
-    if let Some(scroll) = &mut frame.interaction.scroll
-        && scroll.owner.is_some_and(|id| node(id).is_none())
-    {
-        // the rest of a removed owner's sequence reaches no one, rather than whatever moved into its node
-        scroll.owner = None;
-        scroll.event = None;
-        scroll.target = None;
+    if let Some(scroll) = &mut frame.interaction.scroll {
+        scroll.target = scroll.target.and_then(rebind);
+        if scroll.owner.is_some_and(|id| node(id).is_none()) {
+            // cancel the owner while keeping the rest of its sequence from reaching another widget
+            scroll.cancelled = scroll.owner.take();
+            scroll.event = None;
+            scroll.target = None;
+        }
     }
     frame.areas_previous.clear();
     frame.interaction.hits.clear();
@@ -670,7 +675,7 @@ struct TrackedContact<T> {
 #[derive(Clone, Copy)]
 struct TrackedScroll {
     // node under the pointer when the sequence started
-    target: Option<u32>,
+    target: Option<Target>,
     owner: Option<Id>,
     event: Option<ScrollEvent>,
     active: bool,

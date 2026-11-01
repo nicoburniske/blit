@@ -75,11 +75,98 @@ impl<C: Context> blit::Interact<C> for Interact {
 
 #[cfg(test)]
 mod tests {
-    use blit::{Frame, Input, Modifiers, ScrollPhase, Ui};
-    use blit_layout::single;
+    use std::cell::Cell;
+
+    use blit::{Frame, Id, Input, Modifiers, Rect, ScrollPhase, Ui};
+    use blit_layout::{rect, single};
 
     use super::*;
     use crate::test::{TestContext, step};
+
+    #[test]
+    fn uncaptured_scroll_follows_reordered_nodes() {
+        let mut frame = Frame::<TestContext>::default();
+        let order = Cell::new([0, 1]);
+        let build = |mut ui: Ui<'_, TestContext>| {
+            let responses = [0, 1].map(|id| ui.interact_widget(Id::new(id), new()));
+            let mut root = ui.layout(rect::new());
+            for id in order.get() {
+                root.child()
+                    .id(Id::new(id))
+                    .item(Rect::new(id as f32 * 100.0, 0.0, 100.0, 200.0));
+            }
+            responses
+        };
+        let mut next = |input| step(&mut frame, input, build);
+        let scroll = |phase, delta_y| Input::Scroll {
+            position: Point::new(10.0, 10.0),
+            delta_x: 0.0,
+            delta_y,
+            continuous: true,
+            phase,
+            modifiers: Modifiers::NONE,
+        };
+        next(Input::None);
+        assert_eq!(next(scroll(ScrollPhase::Started, 0.0)), [Response::default(); 2]);
+        order.set([1, 0]);
+        next(Input::None);
+        let [left, right] = next(scroll(ScrollPhase::Moved, 5.0));
+        assert!(left.activated && left.active);
+        assert_eq!(left.delta, Point::new(0.0, 5.0));
+        assert_eq!(right, Response::default());
+        let [left, right] = next(scroll(ScrollPhase::Ended, 0.0));
+        assert!(left.deactivated && left.released && !left.active);
+        assert_eq!(right, Response::default());
+    }
+
+    #[test]
+    fn removed_named_owner_is_cancelled() {
+        for phase in [
+            None,
+            Some(ScrollPhase::Moved),
+            Some(ScrollPhase::Ended),
+            Some(ScrollPhase::Started),
+        ] {
+            let mut frame = Frame::<TestContext>::default();
+            let mounted = Cell::new(true);
+            let build = |mut ui: Ui<'_, TestContext>| {
+                let id = Id::new("owner");
+                let response = ui.interact_widget(id, new());
+                let mut root = ui.layout(single::new().grow());
+                if mounted.get() {
+                    root.child().id(id).build(|_: Ui<'_, TestContext>| {});
+                }
+                response
+            };
+            let mut next = |input| step(&mut frame, input, build);
+            let scroll = |phase| Input::Scroll {
+                position: Point::new(10.0, 10.0),
+                delta_x: 0.0,
+                delta_y: 5.0,
+                continuous: true,
+                phase,
+                modifiers: Modifiers::NONE,
+            };
+            next(Input::None);
+            assert!(next(scroll(ScrollPhase::Started)).active);
+            mounted.set(false);
+            next(Input::None);
+            assert_eq!(
+                next(phase.map_or(Input::None, scroll)),
+                Response {
+                    deactivated: true,
+                    continuous: true,
+                    ..Response::default()
+                }
+            );
+            assert_eq!(next(Input::None), Response::default());
+            assert_eq!(next(scroll(ScrollPhase::Ended)), Response::default());
+            mounted.set(true);
+            next(Input::None);
+            let restarted = next(scroll(ScrollPhase::Started));
+            assert!(restarted.activated && restarted.active);
+        }
+    }
 
     #[test]
     fn scroll() {
