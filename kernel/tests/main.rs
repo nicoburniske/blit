@@ -6,8 +6,8 @@ use std::{
 };
 
 use blit::{
-    Atom, AtomCx, Clip, ClipShape, Constraints, Contact, ContactSource, Context, Easing, Frame, FrameInfo, Id, Input,
-    Interact, InteractCx, Layout, LayoutCx, Modifiers, NodeTarget,
+    Atom, AtomCx, Clip, ClipShape, Constraints, Contact, ContactId, ContactSource, Context, Easing, Frame, FrameInfo,
+    Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, NodeTarget,
     Phase::{Cancelled, Ended, Held, Started},
     Point, PointerButton, Rect, ScrollPhase, Size, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
@@ -42,23 +42,37 @@ impl Context for TestContext {
 
 /// reports up to two contacts this widget may use, capturing those its predicate accepts
 #[derive(Clone, Copy)]
-struct Watch(fn(&Contact<f32>) -> bool);
+struct Watch(fn(&Contact<'_, f32>) -> bool);
 
 const WATCH: Watch = Watch(|_| false);
 const CAPTURE: Watch = Watch(|_| true);
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SeenContact {
+    id: ContactId,
+    source: ContactSource,
+    phase: blit::Phase,
+    delta: Point<f32>,
+}
+
 impl<C: Context<Scalar = f32>> Interact<C> for Watch {
     type State = ();
     /// each contact with whether this update captured it
-    type Response = [Option<(Contact<f32>, bool)>; 2];
+    type Response = [Option<(SeenContact, bool)>; 2];
 
     fn update(&self, _: &mut (), cx: &mut InteractCx<'_, f32>) -> Self::Response {
         let mut seen = [None; 2];
-        for (seen, contact) in seen.iter_mut().zip(cx.contacts().filter(|contact| contact.free)) {
-            *seen = Some((contact, false));
-        }
-        for (contact, captured) in seen.iter_mut().flatten() {
-            *captured = (self.0)(contact) && cx.capture(contact.id);
+        for (seen, mut contact) in seen.iter_mut().zip(cx.contacts().filter(|contact| contact.free)) {
+            let captured = (self.0)(&contact) && contact.capture();
+            *seen = Some((
+                SeenContact {
+                    id: contact.id,
+                    source: contact.source,
+                    phase: contact.phase,
+                    delta: contact.delta,
+                },
+                captured,
+            ));
         }
         seen
     }

@@ -42,6 +42,7 @@ impl<C: Context> blit::Interact<C> for Interact {
     fn update(&self, drag: &mut Option<ContactId>, cx: &mut InteractCx<'_, C::Scalar>) -> Self::Response {
         if let Some(id) = *drag {
             let contact = cx.contacts().find(|contact| contact.id == id && contact.free);
+            let contact = contact.as_ref();
             let active = contact.is_some_and(|contact| !matches!(contact.phase, Phase::Ended | Phase::Cancelled));
             if !active {
                 *drag = None;
@@ -73,7 +74,7 @@ impl<C: Context> blit::Interact<C> for Interact {
                     .axis
                     .is_none_or(|axis| (axis == Axis::Horizontal) == (x.abs() >= y.abs()))
         });
-        let Some(contact) = contact.filter(|contact| cx.capture(contact.id)) else {
+        let Some(contact) = contact.and_then(|mut contact| contact.capture().then_some(contact)) else {
             return Response::default();
         };
         // a release past the threshold starts and ends in one update

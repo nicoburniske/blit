@@ -145,10 +145,8 @@ impl<C: Context> blit::Interact<C> for BlockInput {
     type Response = bool;
 
     fn update(&self, _: &mut (), cx: &mut InteractCx<'_, C::Scalar>) -> bool {
-        let mut index = 0;
-        while let Some(contact) = cx.contacts().nth(index) {
-            cx.capture(contact.id);
-            index += 1;
+        for mut contact in cx.contacts() {
+            contact.capture();
         }
         cx.capture_scroll();
         cx.hovered()

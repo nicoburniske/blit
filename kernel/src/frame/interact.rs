@@ -30,48 +30,13 @@ impl<T: Scalar> InteractCx<'_, T> {
     }
 
     /// every live press and touch
-    pub fn contacts(&self) -> Contacts<'_, T> {
+    pub fn contacts(&mut self) -> Contacts<'_, T> {
         Contacts {
-            contacts: self.contacts.iter(),
+            contacts: self.contacts.iter_mut(),
             id: self.id,
             node: self.node,
             end: self.end,
         }
-    }
-
-    /// keeps a contact from ancestors until the next update
-    ///
-    /// fails for a contact this widget already captured
-    pub fn claim(&mut self, contact: ContactId) -> bool {
-        let id = self.id;
-        if let Some(Route::Pending { claim, .. }) = self.pending(contact)
-            && claim.is_none_or(|claim| claim == id)
-        {
-            *claim = Some(id);
-            return true;
-        }
-        false
-    }
-
-    /// takes a pending contact within this widget from every other widget until it ends
-    ///
-    /// a contact another widget claimed during this update stays with it
-    pub fn capture(&mut self, contact: ContactId) -> bool {
-        let owner = self.id;
-        let (node, end) = (self.node, self.end);
-        if let Some(tracked) = self.contacts.iter_mut().find(|tracked| tracked.id == contact)
-            && let Route::Pending {
-                target: Some(target),
-                claim,
-            } = tracked.route
-            && node <= target.node
-            && target.node <= end
-            && claim.is_none_or(|claim| claim == owner)
-        {
-            tracked.route = Route::Captured { owner };
-            return true;
-        }
-        false
     }
 
     pub fn hovered(&self) -> bool {
@@ -126,31 +91,66 @@ impl<T: Scalar> InteractCx<'_, T> {
     fn contains(&self, node: u32) -> bool {
         self.node <= node && node <= self.end
     }
+}
 
-    fn pending(&mut self, contact: ContactId) -> Option<&mut Route> {
-        let (node, end) = (self.node, self.end);
-        let tracked = self.contacts.iter_mut().find(|tracked| tracked.id == contact)?;
-        match tracked.route {
-            Route::Pending {
-                target: Some(target), ..
-            } if node <= target.node && target.node <= end => Some(&mut tracked.route),
-            _ => None,
+/// a mouse press or touch, as seen by one widget
+///
+/// borrows its routing for this interaction update
+#[derive(Debug)]
+pub struct Contact<'a, T> {
+    pub id: ContactId,
+    pub source: ContactSource,
+    pub phase: Phase,
+    pub origin: Point<T>,
+    pub position: Point<T>,
+    /// movement since the previous input
+    pub delta: Point<T>,
+    /// frame clock time of the press
+    pub started: Duration,
+    /// the position falls on this widget rather than something above it
+    pub over: bool,
+    /// free for this widget to use, including contacts it captured
+    pub free: bool,
+    pending: Option<&'a mut Route>,
+    widget: Id,
+}
+
+impl<T> Contact<'_, T> {
+    /// keeps this contact from ancestors until the next update
+    ///
+    /// fails for a contact this widget already captured
+    pub fn claim(&mut self) -> bool {
+        if let Some(Route::Pending { claim, .. }) = self.pending.as_deref_mut() {
+            *claim = Some(self.widget);
+            return true;
         }
+        false
+    }
+
+    /// takes this pending contact from every other widget until it ends
+    ///
+    /// a contact another widget claimed during this update stays with it
+    pub fn capture(&mut self) -> bool {
+        let Some(route) = self.pending.take() else {
+            return false;
+        };
+        *route = Route::Captured { owner: self.widget };
+        true
     }
 }
 
 /// every live contact as seen by one widget
 pub struct Contacts<'a, T> {
-    contacts: std::slice::Iter<'a, TrackedContact<T>>,
+    contacts: std::slice::IterMut<'a, TrackedContact<T>>,
     id: Id,
     node: u32,
     end: u32,
 }
 
-impl<T: Scalar> Iterator for Contacts<'_, T> {
-    type Item = Contact<T>;
+impl<'a, T: Scalar> Iterator for Contacts<'a, T> {
+    type Item = Contact<'a, T>;
 
-    fn next(&mut self) -> Option<Contact<T>> {
+    fn next(&mut self) -> Option<Self::Item> {
         let tracked = self.contacts.next()?;
         let within = |node| self.node <= node && node <= self.end;
         let free = match tracked.route {
@@ -161,6 +161,7 @@ impl<T: Scalar> Iterator for Contacts<'_, T> {
             Route::Captured { owner } => owner == self.id,
             Route::Pending { target: None, .. } | Route::Retired => false,
         };
+        let pending = free && matches!(tracked.route, Route::Pending { .. });
         Some(Contact {
             id: tracked.id,
             source: tracked.source,
@@ -169,9 +170,10 @@ impl<T: Scalar> Iterator for Contacts<'_, T> {
             position: tracked.position,
             delta: tracked.delta,
             started: tracked.started,
-            modifiers: tracked.modifiers,
             over: tracked.hit.is_some_and(within),
             free,
+            pending: pending.then_some(&mut tracked.route),
+            widget: self.id,
         })
     }
 }
@@ -296,20 +298,15 @@ impl<T: Scalar> InteractionState<T> {
             }
         }
         match *input {
-            Input::PointerDown {
-                position, modifiers, ..
-            }
-            | Input::PointerMove { position, modifiers }
-            | Input::PointerUp {
-                position, modifiers, ..
-            } => {
+            Input::PointerDown { position, .. }
+            | Input::PointerMove { position, .. }
+            | Input::PointerUp { position, .. } => {
                 self.position = Some(position);
                 for index in 0..self.contacts.len() {
                     let ContactSource::Mouse(button) = self.contacts[index].source else {
                         continue;
                     };
                     let released = matches!(input, Input::PointerUp { button: released, .. } if *released == button);
-                    self.contacts[index].modifiers = modifiers;
                     self.update(index, position, if released { Phase::Ended } else { Phase::Changed });
                 }
                 if let Input::PointerDown { button, .. } = *input {
@@ -317,7 +314,7 @@ impl<T: Scalar> InteractionState<T> {
                     if button == PointerButton::Primary {
                         self.focused = None;
                     }
-                    self.press(ContactSource::Mouse(button), position, modifiers, time);
+                    self.press(ContactSource::Mouse(button), position, time);
                 }
                 if matches!(input, Input::PointerUp { leave: true, .. }) {
                     self.position = None;
@@ -328,7 +325,7 @@ impl<T: Scalar> InteractionState<T> {
                 position,
                 phase: TouchPhase::Down,
             } => {
-                self.press(ContactSource::Touch(id), position, Modifiers::NONE, time);
+                self.press(ContactSource::Touch(id), position, time);
             }
             Input::Touch { id, position, phase } => {
                 if let Some(index) = self
@@ -450,7 +447,7 @@ impl<T: Scalar> InteractionState<T> {
         }
     }
 
-    fn press(&mut self, source: ContactSource, position: Point<T>, modifiers: Modifiers, time: Duration) {
+    fn press(&mut self, source: ContactSource, position: Point<T>, time: Duration) {
         for index in 0..self.contacts.len() {
             if self.contacts[index].source == source {
                 self.update(index, self.contacts[index].position, Phase::Cancelled);
@@ -472,7 +469,6 @@ impl<T: Scalar> InteractionState<T> {
             position,
             delta: Point::ZERO,
             started: time,
-            modifiers,
             hit: None,
         });
     }
@@ -643,7 +639,7 @@ fn hit<T: Scalar>(hits: &[HitItem<T>], clips: &[ResolvedClip<T>], position: Poin
         .copied()
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Route {
     Pending { target: Option<Target>, claim: Option<Id> },
     Captured { owner: Id },
@@ -651,7 +647,7 @@ enum Route {
 }
 
 /// a pending contact's deepest widget and its node in the previous layout
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Target {
     id: Id,
     node: u32,
@@ -667,7 +663,6 @@ struct TrackedContact<T> {
     position: Point<T>,
     delta: Point<T>,
     started: Duration,
-    modifiers: Modifiers,
     // node under the position in the previous layout
     hit: Option<u32>,
 }

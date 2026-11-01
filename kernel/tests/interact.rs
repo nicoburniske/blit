@@ -23,7 +23,7 @@ impl<C: Context> Interact<C> for ClaimEnded {
 
     fn update(&self, _: &mut (), cx: &mut InteractCx<'_, C::Scalar>) -> bool {
         let ended = cx.contacts().find(|contact| contact.phase == Ended);
-        ended.is_some_and(|contact| cx.claim(contact.id))
+        ended.is_some_and(|mut contact| contact.claim())
     }
 }
 
@@ -52,12 +52,12 @@ impl<C: Context<Scalar = f32>> Interact<C> for Pinch {
 
     fn update(&self, _: &mut (), cx: &mut InteractCx<'_, f32>) -> Option<f32> {
         let mut free = cx.contacts().filter(|contact| contact.free);
-        let [a, b] = [free.next()?, free.next()?];
+        let [mut a, mut b] = [free.next()?, free.next()?];
         if a.phase == Cancelled || b.phase == Cancelled {
             return None;
         }
-        cx.capture(a.id);
-        cx.capture(b.id);
+        a.capture();
+        b.capture();
         Some((b.position.x - a.position.x).hypot(b.position.y - a.position.y))
     }
 }

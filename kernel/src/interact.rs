@@ -1,6 +1,7 @@
-use std::{num::NonZeroU32, time::Duration};
+use std::num::NonZeroU32;
 
-use crate::{Context, InteractCx, Modifiers, PointerButton, geometry::Point};
+pub use crate::frame::interact::Contact;
+use crate::{Context, InteractCx, PointerButton, geometry::Point};
 
 /// how a widget recognizes input, configured by its latest build
 ///
@@ -12,25 +13,6 @@ pub trait Interact<C: Context>: Copy + 'static {
     type Response: Copy + 'static;
 
     fn update(&self, state: &mut Self::State, cx: &mut InteractCx<'_, C::Scalar>) -> Self::Response;
-}
-
-/// a mouse press or touch, as seen by one widget
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Contact<T> {
-    pub id: ContactId,
-    pub source: ContactSource,
-    pub phase: Phase,
-    pub origin: Point<T>,
-    pub position: Point<T>,
-    /// movement since the previous input
-    pub delta: Point<T>,
-    /// frame clock time of the press
-    pub started: Duration,
-    pub modifiers: Modifiers,
-    /// the position falls on this widget rather than something above it
-    pub over: bool,
-    /// free for this widget to use
-    pub free: bool,
 }
 
 /// identifies one press or touch within a frame instance

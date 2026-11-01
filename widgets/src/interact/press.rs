@@ -33,13 +33,13 @@ impl<C: Context> blit::Interact<C> for Interact {
         let mut clicked = false;
         // claims last one update, so keep claiming while it is still a click
         if let Some(id) = *press
-            && let Some(contact) = cx.contacts().find(|contact| contact.id == id)
+            && let Some(mut contact) = cx.contacts().find(|contact| contact.id == id)
         {
             let x = (contact.position.x - contact.origin.x).to_f32();
             let y = (contact.position.y - contact.origin.y).to_f32();
             let slop = C::SLOP.to_f32();
             // this widget capturing it, like with its own drag, ends the click
-            if x * x + y * y < slop * slop && cx.claim(id) {
+            if x * x + y * y < slop * slop && contact.claim() {
                 active = !matches!(contact.phase, Phase::Ended | Phase::Cancelled);
                 clicked = contact.phase == Phase::Ended && contact.over;
             }
@@ -56,8 +56,7 @@ impl<C: Context> blit::Interact<C> for Interact {
                             ContactSource::Touch(_) | ContactSource::Mouse(PointerButton::Primary)
                         )
                 })
-                .map(|contact| contact.id)
-                .filter(|id| cx.claim(*id));
+                .and_then(|mut contact| contact.claim().then_some(contact.id));
             active = press.is_some();
         }
         Response {
