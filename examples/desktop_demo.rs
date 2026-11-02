@@ -110,7 +110,7 @@ impl Application for App {
         let mut root = ui.layout(flex::column().padding(Sides::all(sz::XL)).gap(sz::LG));
         root.insert(Rectangle::new().background(colors::BACKGROUND));
         {
-            let mut header = root.child().item(flex::item().height(Sizing::fixed(sz::XXXL))).layout(
+            let mut header = root.child().layout(
                 flex::row()
                     .padding(Sides::xy(sz::SM, sz::XS))
                     .gap(sz::XS)
