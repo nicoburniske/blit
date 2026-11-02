@@ -115,11 +115,28 @@ pub struct Id(std::num::NonZeroU64);
 impl Id {
     /// creates an absolute id from a stable value
     pub fn new(source: impl std::hash::Hash) -> Self {
-        use std::{hash::Hasher, num::NonZeroU64};
+        use std::num::NonZeroU64;
 
         let mut hasher = internal::hash::FxHasher::default();
         source.hash(&mut hasher);
         Self(NonZeroU64::new(hasher.finish()).unwrap_or(NonZeroU64::MIN))
+    }
+
+    /// creates an absolute id from a name
+    ///
+    /// equivalent to hashing the byte slice with [`Self::new`]
+    ///
+    /// ```
+    /// const PANEL: blit::Id = blit::Id::named(b"panel");
+    /// ```
+    pub const fn named(source: &[u8]) -> Self {
+        let mut hasher = internal::hash::FxHasher::new();
+        hasher.write_usize(source.len());
+        hasher.write(source);
+        match std::num::NonZeroU64::new(hasher.finish()) {
+            Some(value) => Self(value),
+            None => Self(std::num::NonZeroU64::MIN),
+        }
     }
 
     /// composes a stable child id without using the current ui node
