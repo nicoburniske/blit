@@ -1,19 +1,22 @@
 //! handle input for your widget with [`Interact`]:
 //!
+//! # execution
+//!
+//! interactions run before each build using the last build's settings and layout.
+//! children run before parents, siblings in build order, and interactions on the
+//! same widget in registration order.
+//!
 //! # keyboard and text
 //!
 //! [`InteractCx::keyboard`] delivers keyboard and text input to the focused widget,
-//! then its ancestors. without focus, only the root receives it. call
-//! [`InteractCx::claim_keyboard`] when handled to stop it from reaching another
+//! then its ancestors. without focus, all mounted handlers are eligible.
+//! call [`InteractCx::claim_keyboard`] when handled to stop it from reaching another
 //! interaction. ignored events keep bubbling. the route uses focus at the start
 //! of the update, so changing focus does not redirect the current event.
 //!
 //! [`InteractCx::input`] bypasses routing and claims.
 //!
 //! # sharing contacts
-//!
-//! interactions run before each build using the last build's settings and layout.
-//! children run before parents.
 //!
 //! - [`Contact::claim`]: keep the press for this update. call it each update,
 //!   or stop to let a parent take over.

@@ -21,7 +21,7 @@ pub struct InteractCx<'a, T> {
     hover: Option<u32>,
     deadline: &'a mut Option<Duration>,
     input: &'a Input<T>,
-    keyboard: &'a mut Option<(u32, KeyboardEvent)>,
+    keyboard: &'a mut Option<(Option<u32>, KeyboardEvent)>,
     time: Duration,
 }
 
@@ -70,10 +70,10 @@ impl<T: Scalar> InteractCx<'_, T> {
     /// unclaimed keyboard or text input for this widget
     ///
     /// input starts at the focused widget and bubbles through its ancestors.
-    /// without focus, only the root receives it.
+    /// without focus, all mounted handlers are eligible.
     pub fn keyboard(&self) -> Option<KeyboardEvent> {
         let (target, input) = (*self.keyboard)?;
-        self.contains(target).then_some(input)
+        (self.node != UNRESOLVED && target.is_none_or(|target| self.contains(target))).then_some(input)
     }
 
     /// stops this keyboard or text event from reaching another interaction
@@ -447,7 +447,6 @@ impl<T: Scalar> InteractionState<T> {
         for tracked in &mut self.contacts {
             tracked.hit = hit(&self.hits, &self.clips, tracked.position).map(|hit| hit.node);
         }
-        // deepest nodes update first
         self.deadline = None;
         let mut focus_taken = false;
         let mut keyboard = match *input {
@@ -457,13 +456,13 @@ impl<T: Scalar> InteractionState<T> {
         }
         .and_then(|input| {
             let target = match self.focused {
-                Some(id) => self.kinds.find(id, None).ok().map(|index| self.kinds.slots[index].node),
-                None => (!nodes.is_empty()).then_some(0),
-            }?;
+                Some(id) => Some(self.kinds.slots[self.kinds.find(id, None).ok()?].node),
+                None => None,
+            };
             Some((target, input))
         });
         let kinds = &mut self.kinds;
-        for index in (0..kinds.slots.len()).rev() {
+        for index in 0..kinds.slots.len() {
             let slot = kinds.slots[index];
             (kinds.kinds[slot.kind as usize].update)(
                 kinds,
@@ -554,8 +553,14 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
         *free = NonZeroU32::new(slot.offset + 1);
         false
     });
-    // adding one puts missing widgets first so reverse updates reach them last
-    slots.sort_unstable_by_key(|slot| (slot.node.wrapping_add(1), slot.order));
+    let nodes = &frame.nodes;
+    // postorder with missing widgets last
+    slots.sort_unstable_by_key(|slot| {
+        let end = nodes
+            .get(slot.node as usize)
+            .map_or(UNRESOLVED, |stored| stored.subtree_end);
+        (end, std::cmp::Reverse(slot.node), slot.order)
+    });
     retained.rebuild();
     retained.requested = 0;
     for slot in &mut retained.slots {
@@ -731,7 +736,7 @@ struct HitItem<T> {
 /// retained interaction kinds and their state
 #[derive(Default)]
 struct Kinds<T> {
-    // sorted by node and request order, then slots added by the current build
+    // sorted by postorder and request order, then slots added by the current build
     slots: Vec<Slot>,
     // slot indices, at most half full
     table: Vec<u32>,

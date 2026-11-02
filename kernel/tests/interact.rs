@@ -5,37 +5,57 @@ use super::*;
 #[test]
 fn keyboard_input_bubbles_until_claimed() {
     #[derive(Clone, Copy)]
-    struct Keyboard(bool);
+    struct Keyboard(char, Option<char>);
 
     impl Interact<TestContext> for Keyboard {
         type State = ();
-        type Response = Option<KeyboardEvent>;
+        type Response = Option<char>;
 
         fn update(&self, _: &mut (), cx: &mut InteractCx<'_, f32>) -> Self::Response {
             let input = cx.keyboard()?;
-            if self.0 && !matches!(input, KeyboardEvent::Text('q')) {
+            if self.1.is_some_and(|character| input != KeyboardEvent::Text(character)) {
                 return None;
             }
             cx.claim_keyboard();
-            Some(input)
+            Some(self.0)
         }
     }
 
     let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let focused = Cell::new(None);
     let build = |mut ui: Ui<'_>| {
-        let child_id = Id::new("child");
-        ui.focus(child_id);
-        let parent = ui.interact(Keyboard(false));
+        if let Some(id) = focused.get() {
+            ui.focus(id);
+        } else {
+            ui.clear_focus();
+        }
         let mut root = ui.layout(Overlay);
-        let child = root.child().id(child_id).interact(Keyboard(true));
-        let sibling = root.child().interact(Keyboard(false));
-        (parent, child, sibling)
+        let mut branch = |parent, child| {
+            let mut branch = root.child().id(Id::new(parent));
+            let parent = branch.interact(Keyboard(parent, None));
+            let child = branch
+                .layout(Overlay)
+                .child()
+                .id(Id::new(child))
+                .interact(Keyboard(child, Some(child)));
+            [parent, child]
+        };
+        let [a, b] = branch('a', 'b');
+        let [c, d] = branch('c', 'd');
+        let mut handled = [a, b, c, d].into_iter().flatten();
+        let winner = handled.next();
+        assert_eq!(handled.next(), None, "input was handled more than once");
+        winner
     };
-    assert_eq!(render(&mut frame, &mut context, build), (None, None, None));
+    assert_eq!(render(&mut frame, &mut context, build), None);
     let mut next = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], build);
-    assert_eq!(next(Input::Text('q')), (None, Some(KeyboardEvent::Text('q')), None));
-    assert_eq!(next(Input::Text('x')), (Some(KeyboardEvent::Text('x')), None, None));
-    assert_eq!(next(Input::PointerLeave), (None, None, None));
+    assert_eq!(next(Input::Text('b')), Some('b'));
+    assert_eq!(next(Input::Text('d')), Some('a'));
+    focused.set(Some(Id::new('d')));
+    next(Input::None);
+    assert_eq!(next(Input::Text('d')), Some('d'));
+    assert_eq!(next(Input::Text('x')), Some('c'));
+    assert_eq!(next(Input::PointerLeave), None);
 }
 
 /// whether the pointer is over this widget
@@ -285,27 +305,30 @@ fn named_kinds_follow_reordered_nodes() {
 
 #[test]
 fn kind_order_follows_requests() {
-    for seed in [false, true] {
-        let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let claim_first = Cell::new(true);
+    let build = |mut ui: Ui<'_>| {
         let capture = Watch(|contact| contact.phase == Ended);
-        if seed {
-            render(&mut frame, &mut context, |mut ui: Ui<'_>| {
-                ui.interact_widget(Id::new("absent"), capture);
-            });
-        }
-        let build = |mut ui: Ui<'_>| {
+        if claim_first.get() {
             let claimed = ui.interact(ClaimEnded);
             ui.interact(capture);
             claimed
-        };
+        } else {
+            ui.interact(capture);
+            ui.interact(ClaimEnded)
+        }
+    };
+    for first in [true, false] {
+        claim_first.set(first);
         render(&mut frame, &mut context, &build);
-        assert!(!render_inputs(
+        let claimed = render_inputs(
             &mut frame,
             &mut context,
             Duration::ZERO,
             [pointer(Some(1), Down, [10.0, 10.0]), pointer(Some(1), Up, [10.0, 10.0])],
             &build,
-        ));
+        );
+        assert_eq!(claimed, first);
     }
 }
 
